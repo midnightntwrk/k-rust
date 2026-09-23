@@ -19,6 +19,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     Cost, Error, Graph, Join,
     diff::{Spread, number, read_join_file},
+    profile::{NO_ALGORITHM, SampledProfile, read_profile},
 };
 
 /// The schema of the `atlas.toml` receipt index this module reads.
@@ -43,7 +44,10 @@ pub const SLOPE_RULE: &str = "for each ladder, each algorithm whose median span 
 pub const NESTING_RULE: &str = "each workload's outline is the nesting observed on its run, not a declared relation: a child under a parent means the child's span opened while the parent's span was open on the same thread (the join's observed_nest edges), and algorithms without spans do not appear. With repeats, the edges are the first repeat's, and the outline says whether every repeat has the same edges. Roots are algorithms with a positive span count and no observed parent other than themselves; algorithms reachable only through a cycle are added as roots. Children are ordered by decreasing median total-seconds share of span time; a line reads `id - nested N x - total X % - self Y %`, with the span count in place of the nest count for a root. Nesting of an algorithm inside itself is a `(recursive, N x)` note, not a child. An algorithm with several parents is shown in full under the parent with the largest nest count and as `= id` under the others; `^ id (cycle)` marks a child that is already an ancestor on the path. Children and roots below 0.5 % total share are folded into a `+k more (Z %)` line with their summed total share";
 
 /// When a row is stale.
-pub const STALENESS_RULE: &str = "every row is measured at the index commit. `atlas --check` reports an algorithm stale when `git diff --name-only <commit> -- <files>` in the checkout names one of the files of its anchor and sites in the graph beside a receipt's join, which is the graph at the receipt commit, and exits 1 when a listed algorithm is stale. A change outside those files, such as in a callee or in a representation the algorithm reads, is not detected";
+pub const STALENESS_RULE: &str = "every row is measured at the index commit. `atlas --check` reports an algorithm stale when `git diff --name-only <commit> -- <files>` in the checkout names one of the files of its anchor and sites in the graph beside a receipt's join, which is the graph at the receipt commit, and a listed uncarded function of a profile stale when that diff names its own file; it exits 1 when a listed row is stale. A change outside those files, such as in a callee or in a representation the algorithm reads, is not detected";
+
+/// How sampled shares enter the atlas.
+pub const SAMPLED_RULE: &str = "a receipt with a profile (`algo-receipt.sh --profile`) adds the CPU samples of one untraced `samply` run of the same command, attributed to algorithms by `algo-graph profile` (its ownership rule is in each profile.toml): sampled self % is the share of the run's samples whose innermost card-owned frame is the algorithm's, sampled total % the share with any frame it owns. Sampled shares divide by all samples of the process (CPU time on every thread), traced shares by span time, so they differ by the work outside spans as well as by tracing overhead. A workload uses the profile of its first profiled receipt at its parameter. The uncarded table lists workspace functions no card site contains: self % has the function as the innermost workspace frame, inclusive % has it anywhere inside the innermost card-owned frame, and under names the algorithm owning that frame. It lists up to 10 functions whose inclusive or self share reaches 1 %. A ladder's sampled table gives the inclusive share of the top uncarded functions at each profiled parameter";
 
 /// The `atlas.toml` index of receipts.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -82,6 +86,9 @@ pub struct IndexReceipt {
     pub wall_seconds: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peak_rss_kib: Option<u64>,
+    /// The profile.toml of a sampled run, relative to the index file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 fn first_repeat() -> u32 {
@@ -112,6 +119,8 @@ pub struct LoadedReceipt {
     pub join: Join,
     /// `graph.toml` in the join's directory: the graph at the receipt commit.
     pub graph: Option<Graph>,
+    /// The sampled profile the entry names.
+    pub profile: Option<SampledProfile>,
 }
 
 /// Read an index and every join it names. Errors name the file they concern.
@@ -152,11 +161,17 @@ pub fn read_atlas_index(path: &Path) -> Result<(AtlasIndex, Vec<LoadedReceipt>),
             } else {
                 None
             };
+            let profile = entry
+                .profile
+                .as_ref()
+                .map(|profile| read_profile(&base.join(profile)))
+                .transpose()?;
             Ok(LoadedReceipt {
                 entry: entry.clone(),
                 join_path,
                 join,
                 graph,
+                profile,
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;
@@ -172,6 +187,7 @@ pub struct Rules {
     pub slope: String,
     pub staleness: String,
     pub nesting: String,
+    pub sampled: String,
 }
 
 impl Rules {
@@ -183,6 +199,7 @@ impl Rules {
             slope: SLOPE_RULE.to_owned(),
             staleness: STALENESS_RULE.to_owned(),
             nesting: NESTING_RULE.to_owned(),
+            sampled: SAMPLED_RULE.to_owned(),
         }
     }
 }
@@ -235,6 +252,9 @@ pub struct WorkloadCost {
     pub rows: Vec<ShareRow>,
     /// The observed nesting outline by [`NESTING_RULE`].
     pub nesting: Nesting,
+    /// Sampled shares by [`SAMPLED_RULE`], when a receipt has a profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampled: Option<SampledCost>,
     /// The median share of every algorithm with a span, for the matrix.
     #[serde(skip)]
     shares: BTreeMap<String, f64>,
@@ -254,6 +274,96 @@ pub struct ShareRow {
     /// Counters that moved in its spans outside nested algorithm spans (`trace_self`).
     #[serde(rename = "counter", skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<MovedCounter>,
+    /// Sampled self and total share by [`SAMPLED_RULE`], when the workload has a profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampled_self: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampled_total: Option<f64>,
+}
+
+/// A workload's sampled shares.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SampledCost {
+    /// The profile.toml, relative to the index.
+    pub profile: String,
+    pub samples: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_hz: Option<f64>,
+    pub owned_share: f64,
+    pub uncarded_leaf_share: f64,
+    pub outside_workspace_share: f64,
+    pub truncated_share: f64,
+    /// Algorithms with a sampled self share of at least 1 % that the traced table does not list.
+    #[serde(rename = "unlisted")]
+    pub unlisted: Vec<SampledShare>,
+    #[serde(rename = "uncarded")]
+    pub uncarded: Vec<UncardedRow>,
+}
+
+/// An algorithm's sampled shares.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SampledShare {
+    pub id: String,
+    pub self_share: f64,
+    pub total_share: f64,
+}
+
+/// One uncarded function of a workload.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct UncardedRow {
+    /// `file::symbol`.
+    pub function: String,
+    pub self_share: f64,
+    pub inclusive_share: f64,
+    /// The algorithms its inclusive samples run under, with the share of them.
+    pub under: String,
+}
+
+/// The rows the uncarded table of a workload lists at most.
+const UNCARDED_ROWS: usize = 10;
+
+/// The uncarded functions of one workload's profile by [`SAMPLED_RULE`].
+fn uncarded_rows(profile: &SampledProfile) -> Vec<UncardedRow> {
+    let leaf = profile
+        .leaves
+        .iter()
+        .map(|row| (row.function.as_str(), row))
+        .collect::<BTreeMap<_, _>>();
+    let inclusive = profile
+        .inclusive
+        .iter()
+        .map(|row| (row.function.as_str(), row))
+        .collect::<BTreeMap<_, _>>();
+    let mut rows = leaf
+        .keys()
+        .chain(inclusive.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|function| {
+            let under = inclusive
+                .get(function)
+                .or_else(|| leaf.get(function))
+                .map(|row| crate::profile::under_text(row))
+                .unwrap_or_else(|| NO_ALGORITHM.to_owned());
+            UncardedRow {
+                function: (*function).to_owned(),
+                self_share: profile.share(leaf.get(function).map_or(0, |row| row.samples)),
+                inclusive_share: profile
+                    .share(inclusive.get(function).map_or(0, |row| row.samples)),
+                under,
+            }
+        })
+        .filter(|row| row.self_share >= 0.01 || row.inclusive_share >= 0.01)
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .inclusive_share
+            .total_cmp(&left.inclusive_share)
+            .then_with(|| right.self_share.total_cmp(&left.self_share))
+            .then_with(|| left.function.cmp(&right.function))
+    });
+    rows.truncate(UNCARDED_ROWS);
+    rows
 }
 
 /// A workload's observed nesting outline.
@@ -323,6 +433,72 @@ pub struct Ladder {
     pub params: Vec<f64>,
     #[serde(rename = "algorithm")]
     pub rows: Vec<LadderRow>,
+    /// The parameters with a profile, for the `sampled` rows.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sampled_params: Vec<f64>,
+    /// Uncarded functions by [`SAMPLED_RULE`].
+    #[serde(rename = "sampled", skip_serializing_if = "Vec::is_empty")]
+    pub sampled: Vec<SampledLadderRow>,
+}
+
+/// One uncarded function's inclusive share at each profiled parameter of a ladder.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SampledLadderRow {
+    pub function: String,
+    /// Aligned with [`Ladder::sampled_params`].
+    pub inclusive_shares: Vec<f64>,
+}
+
+/// The uncarded functions a ladder follows per profiled parameter: the top ones at each.
+const LADDER_SAMPLED_TOP: usize = 5;
+
+fn sampled_ladder(receipts: &[&LoadedReceipt]) -> (Vec<f64>, Vec<SampledLadderRow>) {
+    let mut by_param = BTreeMap::<u64, (f64, &SampledProfile)>::new();
+    for receipt in receipts {
+        if let (Some(param), Some(profile)) = (receipt.entry.param, receipt.profile.as_ref()) {
+            by_param.entry(param.to_bits()).or_insert((param, profile));
+        }
+    }
+    let mut steps = by_param.into_values().collect::<Vec<_>>();
+    steps.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let functions = steps
+        .iter()
+        .flat_map(|(_, profile)| {
+            profile
+                .inclusive
+                .iter()
+                .filter(|row| profile.share(row.samples) >= 0.01)
+                .take(LADDER_SAMPLED_TOP)
+                .map(|row| row.function.clone())
+        })
+        .collect::<BTreeSet<_>>();
+    let mut rows = functions
+        .into_iter()
+        .map(|function| SampledLadderRow {
+            inclusive_shares: steps
+                .iter()
+                .map(|(_, profile)| {
+                    profile.share(
+                        profile
+                            .inclusive
+                            .iter()
+                            .find(|row| row.function == function)
+                            .map_or(0, |row| row.samples),
+                    )
+                })
+                .collect(),
+            function,
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|left, right| {
+        right
+            .inclusive_shares
+            .last()
+            .unwrap_or(&0.0)
+            .total_cmp(left.inclusive_shares.last().unwrap_or(&0.0))
+            .then_with(|| left.function.cmp(&right.function))
+    });
+    (steps.iter().map(|(param, _)| *param).collect(), rows)
 }
 
 /// The growth of one algorithm along a ladder.
@@ -615,6 +791,8 @@ fn workload_cost(name: &str, receipts: &[&LoadedReceipt], commit: &str) -> Workl
                 self_seconds: Spread::of(&column(&|observed| observed.self_seconds)),
                 span_count: Spread::of(&column(&|observed| observed.count)),
                 counters,
+                sampled_self: None,
+                sampled_total: None,
                 id,
             }
         })
@@ -654,6 +832,58 @@ fn workload_cost(name: &str, receipts: &[&LoadedReceipt], commit: &str) -> Workl
     let wall_seconds = every(|entry| entry.wall_seconds);
     let span_seconds = Spread::of(&totals);
     let first = &receipts[0].entry;
+    let profiled = receipts
+        .iter()
+        .find_map(|receipt| receipt.profile.as_ref().zip(receipt.entry.profile.as_ref()));
+    let sampled = profiled.map(|(profile, path)| {
+        let shares = profile
+            .algorithms
+            .iter()
+            .map(|algorithm| {
+                (
+                    algorithm.id.as_str(),
+                    (
+                        profile.share(algorithm.self_samples),
+                        profile.share(algorithm.total_samples),
+                    ),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        for row in &mut kept {
+            let (own, total) = shares.get(row.id.as_str()).copied().unwrap_or((0.0, 0.0));
+            row.sampled_self = Some(own);
+            row.sampled_total = Some(total);
+        }
+        let mut unlisted = shares
+            .iter()
+            .filter(|(id, (own, _))| *own >= 0.01 && !kept.iter().any(|row| row.id == **id))
+            .map(|(id, (own, total))| SampledShare {
+                id: (*id).to_owned(),
+                self_share: *own,
+                total_share: *total,
+            })
+            .collect::<Vec<_>>();
+        unlisted.sort_by(|left, right| {
+            right
+                .self_share
+                .total_cmp(&left.self_share)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        SampledCost {
+            profile: path.clone(),
+            samples: profile.samples,
+            rate_hz: profile
+                .interval_ms
+                .filter(|interval| *interval > 0.0)
+                .map(|interval| 1000.0 / interval),
+            owned_share: profile.share(profile.owned_samples),
+            uncarded_leaf_share: profile.share(profile.uncarded_leaf_samples),
+            outside_workspace_share: profile.share(profile.outside_workspace_samples),
+            truncated_share: profile.share(profile.truncated_samples),
+            unlisted,
+            uncarded: uncarded_rows(profile),
+        }
+    });
     WorkloadCost {
         workload: name.to_owned(),
         command: first.command.clone(),
@@ -670,6 +900,7 @@ fn workload_cost(name: &str, receipts: &[&LoadedReceipt], commit: &str) -> Workl
         omitted_share,
         rows: kept,
         nesting: nesting(receipts, &runs, &totals),
+        sampled,
         shares,
     }
 }
@@ -910,6 +1141,7 @@ fn nesting(
 }
 
 fn ladder(name: &str, receipts: &[&LoadedReceipt], graph: Option<&Graph>, commit: &str) -> Ladder {
+    let (sampled_params, sampled) = sampled_ladder(receipts);
     let mut by_param = BTreeMap::<u64, (f64, Vec<BTreeMap<String, Observed>>)>::new();
     for receipt in receipts {
         if let Some(param) = receipt.entry.param {
@@ -1002,6 +1234,8 @@ fn ladder(name: &str, receipts: &[&LoadedReceipt], graph: Option<&Graph>, commit
             .unwrap_or_else(|| "param".to_owned()),
         params: steps.iter().map(|(param, _)| *param).collect(),
         rows,
+        sampled_params,
+        sampled,
     }
 }
 
@@ -1016,6 +1250,20 @@ impl Atlas {
                 self.ladders
                     .iter()
                     .flat_map(|ladder| ladder.rows.iter().map(|row| row.id.clone())),
+            )
+            .collect()
+    }
+
+    /// Every uncarded function (`file::symbol`) that a sampled table of the atlas lists.
+    pub fn listed_code(&self) -> BTreeSet<String> {
+        self.workloads
+            .iter()
+            .filter_map(|workload| workload.sampled.as_ref())
+            .flat_map(|sampled| sampled.uncarded.iter().map(|row| row.function.clone()))
+            .chain(
+                self.ladders
+                    .iter()
+                    .flat_map(|ladder| ladder.sampled.iter().map(|row| row.function.clone())),
             )
             .collect()
     }
@@ -1047,6 +1295,7 @@ impl Atlas {
             ("Slope", &self.rules.slope),
             ("Staleness", &self.rules.staleness),
             ("Nesting", &self.rules.nesting),
+            ("Sampled", &self.rules.sampled),
         ] {
             let _ = writeln!(out, "- {label}: {rule}.");
         }
@@ -1092,17 +1341,32 @@ impl Atlas {
                 None => writeln!(out, "## {}", workload.workload),
             };
             let _ = writeln!(out);
+            let sampled = workload.sampled.as_ref();
             let _ = writeln!(
                 out,
-                "| algorithm | share % | ceiling | self s | spans | counters moved in own code (? = not declared by its card) |"
+                "| algorithm | share % |{} ceiling | self s | spans | counters moved in own code (? = not declared by its card) |",
+                if sampled.is_some() {
+                    " sampled self % | sampled total % |"
+                } else {
+                    ""
+                }
             );
-            let _ = writeln!(out, "|---|--:|--:|--:|--:|---|");
+            let _ = writeln!(
+                out,
+                "|---|--:|{}--:|--:|--:|---|",
+                if sampled.is_some() { "--:|--:|" } else { "" }
+            );
+            let percent = |share: Option<f64>| {
+                share.map_or_else(String::new, |share| format!(" {:.1} |", 100.0 * share))
+            };
             for row in &workload.rows {
                 let _ = writeln!(
                     out,
-                    "| {} | {:.1} | {} | {} | {} | {} |",
+                    "| {} | {:.1} |{}{} {} | {} | {} | {} |",
                     row.id,
                     100.0 * row.share.median,
+                    percent(row.sampled_self),
+                    percent(row.sampled_total),
                     row.ceiling
                         .map_or_else(|| "unbounded".to_owned(), |ceiling| format!("{ceiling:.2}")),
                     significant(row.self_seconds.median),
@@ -1124,6 +1388,45 @@ impl Atlas {
                             .join(", ")
                     }
                 );
+            }
+            if let Some(sampled) = sampled {
+                for row in &sampled.unlisted {
+                    let _ = writeln!(
+                        out,
+                        "| {} | - | {:.1} | {:.1} | - | - | - | not listed by traced share |",
+                        row.id,
+                        100.0 * row.self_share,
+                        100.0 * row.total_share
+                    );
+                }
+                let _ = writeln!(out);
+                let _ = writeln!(
+                    out,
+                    "Sampled: {} samples{} of `{}`, untraced; owned by an algorithm {:.1} %, uncarded leaf {:.1} %, outside the workspace {:.1} %, truncated stacks {:.1} %. Uncarded hot code:",
+                    sampled.samples,
+                    sampled
+                        .rate_hz
+                        .map(|rate| format!(" at {rate:.0} Hz"))
+                        .unwrap_or_default(),
+                    sampled.profile,
+                    100.0 * sampled.owned_share,
+                    100.0 * sampled.uncarded_leaf_share,
+                    100.0 * sampled.outside_workspace_share,
+                    100.0 * sampled.truncated_share
+                );
+                let _ = writeln!(out);
+                let _ = writeln!(out, "| uncarded function | self % | inclusive % | under |");
+                let _ = writeln!(out, "|---|--:|--:|---|");
+                for row in &sampled.uncarded {
+                    let _ = writeln!(
+                        out,
+                        "| {} | {:.1} | {:.1} | {} |",
+                        cell(&row.function),
+                        100.0 * row.self_share,
+                        100.0 * row.inclusive_share,
+                        cell(&row.under)
+                    );
+                }
             }
             let _ = writeln!(out);
             let _ = writeln!(
@@ -1246,6 +1549,38 @@ impl Atlas {
                         .join(", ")
                 );
             }
+            if !ladder.sampled.is_empty() {
+                let _ = writeln!(out);
+                let _ = writeln!(
+                    out,
+                    "Sampled uncarded code, inclusive % by {}:",
+                    ladder.param_name
+                );
+                let _ = writeln!(out);
+                let _ = writeln!(
+                    out,
+                    "| uncarded function | {} |",
+                    ladder
+                        .sampled_params
+                        .iter()
+                        .map(|param| number(*param))
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                );
+                let _ = writeln!(out, "|---|{}", "--:|".repeat(ladder.sampled_params.len()));
+                for row in &ladder.sampled {
+                    let _ = writeln!(
+                        out,
+                        "| {} | {} |",
+                        cell(&row.function),
+                        row.inclusive_shares
+                            .iter()
+                            .map(|share| format!("{:.1}", 100.0 * share))
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    );
+                }
+            }
         }
         out
     }
@@ -1326,15 +1661,22 @@ pub struct StaleAlgorithm {
     pub files: Vec<String>,
 }
 
-/// Check `ids` against the working tree at `root` by [`STALENESS_RULE`], taking site files from
-/// `graph`, the graph at `commit`.
+/// Check `ids` and the uncarded functions `code` (`file::symbol`) against the working tree at
+/// `root` by [`STALENESS_RULE`], taking site files from `graph`, the graph at `commit`.
 pub fn check_staleness(
     root: &Path,
     commit: &str,
     graph: &Graph,
     ids: &BTreeSet<String>,
+    code: &BTreeSet<String>,
 ) -> Result<Staleness, Error> {
     let mut files_of = BTreeMap::<&str, BTreeSet<&str>>::new();
+    for function in code {
+        let file = function
+            .split_once("::")
+            .map_or(function.as_str(), |(file, _)| file);
+        files_of.insert(function, BTreeSet::from([file]));
+    }
     let mut not_in_graph = Vec::new();
     for id in ids {
         match graph
@@ -1406,7 +1748,7 @@ impl Staleness {
     /// One line per stale algorithm after a summary line.
     pub fn text(&self) -> String {
         let mut out = format!(
-            "atlas check at {}: {} of {} listed algorithms stale. Rule: {}.\n",
+            "atlas check at {}: {} of {} listed algorithms and uncarded functions stale. Rule: {}.\n",
             short(&self.commit),
             self.stale.len(),
             self.checked,
@@ -1467,11 +1809,118 @@ mod tests {
                 join: format!("{workload}/rep-{repeat}/join.toml"),
                 wall_seconds: Some(wall),
                 peak_rss_kib: Some(2048),
+                profile: None,
             },
             join_path: PathBuf::from("join.toml"),
             join,
             graph: None,
+            profile: None,
         }
+    }
+
+    /// A profile of `samples` samples: `alg` owns `owned` of them, and `walk` is an uncarded
+    /// function with `walk` inclusive samples under it, `walk / 2` as the leaf.
+    fn sampled(samples: u64, owned: u64, walk: u64) -> SampledProfile {
+        use crate::profile::{SampledAlgorithm, UncardedFunction, Under};
+        let row = |samples: u64| UncardedFunction {
+            function: "crates/x/src/w.rs::walk".to_owned(),
+            samples,
+            under: vec![Under {
+                id: "b".to_owned(),
+                samples,
+            }],
+        };
+        SampledProfile {
+            schema: crate::profile::PROFILE_SCHEMA_VERSION,
+            rule: String::new(),
+            stacks: None,
+            interval_ms: Some(1.0),
+            samples,
+            truncated_samples: 0,
+            owned_samples: owned,
+            uncarded_leaf_samples: walk / 2,
+            outside_workspace_samples: samples - owned,
+            tied_samples: 0,
+            algorithms: vec![
+                SampledAlgorithm {
+                    id: "b".to_owned(),
+                    self_samples: owned,
+                    total_samples: owned,
+                },
+                SampledAlgorithm {
+                    id: "unspanned".to_owned(),
+                    self_samples: samples / 10,
+                    total_samples: samples / 10,
+                },
+            ],
+            leaves: vec![row(walk / 2)],
+            inclusive: vec![row(walk)],
+        }
+    }
+
+    #[test]
+    fn a_profile_adds_sampled_shares_and_uncarded_code() {
+        let at = |count, seconds| {
+            join(
+                "w",
+                "c0ffee",
+                vec![run("b", count, seconds, seconds, &[])],
+                &[],
+            )
+        };
+        let mut small = receipt("w", Some(10.0), 1, at(10, 1.0), 1.0);
+        let mut large = receipt("w", Some(100.0), 1, at(100, 4.0), 4.0);
+        small.entry.profile = Some("w/10/rep-1/profile.toml".to_owned());
+        small.profile = Some(sampled(1000, 800, 100));
+        large.entry.profile = Some("w/100/rep-1/profile.toml".to_owned());
+        large.profile = Some(sampled(1000, 900, 400));
+        let receipts = [small, large];
+        let atlas = atlas(&index(&receipts), &receipts, "algo-graph atlas");
+        let workload = &atlas.workloads[0];
+        assert_eq!(workload.rows[0].sampled_self, Some(0.9));
+        let sampled = workload.sampled.as_ref().expect("sampled");
+        assert_eq!(sampled.profile, "w/100/rep-1/profile.toml");
+        assert_eq!(
+            sampled
+                .unlisted
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["unspanned"]
+        );
+        assert_eq!(
+            sampled.uncarded,
+            [UncardedRow {
+                function: "crates/x/src/w.rs::walk".to_owned(),
+                self_share: 0.2,
+                inclusive_share: 0.4,
+                under: "b".to_owned(),
+            }]
+        );
+        let ladder = &atlas.ladders[0];
+        assert_eq!(ladder.sampled_params, [10.0, 100.0]);
+        assert_eq!(ladder.sampled[0].inclusive_shares, [0.1, 0.4]);
+        assert_eq!(
+            atlas.listed_code(),
+            BTreeSet::from(["crates/x/src/w.rs::walk".to_owned()])
+        );
+        let markdown = atlas.markdown();
+        assert!(
+            markdown.contains("| b | 100.0 | 90.0 | 90.0 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| unspanned | - | 10.0 | 10.0 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| crates/x/src/w.rs::walk | 20.0 | 40.0 | b |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| crates/x/src/w.rs::walk | 10.0 | 40.0 |"),
+            "{markdown}"
+        );
     }
 
     fn index(receipts: &[LoadedReceipt]) -> AtlasIndex {
@@ -1850,7 +2299,8 @@ mod tests {
             .into_iter()
             .map(ToOwned::to_owned)
             .collect();
-        let staleness = check_staleness(&directory, &commit, &graph, &ids).expect("check");
+        let code = BTreeSet::new();
+        let staleness = check_staleness(&directory, &commit, &graph, &ids, &code).expect("check");
         assert_eq!(staleness.checked, 2);
         assert_eq!(
             staleness.stale,
@@ -1864,12 +2314,25 @@ mod tests {
 
         let clean = ["x.a", "x.c"].into_iter().map(ToOwned::to_owned).collect();
         assert!(
-            check_staleness(&directory, &commit, &graph, &clean)
+            check_staleness(&directory, &commit, &graph, &clean, &code)
                 .expect("check")
                 .stale
                 .is_empty()
         );
-        assert!(check_staleness(&directory, "0000000", &graph, &clean).is_err());
+        assert!(check_staleness(&directory, "0000000", &graph, &clean, &code).is_err());
+        let functions = ["src/b.rs::b", "src/c.rs::c"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect();
+        let staleness =
+            check_staleness(&directory, &commit, &graph, &clean, &functions).expect("check");
+        assert_eq!(
+            staleness.stale,
+            [StaleAlgorithm {
+                id: "src/b.rs::b".to_owned(),
+                files: vec!["src/b.rs".to_owned()],
+            }]
+        );
         fs::remove_dir_all(&directory).expect("clean up");
     }
 

@@ -686,7 +686,13 @@ fn run_atlas(root: &Path, arguments: &AtlasArgs) -> ExitCode {
             return Ok(false);
         }
         let graph = receipt_graph(&arguments.index, &receipts)?;
-        let staleness = check_staleness(root, &index.commit, graph, &atlas.listed_ids())?;
+        let staleness = check_staleness(
+            root,
+            &index.commit,
+            graph,
+            &atlas.listed_ids(),
+            &atlas.listed_code(),
+        )?;
         print!("{}", staleness.text());
         Ok(!staleness.stale.is_empty())
     })();
