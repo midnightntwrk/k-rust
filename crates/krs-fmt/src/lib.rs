@@ -204,7 +204,7 @@ mod tests {
     fn readable_corpus_is_at_every_formatter_fixpoint() {
         let corpus = [
             (
-                "M4 IMP",
+                "readable IMP",
                 include_str!("../../../tests/m4/rust-definition/src/imp.rs"),
             ),
             (
