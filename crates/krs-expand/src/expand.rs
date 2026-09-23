@@ -3907,7 +3907,7 @@ pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
         let _krs_typecheck_named_term = || {
             let _ = #expression;
         };
-        ::core::panic!("`term!` has no runtime value in KRS M1")
+        ::core::panic!("`term!` has no runtime value in KRS")
     }})
 }
 

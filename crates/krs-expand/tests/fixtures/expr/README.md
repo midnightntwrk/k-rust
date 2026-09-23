@@ -25,7 +25,7 @@ cargo +stable clippy --locked --offline --manifest-path crates/krs-expand/tests/
 ```
 
 The whole-file comparison itself is ignored by default; it runs with
-`KRS_NATIVE_CAPTURE` naming a native capture that includes crate `m3a_expr`:
+`KRS_NATIVE_CAPTURE` naming a native capture that includes crate `krs_expr_fixture`:
 
 ```bash
 KRS_NATIVE_CAPTURE=/path/to/capture.jsonl \

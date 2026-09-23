@@ -60,18 +60,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "krs-expand-expr-fixture"
+version = "0.0.0"
+dependencies = [
+ "krs",
+]
+
+[[package]]
 name = "krs-ir"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "krs-m3a-rust-definition"
-version = "0.0.0"
-dependencies = [
- "krs",
 ]
 
 [[package]]

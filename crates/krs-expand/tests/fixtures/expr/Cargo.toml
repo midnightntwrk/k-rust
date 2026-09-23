@@ -1,5 +1,5 @@
 [package]
-name = "krs-m3a-rust-definition"
+name = "krs-expand-expr-fixture"
 description = "Explicit Rust-authored IMP expression definition used as a krs-expand fixture"
 version = "0.0.0"
 edition = "2024"
@@ -7,13 +7,13 @@ rust-version = "1.88"
 publish = false
 
 [lib]
-name = "m3a_expr"
+name = "krs_expr_fixture"
 
 [dependencies]
 k = { package = "krs", path = "../../../../krs" }
 
 [package.metadata.krs]
-k-namespace = "KRS-M3A-EXPR"
+k-namespace = "KRS-EXPR-FIXTURE"
 
 [package.metadata.krs.definitions.main]
 root = "crate"
