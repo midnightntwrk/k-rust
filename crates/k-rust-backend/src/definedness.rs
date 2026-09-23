@@ -331,6 +331,18 @@ mod tests {
         assert_eq!(predicates, vec![first, second]);
     }
 
+    /// The hypothesis `Oracles.dedup_nil` of lean/KRust/TermAttributes.lean: `deduplicate`
+    /// leaves an empty vector empty, so an arm of `ceil_term_recursive` whose parts are all empty
+    /// returns the empty vector.
+    #[test]
+    fn deduplicate_keeps_an_empty_vector_empty() {
+        let mut predicates = Vec::new();
+
+        deduplicate(&mut predicates);
+
+        assert_eq!(predicates, Vec::<Predicate>::new());
+    }
+
     fn definition(extra_axioms: &str) -> BackendDefinition {
         let source = r#"[]
             module MAIN

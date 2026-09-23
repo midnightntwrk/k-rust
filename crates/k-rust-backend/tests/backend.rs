@@ -15,3 +15,5 @@ mod rule_index;
 mod simplify;
 #[path = "backend/support.rs"]
 mod support;
+#[path = "backend/term_order.rs"]
+mod term_order;
