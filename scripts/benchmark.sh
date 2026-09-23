@@ -14,6 +14,7 @@ K_KPROVE=${K_KPROVE:-}
 HYPERFINE=${HYPERFINE:-hyperfine}
 REFERENCE_K_OPTS=${REFERENCE_K_OPTS:-'-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1'}
 GHCRTS=${GHCRTS-}
+BENCHMARK_MEMORY_METHOD=${BENCHMARK_MEMORY_METHOD:-auto}
 
 usage() {
   cat <<'EOF'
@@ -37,6 +38,10 @@ Options:
 
 Required tools: hyperfine, a release krust binary, and matching canonical
 kompile/kprove executables selected with K_KOMPILE and K_KPROVE.
+
+Peak memory of each run's whole process tree is recorded when a user systemd
+manager can delegate a cgroup v2 scope; otherwise it is reported as unknown.
+Set BENCHMARK_MEMORY_METHOD=none to skip it.
 EOF
 }
 
@@ -281,6 +286,239 @@ run_load() {
     --load-only
 }
 
+tree_memory_description='cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command'
+# hyperfine's memory_usage_byte behaves as getrusage(RUSAGE_CHILDREN).ru_maxrss:
+# the largest single process among everything hyperfine has reaped so far.
+# With hyperfine 1.20, `true` benchmarked after a command that allocates
+# 300 MiB reports that command's 309 MiB. It is neither a sum over the tree
+# nor specific to one command, so it stays in results.json as hyperfine wrote
+# it but is not reported.
+hyperfine_memory_note='not reported: it is the largest single process hyperfine has reaped so far (getrusage RUSAGE_CHILDREN), so it is neither a sum over the process tree nor specific to the run or the command'
+
+# A benchmark started inside a memory-limited scope would otherwise escape
+# that limit by starting its own scope, so the tightest limits of the current
+# cgroup and its ancestors are copied onto the new scope.
+inherited_scope_properties() {
+  local current
+  local directory
+  local key
+  local limit
+  local value
+  current=/sys/fs/cgroup$(cut -d: -f3- /proc/self/cgroup 2>/dev/null | head -n 1)
+  for key in max high swap.max; do
+    limit=
+    directory=$current
+    while [[ "$directory" == /sys/fs/cgroup/* ]]; do
+      if [[ -r "$directory/memory.$key" ]]; then
+        read -r value <"$directory/memory.$key"
+        if [[ "$value" =~ ^[0-9]+$ ]] && [[ -z "$limit" || "$value" -lt "$limit" ]]; then
+          limit=$value
+        fi
+      fi
+      directory=${directory%/*}
+    done
+    [[ -n "$limit" ]] || continue
+    case "$key" in
+      max) echo "MemoryMax=$limit" ;;
+      high) echo "MemoryHigh=$limit" ;;
+      swap.max) echo "MemorySwapMax=$limit" ;;
+    esac
+  done
+}
+
+memory_scope_properties() {
+  local property
+  scope_properties=(-p Delegate=yes)
+  while read -r property; do
+    scope_properties+=(-p "$property")
+  done < <(inherited_scope_properties)
+}
+
+# Runs inside a delegated scope: moves this shell into a supervisor child so
+# the scope may enable the memory controller for its children, then creates
+# one empty cgroup per expected run. Creating them here keeps mkdir out of the
+# timed region.
+enter_memory_scope() {
+  local count=$1
+  local index
+  memory_scope=/sys/fs/cgroup$(cut -d: -f3- /proc/self/cgroup | head -n 1)
+  [[ -w "$memory_scope/cgroup.procs" ]] || return 1
+  mkdir "$memory_scope/supervisor" || return 1
+  echo $$ >"$memory_scope/supervisor/cgroup.procs" || return 1
+  echo +memory >"$memory_scope/cgroup.subtree_control" || return 1
+  for ((index = 1; index <= count; index++)); do
+    mkdir "$memory_scope/run-$index" || return 1
+  done
+  [[ -r "$memory_scope/run-1/memory.peak" && -r "$memory_scope/run-1/memory.stat" ]]
+}
+
+leave_memory_scope() {
+  local directory
+  for directory in "$memory_scope"/run-*; do
+    [[ ! -d "$directory" ]] || rmdir "$directory" 2>/dev/null || true
+  done
+}
+
+tree_memory_available() {
+  [[ "$BENCHMARK_MEMORY_METHOD" != none ]] || return 1
+  command -v systemd-run >/dev/null 2>&1 || return 1
+  memory_scope_properties
+  systemd-run --user --scope --quiet "${scope_properties[@]}" -- \
+    "$BASH" "$script" __memory-probe >/dev/null 2>&1
+}
+
+# The per-run cgroup is chosen in hyperfine's --prepare step, outside the
+# timed region: the prepare step moves hyperfine itself into the next empty
+# run cgroup, so the command hyperfine then forks starts there and no process
+# changes cgroup while it is timed. (Moving a process can wait for an RCU
+# grace period, several milliseconds on a busy host.) The same step first
+# records the previous run's peak, once every process of that run has exited.
+memory_record_current() {
+  local index
+  local engine
+  local run_cgroup
+  local peak=unknown
+  local page_cache=unknown
+  local key
+  local value
+  [[ -f "$BENCHMARK_MEMORY_DIR/current" ]] || return 0
+  read -r index engine <"$BENCHMARK_MEMORY_DIR/current"
+  rm -f "$BENCHMARK_MEMORY_DIR/current"
+  run_cgroup=$BENCHMARK_MEMORY_CGROUP/run-$index
+  [[ ! -r "$run_cgroup/memory.peak" ]] || read -r peak <"$run_cgroup/memory.peak"
+  if [[ -r "$run_cgroup/memory.stat" ]]; then
+    while read -r key value; do
+      [[ "$key" != file ]] || page_cache=$value
+    done <"$run_cgroup/memory.stat"
+  fi
+  printf '%s\t%s\t%s\n' "$index" "$peak" "$page_cache" >>"$BENCHMARK_MEMORY_DIR/$engine.tsv"
+}
+
+memory_prepare() {
+  local engine=$1
+  local index
+  local hyperfine_pid
+  memory_record_current
+  read -r index <"$BENCHMARK_MEMORY_DIR/next-run"
+  index=$((index + 1))
+  echo "$index" >"$BENCHMARK_MEMORY_DIR/next-run"
+  read -r hyperfine_pid <"$BENCHMARK_MEMORY_DIR/hyperfine-pid"
+  if [[ -d "$BENCHMARK_MEMORY_CGROUP/run-$index" ]] && \
+    { echo "$hyperfine_pid" >"$BENCHMARK_MEMORY_CGROUP/run-$index/cgroup.procs"; } 2>/dev/null; then
+    echo "$index $engine" >"$BENCHMARK_MEMORY_DIR/current"
+  else
+    printf '%s\tunknown\tunknown\n' "$index" >>"$BENCHMARK_MEMORY_DIR/$engine.tsv"
+  fi
+}
+
+# Prints the --prepare command for one engine: the move into the next run
+# cgroup when memory is measured, then the existing preparation, if any. The
+# move comes first so the previous run's page cache is read before the
+# preparation deletes its output; the preparation's own processes descend
+# from a shell forked before the move and stay in the previous run's cgroup.
+prepare_with_memory() {
+  local engine=$1
+  local existing=$2
+  local move
+  if [[ "$tree_memory" != 1 ]]; then
+    printf '%s' "$existing"
+    return
+  fi
+  move=$(shell_command "$script" __memory-prepare "$engine")
+  if [[ -n "$existing" ]]; then
+    printf '%s && %s' "$move" "$existing"
+  else
+    printf '%s' "$move"
+  fi
+}
+
+run_hyperfine() {
+  local result_dir=$1
+  local total_runs=$2
+  shift 2
+  if [[ "$tree_memory" == 1 ]]; then
+    if [[ -e "$result_dir/memory" ]]; then
+      find "$result_dir/memory" -depth -delete
+    fi
+    mkdir -p "$result_dir/memory"
+    printf 'memory: each run is prepared by %s ENGINE, which records the previous run and moves hyperfine into the next run cgroup\n' \
+      "$(shell_command "$script" __memory-prepare)" >>"$result_dir/commands.txt"
+    memory_scope_properties
+    systemd-run --user --scope --quiet "${scope_properties[@]}" -- \
+      "$BASH" "$script" __memory-scope "$result_dir/memory" "$total_runs" "$HYPERFINE" "$@"
+  else
+    "$HYPERFINE" "$@"
+  fi
+}
+
+# Adds the memory figures to hyperfine's results.json. Warmup samples are
+# dropped: hyperfine runs each command's warmups immediately before its timed
+# runs, and each engine writes its own sample file. A sample set whose length
+# is not the run count, or that holds an unknown sample, is reported as null.
+record_memory() {
+  local result_dir=$1
+  local warmup=$2
+  local runs=$3
+  local result_json=$result_dir/results.json
+  local canonical_samples=
+  local rust_samples=
+  local tree_method=unknown
+  local temporary
+  if [[ "$tree_memory" == 1 ]]; then
+    tree_method=$tree_memory_description
+    [[ ! -f "$result_dir/memory/canonical-haskell.tsv" ]] || canonical_samples=$(<"$result_dir/memory/canonical-haskell.tsv")
+    [[ ! -f "$result_dir/memory/krust.tsv" ]] || rust_samples=$(<"$result_dir/memory/krust.tsv")
+  fi
+  temporary=$(mktemp "$result_dir/results.json.XXXXXX")
+  jq \
+    --arg canonical_samples "$canonical_samples" \
+    --arg rust_samples "$rust_samples" \
+    --argjson warmup "$warmup" \
+    --argjson runs "$runs" \
+    --arg tree_method "$tree_method" \
+    --arg hyperfine_note "$hyperfine_memory_note" \
+    '
+    def median:
+      sort | length as $n
+      | if $n == 0 then null
+        elif $n % 2 == 1 then .[($n - 1) / 2]
+        else (.[$n / 2 - 1] + .[$n / 2]) / 2
+        end;
+    def samples($raw):
+      [$raw | split("\n")[] | select(length > 0) | split("\t")]
+      | .[$warmup:]
+      | if length == $runs and all(.[]; (.[1] | test("^[0-9]+$")) and (.[2] | test("^[0-9]+$")))
+        then {peak: map(.[1] | tonumber), cache: map(.[2] | tonumber)}
+        else null
+        end;
+    def ratio($a; $b): if $a == null or $b == null or $b == 0 then null else $a / $b end;
+    ({"canonical-haskell": samples($canonical_samples), krust: samples($rust_samples)}) as $tree
+    | .results |= map(
+        . as $result
+        | ($tree[$result.command]) as $s
+        | .peak_memory = {
+            tree_peak_bytes: ($s.peak // null),
+            tree_peak_median_bytes: (if $s == null then null else ($s.peak | median) end),
+            tree_peak_max_bytes: (if $s == null then null else ($s.peak | max) end),
+            tree_page_cache_at_exit_bytes: ($s.cache // null)
+          }
+      )
+    | .memory_method = {
+        tree_peak: $tree_method,
+        hyperfine_memory_usage_byte: $hyperfine_note
+      }
+    | ([.results[] | select(.command == "canonical-haskell")][0]) as $canonical
+    | ([.results[] | select(.command == "krust")][0]) as $rust
+    | if $canonical == null or $rust == null then .
+      else .krust_over_canonical = {
+          mean_time: ratio($rust.mean; $canonical.mean),
+          tree_peak_median: ratio($rust.peak_memory.tree_peak_median_bytes; $canonical.peak_memory.tree_peak_median_bytes)
+        }
+      end
+    ' "$result_json" >"$temporary"
+  mv "$temporary" "$result_json"
+}
+
 shell_command() {
   local output=
   printf -v output '%q ' "$@"
@@ -381,6 +619,7 @@ write_metadata() {
     --arg hyperfine_version "$($HYPERFINE --version)" \
     --arg ghcrts "$GHCRTS" \
     --arg k_opts "$REFERENCE_K_OPTS" \
+    --arg memory_method "$([[ "$tree_memory" == 1 ]] && echo "$tree_memory_description" || echo unknown)" \
     '{
       suite: $suite,
       phase: $phase,
@@ -388,17 +627,28 @@ write_metadata() {
       host: {system: $system, cpu: $cpu, memory_bytes: $memory_bytes},
       revisions: {krust: $rust_revision, krust_dirty: $rust_dirty, k: $k_revision, semantics: $semantics_revision},
       tools: {krust: $krust_version, rustc: $rustc_version, canonical: $canonical_version, hyperfine: $hyperfine_version},
-      environment: {GHCRTS: $ghcrts, K_OPTS: $k_opts}
+      environment: {GHCRTS: $ghcrts, K_OPTS: $k_opts},
+      memory_method: $memory_method
     }' >"$result_dir/metadata.json"
 }
+
+# Memory cells in MiB: "median (max)" of the timed runs, or unknown.
+summary_memory_jq='
+  def mib: . / 1048576 | . * 10 | round / 10 | tostring | if test("\\.") then . else . + ".0" end;
+  def cell($m; $median; $max):
+    if $m == null or $m[$median] == null then "unknown"
+    else "\($m[$median] | mib) (\($m[$max] | mib))"
+    end;
+  def ratio_cell($value): if $value == null then "unknown" else $value | tostring end;
+  def result($name): [.results[] | select(.command == $name)][0];
+'
 
 append_summary() {
   local suite=$1
   local case_name=$2
   local result_json=$3
   local row
-  row=$(jq -r --arg suite "$suite" --arg case_name "$case_name" '
-    def result($name): .results[] | select(.command == $name);
+  row=$(jq -r --arg suite "$suite" --arg case_name "$case_name" "$summary_memory_jq"'
     (result("canonical-haskell")) as $canonical
     | (result("krust")) as $rust
     | [
@@ -406,13 +656,19 @@ append_summary() {
         $case_name,
         ($canonical.mean | tostring),
         ($rust.mean | tostring),
-        ($rust.mean / $canonical.mean | tostring)
+        ($rust.mean / $canonical.mean | tostring),
+        cell($canonical.peak_memory; "tree_peak_median_bytes"; "tree_peak_max_bytes"),
+        cell($rust.peak_memory; "tree_peak_median_bytes"; "tree_peak_max_bytes"),
+        ratio_cell(.krust_over_canonical.tree_peak_median)
       ]
     | @tsv
   ' "$result_json")
-  IFS=$'\t' read -r row_suite row_case canonical_mean rust_mean relative <<<"$row"
-  printf '| %s | %s | %.3f | %.3f | %.2fx |\n' \
+  IFS=$'\t' read -r row_suite row_case canonical_mean rust_mean relative \
+    canonical_tree rust_tree tree_relative <<<"$row"
+  [[ "$tree_relative" == unknown ]] || printf -v tree_relative '%.2fx' "$tree_relative"
+  printf '| %s | %s | %.3f | %.3f | %.2fx | %s | %s | %s |\n' \
     "$row_suite" "$row_case" "$canonical_mean" "$rust_mean" "$relative" \
+    "$canonical_tree" "$rust_tree" "$tree_relative" \
     >>"$results_root/summary.md"
 }
 
@@ -442,9 +698,18 @@ append_single_summary() {
   local suite=$1
   local case_name=$2
   local result_json=$3
-  local rust_mean
-  rust_mean=$(jq -r '.results[] | select(.command == "krust") | .mean' "$result_json")
-  printf '| %s | %s | — | %.3f | — |\n' "$suite" "$case_name" "$rust_mean" >>"$results_root/summary.md"
+  local row
+  row=$(jq -r "$summary_memory_jq"'
+    (result("krust")) as $rust
+    | [
+        ($rust.mean | tostring),
+        cell($rust.peak_memory; "tree_peak_median_bytes"; "tree_peak_max_bytes")
+      ]
+    | @tsv
+  ' "$result_json")
+  IFS=$'\t' read -r rust_mean rust_tree <<<"$row"
+  printf '| %s | %s | — | %.3f | — | — | %s | — |\n' "$suite" "$case_name" "$rust_mean" "$rust_tree" \
+    >>"$results_root/summary.md"
 }
 
 benchmark_single() {
@@ -458,6 +723,7 @@ benchmark_single() {
   local selected_runs=${runs_override:-$(default_runs "$phase" "$suite")}
   local selected_warmup=${warmup_override:-$(default_warmup "$phase" "$suite")}
   local rust_command
+  local rust_prepare
   rust_command=$(command_for "$phase" krust "$suite" "$work" "$claim")
   mkdir -p "$result_dir" "$work"
   printf 'krust: %s\n' "$rust_command" >"$result_dir/commands.txt"
@@ -480,13 +746,18 @@ benchmark_single() {
   fi
   write_metadata "$suite" "$case_name" "$result_dir"
   echo "[$suite:$case_name] benchmarking $selected_runs run(s), $selected_warmup warmup(s)"
-  "$HYPERFINE" \
-    --style basic \
-    --runs "$selected_runs" \
-    --warmup "$selected_warmup" \
+  hyperfine_args=(
+    --style basic
+    --runs "$selected_runs"
+    --warmup "$selected_warmup"
+  )
+  rust_prepare=$(prepare_with_memory krust "")
+  [[ -z "$rust_prepare" ]] || hyperfine_args+=(--prepare "$rust_prepare")
+  run_hyperfine "$result_dir" $((selected_runs + selected_warmup)) "${hyperfine_args[@]}" \
     --command-name krust "$rust_command" \
     --export-json "$result_dir/results.json" \
     --export-markdown "$result_dir/results.md"
+  record_memory "$result_dir" "$selected_warmup" "$selected_runs"
   append_single_summary "$suite" "$case_name" "$result_dir/results.json"
   if [[ "$phase" == execute ]]; then
     # A separate instrumented run measures prove_claim directly, not by subtracting load times.
@@ -547,13 +818,16 @@ benchmark_pair() {
     --runs "$selected_runs" \
     --warmup "$selected_warmup" \
   )
+  canonical_prepare=$(prepare_with_memory canonical-haskell "$canonical_prepare")
+  rust_prepare=$(prepare_with_memory krust "$rust_prepare")
   [[ -z "$canonical_prepare" ]] || hyperfine_args+=(--prepare "$canonical_prepare")
   [[ -z "$rust_prepare" ]] || hyperfine_args+=(--prepare "$rust_prepare")
-  "$HYPERFINE" "${hyperfine_args[@]}" \
+  run_hyperfine "$result_dir" $((2 * (selected_runs + selected_warmup))) "${hyperfine_args[@]}" \
     --command-name canonical-haskell "$canonical_command" \
     --command-name krust "$rust_command" \
     --export-json "$result_dir/results.json" \
     --export-markdown "$result_dir/results.md"
+  record_memory "$result_dir" "$selected_warmup" "$selected_runs"
   append_summary "$suite" "$case_name" "$result_dir/results.json"
 }
 
@@ -574,6 +848,42 @@ if [[ "${1:-}" == __run ]]; then
     prove) run_proof "$internal_engine" "$internal_claim" "$internal_work" ;;
     *) fail "unknown internal benchmark phase: $internal_phase" ;;
   esac
+  exit
+fi
+
+if [[ "${1:-}" == __memory-probe ]]; then
+  enter_memory_scope 1
+  status=$?
+  leave_memory_scope
+  exit "$status"
+fi
+
+if [[ "${1:-}" == __memory-scope ]]; then
+  shift
+  memory_dir=$1
+  memory_runs=$2
+  shift 2
+  if enter_memory_scope "$memory_runs"; then
+    echo 0 >"$memory_dir/next-run"
+    export BENCHMARK_MEMORY_CGROUP=$memory_scope BENCHMARK_MEMORY_DIR=$memory_dir
+  else
+    echo "warning: could not create per-run memory cgroups; tree peak memory is unknown for this case" >&2
+  fi
+  status=0
+  # The subshell records its own PID and becomes hyperfine, so the prepare
+  # step knows which process to move.
+  (
+    echo "$BASHPID" >"$memory_dir/hyperfine-pid"
+    exec "$@"
+  ) || status=$?
+  [[ -z "${BENCHMARK_MEMORY_CGROUP:-}" ]] || memory_record_current
+  leave_memory_scope
+  exit "$status"
+fi
+
+if [[ "${1:-}" == __memory-prepare ]]; then
+  [[ -n "${BENCHMARK_MEMORY_CGROUP:-}" ]] || exit 0
+  memory_prepare "$2"
   exit
 fi
 
@@ -724,15 +1034,34 @@ if [[ "$dry_run" != 1 ]]; then
   done
 fi
 
+tree_memory=0
+if [[ "$dry_run" != 1 ]] && tree_memory_available; then
+  tree_memory=1
+fi
+export BENCHMARK_MEMORY_METHOD
+
 mkdir -p "$results_root"
 if [[ "$dry_run" != 1 ]]; then
-  cat >"$results_root/summary.md" <<'EOF'
+  heap_limit=$(grep -o -- '-Xmx[^[:space:]]*' <<<"$REFERENCE_K_OPTS" | tail -n 1 || true)
+  if [[ "$tree_memory" == 1 ]]; then
+    tree_method_text="Peak memory is the ${tree_memory_description}: every process the command starts, including the JVM's backend children, is charged to that cgroup, so processes resident at the same time are summed. The figure is resident anonymous and kernel memory plus the page cache the run itself brings in (files it reads that were not cached yet and files it writes); \`results.json\` records that page cache at exit as \`tree_page_cache_at_exit_bytes\`. File pages already in the page cache when the run starts, such as the executables, shared libraries and JARs after the first run, stay charged to the cgroup that first read them and are not counted."
+  else
+    tree_method_text="Peak memory of the process tree is unknown: this host could not start a delegated user systemd scope with the cgroup v2 memory controller (or BENCHMARK_MEMORY_METHOD=none)."
+  fi
+  cat >"$results_root/summary.md" <<EOF
 # krust versus canonical K/Haskell
 
-Times are arithmetic means in seconds. Relative values are `krust / canonical`; values below 1 mean krust was faster.
+Times are arithmetic means in seconds. Relative values are \`krust / canonical\`; values below 1 mean krust was faster or smaller.
 
-| Suite | Case | Canonical mean | krust mean | krust / canonical |
-|:--|:--|--:|--:|--:|
+${tree_method_text}
+Memory cells are the median over the timed runs, with the maximum in parentheses, in MiB; the memory ratio compares medians.
+hyperfine's own \`memory_usage_byte\` in \`results.json\` is not used: it is the largest single process hyperfine has reaped so far, so it neither sums a JVM and its backend children nor keeps one command's runs apart from the other's.
+
+The canonical JVM runs with \`K_OPTS=${REFERENCE_K_OPTS}\`, so its heap limit is ${heap_limit:-the JVM default}.
+A JVM grows its heap toward that limit before it collects hard, so the canonical peak reflects the limit as well as the data the workload keeps live; a smaller limit could lower it at some cost in time, and the benchmark does not tune it for either side.
+
+| Suite | Case | Canonical mean | krust mean | krust / canonical | Canonical peak MiB | krust peak MiB | krust / canonical peak |
+|:--|:--|--:|--:|--:|--:|--:|--:|
 EOF
 fi
 for selected_suite in "${suites[@]}"; do

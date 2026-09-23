@@ -13,8 +13,9 @@ The matrix contains:
   proofs.
 - KEVM functional-specification compilation, prepared-definition loading, and a concrete
   bit-operation proof.
-- Raw per-run timings in Hyperfine JSON, a Markdown comparison, exact commands, untimed preflight
-  logs, source revisions, tool versions, host information, and runtime settings.
+- Raw per-run timings and process-tree peak memory in Hyperfine JSON, a Markdown comparison, exact
+  commands, untimed preflight logs, source revisions, tool versions, host information, and runtime
+  settings.
 
 ## Prerequisites
 
@@ -64,10 +65,57 @@ scripts/benchmark.sh --suite imp --phase execute --claim IMP-SIMPLE-SPEC.sum-loo
 ```
 
 Results are written under `target/benchmarks/results/<timestamp>/`. The top-level `summary.md`
-reports both means and the `krust / canonical` ratio; values below one mean krust was faster. Each
-case retains its full sample distribution in `results.json`. Keep the generated `metadata.json`
+reports both means, the peak memory of each side, and the `krust / canonical` ratios; values below
+one mean krust was faster or smaller. Each case retains its full sample distribution, including the
+per-run memory samples, in `results.json`. Keep the generated `metadata.json`
 beside it: timings without revisions, hardware, and runtime settings are not meaningful
 comparisons.
+
+## Peak memory
+
+Each timed run's peak memory is measured over its whole process tree. Canonical `kompile` and
+`kprove` are a JVM that starts backend children (`kore-exec`, `z3`, a C compiler), and those run while
+the JVM is still resident, so the figure must sum processes that are resident at the same time.
+The harness therefore runs each Hyperfine invocation inside a delegated user systemd scope
+(`systemd-run --user --scope -p Delegate=yes`) and creates one empty cgroup v2 child per expected run
+before Hyperfine starts. Each run's `--prepare` step, which Hyperfine does not time, first reads the
+previous run's `memory.peak` and the page cache still charged to it (`file` in `memory.stat`), then
+moves Hyperfine itself into the next empty child. The command Hyperfine forks next therefore starts in
+that child, and no process changes cgroup inside the timed region: moving a process can wait for an
+RCU grace period, which added about 10 ms per run on a busy host when the run moved itself. With the
+move in the prepare step, interleaved runs of `imp/load` with and without it differed by less than
+their noise (24 to 30 ms either way). The last run is read after Hyperfine exits. Warmup samples are
+dropped.
+
+`results.json` gains, per command, a `peak_memory` object (`tree_peak_bytes` per timed run, its
+median and maximum, and `tree_page_cache_at_exit_bytes`), a top-level `memory_method`, and, for paired
+cases, `krust_over_canonical` with the time and median-memory ratios. `summary.md` shows the median
+with the maximum in parentheses, in MiB, next to the mean time.
+
+What the figure includes: anonymous and kernel memory of every process in the tree, summed at the
+moment of the peak, plus page cache the run itself brings in (files read that were not cached and
+files written). It includes the harness's own `sh` and `bash` wrapper around each command, about
+3 MiB on either side. Pages that were already cached, such as executables, shared libraries, and JARs after
+the first run, stay charged to the cgroup that read them first and are not counted. In one sampled
+run of `imp/prove-sum-loop` (2026-09-24), canonical `kprove` peaked at 1264 MiB with the JVM (about
+253 MiB resident) and `kore-exec` (about 1011 MiB resident) alive together; a largest-process figure
+would have reported only the 1011 MiB child.
+
+Hyperfine's own `memory_usage_byte` stays in `results.json` but is not reported. It behaves as
+`getrusage(RUSAGE_CHILDREN)`: the largest single process Hyperfine has reaped so far. It is not a
+sum over the tree, and a command benchmarked after a larger one inherits that command's figure
+(with Hyperfine 1.20, `true` measured after a 300 MiB allocation reports 309 MiB).
+
+The canonical JVM's peak depends on its heap limit (`-Xmx4096m` in the default `REFERENCE_K_OPTS`):
+a JVM grows its heap toward the limit before it collects hard. `summary.md` states the limit in force.
+The harness does not tune it for either side; a comparison at another limit must say so.
+
+If the benchmark itself runs inside a memory-limited cgroup, the tightest `memory.max`,
+`memory.high`, and `memory.swap.max` of that cgroup and its ancestors are copied onto the new scope, so
+a guard such as `systemd-run --user --scope -p MemoryMax=16G scripts/benchmark.sh` still applies.
+Where no user systemd manager can delegate a scope with the memory controller (an `agent-N`
+sandbox, for example), or with `BENCHMARK_MEMORY_METHOD=none`, the benchmark still runs and reports
+peak memory as `unknown`.
 
 ## Finding local benchmark results
 
