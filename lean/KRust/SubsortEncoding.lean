@@ -23,7 +23,10 @@ Rust modelled here, with line anchors at bb256f2c:
 `new` is `Encoding::less_than_eq` (ticket OT-03). `old` is `OrderRelation::full_disjunction`, the
 encoding of every order constraint before OT-03, which `less_than_eq` still uses when neither side
 is a closed value. The property test `ground_side_encoding_is_equivalent` in the `tests` module of
-z3_inference.rs checks the two against each other with Z3.
+z3_inference.rs checks the two against each other with Z3. The bridge tests
+`tests::lean_bridge::less_than_eq_agrees_with_new` and `full_disjunction_agrees_with_old` compare
+the formulas the two Rust functions build with `new` and `old` (models `lessThanEq` and
+`fullDisjunction` of `KRustBridge/Dispatch.lean`).
 -/
 
 namespace KRust.SubsortEncoding

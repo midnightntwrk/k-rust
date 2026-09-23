@@ -1,9 +1,12 @@
 import KRustBridge.Json
+import KRustBridge.SubsortJson
 import KRust.TermAttributes
+import KRust.SubsortEncoding
 
 /-!
-The models the bridge runs, by name. Each entry decodes the input with `KRustBridge.Json`, applies
-a definition imported from the `KRust` library, and encodes the result. The definitions are the
+The models the bridge runs, by name. Each entry decodes the input with `KRustBridge.Json` (terms)
+or `KRustBridge.SubsortJson` (order constraints), applies a definition imported from the `KRust`
+library, and encodes the result. The definitions are the
 ones the proofs are about; this library defines no model function of its own.
 
   "firstMacro": term ↦ `KRust.TermAttributes.firstMacro term`, a name or null; compared with
@@ -23,6 +26,13 @@ ones the proofs are about; this library defines no model function of its own.
                 attribute `TermAttributes::k_cells` (term.rs `k_cells`) of every subterm.
   "fetchK":     term ↦ `KRust.TermAttributes.fetchK term`, a term or null; compared with
                 `rule::fetch_k_cell`, which `rule_index` runs when the stored count is 1.
+  "lessThanEq": {relation, lesser, greater} ↦ `KRust.SubsortEncoding.new relation lesser greater`
+                at `G = Nat` (`KRustBridge.SubsortJson`), a disjunction of conjunctions of
+                equalities; compared with the formula `Encoding::less_than_eq` (z3_inference.rs)
+                builds, read back from its Z3 AST.
+  "fullDisjunction": {relation, lesser, greater} ↦ `KRust.SubsortEncoding.old relation lesser
+                greater`; compared with `OrderRelation::full_disjunction` (z3_inference.rs), the
+                formula `new_equiv` proves `new` equivalent to.
 -/
 
 namespace KRust.Bridge
@@ -51,7 +61,13 @@ def models : List (String × (Json → Except String Json)) :=
       let t ← termFromJson input
       return match KRust.TermAttributes.fetchK t with
         | some cell => termToJson cell
-        | none => Json.null)]
+        | none => Json.null),
+   ("lessThanEq", fun input => do
+      let (relation, lesser, greater) ← orderRequestFromJson input
+      return dnfToJson (KRust.SubsortEncoding.new relation lesser greater)),
+   ("fullDisjunction", fun input => do
+      let (relation, lesser, greater) ← orderRequestFromJson input
+      return dnfToJson (KRust.SubsortEncoding.old relation lesser greater))]
 
 /-- Answer one request `{"id": n, "model": m, "input": x}` with `{"id": n, "output": y}`, or with
 `{"id": n, "error": message}` when the request or its input does not decode. -/

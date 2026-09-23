@@ -1032,6 +1032,7 @@ dependencies = [
  "k-rust",
  "k-rust-backend",
  "k-rust-kore",
+ "lean-conformance",
  "num-bigint",
  "num-traits",
  "petgraph",

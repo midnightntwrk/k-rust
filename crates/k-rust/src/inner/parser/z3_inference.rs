@@ -1611,7 +1611,8 @@ impl<'a> Encoding<'a> {
     /// side treated as closed is a constructor term; a closed term that is not one (an accessor
     /// applied to a value, say) is not in `closed_values` and gets the full disjunction.
     /// Lean: `KRust.SubsortEncoding.new_equiv` (lean/KRust/SubsortEncoding.lean); Rust test:
-    /// `tests::ground_side_encoding_is_equivalent`.
+    /// `tests::ground_side_encoding_is_equivalent`; model conformance of this formula with the
+    /// Lean `new`: `tests::lean_bridge::less_than_eq_agrees_with_new`.
     ///
     /// Output argument. Every caller combines these formulas with `and`, `not`, `or` and
     /// pseudo-Boolean bounds, so replacing each by an equivalent one leaves every asserted
@@ -3192,6 +3193,8 @@ mod tests {
     use crate::definition::ProductionItem;
     use crate::kast::Label;
     use proptest::prelude::*;
+
+    mod lean_bridge;
 
     fn nonterminal(name: &str) -> ProductionItem {
         ProductionItem::NonTerminal {
