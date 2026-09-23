@@ -68,7 +68,7 @@ def verify_stuck_state() -> None:
         raise EvidenceError("M3B's stuck-state aggregate pin is absent")
     require_fragments(
         "docs-site/src/pages/semantics/applicability-and-failure.mdx",
-        "`y = x + 1;` from M3B",
+        "`y = x + 1;` in the checked IMP stuck-state fixture",
         "LLVM performs two rewrites",
         "leaves a non-final configuration",
     )
