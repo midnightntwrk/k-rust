@@ -4797,7 +4797,7 @@ id = "kore.printer.build"
 provenance = "declared"
 area = "kore"
 name = "construction of KORE pretty-print documents"
-variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the definition, module, sentence, sentence-body nest, and attribute-list delimited levels, while patterns, sorts, symbols, and variables are built by the syntax_doc task stack"
+variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the definition, module, sentence, sentence-body nest, and attribute-list delimited levels, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack; Printer::write_pattern pulls those ops on demand from inside the render span, so its construction time is measured together with rendering"
 no_counter = "KORE document construction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
@@ -4836,6 +4836,11 @@ symbol = "syntax_doc"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "SyntaxOps::next"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "Printer::print_definition"
 
 [[node.sites]]
@@ -4852,6 +4857,11 @@ symbol = "Printer::print_sentence"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "Printer::print_pattern"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::write_pattern"
 
 [[node.sites]]
 crate = "k-rust-kore"
@@ -4879,39 +4889,39 @@ bound = "O(N)"
 
 [[node]]
 kind = "algorithm"
-id = "kore.printer.flat_widths"
+id = "kore.printer.fits"
 provenance = "declared"
 area = "kore"
-name = "precomputation of KORE document flat widths"
-variable = "N = document nodes"
-invariant = "the stack holds unmatched groups and accumulated widths for processed operations"
-no_counter = "flat-width precomputation has no dedicated counter"
+name = "bounded look-ahead for the flat layout of a KORE document group"
+variable = "w = remaining line width at the group; k = ops read ahead, which stops at the group's end, at a hard line, or at the first op whose flat width exceeds w"
+invariant = "remaining is the line width left after the flat widths of the ops scanned so far, and depth is the number of groups opened and not yet closed since the scanned group's start"
+no_counter = "the fits look-ahead has no dedicated counter"
 span = "none"
 table = "Algorithm::ALL"
-registry_name = "KorePrinterFlatWidths"
+registry_name = "KorePrinterFits"
 
 [node.anchor]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer/document.rs"
-symbol = "flat_widths"
+symbol = "fits"
 
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer/document.rs"
-symbol = "flat_widths"
+symbol = "fits"
 
 [[node.cost]]
-mode = "one document"
-bound = "O(N)"
+mode = "one group in broken context"
+bound = "O(k)"
 
 [[node]]
 kind = "algorithm"
 id = "kore.printer.render"
 provenance = "declared"
 area = "kore"
-name = "width-aware rendering of KORE documents"
-variable = "N = document nodes; o = output characters"
-invariant = "ops before the current index have been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts"
+name = "width-aware streaming rendering of KORE documents"
+variable = "N = document ops; o = output characters; k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width"
+invariant = "every op taken from the source and not in the look-ahead queue has been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts; column is the number of characters since the last written newline"
 no_counter = "document rendering has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
@@ -4934,7 +4944,7 @@ symbol = "Printer::render"
 
 [[node.cost]]
 mode = "compact or broken layout"
-bound = "O(N + o)"
+bound = "O(N * k + o)"
 
 [[node]]
 kind = "phase"

@@ -166,8 +166,8 @@ No phase contains these algorithms and no representation connects them to a comm
 - kompile.modules.rewrite_order — O((M + E) x (d + log M) + R log R + u x s)
 - kore.pattern.walk — O(|p|)
 - kore.printer.build — O(N)
-- kore.printer.flat_widths — O(N)
-- kore.printer.render — O(N + o)
+- kore.printer.fits — O(k)
+- kore.printer.render — O(N * k + o)
 - parser.bison.priorities — O(Q x P)
 - parser.bison.reachable_sorts — O(S x P)
 - parser.chart.completed_memo — O(log M + k) +1 mode
@@ -360,6 +360,6 @@ The first site of each algorithm's primary card, grouped by file.
 | k-rust/outer/virtual_path.rs | definition.outer.virtual_path `normalize_virtual_path` |
 | k-rust/provenance.rs | definition.provenance.record `record_generated_origins`; definition.provenance.source_identity `LogicalSourceId::new` |
 | kore/kore/printer.rs | kore.printer.build `definition_doc` |
-| kore/kore/printer/document.rs | kore.printer.flat_widths `flat_widths`; kore.printer.render `render` |
+| kore/kore/printer/document.rs | kore.printer.fits `fits`; kore.printer.render `render` |
 | kore/kore/walk.rs | kore.pattern.walk `children` |
 
