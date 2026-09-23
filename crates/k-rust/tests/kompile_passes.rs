@@ -3228,6 +3228,73 @@ fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
 }
 
 #[test]
+fn prepared_macro_definition_matches_whole_definition_preparation() {
+    // Casts in macro rules, macro kinds propagated to rules of an importing module, priorities,
+    // `owise`, a recursive macro, an alias, and an ordinary rule over a macro-free label.
+    let source = indoc! {r#"
+        module DATA
+          syntax Num ::= "one" [symbol(one)] | "two" [symbol(two)]
+          syntax Exp ::= Num
+                       | "a" [symbol(a)]
+                       | "b" [symbol(b)]
+                       | "f(" Exp ")" [symbol(f)]
+                       | "pair(" Exp "," Exp ")" [symbol(pair)]
+                       | "m(" Exp ")" [macro, symbol(m)]
+                       | "r(" Exp ")" [macro-rec, symbol(r)]
+                       | "al(" Exp ")" [alias, symbol(al)]
+          rule m(X:Num) => f(X:Num)
+          rule m(X:Exp) => pair(X:Exp, X:Exp) [priority(60)]
+        endmodule
+        module MAIN
+          imports DATA
+          rule r(pair(X:Exp, _Y:Exp)) => r(X:Exp)
+          rule r(_X:Exp) => b [owise]
+          rule al(X:Exp) => f(m(X:Exp))
+          rule f(a) => b
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let whole = propagate_macro_attributes(&resolve_semantic_casts(&definition)).unwrap();
+    let restricted = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let reference = MacroExpansionDefinition::prepare(&whole).unwrap();
+    let leaf = |label| application(label, Vec::new());
+    let terms = [
+        application("m", vec![leaf("one")]),
+        application("m", vec![leaf("a")]),
+        application(
+            "r",
+            vec![application(
+                "pair",
+                vec![application("pair", vec![leaf("a"), leaf("b")]), leaf("b")],
+            )],
+        ),
+        application("al", vec![leaf("two")]),
+        application("f", vec![leaf("a")]),
+        application(
+            "pair",
+            vec![
+                application("m", vec![leaf("two")]),
+                application("al", vec![leaf("b")]),
+            ],
+        ),
+    ];
+
+    let mut changed = 0;
+    for term in terms {
+        let expanded = restricted.expand_term("MAIN", term.clone()).unwrap();
+        assert_eq!(
+            expanded,
+            reference.expand_term("MAIN", term.clone()).unwrap(),
+            "{}",
+            Printer::new().print_term(&term),
+        );
+        changed += usize::from(expanded != term);
+    }
+    // Every term but the ordinary `f(a)` applies a macro.
+    assert_eq!(changed, 5);
+}
+
+#[test]
 fn explicit_simplification_macro_does_not_inherit_recursive_kind() {
     let source = indoc! {r#"
         module MAIN

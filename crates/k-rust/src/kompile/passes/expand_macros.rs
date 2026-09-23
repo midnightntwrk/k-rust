@@ -186,13 +186,56 @@ pub struct MacroExpansionDefinition {
 }
 
 impl MacroExpansionDefinition {
-    /// Resolve semantic casts, propagate macro attributes, and resolve the result.
+    /// Resolve semantic casts in, and propagate macro kinds onto, every rule that can become a
+    /// macro rule, and resolve the result.
+    ///
+    /// An expander reads from its definition the productions, sort declarations, and syntax
+    /// relations of its module (catalogs, subsorts, overloads, sort injection) and the rules that
+    /// `macro_rule` accepts. Cast resolution and propagation change only the terms and attributes
+    /// of rules, so they leave the first part unchanged; this function applies them to a superset
+    /// of the accepted rules and leaves every other rule as written:
+    ///
+    /// - `macro_rule` accepts a rule when it carries a macro kind, or when the head of its
+    ///   rewrite's left projection has a macro-kind production visible in the expander's module.
+    ///   Cast resolution replaces a cast application by its argument and rebuilds every other
+    ///   node with its own label, and the projection keeps the labels of what it keeps, so that
+    ///   head is a label of the unresolved body. A production visible in any module is a
+    ///   production of the definition, so `may_become_macro_rule` over the macro-kind labels of
+    ///   all productions keeps every rule accepted in any module.
+    /// - Propagation adds a macro kind only for a label with a macro-kind production, which the
+    ///   same test covers.
+    ///
+    /// A rule outside that superset is rejected by `macro_rule` with or without the passes. It
+    /// can differ from its transformed form only in terms and attributes, so where visible-sentence
+    /// deduplication would have merged it with a transformed rule, both are rejected alike; kept
+    /// rules therefore appear in the same order, and rule identities are compared only with each
+    /// other. The expander thus holds the same macro rules, in the same priority order, as with
+    /// the passes applied to the whole definition.
+    ///
+    /// The transformed rules carry no semantic-cast origin receipts: the passes run here on single
+    /// sentences, outside the pipeline that records provenance. Receipts are provenance only;
+    /// sentence and term equality ignore them, and matching reads none.
     pub fn prepare(definition: &Definition) -> Result<Self, String> {
-        let definition = super::resolve_semantic_casts(definition);
-        let definition =
-            super::propagate_macro_attributes(&definition).map_err(|error| error.to_string())?;
-        let resolved =
-            ResolvedDefinition::resolve(&definition).map_err(|error| error.to_string())?;
+        let original =
+            ResolvedDefinition::resolve(definition).map_err(|error| error.to_string())?;
+        let views = original.views();
+        let macro_labels = macro_production_labels(definition);
+        let mut prepared = definition.clone();
+        for module in &mut prepared.modules {
+            let module_id = original
+                .module_id(&module.name)
+                .expect("resolved definition contains every source module");
+            for sentence in &mut module.local_sentences {
+                if !may_become_macro_rule(sentence, &macro_labels) {
+                    continue;
+                }
+                // Same order as the pipeline: propagation reads the cast-free left side.
+                let mut rule = super::resolve_semantic_casts_in_sentence(Sentence::clone(sentence));
+                super::propagate_macro_attribute(&mut rule, views.production_catalog(module_id));
+                *sentence = std::sync::Arc::new(rule);
+            }
+        }
+        let resolved = ResolvedDefinition::resolve(&prepared).map_err(|error| error.to_string())?;
         Ok(Self { resolved })
     }
 
@@ -214,6 +257,47 @@ impl MacroExpansionDefinition {
             .pop()
             .expect("one input term produces one expanded term"))
     }
+}
+
+/// The label names of every production with a macro kind, in any module of `definition`.
+///
+/// An unlabeled production contributes the empty name, as in `ProductionCatalog::macro_labels`.
+fn macro_production_labels(definition: &Definition) -> BTreeSet<&str> {
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label, attributes, ..
+            } if attributes.has_any(&AttributeKey::MACRO_LIKE) => {
+                Some(label.as_ref().map_or("", |label| label.name.as_str()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether a rule carries a macro kind or applies a label with a macro-kind production anywhere
+/// in its body; `MacroExpansionDefinition::prepare` shows every rule `macro_rule` can accept
+/// after cast resolution and propagation passes this test.
+fn may_become_macro_rule(sentence: &Sentence, macro_labels: &BTreeSet<&str>) -> bool {
+    let Sentence::Rule {
+        body, attributes, ..
+    } = sentence
+    else {
+        return false;
+    };
+    if attributes.has_any(&AttributeKey::MACRO_LIKE) {
+        return true;
+    }
+    let mut applies_macro_label = false;
+    body.visit_preorder(&mut |term| {
+        if let Term::Apply { label, .. } = term {
+            applies_macro_label |= macro_labels.contains(label.name.as_str());
+        }
+    });
+    applies_macro_label
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
