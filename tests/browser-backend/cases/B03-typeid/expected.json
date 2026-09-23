@@ -261,6 +261,136 @@
     "/O0/runs/default/stdout/utf8: expected \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl, got \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl",
     "/O2/runs/default/stdout/utf8: expected \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl, got \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl"
    ]
+  },
+  "eb8eda0400b8015a0751e48597eb0969dbbd7b36": {
+   "status": "pass",
+   "reference": {
+    "twin": [
+     "rustc 1.96.0-dev (eb8eda040 2026-09-23)",
+     "binary: rustc",
+     "commit-hash: eb8eda0400b8015a0751e48597eb0969dbbd7b36",
+     "commit-date: 2026-09-23",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.96.0-dev",
+     "LLVM version: 22.1.2"
+    ],
+    "stable": [
+     "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+     "binary: rustc",
+     "commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea",
+     "commit-date: 2026-08-18",
+     "host: x86_64-unknown-linux-gnu",
+     "release: 1.98.0",
+     "LLVM version: 22.1.8"
+    ],
+    "pack_id": "sha256:a6155f58b7424a819d0dfacceb3018cfe9c8eb03453c49726f2bc54301ce61a9",
+    "run_host": "node:wasi v24.19.0",
+    "recorded": "2026-09-23"
+   },
+   "twin": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b03_types",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b03_typeid",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "local_equal=true\nlocal_vs_square=true\ncross_crate_equal=true\ncross_crate_unequal=true\nstored_fn_equal=true\nstored_fn_unequal=true\ngeneric_equal=true\ngeneric_unequal=true\nreference_unequal=true\ndyn_any_type_id=true\ndowncast=true\nkey square matches [\"square\"]\nkey circle matches [\"circle\"]\nkey generic_u8 matches [\"generic_u8\"]\ndistinct_keys=3\ntype_id square=TypeId(0x2dac38ef0eecb83045df46bd65f17d44)\ntype_id generic_u8=TypeId(0x2ea297ea4558075d720e2edb17fe3128)\ntype_id local=TypeId(0x90170d16ae55343f5a879b208a00b69d)\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b03_types",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b03_typeid",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "local_equal=true\nlocal_vs_square=true\ncross_crate_equal=true\ncross_crate_unequal=true\nstored_fn_equal=true\nstored_fn_unequal=true\ngeneric_equal=true\ngeneric_unequal=true\nreference_unequal=true\ndyn_any_type_id=true\ndowncast=true\nkey square matches [\"square\"]\nkey circle matches [\"circle\"]\nkey generic_u8 matches [\"generic_u8\"]\ndistinct_keys=3\ntype_id square=TypeId(0x2dac38ef0eecb83045df46bd65f17d44)\ntype_id generic_u8=TypeId(0x2ea297ea4558075d720e2edb17fe3128)\ntype_id local=TypeId(0x90170d16ae55343f5a879b208a00b69d)\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable": {
+    "O0": {
+     "compile": [
+      {
+       "crate": "b03_types",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b03_typeid",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "local_equal=true\nlocal_vs_square=true\ncross_crate_equal=true\ncross_crate_unequal=true\nstored_fn_equal=true\nstored_fn_unequal=true\ngeneric_equal=true\ngeneric_unequal=true\nreference_unequal=true\ndyn_any_type_id=true\ndowncast=true\nkey square matches [\"square\"]\nkey circle matches [\"circle\"]\nkey generic_u8 matches [\"generic_u8\"]\ndistinct_keys=3\ntype_id square=TypeId(0xa092b3c3fd62a8e07386926007f71f32)\ntype_id generic_u8=TypeId(0x1f406df668c227eb7e501e7b5be69c50)\ntype_id local=TypeId(0xaa5eaa86101a1c4bfe190a79d1b3f072)\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    },
+    "O2": {
+     "compile": [
+      {
+       "crate": "b03_types",
+       "outcome": "ok"
+      },
+      {
+       "crate": "b03_typeid",
+       "outcome": "ok"
+      }
+     ],
+     "runs": {
+      "default": {
+       "status": "exit",
+       "exit_code": 0,
+       "stdout": {
+        "utf8": "local_equal=true\nlocal_vs_square=true\ncross_crate_equal=true\ncross_crate_unequal=true\nstored_fn_equal=true\nstored_fn_unequal=true\ngeneric_equal=true\ngeneric_unequal=true\nreference_unequal=true\ndyn_any_type_id=true\ndowncast=true\nkey square matches [\"square\"]\nkey circle matches [\"circle\"]\nkey generic_u8 matches [\"generic_u8\"]\ndistinct_keys=3\ntype_id square=TypeId(0xa092b3c3fd62a8e07386926007f71f32)\ntype_id generic_u8=TypeId(0x1f406df668c227eb7e501e7b5be69c50)\ntype_id local=TypeId(0xaa5eaa86101a1c4bfe190a79d1b3f072)\n"
+       },
+       "stderr": {
+        "utf8": ""
+       }
+      }
+     }
+    }
+   },
+   "stable_differs": [
+    "/O0/runs/default/stdout/utf8: expected \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl, got \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl",
+    "/O2/runs/default/stdout/utf8: expected \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl, got \"local_equal=true\\nlocal_vs_square=true\\ncross_crate_equal=true\\ncross_crate_unequal=true\\nstored_fn_equal=true\\nstored_fn_unequal=true\\ngeneric_equal=true\\ngeneric_unequal=true\\nreference_unequal=true\\ndyn_any_type_id=true\\ndowncast=true\\nkey square matches [\\\"square\\\"]\\nkey circle matches [\\\"circl"
+   ]
   }
  }
 }
