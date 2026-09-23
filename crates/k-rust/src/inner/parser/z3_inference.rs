@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::check_parameter_choice", "Encoding::read_model", "or_all"]
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::check_parameter_choice", "Encoding::read_model", "or_all"]
 //! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = admissible parameter vectors of one maximal typing, at most 256"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
@@ -183,22 +183,11 @@ impl Grammar {
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserInferenceZ3);
-        let anywhere = explicitly_anywhere || self.packed_lhs_is_function_or_macro(&term);
-        let mut encoding = Encoding::new_packed(self, &term, top_sort, anywhere)?;
-        encoding.top_rewrite_ids = packed_top_rewrites(self, &term);
-        let expected = encoding.sort_value(top_sort, &BTreeMap::new())?;
-        let root_context = if !is_real_ground_sort(top_sort) {
-            CastContext::Parser
-        } else {
-            CastContext::None
-        };
-        let constraint =
-            encoding.constraint_packed(&term, &expected, root_context, &mut HashMap::new())?;
-
+        let mut encoding =
+            Encoding::for_packed_inference(self, &term, top_sort, explicitly_anywhere)?;
         let solver = Solver::new();
-        solver.assert(&constraint);
-        encoding.exclude_klabel_parameters(&solver)?;
-        encoding.restrict_to_real_sorts(&solver);
+        let (expected, root_context) =
+            encoding.assert_packed_hard_constraints(&term, top_sort, &solver)?;
         let seed = encoding.seed_model(&solver)?;
         match check(&solver) {
             SatResult::Unsat => {
@@ -770,6 +759,43 @@ impl<'a> Encoding<'a> {
         let mut encoding = Self::new_with_term_sorts(grammar, top_sort, anywhere, &term_sorts)?;
         encoding.packed_ids = packed_term_ids(term);
         Ok(encoding)
+    }
+
+    /// The encoding of one `Grammar::infer_packed_sorts_z3` problem, before any constraint.
+    fn for_packed_inference(
+        grammar: &'a Grammar,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+    ) -> Result<Self, ParseError> {
+        let anywhere = explicitly_anywhere || grammar.packed_lhs_is_function_or_macro(term);
+        let mut encoding = Self::new_packed(grammar, term, top_sort, anywhere)?;
+        encoding.top_rewrite_ids = packed_top_rewrites(grammar, term);
+        Ok(encoding)
+    }
+
+    /// Assert the hard constraints of a packed inference on `solver`: the term constraint at
+    /// `top_sort`, the `KLabel` exclusion and the real-sort restriction. Returns the top sort's
+    /// value and the root cast context, which model application and the unsat explanation
+    /// reuse.
+    fn assert_packed_hard_constraints(
+        &mut self,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        solver: &Solver,
+    ) -> Result<(Datatype, CastContext), ParseError> {
+        let expected = self.sort_value(top_sort, &BTreeMap::new())?;
+        let root_context = if !is_real_ground_sort(top_sort) {
+            CastContext::Parser
+        } else {
+            CastContext::None
+        };
+        let constraint =
+            self.constraint_packed(term, &expected, root_context, &mut HashMap::new())?;
+        solver.assert(&constraint);
+        self.exclude_klabel_parameters(solver)?;
+        self.restrict_to_real_sorts(solver);
+        Ok((expected, root_context))
     }
 
     fn new_with_term_sorts(
@@ -3659,43 +3685,31 @@ mod tests {
         reverse_disjuncts: bool,
     }
 
-    /// The inference path of `Grammar::infer_packed_sorts_z3` up to `maximal_models`
-    /// (:157-197): the same encoding, hard constraints, seed and enumeration, with the
+    /// The inference path of `Grammar::infer_packed_sorts_z3` up to `maximal_models`: the same
+    /// encoding (`Encoding::for_packed_inference`), hard constraints
+    /// (`Encoding::assert_packed_hard_constraints`), seed and enumeration, with the
     /// perturbation applied. Returns `None` when the hard constraints are unsatisfiable, and
     /// otherwise the recorded models projected onto the real variables, in recorded order.
     fn recorded_real_projections(
         problem: &ConformanceProblem,
         perturbation: Perturbation,
     ) -> Result<Option<Vec<BTreeMap<String, Sort>>>, ParseError> {
-        let grammar = &problem.grammar;
         let term = &problem.term;
-        let anywhere = grammar.packed_lhs_is_function_or_macro(term);
         let mut encoding = with_uncached_encoding_base(|| {
-            Encoding::new_packed(grammar, term, &problem.top_sort, anywhere)
+            Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
         })?;
         if perturbation.reverse_disjuncts {
             let base = Rc::get_mut(&mut encoding.base).expect("an uncached base is not shared");
             base.semantic_relation.reverse();
             base.syntactic_relation.reverse();
         }
-        encoding.top_rewrite_ids = packed_top_rewrites(grammar, term);
-        let expected = encoding.sort_value(&problem.top_sort, &BTreeMap::new())?;
-        let root_context = if !is_real_ground_sort(&problem.top_sort) {
-            CastContext::Parser
-        } else {
-            CastContext::None
-        };
-        let constraint =
-            encoding.constraint_packed(term, &expected, root_context, &mut HashMap::new())?;
         let solver = Solver::new();
         if let Some(seed) = perturbation.random_seed {
             let mut params = z3::Params::new();
             params.set_u32("random_seed", seed);
             solver.set_params(&params);
         }
-        solver.assert(&constraint);
-        encoding.exclude_klabel_parameters(&solver)?;
-        encoding.restrict_to_real_sorts(&solver);
+        encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
         let seed = encoding.seed_model(&solver)?;
         match check(&solver) {
             SatResult::Unsat => return Ok(None),
@@ -3722,25 +3736,12 @@ mod tests {
     fn brute_force_maximal(
         problem: &ConformanceProblem,
     ) -> Result<Option<BTreeSet<BTreeMap<String, Sort>>>, ParseError> {
-        let grammar = &problem.grammar;
         let term = &problem.term;
-        let anywhere = grammar.packed_lhs_is_function_or_macro(term);
         let mut encoding = with_uncached_encoding_base(|| {
-            Encoding::new_packed(grammar, term, &problem.top_sort, anywhere)
+            Encoding::for_packed_inference(&problem.grammar, term, &problem.top_sort, false)
         })?;
-        encoding.top_rewrite_ids = packed_top_rewrites(grammar, term);
-        let expected = encoding.sort_value(&problem.top_sort, &BTreeMap::new())?;
-        let root_context = if !is_real_ground_sort(&problem.top_sort) {
-            CastContext::Parser
-        } else {
-            CastContext::None
-        };
-        let constraint =
-            encoding.constraint_packed(term, &expected, root_context, &mut HashMap::new())?;
         let solver = Solver::new();
-        solver.assert(&constraint);
-        encoding.exclude_klabel_parameters(&solver)?;
-        encoding.restrict_to_real_sorts(&solver);
+        encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
 
         // The generated grammar has no parametric production, so every value a real variable
         // can take under `restrict_to_real_sorts` is a nullary real sort of the datatype.

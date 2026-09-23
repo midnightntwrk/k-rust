@@ -5936,6 +5936,11 @@ symbol = "EncodingBase::decode_sort"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::assert_packed_hard_constraints"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
 symbol = "Encoding::less_than_eq"
 
 [[node.sites]]
