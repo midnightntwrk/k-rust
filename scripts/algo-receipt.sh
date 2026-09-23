@@ -55,14 +55,15 @@ a third time, untraced and without --timings or KRUST_COUNTERS, under
 and `algo-graph profile` resolves every sampled address of KRUST_BIN, inlined calls included,
 from its DWARF line tables and attributes the samples to algorithm cards (see
 `algo-graph profile --help`). The receipt gains profile.json.gz (samply's profile; open it with
-`samply load profile.json.gz` while KRUST_BIN is unchanged), stacks.json (the symbolicated,
+`samply load profile.json.gz` while KRUST_BIN is unchanged), stacks.json.gz (the symbolicated,
 folded stacks), profile.toml (sampled self and total shares by algorithm, and the hottest code no
 card names), and the profiled run's stdout, stderr and meta.toml; metadata.json records
 `sampling` and `profiled`, and the atlas entry records `profile`. --profile-only profiles
 receipts recorded earlier (under --output) without recording them again. The profile is taken
 on the host UID only: samply needs perf_event_open. For a heavy workload the receipts are
 recorded by a guarded child invocation, and samply itself runs outside the memory guard (a
-cgroup memory limit breaks samply's perf buffers), after the same wait for available memory.
+cgroup memory limit can confound samply's startup; benchmarks/README.md, Profiling), after the
+same wait for available memory.
 
 Options:
   --workload NAME   Workload name from scripts/algo-workloads.toml (see --list)
@@ -90,8 +91,8 @@ Environment:
   ALGO_GRAPH        algo-graph binary (default: cargo run --release -p algo-graph)
   SAMPLY            samply binary (default: samply)
   ALGO_RECEIPT_TASKSET
-                    CPU list for the profiled run (default: 0-15; this host's perf buffers
-                    fail with `mmap failed` on more CPUs)
+                    CPU list for the profiled run (default: 0-15; on more CPUs this host's
+                    perf ring buffers fail with `mmap failed`)
   ALGO_RECEIPT_WORK Work root for prepared definitions and run scratch
                     (default: target/algo-receipts/work)
   K_CHECKOUT, IMP_SEMANTICS_CHECKOUT, WASM_SEMANTICS_CHECKOUT, EVM_SEMANTICS_CHECKOUT,
@@ -490,7 +491,7 @@ if [[ "$dry_run" == 1 ]]; then
     if [[ "$profile" == 1 || "$profile_only" == 1 ]]; then
       printf 'profiled (rep-1): %s < /dev/null\n' \
         "$(shell_command taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate" -o RECEIPT/profile.json.gz -- "$KRUST_BIN" "$command_kind" "${args[@]}")"
-      printf 'attribution: %s\n' "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply RECEIPT/profile.json.gz --binary "$KRUST_BIN" --graph RECEIPT/graph.toml --stacks RECEIPT/stacks.json -o RECEIPT/profile.toml)"
+      printf 'attribution: %s\n' "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply RECEIPT/profile.json.gz --binary "$KRUST_BIN" --graph RECEIPT/graph.toml --stacks RECEIPT/stacks.json.gz -o RECEIPT/profile.toml)"
     fi
     [[ "$profile_only" == 1 ]] || printf 'check: %s\n' "$(jq -c .check <<<"$resolved")"
     if [[ "$weight" == heavy && "$profile_only" == 0 ]]; then
@@ -511,7 +512,7 @@ if [[ "$weight" == heavy && -n "$memory_gib" ]]; then
 fi
 if [[ "$weight" == heavy && "$profile" == 1 ]]; then
   # The receipts are recorded by a child that enters the memory guard; samply then runs here,
-  # outside it, because a cgroup memory limit breaks its perf buffers.
+  # outside it, because a cgroup memory limit can confound samply's startup.
   record_args=()
   for argument in "${original_args[@]}"; do
     [[ "$argument" != --profile ]] && record_args+=("$argument")
@@ -813,7 +814,7 @@ profile_receipt() {
     timeout=(--timeout "$(($(jq -r .stop_seconds <<<"$resolved") * 3))")
   fi
   rm -rf "$run" && mkdir -p "$run"
-  rm -f "$receipt/profile.json.gz" "$receipt/stacks.json" "$receipt/profile.toml"
+  rm -f "$receipt/profile.json.gz" "$receipt/stacks.json.gz" "$receipt/profile.toml"
   local -a record=(taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate"
     -o "$receipt/profile.json.gz" -- "$KRUST_BIN" "$command_kind" "${args[@]}")
   log_command profiled "$(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" -- "${record[@]}") < /dev/null"
@@ -833,13 +834,13 @@ profile_receipt() {
     echo "error: the profiled run exited $exit_code (measured: $measured_exit) or wrote no profile; $receipt/profiled.stderr ends with:" >&2
     tail -n 5 "$receipt/profiled.stderr" >&2
     if grep -q 'mmap failed' "$receipt/profiled.stderr"; then
-      echo "hint: samply's perf buffers need a smaller CPU set (ALGO_RECEIPT_TASKSET) and no cgroup memory limit" >&2
+      echo "hint: samply's perf ring buffers need a smaller CPU set (ALGO_RECEIPT_TASKSET); see benchmarks/README.md, Profiling" >&2
     fi
     return 1
   fi
-  log_command attribution "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json" -o "$receipt/profile.toml")"
+  log_command attribution "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json.gz" -o "$receipt/profile.toml")"
   "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" \
-    --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json" \
+    --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json.gz" \
     -o "$receipt/profile.toml" 2>/dev/null \
     || { echo "error: algo-graph profile failed for $receipt" >&2; return 1; }
   samply_version=$("$SAMPLY" --version)

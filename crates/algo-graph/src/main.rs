@@ -10,7 +10,7 @@ use algo_graph::{
     query::{self, Answer, HotOrder, NotFound},
     read_atlas_index, read_join_file, read_stacks, receipt_graph, render_composition,
     render_composition_focus, render_drift, render_html, render_map, render_module_map,
-    render_pipeline, render_run_overlay, workspace_root, write_output, write_report,
+    render_pipeline, render_run_overlay, workspace_root, write_output, write_report, write_stacks,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
@@ -103,8 +103,8 @@ Examples:
     #[command(after_help = "\
 Examples:
   taskset -c 0-15 samply record --save-only -o profile.json.gz -- target/profiling/krust krun ...
-  algo-graph profile --samply profile.json.gz --binary target/profiling/krust --stacks stacks.json -o profile.toml
-  algo-graph profile --from-stacks stacks.json --graph receipt/graph.toml")]
+  algo-graph profile --samply profile.json.gz --binary target/profiling/krust --stacks stacks.json.gz -o profile.toml
+  algo-graph profile --from-stacks stacks.json.gz --graph receipt/graph.toml")]
     Profile(ProfileArgs),
 }
 
@@ -420,10 +420,11 @@ struct ProfileArgs {
     #[arg(long, value_name = "krust")]
     binary: Option<PathBuf>,
     /// Read stacks that an earlier --stacks wrote instead of a samply profile.
-    #[arg(long, value_name = "stacks.json")]
+    #[arg(long, value_name = "stacks.json.gz")]
     from_stacks: Option<PathBuf>,
-    /// Write the symbolicated, folded stacks here (JSON, one stack per line).
-    #[arg(long, value_name = "stacks.json", conflicts_with = "from_stacks")]
+    /// Write the symbolicated, folded stacks here (JSON, one stack per line; gzip-compressed when
+    /// the name ends in `.gz`).
+    #[arg(long, value_name = "stacks.json.gz", conflicts_with = "from_stacks")]
     stacks: Option<PathBuf>,
     /// Graph TOML whose algorithm sites own frames. Defaults to the graph built from --root.
     #[arg(long, value_name = "graph.toml")]
@@ -624,7 +625,7 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
                     let mut symbolizer = DwarfSymbolizer::new(binary, &root)?;
                     let stacks = fold_samply(profile, &name, &mut symbolizer)?;
                     if let Some(path) = &arguments.stacks {
-                        write_output(path, &stacks.json()?)?;
+                        write_stacks(path, &stacks)?;
                     }
                     stacks
                 }

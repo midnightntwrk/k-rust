@@ -159,12 +159,46 @@ impl Stacks {
     }
 }
 
-/// Read a stacks file written by [`Stacks::json`].
+/// Write `stacks` as [`Stacks::json`], gzip-compressed when `path` ends in `.gz`.
+pub fn write_stacks(path: &Path, stacks: &Stacks) -> Result<(), Error> {
+    use std::io::Write as _;
+    let json = stacks.json()?;
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    if path.extension().is_some_and(|extension| extension == "gz") {
+        let mut encoder =
+            flate2::write::GzEncoder::new(fs::File::create(path)?, flate2::Compression::default());
+        encoder.write_all(json.as_bytes())?;
+        encoder.finish()?;
+    } else {
+        fs::write(path, json)?;
+    }
+    Ok(())
+}
+
+/// A file's text, decompressed when it starts with the gzip magic bytes.
+fn read_text(path: &Path) -> Result<String, Error> {
+    let at = |error: &dyn std::fmt::Display| Error::Invalid(format!("{}: {error}", path.display()));
+    let bytes = fs::read(path).map_err(|error| at(&error))?;
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        let mut text = String::new();
+        flate2::read::GzDecoder::new(bytes.as_slice())
+            .read_to_string(&mut text)
+            .map_err(|error| at(&error))?;
+        Ok(text)
+    } else {
+        String::from_utf8(bytes).map_err(|error| at(&error))
+    }
+}
+
+/// Read a stacks file written by [`write_stacks`], plain or gzip-compressed.
 pub fn read_stacks(path: &Path) -> Result<Stacks, Error> {
     let at = |error: &dyn std::fmt::Display| Error::Invalid(format!("{}: {error}", path.display()));
-    let stacks: Stacks =
-        serde_json::from_str(&fs::read_to_string(path).map_err(|error| at(&error))?)
-            .map_err(|error| at(&error))?;
+    let stacks: Stacks = serde_json::from_str(&read_text(path)?).map_err(|error| at(&error))?;
     if stacks.schema != STACKS_SCHEMA_VERSION {
         return Err(at(&format!(
             "stacks schema {}, but this tool reads schema {STACKS_SCHEMA_VERSION}",
@@ -424,19 +458,9 @@ pub fn fold_samply(
     binary_name: &str,
     symbolizer: &mut dyn Symbolizer,
 ) -> Result<Stacks, Error> {
-    let at =
-        |error: &dyn std::fmt::Display| Error::Invalid(format!("{}: {error}", profile.display()));
-    let bytes = fs::read(profile).map_err(|error| at(&error))?;
-    let text = if bytes.starts_with(&[0x1f, 0x8b]) {
-        let mut text = String::new();
-        flate2::read::GzDecoder::new(bytes.as_slice())
-            .read_to_string(&mut text)
-            .map_err(|error| at(&error))?;
-        text
-    } else {
-        String::from_utf8(bytes).map_err(|error| at(&error))?
-    };
-    fold_samply_json(&text, binary_name, symbolizer).map_err(|error| at(&error))
+    let text = read_text(profile)?;
+    fold_samply_json(&text, binary_name, symbolizer)
+        .map_err(|error| Error::Invalid(format!("{}: {error}", profile.display())))
 }
 
 /// [`fold_samply`] over the profile's JSON text.
@@ -1240,15 +1264,18 @@ mod tests {
     fn stacks_round_trip_through_json() {
         let mut stacks = fixture();
         stacks.canonicalize();
-        let path = std::env::temp_dir().join(format!(
-            "algo-graph-stacks-{}-{:?}.json",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        fs::write(&path, stacks.json().unwrap()).unwrap();
-        let read = read_stacks(&path).unwrap();
-        fs::remove_file(&path).unwrap();
-        assert_eq!(read, stacks);
+        for extension in ["json", "json.gz"] {
+            let path = std::env::temp_dir().join(format!(
+                "algo-graph-stacks-{}-{:?}.{extension}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            write_stacks(&path, &stacks).unwrap();
+            let read = read_stacks(&path).unwrap();
+            fs::remove_file(&path).unwrap();
+            assert_eq!(read, stacks);
+        }
+        let read = stacks.clone();
         assert_eq!(read.samples(), 15);
     }
 
