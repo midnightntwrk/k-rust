@@ -1,7 +1,7 @@
 //! The expander protocol over tour-minimal and the authored-anchor and
 //! diagnostic probes.
 //!
-//! With `KRS_IR11_EVIDENCE` set to a directory, the tour-minimal test writes
+//! With `KRS_EXPAND_WASM_EVIDENCE` set to a directory, the tour-minimal test writes
 //! `request.json`, `response.json` (native), and `expanded.rs` there, and the
 //! invalid-probe test writes `invalid-request.json` and
 //! `invalid-response.json`, and the lookup test writes `lookup-request.json`
@@ -45,7 +45,7 @@ fn run(request: &Value) -> (Vec<u8>, Vec<u8>, Value) {
 }
 
 fn evidence_dir() -> Option<PathBuf> {
-    std::env::var_os("KRS_IR11_EVIDENCE").map(PathBuf::from)
+    std::env::var_os("KRS_EXPAND_WASM_EVIDENCE").map(PathBuf::from)
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn lookup_maps_authored_generated_and_table_ranges() {
 }
 
 #[test]
-fn bl005_invalid_sorts_reports_expected_identifier() {
+fn invalid_sorts_block_reports_expected_identifier() {
     let source = "k::sorts! { M2Obj: ; }\n";
     let expected = json!([{
         "origin": "expander",
