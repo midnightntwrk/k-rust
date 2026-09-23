@@ -1,0 +1,128 @@
+"""Discovery of the external executables and libraries the gates run."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import shutil
+
+from support import GateError
+from support.process import compact, run
+
+
+Z3_VERSION = "4.12.5"
+
+
+def executable(name: str) -> str:
+    """Resolve `name` on PATH or fail."""
+
+    found = shutil.which(name)
+    if found is None:
+        raise GateError(f"required executable is unavailable: {name}")
+    return found
+
+
+def z3_library_dir() -> Path:
+    """Locate the qualified Z3 shared-library directory.
+
+    `KRS_Z3_LIB` wins when set; it may name the library directory itself or the
+    package root that contains `lib/`. Otherwise the Nix store is searched.
+    """
+
+    configured = os.environ.get("KRS_Z3_LIB")
+    candidates = [Path(configured)] if configured else []
+    candidates.extend(sorted(Path("/nix/store").glob(f"*-z3-{Z3_VERSION}-lib/lib")))
+    for candidate in candidates:
+        for directory in (candidate, candidate / "lib"):
+            if directory.joinpath("libz3.so").is_file():
+                return directory
+    raise GateError(f"Z3 {Z3_VERSION} was not found; set KRS_Z3_LIB to its shared-library directory")
+
+
+def z3_environment() -> dict[str, str]:
+    """Link-time and run-time library paths with the qualified Z3 first."""
+
+    z3 = os.fspath(z3_library_dir())
+    return {
+        name: os.pathsep.join(item for item in (z3, os.environ.get(name)) if item)
+        for name in ("LIBRARY_PATH", "LD_LIBRARY_PATH")
+    }
+
+
+def find_k_tool(name: str) -> str | None:
+    """Locate one K executable: in `KRS_K_BIN` when set, otherwise on PATH."""
+
+    configured = os.environ.get("KRS_K_BIN")
+    if configured:
+        candidate = Path(configured) / name
+        return os.fspath(candidate) if candidate.is_file() and os.access(candidate, os.X_OK) else None
+    return shutil.which(name)
+
+
+def k_executable(name: str) -> str:
+    found = find_k_tool(name)
+    if found is None:
+        raise GateError(
+            f"required K tool {name!r} is unavailable; put the pinned K bin directory "
+            "on PATH or set KRS_K_BIN"
+        )
+    return found
+
+
+def k_tool(name: str, version: str) -> str:
+    """Locate one K executable and require it to report K `version` (no `v` prefix)."""
+
+    found = k_executable(name)
+    reported = run([found, "--version"], timeout=30, check=False)
+    if reported.returncode != 0 or f"v{version}" not in reported.stdout + reported.stderr:
+        raise GateError(f"{name} is not pinned to K v{version}: {compact(reported)}")
+    return found
+
+
+def rustfmt_dir() -> Path:
+    """Find the directory of a working rustfmt.
+
+    `KRS_RUSTFMT` wins, then rustfmt on PATH, then each rustup toolchain with
+    stable first, so an active toolchain that lacks rustfmt is bypassed.
+    """
+
+    configured = os.environ.get("KRS_RUSTFMT")
+    candidates = [configured] if configured else []
+    on_path = shutil.which("rustfmt")
+    if on_path is not None:
+        candidates.append(on_path)
+    rustup = shutil.which("rustup")
+    if rustup is not None:
+        listed = run([rustup, "toolchain", "list"], timeout=30, check=False)
+        toolchains = [line.split()[0] for line in listed.stdout.splitlines() if line.strip()]
+        toolchains.sort(key=lambda toolchain: (not toolchain.startswith("stable"), toolchain))
+        for toolchain in toolchains:
+            located = run(
+                [rustup, "which", "--toolchain", toolchain, "rustfmt"], timeout=30, check=False
+            )
+            if located.returncode == 0 and located.stdout.strip():
+                candidates.append(located.stdout.strip())
+    for candidate in candidates:
+        try:
+            probe = run([candidate, "--version"], timeout=30, check=False)
+        except OSError:
+            continue
+        if probe.returncode == 0:
+            return Path(candidate).parent
+    raise GateError("a working rustfmt was not found; set KRS_RUSTFMT to the executable")
+
+
+def rust_analyzer() -> Path:
+    """Locate the qualified rust-analyzer, preferring the pinned 1.97.1 builds."""
+
+    candidates = [
+        Path("/var/tmp/krs-ra-1.97.1-bin/rust-analyzer"),
+        Path("/var/tmp/krs-rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rust-analyzer"),
+    ]
+    ambient = shutil.which("rust-analyzer")
+    if ambient:
+        candidates.append(Path(ambient))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.absolute()
+    raise GateError("could not locate the qualified rust-analyzer")

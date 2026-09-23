@@ -1,0 +1,37 @@
+"""Shared, standard-library-only support for the `tests/<gate>/` verifiers.
+
+A verifier puts `tests/` on `sys.path` in one line and imports what it needs:
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from support import ROOT, GateError
+    from support.process import run
+
+The modules are:
+
+- `support.process`: subprocess execution with captured output and process-group
+  cleanup;
+- `support.hashing`: file, text, canonical-JSON, tracked-tree, and artifact
+  directory digests;
+- `support.pins`: JSON and TOML ledger loading;
+- `support.tools`: executable, Z3 library, K tool, rustfmt, and rust-analyzer
+  discovery;
+- `support.checkouts`: pinned external checkout verification;
+- `support.kdefinition`: helpers over emitted K definitions and KORE;
+- `support.lsp`: the rust-analyzer probe shared by the semantics gates.
+
+Its unit tests run with
+
+    PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/support -t tests
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[2]
+"""The repository root."""
+
+
+class GateError(RuntimeError):
+    """A required gate step failed, or observed evidence differs from its pin."""
