@@ -235,9 +235,9 @@ pub fn ensures(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Ensures, attributes, item)
 }
 
-/// Parses the M1 named-term subset as a Rust expression.
+/// Parses the named-term subset as a Rust expression.
 ///
-/// At M1 this is a type-checking placeholder, not a runtime term builder. Its
+/// This is a type-checking placeholder, not a runtime term builder. Its
 /// expansion validates authored Rust paths inside a never-called closure and
 /// then panics if evaluated. Rule attributes consume their nested `term!`
 /// payloads before this function-like macro is expanded.

@@ -85,7 +85,7 @@ fn rejected_surface_reports_local_failures() {
             "malformed_constructor_attr",
             "missing required argument `sort = ...`",
         ),
-        ("tuple_constructor", "tuple structs are outside M1"),
+        ("tuple_constructor", "tuple structs are not supported"),
         ("unsupported_rule", "the root must be a named path"),
         ("unsupported_term", "root must be a named path"),
         ("missing_path", "cannot find module or crate `missing`"),

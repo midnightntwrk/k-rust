@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded rust-analyzer probe for the production M2 macro surface."""
+"""Bounded rust-analyzer probe for the production macro surface."""
 
 from __future__ import annotations
 
