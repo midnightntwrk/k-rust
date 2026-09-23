@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a command, record wall time, peak RSS (max over descendants, via RUSAGE_CHILDREN), exit code.
+"""Run a command, record wall time, peak RSS (max over the command and its descendants), exit code.
 
 Usage: measure.py --log PREFIX [--timeout SECS] [--stdout-keep-bytes N [--stdout-check CHECK]] -- cmd args...
 Writes PREFIX.stdout, PREFIX.stderr, PREFIX.meta.toml.
@@ -10,11 +10,18 @@ With --stdout-keep-bytes, stdout goes through a pipe that this process reads as 
 replaced by its first 64 KiB, PREFIX.stdout.head; meta.toml gains stdout_bytes, stdout_sha256
 and stdout_kept. With --stdout-check, the stdout predicates of that check.json are evaluated on
 the stream and written to PREFIX.stdout-check.json. The reader is a thread of this process, not
-a child, so RUSAGE_CHILDREN (peak RSS, user and system time) still covers only the command; the
-wall time ends when the command exits, before the reader finishes the last queued blocks. If
+a child, so the resource usage (peak RSS, user and system time) still covers only the command;
+the wall time ends when the command exits, before the reader finishes the last queued blocks. If
 the reader fails, meta.toml has no stdout fields and measure.py exits 125.
+
+The command is reaped by a blocking wait4, whose resource usage is the command's own (with its
+waited-for descendants), and the wall time ends when that wait returns. With --timeout, a pidfd
+of the command is polled first with the timeout, so the exit is noticed when it happens rather
+than at a polling step; at the timeout the command's process group is killed with SIGKILL. The
+command is not reaped before the kill, so its process group ID cannot have been reused.
+Requires Linux 5.3 or later (pidfd_open).
 """
-import argparse, fcntl, json, os, resource, subprocess, sys, threading, time, signal
+import argparse, fcntl, json, math, os, select, subprocess, sys, threading, time, signal
 
 import stdout_stream
 
@@ -56,14 +63,20 @@ if streamed:
 
     reader = threading.Thread(target=read_stdout)
     reader.start()
-try:
-    rc = proc.wait(timeout=a.timeout)
-except subprocess.TimeoutExpired:
-    timed_out = True
-    os.killpg(proc.pid, signal.SIGKILL)
-    rc = proc.wait()
+if a.timeout is not None:
+    pidfd = os.pidfd_open(proc.pid)
+    try:
+        poller = select.poll()
+        poller.register(pidfd, select.POLLIN)
+        # The pidfd becomes readable when the command exits; it stays unreaped until wait4.
+        if not poller.poll(max(0, math.ceil(a.timeout * 1000))):
+            timed_out = True
+            os.killpg(proc.pid, signal.SIGKILL)
+    finally:
+        os.close(pidfd)
+_, status, ru = os.wait4(proc.pid, 0)
 wall = time.monotonic() - t0
-ru = resource.getrusage(resource.RUSAGE_CHILDREN)
+rc = proc.returncode = os.waitstatus_to_exitcode(status)
 if streamed:
     reader.join()
     proc.stdout.close()
