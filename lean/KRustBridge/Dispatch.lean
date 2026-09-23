@@ -11,6 +11,10 @@ ones the proofs are about; this library defines no model function of its own.
   "findK":      term ↦ `KRust.TermAttributes.findK term []`, a list of terms; compared with the
                 cells `find_k_cells` (rule.rs:789-840) pushes into an empty vector, as `rule_index`
                 (rule.rs:766-777) calls it.
+  "ceilFree":   [term, …] ↦ [`KRust.TermAttributes.ceilFree term`, …], one Boolean per term;
+                the Rust sends every subterm of a generated term, and compares each answer with
+                the stored attribute `TermAttributes::ceil_free`, which `Term::new` sets from
+                term.rs `ceil_free`.
 -/
 
 namespace KRust.Bridge
@@ -25,7 +29,10 @@ def models : List (String × (Json → Except String Json)) :=
         | none => Json.null),
    ("findK", fun input => do
       let t ← termFromJson input
-      return Json.arr ((KRust.TermAttributes.findK t []).map termToJson).toArray)]
+      return Json.arr ((KRust.TermAttributes.findK t []).map termToJson).toArray),
+   ("ceilFree", fun input => do
+      let ts ← (← input.getArr?).toList.mapM termFromJson
+      return Json.arr (ts.map fun t => Json.bool (KRust.TermAttributes.ceilFree t)).toArray)]
 
 /-- Answer one request `{"id": n, "model": m, "input": x}` with `{"id": n, "output": y}`, or with
 `{"id": n, "error": message}` when the request or its input does not decode. -/

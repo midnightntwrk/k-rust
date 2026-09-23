@@ -126,7 +126,7 @@ Representation flow into [execution result]:
 No phase contains these algorithms and no representation connects them to a command's roots; the graph does not say which command runs them or when.
 
 - backend.alias.unfold — O(o + b x (p + r)) +1 mode
-- backend.definedness.discharge — O(t) visits with one deduplication clone each… +1 mode — in: [match result]
+- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +1 mode — in: [match result]
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode
 - backend.fresh.object_language — O(s + (k + b + 1) x t + k x r + m^2 per map) plus…
 - backend.fresh.variables — O(c) per name, amortized O(1) +3 modes
@@ -258,8 +258,8 @@ Each group names a producer whose output later algorithms or contracts rely on w
 
 Each `algorithm-representation` card states what every value of one type satisfies and names the sites that establish it; `query show <id>` prints the site anchors and tests.
 
-- representation.backend.term — `backend::term::Term` — sites: Term, TermData, Term::new, Term::map, Term::set, Term::with_evaluated_cache, calculate_hash, Term::eq, Term::cmp
-  - Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct.
+- representation.backend.term — `backend::term::Term` — sites: Term, TermData, Term::new, Term::map, Term::set, Term::with_evaluated_cache, calculate_hash, ceil_free, key_header, share_one_key_header, Term::eq, Term::cmp
+  - Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct.
 
 ## Lean proofs
 

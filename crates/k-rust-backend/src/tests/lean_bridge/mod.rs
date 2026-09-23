@@ -8,7 +8,8 @@
 //! Opt-in: the tests are skipped with a message unless `K_RUST_LEAN_BRIDGE=1`; with the switch
 //! set, a missing `lake` is a failure. `scripts/lean-check.sh --bridge` sets it.
 
+mod attributes;
 mod driver;
-mod generators;
+pub(super) mod generators;
 mod term_json;
 mod walks;

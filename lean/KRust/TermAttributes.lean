@@ -11,9 +11,15 @@ definition, and `Sym` keeps an `other` field for every `Symbol` field the walks 
 `KoreString` are modelled as strings, so the model assumes their Rust equality and order are those
 of an injective string encoding.
 
-The attributes `ceilFree`, `hasMacro` and `kCells`, and the fetch `fetchK`, are designs (OT-01,
-OT-02); they have no Rust counterpart at the anchor commit. The functions they replace
-(`ceil_term_recursive`, `macro_or_alias_symbol`, `find_k_cells`) are modelled from the Rust.
+The attributes `ceilFree`, `hasMacro` and `kCells`, and the fetch `fetchK`, were designed here
+(OT-01, OT-02) before the Rust had them; the functions they replace (`ceil_term_recursive`,
+`macro_or_alias_symbol`, `find_k_cells`) are modelled from the Rust at the anchor commit.
+OT-01 implements `ceilFree` as crates/k-rust-backend/src/term.rs `ceil_free` (with `key_header`
+and `share_one_key_header` for `keyHeader` and `oneHeader`), stored by `Term::new` in
+`TermAttributes::ceil_free`; `ceil_term_recursive` returns at once when it is set, and the
+walk it replaces is kept as `ceil_term_node`. The lean bridge compares the stored attribute with
+`ceilFree` at every subterm (`tests::lean_bridge::attributes`). `hasMacro`, `kCells` and `fetchK`
+have no Rust counterpart yet.
 
 Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 2aec72c7):
   crates/k-rust-backend/src/term.rs

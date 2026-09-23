@@ -122,36 +122,80 @@ fn leaf() -> impl Strategy<Value = Term> {
     ]
 }
 
-pub(super) fn term() -> impl Strategy<Value = Term> {
-    leaf().prop_recursive(6, 96, 4, |inner| {
+pub(in crate::tests) fn term() -> impl Strategy<Value = Term> {
+    terms(false)
+}
+
+/// Like `term`, but two map keys or set elements in three are drawn from `collection_key`, so
+/// that maps and sets whose keys share one header (the `ceil_free` class of term.rs), keys with
+/// different headers, and equal keys under different values are all frequent.
+pub(in crate::tests) fn term_with_ground_keys() -> impl Strategy<Value = Term> {
+    terms(true)
+}
+
+fn domain_value() -> impl Strategy<Value = Term> {
+    (
         prop_oneof![
-            4 => (symbol(), prop::collection::vec(sort(), 0..2), prop::collection::vec(inner.clone(), 0..4))
-                .prop_map(|(symbol, sorts, arguments)| Term::application(symbol, sorts, arguments)),
-            1 => (inner.clone(), inner.clone()).prop_map(|(left, right)| Term::and(left, right)),
-            1 => (sort(), sort(), inner.clone())
-                .prop_map(|(source, target, term)| Term::injection(source, target, term)),
-            1 => (
-                any::<bool>(),
-                prop::collection::vec((inner.clone(), inner.clone()), 0..4),
-                prop::option::of(inner.clone()),
-            )
-                .prop_map(|(second, entries, rest)| Term::map(map_definition(second), entries, rest)),
-            1 => (
-                any::<bool>(),
-                prop::collection::vec(inner.clone(), 0..4),
-                prop::option::of((inner.clone(), prop::collection::vec(inner.clone(), 0..3))),
-            )
-                .prop_map(|(second, heads, rest)| {
-                    Term::list(list_definition("List", second), heads, rest)
-                }),
-            1 => (
-                any::<bool>(),
-                prop::collection::vec(inner.clone(), 0..4),
-                prop::option::of(inner),
-            )
-                .prop_map(|(second, elements, rest)| {
-                    Term::set(list_definition("Set", second), elements, rest)
-                }),
+            Just(Sort::builtin(BuiltinSort::Int)),
+            Just(Sort::simple("SortKItem"))
+        ],
+        prop_oneof![Just("0"), Just("007"), Just("1")],
+    )
+        .prop_map(|(sort, value)| Term::domain_value(sort, value))
+}
+
+/// A domain value, or an injection of one with two sources and two targets.
+fn collection_key() -> impl Strategy<Value = Term> {
+    let sort = || {
+        prop_oneof![
+            Just(Sort::builtin(BuiltinSort::Int)),
+            Just(Sort::simple("SortKItem"))
         ]
-    })
+    };
+    prop_oneof![
+        domain_value(),
+        (sort(), sort(), domain_value())
+            .prop_map(|(source, target, term)| Term::injection(source, target, term)),
+    ]
+}
+
+fn terms(keys: bool) -> BoxedStrategy<Term> {
+    leaf()
+        .prop_recursive(6, 96, 4, move |inner| {
+            let key = if keys {
+                prop_oneof![2 => collection_key(), 1 => inner.clone()].boxed()
+            } else {
+                inner.clone().boxed()
+            };
+            prop_oneof![
+                4 => (symbol(), prop::collection::vec(sort(), 0..2), prop::collection::vec(inner.clone(), 0..4))
+                    .prop_map(|(symbol, sorts, arguments)| Term::application(symbol, sorts, arguments)),
+                1 => (inner.clone(), inner.clone()).prop_map(|(left, right)| Term::and(left, right)),
+                1 => (sort(), sort(), inner.clone())
+                    .prop_map(|(source, target, term)| Term::injection(source, target, term)),
+                1 => (
+                    any::<bool>(),
+                    prop::collection::vec((key.clone(), inner.clone()), 0..4),
+                    prop::option::of(inner.clone()),
+                )
+                    .prop_map(|(second, entries, rest)| Term::map(map_definition(second), entries, rest)),
+                1 => (
+                    any::<bool>(),
+                    prop::collection::vec(inner.clone(), 0..4),
+                    prop::option::of((inner.clone(), prop::collection::vec(inner.clone(), 0..3))),
+                )
+                    .prop_map(|(second, heads, rest)| {
+                        Term::list(list_definition("List", second), heads, rest)
+                    }),
+                1 => (
+                    any::<bool>(),
+                    prop::collection::vec(key, 0..4),
+                    prop::option::of(inner),
+                )
+                    .prop_map(|(second, elements, rest)| {
+                        Term::set(list_definition("Set", second), elements, rest)
+                    }),
+            ]
+        })
+        .boxed()
 }

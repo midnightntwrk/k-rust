@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "normalized_ground_terms_are_distinct"]
-//! variable = "t = term size; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
+//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "normalized_ground_terms_are_distinct"]
+//! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 //! span = "per call"
@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(t) visits with one deduplication clone each, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
 //!
 //! [[cost]]
 //! mode = "one definition (discharge_rewrite_definedness)"
@@ -19,8 +19,9 @@
 //! ```
 //!
 //! Structural definedness (ceil) constraint generation and rewrite-rule definedness discharge, one
-//! pass over the term plus pairwise distinctness checks over map keys and set elements, with
-//! `FxHashSet` deduplication; no counter, no worklist loop.
+//! pass over the term, which stops at subterms whose construction-time `ceil_free` attribute is
+//! true, plus pairwise distinctness checks over map keys and set elements, with `FxHashSet`
+//! deduplication; no counter, no worklist loop.
 
 use std::sync::Arc;
 
@@ -97,7 +98,40 @@ pub fn ceil_term(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> 
     ceil_term_recursive(definition, term)
 }
 
+/// `ceil_term` below the span: returns at once on a `ceil_free` term.
+///
+/// Sound because `ceil_free` (term.rs) is true only when `ceil_term_node` would return no
+/// predicate for the term under every definition: `lean/KRust/TermAttributes.lean` proves it
+/// (`ceilFree_sound`) for the model of `ceil_term_node` and of the attribute, from the constructor
+/// invariants that `tests/backend/term_order.rs` checks. The attribute depends only on the term,
+/// never on the definition, so one stored bit serves every definition a process holds. In debug
+/// builds the walk that never reads the attribute is recomputed wherever the shortcut is taken.
 fn ceil_term_recursive(definition: &BackendDefinition, term: &Term) -> Vec<Predicate> {
+    if term.attributes().ceil_free() {
+        debug_assert!(
+            ceil_term_without_attribute(definition, term).is_empty(),
+            "a ceil_free term has definedness obligations: {term:?}"
+        );
+        return Vec::new();
+    }
+    ceil_term_node(definition, term, ceil_term_recursive)
+}
+
+/// The definedness walk without the `ceil_free` shortcut at any depth: the reference the
+/// shortcut is checked against (the `debug_assert!` above and `tests::definedness`).
+pub(crate) fn ceil_term_without_attribute(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Vec<Predicate> {
+    ceil_term_node(definition, term, ceil_term_without_attribute)
+}
+
+/// One node of the definedness walk; `recurse` computes the children's predicates.
+fn ceil_term_node(
+    definition: &BackendDefinition,
+    term: &Term,
+    recurse: fn(&BackendDefinition, &Term) -> Vec<Predicate>,
+) -> Vec<Predicate> {
     let mut predicates = match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
@@ -107,31 +141,31 @@ fn ceil_term_recursive(definition: &BackendDefinition, term: &Term) -> Vec<Predi
             // Applications are strict in their arguments. Keep this knowledge explicit
             // even when the parent's ceil is opaque to predicate simplification and SMT.
             for argument in arguments {
-                predicates.extend(ceil_term_recursive(definition, argument));
+                predicates.extend(recurse(definition, argument));
             }
             predicates
         }
         TermKind::Application { arguments, .. } => arguments
             .iter()
-            .flat_map(|argument| ceil_term_recursive(definition, argument))
+            .flat_map(|argument| recurse(definition, argument))
             .collect(),
         TermKind::And(left, right) => {
-            let mut predicates = ceil_term_recursive(definition, left);
-            predicates.extend(ceil_term_recursive(definition, right));
+            let mut predicates = recurse(definition, left);
+            predicates.extend(recurse(definition, right));
             predicates
         }
-        TermKind::Injection { term, .. } => ceil_term_recursive(definition, term),
+        TermKind::Injection { term, .. } => recurse(definition, term),
         TermKind::Map { entries, rest, .. } => {
             let mut predicates = entries
                 .iter()
                 .flat_map(|(key, value)| {
-                    ceil_term_recursive(definition, key)
+                    recurse(definition, key)
                         .into_iter()
-                        .chain(ceil_term_recursive(definition, value))
+                        .chain(recurse(definition, value))
                 })
                 .collect::<Vec<_>>();
             if let Some(rest) = rest {
-                predicates.extend(ceil_term_recursive(definition, rest));
+                predicates.extend(recurse(definition, rest));
             }
             for (position, (left, _)) in entries.iter().enumerate() {
                 for (right, _) in &entries[position + 1..] {
@@ -154,15 +188,15 @@ fn ceil_term_recursive(definition: &BackendDefinition, term: &Term) -> Vec<Predi
                 rest.iter()
                     .flat_map(|(middle, tails)| std::iter::once(middle).chain(tails)),
             )
-            .flat_map(|term| ceil_term_recursive(definition, term))
+            .flat_map(|term| recurse(definition, term))
             .collect(),
         TermKind::Set { elements, rest, .. } => {
             let mut predicates = elements
                 .iter()
-                .flat_map(|element| ceil_term_recursive(definition, element))
+                .flat_map(|element| recurse(definition, element))
                 .collect::<Vec<_>>();
             if let Some(rest) = rest {
-                predicates.extend(ceil_term_recursive(definition, rest));
+                predicates.extend(recurse(definition, rest));
             }
             for (position, left) in elements.iter().enumerate() {
                 for right in &elements[position + 1..] {

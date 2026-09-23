@@ -988,7 +988,7 @@ id = "backend.definedness.discharge"
 provenance = "declared"
 area = "backend"
 name = "structural definedness constraint generation and discharge"
-variable = "t = term size; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
+variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
 span = "per call"
 table = "Algorithm::ALL"
@@ -1033,11 +1033,21 @@ symbol = "ceil_term_recursive"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "ceil_term_without_attribute"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "ceil_term_node"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "normalized_ground_terms_are_distinct"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
-bound = "O(t) visits with one deduplication clone each, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
 
 [[node.cost]]
 mode = "one definition (discharge_rewrite_definedness)"
@@ -6328,7 +6338,7 @@ id = "representation.backend.term"
 provenance = "declared"
 area = "backend"
 name = "immutable backend term with a cached structural hash"
-invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
 type_path = "k_rust_backend::term::Term"
 lean = [
     "KRust.TermAttributes.ceilFree_sound",
@@ -6375,6 +6385,21 @@ symbol = "Term::with_evaluated_cache"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term.rs"
 symbol = "calculate_hash"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "ceil_free"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "key_header"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "share_one_key_header"
 
 [[node.sites]]
 crate = "k-rust-backend"

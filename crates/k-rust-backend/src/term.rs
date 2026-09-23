@@ -9,8 +9,8 @@
 //! id = "representation.backend.term"
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
-//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "Term::eq", "Term::cmp"]
-//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "ceil_free", "key_header", "share_one_key_header", "Term::eq", "Term::cmp"]
+//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
 //! ```
@@ -278,6 +278,8 @@ pub struct TermAttributes {
     pub constructor_like: bool,
     pub concrete_after_normalization: bool,
     pub can_be_evaluated: bool,
+    /// See [`TermAttributes::ceil_free`]; set only by `Term::new`, from the kind.
+    ceil_free: bool,
     hash: u64,
 }
 
@@ -289,8 +291,17 @@ impl Default for TermAttributes {
             constructor_like: false,
             concrete_after_normalization: false,
             can_be_evaluated: true,
+            ceil_free: false,
             hash: 0,
         }
+    }
+}
+
+impl TermAttributes {
+    /// Whether `definedness::ceil_term` of this term is empty for every definition, by
+    /// construction: see `ceil_free`, which `Term::new` stores here.
+    pub fn ceil_free(&self) -> bool {
+        self.ceil_free
     }
 }
 
@@ -931,9 +942,104 @@ impl Term {
 
     fn new(kind: TermKind, mut attributes: TermAttributes) -> Self {
         measure::bump(Counter::TermConstructed);
+        attributes.ceil_free = ceil_free(&kind);
         attributes.hash = calculate_hash(&kind);
         Self(Arc::new(TermData { attributes, kind }))
     }
+}
+
+/// The `ceil_free` attribute of a node with this kind, from its children's stored attributes, in
+/// time linear in the number of children.
+///
+/// Meaning: when it is true, `definedness::ceil_term_recursive` returns no predicate for the term,
+/// whatever the definition. Each arm follows from the arm of `ceil_term_recursive` for the same
+/// kind, which emits a predicate of its own only in these cases:
+/// - an application of a `Partial` function emits its ceil (or a ceil equation's predicates);
+///   any other application only collects its arguments' predicates;
+/// - `And`, an injection and a list only collect their children's predicates;
+/// - a domain value and an element variable emit nothing; a set variable emits its ceil;
+/// - a map or a set emits a not-in predicate per key or element when it has a rest, and a
+///   disequality for each pair of keys (elements) that `normalized_ground_terms_are_distinct`
+///   does not separate.
+///
+/// For the pairs, the attribute accepts only keys that share one `KeyHeader`: all domain values,
+/// or all `inj{S, T}` of a domain value for one `S` and `T`. Two distinct such keys are separated
+/// by `structurally_distinct_after_normalization` alone, so the matcher that
+/// `normalized_ground_terms_are_distinct` falls back on is never needed. Keys with different
+/// headers, such as `inj{Int, KItem}(1)` and `inj{String, KItem}("a")`, fall to that matcher, and
+/// the attribute is false for them. Distinctness of the keys themselves comes from the
+/// constructors: `Term::set` sorts and deduplicates its elements, so they are pairwise distinct;
+/// `Term::map` sorts its entries by `(key, value)` but deduplicates pairs, not keys, so `k |-> 1`
+/// and `k |-> 2` can both survive, adjacent, and the attribute checks that adjacent keys differ.
+/// Those constructor invariants and the order they rely on are checked by
+/// `tests/backend/term_order.rs` (`constructed_collections_are_sorted`,
+/// `ord_for_term_is_transitive`, `ord_for_term_equal_is_eq`).
+///
+/// This is the function `ceilFree` of `lean/KRust/TermAttributes.lean`, which proves the meaning
+/// above (`ceilFree_sound`); `tests::lean_bridge` compares it with the Lean definition, and the
+/// `debug_assert!` in `definedness::ceil_term_recursive` recomputes the walk wherever it is true.
+fn ceil_free(kind: &TermKind) -> bool {
+    let free = |term: &Term| term.attributes().ceil_free;
+    match kind {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
+                && arguments.iter().all(free)
+        }
+        TermKind::And(left, right) => free(left) && free(right),
+        TermKind::Injection { term, .. } => free(term),
+        TermKind::DomainValue { .. } => true,
+        TermKind::Variable(variable) => variable.kind == VariableKind::Element,
+        TermKind::Map { entries, rest, .. } => {
+            rest.is_none()
+                && entries.iter().all(|(key, value)| free(key) && free(value))
+                && share_one_key_header(entries.iter().map(|(key, _)| key))
+                && entries.windows(2).all(|pair| pair[0].0 != pair[1].0)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().all(free)
+                && rest
+                    .as_ref()
+                    .is_none_or(|(middle, tails)| free(middle) && tails.iter().all(free))
+        }
+        TermKind::Set { elements, rest, .. } => {
+            rest.is_none() && elements.iter().all(free) && share_one_key_header(elements.iter())
+        }
+    }
+}
+
+/// The class of a collection key for which `structurally_distinct_after_normalization` decides
+/// distinctness from another key of the same class (`keyHeader` in the Lean model).
+#[derive(PartialEq)]
+enum KeyHeader<'a> {
+    DomainValue,
+    Injection { source: &'a Sort, target: &'a Sort },
+}
+
+fn key_header(key: &Term) -> Option<KeyHeader<'_>> {
+    match key.kind() {
+        TermKind::DomainValue { .. } => Some(KeyHeader::DomainValue),
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } if matches!(term.kind(), TermKind::DomainValue { .. }) => {
+            Some(KeyHeader::Injection { source, target })
+        }
+        _ => None,
+    }
+}
+
+/// Every key has a header, and all share the first key's (`oneHeader` in the Lean model).
+fn share_one_key_header<'a>(mut keys: impl Iterator<Item = &'a Term>) -> bool {
+    let Some(first) = keys.next() else {
+        return true;
+    };
+    let Some(header) = key_header(first) else {
+        return false;
+    };
+    keys.all(|key| key_header(key).as_ref() == Some(&header))
 }
 
 fn options_ptr_eq(left: Option<&Term>, right: Option<&Term>) -> bool {
