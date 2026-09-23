@@ -1,12 +1,13 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base"]
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::read_model", "or_all"]
 //! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
+//! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree", "KRust.MaximalModels.runs_agree_lowered"]
 //!
 //! [[cost]]
 //! mode = "encoding construction"

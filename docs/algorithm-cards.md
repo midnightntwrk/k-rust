@@ -67,7 +67,7 @@ It is a TOML fence tagged `algorithm-representation` in the `//!` head of the ty
 
 ```toml
 id = "representation.backend.term"
-name = "immutable hash-consed backend term"
+name = "immutable backend term with a cached structural hash"
 type = "k_rust_backend::term::Term"
 sites = ["Term::new", "Term::map", "Term::set"]
 invariant = "…"
@@ -317,7 +317,7 @@ They intentionally have no primary card:
 [[without_primary_card]]
 files = ["crates/k-rust-backend/src/term.rs", "crates/k-rust-backend/src/term/names.rs"]
 classification = "responsibility-only"
-reason = "shared immutable term representation and naming vocabulary"
+reason = "shared immutable term representation and naming vocabulary; the constructor invariants of term.rs are on its representation card, representation.backend.term"
 
 [[without_primary_card]]
 files = ["crates/k-rust-backend/src/smt.rs"]

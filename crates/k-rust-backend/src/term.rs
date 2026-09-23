@@ -1,6 +1,19 @@
 //! Immutable backend terms with cached synthetic attributes (`variables`, `evaluated`,
 //! `constructor_like`): the layer-1 representation every algorithm shares; a responsibility, not
 //! an algorithm; `Counter::TermConstructed` per construction; no worklist.
+//!
+//! The invariants every `Term` satisfies, which the Lean term model (`lean/KRust/TermAttributes.lean`,
+//! `WF` and `TotalOrder`) assumes and `tests/backend/term_order.rs` checks:
+//!
+//! ```toml algorithm-representation
+//! id = "representation.backend.term"
+//! name = "immutable backend term with a cached structural hash"
+//! type = "k_rust_backend::term::Term"
+//! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "Term::eq", "Term::cmp"]
+//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+//! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
+//! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
+//! ```
 
 use std::{
     cmp::Ordering,

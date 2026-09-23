@@ -993,6 +993,7 @@ no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPa
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendDefinedness"
+lean = ["KRust.TermAttributes.ceilFree_sound"]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -1028,6 +1029,11 @@ symbol = "deduplicate"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "ceil_term_recursive"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "normalized_ground_terms_are_distinct"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
@@ -1786,6 +1792,7 @@ no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bu
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendRuleSelect"
+lean = ["KRust.TermAttributes.rule_index_same"]
 
 [node.anchor]
 crate = "k-rust-backend"
@@ -1816,6 +1823,11 @@ symbol = "rule_index"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
 symbol = "subject_index"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "find_k_cells"
 
 [[node.cost]]
 mode = "one subject"
@@ -2375,6 +2387,18 @@ symbol = "PassInput::resolved_raw"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "PassInput::resolved_raw"
+
+[[node]]
+kind = "observation"
+id = "crates/k-rust-backend/tests/backend/term_order.rs"
+provenance = "declared"
+area = "backend"
+name = "crates/k-rust-backend/tests/backend/term_order.rs"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/tests/backend/term_order.rs"
+symbol = "crates/k-rust-backend/tests/backend/term_order.rs"
 
 [[node]]
 kind = "phase"
@@ -5861,6 +5885,13 @@ variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typing
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferenceZ3"
+lean = [
+    "KRust.SubsortEncoding.new_equiv",
+    "KRust.MaximalModels.maximal_models_spec",
+    "KRust.MaximalModels.runs_agree_up_to_pref",
+    "KRust.MaximalModels.runs_agree",
+    "KRust.MaximalModels.runs_agree_lowered",
+]
 
 [node.anchor]
 crate = "k-rust"
@@ -5881,6 +5912,61 @@ symbol = "Grammar::infer_sorts_z3"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
 symbol = "encoding_base"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "EncodingBase::sort_value"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "EncodingBase::order_relation"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "EncodingBase::decode_sort"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::less_than_eq"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::restrict_to_real_sorts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::exclude_klabel_parameters"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::seed_model"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::prefer_parameters"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::maximal_models"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::read_model"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "or_all"
 
 [[node.cost]]
 mode = "encoding construction"
@@ -6202,6 +6288,70 @@ sequence = 49
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "remove_unit"
+
+[[node]]
+kind = "invariant"
+id = "representation.backend.term"
+provenance = "declared"
+area = "backend"
+name = "immutable backend term with a cached structural hash"
+invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+type_path = "k_rust_backend::term::Term"
+lean = [
+    "KRust.TermAttributes.ceilFree_sound",
+    "KRust.TermAttributes.map_keys_pairwise_distinct",
+    "KRust.TermAttributes.set_pairwise_distinct",
+]
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "TermData"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::map"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::set"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::with_evaluated_cache"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "calculate_hash"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::eq"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
+symbol = "Term::cmp"
 
 [[node]]
 kind = "phase"
@@ -7953,6 +8103,12 @@ from = "remove units"
 to = "minimize term construction"
 provenance = "table"
 order = 49
+
+[[edge]]
+kind = "measured-by"
+from = "representation.backend.term"
+to = "crates/k-rust-backend/tests/backend/term_order.rs"
+provenance = "declared"
 
 [[edge]]
 kind = "contains"

@@ -1,11 +1,12 @@
 //! ```toml algorithm
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
-//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index"]
+//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "find_k_cells"]
 //! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; t = subject term nodes"
 //! counters = []
 //! span = "per call"
 //! no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
+//! lean = ["KRust.TermAttributes.rule_index_same"]
 //!
 //! [[cost]]
 //! mode = "one subject"
