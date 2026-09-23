@@ -266,13 +266,7 @@ pub fn raw_match_condition_output(
         externalize::BindingOrder::NameThenSort,
         externalize::ConjunctionShape::LeftNested,
     )
-    .map(|pattern| {
-        pattern
-            .conjuncts_at(&predicate_sort_kore)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    })
+    .map(|pattern| pattern.into_conjuncts_at(&predicate_sort_kore))
     .unwrap_or_default();
     predicates.extend(
         constraints
@@ -336,11 +330,7 @@ pub fn filter_match_condition(
     function_symbols: &BTreeSet<String>,
 ) -> KorePattern {
     let disjuncts = condition
-        .disjuncts_at(result_sort)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    let disjuncts = disjuncts
+        .into_disjuncts_at(result_sort)
         .into_iter()
         .map(|condition| {
             filter_match_conjunction(
@@ -374,11 +364,7 @@ pub fn filter_match_conjunction(
         .collect::<BTreeMap<_, _>>();
     let generated_anonymous_variables = generated_kore_identities(generated_anonymous_variables);
     let conjuncts = condition
-        .conjuncts_at(result_sort)
-        .into_iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    let conjuncts = conjuncts
+        .into_conjuncts_at(result_sort)
         .into_iter()
         .filter(|pattern| {
             !is_filterable_generated_equality(

@@ -120,3 +120,39 @@ proptest! {
         prop_assert_eq!(codec::decode_bytes(&binary).unwrap(), pattern);
     }
 }
+
+/// Patterns built from `\and`, `\or`, `\top` and `\bottom` at two sorts over constant leaves, so
+/// that flattening at one sort meets matching nodes, units, and nodes of the other sort.
+fn connective_pattern() -> impl Strategy<Value = Pattern> {
+    let sort = prop_oneof![Just("S"), Just("T")].prop_map(|name| Sort::Variable(name.into()));
+    let leaf = prop_oneof![
+        "[a-c]".prop_map(|name| parsed(&format!("{name}{{}}()"))),
+        sort.clone().prop_map(|sort| Pattern::Top { sort }),
+        sort.clone().prop_map(|sort| Pattern::Bottom { sort }),
+    ];
+    leaf.prop_recursive(6, 64, 4, move |inner| {
+        (
+            sort.clone(),
+            prop::collection::vec(inner, 0..4),
+            any::<bool>(),
+        )
+            .prop_map(|(sort, arguments, and)| {
+                if and {
+                    Pattern::And { sort, arguments }
+                } else {
+                    Pattern::Or { sort, arguments }
+                }
+            })
+    })
+}
+
+proptest! {
+    #[test]
+    fn owned_flattening_equals_borrowed_flattening(pattern in connective_pattern(), s in any::<bool>()) {
+        let sort = Sort::Variable(if s { "S" } else { "T" }.into());
+        let conjuncts = pattern.conjuncts_at(&sort).into_iter().cloned().collect::<Vec<_>>();
+        let disjuncts = pattern.disjuncts_at(&sort).into_iter().cloned().collect::<Vec<_>>();
+        prop_assert_eq!(pattern.clone().into_conjuncts_at(&sort), conjuncts);
+        prop_assert_eq!(pattern.into_disjuncts_at(&sort), disjuncts);
+    }
+}

@@ -483,6 +483,46 @@ impl Pattern {
         result
     }
 
+    /// The operands `conjuncts_at` returns, moved out of `self` instead of borrowed, so that a
+    /// caller that consumes the conjunction does not hold it and a copy of its operands at once.
+    pub fn into_conjuncts_at(self, sort: &Sort) -> Vec<Pattern> {
+        self.into_flattened_at(sort, true)
+    }
+
+    /// The operands `disjuncts_at` returns, moved out of `self` instead of borrowed.
+    pub fn into_disjuncts_at(self, sort: &Sort) -> Vec<Pattern> {
+        self.into_flattened_at(sort, false)
+    }
+
+    fn into_flattened_at(self, sort: &Sort, conjunction: bool) -> Vec<Pattern> {
+        let mut result = Vec::new();
+        let mut work = vec![self];
+        // Invariant: as in `flatten_at`, with ownership: `result` holds, left to right, the popped operands that are neither a matching `And`/`Or` at `sort` nor its unit, and `work` holds the unvisited operands in reverse order. A matching node's arguments are taken out of it (`Pattern` implements `Drop`, so they cannot be destructured out) and pushed; the emptied node is then dropped. So every operand is moved, never copied, and the output equals `flatten_at(sort, conjunction)` element by element.
+        while let Some(mut pattern) = work.pop() {
+            let arguments = match &mut pattern {
+                Pattern::And {
+                    sort: node_sort,
+                    arguments,
+                } if conjunction && node_sort == sort => Some(std::mem::take(arguments)),
+                Pattern::Or {
+                    sort: node_sort,
+                    arguments,
+                } if !conjunction && node_sort == sort => Some(std::mem::take(arguments)),
+                Pattern::Top { sort: node_sort } if conjunction && node_sort == sort => continue,
+                Pattern::Bottom { sort: node_sort } if !conjunction && node_sort == sort => {
+                    continue;
+                }
+                _ => None,
+            };
+            if let Some(arguments) = arguments {
+                work.extend(arguments.into_iter().rev());
+            } else {
+                result.push(pattern);
+            }
+        }
+        result
+    }
+
     pub fn find_application(
         &self,
         mut accept: impl FnMut(&Symbol, &[Pattern]) -> bool,
