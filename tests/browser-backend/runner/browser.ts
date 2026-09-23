@@ -19,7 +19,7 @@ const { values } = parseArgs({
     out: { type: "string" },
     only: { type: "string", default: "" },
     port: { type: "string", default: "" },
-    firefox: { type: "string", default: "/usr/lib/firefox/firefox" },
+    firefox: { type: "string", default: process.env.KRS_FIREFOX ?? "/usr/lib/firefox/firefox" },
   },
 });
 const browser = values.browser as "chromium" | "firefox";

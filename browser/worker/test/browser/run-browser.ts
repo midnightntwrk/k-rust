@@ -19,7 +19,7 @@ export async function main(browser: "chromium" | "firefox", defaults: { port: st
       out: { type: "string", default: "/var/tmp/krs-ir15-run/evidence" },
       bundles: { type: "string", default: `/var/tmp/krs-ir15-run/${browser}` },
       oracle: { type: "string", default: "/var/tmp/krs-ir11-parity/oracle/descriptor-bundle.json" },
-      firefox: { type: "string", default: "/usr/lib/firefox/firefox" },
+      firefox: { type: "string", default: process.env.KRS_FIREFOX ?? "/usr/lib/firefox/firefox" },
       port: { type: "string", default: defaults.port },
     },
   });

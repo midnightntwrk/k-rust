@@ -29,9 +29,22 @@ scope.onmessage = (event) => {
     }
     try {
       context = createPipelineContext(message.pack, message.assets);
-      scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
     } catch (error) {
       scope.postMessage({ type: "init-error", message: String(error instanceof Error ? error.message : error) });
+      return;
+    }
+    const lease = message.lease;
+    const locks = (globalThis.navigator as Navigator | undefined)?.locks;
+    if (lease === undefined) {
+      scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
+    } else if (!locks) {
+      scope.postMessage({ type: "init-error", message: `lease ${lease} requested but Web Locks are unavailable` });
+    } else {
+      // Held until the worker is terminated; the browser releases a context's locks when it goes away.
+      void locks.request(lease, { mode: "shared" }, () => {
+        scope.postMessage({ type: "ready", protocol: WORKER_PROTOCOL });
+        return new Promise<never>(() => {});
+      });
     }
     return;
   }

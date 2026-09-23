@@ -1,0 +1,18 @@
+# The release that the hosted CI gates (.github/workflows/browser-pack.yml, job hosted-gates)
+# fetch and test, pinned by content address. The base URL is not recorded here: where the
+# release is hosted is an open decision (IR-21 result.toml [open_decision]); the workflow
+# reads it from the repository variable KRS_PACK_BASE_URL and skips the job while it is unset.
+#
+# Update procedure (manual until the build location is decided): run
+#   tests/browser-pack/run.py --pack <pack> --fork-build <build> --fork-source <src>
+# on a machine with the fork build, upload <out>/publish/ to the host unchanged (blobs/ and
+# releases/ are immutable; index.json last), then set release_sha256 to <out>/publish/index.json
+# active.sha256 and the other fields from that release. A crates/ change invalidates the pin:
+# the check step refuses a release whose crates tree differs from the checkout.
+
+schema_version = 1
+release_sha256 = ""
+pack_id = ""
+crates_tree = ""
+fork_revision = ""
+uploaded = false

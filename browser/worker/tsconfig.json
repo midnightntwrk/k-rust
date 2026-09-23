@@ -15,5 +15,5 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src/**/*.ts", "vendor/**/*.d.ts", "test/scenarios.ts", "test/page/**/*.ts"]
+  "include": ["src/**/*.ts", "vendor/**/*.d.ts", "test/scenarios.ts", "test/page/**/*.ts", "test/cache/cache-page.ts"]
 }

@@ -1,0 +1,237 @@
+name: Browser pack
+
+# IR-21 browser-lesson regression gates.
+#
+# Two decisions are open (IR-21 result.toml [open_decision], owner: Sebastien):
+#   1. where the compiler fork and the pack are built for CI, and
+#   2. where the pack is hosted (the publication base URL).
+# Until they are made, this workflow runs only what fits on a GitHub-hosted runner:
+#   - tooling: the release tooling's self-checks and the worker unit tests (always);
+#   - hosted-gates: the gates over a published release fetched by content address
+#     (pack, manifest, and license checks, IR-17 bundle parity, the IR-16 suite against
+#     its recorded expectations, and the cache tests, in headless Chromium and Firefox),
+#     only when the repository variable KRS_PACK_BASE_URL is set.
+# The fork build, the pack build, the native-twin gates (IR-18 diagnostics, IR-16
+# references), and the --rebuild reproducibility gate need the fork build (about 19 min
+# plus an LLVM build, 17 GB of RAM, 17 GB of disk). They are the self-hosted job
+# `fork-gates`, which runs only when the repository variable KRS_SELF_HOSTED_FORK is
+# "true" and a runner labelled `krs-fork` exists; otherwise the manual procedure in
+# tests/browser-pack/run.py (local mode) on Sebastien's machine replaces it.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/browser-pack.yml"
+      - "Cargo.lock"
+      - "Krs.lock"
+      - "browser/**"
+      - "crates/**"
+      - "tests/browser-backend/**"
+      - "tests/browser-pack/**"
+      - "tests/tour-minimal/**"
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      fork_gates:
+        description: "Also run the self-hosted fork gates (needs a krs-fork runner)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  # The release the hosted gates test: a content address, pinned in the repository.
+  KRS_PACK_PIN: browser/release/published.toml
+
+jobs:
+  tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: starstream-fv/krs
+    steps:
+      - name: Check out KRS in its workspace layout
+        uses: actions/checkout@v4
+        with:
+          path: starstream-fv/krs
+
+      - name: Select Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Release tooling parses and renders
+        run: |
+          python3 -m py_compile browser/release/release.py tests/browser-pack/verify.py tests/browser-pack/run.py browser/pack/manifest.py
+          python3 - <<'EOF'
+          import importlib.util, pathlib, tomllib
+          for f in ["browser/release/hosting.toml", "browser/release/licenses-manual.toml",
+                    "browser/release/release-format.toml", "browser/release/published.toml"]:
+              tomllib.loads(pathlib.Path(f).read_text())
+          spec = importlib.util.spec_from_file_location("release", "browser/release/release.py")
+          release = importlib.util.module_from_spec(spec); spec.loader.exec_module(release)
+          hosting = release.hosting_rules()
+          assert release.headers_for("blobs/" + "0" * 64 + ".wasm", hosting)["Content-Type"] == "application/wasm"
+          assert release.headers_for("index.json", hosting)["Cache-Control"] == "no-cache"
+          print(release.render_headers_file(hosting))
+          EOF
+
+      - name: Install locked site dependencies (TypeScript)
+        run: bun install --cwd docs-site --frozen-lockfile
+
+      - name: Worker typecheck and unit tests
+        run: |
+          docs-site/node_modules/.bin/tsc --noEmit -p browser/worker
+          cd browser/worker && bun test test/unit
+
+  hosted-gates:
+    needs: tooling
+    if: vars.KRS_PACK_BASE_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: starstream-fv/krs
+    env:
+      KRS_PACK_BASE_URL: ${{ vars.KRS_PACK_BASE_URL }}
+    steps:
+      - name: Check out KRS in its workspace layout
+        uses: actions/checkout@v4
+        with:
+          path: starstream-fv/krs
+
+      - name: Check out the pinned native frontend
+        working-directory: .
+        shell: bash
+        run: |
+          mkdir -p starstream-fv/inspirations/midnightntwrk
+          git clone --filter=blob:none https://github.com/midnightntwrk/k-rust.git starstream-fv/inspirations/midnightntwrk/k-rust-krs-main
+          commit="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("starstream-fv/krs/Krs.lock").read_text())["k_rust"]["commit"])')"
+          git -C starstream-fv/inspirations/midnightntwrk/k-rust-krs-main checkout --detach "$commit"
+
+      - name: Install bubblewrap (regenerate-oracle.sh mounts a git export over the checkout path)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bwrap needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install the pinned solver library
+        run: |
+          python3 -m venv "$RUNNER_TEMP/krs-z3"
+          "$RUNNER_TEMP/krs-z3/bin/pip" install --disable-pip-version-check z3-solver==4.12.5.0
+          "$RUNNER_TEMP/krs-z3/bin/python" -c 'import pathlib,z3; print("KRS_Z3_LIB=" + str(pathlib.Path(z3.__file__).parent / "lib"))' >> "$GITHUB_ENV"
+
+      - name: Select current stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,wasm32-wasip1
+
+      - name: Select Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Select Node (node:wasi host of the IR-16 suite)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Select headless Chromium and ChromeDriver
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          install-chromedriver: true
+
+      - name: Select headless Firefox
+        id: firefox
+        uses: browser-actions/setup-firefox@v1
+
+      - name: Put the browsers where the drivers look
+        shell: bash
+        run: |
+          echo "$(dirname '${{ steps.chrome.outputs.chromedriver-path }}')" >> "$GITHUB_PATH"
+          echo "KRS_FIREFOX=${{ steps.firefox.outputs.firefox-path }}" >> "$GITHUB_ENV"
+
+      - name: Read the pinned release
+        shell: bash
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_ENV"
+          import pathlib, tomllib
+          pin = tomllib.loads(pathlib.Path("browser/release/published.toml").read_text())
+          if not pin.get("release_sha256"):
+              raise SystemExit("browser/release/published.toml pins no release")
+          print(f"KRS_PACK_RELEASE={pin['release_sha256']}")
+          EOF
+
+      - name: Gates over the published release (fetched by content address)
+        env:
+          LOAD_MAX: "1000"
+          CARGO_TARGET_ROOT: ${{ runner.temp }}/krs-target
+        run: |
+          python3 tests/browser-pack/run.py --base-url "$KRS_PACK_BASE_URL" --release "$KRS_PACK_RELEASE" \
+            --out "$RUNNER_TEMP/krs-ir21-run" --keep-going
+
+      - name: Keep the run record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-pack-hosted-run
+          path: |
+            ${{ runner.temp }}/krs-ir21-run/run.toml
+            ${{ runner.temp }}/krs-ir21-run/check.json
+            ${{ runner.temp }}/krs-ir21-run/falsify.json
+            ${{ runner.temp }}/krs-ir21-run/logs/
+            ${{ runner.temp }}/krs-ir21-run/cache/
+            ${{ runner.temp }}/krs-ir21-run/ir17/
+            ${{ runner.temp }}/krs-ir21-run/ir16/matrix.toml
+
+  # ------------------------------------------------------------------------------------------
+  # SELF-HOSTED / MANUAL. Not runnable on a GitHub-hosted runner: it needs a fork build
+  # (IR-01 recipe, R-src configuration) on the runner itself. Enabled only when the
+  # repository variable KRS_SELF_HOSTED_FORK is "true" and a runner labelled krs-fork is
+  # registered; KRS_FORK_BUILD and KRS_FORK_SOURCE are runner-local paths (repository
+  # variables). Where this runs is Sebastien's open decision (IR-21 [open_decision]).
+  # Publishing the resulting release to the host is a separate manual step.
+  # ------------------------------------------------------------------------------------------
+  fork-gates:
+    needs: tooling
+    if: >-
+      vars.KRS_SELF_HOSTED_FORK == 'true' &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.fork_gates))
+    runs-on: [self-hosted, linux, x64, krs-fork]
+    timeout-minutes: 240
+    env:
+      KRS_FORK_BUILD: ${{ vars.KRS_FORK_BUILD }}
+      KRS_FORK_SOURCE: ${{ vars.KRS_FORK_SOURCE }}
+    steps:
+      - name: Check out KRS
+        uses: actions/checkout@v4
+
+      - name: Build the pack from the fork build (browser/pack/build.sh; flock, nice, -j 4)
+        run: |
+          out="$RUNNER_TEMP/krs-pack"
+          rm -rf "$out"
+          FORK_SOURCE="$KRS_FORK_SOURCE" browser/pack/build.sh "$KRS_FORK_BUILD" "$out"
+
+      - name: Every gate, then two clean rebuilds compared byte for byte
+        run: |
+          python3 tests/browser-pack/run.py --pack "$RUNNER_TEMP/krs-pack/pack" \
+            --fork-build "$KRS_FORK_BUILD" --fork-source "$KRS_FORK_SOURCE" \
+            --out "$RUNNER_TEMP/krs-ir21-run" --rebuild --keep-going
+
+      - name: Keep the run record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-pack-fork-run
+          path: |
+            ${{ runner.temp }}/krs-ir21-run/run.toml
+            ${{ runner.temp }}/krs-ir21-run/*.json
+            ${{ runner.temp }}/krs-ir21-run/logs/
+            ${{ runner.temp }}/krs-ir21-run/rebuild-evidence/

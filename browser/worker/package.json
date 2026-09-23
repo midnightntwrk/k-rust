@@ -19,6 +19,7 @@
     "controller": "bun test/run-controller.ts",
     "parity:tour-minimal": "bun test/parity/tour-minimal.ts",
     "parity:native-diagnostics": "bash test/parity/native-diagnostics.sh",
-    "parity:diagnostics": "bun test/parity/diagnostics.ts"
+    "parity:diagnostics": "bun test/parity/diagnostics.ts",
+    "cache": "bun test/cache/run.ts"
   }
 }

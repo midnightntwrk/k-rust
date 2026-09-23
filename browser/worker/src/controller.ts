@@ -27,6 +27,12 @@ export { loadVerifiedAssets, PackIntegrityError } from "./pack.ts";
 export interface KrsCompilerOptions {
   /** Creates the module worker (the bundle location differs between hosts). */
   createWorker: () => Worker;
+  /**
+   * Web Locks lease each worker holds (shared) for its lifetime, e.g.
+   * InstalledRelease.lease: PackCache.cleanup() never deletes the namespace of
+   * a pack while a worker built from it is alive (IR-21).
+   */
+  lease?: string;
 }
 
 /** Push-based async iterable with an explicit end. */
@@ -121,7 +127,13 @@ export class KrsCompiler {
         if (this.slot?.worker === worker) this.onWorkerCrash(text);
       };
     });
-    const init: ToWorker = { type: "init", protocol: WORKER_PROTOCOL, pack: this.pack, assets: this.assets };
+    const init: ToWorker = {
+      type: "init",
+      protocol: WORKER_PROTOCOL,
+      pack: this.pack,
+      assets: this.assets,
+      ...(this.options.lease ? { lease: this.options.lease } : {}),
+    };
     worker.postMessage(init);
     return { worker, ready };
   }

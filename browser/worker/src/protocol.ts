@@ -283,7 +283,14 @@ export interface VerifiedAssets {
 export const WORKER_PROTOCOL = 1;
 
 export type ToWorker =
-  | { type: "init"; protocol: number; pack: PackManifest; assets: VerifiedAssets }
+  | {
+      type: "init";
+      protocol: number;
+      pack: PackManifest;
+      assets: VerifiedAssets;
+      /** Web Locks name the worker holds in shared mode for its lifetime (pack-cache.ts cleanup lease). */
+      lease?: string;
+    }
   | { type: "compile"; request: CompileRequest };
 
 export type FromWorker =
