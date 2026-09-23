@@ -1,0 +1,11 @@
+[package]
+name = "lean-conformance"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The Lean model conformance harness: Lean definitions of lean/KRust run against the Rust they model"
+publish = false
+
+[dependencies]
+proptest.workspace = true
+serde_json.workspace = true

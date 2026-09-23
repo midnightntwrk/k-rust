@@ -2,7 +2,7 @@ import KRustBridge
 
 /-!
 `lake exe krust-bridge`: the model conformance bridge that
-`crates/k-rust-backend/src/tests/lean_bridge/driver.rs` runs. It reads one JSON request per
+`crates/lean-conformance` (the Lean model conformance harness) runs. It reads one JSON request per
 standard-input line, `{"id": n, "model": m, "input": x}`, and prints one answer line per request
 in input order (`KRust.Bridge.answer`). It reads to end of input, so a caller sends a whole batch
 through one process.

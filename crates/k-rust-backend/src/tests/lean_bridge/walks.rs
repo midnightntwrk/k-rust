@@ -7,10 +7,10 @@
 //! - `fetchK` against `rule::fetch_k_cell`, the fetch `rule_index` runs when the stored count is
 //!   1, on every generated term.
 
+use lean_conformance::check;
 use serde_json::json;
 
 use super::{
-    driver::check,
     generators::term,
     term_json::{term_json, terms_json},
 };

@@ -12,10 +12,10 @@
 //! Each case sends every subterm of one generated term, in preorder, so that a node deep inside a
 //! term whose root answer does not depend on it is still compared.
 
+use lean_conformance::check;
 use serde_json::{Value, json};
 
 use super::{
-    driver::check,
     generators::{term, term_with_ground_keys},
     term_json::terms_json,
 };

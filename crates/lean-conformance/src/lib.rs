@@ -1,4 +1,13 @@
-//! The generic driver of the Lean model conformance bridge.
+//! The Lean model conformance harness: a proved definition of `lean/KRust` run against the Rust
+//! function it models.
+//!
+//! This is the third kind of differential test of the workspace. The reference differentials
+//! (`scripts/reference-*differential.sh`) compare krust with another implementation of K, and a
+//! match there is agreement after a normalization that makes both outputs comparable. Here the
+//! other side is the Lean definition that the proofs of `lean/KRust` are about, and a match is
+//! JSON equality: on every generated input, the answer of the Lean model equals the answer of
+//! the Rust function, both written in the JSON shape the model prints. A proof about a model
+//! says something about the Rust only while the two agree; this harness checks that they do.
 //!
 //! A check names a model of `lean/KRustBridge/Dispatch.lean`, a proptest strategy, an encoder
 //! from a case to the model's input JSON, and the Rust answer as JSON in the shape the model
@@ -7,6 +16,10 @@
 //! `{"id": n, "output": y}` and are compared with the Rust answers as JSON values. A divergence
 //! is shrunk with proptest's `simplify`/`complicate` loop, one process per candidate, and the
 //! smallest diverging case is reported.
+//!
+//! The crate is test tooling: a workspace crate that is not published and that the crates with
+//! bridged models use only as a dev-dependency, so that one driver serves every crate and no
+//! crate exports test tooling in its API.
 //!
 //! Environment: `K_RUST_LEAN_BRIDGE=1` runs the checks (unset, empty or `0` skips them, any other
 //! value is an error); `K_RUST_LEAN_BRIDGE_CASES` sets the number of cases (default 4096); `LAKE`
@@ -125,7 +138,7 @@ fn run(model: &str, inputs: &[Value]) -> Vec<Value> {
 ///
 /// Returns the Rust answers, so that a caller can check that the generator reached the cases it
 /// is meant to reach, or `None` when the bridge is switched off.
-pub(super) fn check<S>(
+pub fn check<S>(
     model: &str,
     strategy: S,
     encode: impl Fn(&S::Value) -> Value,

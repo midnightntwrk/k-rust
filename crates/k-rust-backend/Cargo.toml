@@ -28,6 +28,7 @@ insta.workspace = true
 # Test builds count work through `k_rust_kore::measure`; `cargo build` stays feature-off.
 k-rust-backend = { path = ".", features = ["measure"] }
 k-rust-kore = { workspace = true, features = ["measure"] }
+lean-conformance.workspace = true
 proptest.workspace = true
 serde_json.workspace = true
 
