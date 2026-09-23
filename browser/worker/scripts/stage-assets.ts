@@ -1,33 +1,33 @@
 // Assembles the worker's immutable assets into one directory (default
-// /var/tmp/krs-ir15-assets) and writes the normalized pack.json and the
+// /var/tmp/krs-browser-assets) and writes the normalized pack.json and the
 // tour-minimal lesson manifest. No file is downloaded; large binaries stay out
 // of git.
 //
 //   bun scripts/stage-assets.ts [--out DIR] [--pack DIR] [--krs-rev REV] [--policy-version N]
 //
 // Inputs:
-//   --pack               a dependency pack root (holds pack-manifest.toml; default /var/tmp/krs-ir14-pack-a/pack)
+//   --pack               a dependency pack root (holds pack-manifest.toml; default /var/tmp/krs-browser-pack/pack)
 //   --policy-version     the lesson manifest's [policy] version (default 2; 1 reproduces the
 //                        manifests from before policy version 2)
-//   KRS_IR15_POLICY      krs_lesson_policy.wasm built from the pack's crates/ tree
-//   KRS_IR15_EXPANDER    krs_expand_wasm.wasm built from the pack's crates/ tree
-//   KRS_IR15_REPO        KRS checkout holding --krs-rev (module revision and the tour-minimal lesson)
+//   KRS_STAGE_POLICY     krs_lesson_policy.wasm built from the pack's crates/ tree
+//   KRS_STAGE_EXPANDER   krs_expand_wasm.wasm built from the pack's crates/ tree
+//   KRS_STAGE_REPO       KRS checkout holding --krs-rev (module revision and the tour-minimal lesson)
 // Build each module in its own cargo invocation (a joint build unifies the
 // policy crate's `abi` feature into the expander):
-//   CARGO_TARGET_DIR=/var/tmp/krs-ir15-target/<pkg> cargo +stable build -p <pkg> \
+//   CARGO_TARGET_DIR=/var/tmp/krs-browser-modules-target/<pkg> cargo +stable build -p <pkg> \
 //     --target wasm32-unknown-unknown --release --offline
 
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { parseArgs } from "node:util";
-import { packFromIr14, type Ir14PackManifest } from "../src/pack-ir14.ts";
+import { packFromManifest, type SourcePackManifest } from "../src/pack-manifest.ts";
 import { sha256Hex } from "../src/pack.ts";
 import type { LessonManifest, PackAsset } from "../src/protocol.ts";
 
 const { values } = parseArgs({
   options: {
-    out: { type: "string", default: "/var/tmp/krs-ir15-assets" },
-    pack: { type: "string", default: "/var/tmp/krs-ir14-pack-a/pack" },
+    out: { type: "string", default: "/var/tmp/krs-browser-assets" },
+    pack: { type: "string", default: "/var/tmp/krs-browser-pack/pack" },
     "krs-rev": { type: "string", default: "3501f86cf5c219c300107302ab76c1b2854464c4" },
     "policy-version": { type: "string", default: "2" },
   },
@@ -39,9 +39,9 @@ const POLICY_VERSION = Number(values["policy-version"]);
 if (!Number.isInteger(POLICY_VERSION) || POLICY_VERSION < 1) throw new Error(`--policy-version: ${values["policy-version"]}`);
 const env = (name: string, fallback: string) => process.env[name] ?? fallback;
 const inputs = {
-  policy: env("KRS_IR15_POLICY", "/var/tmp/krs-ir15-target/krs-lesson-policy/wasm32-unknown-unknown/release/krs_lesson_policy.wasm"),
-  expander: env("KRS_IR15_EXPANDER", "/var/tmp/krs-ir15-target/krs-expand-wasm/wasm32-unknown-unknown/release/krs_expand_wasm.wasm"),
-  repo: env("KRS_IR15_REPO", join(import.meta.dir, "../../..")),
+  policy: env("KRS_STAGE_POLICY", "/var/tmp/krs-browser-modules-target/krs-lesson-policy/wasm32-unknown-unknown/release/krs_lesson_policy.wasm"),
+  expander: env("KRS_STAGE_EXPANDER", "/var/tmp/krs-browser-modules-target/krs-expand-wasm/wasm32-unknown-unknown/release/krs_expand_wasm.wasm"),
+  repo: env("KRS_STAGE_REPO", join(import.meta.dir, "../../..")),
 };
 
 function git(...args: string[]): Uint8Array {
@@ -79,10 +79,10 @@ mkdirSync(OUT, { recursive: true });
 
 // The dependency pack, copied as is under pack/ (the loader verifies every artifact and pack_id).
 const manifestText = readFileSync(join(PACK, "pack-manifest.toml"), "utf8");
-const source = Bun.TOML.parse(manifestText) as unknown as Ir14PackManifest;
+const source = Bun.TOML.parse(manifestText) as unknown as SourcePackManifest;
 for (const file of walk(PACK)) await placeFile(`pack/${relative(PACK, file)}`, file);
 
-const pack = await packFromIr14(source, {
+const pack = await packFromManifest(source, {
   packDir: "pack",
   sourcePath: join(PACK, "pack-manifest.toml"),
   sourceSha256: await sha256Hex(new TextEncoder().encode(manifestText)),

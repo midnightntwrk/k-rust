@@ -9,8 +9,8 @@ import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
   options: {
-    out: { type: "string", default: "/var/tmp/krs-ir15-site" },
-    assets: { type: "string", default: "/var/tmp/krs-ir15-assets" },
+    out: { type: "string", default: "/var/tmp/krs-browser-site" },
+    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
   },
 });
 const root = join(import.meta.dir, "..");

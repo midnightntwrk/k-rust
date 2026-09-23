@@ -1,7 +1,7 @@
 // Dependency-pack manifest (browser/pack/manifest-format.toml, schema_version 2)
 // -> the worker's PackManifest, following the format's [consumer] contract:
 //   - every [[artifact]] is verified (here: declared; the loader hashes the
-//     bytes) and pack_id is recomputed (ir14PackId, also run by the loader);
+//     bytes) and pack_id is recomputed (computePackId, also run by the loader);
 //   - deps/ and proc-macro-meta/ are mounted under /pack, the bundle at
 //     sysroot.mount, framework sources at their virtual_path;
 //   - rustc arguments come from [direct_rustc]; lint flags and CARGO_* are
@@ -11,12 +11,12 @@
 // equal the pack's "KRS crates/ tree" input, so the expander's output matches the krs-macros the pack's rlibs
 // were built from.
 
-import { ir14PackId } from "./pack.ts";
+import { computePackId } from "./pack.ts";
 import type { MountedSource, PackArtifact, PackAsset, PackManifest } from "./protocol.ts";
 
-export { ir14PackId };
+export { computePackId };
 
-export interface Ir14Artifact {
+export interface SourceArtifact {
   path: string;
   role: string;
   bytes: number;
@@ -27,7 +27,7 @@ export interface Ir14Artifact {
 }
 
 /** The parsed pack-manifest.toml (any TOML parser; the staging script uses Bun.TOML). */
-export interface Ir14PackManifest {
+export interface SourcePackManifest {
   schema_version: number;
   manifest_kind: string;
   pack_id: string;
@@ -47,10 +47,10 @@ export interface Ir14PackManifest {
     externs: { k: string; __krs_host_runtime: string; __krs_compiler_runtime: string };
   };
   input: Array<{ name: string; kind: string; git_tree?: string }>;
-  artifact: Ir14Artifact[];
+  artifact: SourceArtifact[];
 }
 
-export interface Ir14Extra {
+export interface PackAdapterInputs {
   /** Where the pack root is staged, relative to the asset root (e.g. "pack"). */
   packDir: string;
   sourcePath: string;
@@ -66,11 +66,11 @@ export interface Ir14Extra {
 }
 
 /** Throws with every contract violation found. */
-export async function packFromIr14(source: Ir14PackManifest, extra: Ir14Extra): Promise<PackManifest> {
+export async function packFromManifest(source: SourcePackManifest, extra: PackAdapterInputs): Promise<PackManifest> {
   const problems: string[] = [];
   if (source.schema_version !== 2) problems.push(`schema_version ${source.schema_version} is not 2`);
   if (source.manifest_kind !== "krs-browser-lesson-pack") problems.push(`manifest_kind ${source.manifest_kind}`);
-  const recomputed = await ir14PackId(source.artifact);
+  const recomputed = await computePackId(source.artifact);
   if (recomputed !== source.pack_id) problems.push(`pack_id ${source.pack_id} does not match the artifacts (${recomputed})`);
   const mount = extra.mount ?? "/pack";
   const staged = (path: string) => `${extra.packDir}/${path}`;
@@ -116,8 +116,8 @@ export async function packFromIr14(source: Ir14PackManifest, extra: Ir14Extra): 
     schema: 1,
     kind: "krs-browser-worker-pack",
     pack_id: source.pack_id,
-    source: { format: "ir14-pack-manifest-v2", sha256: extra.sourceSha256, path: extra.sourcePath },
-    integrity: { rule: "ir14-sorted-artifact-lines", root: extra.packDir },
+    source: { format: "krs-pack-manifest-v2", sha256: extra.sourceSha256, path: extra.sourcePath },
+    integrity: { rule: "sorted-artifact-lines", root: extra.packDir },
     krs_revision: source.producer.krs_revision,
     crates_tree: cratesTree,
     fork_revision: source.compiler.fork_revision,

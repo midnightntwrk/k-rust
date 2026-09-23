@@ -1,5 +1,5 @@
 [package]
-name = "bl006-rust-expansion"
+name = "diagnostic-rust-expansion"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

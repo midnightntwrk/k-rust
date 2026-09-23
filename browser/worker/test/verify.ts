@@ -4,9 +4,9 @@
 //
 //   bun test/verify.ts [--out DIR] [--load-max 40] [--skip-firefox]
 //
-// Prerequisites: a dependency pack (default /var/tmp/krs-ir14-pack-a/pack) staged by
+// Prerequisites: a dependency pack (default /var/tmp/krs-browser-pack/pack) staged by
 // bun scripts/stage-assets.ts with the policy and expander modules, and the
-// native oracle bundle (default /var/tmp/krs-ir11-parity/oracle/descriptor-bundle.json).
+// native oracle bundle (default /var/tmp/krs-browser-parity/oracle/descriptor-bundle.json).
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,10 +14,10 @@ import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
   options: {
-    out: { type: "string", default: "/var/tmp/krs-ir15-run/evidence" },
+    out: { type: "string", default: "/var/tmp/krs-browser-run/evidence" },
     "load-max": { type: "string", default: "40" },
     "skip-firefox": { type: "boolean", default: false },
-    assets: { type: "string", default: "/var/tmp/krs-ir15-assets" },
+    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
   },
 });
 const root = join(import.meta.dir, "..");

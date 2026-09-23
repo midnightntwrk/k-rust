@@ -11,7 +11,7 @@ import { loadVerifiedAssets } from "../src/pack.ts";
 import type { CompileEvent, LessonManifest, PackManifest } from "../src/protocol.ts";
 import { check, SCENARIOS } from "./scenarios.ts";
 
-const { values } = parseArgs({ options: { assets: { type: "string", default: "/var/tmp/krs-ir15-assets" }, out: { type: "string" } } });
+const { values } = parseArgs({ options: { assets: { type: "string", default: "/var/tmp/krs-browser-assets" }, out: { type: "string" } } });
 const dir = values.assets!;
 const pack = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8")) as PackManifest;
 const lesson = JSON.parse(readFileSync(join(dir, "lessons/tour-minimal/lesson.json"), "utf8")) as LessonManifest;

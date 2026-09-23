@@ -1,4 +1,4 @@
-// Test page for the release cache and corruption tests: exposes window.ir21 over
+// Test page for the release cache and corruption tests: exposes window.krsCache over
 // PackCache (src/pack-cache.ts) and the worker controller. The asset host is a
 // separate origin (config.json `base`), so every asset request is a CORS fetch
 // under the hosting.toml headers. run.ts drives the page and the asset host.
@@ -118,6 +118,6 @@ async function state() {
   };
 }
 
-(globalThis as unknown as { ir21: unknown }).ir21 = { config, open, cleanup, compile, dispose, corrupt, hasEntry, deleteNamespace, state, leaseFor, namespaceFor };
-(globalThis as unknown as { ir15Ready: boolean }).ir15Ready = true;
-document.getElementById("status")!.textContent = "ready: window.ir21";
+(globalThis as unknown as { krsCache: unknown }).krsCache = { config, open, cleanup, compile, dispose, corrupt, hasEntry, deleteNamespace, state, leaseFor, namespaceFor };
+(globalThis as unknown as { krsPageReady: boolean }).krsPageReady = true;
+document.getElementById("status")!.textContent = "ready: window.krsCache";

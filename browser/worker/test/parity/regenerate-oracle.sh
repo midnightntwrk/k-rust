@@ -3,7 +3,7 @@
 #
 #   regenerate-oracle.sh [OUT] [ORACLE_TOML]
 #
-# OUT          scratch directory (default /var/tmp/krs-ir17-oracle); holds the git
+# OUT          scratch directory (default /var/tmp/krs-parity-oracle); holds the git
 #              exports, the Cargo target directories, and the two emit-k outputs.
 # ORACLE_TOML  where to write the provenance record (default OUT/oracle.toml).
 #
@@ -20,11 +20,11 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(git -C "$HERE" rev-parse --show-toplevel)
-OUT=${1:-/var/tmp/krs-ir17-oracle}
+OUT=${1:-/var/tmp/krs-parity-oracle}
 ORACLE_TOML=${2:-$OUT/oracle.toml}
 LOAD_MAX=${LOAD_MAX:-40}
 Z3=${KRS_Z3_LIB:-$(ls -d /nix/store/*-z3-4.12.5-lib/lib | head -1)}
-CLI_TARGET=${CLI_TARGET:-/var/tmp/krs-ir17-cli-target}
+CLI_TARGET=${CLI_TARGET:-/var/tmp/krs-parity-cli-target}
 KRS_BIN=${KRS_BIN:-$CLI_TARGET/debug/krs}
 PATCH=$HERE/edit-e1.patch
 

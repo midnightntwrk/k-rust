@@ -15,10 +15,10 @@ export async function main(browser: "chromium" | "firefox", defaults: { port: st
     args: Bun.argv.slice(2),
     options: {
       browser: { type: "string", default: browser },
-      site: { type: "string", default: "/var/tmp/krs-ir15-site" },
-      out: { type: "string", default: "/var/tmp/krs-ir15-run/evidence" },
-      bundles: { type: "string", default: `/var/tmp/krs-ir15-run/${browser}` },
-      oracle: { type: "string", default: "/var/tmp/krs-ir11-parity/oracle/descriptor-bundle.json" },
+      site: { type: "string", default: "/var/tmp/krs-browser-site" },
+      out: { type: "string", default: "/var/tmp/krs-browser-run/evidence" },
+      bundles: { type: "string", default: `/var/tmp/krs-browser-run/${browser}` },
+      oracle: { type: "string", default: "/var/tmp/krs-browser-parity/oracle/descriptor-bundle.json" },
       firefox: { type: "string", default: process.env.KRS_FIREFOX ?? "/usr/lib/firefox/firefox" },
       port: { type: "string", default: defaults.port },
     },
@@ -27,7 +27,7 @@ export async function main(browser: "chromium" | "firefox", defaults: { port: st
   let failure: string | null = null;
   let session: Awaited<ReturnType<typeof launch>> | null = null;
   try {
-    session = await launch(browser, { site: values.site!, port: Number(values.port), profilePrefix: "/var/tmp/krs-ir15-", firefox: values.firefox });
+    session = await launch(browser, { site: values.site!, port: Number(values.port), profilePrefix: "/var/tmp/krs-browser-profile-", firefox: values.firefox });
     records = await runPlan(session.evaluate, session.sampler, SCENARIOS.map((s) => s.name));
   } catch (error) {
     failure = String(error instanceof Error ? error.stack : error);

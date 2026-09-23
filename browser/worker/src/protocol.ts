@@ -223,7 +223,7 @@ export interface MountedSource extends PackAsset {
 }
 
 /**
- * Normalized pack manifest consumed by the worker (schema 1). pack-ir14.ts
+ * Normalized pack manifest consumed by the worker (schema 1). pack-manifest.ts
  * derives it from a pack-manifest.toml (schema_version 2) plus the
  * expander and policy modules, which the pack does not carry.
  */
@@ -234,7 +234,7 @@ export interface PackManifest {
   pack_id: string;
   source: { format: string; sha256: string; path: string };
   /** How the loader recomputes pack_id: the pack-manifest rule over every asset under `root`. */
-  integrity: { rule: "ir14-sorted-artifact-lines"; root: string };
+  integrity: { rule: "sorted-artifact-lines"; root: string };
   krs_revision: string;
   /** git tree id of crates/ the pack was built from (pack-manifest [[input]] "KRS crates/ tree"). */
   crates_tree: string;

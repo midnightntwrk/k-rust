@@ -119,7 +119,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--fork-build", type=Path, default=Path("/var/tmp/krs-browser-fork/R-22"))
     parser.add_argument("--fork-source", type=Path, default=ROOT.parent / "inspirations/AngelOnFira/rust-22")
-    parser.add_argument("--pack", type=Path, default=Path("/var/tmp/krs-ir22/packbuild/pack"), help="pack to reuse when it matches")
+    parser.add_argument("--pack", type=Path, default=Path("/var/tmp/krs-browser-release/packbuild/pack"), help="pack to reuse when it matches")
     parser.add_argument("--state", type=Path, default=None, help="default /var/tmp/krs-local-site-<checkout name>")
     parser.add_argument("--cargo-target-root", type=Path, default=None)
     parser.add_argument("--site-port", type=int, default=8740)

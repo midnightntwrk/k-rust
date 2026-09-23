@@ -161,7 +161,7 @@ set +e
 heavy=(nice -n 19 ionice -c3 "${NS[@]}" "$CARGO" "${CARGO_ARGS[@]}")
 if systemd-run --user --scope --quiet true 2>/dev/null; then
   # A transient scope gives the build its own cgroup, whose memory.peak is the build's peak memory.
-  systemd-run --user --scope --quiet --unit="krs-ir14-pack-$$-$(date +%s)" -- bash -c '
+  systemd-run --user --scope --quiet --unit="krs-browser-pack-$$-$(date +%s)" -- bash -c '
     cg=$(cut -d: -f3 /proc/self/cgroup); "$@"; rc=$?
     cat "/sys/fs/cgroup$cg/memory.peak" >"'"$BUILD/memory-peak"'" 2>/dev/null; exit $rc' _ \
     "${heavy[@]}" >"$BUILD/build.jsonl" 2>"$BUILD/cargo.stderr"

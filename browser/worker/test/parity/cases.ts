@@ -1,5 +1,5 @@
 // Diagnostic parity cases: the authored-source diagnostic set (D001-D008;
-// fixtures kept byte for byte in test/fixtures/bl006, hashes checked against
+// fixtures kept byte for byte in test/fixtures/diagnostics, hashes checked against
 // the recorded content_sha256 values), D009, and
 // two rustc cases that decide how respanned tokens map (X1, X2).
 //
@@ -20,7 +20,7 @@ export interface DiagnosticCase {
   /** Source file under test/fixtures. */
   fixture: string;
   /** Recorded content_sha256 of the fixture, when it is one of the D001-D008 fixtures. */
-  bl006Sha256?: string;
+  contentSha256?: string;
   faultInjection?: FaultInjection;
   /** Stage of the native producer (ticket table). */
   nativeStage: Stage;
@@ -29,39 +29,39 @@ export interface DiagnosticCase {
   /** Which native diagnostic(s) this case compares (index into the native list), when a compile emits several. */
   nativeSelect?: number[];
   /** A known blocker that makes the browser side fail before the target diagnostic. */
-  blockedBy?: { ticket: string; reason: string };
+  blockedBy?: { cause: string; reason: string };
   note: string;
 }
 
-export type LessonName = "tour-minimal" | "bl006-rust-expansion" | "bl006-wrong-result" | "bl006-overlap";
+export type LessonName = "tour-minimal" | "diagnostic-rust-expansion" | "diagnostic-wrong-result" | "diagnostic-overlap";
 
 export const CASES: DiagnosticCase[] = [
   {
     id: "D001",
     title: "malformed KRS attribute",
-    lesson: "bl006-rust-expansion",
-    fixture: "bl006/malformed_macro.rs",
-    bl006Sha256: "1042c8f578f4d523bcc973f2ca1faa78d6b875df8bebe1f2a43e666a5aee563e",
+    lesson: "diagnostic-rust-expansion",
+    fixture: "diagnostics/malformed_macro.rs",
+    contentSha256: "1042c8f578f4d523bcc973f2ca1faa78d6b875df8bebe1f2a43e666a5aee563e",
     nativeStage: "expander",
     note: "krs-macros compile_error! natively; the krs-expand-wasm diagnostic in the browser",
   },
   {
     id: "D002",
     title: "unresolved constructor sort in authored input",
-    lesson: "bl006-rust-expansion",
-    fixture: "bl006/unresolved_constructor.rs",
-    bl006Sha256: "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa",
+    lesson: "diagnostic-rust-expansion",
+    fixture: "diagnostics/unresolved_constructor.rs",
+    contentSha256: "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa",
     nativeStage: "rustc",
     nativeSelect: [0],
-    blockedBy: { ticket: "rustc.wasm error-exit trap (fixed by fork 0ce51e933)", reason: "rustc.wasm (195111dff) traps with no diagnostic on E0433 for an unresolved module in a type path" },
+    blockedBy: { cause: "rustc.wasm error-exit trap (fixed by fork 0ce51e933)", reason: "rustc.wasm (195111dff) traps with no diagnostic on E0433 for an unresolved module in a type path" },
     note: "first E0433 (authored `missing`)",
   },
   {
     id: "D003",
     title: "wrong KRS rule result sort",
-    lesson: "bl006-wrong-result",
-    fixture: "bl006/wrong_result.rs",
-    bl006Sha256: "d817ac0a9c9cbe5bf9fd634ea9e7b5d35b42c832dd85c840475038e56028d272",
+    lesson: "diagnostic-wrong-result",
+    fixture: "diagnostics/wrong_result.rs",
+    contentSha256: "d817ac0a9c9cbe5bf9fd634ea9e7b5d35b42c832dd85c840475038e56028d272",
     nativeStage: "lowering",
     nativeLoweringOfBrowserBundle: true,
     note: "unstructured InvalidTerm from lower_descriptor_bundle; must stay unmappable",
@@ -69,12 +69,12 @@ export const CASES: DiagnosticCase[] = [
   {
     id: "D004",
     title: "unresolved path in macro-generated reference check",
-    lesson: "bl006-rust-expansion",
-    fixture: "bl006/unresolved_constructor.rs",
-    bl006Sha256: "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa",
+    lesson: "diagnostic-rust-expansion",
+    fixture: "diagnostics/unresolved_constructor.rs",
+    contentSha256: "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa",
     nativeStage: "rustc",
     nativeSelect: [1],
-    blockedBy: { ticket: "rustc.wasm error-exit trap (fixed by fork 0ce51e933)", reason: "same compile as D002" },
+    blockedBy: { cause: "rustc.wasm error-exit trap (fixed by fork 0ce51e933)", reason: "same compile as D002" },
     note: "second E0433 (generated reference check, reported at the invocation)",
   },
   {
@@ -98,18 +98,18 @@ export const CASES: DiagnosticCase[] = [
   {
     id: "D007",
     title: "unsupported external procedural macro",
-    lesson: "bl006-rust-expansion",
-    fixture: "bl006/external_proc_macro.rs",
-    bl006Sha256: "0f488a13d0c0bcee66bff4d7472f29ae2e93d7b74136202e052ce61f9603b3c9",
+    lesson: "diagnostic-rust-expansion",
+    fixture: "diagnostics/external_proc_macro.rs",
+    contentSha256: "0f488a13d0c0bcee66bff4d7472f29ae2e93d7b74136202e052ce61f9603b3c9",
     nativeStage: "policy",
     note: "native cargo check succeeds; the browser policy target is serde::Serialize 9..25",
   },
   {
     id: "D008",
     title: "overlapping readable rule heads",
-    lesson: "bl006-overlap",
-    fixture: "bl006/overlap.rs",
-    bl006Sha256: "fc9f489244b8ad0423f0a3e40b29800359a83a59834a465201c2da74ca6a835c",
+    lesson: "diagnostic-overlap",
+    fixture: "diagnostics/overlap.rs",
+    contentSha256: "fc9f489244b8ad0423f0a3e40b29800359a83a59834a465201c2da74ca6a835c",
     nativeStage: "lowering",
     nativeLoweringOfBrowserBundle: true,
     note: "DiagnosticEnvelope overlapping-rule-heads (stage analysis) from krs-cli prepare()",
@@ -162,9 +162,9 @@ export function lessonManifest(name: LessonName, tourMinimal: LessonManifest): L
   if (name === "tour-minimal") return tourMinimal;
   const files: Record<Exclude<LessonName, "tour-minimal">, { toml: string; namespace: string }> = {
     // rust-expansion has no [package.metadata.krs]; its cases stop before collection.
-    "bl006-rust-expansion": { toml: "bl006/rust-expansion.Cargo.toml", namespace: "BL006-RUST-EXPANSION" },
-    "bl006-wrong-result": { toml: "bl006/wrong-result.Cargo.toml", namespace: "BL006-WRONG-RESULT" },
-    "bl006-overlap": { toml: "bl006/overlap.Cargo.toml", namespace: "BL006-OVERLAP" },
+    "diagnostic-rust-expansion": { toml: "diagnostics/rust-expansion.Cargo.toml", namespace: "DIAGNOSTIC-RUST-EXPANSION" },
+    "diagnostic-wrong-result": { toml: "diagnostics/wrong-result.Cargo.toml", namespace: "DIAGNOSTIC-WRONG-RESULT" },
+    "diagnostic-overlap": { toml: "diagnostics/overlap.Cargo.toml", namespace: "DIAGNOSTIC-OVERLAP" },
   };
   const { toml, namespace } = files[name];
   const cargoToml = fixtureText(toml);
@@ -193,7 +193,7 @@ if (import.meta.main && Bun.argv[2] === "write-lessons") {
   const tour = JSON.parse(readFileSync(join(Bun.argv[3]!, "lessons/tour-minimal/lesson.json"), "utf8")) as LessonManifest;
   const out = Bun.argv[4]!;
   mkdirSync(out, { recursive: true });
-  for (const name of ["tour-minimal", "bl006-rust-expansion", "bl006-wrong-result", "bl006-overlap"] as LessonName[]) {
+  for (const name of ["tour-minimal", "diagnostic-rust-expansion", "diagnostic-wrong-result", "diagnostic-overlap"] as LessonName[]) {
     writeFileSync(join(out, `${name}.json`), `${JSON.stringify(lessonManifest(name, tour), null, 1)}\n`);
   }
 }

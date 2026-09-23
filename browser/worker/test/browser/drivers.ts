@@ -78,7 +78,7 @@ export async function launchChromium(options: LaunchOptions): Promise<BrowserSes
     sessionId = session.sessionId as string;
     await webdriver(`/session/${sessionId}/timeouts`, "POST", { script: 900_000, pageLoad: 600_000, implicit: 0 });
     await webdriver(`/session/${sessionId}/url`, "POST", { url: `${origin}/` });
-    for (let i = 0; !(await webdriver(`/session/${sessionId}/execute/sync`, "POST", { script: "return window.ir15Ready === true;", args: [] })); i += 1) {
+    for (let i = 0; !(await webdriver(`/session/${sessionId}/execute/sync`, "POST", { script: "return window.krsPageReady === true;", args: [] })); i += 1) {
       if (i > 300) throw new Error("page did not become ready");
       await Bun.sleep(100);
     }
@@ -171,7 +171,7 @@ export async function launchFirefox(options: LaunchOptions): Promise<BrowserSess
       if (result.type !== "success") throw new Error(`script exception: ${JSON.stringify(result).slice(0, 2000)}`);
       return result.result;
     };
-    for (let i = 0; (await evaluateRaw("window.ir15Ready === true")).value !== true; i += 1) {
+    for (let i = 0; (await evaluateRaw("window.krsPageReady === true")).value !== true; i += 1) {
       if (i > 300) throw new Error("page did not become ready");
       await Bun.sleep(100);
     }

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Native diagnostic baseline for the diagnostic parity gate, and native-twin controls.
 #
-#   native-diagnostics.sh [OUT]      (default /var/tmp/krs-ir18-native)
+#   native-diagnostics.sh [OUT]      (default /var/tmp/krs-diagnostics-native)
 #
 # Writes OUT/cases/<ID>/ for every case in cases.ts:
 #   D001, D002+D004, D007   cargo +stable check --message-format=json of the diagnostic bins (cargo.jsonl, exit)
 #   D003, D008              krs check of the diagnostic packages (stderr, exit) with the collector's stdout
 #                           teed to native-bundle.json by the cargo shim (lower-shim/cargo)
-#   D005, D006              the anchor-probe (bl006-probe.json), and the lesson-level faults the
+#   D005, D006              the anchor-probe (anchor-probe.json), and the lesson-level faults the
 #                           browser injects: the native tour-minimal collector binary run over an export
 #                           whose src/lib.rs is the E1 text (stale) or absent (missing) (stderr, exit)
 #   X1, X2                  cargo +stable check of tour-minimal variants (cargo.jsonl, exit)
@@ -24,10 +24,10 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORKER=$(cd "$HERE/../.." && pwd)
 REPO=${REPO:-$(git -C "$HERE" rev-parse --show-toplevel)}
-OUT=${1:-/var/tmp/krs-ir18-native}
-KRS_BIN=${KRS_BIN:-/var/tmp/krs-ir17-cli-target/debug/krs}
-ORACLE_DIR=${ORACLE_DIR:-/var/tmp/krs-ir17-oracle}
-ASSETS=${ASSETS:-/var/tmp/krs-ir18-assets}
+OUT=${1:-/var/tmp/krs-diagnostics-native}
+KRS_BIN=${KRS_BIN:-/var/tmp/krs-parity-cli-target/debug/krs}
+ORACLE_DIR=${ORACLE_DIR:-/var/tmp/krs-parity-oracle}
+ASSETS=${ASSETS:-/var/tmp/krs-diagnostics-assets}
 TWIN=${TWIN:-/var/tmp/krs-browser-fork/R-k/build/x86_64-unknown-linux-gnu/stage1/bin/rustc}
 LOAD_MAX=${LOAD_MAX:-40}
 Z3=${KRS_Z3_LIB:-$(find /nix/store -maxdepth 1 -name '*-z3-4.12.5-lib' -type d | head -1)/lib}
@@ -72,7 +72,7 @@ for pair in Cargo.toml:workspace.Cargo.toml anchor-probe/Cargo.toml:anchor-probe
   rust-expansion/src/bin/external_proc_macro.rs:external_proc_macro.rs wrong-result/Cargo.toml:wrong-result.Cargo.toml \
   wrong-result/src/lib.rs:wrong_result.rs; do
   mkdir -p "$(dirname "$OUT/workspace/${pair%%:*}")"
-  cp "$FIXTURES/bl006/${pair##*:}" "$OUT/workspace/${pair%%:*}"
+  cp "$FIXTURES/diagnostics/${pair##*:}" "$OUT/workspace/${pair%%:*}"
 done
 sed -i "s|\"../../../../crates/|\"$REPO/crates/|" "$OUT/workspace/Cargo.toml"
 (cd "$OUT/workspace" && sha256sum rust-expansion/src/bin/*.rs wrong-result/src/lib.rs overlap/src/lib.rs anchor-probe/src/main.rs) >"$OUT/fixtures.sha256"
@@ -94,14 +94,14 @@ cargo_check_bin D007 external_proc_macro
 # ---------------------------------------------------------------- krs check (lowering)
 
 # The cargo shim: krs-cli runs the generated collector with `cargo run`; the shim tees its stdout
-# (native bundle) or, with KRS_IR18_BUNDLE, replaces it by a browser bundle (native lowering of the
+# (native bundle) or, with KRS_DIAGNOSTICS_BUNDLE, replaces it by a browser bundle (native lowering of the
 # browser bundle). Every other cargo invocation is the real cargo.
 cat >"$OUT/lower-shim/cargo" <<EOF
 #!/usr/bin/env bash
 for argument in "\$@"; do [[ \$argument == run ]] && run=1; done
-if [[ -n \${run:-} && -n \${KRS_IR18_BUNDLE:-} ]]; then cat "\$KRS_IR18_BUNDLE"; exit 0; fi
-if [[ -n \${run:-} && -n \${KRS_IR18_TEE:-} ]]; then
-  "$REAL_CARGO" "\$@" >"\$KRS_IR18_TEE"; status=\$?; cat "\$KRS_IR18_TEE"; exit \$status
+if [[ -n \${run:-} && -n \${KRS_DIAGNOSTICS_BUNDLE:-} ]]; then cat "\$KRS_DIAGNOSTICS_BUNDLE"; exit 0; fi
+if [[ -n \${run:-} && -n \${KRS_DIAGNOSTICS_TEE:-} ]]; then
+  "$REAL_CARGO" "\$@" >"\$KRS_DIAGNOSTICS_TEE"; status=\$?; cat "\$KRS_DIAGNOSTICS_TEE"; exit \$status
 fi
 exec "$REAL_CARGO" "\$@"
 EOF
@@ -112,25 +112,25 @@ krs_check() { # ID PACKAGE-DIR PACKAGE
   mkdir -p "$dir"
   wait_for_load
   set +e
-  low env PATH="$OUT/lower-shim:$PATH" KRS_IR18_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
+  low env PATH="$OUT/lower-shim:$PATH" KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
     CARGO_TARGET_DIR="$OUT/target-krs" CARGO_BUILD_JOBS=4 \
     "$KRS_BIN" check --manifest-path "$OUT/workspace/$2/Cargo.toml" --package "$3" --definition main \
     >"$dir/stdout" 2>"$dir/stderr"
   record_exit "$dir" $?
   set -e
 }
-krs_check D003 wrong-result bl006-wrong-result
-krs_check D008 overlap bl006-overlap
+krs_check D003 wrong-result diagnostic-wrong-result
+krs_check D008 overlap diagnostic-overlap
 
 # ---------------------------------------------------------------- collection faults
 
 mkdir -p "$CASES/D005" "$CASES/D006"
 wait_for_load
-(cd "$OUT/workspace" && low cargo +stable build --offline -j 4 -p bl006-anchor-probe --target-dir "$OUT/target-check" -q)
+(cd "$OUT/workspace" && low cargo +stable build --offline -j 4 -p diagnostic-anchor-probe --target-dir "$OUT/target-check" -q)
 for probe in stale:D005 missing:D006; do
   set +e
-  "$OUT/target-check/debug/bl006-anchor-probe" "${probe%%:*}" >"$CASES/${probe##*:}/bl006-probe.json" 2>"$CASES/${probe##*:}/bl006-probe.stderr"
-  echo $? >"$CASES/${probe##*:}/bl006-probe.exit"
+  "$OUT/target-check/debug/diagnostic-anchor-probe" "${probe%%:*}" >"$CASES/${probe##*:}/anchor-probe.json" 2>"$CASES/${probe##*:}/anchor-probe.stderr"
+  echo $? >"$CASES/${probe##*:}/anchor-probe.exit"
   set -e
 done
 
@@ -209,7 +209,7 @@ twin_control() { # ID LESSON FIXTURE [FAULT]
   (cd "$WORKER" && bun test/parity/expand-case.ts map --expander "$EXPANDER" --dir "$dir" --source "$fixture" \
     --stderr "$dir/twin.stderr") >"$dir/twin-mapped.json"
 }
-twin_control D002-D004 bl006-rust-expansion bl006/unresolved_constructor.rs
+twin_control D002-D004 diagnostic-rust-expansion diagnostics/unresolved_constructor.rs
 twin_control D009 tour-minimal tour-minimal.rs registration-table-missing-factory
 twin_control X1 tour-minimal rustc-unresolved-variant.rs
 twin_control X2 tour-minimal rustc-rule-head-missing-constructor.rs

@@ -58,7 +58,7 @@ async function fixture() {
     schema: 1,
     kind: "krs-browser-worker-pack",
     pack_id: "sha256:1111",
-    integrity: { rule: "ir14-sorted-artifact-lines", root: "pack" },
+    integrity: { rule: "sorted-artifact-lines", root: "pack" },
     compiler: { rustc: await packAsset("pack/compiler/rustc.wasm"), sysroot_bundle: await packAsset("pack/sysroot/sysroot.bundle"), host_rustc_vv: [] },
     modules: { policy: await packAsset("modules/krs_lesson_policy.wasm"), expander: await packAsset("modules/krs_expand_wasm.wasm"), krs_revision: "t", crates_tree: "t" },
     artifacts: [{ ...(await packAsset("pack/deps/libkrs.rlib")), role: "target-rlib", crate_name: "krs", mount: "/pack/deps/libkrs.rlib" }],

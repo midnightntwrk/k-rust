@@ -32,15 +32,15 @@ export interface Scenario {
 }
 
 /** Fork 195111dff (metadata-only proc-macro crates): rustc.wasm traps after errors and loses the stashed type-path E0433. */
-export const FORK_IR04 = "195111dff60e2ce0c6d71f7302401cc4c07b0365";
+export const FORK_195111DFF = "195111dff60e2ce0c6d71f7302401cc4c07b0365";
 /** Fork 0ce51e933 (panic=abort error-exit fix): errors finish as natively (summary lines, exit 1, no trap). */
-export const FORK_IR26 = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0";
+export const FORK_0CE51E933 = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0";
 
 /** Fork eb8eda040: clif2wasm gaps B17-B27 closed; error exits as on 0ce51e933. */
-export const FORK_IR27 = "eb8eda0400b8015a0751e48597eb0969dbbd7b36";
+export const FORK_EB8EDA040 = "eb8eda0400b8015a0751e48597eb0969dbbd7b36";
 
 /** Fork 8bf3c69b3: WASM_INIT_FUNCS for .init_array, std::simd fma; error exits as on 0ce51e933. */
-export const FORK_IR22 = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826";
+export const FORK_8BF3C69B3 = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826";
 
 export class MissingForkExpectation extends Error {
   constructor(scenario: string, forkRevision: string, known: string[]) {
@@ -126,10 +126,10 @@ export const SCENARIOS: Scenario[] = [
     name: "rustc-e0433-type-path-trap",
     fixture: "rustc-e0433-type-path.rs",
     expectByFork: {
-      [FORK_IR04]: { outcome: "failure", stage: "rustc-lesson", code: "compiler-trap" },
-      [FORK_IR26]: E0433_TYPE_PATH,
-      [FORK_IR27]: E0433_TYPE_PATH,
-      [FORK_IR22]: E0433_TYPE_PATH,
+      [FORK_195111DFF]: { outcome: "failure", stage: "rustc-lesson", code: "compiler-trap" },
+      [FORK_0CE51E933]: E0433_TYPE_PATH,
+      [FORK_EB8EDA040]: E0433_TYPE_PATH,
+      [FORK_8BF3C69B3]: E0433_TYPE_PATH,
     },
   },
   {

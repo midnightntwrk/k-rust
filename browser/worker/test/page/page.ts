@@ -1,6 +1,6 @@
 // Test page for the compiler worker: loads the staged pack from ./assets/,
 // verifies every hash, compiles the three modules once, and exposes
-// window.ir15 for the WebDriver/BiDi drivers.
+// window.krsWorker for the WebDriver/BiDi drivers.
 
 import { KrsCompiler, loadVerifiedAssets } from "../../src/controller.ts";
 import type { CompileEvent, FaultInjection, LessonManifest, PackManifest } from "../../src/protocol.ts";
@@ -209,7 +209,7 @@ async function supersede() {
   return { first: terminal(a), second: terminal(b), third: terminal(c), secondEventCount: b.events.length };
 }
 
-(globalThis as unknown as { ir15: unknown }).ir15 = {
+(globalThis as unknown as { krsWorker: unknown }).krsWorker = {
   init,
   run,
   runSource,
@@ -218,5 +218,5 @@ async function supersede() {
   supersede,
   scenarios: SCENARIOS.map((s) => s.name),
 };
-(globalThis as unknown as { ir15Ready: boolean }).ir15Ready = true;
-document.getElementById("status")!.textContent = "ready: call window.ir15.init()";
+(globalThis as unknown as { krsPageReady: boolean }).krsPageReady = true;
+document.getElementById("status")!.textContent = "ready: call window.krsWorker.init()";

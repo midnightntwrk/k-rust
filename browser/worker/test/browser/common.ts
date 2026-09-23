@@ -160,11 +160,11 @@ export interface StepRecord {
 /** Runs the scenario plan in one page session; `evaluate` runs an async function body in the page. */
 export async function runPlan(evaluate: Evaluate, sampler: TreeSampler, scenarios: string[]): Promise<StepRecord[]> {
   const steps: Array<[string, string]> = [
-    ["init", "return await window.ir15.init();"],
-    ...scenarios.map((name): [string, string] => [name, `return await window.ir15.run(${JSON.stringify(name)});`]),
-    ["cancel-during-rustc-lesson", "return await window.ir15.cancelDuringRustcLesson(100);"],
-    ["supersede", "return await window.ir15.supersede();"],
-    ["tour-minimal-final", `return await window.ir15.run("tour-minimal");`],
+    ["init", "return await window.krsWorker.init();"],
+    ...scenarios.map((name): [string, string] => [name, `return await window.krsWorker.run(${JSON.stringify(name)});`]),
+    ["cancel-during-rustc-lesson", "return await window.krsWorker.cancelDuringRustcLesson(100);"],
+    ["supersede", "return await window.krsWorker.supersede();"],
+    ["tour-minimal-final", `return await window.krsWorker.run("tour-minimal");`],
   ];
   const records: StepRecord[] = [];
   for (const [step, body] of steps) {

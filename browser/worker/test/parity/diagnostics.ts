@@ -28,18 +28,18 @@ import { parseArgs } from "node:util";
 import type { LessonManifest } from "../../src/protocol.ts";
 import { parseStderr, reportable, type RustcDiagnostic } from "../../src/rustc.ts";
 import { launch, type BrowserSession } from "../browser/drivers.ts";
-import { FORK_IR04 } from "../scenarios.ts";
+import { FORK_195111DFF } from "../scenarios.ts";
 import { CASES, fixtureText, lessonManifest, resolveFault, type DiagnosticCase, type Stage } from "./cases.ts";
 
 const { values } = parseArgs({
   options: {
-    native: { type: "string", default: "/var/tmp/krs-ir18-native" },
-    assets: { type: "string", default: "/var/tmp/krs-ir18-assets-r26" },
-    site: { type: "string", default: "/var/tmp/krs-ir18-site" },
-    out: { type: "string", default: "/var/tmp/krs-ir18-run/evidence" },
-    scratch: { type: "string", default: "/var/tmp/krs-ir18-run/scratch" },
+    native: { type: "string", default: "/var/tmp/krs-diagnostics-native" },
+    assets: { type: "string", default: "/var/tmp/krs-diagnostics-assets" },
+    site: { type: "string", default: "/var/tmp/krs-diagnostics-site" },
+    out: { type: "string", default: "/var/tmp/krs-diagnostics-run/evidence" },
+    scratch: { type: "string", default: "/var/tmp/krs-diagnostics-run/scratch" },
     browsers: { type: "string", default: "chromium,firefox" },
-    "krs-bin": { type: "string", default: "/var/tmp/krs-ir17-cli-target/debug/krs" },
+    "krs-bin": { type: "string", default: "/var/tmp/krs-parity-cli-target/debug/krs" },
     "load-max": { type: "string", default: "40" },
     port: { type: "string", default: "4355" },
   },
@@ -185,8 +185,8 @@ function nativeFor(c: DiagnosticCase): { diagnostics: Normalized[]; compile: Nor
       return {
         diagnostics: all,
         compile: all,
-        raw: { "collector.stderr": read(c.id, "collector.stderr"), "collector.exit": read(c.id, "collector.exit"), "bl006-probe.json": read(c.id, "bl006-probe.json") },
-        note: `anchor-probe at this revision: ${read(c.id, "bl006-probe.json").trim()}`,
+        raw: { "collector.stderr": read(c.id, "collector.stderr"), "collector.exit": read(c.id, "collector.exit"), "anchor-probe.json": read(c.id, "anchor-probe.json") },
+        note: `anchor-probe at this revision: ${read(c.id, "anchor-probe.json").trim()}`,
       };
     }
     case "D007": {
@@ -251,12 +251,12 @@ function browserNormalized(d: BrowserDiagnostic): Normalized {
 
 /** Lowers a browser bundle natively: krs check with the cargo shim returning the bundle as the collector's stdout. */
 function lowerNatively(c: DiagnosticCase, bundlePath: string): { stderr: string; exit: number } {
-  const pkg = c.id === "D003" ? ["wrong-result", "bl006-wrong-result"] : ["overlap", "bl006-overlap"];
+  const pkg = c.id === "D003" ? ["wrong-result", "diagnostic-wrong-result"] : ["overlap", "diagnostic-overlap"];
   const z3 = process.env.KRS_Z3_LIB ?? "/nix/store/bncr69nhmgvphbynb1a3g4a2jb9b8vj0-z3-4.12.5-lib/lib";
   const result = Bun.spawnSync(
     ["nice", "-n", "19", values["krs-bin"]!, "check", "--manifest-path", join(nativeDir, "workspace", pkg[0]!, "Cargo.toml"), "--package", pkg[1]!, "--definition", "main"],
     {
-      env: { ...process.env, PATH: `${join(nativeDir, "lower-shim")}:${process.env.PATH}`, KRS_IR18_BUNDLE: bundlePath, LD_LIBRARY_PATH: z3, CARGO_TARGET_DIR: join(nativeDir, "target-krs") },
+      env: { ...process.env, PATH: `${join(nativeDir, "lower-shim")}:${process.env.PATH}`, KRS_DIAGNOSTICS_BUNDLE: bundlePath, LD_LIBRARY_PATH: z3, CARGO_TARGET_DIR: join(nativeDir, "target-krs") },
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -284,13 +284,13 @@ async function runBrowser(browser: "chromium" | "firefox", port: number, tour: L
   mkdirSync(rawDir, { recursive: true });
   const load = await waitForLoad();
   try {
-    session = await launch(browser, { site: values.site!, port, profilePrefix: "/var/tmp/krs-ir18-" });
-    await session.evaluate("return await window.ir15.init();");
+    session = await launch(browser, { site: values.site!, port, profilePrefix: "/var/tmp/krs-diagnostics-profile-" });
+    await session.evaluate("return await window.krsWorker.init();");
     for (const c of CASES) {
       session.sampler.phase = c.id;
       const lesson = lessonManifest(c.lesson, tour);
       const request = { label: c.id, source: fixtureText(c.fixture), lesson, debugEvidence: true, keepBundle: true, faultInjection: resolveFault(c.faultInjection) };
-      const result = (await session.evaluate(`return await window.ir15.runSource(${JSON.stringify(request)});`)) as { wallMs: number; events: Array<Record<string, any>> };
+      const result = (await session.evaluate(`return await window.krsWorker.runSource(${JSON.stringify(request)});`)) as { wallMs: number; events: Array<Record<string, any>> };
       const terminal = result.events.find((e) => e.type === "success" || e.type === "failure" || e.type === "cancelled") ?? null;
       const rawDiagnostics = result.events.filter((e) => e.type === "diagnostics").flatMap((e) => e.entries as BrowserDiagnostic[]);
       const evidence = terminal?.evidence as { rustc?: { lesson?: { stderr: string }; collector?: { stderr: string } }; fault?: unknown } | undefined;
@@ -376,7 +376,7 @@ if (!nativeProvenance.includes(`crates_tree = ${pack.crates_tree}`)) {
   process.exit(3);
 }
 for (const c of CASES) {
-  if (c.bl006Sha256 && sha256(fixtureText(c.fixture)) !== c.bl006Sha256) throw new Error(`${c.fixture} differs from its recorded content_sha256`);
+  if (c.contentSha256 && sha256(fixtureText(c.fixture)) !== c.contentSha256) throw new Error(`${c.fixture} differs from its recorded content_sha256`);
 }
 await waitForLoad();
 const site = Bun.spawnSync(["bun", "scripts/build-site.ts", "--out", values.site!, "--assets", values.assets!], { cwd: workerRoot, stderr: "pipe" });
@@ -411,8 +411,8 @@ const cases = CASES.map((c) => {
   const crossBrowser = classes.every((x) => x === classes[0]);
   const pass = perBrowser.every((p) => p.pass) && crossBrowser;
   // Fork 0ce51e933 fixed the rustc.wasm trap; the blocker applies only to fork 195111dff.
-  const blocked = c.blockedBy !== undefined && pack.fork_revision === FORK_IR04;
-  return { case: c, native, perBrowser, crossBrowser, pass, blocked, status: pass ? "match" : blocked ? `blocked-by ${c.blockedBy!.ticket}` : "mismatch" };
+  const blocked = c.blockedBy !== undefined && pack.fork_revision === FORK_195111DFF;
+  return { case: c, native, perBrowser, crossBrowser, pass, blocked, status: pass ? "match" : blocked ? `blocked-by ${c.blockedBy!.cause}` : "mismatch" };
 });
 
 // Raw native evidence per case.
@@ -447,8 +447,8 @@ for (const r of cases) {
   lines.push("[[case]]", `id = ${q(c.id)}`, `title = ${q(c.title)}`, `fixture = ${q(`browser/worker/test/fixtures/${c.fixture}`)}`, `fixture_sha256 = ${q(sha256(fixtureText(c.fixture)))}`, `lesson = ${q(c.lesson)}`);
   if (c.faultInjection) lines.push(`fault_injection = ${q(c.faultInjection.kind)}`);
   lines.push(`native_stage = ${q(c.nativeStage)}`, `status = ${q(r.status)}`, `cross_browser_identical = ${r.crossBrowser}`);
-  if (r.blocked) lines.push(`blocked_by = ${q(c.blockedBy!.ticket)}`, `blocked_reason = ${q(c.blockedBy!.reason)}`);
-  else if (c.blockedBy) lines.push(`formerly_blocked_by = ${q(`${c.blockedBy.ticket} (fork ${FORK_IR04.slice(0, 9)}); fixed in the pack's fork`)}`);
+  if (r.blocked) lines.push(`blocked_by = ${q(c.blockedBy!.cause)}`, `blocked_reason = ${q(c.blockedBy!.reason)}`);
+  else if (c.blockedBy) lines.push(`formerly_blocked_by = ${q(`${c.blockedBy.cause} (fork ${FORK_195111DFF.slice(0, 9)}); fixed in the pack's fork`)}`);
   if (c.nativeLoweringOfBrowserBundle) lines.push('lowering = "native lowering of the browser bundle (no Wasm lowering yet)"');
   lines.push(`note = ${q(c.note)}`);
   r.native.diagnostics.forEach((n, i) => {

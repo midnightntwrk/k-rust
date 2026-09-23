@@ -36,10 +36,10 @@ const { values } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     site: { type: "string" },
-    assets: { type: "string", default: "/var/tmp/krs-ir21-run/publish" },
+    assets: { type: "string", default: "/var/tmp/krs-browser-pack-run/publish" },
     out: { type: "string" },
-    oracle: { type: "string", default: "/var/tmp/krs-ir17-oracle-final/native/descriptor-bundle.json" },
-    "oracle-e1": { type: "string", default: "/var/tmp/krs-ir17-oracle-final/native-e1/descriptor-bundle.json" },
+    oracle: { type: "string", default: "/var/tmp/krs-parity-oracle-final/native/descriptor-bundle.json" },
+    "oracle-e1": { type: "string", default: "/var/tmp/krs-parity-oracle-final/native-e1/descriptor-bundle.json" },
     browsers: { type: "string", default: "chromium,firefox" },
     port: { type: "string", default: "5310" },
     firefox: { type: "string", default: "/usr/lib/firefox/firefox" },
@@ -260,7 +260,7 @@ interface Session {
 }
 
 async function launch(browser: "chromium" | "firefox"): Promise<Session> {
-  const profile = mkdtempSync(`/var/tmp/krs-ir20-${browser}-profile.`);
+  const profile = mkdtempSync(`/var/tmp/krs-docs-lesson-${browser}-profile.`);
   const control = PORT + 1;
   let proc: ReturnType<typeof Bun.spawn>;
   let bidi: Bidi;

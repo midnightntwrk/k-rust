@@ -1,5 +1,5 @@
 // Unit tests over recorded fixtures (bun test). Tests that need the staged
-// Wasm modules skip when /var/tmp/krs-ir15-assets is absent.
+// Wasm modules skip when /var/tmp/krs-browser-assets is absent.
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
@@ -8,7 +8,7 @@ import { renderCollectorMain } from "../../src/collector-template.ts";
 import { fromExpander, fromPolicy, fromRustc, lookupRanges } from "../../src/diagnostics.ts";
 import type { ExpandResponse, LookupResponse, PolicyResponse } from "../../src/modules.ts";
 import { runExpander, runLookup, runPolicy } from "../../src/modules.ts";
-import { packFromIr14, type Ir14PackManifest } from "../../src/pack-ir14.ts";
+import { packFromManifest, type SourcePackManifest } from "../../src/pack-manifest.ts";
 import { checkActivation, recomputePackId, sha256Hex } from "../../src/pack.ts";
 import { createBuild, injectMissingFactory, runBuild, stagePolicy, StageFailure } from "../../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest, VerifiedAssets } from "../../src/protocol.ts";
@@ -17,7 +17,7 @@ import { parseSysrootBundle, readOnlyTree } from "../../src/vfs.ts";
 
 const FIXTURES = join(import.meta.dir, "../fixtures");
 const fixture = (name: string) => readFileSync(join(FIXTURES, name), "utf8");
-const ASSETS = "/var/tmp/krs-ir15-assets";
+const ASSETS = "/var/tmp/krs-browser-assets";
 const haveAssets = existsSync(join(ASSETS, "pack.json"));
 
 const lesson: LessonManifest = {
@@ -42,13 +42,13 @@ const lesson: LessonManifest = {
 };
 
 const CRATES_TREE = "199c07cfc38861110966d0ce99805035602b0a91";
-const ir14Source = () => Bun.TOML.parse(fixture("ir14-pack-manifest.toml")) as unknown as Ir14PackManifest;
+const manifestSource = () => Bun.TOML.parse(fixture("pack-manifest.toml")) as unknown as SourcePackManifest;
 const moduleAsset = (path: string) => ({ path, sha256: "1".repeat(64), bytes: 1 });
 
-async function ir14Pack(source = ir14Source(), cratesTree = CRATES_TREE): Promise<PackManifest> {
-  return packFromIr14(source, {
+async function adaptedPack(source = manifestSource(), cratesTree = CRATES_TREE): Promise<PackManifest> {
+  return packFromManifest(source, {
     packDir: "pack",
-    sourcePath: "ir14-pack-manifest.toml",
+    sourcePath: "pack-manifest.toml",
     sourceSha256: "0".repeat(64),
     policy: moduleAsset("modules/p.wasm"),
     expander: moduleAsset("modules/e.wasm"),
@@ -66,7 +66,7 @@ describe("collector template", () => {
 
 describe("pack adapter (pack manifest, schema_version 2)", () => {
   test("maps roles to mounts, externs, and [direct_rustc]", async () => {
-    const pack = await ir14Pack();
+    const pack = await adaptedPack();
     expect(pack.pack_id).toBe("sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117");
     expect(pack.artifacts.length).toBe(28);
     expect(pack.externs.facade).toBe("/pack/deps/libkrs-add96ba03f57c1b6.rlib");
@@ -86,17 +86,17 @@ describe("pack adapter (pack manifest, schema_version 2)", () => {
   });
 
   test("rejects a tampered artifact hash (pack_id no longer matches)", async () => {
-    const source = ir14Source();
+    const source = manifestSource();
     source.artifact[3]!.sha256 = "f".repeat(64);
-    await expect(ir14Pack(source)).rejects.toThrow(/pack_id/);
+    await expect(adaptedPack(source)).rejects.toThrow(/pack_id/);
   });
 
   test("rejects modules built from another crates/ tree", async () => {
-    await expect(ir14Pack(ir14Source(), "0".repeat(40))).rejects.toThrow(/crates\/ tree/);
+    await expect(adaptedPack(manifestSource(), "0".repeat(40))).rejects.toThrow(/crates\/ tree/);
   });
 
   test("activation fails for unverified assets", async () => {
-    const pack = await ir14Pack();
+    const pack = await adaptedPack();
     const problems = checkActivation(pack, {
       packId: pack.pack_id,
       modules: {} as VerifiedAssets["modules"],
@@ -108,7 +108,7 @@ describe("pack adapter (pack manifest, schema_version 2)", () => {
   });
 
   test("the loader recomputes pack_id over the pack's own assets", async () => {
-    const pack = await ir14Pack();
+    const pack = await adaptedPack();
     expect(await recomputePackId(pack)).toBe(pack.pack_id);
     const tampered = { ...pack, artifacts: pack.artifacts.map((a, i) => (i === 0 ? { ...a, sha256: "e".repeat(64) } : a)) };
     expect(await recomputePackId(tampered)).not.toBe(pack.pack_id);
@@ -117,7 +117,7 @@ describe("pack adapter (pack manifest, schema_version 2)", () => {
 
 describe("rustc invocations", () => {
   test("lesson and collector arguments follow the pack manifest's [consumer] contract", async () => {
-    const pack = await ir14Pack();
+    const pack = await adaptedPack();
     const l = lessonInvocation(pack, lesson);
     expect(l.args).toContain("-Zproc-macro-metadata-only");
     expect(l.args.slice(-6)).toEqual(["-A", "non_camel_case_types", "-A", "non_snake_case", "-o", "/work/out/libkrs_tour_minimal.rlib"]);
@@ -224,7 +224,7 @@ describe("vfs", () => {
   });
 
   test("consecutive builds share immutable files but no per-build directory object", async () => {
-    const pack = await ir14Pack();
+    const pack = await adaptedPack();
     const ctx = {
       pack,
       modules: {} as VerifiedAssets["modules"],
@@ -267,19 +267,19 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
     expect(events.map((e) => e.type)).toEqual(["diagnostics"]);
   });
 
-  test("expander output for tour-minimal equals the recorded text (3e30f53d...) and lookup answers", async () => {
+  test("expander output for tour-minimal equals the recorded text (8917efe2...) and lookup answers", async () => {
     const expander = await load(pack!.modules.expander.path);
     const request = JSON.parse(fixture("expander-tour-minimal.request.json"));
     const response = await runExpander(expander, request);
     expect(await sha256Hex(new TextEncoder().encode(response.expanded!.text))).toBe(
-      "3e30f53d00594b95dc853db28c97e1c3314e998d6aba5cacab3aaa3af9a7bd36",
+      "8917efe2fd0a34bb0c4769ef26229fea7b7772d8b97b4374e2afac3327fcc60b",
     );
     const lookup = await runLookup(expander, {
       schema: 1,
       authored_source: request.file.source,
       text: response.expanded!.text,
       source_map: response.source_map,
-      ranges: [[55833, 56780]],
+      ranges: [[55833, 56772]],
     });
     expect(lookup.mappings[0]!.class).toBe("generated-only");
   });

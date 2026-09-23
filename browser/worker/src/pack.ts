@@ -11,7 +11,7 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /** pack_id rule of the pack-manifest format: SHA-256 of the sorted "<sha256>  <path>\n" lines of every artifact. */
-export async function ir14PackId(artifacts: Array<{ path: string; sha256: string }>): Promise<string> {
+export async function computePackId(artifacts: Array<{ path: string; sha256: string }>): Promise<string> {
   const lines = artifacts.map((a) => `${a.sha256}  ${a.path}\n`).sort();
   return `sha256:${await sha256Hex(new TextEncoder().encode(lines.join("")))}`;
 }
@@ -22,7 +22,7 @@ export async function recomputePackId(pack: PackManifest): Promise<string> {
   const own = packAssets(pack)
     .filter((a) => a.path.startsWith(prefix))
     .map((a) => ({ path: a.path.slice(prefix.length), sha256: a.sha256 }));
-  return ir14PackId(own);
+  return computePackId(own);
 }
 
 /** Every asset the worker needs, keyed by its pack-relative path. */

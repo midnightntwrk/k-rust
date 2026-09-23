@@ -25,8 +25,8 @@ const { values } = parseArgs({
   options: {
     staged: { type: "string" },
     oracle: { type: "string" },
-    out: { type: "string", default: "/var/tmp/krs-ir21-cache/evidence" },
-    work: { type: "string", default: "/var/tmp/krs-ir21-cache" },
+    out: { type: "string", default: "/var/tmp/krs-browser-cache/evidence" },
+    work: { type: "string", default: "/var/tmp/krs-browser-cache" },
     browsers: { type: "string", default: "chromium,firefox" },
     port: { type: "string", default: "4371" },
     "asset-port": { type: "string", default: "4391" },
@@ -196,7 +196,7 @@ async function reload(session: BrowserSession) {
   for (let i = 0; i < 600; i += 1) {
     await Bun.sleep(100);
     try {
-      const now = (await session.evaluate("return window.ir15Ready === true ? performance.timeOrigin : null;")) as number | null;
+      const now = (await session.evaluate("return window.krsPageReady === true ? performance.timeOrigin : null;")) as number | null;
       if (now !== null && now !== before) return;
     } catch {
       // navigating
@@ -224,13 +224,13 @@ async function runBrowser(browser: "chromium" | "firefox") {
   const count = (log: HostLogEntry[], path: string) => log.filter((e) => e.path === path).length;
   let environment: unknown = null;
   try {
-    environment = await ev("return await window.ir21.config();");
+    environment = await ev("return await window.krsCache.config();");
 
     // C1 cold install and compile (release A)
     let m = host.mark();
-    const c1 = await ev("return await window.ir21.open();");
+    const c1 = await ev("return await window.krsCache.open();");
     const c1log = host.since(m);
-    const c1compile = await ev(`return await window.ir21.compile(${JSON.stringify(relA.pack_id)});`);
+    const c1compile = await ev(`return await window.krsCache.compile(${JSON.stringify(relA.pack_id)});`);
     record("cold-install", {
       opened: c1.ok === true && c1.packId === relA.pack_id,
       fetched_every_required_asset_once: [...requiredUrls(releaseA)].every((u) => count(c1log, u) === 1),
@@ -240,11 +240,11 @@ async function runBrowser(browser: "chromium" | "firefox") {
     }, { open: { ms: c1.ms, events: c1.events.length }, requests: c1log.length, compile: c1compile });
 
     // C2 corrupted cache entry (valid length, wrong bytes), origin intact: evict, refetch once, continue
-    const corruptA = await ev(`return await window.ir21.corrupt(${JSON.stringify(relA.pack_id)}, ${JSON.stringify(rlibA.id)});`);
+    const corruptA = await ev(`return await window.krsCache.corrupt(${JSON.stringify(relA.pack_id)}, ${JSON.stringify(rlibA.id)});`);
     m = host.mark();
-    const c2 = await ev("return await window.ir21.open();");
+    const c2 = await ev("return await window.krsCache.open();");
     const c2log = host.since(m);
-    const c2compile = await ev(`return await window.ir21.compile(${JSON.stringify(relA.pack_id)});`);
+    const c2compile = await ev(`return await window.krsCache.compile(${JSON.stringify(relA.pack_id)});`);
     const c2seq = c2.events.filter((e: any) => e.id === rlibA.id).map((e: any) => e.type);
     record("corrupted-cache-entry-recovers", {
       opened: c2.ok === true,
@@ -256,13 +256,13 @@ async function runBrowser(browser: "chromium" | "firefox") {
     }, { corrupted: corruptA, asset: rlibA.id, events: c2seq, requests: pathsOf(c2log), compile: c2compile.result });
 
     // C3 corrupted cache entry and corrupted origin: one refetch, then pack-integrity; no fallback
-    await ev(`return await window.ir21.corrupt(${JSON.stringify(relA.pack_id)}, ${JSON.stringify(rlibA.id)});`);
+    await ev(`return await window.krsCache.corrupt(${JSON.stringify(relA.pack_id)}, ${JSON.stringify(rlibA.id)});`);
     host.faults.set(`/${rlibA.url}`, "corrupt");
     m = host.mark();
-    const c3 = await ev("return await window.ir21.open();");
+    const c3 = await ev("return await window.krsCache.open();");
     const c3log = host.since(m);
-    const c3state = await ev("return await window.ir21.state();");
-    const c3cached = await ev(`return await window.ir21.hasEntry(${JSON.stringify(relA.pack_id)}, ${JSON.stringify(rlibA.url)});`);
+    const c3state = await ev("return await window.krsCache.state();");
+    const c3cached = await ev(`return await window.krsCache.hasEntry(${JSON.stringify(relA.pack_id)}, ${JSON.stringify(rlibA.url)});`);
     host.faults.clear();
     const c3seq = c3.events.filter((e: any) => e.id === rlibA.id).map((e: any) => e.type);
     record("corrupted-cache-and-origin-reports-integrity-error", {
@@ -276,22 +276,22 @@ async function runBrowser(browser: "chromium" | "firefox") {
       pointer_unchanged: c3state.pointer?.pack_id === relA.pack_id,
     }, { error: c3.error, events: c3seq, requests: pathsOf(c3log), pointer: c3state.pointer });
     // Restore A (the origin is intact again).
-    const c3restore = await ev("return await window.ir21.open();");
+    const c3restore = await ev("return await window.krsCache.open();");
 
     // C4 truncated response while installing B: rejected before activation
     host.active = "B";
     host.faults.set(`/${onlyB.url}`, "short");
     m = host.mark();
-    const c4 = await ev("return await window.ir21.open();");
+    const c4 = await ev("return await window.krsCache.open();");
     const c4log = host.since(m);
-    const c4state = await ev("return await window.ir21.state();");
-    const c4cached = await ev(`return await window.ir21.hasEntry(${JSON.stringify(relB.pack_id)}, ${JSON.stringify(onlyB.url)});`);
+    const c4state = await ev("return await window.krsCache.state();");
+    const c4cached = await ev(`return await window.krsCache.hasEntry(${JSON.stringify(relB.pack_id)}, ${JSON.stringify(onlyB.url)});`);
     host.faults.set(`/${onlyB.url}`, "abort");
     m = host.mark();
-    const c4b = await ev("return await window.ir21.open();");
+    const c4b = await ev("return await window.krsCache.open();");
     const c4blog = host.since(m);
-    const c4bstate = await ev("return await window.ir21.state();");
-    const c4bcached = await ev(`return await window.ir21.hasEntry(${JSON.stringify(relB.pack_id)}, ${JSON.stringify(onlyB.url)});`);
+    const c4bstate = await ev("return await window.krsCache.state();");
+    const c4bcached = await ev(`return await window.krsCache.hasEntry(${JSON.stringify(relB.pack_id)}, ${JSON.stringify(onlyB.url)});`);
     host.faults.clear();
     record("truncated-response-rejected-before-activation", {
       short_rejected: c4.ok === false && c4.error?.code === "pack-integrity" && c4.error?.reason === "length-mismatch" && c4.error?.assetId === onlyB.id,
@@ -305,24 +305,24 @@ async function runBrowser(browser: "chromium" | "firefox") {
     }, { short: c4.error, aborted: c4b.error, asset: onlyB.id, requests: { short: pathsOf(c4log).length, aborted: pathsOf(c4blog).length } });
 
     // C5 new generation while a worker holds the old one: cleanup keeps the leased namespace
-    const c5holder = await ev(`return await window.ir21.compile(${JSON.stringify(relA.pack_id)}, { lease: true, keep: true });`);
-    const c5open = await ev("return await window.ir21.open();"); // installs and activates B
-    const c5stateBefore = await ev("return await window.ir21.state();");
-    const c5clean1 = await ev("return await window.ir21.cleanup();");
-    const c5stateLeased = await ev("return await window.ir21.state();");
-    const c5again = await ev(`return await window.ir21.compile(${JSON.stringify(relA.pack_id)});`);
-    await ev(`return window.ir21.dispose(${JSON.stringify(relA.pack_id)});`);
+    const c5holder = await ev(`return await window.krsCache.compile(${JSON.stringify(relA.pack_id)}, { lease: true, keep: true });`);
+    const c5open = await ev("return await window.krsCache.open();"); // installs and activates B
+    const c5stateBefore = await ev("return await window.krsCache.state();");
+    const c5clean1 = await ev("return await window.krsCache.cleanup();");
+    const c5stateLeased = await ev("return await window.krsCache.state();");
+    const c5again = await ev(`return await window.krsCache.compile(${JSON.stringify(relA.pack_id)});`);
+    await ev(`return window.krsCache.dispose(${JSON.stringify(relA.pack_id)});`);
     let c5stateReleased: any = null;
     for (let i = 0; i < 50; i += 1) {
-      c5stateReleased = await ev("return await window.ir21.state();");
+      c5stateReleased = await ev("return await window.krsCache.state();");
       if (!c5stateReleased.heldLeases.some((l: any) => l.name.endsWith(relA.pack_id.slice(7)))) break;
       await Bun.sleep(100);
     }
-    const c5clean2 = await ev("return await window.ir21.cleanup();");
-    const c5stateAfter = await ev("return await window.ir21.state();");
+    const c5clean2 = await ev("return await window.krsCache.cleanup();");
+    const c5stateAfter = await ev("return await window.krsCache.state();");
     const nsA = `krs-pack-${relA.pack_id.slice(7)}`;
     const nsB = `krs-pack-${relB.pack_id.slice(7)}`;
-    const c5compileB = await ev(`return await window.ir21.compile(${JSON.stringify(relB.pack_id)});`);
+    const c5compileB = await ev(`return await window.krsCache.compile(${JSON.stringify(relB.pack_id)});`);
     record("generation-lease-blocks-cleanup", {
       holder_compiled: c5holder.result.type === "success",
       b_activated: c5open.ok === true && c5open.packId === relB.pack_id && c5stateBefore.pointer?.pack_id === relB.pack_id,
@@ -335,11 +335,11 @@ async function runBrowser(browser: "chromium" | "firefox") {
     }, { cleanupWhileLeased: c5clean1.results, cleanupAfter: c5clean2.results, leases: c5stateLeased.heldLeases, compileB: c5compileB.result, namespacesAfter: c5stateAfter.namespaces });
 
     // C6 evicted namespace (caches.delete between compiles): refetch and continue
-    await ev(`return await window.ir21.deleteNamespace(${JSON.stringify(relB.pack_id)});`);
+    await ev(`return await window.krsCache.deleteNamespace(${JSON.stringify(relB.pack_id)});`);
     m = host.mark();
-    const c6 = await ev("return await window.ir21.open();");
+    const c6 = await ev("return await window.krsCache.open();");
     const c6log = host.since(m);
-    const c6compile = await ev(`return await window.ir21.compile(${JSON.stringify(relB.pack_id)});`);
+    const c6compile = await ev(`return await window.krsCache.compile(${JSON.stringify(relB.pack_id)});`);
     record("evicted-namespace-refetches", {
       opened: c6.ok === true && c6.packId === relB.pack_id,
       refetched_every_required_asset: [...requiredUrls(releaseB)].every((u) => count(c6log, u) === 1),
@@ -350,14 +350,14 @@ async function runBrowser(browser: "chromium" | "firefox") {
     // C7 offline reload after a complete verified load: compile succeeds from the cache alone
     host.stop();
     await reload(session);
-    await ev("return await window.ir21.config();");
+    await ev("return await window.krsCache.config();");
     m = host.mark();
-    const c7 = await ev("return await window.ir21.open();");
-    const c7compile = c7.ok ? await ev(`return await window.ir21.compile(${JSON.stringify(relB.pack_id)});`) : null;
+    const c7 = await ev("return await window.krsCache.open();");
+    const c7compile = c7.ok ? await ev(`return await window.krsCache.compile(${JSON.stringify(relB.pack_id)});`) : null;
     const c7log = host.since(m);
     // C7b offline with the namespace gone: reported cleanly
-    await ev(`return await window.ir21.deleteNamespace(${JSON.stringify(relB.pack_id)});`);
-    const c7b = await ev("return await window.ir21.open();");
+    await ev(`return await window.krsCache.deleteNamespace(${JSON.stringify(relB.pack_id)});`);
+    const c7b = await ev("return await window.krsCache.open();");
     record("offline-reload", {
       opened_offline: c7.ok === true && c7.packId === relB.pack_id && c7.events.some((e: any) => e.type === "index" && e.source === "offline-pointer"),
       all_from_cache: c7.ok === true && c7.events.filter((e: any) => e.type === "verified").every((e: any) => e.from === "cache"),
@@ -366,7 +366,7 @@ async function runBrowser(browser: "chromium" | "firefox") {
       incomplete_offline_reported: c7b.ok === false && c7b.error?.code === "pack-unavailable" && c7b.error?.reason === "offline-incomplete",
     }, { open: c7.ok ? { ms: c7.ms, events: c7.events.length } : c7.error, compile: c7compile?.result, offlineIncomplete: c7b.error });
     await host.start();
-    const final = await ev("return await window.ir21.state();");
+    const final = await ev("return await window.krsCache.state();");
     void c3restore;
     await session.close();
     const record_ = {

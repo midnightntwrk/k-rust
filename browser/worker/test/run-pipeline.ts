@@ -16,7 +16,7 @@ import { check, expectationFor, SCENARIOS } from "./scenarios.ts";
 
 const { values } = parseArgs({
   options: {
-    assets: { type: "string", default: "/var/tmp/krs-ir15-assets" },
+    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
     out: { type: "string" },
     only: { type: "string" },
     repeat: { type: "string", default: "1" },

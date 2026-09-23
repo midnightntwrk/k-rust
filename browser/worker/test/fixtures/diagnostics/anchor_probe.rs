@@ -38,9 +38,9 @@ fn descriptor(package_root: &Path, display_file: &str) -> HostDescriptor {
     HostDescriptor {
         protocol_version: ProtocolVersion::CURRENT,
         id: HostItemId::new(
-            HostPackageKey::new("bl006-anchor", "0.0.0", package_root)
+            HostPackageKey::new("diagnostic-anchor", "0.0.0", package_root)
                 .expect("fixture package key"),
-            ["bl006_anchor"],
+            ["diagnostic_anchor"],
             "Expr",
             ItemKind::Sort,
             "",
@@ -59,14 +59,14 @@ fn main() {
     let case = std::env::args()
         .nth(1)
         .expect("usage: anchor-probe stale|missing");
-    let package_root = Path::new("/var/tmp/krs-browser-lessons-bl006-target/anchor-package");
+    let package_root = Path::new("/var/tmp/krs-diagnostics-anchor-target/anchor-package");
     if package_root.exists() {
         fs::remove_dir_all(package_root).expect("remove prior isolated fixture");
     }
     fs::create_dir_all(package_root.join("src")).expect("create isolated fixture");
     fs::write(
         package_root.join("Cargo.toml"),
-        "[package]\nname = \"bl006-anchor\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"diagnostic-anchor\"\nversion = \"0.0.0\"\n",
     )
     .expect("write manifest");
     fs::write(
@@ -89,11 +89,11 @@ fn main() {
         .expect("replace source after expansion anchor capture");
     }
     let context = PackageContext::new(
-        "BL006-ANCHOR",
-        "bl006-anchor",
+        "DIAGNOSTIC-ANCHOR",
+        "diagnostic-anchor",
         "0.0.0",
         "workspace",
-        "bl006_anchor",
+        "diagnostic_anchor",
         package_root.join("Cargo.toml"),
     )
     .expect("fixture package context");

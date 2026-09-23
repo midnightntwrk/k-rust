@@ -24,11 +24,11 @@ import { launch, type BrowserSession } from "../browser/drivers.ts";
 const { values } = parseArgs({
   options: {
     "regenerate-oracle": { type: "boolean", default: false },
-    "oracle-dir": { type: "string", default: "/var/tmp/krs-ir17-oracle" },
-    out: { type: "string", default: "/var/tmp/krs-ir17-run/evidence" },
-    bundles: { type: "string", default: "/var/tmp/krs-ir17-run/bundles" },
-    assets: { type: "string", default: "/var/tmp/krs-ir15-assets" },
-    site: { type: "string", default: "/var/tmp/krs-ir17-site" },
+    "oracle-dir": { type: "string", default: "/var/tmp/krs-parity-oracle" },
+    out: { type: "string", default: "/var/tmp/krs-parity-run/evidence" },
+    bundles: { type: "string", default: "/var/tmp/krs-parity-run/bundles" },
+    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
+    site: { type: "string", default: "/var/tmp/krs-parity-site" },
     repeats: { type: "string", default: "2" },
     browsers: { type: "string", default: "chromium,firefox" },
     "load-max": { type: "string", default: "40" },
@@ -125,7 +125,7 @@ if (pack.modules.crates_tree !== current.crates_tree) problems.push(`staged modu
 if (problems.length > 0) refuse(problems);
 
 // E1 source: the patch applied to a scratch copy of the lesson file.
-const scratch = "/var/tmp/krs-ir17-run/e1";
+const scratch = "/var/tmp/krs-parity-run/e1";
 mkdirSync(join(scratch, "tests/tour-minimal/src"), { recursive: true });
 writeFileSync(join(scratch, "tests/tour-minimal/src/lib.rs"), lessonText);
 sh(["patch", "-p1", "--quiet", "-i", patchPath], scratch);
@@ -204,14 +204,14 @@ async function runSession(browser: "chromium" | "firefox", repeat: number, port:
   const load = await waitForLoad();
   const started = performance.now();
   try {
-    session = await launch(browser, { site: values.site!, port, profilePrefix: "/var/tmp/krs-ir17-" });
+    session = await launch(browser, { site: values.site!, port, profilePrefix: "/var/tmp/krs-parity-profile-" });
     session.sampler.phase = "init";
-    init = await session.evaluate("return await window.ir15.init();");
+    init = await session.evaluate("return await window.krsWorker.init();");
     for (const spec of plan) {
       session.sampler.phase = spec.step;
       const t0 = performance.now();
       const result = (await session.evaluate(
-        `return await window.ir15.runSource(${JSON.stringify({ label: spec.step, source: spec.source, debugEvidence: true, keepBundle: true })});`,
+        `return await window.krsWorker.runSource(${JSON.stringify({ label: spec.step, source: spec.source, debugEvidence: true, keepBundle: true })});`,
       )) as { wallMs: number; events: Array<Record<string, any>>; requestsDuringBuild: string[]; resourceTiming: unknown[]; workersStarted: number; lesson: string };
       const driverMs = performance.now() - t0;
       const success = result.events.find((e) => e.type === "success");
@@ -291,7 +291,7 @@ async function runSession(browser: "chromium" | "firefox", repeat: number, port:
     load,
     wallMs: performance.now() - started,
     profile: session?.profile ?? null,
-    freshProfile: "mkdtemp under /var/tmp/krs-ir17-, removed after the session",
+    freshProfile: "mkdtemp under /var/tmp/krs-parity-profile-, removed after the session",
     ...(session?.details ?? {}),
     init,
     steps,

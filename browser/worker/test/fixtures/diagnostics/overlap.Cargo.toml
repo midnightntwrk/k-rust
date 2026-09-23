@@ -1,5 +1,5 @@
 [package]
-name = "bl006-overlap"
+name = "diagnostic-overlap"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ publish.workspace = true
 k.workspace = true
 
 [package.metadata.krs]
-k-namespace = "BL006-OVERLAP"
+k-namespace = "DIAGNOSTIC-OVERLAP"
 
 [package.metadata.krs.definitions.main]
 root = "crate"
