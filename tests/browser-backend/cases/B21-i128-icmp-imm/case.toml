@@ -2,8 +2,11 @@ schema = 1
 id = "B21-i128-icmp-imm"
 behavior = "icmp_imm on i128."
 basis = "found by IR-16 (B10 i128 checked_sub/checked_div/checked_mul/signum)"
-gap = { class = "backend", summary = "clif2wasm: `lowering icmp_imm.i128 slt v, 0: clif2wasm: unsupported CLIF type i128` at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff IntCompareImm arm (line 818) calls map_type on the i128 operand (lib.rs:209 rejects I128); the register-register icmp has an i128 pair path (i128_lower::icmp) that icmp_imm does not use" }
-expected_status = "known-gap"
+gap = { class = "backend", summary = "clif2wasm: `lowering icmp_imm.i128 slt v, 0: clif2wasm: unsupported CLIF type i128` at opt-levels 0 and 2", root_cause = "compiler/rustc_codegen_cranelift/clif2wasm/src/ops.rs at 195111dff IntCompareImm arm (line 818) calls map_type on the i128 operand (lib.rs:209 rejects I128); the register-register icmp has an i128 pair path (i128_lower::icmp) that icmp_imm does not use", fixed_in = "eb8eda0400b8015a0751e48597eb0969dbbd7b36" }
+# Fixed by IR-27 (fork eb8eda040, commit 256f705 of krs/ir-27-clif2wasm-gaps): passes from that
+# revision on and is the recorded known gap of 195111dff (R-k) and 0ce51e933 (R-26).
+expected_status = "pass"
+fork_status = { "195111dff60e2ce0c6d71f7302401cc4c07b0365" = "known-gap", "0ce51e9339ee538c16580fea01ca98dd89f6d7a0" = "known-gap" }
 
 [[crate]]
 name = "b21_repro"

@@ -5,7 +5,7 @@
 //! before rustc and rejects any editable source that leaves the lesson
 //! surface: a procedural macro other than a KRS facade macro, an
 //! `extern crate`, a reach outside the lesson's editable files, and the other
-//! constructs listed in [`v1`].
+//! constructs listed in [`v1`] and [`v2`].
 //!
 //! The rule set is selected by the lesson manifest's `[policy] version`
 //! field and compiled into this crate; a manifest never carries rules. Each
@@ -25,8 +25,10 @@ use serde::{Deserialize, Serialize, Serializer};
 
 #[cfg(feature = "abi")]
 mod abi;
+mod engine;
 pub mod protocol;
 pub mod v1;
+pub mod v2;
 
 /// The `[policy]` table of a lesson manifest.
 ///
@@ -60,12 +62,21 @@ impl LessonPolicy {
             facade_alias: "k".to_owned(),
         }
     }
+
+    /// [`LessonPolicy::single_file_v1`] with version 2.
+    #[must_use]
+    pub fn single_file_v2() -> Self {
+        Self {
+            version: 2,
+            ..Self::single_file_v1()
+        }
+    }
 }
 
 /// One policy rejection.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PolicyDiagnostic {
-    /// Stable diagnostic code, one of the `v1` codes such as
+    /// Stable diagnostic code, one of the `v1` or `v2` codes such as
     /// `krs::policy::non-krs-proc-macro`.
     pub code: &'static str,
     /// Human-readable explanation.
@@ -116,7 +127,7 @@ pub const CLASS_UNMAPPABLE: &str = "unmappable";
 pub const UNKNOWN_VERSION: &str = "krs::policy::unknown-version";
 
 /// Every policy version this crate implements.
-pub const SUPPORTED_VERSIONS: &[u32] = &[1];
+pub const SUPPORTED_VERSIONS: &[u32] = &[1, 2];
 
 // `serialize_with` passes the field by reference.
 #[allow(clippy::ref_option)]
@@ -146,6 +157,7 @@ fn serialize_range<S: Serializer>(
 pub fn check(source: &str, display_file: &str, policy: &LessonPolicy) -> Vec<PolicyDiagnostic> {
     match policy.version {
         1 => v1::check(source, display_file, policy),
+        2 => v2::check(source, display_file, policy),
         other => vec![unknown_version(other, display_file)],
     }
 }

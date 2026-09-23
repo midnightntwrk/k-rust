@@ -1,0 +1,49 @@
+versions = [2]
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 11
+end = 30
+text = "__KRS_REGISTRATIONS"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 44
+end = 70
+text = "__krs_register_descriptors"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 88
+end = 106
+text = "__KrsEnumVariant_0"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 123
+end = 139
+text = "Vec as __krs_vec"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 146
+end = 158
+text = "__krs_module"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 207
+end = 218
+text = "__KRS_LIMIT"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 235
+end = 249
+text = "r#__krs_helper"
+
+[[diagnostic]]
+code = "krs::policy::reserved-name"
+start = 281
+end = 293
+text = "__Krs_nested"
