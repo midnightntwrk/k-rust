@@ -1,6 +1,6 @@
 // An inventory-style registry: registrations are linked into a list by
 // constructors in `.init_array`, as inventory 0.3 does on wasm
-// (spikes/BL-003/backend-control/init-array.rs and the original collector-ab).
+// (the BL-003 spike's init-array control and its original collector-ab).
 use std::ptr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 

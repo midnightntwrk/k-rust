@@ -1,4 +1,4 @@
-// Ported from spikes/BL-003/crates/collector-model: the same Registration
+// Ported from the BL-003 spike's collector model: the same Registration
 // record, without the `inventory::collect!` collection (IR-07 explicit registration).
 use std::any::{Any, TypeId};
 

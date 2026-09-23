@@ -28,6 +28,8 @@ REMOVED_LEDGERS = re.compile(
     r"K_RUST_HANDOFF|K_RUST_UPSTREAM|K_RUST_MORE_SEMANTICS_REQUESTS|"
     r"MIR_SEMANTICS_UPSTREAM|RECOVERY_AUDIT|LAST_KNOWN_PROMPT|RECOVERY_PROVENANCE"
 )
+# Paths inside the browser-lessons spikes and review evidence, which also live in draft/.
+SPIKE_PATH = re.compile(r"spikes/(?:BL|IR)-[0-9]")
 
 
 def tracked_files() -> list[str]:
@@ -58,6 +60,7 @@ def main() -> int:
             for pattern, what in (
                 (DRAFT_PATH, "references draft/"),
                 (REMOVED_LEDGERS, "references a removed root ledger"),
+                (SPIKE_PATH, "references a local-only spike path"),
             ):
                 match = pattern.search(line)
                 if match:
@@ -67,7 +70,7 @@ def main() -> int:
             print(problem, file=sys.stderr)
         print(f"FAIL repository hygiene: {len(problems)} finding(s)", file=sys.stderr)
         return 1
-    print("PASS repository hygiene: no tracked file depends on draft/ or a removed root ledger")
+    print("PASS repository hygiene: no tracked file depends on draft/, a removed root ledger, or a spike path")
     return 0
 
 

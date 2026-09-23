@@ -123,7 +123,7 @@ def pack_section(pack_root: Path) -> dict[str, Any]:
         "artifacts": artifacts,
         "sysroot_mount": manifest["sysroot"]["mount"],
         "fork_flags": fork_flags,
-        # spikes/BL-003/harness/run-browser-rustc.mjs and IR-15 pack-ir14.ts
+        # the BL-003 browser-rustc harness and browser/worker/src/pack-ir14.ts
         "fork_env": ["CLIF2WASM_OBJECT=1", "RIWL_TIMINGS=1"],
         "externs": externs,
         "_manifest": manifest,

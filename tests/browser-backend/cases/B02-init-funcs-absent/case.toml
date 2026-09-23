@@ -1,7 +1,7 @@
 schema = 1
 id = "B02-init-funcs-absent"
 behavior = "inventory-style `.init_array` registration from a library crate, plus the registration crate's object inspected for a WASM_INIT_FUNCS subsection."
-basis = "spikes/BL-003 backend-control/init-array.rs and the original collector-ab (inventory); IR-03 M1/M2, IR-06 finding"
+basis = "BL-003 spike backend-control/init-array.rs and the original collector-ab (inventory); IR-03 M1/M2, IR-06 finding"
 # Recorded limitation up to eb8eda040: clif2wasm dropped .init_array, so rustc.wasm gave zero
 # registrations and an object without init functions. IR-22 (commit 2544ad0 of
 # krs/ir-22-init-funcs) emits WASM_INIT_FUNCS; from that revision on the case equals the twin

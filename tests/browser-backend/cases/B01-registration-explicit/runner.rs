@@ -1,4 +1,4 @@
-// Ported from spikes/BL-003/browser-control/collector-runner.rs: the registrations
+// Ported from the BL-003 spike's collector runner: the registrations
 // come from an explicit table instead of `inventory::iter`; everything else,
 // including the output schema and the COLLECTOR_* controls, is unchanged.
 use b01_model::Registration;

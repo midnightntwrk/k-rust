@@ -141,7 +141,7 @@ export async function packFromIr14(source: Ir14PackManifest, extra: Ir14Extra): 
       sysroot: d.sysroot,
       common_flags: ["-C", `panic=${d.panic}`, ...d.extra_flags],
       collector_flags: d.collector_flags,
-      // spikes/BL-003/harness/run-browser-rustc.mjs: CLIF2WASM_OBJECT=1 selects the clif2wasm
+      // As in the BL-003 browser-rustc harness: CLIF2WASM_OBJECT=1 selects the clif2wasm
       // object path inside rustc.wasm; RIWL_TIMINGS=1 prints the riwl timing line.
       env: ["CLIF2WASM_OBJECT=1", "RIWL_TIMINGS=1"],
       library_dirs: d.dependency_search_paths.map((p) => `${mount}/${p}`),

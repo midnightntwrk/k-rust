@@ -1,4 +1,4 @@
-// Ported from spikes/BL-003/browser-control/registration-alpha.rs: the factory,
+// Ported from the BL-003 spike's alpha registration: the factory,
 // TypeId, and render function pointers are unchanged; the registration is a
 // plain static that the collector names in an explicit table (no .init_array).
 use b01_model::Registration;

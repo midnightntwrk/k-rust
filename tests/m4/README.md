@@ -55,9 +55,9 @@ fallback, or unclassified difference fails the gate.
 - `compatibility/` contains stable-name and four-boundary diagnostic cases.
 - `corpus.json`, `pins.json`, and `verify.py` are the root integration
   contract and contain no alternate semantics.
-- `proof-pins/` holds the three reviewed reference-proof ledgers (`selected`,
-  `reference`, and `adjunct`) whose outcomes `pins.json` hash-pins, each with
-  the verifier and case list that produced it.
+- `proof-pins/` holds the three frozen reference-proof ledgers (`selected`,
+  `reference`, and `adjunct`) that `pins.json` hash-pins as provenance; M4
+  re-proves all 21 outcomes from `pins.json` itself.
 
 The M3 corpora and upstream IMP sources remain the canonical input files.
 `corpus.json` points to and hashes them; M4 does not copy them.
