@@ -30,9 +30,9 @@ use std::{
 pub use atlas::{
     AMDAHL_RULE, ATLAS_SCHEMA_VERSION, Atlas, AtlasIndex, CUT_RULE, CounterFit, Fit,
     INDEX_SCHEMA_VERSION, IndexReceipt, Ladder, LadderRow, LoadedReceipt, MatrixRow, MovedCounter,
-    Rules, SHARE_RULE, SLOPE_RULE, STALENESS_RULE, ShareRow, StaleAlgorithm, Staleness,
-    WorkloadCost, amdahl_ceiling, atlas, check_staleness, fit_power_law, read_atlas_index,
-    receipt_graph,
+    NESTING_RULE, NestLine, Nesting, Rules, SHARE_RULE, SLOPE_RULE, STALENESS_RULE, ShareRow,
+    StaleAlgorithm, Staleness, WorkloadCost, amdahl_ceiling, atlas, check_staleness, fit_power_law,
+    read_atlas_index, receipt_graph,
 };
 use cards::{Card, CardKind, Representation, SourceIndex};
 pub use coverage::{

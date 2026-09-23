@@ -178,6 +178,15 @@ A workload is its receipts without a parameter, or, for a ladder, its receipts a
 - Staleness: every row records the index commit.
   `--check` takes the site files of each listed algorithm (its anchor and sites) from the `graph.toml` beside a receipt's join, which is the graph at the receipt commit, runs `git diff --name-only <commit> -- <files>` in the checkout named by `--root`, prints the algorithms with a changed file, and exits 1 when there is one.
   A change outside the site files, such as in a callee or in a representation the algorithm reads, is not detected.
+- Nesting: each workload table is followed by an indented outline of the nesting observed on that run, built from the join's `observed_nest` edges.
+  It is not a declared relation: a child under a parent means the child's span opened while the parent's span was open on the same thread, and algorithms without spans do not appear.
+  With repeats, the outline uses the first repeat's edges and states whether every repeat has the same edges.
+  Roots are algorithms with a positive span count and no observed parent other than themselves; an algorithm reachable only through a cycle is added as a root.
+  Children are ordered by decreasing median total-seconds share of span time, and each line reads `id — nested N× — total X % — self Y %`, with the span count for a root.
+  Nesting of an algorithm inside itself is a `(recursive, N×)` note, not a child.
+  An algorithm with several parents appears in full under the parent with the largest nest count and as `= id` under the others; `^ id (cycle)` marks a child that is already an ancestor on the path.
+  Children and roots below 0.5 % total share are folded into a `+k more (Z %)` line.
+  The TOML output carries the same outline as `[[workload.nesting.line]]` entries with their depth.
 
 ## Worked cases
 

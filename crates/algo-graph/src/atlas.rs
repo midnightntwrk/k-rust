@@ -39,6 +39,9 @@ pub const CUT_RULE: &str = "a workload lists its algorithms by decreasing share 
 /// How a growth exponent is fitted along a ladder.
 pub const SLOPE_RULE: &str = "for each ladder, each algorithm whose median span count is positive at two or more parameter values is fitted by ordinary least squares of ln(value) on ln(param), over the parameter values where the value's median over repeats is positive, for its span count, its self seconds, and each counter its card declares, measured inside its spans including nested spans (trace_total). The slope is the growth exponent, points is the number of parameter values fitted, R2 is 1 - residual / total sum of squares (absent when every fitted value is equal), and a fit from fewer than three points is marked *. The card's cost bounds and variable are printed beside the fit, not parsed";
 
+/// How a workload's observed nesting outline is built.
+pub const NESTING_RULE: &str = "each workload's outline is the nesting observed on its run, not a declared relation: a child under a parent means the child's span opened while the parent's span was open on the same thread (the join's observed_nest edges), and algorithms without spans do not appear. With repeats, the edges are the first repeat's, and the outline says whether every repeat has the same edges. Roots are algorithms with a positive span count and no observed parent other than themselves; algorithms reachable only through a cycle are added as roots. Children are ordered by decreasing median total-seconds share of span time; a line reads `id - nested N x - total X % - self Y %`, with the span count in place of the nest count for a root. Nesting of an algorithm inside itself is a `(recursive, N x)` note, not a child. An algorithm with several parents is shown in full under the parent with the largest nest count and as `= id` under the others; `^ id (cycle)` marks a child that is already an ancestor on the path. Children and roots below 0.5 % total share are folded into a `+k more (Z %)` line with their summed total share";
+
 /// When a row is stale.
 pub const STALENESS_RULE: &str = "every row is measured at the index commit. `atlas --check` reports an algorithm stale when `git diff --name-only <commit> -- <files>` in the checkout names one of the files of its anchor and sites in the graph beside a receipt's join, which is the graph at the receipt commit, and exits 1 when a listed algorithm is stale. A change outside those files, such as in a callee or in a representation the algorithm reads, is not detected";
 
@@ -168,6 +171,7 @@ pub struct Rules {
     pub cut: String,
     pub slope: String,
     pub staleness: String,
+    pub nesting: String,
 }
 
 impl Rules {
@@ -178,6 +182,7 @@ impl Rules {
             cut: CUT_RULE.to_owned(),
             slope: SLOPE_RULE.to_owned(),
             staleness: STALENESS_RULE.to_owned(),
+            nesting: NESTING_RULE.to_owned(),
         }
     }
 }
@@ -228,6 +233,8 @@ pub struct WorkloadCost {
     pub omitted_share: f64,
     #[serde(rename = "algorithm")]
     pub rows: Vec<ShareRow>,
+    /// The observed nesting outline by [`NESTING_RULE`].
+    pub nesting: Nesting,
     /// The median share of every algorithm with a span, for the matrix.
     #[serde(skip)]
     shares: BTreeMap<String, f64>,
@@ -247,6 +254,41 @@ pub struct ShareRow {
     /// Counters that moved in its spans outside nested algorithm spans (`trace_self`).
     #[serde(rename = "counter", skip_serializing_if = "Vec::is_empty")]
     pub counters: Vec<MovedCounter>,
+}
+
+/// A workload's observed nesting outline.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Nesting {
+    /// The join whose `observed_nest` edges built the outline: the first repeat's.
+    pub edges_from: String,
+    /// Every measured repeat has the same `observed_nest` edges.
+    pub repeats_agree: bool,
+    /// The outline in reading order.
+    #[serde(rename = "line")]
+    pub lines: Vec<NestLine>,
+}
+
+/// One line of a nesting outline.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct NestLine {
+    /// Indentation level; roots are at 0.
+    pub depth: usize,
+    /// `node` (shown in full), `ref` (shown in full under another parent), `cycle` (already an
+    /// ancestor on this path), or `more` (folded children).
+    pub kind: String,
+    /// The algorithm id; empty for a `more` line.
+    pub id: String,
+    /// The nest count under its parent, the span count for a root, or the number of folded
+    /// algorithms for a `more` line.
+    pub count: u64,
+    pub root: bool,
+    /// Median total seconds over span seconds; summed over the folded algorithms of a `more` line.
+    pub total_share: f64,
+    /// Median self seconds over span seconds; zero for a `more` line.
+    pub self_share: f64,
+    /// How often its span opened inside its own open span.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recursive: Option<u64>,
 }
 
 /// One counter an algorithm moved in its own code.
@@ -364,6 +406,7 @@ pub fn amdahl_ceiling(share: f64) -> Option<f64> {
 struct Observed {
     count: f64,
     self_seconds: f64,
+    total_seconds: f64,
     /// Declared counters inside its spans, including nested spans.
     declared_total: BTreeMap<String, f64>,
     /// Every counter inside its spans outside nested spans, with whether the card declares it.
@@ -378,6 +421,7 @@ fn observe(join: &Join) -> BTreeMap<String, Observed> {
             let mut observed = Observed {
                 count: algorithm.count as f64,
                 self_seconds: algorithm.self_seconds,
+                total_seconds: algorithm.total_seconds,
                 ..Observed::default()
             };
             for counter in &algorithm.counters {
@@ -602,7 +646,243 @@ fn workload_cost(name: &str, receipts: &[&LoadedReceipt], commit: &str) -> Workl
         omitted_algorithms,
         omitted_share,
         rows: kept,
+        nesting: nesting(receipts, &runs, &totals),
         shares,
+    }
+}
+
+/// The share below which children and roots are folded into a `more` line.
+const NESTING_FOLD: f64 = 0.005;
+
+/// Build the observed nesting outline of one workload by [`NESTING_RULE`].
+fn nesting(
+    receipts: &[&LoadedReceipt],
+    runs: &[BTreeMap<String, Observed>],
+    totals: &[f64],
+) -> Nesting {
+    let share = |id: &str, value: fn(&Observed) -> f64| {
+        Spread::of(
+            &runs
+                .iter()
+                .zip(totals)
+                .map(|(run, total)| {
+                    let own = run.get(id).map_or(0.0, value);
+                    if *total > 0.0 { own / total } else { 0.0 }
+                })
+                .collect::<Vec<_>>(),
+        )
+        .median
+    };
+    let positive = runs
+        .iter()
+        .flat_map(|run| run.keys().cloned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|id| {
+            Spread::of(
+                &runs
+                    .iter()
+                    .map(|run| run.get(id).map_or(0.0, |observed| observed.count))
+                    .collect::<Vec<_>>(),
+            )
+            .median
+                > 0.0
+        })
+        .map(|id| {
+            let observed = (
+                share(&id, |observed| observed.total_seconds),
+                share(&id, |observed| observed.self_seconds),
+                Spread::of(
+                    &runs
+                        .iter()
+                        .map(|run| run.get(&id).map_or(0.0, |observed| observed.count))
+                        .collect::<Vec<_>>(),
+                )
+                .median as u64,
+            );
+            (id, observed)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let first = &receipts[0].join;
+    let edges = |join: &Join| {
+        let mut edges = join
+            .observed_nests
+            .iter()
+            .map(|edge| (edge.from.clone(), edge.to.clone(), edge.count))
+            .collect::<Vec<_>>();
+        edges.sort();
+        edges
+    };
+    let first_edges = edges(first);
+    let repeats_agree = receipts[1..]
+        .iter()
+        .all(|receipt| edges(&receipt.join) == first_edges);
+
+    let mut recursive = BTreeMap::<&str, u64>::new();
+    let mut children = BTreeMap::<&str, Vec<(&str, u64)>>::new();
+    let mut parents = BTreeMap::<&str, Vec<(&str, u64)>>::new();
+    for (from, to, count) in &first_edges {
+        if !positive.contains_key(from) || !positive.contains_key(to) {
+            continue;
+        }
+        if from == to {
+            recursive.insert(from, *count);
+        } else {
+            children.entry(from).or_default().push((to, *count));
+            parents.entry(to).or_default().push((from, *count));
+        }
+    }
+    let primary = parents
+        .iter()
+        .map(|(child, parents)| {
+            let parent = parents
+                .iter()
+                .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(left.0)))
+                .map(|(parent, _)| *parent);
+            (*child, parent)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let by_total = |left: &(&str, u64), right: &(&str, u64)| {
+        positive[right.0]
+            .0
+            .total_cmp(&positive[left.0].0)
+            .then_with(|| left.0.cmp(right.0))
+    };
+    let mut roots = positive
+        .keys()
+        .map(String::as_str)
+        .filter(|id| !parents.contains_key(id))
+        .collect::<Vec<_>>();
+    let mut reachable = BTreeSet::<&str>::new();
+    let mut stack = roots.clone();
+    while let Some(id) = stack.pop() {
+        if reachable.insert(id) {
+            stack.extend(
+                children
+                    .get(id)
+                    .into_iter()
+                    .flatten()
+                    .map(|(child, _)| *child),
+            );
+        }
+    }
+    // An algorithm reachable only through a cycle has no root above it; each unreached cycle
+    // contributes its first member by id, and the rest is reached from it.
+    for id in positive.keys().map(String::as_str) {
+        if !reachable.contains(id) {
+            roots.push(id);
+            let mut stack = vec![id];
+            while let Some(id) = stack.pop() {
+                if reachable.insert(id) {
+                    stack.extend(
+                        children
+                            .get(id)
+                            .into_iter()
+                            .flatten()
+                            .map(|(child, _)| *child),
+                    );
+                }
+            }
+        }
+    }
+
+    struct Outline<'a> {
+        positive: &'a BTreeMap<String, (f64, f64, u64)>,
+        children: &'a BTreeMap<&'a str, Vec<(&'a str, u64)>>,
+        primary: &'a BTreeMap<&'a str, Option<&'a str>>,
+        recursive: &'a BTreeMap<&'a str, u64>,
+        lines: Vec<NestLine>,
+    }
+    impl<'a> Outline<'a> {
+        fn line(&mut self, depth: usize, kind: &str, id: &str, count: u64, root: bool) {
+            let (total_share, self_share, _) = self.positive[id];
+            self.lines.push(NestLine {
+                depth,
+                kind: kind.to_owned(),
+                id: id.to_owned(),
+                count,
+                root,
+                total_share,
+                self_share,
+                recursive: (kind == "node")
+                    .then(|| self.recursive.get(id).copied())
+                    .flatten(),
+            });
+        }
+
+        fn more(&mut self, depth: usize, folded: &[(&str, u64)]) {
+            if folded.is_empty() {
+                return;
+            }
+            self.lines.push(NestLine {
+                depth,
+                kind: "more".to_owned(),
+                id: String::new(),
+                count: folded.len() as u64,
+                root: depth == 0,
+                total_share: folded.iter().map(|(id, _)| self.positive[*id].0).sum(),
+                self_share: 0.0,
+                recursive: None,
+            });
+        }
+
+        fn node(
+            &mut self,
+            id: &'a str,
+            depth: usize,
+            count: u64,
+            root: bool,
+            path: &mut Vec<&'a str>,
+        ) {
+            self.line(depth, "node", id, count, root);
+            path.push(id);
+            let mut kids = self.children.get(id).cloned().unwrap_or_default();
+            kids.sort_by(|left, right| {
+                self.positive[right.0]
+                    .0
+                    .total_cmp(&self.positive[left.0].0)
+                    .then_with(|| left.0.cmp(right.0))
+            });
+            let (shown, folded): (Vec<_>, Vec<_>) = kids
+                .into_iter()
+                .partition(|(child, _)| self.positive[*child].0 >= NESTING_FOLD);
+            for (child, nested) in shown {
+                if path.contains(&child) {
+                    self.line(depth + 1, "cycle", child, nested, false);
+                } else if self.primary.get(child).copied().flatten() == Some(id) {
+                    self.node(child, depth + 1, nested, false, path);
+                } else {
+                    self.line(depth + 1, "ref", child, nested, false);
+                }
+            }
+            self.more(depth + 1, &folded);
+            path.pop();
+        }
+    }
+
+    let mut ordered = roots
+        .into_iter()
+        .map(|id| (id, positive[id].2))
+        .collect::<Vec<_>>();
+    ordered.sort_by(by_total);
+    let (shown, folded): (Vec<_>, Vec<_>) = ordered
+        .into_iter()
+        .partition(|(id, _)| positive[*id].0 >= NESTING_FOLD);
+    let mut outline = Outline {
+        positive: &positive,
+        children: &children,
+        primary: &primary,
+        recursive: &recursive,
+        lines: Vec::new(),
+    };
+    for (root, spans) in shown {
+        outline.node(root, 0, spans, true, &mut Vec::new());
+    }
+    outline.more(0, &folded);
+    Nesting {
+        edges_from: receipts[0].entry.join.clone(),
+        repeats_agree,
+        lines: outline.lines,
     }
 }
 
@@ -743,6 +1023,7 @@ impl Atlas {
             ("Cut", &self.rules.cut),
             ("Slope", &self.rules.slope),
             ("Staleness", &self.rules.staleness),
+            ("Nesting", &self.rules.nesting),
         ] {
             let _ = writeln!(out, "- {label}: {rule}.");
         }
@@ -821,6 +1102,23 @@ impl Atlas {
                     }
                 );
             }
+            let _ = writeln!(out);
+            let _ = writeln!(
+                out,
+                "Observed nesting on this run only, not a declared relation (child span opened inside the parent's open span on one thread; algorithms without spans are absent). Edges of {}{}:",
+                workload.nesting.edges_from,
+                match (workload.runs, workload.nesting.repeats_agree) {
+                    (1, _) => String::new(),
+                    (runs, true) => format!(", the first of {runs} repeats, which agree"),
+                    (runs, false) => format!(", the first of {runs} repeats, which differ"),
+                }
+            );
+            let _ = writeln!(out);
+            let _ = writeln!(out, "```text");
+            for line in &workload.nesting.lines {
+                let _ = writeln!(out, "{}{}", "  ".repeat(line.depth), nest_text(line));
+            }
+            let _ = writeln!(out, "```");
         }
         let _ = writeln!(out);
         let _ = writeln!(
@@ -906,6 +1204,26 @@ impl Atlas {
             }
         }
         out
+    }
+}
+
+fn nest_text(line: &NestLine) -> String {
+    let percent = |share: f64| format!("{:.1} %", 100.0 * share);
+    match line.kind.as_str() {
+        "more" => format!("+{} more ({})", line.count, percent(line.total_share)),
+        "ref" => format!("= {} (nested {}\u{d7})", line.id, line.count),
+        "cycle" => format!("^ {} (cycle, nested {}\u{d7})", line.id, line.count),
+        _ => format!(
+            "{} \u{2014} {} {}\u{d7} \u{2014} total {} \u{2014} self {}{}",
+            line.id,
+            if line.root { "spans" } else { "nested" },
+            line.count,
+            percent(line.total_share),
+            percent(line.self_share),
+            line.recursive
+                .map(|count| format!(" (recursive, {count}\u{d7})"))
+                .unwrap_or_default()
+        ),
     }
 }
 
@@ -1229,6 +1547,110 @@ mod tests {
             "{markdown}"
         );
         atlas.toml().expect("toml");
+    }
+
+    #[test]
+    fn nesting_outlines_roots_recursion_shared_children_cycles_and_folds() {
+        // Span time 10 s (the sum of self seconds).
+        let rows = vec![
+            run("n.root", 1, 1.0, 10.0, &[]),
+            run("n.a", 5, 2.0, 6.0, &[]),
+            run("n.b", 3, 2.47, 3.0, &[]),
+            run("n.c", 14, 4.0, 4.0, &[]),
+            run("n.d", 1, 0.03, 0.03, &[]),
+            run("n.e", 1, 0.0, 0.0, &[]),
+            run("n.f", 1, 0.3, 0.5, &[]),
+            run("n.g", 1, 0.2, 0.2, &[]),
+            run("n.idle", 0, 0.0, 0.0, &[]),
+        ];
+        let mut joined = join("w", "c0ffee", rows, &[]);
+        joined.observed_nests = [
+            ("n.root", "n.a", 5),
+            ("n.root", "n.b", 3),
+            ("n.a", "n.a", 2),
+            ("n.a", "n.c", 10),
+            ("n.b", "n.c", 4),
+            ("n.b", "n.d", 1),
+            ("n.f", "n.g", 1),
+            ("n.g", "n.f", 1),
+            ("n.root", "n.idle", 1),
+        ]
+        .into_iter()
+        .map(|(from, to, count)| crate::ObservedEdge {
+            from: from.to_owned(),
+            to: to.to_owned(),
+            count,
+        })
+        .collect();
+        let mut second = joined.clone();
+        second.observed_nests.pop();
+        let receipts = vec![
+            receipt("w", None, 1, joined.clone(), 12.0),
+            receipt("w", None, 2, joined, 12.0),
+        ];
+        let atlas = atlas(&index(&receipts), &receipts, "regenerate");
+        let nesting = &atlas.workloads[0].nesting;
+        assert!(nesting.repeats_agree);
+        let shape = nesting
+            .lines
+            .iter()
+            .map(|line| (line.depth, line.kind.as_str(), line.id.as_str(), line.count))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shape,
+            [
+                (0, "node", "n.root", 1),
+                (1, "node", "n.a", 5),
+                (2, "node", "n.c", 10),
+                (1, "node", "n.b", 3),
+                (2, "ref", "n.c", 4),
+                (2, "more", "", 1),
+                (0, "node", "n.f", 1),
+                (1, "node", "n.g", 1),
+                (2, "cycle", "n.f", 1),
+                (0, "more", "", 1),
+            ]
+        );
+        assert_eq!(nesting.lines[1].recursive, Some(2));
+        assert!((nesting.lines[1].total_share - 0.6).abs() < 1e-12);
+        assert!((nesting.lines[5].total_share - 0.003).abs() < 1e-12);
+        let markdown = atlas.markdown();
+        assert!(
+            markdown.contains("  n.a \u{2014} nested 5\u{d7} \u{2014} total 60.0 % \u{2014} self 20.0 % (recursive, 2\u{d7})"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("    = n.c (nested 4\u{d7})"),
+            "{markdown}"
+        );
+        assert!(markdown.contains("    +1 more (0.3 %)"), "{markdown}");
+        assert!(
+            markdown.contains("the first of 2 repeats, which agree"),
+            "{markdown}"
+        );
+        assert!(
+            atlas
+                .toml()
+                .expect("toml")
+                .contains("[[workload.nesting.line]]")
+        );
+
+        let differing = vec![
+            receipt("w", None, 1, second.clone(), 1.0),
+            receipt(
+                "w",
+                None,
+                2,
+                {
+                    let mut other = second;
+                    other.observed_nests.clear();
+                    other
+                },
+                1.0,
+            ),
+        ];
+        let atlas = super::atlas(&index(&differing), &differing, "regenerate");
+        assert!(!atlas.workloads[0].nesting.repeats_agree);
     }
 
     #[test]
