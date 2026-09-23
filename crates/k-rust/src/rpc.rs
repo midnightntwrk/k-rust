@@ -1571,16 +1571,21 @@ fn externalize_rule_substitution(
         .iter()
         .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
         .collect();
+    // The response carries the bindings as one left-nested `\and` at the conjunction's sort.
+    // Whether there is a conjunct to re-nest is decided on a borrow first, so that the
+    // conjuncts can then be moved out of the conjunction instead of copied next to it; a
+    // non-conjunction, or a conjunction whose operands are all its unit, is returned as built.
     backend_simplification::model_substitution(&substitution, result_sort).map(|pattern| {
-        let KorePattern::And { sort, .. } = &pattern else {
-            return pattern;
+        let sort = match &pattern {
+            KorePattern::And { sort, .. } if !pattern.conjuncts_at(sort).is_empty() => sort.clone(),
+            _ => return pattern,
         };
         externalize::conjunction(
-            sort,
-            pattern.conjuncts_at(sort).into_iter().cloned().collect(),
+            &sort,
+            pattern.into_conjuncts_at(&sort),
             externalize::ConjunctionShape::LeftNested,
         )
-        .unwrap_or(pattern)
+        .expect("the conjuncts were checked to be non-empty")
     })
 }
 
