@@ -1,6 +1,6 @@
 //! Readable qualification slice for `KWasm` integer arithmetic.
 //!
-//! The source mapping is pinned in `../../draft/readability/kwasm/README.md`.
+//! The source mapping is pinned in `../../tests/kwasm/source-map.md`.
 //! This definition preserves `KWasm`'s constant normalization, value transfer,
 //! operand loading, functional arithmetic, and division traps.
 

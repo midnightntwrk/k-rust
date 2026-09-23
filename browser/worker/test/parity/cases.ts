@@ -1,6 +1,6 @@
 // IR-18 diagnostic parity cases: the BL-006 set (D001-D008; fixtures copied
-// byte for byte from draft/browser-lessons/spikes/BL-006 into
-// test/fixtures/bl006, hashes checked against the BL-006 contract), D009, and
+// byte for byte from the BL-006 spike into test/fixtures/bl006, hashes
+// checked against the BL-006 contract), D009, and
 // two rustc cases that decide how respanned tokens map (X1, X2).
 //
 //   bun test/parity/cases.ts write-lessons ASSETS_DIR OUT_DIR   (lesson manifests for twin controls)

@@ -1,6 +1,6 @@
 //! Readable qualification slice for KEVM opcode execution.
 //!
-//! The source mapping is pinned in `../../draft/readability/kevm/README.md`.
+//! The source mapping is pinned in `../../tests/kevm/source-map.md`.
 //! The program cell uses K's builtin `Bytes` domain and decodes the selected
 //! opcodes from their canonical byte values.
 

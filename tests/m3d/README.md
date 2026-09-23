@@ -1,8 +1,9 @@
 # M3D independent static and proof oracle
 
 This package is a functional reconstruction of the independent M3D oracle
-lost with the failed disk. The original file identities are retained in
-`RECOVERY_AUDIT.md`; none of the reconstructed files claims byte identity.
+lost with the failed disk. The original file hashes are retained in the
+`reconstruction` table of `pins.json`; none of the reconstructed files claims
+byte identity.
 
 The oracle remains independent of KRS-generated artifacts. It layers a small
 static-form stress surface over the pinned upstream IMP definition and checks:

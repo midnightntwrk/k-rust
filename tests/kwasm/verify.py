@@ -66,7 +66,7 @@ SOURCE_LEDGER_PATHS = (
     "crates/krs-syntax/src/term.rs",
     "crates/krs-syntax/tests/rule_blocks.rs",
     "crates/krs/src/lib.rs",
-    "draft/readability/kwasm/README.md",
+    "tests/kwasm/source-map.md",
     "tests/kwasm/corpus.toml",
     "tests/kwasm/lsp_probe.py",
     "tests/kwasm/native.py",

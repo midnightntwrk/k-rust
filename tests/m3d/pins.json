@@ -179,7 +179,7 @@
   },
   "schema": 1,
   "source_sha256": {
-    "README.md": "8bdd5ffe3c0382e2c678e4be7f8481de3d9d803f8e80dd84231119a34923c507",
+    "README.md": "228ed57061a2d7f3f4cafa9921dc7ee97ea5b7700c096b5684d0691019869c2f",
     "claims/static-spec.k": "b56a4697e158d5a0ad37c2b7dd434406330c6e509047e9cf1eb4971dfe50de92",
     "corpus/static-evaluation.imp": "c4ed13fb308ccbb904c2aee5ba3486dc7cfeee3d63075e3c69508326840811b5",
     "fixtures/induced-definition-error.k": "1eae8e8e5ae92d940047828bbffa87e355ef2e3b2962a4058426b595c567ae24",

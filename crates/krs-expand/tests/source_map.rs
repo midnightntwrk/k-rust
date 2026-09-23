@@ -778,7 +778,7 @@ fn anchor_coverage(printed: &Printed, anchors: &BTreeSet<Anchor>) -> String {
     rows
 }
 
-/// BL-006 D002 (`spikes/BL-006/rust-expansion/src/bin/unresolved_constructor.rs`,
+/// BL-006 D002 (`browser/worker/test/fixtures/bl006/unresolved_constructor.rs`,
 /// sha256 705c28f3...ebeaa): native rustc reports E0433 at the authored
 /// `missing` (bytes 207..214, exact-authored) and D004 at the invocation
 /// (183..241, invocation-level). The expansion carries `missing` verbatim, so

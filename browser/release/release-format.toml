@@ -3,7 +3,7 @@
 # Producer: browser/release/release.py (licenses, assemble). Consumers: release.py fetch,
 # tests/browser-pack/verify.py --check, and browser/worker/src/pack-cache.ts.
 # This file is normative; release.py is the reference writer and verify.py the reference checker.
-# It promotes draft/browser-lessons/spikes/BL-009/pack-manifest.example.toml: the BL-009
+# It promotes the BL-009 spike's example pack manifest: the BL-009
 # [schema_contract] required asset fields, url rule, activation, cache, and cleanup rules are
 # kept, and every BL-009 missing_final_role has an entry in the release's `roles`.
 #

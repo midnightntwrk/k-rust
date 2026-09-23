@@ -869,7 +869,7 @@ def phase_rust(context: Context) -> str:
         run(command, timeout=900, environment=env)
     # Clean k-rust enforces MSRV 1.88 since 758a3a9, so the exact-MSRV check
     # now covers the workspace and every helper beside the stable-toolchain
-    # qualification above. K_RUST_UPSTREAM.toml records the closed request.
+    # qualification above. Earlier k-rust used if-let guards, which 1.88 rejects.
     run(
         [
             "cargo", "+1.88.0", "check", "--workspace",

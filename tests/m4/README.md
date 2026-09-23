@@ -19,7 +19,7 @@ Every authored source file is rustc-valid Rust.
 The authored and independently expanded IMP packages are checked on Rust 1.88.0.
 Native/frontend helpers are additionally qualified on exact stable Rust 1.98.0.
 Clean k-rust main `efda6192785d4113eeea2fa090e4662d30dc8801` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
-`K_RUST_UPSTREAM.toml` records the closed if-let-guard discrepancy that previously blocked this alignment.
+Earlier k-rust revisions used if-let guards, which Rust 1.88.0 rejects; that discrepancy previously blocked this alignment and is now closed.
 The complete M4.1-M4.8 gate passed against that pin on 2026-09-15 JST.
 
 ## Evidence layers
@@ -55,6 +55,9 @@ fallback, or unclassified difference fails the gate.
 - `compatibility/` contains stable-name and four-boundary diagnostic cases.
 - `corpus.json`, `pins.json`, and `verify.py` are the root integration
   contract and contain no alternate semantics.
+- `proof-pins/` holds the three reviewed reference-proof ledgers (`selected`,
+  `reference`, and `adjunct`) whose outcomes `pins.json` hash-pins, each with
+  the verifier and case list that produced it.
 
 The M3 corpora and upstream IMP sources remain the canonical input files.
 `corpus.json` points to and hashes them; M4 does not copy them.

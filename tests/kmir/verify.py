@@ -40,7 +40,6 @@ ARTIFACTS = (
     "symbols.json",
 )
 SOURCE_LEDGER_PATHS = (
-    "MIR_SEMANTICS_UPSTREAM.toml",
     "crates/krs-compiler/src/collect.rs",
     "crates/krs-compiler/src/emit.rs",
     "crates/krs-compiler/src/lowering.rs",
@@ -67,7 +66,7 @@ SOURCE_LEDGER_PATHS = (
     "crates/krs-syntax/src/state_rule.rs",
     "crates/krs-syntax/src/term.rs",
     "crates/krs/src/lib.rs",
-    "draft/readability/kmir/README.md",
+    "tests/kmir/source-map.md",
     "tests/kmir/corpus.toml",
     "tests/kmir/lsp_probe.py",
     "tests/kmir/native.py",

@@ -144,7 +144,7 @@ order = 9
 route = "/semantics/lowering"
 title = "Inspect what KRS builds"
 outcome = "Follow one rule through readable Rust, expanded Rust, Definition IR, emitted K, and backend artifacts."
-specimen = "draft/readability/spec/imp.rs and imp.expanded.rs"
+specimen = "docs-plan/authoring-spec/imp.rs and tests/m4/goldens/imp.expanded.rs"
 
 [[chapter]]
 id = "static-semantics"
@@ -207,7 +207,7 @@ order = 16
 route = "/reference/boundaries"
 title = "Current boundaries and open questions"
 outcome = "Recognize intentional restrictions, qualified subsets, open decisions, and syntax that does not exist yet."
-specimen = "draft/readability/spec/open-questions.md and negative tests"
+specimen = "docs-plan/authoring-spec/open-questions.md and negative tests"
 
 [[concept]]
 id = "host-object-split"
@@ -216,7 +216,7 @@ status = "current"
 coverage = "spine"
 chapter = "orientation"
 prerequisites = []
-evidence = ["crates/krs/src/lib.rs", "draft/readability/spec/decisions.md"]
+evidence = ["crates/krs/src/lib.rs", "docs-plan/authoring-spec/decisions.md"]
 note = "KRS declarations and symbolic terms are not host computations."
 gloss = "Rust organizes and checks the definition; KRS declarations describe the object language rather than executing it."
 
@@ -227,7 +227,7 @@ status = "current"
 coverage = "spine"
 chapter = "orientation"
 prerequisites = ["host-object-split", "symbolic-terms"]
-evidence = ["draft/readability/spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
 note = "Source order is not a tie-breaker."
 gloss = "A rule states a possible symbolic rewrite. Rules are unordered, so moving one does not give it priority."
 
@@ -239,7 +239,7 @@ coverage = "spine"
 chapter = "lowering"
 prerequisites = ["host-object-split"]
 evidence = [
-    "draft/readability/spec/README.md",
+    "docs-plan/authoring-spec/README.md",
     "tests/m4/expanded-definition",
     "tests/m4/goldens/imp.expanded.rs",
     "tests/m4/rust-definition/src/parity.rs",
@@ -322,7 +322,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-sorts"
 prerequisites = ["symbolic-terms"]
-evidence = ["draft/readability/spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
 gloss = "A sort is an extensible symbolic category. Other modules or packages may add members and constructors later."
 
 [[concept]]
@@ -332,7 +332,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-sorts"
 prerequisites = ["open-sorts"]
-evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs", "draft/design.md"]
+evidence = ["crates/krs-macros/tests/fixtures/positive/src/main.rs"]
 gloss = "A subsort edge says every term in one sort also belongs to another; KRS computes transitive membership."
 
 [[concept]]
@@ -342,7 +342,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-sorts"
 prerequisites = ["open-sorts"]
-evidence = ["draft/readability/spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
 gloss = "KItem contains computation items; KResult marks terms that strict evaluation may treat as finished."
 
 [[concept]]
@@ -401,7 +401,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["syntax-templates"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "draft/readability/spec/decisions.md"]
+evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "tokens"
@@ -420,7 +420,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["open-sorts", "syntax-templates"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "draft/readability/spec/decisions.md"]
+evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "precedence-associativity"
@@ -449,7 +449,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-evaluation"
 prerequisites = ["framework-sorts", "constructor-families"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "draft/readability/spec/decisions.md"]
+evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "context-aliases"
@@ -545,7 +545,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-machine-rules"
 prerequisites = ["fixed-configurations", "rule-patterns", "k-sequences"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "draft/readability/spec/decisions.md"]
+evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "map-patterns"
@@ -605,7 +605,7 @@ status = "current"
 coverage = "spine"
 chapter = "applicability"
 prerequisites = ["rule-patterns", "requires"]
-evidence = ["crates/krs-compiler/src/overlap.rs", "draft/readability/spec/decisions.md"]
+evidence = ["crates/krs-compiler/src/overlap.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "owise"
@@ -771,7 +771,7 @@ status = "current"
 coverage = "spine"
 chapter = "workflow"
 prerequisites = ["fmt-check"]
-evidence = ["crates/krs-fmt", "draft/readability/spec/decisions.md"]
+evidence = ["crates/krs-fmt", "docs-plan/authoring-spec/decisions.md"]
 note = "Non-doc block comments are rejected inside DSL macro bodies."
 
 [[concept]]
@@ -800,7 +800,7 @@ status = "open"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["machine-rules"]
-evidence = ["draft/readability/spec/open-questions.md"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "open-grammar-style"
@@ -809,7 +809,7 @@ status = "open"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["cross-family-grammar"]
-evidence = ["draft/readability/spec/open-questions.md"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "open-initialization"
@@ -818,7 +818,7 @@ status = "open"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["configuration-init"]
-evidence = ["draft/readability/spec/open-questions.md"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "open-formatter-style"
@@ -827,7 +827,7 @@ status = "open"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["formatter-comments"]
-evidence = ["draft/readability/spec/open-questions.md"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
 note = "Aligned is provisional; the tour must not present it as a frozen language decision."
 
 [[concept]]
@@ -837,7 +837,7 @@ status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["symbolic-terms", "format-avoid-docs"]
-evidence = ["draft/readability/spec/open-questions.md"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "open-rule-doc-style"
@@ -846,7 +846,7 @@ status = "open"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["rule-tables"]
-evidence = ["draft/readability/spec/open-questions.md"]
+evidence = ["docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "unsupported-logic"
@@ -855,7 +855,7 @@ status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["claims"]
-evidence = ["draft/semantic-gaps.md", "crates/krs-macros/src/lib.rs"]
+evidence = ["crates/krs-macros/src/lib.rs"]
 note = "These are design-checklist concepts, not current public syntax."
 
 [[concept]]
@@ -865,7 +865,7 @@ status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["tokens", "precedence-associativity"]
-evidence = ["draft/semantic-gaps.md", "crates/krs-macros/src/lib.rs"]
+evidence = ["crates/krs-macros/src/lib.rs"]
 
 [[concept]]
 id = "unsupported-cells"
@@ -874,7 +874,7 @@ status = "unsupported"
 coverage = "limitation"
 chapter = "limits"
 prerequisites = ["repeated-cells"]
-evidence = ["crates/krs-syntax/src/attribute.rs", "draft/readability/spec/open-questions.md"]
+evidence = ["crates/krs-syntax/src/attribute.rs", "docs-plan/authoring-spec/open-questions.md"]
 
 [[concept]]
 id = "restricted-rust"

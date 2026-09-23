@@ -16,7 +16,7 @@
 #                           x86_64 twin of rustc.wasm (same fork commit) against the pack, mapped with
 #                           the worker's lookup (twin.stderr, twin-mapped.json)
 #
-# Environment: REPO (default: this checkout), BL006 (the retained BL-006 spike directory), KRS_BIN,
+# Environment: REPO (default: this checkout), KRS_BIN,
 # ORACLE_DIR (regenerate-oracle.sh output at this revision: collector binary and exports), ASSETS
 # (staged worker assets: expander module, pack), TWIN, KRS_Z3_LIB, LOAD_MAX (default 40).
 set -euo pipefail
@@ -25,7 +25,6 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 WORKER=$(cd "$HERE/../.." && pwd)
 REPO=${REPO:-$(git -C "$HERE" rev-parse --show-toplevel)}
 OUT=${1:-/var/tmp/krs-ir18-native}
-BL006=${BL006:-/home/sebastiengllmt/git/workspaces/starstream-fv/krs/draft/browser-lessons/spikes/BL-006}
 KRS_BIN=${KRS_BIN:-/var/tmp/krs-ir17-cli-target/debug/krs}
 ORACLE_DIR=${ORACLE_DIR:-/var/tmp/krs-ir17-oracle}
 ASSETS=${ASSETS:-/var/tmp/krs-ir18-assets}
@@ -65,14 +64,17 @@ mkdir -p "$CASES" "$OUT/lower-shim"
 
 # ---------------------------------------------------------------- BL-006 workspace
 
-# Copy the retained fixtures; point the path dependencies at this checkout's crates.
-mkdir -p "$OUT/workspace"
-cp -r "$BL006/Cargo.toml" "$BL006/anchor-probe" "$BL006/overlap" "$BL006/rust-expansion" "$BL006/wrong-result" "$OUT/workspace/"
-sed -i "s|\"../../../../crates/|\"$REPO/crates/|" "$OUT/workspace/Cargo.toml"
-for pair in rust-expansion/src/bin/malformed_macro.rs:malformed_macro.rs rust-expansion/src/bin/unresolved_constructor.rs:unresolved_constructor.rs \
-  rust-expansion/src/bin/external_proc_macro.rs:external_proc_macro.rs wrong-result/src/lib.rs:wrong_result.rs overlap/src/lib.rs:overlap.rs; do
-  cmp "$OUT/workspace/${pair%%:*}" "$FIXTURES/bl006/${pair##*:}"
+# Rebuild the BL-006 spike workspace from its byte-identical fixtures; point the path
+# dependencies at this checkout's crates.
+for pair in Cargo.toml:workspace.Cargo.toml anchor-probe/Cargo.toml:anchor-probe.Cargo.toml anchor-probe/src/main.rs:anchor_probe.rs \
+  overlap/Cargo.toml:overlap.Cargo.toml overlap/src/lib.rs:overlap.rs rust-expansion/Cargo.toml:rust-expansion.Cargo.toml \
+  rust-expansion/src/bin/malformed_macro.rs:malformed_macro.rs rust-expansion/src/bin/unresolved_constructor.rs:unresolved_constructor.rs \
+  rust-expansion/src/bin/external_proc_macro.rs:external_proc_macro.rs wrong-result/Cargo.toml:wrong-result.Cargo.toml \
+  wrong-result/src/lib.rs:wrong_result.rs; do
+  mkdir -p "$(dirname "$OUT/workspace/${pair%%:*}")"
+  cp "$FIXTURES/bl006/${pair##*:}" "$OUT/workspace/${pair%%:*}"
 done
+sed -i "s|\"../../../../crates/|\"$REPO/crates/|" "$OUT/workspace/Cargo.toml"
 (cd "$OUT/workspace" && sha256sum rust-expansion/src/bin/*.rs wrong-result/src/lib.rs overlap/src/lib.rs anchor-probe/src/main.rs) >"$OUT/fixtures.sha256"
 
 cargo_check_bin() { # ID BIN

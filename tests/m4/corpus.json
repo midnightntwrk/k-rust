@@ -4,7 +4,7 @@
     "m3a": {"path": "tests/m3a/pins.json", "sha256": "b3c3742d80c4172f858a212192d3e7584181c502240bb564eb903b863497947e"},
     "m3b": {"path": "tests/m3b/pins.json", "sha256": "e0bd219dad8606dcd6322f6def39691750bc4eb181e03f783bf0f32498b42bc4"},
     "m3c": {"path": "tests/m3c/pins.json", "sha256": "ef0d598849b1328afa89d55777bdda8ff822a1f443401c3b9d4dcadbb24a208e"},
-    "m3d": {"path": "tests/m3d/pins.json", "sha256": "99dcd7590d90f68de0471fd0e0d848037ca011bef9329969e0c64ac51088aaa2"}
+    "m3d": {"path": "tests/m3d/pins.json", "sha256": "d333f59de748a6dc22208d25aee68d4384246c5ea8f88f5935ec6afd2239911a"}
   },
   "routes": {
     "reference": {

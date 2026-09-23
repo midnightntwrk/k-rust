@@ -181,4 +181,4 @@ collector_vfs = "Serve each framework-source artifact at its virtual_path; nothi
 lesson_rustc = "rustc.wasm <lesson> --crate-name <crate> --crate-type rlib --edition <edition> --target <target> --sysroot <sysroot> -C panic=<panic> <extra_flags> -L dependency=<mount>/<each dependency_search_path> --extern k=<mount>/<externs.k> <lesson lint flags> with CARGO_PKG_NAME, CARGO_PKG_VERSION, CARGO_MANIFEST_DIR, CARGO_CRATE_NAME in the WASI environment"
 collector_rustc = "rustc.wasm <collector> --crate-type bin <same common flags> <collector_flags> --extern <crate>=<lesson rlib> --extern __krs_host_runtime=<mount>/<externs.__krs_host_runtime> --extern __krs_compiler_runtime=<mount>/<externs.__krs_compiler_runtime>"
 same_revision = "The pack, the IR-11 expander module, and the native oracle must come from one KRS revision (IR-11 finding); compare producer.krs_revision."
-reference_run = "draft/browser-lessons/independent-review/evidence/IR-14/smoke.sh applies this contract under Node WASI (mount /work/pack)."
+reference_run = "tests/browser-backend/verify.py applies this contract under Node WASI and in headless browsers (mount /pack)."

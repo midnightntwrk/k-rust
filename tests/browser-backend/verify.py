@@ -52,7 +52,6 @@ RUNNER = HERE / "runner"
 DEFAULT_PACK = Path("/var/tmp/krs-ir14-pack-a/pack")
 DEFAULT_FORK_BUILD = Path("/var/tmp/krs-browser-fork/R-k")
 DEFAULT_FORK_SOURCE = ROOT.parent / "inspirations" / "AngelOnFira" / "rust-krs"
-DEFAULT_BL = ROOT.parent / "krs" / "draft" / "browser-lessons"
 LOAD_MAX = 40.0
 STEP_TIMEOUT_MS = 600_000
 STABLE_DEPS = {"itoa": "=1.0.18", "serde": "=1.0.229", "serde_json": "=1.0.151", "sha2": "=0.10.9"}
@@ -409,7 +408,6 @@ def main() -> int:
     parser.add_argument("--scratch", type=Path, default=Path("/var/tmp/krs-ir16-scratch"))
     parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-ir16-run"))
     parser.add_argument("--evidence", type=Path, default=None, help="also copy host records, matrix.toml, and expectations.toml here")
-    parser.add_argument("--bl", type=Path, default=DEFAULT_BL, help="draft/browser-lessons (for the BL-003 success.json oracle)")
     args = parser.parse_args()
 
     hosts = list(HOSTS) if args.host == "all" else [] if args.host == "none" else [h for h in args.host.split(",") if h]
@@ -495,7 +493,7 @@ def main() -> int:
         case["_status"] = status
         oracle = case.get("oracle")
         if oracle:
-            oracle_bytes = (args.bl / oracle["file"]).read_bytes()
+            oracle_bytes = (case["_dir"] / oracle["file"]).read_bytes()
             for variant_name, variant in entry["twin"].items():
                 for run_name in oracle["runs"]:
                     stdout = variant["runs"][run_name]["stdout"]

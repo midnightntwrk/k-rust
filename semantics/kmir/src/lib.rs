@@ -1,7 +1,7 @@
 //! Readable qualification slice for KMIR basic-block execution.
 //!
 //! The source mapping and adapter boundary are pinned in
-//! `../../draft/readability/kmir/README.md`.
+//! `../../tests/kmir/source-map.md`.
 
 use k::KResult;
 use k::builtin::{Bool, Bytes, Int, KSequence, List, Map, bool, bytes, int, list, map};

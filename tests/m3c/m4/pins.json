@@ -393,15 +393,15 @@
   },
   "proof_ledgers": {
     "adjunct": {
-      "path": "draft/investigations/m4-adjunct-proof-pins/pins.json",
+      "path": "tests/m4/proof-pins/adjunct/pins.json",
       "sha256": "1210afe776a469bb7561d50bdd3dd78129f4f14576b72978372f89f896ba89f5"
     },
     "reference": {
-      "path": "draft/investigations/m4-reference-proof-pins/pins.json",
+      "path": "tests/m4/proof-pins/reference/pins.json",
       "sha256": "b252bc7e33467158acd20c86bece237f6bec1f16171359f90d7c27a5fedc80a6"
     },
     "selected": {
-      "path": "draft/investigations/m4-selected-proof-pins/pins.json",
+      "path": "tests/m4/proof-pins/selected/pins.json",
       "sha256": "0ec8466c2bdea7304b505be91d0da7c776705ce1b87fae56edfb56c880278a03"
     }
   },

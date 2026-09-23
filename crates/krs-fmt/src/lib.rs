@@ -209,7 +209,7 @@ mod tests {
             ),
             (
                 "normative IMP",
-                include_str!("../../../draft/readability/spec/imp.rs"),
+                include_str!("../../../docs-plan/authoring-spec/imp.rs"),
             ),
             (
                 "identity adversary",

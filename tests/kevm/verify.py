@@ -76,7 +76,7 @@ SOURCE_LEDGER_PATHS = (
     "crates/krs-syntax/src/state_rule.rs",
     "crates/krs-syntax/src/term.rs",
     "crates/krs/src/lib.rs",
-    "draft/readability/kevm/README.md",
+    "tests/kevm/source-map.md",
     "tests/kevm/corpus.toml",
     "tests/kevm/lsp_probe.py",
     "tests/kevm/native.py",

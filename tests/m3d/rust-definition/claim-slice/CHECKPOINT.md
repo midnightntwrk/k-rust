@@ -1,7 +1,7 @@
 # M3D IMP claim-slice checkpoint
 
-This isolated executable now authors the three claims frozen by
-`draft/investigations/m3d-claim-surface/CONTRACT.md`:
+This isolated executable now authors the three claims frozen by the M3D
+claim-surface contract:
 
 - `branching`: one anonymous `Bool`, one RHS/`ensures` existential, two
   `orBool` branches, concrete `Id` tokens, an exact source map and both K and
