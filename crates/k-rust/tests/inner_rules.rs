@@ -2931,6 +2931,75 @@ fn accepts_parametric_completion_with_an_admissible_singleton_bound() {
 }
 
 #[cfg(feature = "z3-inference")]
+#[test]
+fn sort_parameter_choice_visible_after_lowering_is_rejected() {
+    // `wrap(I)` under `f(A) | f(B)` has one maximal typing (`I:Int`), and the parameter of
+    // `wrap` may be `A` or `B`; the two choices parse the rule as `f{A}` or `f{B}`. The parse must
+    // be a function of the sort constraints, so the compile fails instead of keeping one.
+    let source = include_str!("fixtures/sort-inference/parameter-choice.k");
+    let Err(error) = load_with_prelude(source, "parameter-choice.k", "TEST") else {
+        panic!("a visible sort parameter choice must fail the compile");
+    };
+    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = &error else {
+        panic!("expected a rule parse error, got {error:?}");
+    };
+    let ParseError::ParameterChoice {
+        productions,
+        first,
+        second,
+        ..
+    } = &error.error
+    else {
+        panic!(
+            "expected ParseError::ParameterChoice, got {:?}",
+            error.error
+        );
+    };
+    assert_eq!(error.module, "TEST");
+    assert_eq!(
+        error.location.map(|location| location.start_line),
+        Some(10),
+        "the error names the rule's location"
+    );
+    assert!(
+        matches!(productions.as_slice(), [production]
+            if production.contains("wrap")
+                && (production.ends_with(": A or B") || production.ends_with(": B or A"))),
+        "{productions:?}"
+    );
+    let mut terms = [first.as_str(), second.as_str()];
+    terms.sort_unstable();
+    assert!(
+        terms[0].contains("`f(_)_TEST_Top_A`") && terms[1].contains("`f(_)_TEST_Top_B`"),
+        "{terms:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn sort_parameter_choice_erased_by_lowering_compiles() {
+    // The parenthesized rewrite's sort parameter may be `Small` or `Item`, and the surviving
+    // bracket follows it; lowering drops brackets and `#KRewrite`'s sort, so every admissible
+    // choice gives the same term and the rule compiles.
+    let source = include_str!("fixtures/sort-inference/parameter-choice-lowered.k");
+    let loaded = load_with_prelude(
+        source,
+        "parameter-choice-lowered.k",
+        "PARAMETER-CHOICE-LOWERED",
+    )
+    .expect("admissible parameter choices that lower to the same term are accepted");
+    assert_eq!(
+        rule_bodies(&loaded),
+        ["`run(_)_PARAMETER-CHOICE-LOWERED_KItem_Items`(\
+             `___PARAMETER-CHOICE-LOWERED_Items_Item_Items`(\
+             `small(_)_PARAMETER-CHOICE-LOWERED_Small_Int`(#SemanticCastToInt(I))=>\
+             `small(_)_PARAMETER-CHOICE-LOWERED_Small_Int`(\
+             `_+Int_`(#SemanticCastToInt(I),#token(\"1\",\"Int\"))),\
+             #SemanticCastToItems(_Rest)))"],
+    );
+}
+
+#[cfg(feature = "z3-inference")]
 fn rule_bodies(loaded: &k_rust::outer::LoadedDefinition) -> Vec<String> {
     loaded
         .definition

@@ -374,6 +374,9 @@ fn bubble_error(
         }
         | ParseError::Ambiguous {
             span: Some(span), ..
+        }
+        | ParseError::ParameterChoice {
+            span: Some(span), ..
         } => Some(*span),
         _ => None,
     };

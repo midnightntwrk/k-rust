@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::check_parameter_choice", "Encoding::read_model", "or_all"]
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = admissible parameter vectors of one maximal typing, at most 256"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -16,6 +16,10 @@
 //! [[cost]]
 //! mode = "one inference"
 //! bound = "O(N x M + c)"
+//!
+//! [[cost]]
+//! mode = "parameter-choice check of one recorded model with formal parameters"
+//! bound = "P solver checks, plus P model applications and post-inference lowerings of O(N) nodes each when P > 1; the compile fails at the first lowering that differs, or when P exceeds 256"
 //!
 //! [[cost]]
 //! mode = "cached encoding base that does not cover the term sorts"
@@ -88,6 +92,8 @@ struct Encoding<'a> {
     base: Rc<EncodingBase>,
     variables: BTreeMap<String, Datatype>,
     parameters: BTreeSet<String>,
+    /// The grammar production each formal-parameter constant instantiates, for diagnostics.
+    parameter_productions: BTreeMap<String, usize>,
     /// Soft per-ambiguity preferences for the overload-minimal function-LHS branches.
     packed_overload_preferences: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
@@ -125,6 +131,21 @@ thread_local! {
 const ENCODING_BASE_CACHE_CAPACITY: usize = 8;
 
 const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists";
+
+/// The admissible parameter vectors `Encoding::check_parameter_choice` enumerates per recorded
+/// model before it fails instead of assuming the rest lower alike.
+const PARAMETER_CHOICE_LIMIT: usize = 256;
+
+/// Model application followed by the parse's lowering, for one model (`None` when either
+/// rejects it).
+type Lowering<'l> = dyn Fn(&BTreeMap<String, Sort>) -> Option<Term> + 'l;
+
+/// The maximal preference counts `Encoding::prefer_parameters` asserts.
+#[derive(Clone, Copy, Default)]
+struct PreferenceCounts {
+    overloads: usize,
+    tops: usize,
+}
 
 /// One constraint of the incremental replay (`TypeInferencer.Constraint`).
 struct ReplayConstraint {
@@ -195,7 +216,26 @@ impl Grammar {
             SatResult::Sat => {}
         }
 
-        let models = encoding.maximal_models(&solver, seed)?;
+        // `f a b` of `LoweringConstOnPref`: model application followed by the lowering the parse
+        // output uses, with `None` for a model that application or lowering rejects.
+        let lower = |model: &BTreeMap<String, Sort>| {
+            let applied = encoding
+                .apply_model_packed(
+                    Rc::clone(&term),
+                    top_sort,
+                    root_context,
+                    model,
+                    &mut BTreeMap::new(),
+                )
+                .ok()?;
+            let inferred = self
+                .factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(BTreeSet::from([
+                    applied,
+                ])))
+                .unpack();
+            self.lower_inferred(inferred, top_sort).ok()
+        };
+        let models = encoding.maximal_models(&solver, seed, Some(&lower))?;
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
         for model in models {
@@ -407,7 +447,14 @@ impl Grammar {
             SatResult::Sat => {}
         }
 
-        let models = encoding.maximal_models(&solver, seed)?;
+        // `f a b` of `LoweringConstOnPref`, as in `infer_packed_sorts_z3`.
+        let lower = |model: &BTreeMap<String, Sort>| {
+            let applied = encoding
+                .apply_model(term.clone(), top_sort, root_context, "root", model)
+                .ok()?;
+            self.lower_inferred(applied, top_sort).ok()
+        };
+        let models = encoding.maximal_models(&solver, seed, Some(&lower))?;
         let mut candidates = BTreeSet::new();
         let mut first_error = None;
         for model in models {
@@ -736,6 +783,7 @@ impl<'a> Encoding<'a> {
             base: encoding_base(grammar, top_sort, term_sorts)?,
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
+            parameter_productions: BTreeMap::new(),
             packed_overload_preferences: Vec::new(),
             packed_ids: HashMap::new(),
             anywhere,
@@ -1113,6 +1161,8 @@ impl<'a> Encoding<'a> {
                     .entry(name.clone())
                     .or_insert_with(|| Datatype::new_const(name.clone(), &self.base.datatype.sort))
                     .clone();
+                self.parameter_productions
+                    .insert(name.clone(), production_index);
                 self.parameters.insert(name);
                 (parameter.clone(), value)
             })
@@ -1186,6 +1236,8 @@ impl<'a> Encoding<'a> {
                     .entry(name.clone())
                     .or_insert_with(|| Datatype::new_const(name.clone(), &self.base.datatype.sort))
                     .clone();
+                self.parameter_productions
+                    .insert(name.clone(), production_index);
                 self.parameters.insert(name);
                 (parameter.clone(), value)
             })
@@ -1631,14 +1683,19 @@ impl<'a> Encoding<'a> {
     /// satisfying sort. The real variables are pinned to their maximal values, so only formal
     /// parameters move, and the assertions are popped before enumeration continues with hard
     /// constraints alone.
+    ///
+    /// Returns the maximal overload and top-preference counts; together with the hard
+    /// constraints and the pinned real variables they define the admissible parameter vectors
+    /// that [`Encoding::check_parameter_choice`] enumerates.
     fn prefer_parameters(
         &self,
         solver: &Solver,
         values: &mut BTreeMap<String, Sort>,
-    ) -> Result<(), ParseError> {
+    ) -> Result<PreferenceCounts, ParseError> {
         let top_preferences = self.top_preferences(|name| self.parameters.contains(name))?;
+        let mut counts = PreferenceCounts::default();
         if self.packed_overload_preferences.is_empty() && top_preferences.is_empty() {
-            return Ok(());
+            return Ok(counts);
         }
         solver.push();
         let preferred = (|| {
@@ -1656,6 +1713,7 @@ impl<'a> Encoding<'a> {
             }
             let overloads = self.assert_preferred(solver, &self.packed_overload_preferences)?;
             let tops = self.assert_preferred(solver, &top_preferences)?;
+            counts = PreferenceCounts { overloads, tops };
             if overloads == 0 && tops == 0 {
                 return Ok(None);
             }
@@ -1675,13 +1733,16 @@ impl<'a> Encoding<'a> {
         if let Some(preferred) = preferred? {
             *values = preferred;
         }
-        Ok(())
+        Ok(counts)
     }
 
+    /// Enumerate the maximal real-variable typings, each with one admissible parameter vector.
+    /// With `lower`, each recorded model also passes [`Encoding::check_parameter_choice`].
     fn maximal_models(
         &self,
         solver: &Solver,
         seed: Option<BTreeMap<String, Sort>>,
+        lower: Option<&Lowering<'_>>,
     ) -> Result<Vec<BTreeMap<String, Sort>>, ParseError> {
         let real_variables = self
             .variables
@@ -1771,7 +1832,10 @@ impl<'a> Encoding<'a> {
                     }
                 }
             }
-            self.prefer_parameters(solver, &mut values)?;
+            let counts = self.prefer_parameters(solver, &mut values)?;
+            if let Some(lower) = lower {
+                self.check_parameter_choice(solver, &values, counts, lower)?;
+            }
             let dominated = real_variables
                 .iter()
                 .map(|name| {
@@ -1797,6 +1861,179 @@ impl<'a> Encoding<'a> {
             }
         }
         Ok(models)
+    }
+
+    /// Check that every admissible parameter vector of a recorded model lowers to the term that
+    /// `chosen` lowers to.
+    ///
+    /// The hard constraints fix the variable typing `chosen` records, but not always its formal
+    /// parameters: `prefer_parameters` keeps whichever vector Z3 returns among those that reach
+    /// the maximal preference counts. The parsed term must be a function of the sort constraints,
+    /// so the solver's choice among admissible vectors must not be visible in it. With the real
+    /// variables pinned and both counts asserted, each further admissible vector is found,
+    /// lowered with the parse's own post-inference passes, compared with `chosen`'s lowering
+    /// including compiler annotations (`Term::identical`), and blocked. A singleton admissible
+    /// set costs one extra check.
+    ///
+    /// TODO(LT-05): this is a stopgap. When two admissible vectors lower differently, the
+    /// sentence has two well-sorted parses that no inference criterion orders, so the principled
+    /// answer is to report it as ambiguous like any other ambiguity; that needs a design for
+    /// exact ambiguity detection over the admissible set. Until then the compile fails here
+    /// instead of keeping the solver's arbitrary choice.
+    fn check_parameter_choice(
+        &self,
+        solver: &Solver,
+        chosen: &BTreeMap<String, Sort>,
+        counts: PreferenceCounts,
+        lower: &Lowering<'_>,
+    ) -> Result<(), ParseError> {
+        if self.parameters.is_empty() {
+            return Ok(());
+        }
+        solver.push();
+        let result = (|| {
+            for (name, variable) in &self.variables {
+                if self.parameters.contains(name) {
+                    continue;
+                }
+                let current = self.sort_value(
+                    chosen
+                        .get(name)
+                        .expect("all inference variables have model values"),
+                    &BTreeMap::new(),
+                )?;
+                solver.assert(variable.eq(&current));
+            }
+            let top_preferences = if counts.tops > 0 {
+                self.top_preferences(|name| self.parameters.contains(name))?
+            } else {
+                Vec::new()
+            };
+            for (preferences, count) in [
+                (&self.packed_overload_preferences, counts.overloads),
+                (&top_preferences, counts.tops),
+            ] {
+                if count > 0 {
+                    let weighted = preferences
+                        .iter()
+                        .map(|constraint| (constraint, 1))
+                        .collect::<Vec<_>>();
+                    solver.assert(Bool::pb_ge(&weighted, count as i32));
+                }
+            }
+            let mut chosen_term = None;
+            let mut found = chosen.clone();
+            // Invariant: every admissible vector blocked so far lowers to `chosen_term`; each
+            // iteration blocks one more vector, and the admissible set is finite.
+            for _ in 0..PARAMETER_CHOICE_LIMIT {
+                let blocked = self
+                    .parameters
+                    .iter()
+                    .map(|name| {
+                        let value = self.sort_value(
+                            found
+                                .get(name)
+                                .expect("all inference variables have model values"),
+                            &BTreeMap::new(),
+                        )?;
+                        Ok(self
+                            .variables
+                            .get(name)
+                            .expect("parameters are also inference variables")
+                            .ne(&value))
+                    })
+                    .collect::<Result<Vec<_>, ParseError>>()?;
+                solver.assert(or_all(&blocked));
+                match check(solver) {
+                    SatResult::Unsat => return Ok(()),
+                    SatResult::Unknown => {
+                        return Err(z3_error(
+                            "Z3 returned unknown while enumerating admissible sort parameters",
+                        ));
+                    }
+                    SatResult::Sat => {}
+                }
+                let alternative = self.read_model(&solver.get_model().ok_or_else(|| {
+                    z3_error("Z3 returned sat without an admissible parameter model")
+                })?)?;
+                let chosen_term = chosen_term.get_or_insert_with(|| lower(chosen));
+                let alternative_term = lower(&alternative);
+                let same = match (&*chosen_term, &alternative_term) {
+                    (Some(left), Some(right)) => left.identical(right),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !same {
+                    return Err(self.parameter_choice_error(
+                        chosen,
+                        &alternative,
+                        chosen_term.as_ref(),
+                        alternative_term.as_ref(),
+                    ));
+                }
+                found = alternative;
+            }
+            Err(z3_error(format!(
+                "sort inference found more than {PARAMETER_CHOICE_LIMIT} admissible sort \
+                 parameter choices for one variable typing and could not check that they all \
+                 parse the sentence the same way"
+            )))
+        })();
+        solver.pop(1);
+        result
+    }
+
+    fn parameter_choice_error(
+        &self,
+        chosen: &BTreeMap<String, Sort>,
+        alternative: &BTreeMap<String, Sort>,
+        chosen_term: Option<&Term>,
+        alternative_term: Option<&Term>,
+    ) -> ParseError {
+        let mut productions = Vec::new();
+        for name in &self.parameters {
+            let (Some(first), Some(second)) = (chosen.get(name), alternative.get(name)) else {
+                continue;
+            };
+            if first == second {
+                continue;
+            }
+            let production = self
+                .parameter_productions
+                .get(name)
+                .map(|index| &self.grammar.productions[*index])
+                .map_or_else(
+                    || name.clone(),
+                    |production| {
+                        production
+                            .source_production_text
+                            .clone()
+                            .unwrap_or_else(|| {
+                                format!(
+                                    "{} ::= {}",
+                                    production.result,
+                                    production
+                                        .label
+                                        .as_ref()
+                                        .map_or_else(|| "?".to_owned(), ToString::to_string)
+                                )
+                            })
+                    },
+                );
+            productions.push(format!("{production}: {first} or {second}"));
+        }
+        let render = |term: Option<&Term>| {
+            term.map_or_else(|| "(no well-sorted term)".to_owned(), ToString::to_string)
+        };
+        ParseError::ParameterChoice {
+            productions,
+            first: render(chosen_term),
+            second: render(alternative_term),
+            span: chosen_term
+                .or(alternative_term)
+                .and_then(Term::metadata)
+                .and_then(|metadata| metadata.span),
+        }
     }
 
     fn read_model(&self, model: &Model) -> Result<BTreeMap<String, Sort>, ParseError> {
@@ -3465,7 +3702,7 @@ mod tests {
             SatResult::Unknown => return Err(z3_error("unknown in a conformance problem")),
             SatResult::Sat => {}
         }
-        let models = encoding.maximal_models(&solver, seed)?;
+        let models = encoding.maximal_models(&solver, seed, None)?;
         Ok(Some(
             models
                 .into_iter()

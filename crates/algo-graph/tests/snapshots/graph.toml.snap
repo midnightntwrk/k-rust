@@ -5532,6 +5532,11 @@ symbol = "Grammar::parse_attempt"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser.rs"
+symbol = "Grammar::lower_inferred"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser.rs"
 symbol = "Grammar::parse"
 
 [[node.sites]]
@@ -5545,7 +5550,7 @@ bound = "O(B x s) chart allocation plus O(p x d)"
 
 [[node.cost]]
 mode = "one parse attempt (parse_attempt)"
-bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
+bound = "recognition plus the post-recognition passes called at the end of parse_attempt, each carried by its own card (prepare_packed_forest, inference, then through lower_inferred resolve_terminators, filter_overloads, insert_empty_lists, remove_brackets_casts, factor and resolve ambiguity)"
 
 [[node.cost]]
 mode = "filtered attempt with unfiltered retry (parse_with_context_and_diagnostic_provenance)"
@@ -5881,7 +5886,7 @@ id = "parser.inference.z3"
 provenance = "declared"
 area = "parser"
 name = "Z3-backed maximal-model sort inference"
-variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks"
+variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = admissible parameter vectors of one maximal typing, at most 256"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferenceZ3"
@@ -5961,6 +5966,11 @@ symbol = "Encoding::maximal_models"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::check_parameter_choice"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
 symbol = "Encoding::read_model"
 
 [[node.sites]]
@@ -5975,6 +5985,10 @@ bound = "O(H + G^2 + R) plus two PartialOrder::new constructions"
 [[node.cost]]
 mode = "one inference"
 bound = "O(N x M + c)"
+
+[[node.cost]]
+mode = "parameter-choice check of one recorded model with formal parameters"
+bound = "P solver checks, plus P model applications and post-inference lowerings of O(N) nodes each when P > 1; the compile fails at the first lowering that differs, or when P exceeds 256"
 
 [[node.cost]]
 mode = "cached encoding base that does not cover the term sorts"
