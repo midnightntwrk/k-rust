@@ -3302,6 +3302,361 @@ mod tests {
         }
     }
 
+    /// One generated problem of `maximal_models_conform_to_brute_force_maximum`: an ambiguity
+    /// over productions `p{k} : R ::= "p{k}" A B` applied to the variables `X`, `Y`, `Z`,
+    /// optionally under a unary production `w : R ::= "w" A`.
+    struct ConformanceProblem {
+        grammar: Grammar,
+        term: Rc<PackedTerm>,
+        top_sort: Sort,
+        /// The syntactic subsort pairs the generator produced, before any closure.
+        syntactic: BTreeSet<(Sort, Sort)>,
+    }
+
+    fn conformance_problem(
+        sort_count: usize,
+        semantic: &[(usize, usize)],
+        extra_syntactic: &[(usize, usize)],
+        top: Option<usize>,
+        productions: &[(usize, usize, usize)],
+        alternatives: &[(usize, usize, usize)],
+        wrapper: Option<(usize, usize)>,
+    ) -> ConformanceProblem {
+        // Sorts `S0..S{n-1}`, and `K` above all of them when `top` is `None`, which also turns
+        // on the `K` preferences of `seed_model`.
+        let sort = |index: usize| Sort::new(format!("S{}", index % sort_count));
+        let mut grammar = Grammar::default();
+        for index in 0..sort_count {
+            grammar
+                .add(
+                    sort(index),
+                    vec![ProductionItem::Terminal(format!("s{index}"))],
+                    Some(Label::new(format!("s{index}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        let oriented = |pairs: &[(usize, usize)]| {
+            pairs
+                .iter()
+                .map(|(left, right)| (left % sort_count, right % sort_count))
+                .filter(|(left, right)| left != right)
+                .map(|(left, right)| (sort(left.min(right)), sort(left.max(right))))
+                .collect::<BTreeSet<_>>()
+        };
+        let mut semantic = oriented(semantic);
+        let top_sort = if let Some(top) = top {
+            sort(top)
+        } else {
+            semantic.extend((0..sort_count).map(|index| (sort(index), Sort::new("K"))));
+            Sort::new("K")
+        };
+        let mut syntactic = oriented(extra_syntactic);
+        syntactic.extend(semantic.iter().cloned());
+        grammar.subsort_relations = semantic;
+        grammar.syntactic_subsort_relations = syntactic.clone();
+
+        let mut indexes = Vec::new();
+        for (k, (result, first, second)) in productions.iter().enumerate() {
+            indexes.push(grammar.productions.len());
+            grammar
+                .add(
+                    sort(*result),
+                    vec![
+                        ProductionItem::Terminal(format!("p{k}")),
+                        nonterminal(sort(*first).name.as_str()),
+                        nonterminal(sort(*second).name.as_str()),
+                    ],
+                    Some(Label::new(format!("p{k}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        let variable = |index: usize| PackedTerm::leaf(Term::variable(["X", "Y", "Z"][index % 3]));
+        let mut term = PackedTerm::ambiguity(
+            alternatives
+                .iter()
+                .map(|(production, first, second)| {
+                    PackedTerm::production(
+                        indexes[production % indexes.len()],
+                        vec![variable(*first), variable(*second)],
+                        Default::default(),
+                    )
+                })
+                .collect(),
+        );
+        if let Some((result, argument)) = wrapper {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    sort(result),
+                    vec![
+                        ProductionItem::Terminal("w".into()),
+                        nonterminal(sort(argument).name.as_str()),
+                    ],
+                    Some(Label::new("w")),
+                    false,
+                    false,
+                )
+                .unwrap();
+            term = PackedTerm::production(index, vec![term], Default::default());
+        }
+        ConformanceProblem {
+            grammar,
+            term,
+            top_sort,
+            syntactic,
+        }
+    }
+
+    /// A perturbation of the solver and of the formulas that leaves the constraint set the
+    /// same up to logical equivalence.
+    #[derive(Clone, Copy, Debug)]
+    struct Perturbation {
+        random_seed: Option<u32>,
+        /// Reverse both subsort relations of the encoding base, which reverses the order of the
+        /// disjuncts of every `less_than_eq`.
+        reverse_disjuncts: bool,
+    }
+
+    /// The inference path of `Grammar::infer_packed_sorts_z3` up to `maximal_models`
+    /// (:157-197): the same encoding, hard constraints, seed and enumeration, with the
+    /// perturbation applied. Returns `None` when the hard constraints are unsatisfiable, and
+    /// otherwise the recorded models projected onto the real variables, in recorded order.
+    fn recorded_real_projections(
+        problem: &ConformanceProblem,
+        perturbation: Perturbation,
+    ) -> Result<Option<Vec<BTreeMap<String, Sort>>>, ParseError> {
+        let grammar = &problem.grammar;
+        let term = &problem.term;
+        let anywhere = grammar.packed_lhs_is_function_or_macro(term);
+        let mut encoding = with_uncached_encoding_base(|| {
+            Encoding::new_packed(grammar, term, &problem.top_sort, anywhere)
+        })?;
+        if perturbation.reverse_disjuncts {
+            let base = Rc::get_mut(&mut encoding.base).expect("an uncached base is not shared");
+            base.semantic_relation.reverse();
+            base.syntactic_relation.reverse();
+        }
+        encoding.top_rewrite_ids = packed_top_rewrites(grammar, term);
+        let expected = encoding.sort_value(&problem.top_sort, &BTreeMap::new())?;
+        let root_context = if !is_real_ground_sort(&problem.top_sort) {
+            CastContext::Parser
+        } else {
+            CastContext::None
+        };
+        let constraint =
+            encoding.constraint_packed(term, &expected, root_context, &mut HashMap::new())?;
+        let solver = Solver::new();
+        if let Some(seed) = perturbation.random_seed {
+            let mut params = z3::Params::new();
+            params.set_u32("random_seed", seed);
+            solver.set_params(&params);
+        }
+        solver.assert(&constraint);
+        encoding.exclude_klabel_parameters(&solver)?;
+        encoding.restrict_to_real_sorts(&solver);
+        let seed = encoding.seed_model(&solver)?;
+        match check(&solver) {
+            SatResult::Unsat => return Ok(None),
+            SatResult::Unknown => return Err(z3_error("unknown in a conformance problem")),
+            SatResult::Sat => {}
+        }
+        let models = encoding.maximal_models(&solver, seed)?;
+        Ok(Some(
+            models
+                .into_iter()
+                .map(|mut model| {
+                    model.retain(|name, _| !encoding.parameters.contains(name));
+                    model
+                })
+                .collect(),
+        ))
+    }
+
+    /// `Max(π(Sat C))` by brute force: every assignment of the real variables to the real
+    /// ground sorts is checked against the hard constraints with the variables pinned, and the
+    /// maximal satisfiable ones under the pointwise reflexive-transitive closure of the
+    /// generated syntactic pairs are kept. The closure is computed here, not by `PartialOrder`.
+    /// Returns `None` when no assignment is satisfiable.
+    fn brute_force_maximal(
+        problem: &ConformanceProblem,
+    ) -> Result<Option<BTreeSet<BTreeMap<String, Sort>>>, ParseError> {
+        let grammar = &problem.grammar;
+        let term = &problem.term;
+        let anywhere = grammar.packed_lhs_is_function_or_macro(term);
+        let mut encoding = with_uncached_encoding_base(|| {
+            Encoding::new_packed(grammar, term, &problem.top_sort, anywhere)
+        })?;
+        encoding.top_rewrite_ids = packed_top_rewrites(grammar, term);
+        let expected = encoding.sort_value(&problem.top_sort, &BTreeMap::new())?;
+        let root_context = if !is_real_ground_sort(&problem.top_sort) {
+            CastContext::Parser
+        } else {
+            CastContext::None
+        };
+        let constraint =
+            encoding.constraint_packed(term, &expected, root_context, &mut HashMap::new())?;
+        let solver = Solver::new();
+        solver.assert(&constraint);
+        encoding.exclude_klabel_parameters(&solver)?;
+        encoding.restrict_to_real_sorts(&solver);
+
+        // The generated grammar has no parametric production, so every value a real variable
+        // can take under `restrict_to_real_sorts` is a nullary real sort of the datatype.
+        let domain = encoding
+            .ground_sorts
+            .iter()
+            .filter(|sort| sort.parameters.is_empty() && is_real_ground_sort(sort))
+            .cloned()
+            .collect::<Vec<_>>();
+        let real_variables = encoding
+            .variables
+            .iter()
+            .filter(|(name, _)| !encoding.parameters.contains(*name))
+            .map(|(name, variable)| (name.clone(), variable.clone()))
+            .collect::<Vec<_>>();
+        let mut satisfiable = Vec::new();
+        let mut choice = vec![0; real_variables.len()];
+        // Invariant: `choice` enumerates `domain^real_variables` in odometer order.
+        loop {
+            solver.push();
+            for ((_, variable), index) in real_variables.iter().zip(&choice) {
+                solver
+                    .assert(variable.eq(&encoding.sort_value(&domain[*index], &BTreeMap::new())?));
+            }
+            let status = solver.check();
+            solver.pop(1);
+            match status {
+                SatResult::Sat => satisfiable.push(
+                    real_variables
+                        .iter()
+                        .zip(&choice)
+                        .map(|((name, _), index)| (name.clone(), domain[*index].clone()))
+                        .collect::<BTreeMap<_, _>>(),
+                ),
+                SatResult::Unsat => {}
+                SatResult::Unknown => return Err(z3_error("unknown in a brute-force check")),
+            }
+            let Some(position) = choice.iter().position(|index| index + 1 < domain.len()) else {
+                break;
+            };
+            choice[position] += 1;
+            for index in &mut choice[..position] {
+                *index = 0;
+            }
+        }
+        if satisfiable.is_empty() {
+            return Ok(None);
+        }
+
+        let mut below = domain
+            .iter()
+            .flat_map(|lesser| domain.iter().map(move |greater| (lesser, greater)))
+            .filter(|(lesser, greater)| {
+                lesser == greater
+                    || problem
+                        .syntactic
+                        .contains(&((*lesser).clone(), (*greater).clone()))
+            })
+            .map(|(lesser, greater)| (lesser.clone(), greater.clone()))
+            .collect::<BTreeSet<_>>();
+        // Warshall's closure: after the pass for `middle`, every path through the sorts before
+        // it is a pair.
+        for middle in &domain {
+            for lesser in &domain {
+                for greater in &domain {
+                    if below.contains(&(lesser.clone(), middle.clone()))
+                        && below.contains(&(middle.clone(), greater.clone()))
+                    {
+                        below.insert((lesser.clone(), greater.clone()));
+                    }
+                }
+            }
+        }
+        let le = |lesser: &BTreeMap<String, Sort>, greater: &BTreeMap<String, Sort>| {
+            lesser
+                .iter()
+                .all(|(name, sort)| below.contains(&(sort.clone(), greater[name].clone())))
+        };
+        Ok(Some(
+            satisfiable
+                .iter()
+                .filter(|candidate| {
+                    satisfiable
+                        .iter()
+                        .all(|other| !le(candidate, other) || other == *candidate)
+                })
+                .cloned()
+                .collect(),
+        ))
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        /// Rust side of the model-conformance hypothesis of `KRust.MaximalModels`: the Rust loop
+        /// is one of the runs the relation `Run` allows. Checked through the consequence
+        /// `maximal_models_spec` draws from it: over small generated grammars with ambiguous
+        /// parses, the real projections `maximal_models` records are exactly the brute-force
+        /// maximal satisfying assignments, with no duplicate; and they stay the same set when
+        /// Z3's `random_seed` changes and when the disjuncts of every `less_than_eq` are
+        /// reversed.
+        #[test]
+        fn maximal_models_conform_to_brute_force_maximum(
+            sort_count in 3usize..6,
+            semantic in proptest::collection::vec((0usize..8, 0usize..8), 0..8),
+            extra_syntactic in proptest::collection::vec((0usize..8, 0usize..8), 0..4),
+            top in proptest::option::of(0usize..8),
+            productions in proptest::collection::vec((0usize..8, 0usize..8, 0usize..8), 1..5),
+            alternatives in proptest::collection::vec((0usize..8, 0usize..3, 0usize..3), 1..5),
+            wrapper in proptest::option::of((0usize..8, 0usize..8)),
+            seeds in (1u32..1000, 1u32..1000),
+        ) {
+            let problem = conformance_problem(
+                sort_count,
+                &semantic,
+                &extra_syntactic,
+                top,
+                &productions,
+                &alternatives,
+                wrapper,
+            );
+            let expected = brute_force_maximal(&problem).unwrap();
+            for perturbation in [
+                Perturbation { random_seed: None, reverse_disjuncts: false },
+                Perturbation { random_seed: Some(seeds.0), reverse_disjuncts: false },
+                Perturbation { random_seed: None, reverse_disjuncts: true },
+                Perturbation { random_seed: Some(seeds.1), reverse_disjuncts: true },
+            ] {
+                let recorded = recorded_real_projections(&problem, perturbation).unwrap();
+                match (&expected, recorded) {
+                    (None, None) => {}
+                    (Some(expected), Some(recorded)) => {
+                        let set = recorded.iter().cloned().collect::<BTreeSet<_>>();
+                        prop_assert_eq!(
+                            set.len(),
+                            recorded.len(),
+                            "{:?} recorded a real projection twice: {:?}",
+                            perturbation,
+                            recorded
+                        );
+                        prop_assert_eq!(&set, expected, "{:?}", perturbation);
+                    }
+                    (expected, recorded) => prop_assert!(
+                        false,
+                        "{:?}: brute force {:?}, maximal_models {:?}",
+                        perturbation,
+                        expected,
+                        recorded
+                    ),
+                }
+            }
+        }
+    }
+
     #[test]
     fn encoding_base_covers_its_grammar_sorts() {
         let mut grammar = Grammar::default();
