@@ -47,7 +47,7 @@ pub const NESTING_RULE: &str = "each workload's outline is the nesting observed 
 pub const STALENESS_RULE: &str = "every row is measured at the index commit. `atlas --check` reports an algorithm stale when `git diff --name-only <commit> -- <files>` in the checkout names one of the files of its anchor and sites in the graph beside a receipt's join, which is the graph at the receipt commit, and a listed uncarded function of a profile stale when that diff names its own file; it exits 1 when a listed row is stale. A change outside those files, such as in a callee or in a representation the algorithm reads, is not detected";
 
 /// How sampled shares enter the atlas.
-pub const SAMPLED_RULE: &str = "a receipt with a profile (`algo-receipt.sh --profile`) adds the CPU samples of one untraced `samply` run of the same command, attributed to algorithms by `algo-graph profile` (its ownership rule is in each profile.toml): sampled self % is the share of the run's samples whose innermost card-owned frame is the algorithm's, sampled total % the share with any frame it owns. Sampled shares divide by all samples of the process (CPU time on every thread), traced shares by span time, so they differ by the work outside spans as well as by tracing overhead. A workload uses the profile of its first profiled receipt at its parameter. The uncarded table lists workspace functions no card site contains: self % has the function as the innermost workspace frame, inclusive % has it anywhere inside the innermost card-owned frame, and under names the algorithm owning that frame. It lists up to 10 functions whose inclusive or self share reaches 1 %. A ladder's sampled table gives the inclusive share of the top uncarded functions at each profiled parameter";
+pub const SAMPLED_RULE: &str = "a receipt with a profile (`algo-receipt.sh --profile`) adds the CPU samples of one untraced `samply` run of the same command, attributed to algorithms by `algo-graph profile` (its ownership rule is in each profile.toml): sampled self % is the share of the run's samples whose innermost card-owned frame is the algorithm's, sampled total % the share with any frame it owns. Sampled shares divide by all samples of the process (CPU time on every thread), traced shares by span time, so they differ by the work outside spans as well as by tracing overhead. A workload uses the profile of its first profiled receipt at its parameter. The uncarded table lists workspace functions no card site contains: self % has the function as the innermost workspace frame, inclusive % has it anywhere inside the innermost card-owned frame, and under names the algorithm owning that frame (`(truncated stack)` when the unwinder stopped before reaching an owned frame, on recursion deeper than samply's stack copy). It lists up to 10 functions whose inclusive or self share reaches 1 %. A ladder's sampled table gives the inclusive share of the top uncarded functions at each profiled parameter";
 
 /// The `atlas.toml` index of receipts.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -293,6 +293,8 @@ pub struct SampledCost {
     pub uncarded_leaf_share: f64,
     pub outside_workspace_share: f64,
     pub truncated_share: f64,
+    /// Samples of truncated stacks without an owned frame.
+    pub truncated_unowned_share: f64,
     /// Algorithms with a sampled self share of at least 1 % that the traced table does not list.
     #[serde(rename = "unlisted")]
     pub unlisted: Vec<SampledShare>,
@@ -880,6 +882,7 @@ fn workload_cost(name: &str, receipts: &[&LoadedReceipt], commit: &str) -> Workl
             uncarded_leaf_share: profile.share(profile.uncarded_leaf_samples),
             outside_workspace_share: profile.share(profile.outside_workspace_samples),
             truncated_share: profile.share(profile.truncated_samples),
+            truncated_unowned_share: profile.share(profile.truncated_unowned_samples),
             unlisted,
             uncarded: uncarded_rows(profile),
         }
@@ -1402,7 +1405,7 @@ impl Atlas {
                 let _ = writeln!(out);
                 let _ = writeln!(
                     out,
-                    "Sampled: {} samples{} of `{}`, untraced; owned by an algorithm {:.1} %, uncarded leaf {:.1} %, outside the workspace {:.1} %, truncated stacks {:.1} %. Uncarded hot code:",
+                    "Sampled: {} samples{} of `{}`, untraced; owned by an algorithm {:.1} %, uncarded leaf {:.1} %, outside the workspace {:.1} %, truncated stacks {:.1} % ({:.1} % without an owned frame). Uncarded hot code:",
                     sampled.samples,
                     sampled
                         .rate_hz
@@ -1412,7 +1415,8 @@ impl Atlas {
                     100.0 * sampled.owned_share,
                     100.0 * sampled.uncarded_leaf_share,
                     100.0 * sampled.outside_workspace_share,
-                    100.0 * sampled.truncated_share
+                    100.0 * sampled.truncated_share,
+                    100.0 * sampled.truncated_unowned_share
                 );
                 let _ = writeln!(out);
                 let _ = writeln!(out, "| uncarded function | self % | inclusive % | under |");
@@ -1841,6 +1845,7 @@ mod tests {
             uncarded_leaf_samples: walk / 2,
             outside_workspace_samples: samples - owned,
             tied_samples: 0,
+            truncated_unowned_samples: 0,
             algorithms: vec![
                 SampledAlgorithm {
                     id: "b".to_owned(),

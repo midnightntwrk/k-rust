@@ -31,10 +31,14 @@ pub const STACKS_SCHEMA_VERSION: u32 = 1;
 pub const PROFILE_SCHEMA_VERSION: u32 = 1;
 
 /// How a sample is attributed to algorithms.
-pub const OWNERSHIP_RULE: &str = "a frame is a workspace frame when its source file is `crates/<crate>/src/**.rs`; inlined calls are frames of their own, each at its own file and line. A workspace frame belongs to an algorithm when its line lies inside the lines of an item that one of the algorithm's card sites names (a function, a method, an `impl` block, or, for a type site, the type and its `impl` blocks in the site's file); when several site items contain the line, the smallest item owns it, and among equal items the first algorithm id. A sample's owning algorithm is the innermost owned frame on its stack: the sample is that algorithm's self sample and a total sample of every distinct algorithm owning a frame on the stack. An uncarded function is the innermost enclosing item (function or method; for a line inside a type, as derived code is, the type and the frame's function) of a workspace frame that no algorithm owns. The uncarded tail of a sample is its workspace frames inside its innermost owned frame, or all of them without one: the sample is an uncarded leaf sample of the tail's innermost function, and an inclusive sample of every distinct function of the tail, each filed under the sample's owning algorithm, so a recursive or non-leaf walk counts once per sample and a driver function counts only the samples in which no algorithm runs inside it. Frames outside the workspace (the standard library, dependencies, other libraries) belong to no algorithm and are never uncarded functions, so their samples count toward the innermost workspace frame. Shares divide by every sample of the profiled binary's process, which is CPU time on all threads";
+pub const OWNERSHIP_RULE: &str = "a frame is a workspace frame when its source file is `crates/<crate>/src/**.rs`; inlined calls are frames of their own, each at its own file and line. A workspace frame belongs to an algorithm when its line lies inside the lines of an item that one of the algorithm's card sites names (a function, a method, an `impl` block, or, for a type site, the type and its `impl` blocks in the site's file); when several site items contain the line, the smallest item owns it, and among equal items the first algorithm id. A sample's owning algorithm is the innermost owned frame on its stack: the sample is that algorithm's self sample and a total sample of every distinct algorithm owning a frame on the stack. An uncarded function is the innermost enclosing item (function or method; for a line inside a type, as derived code is, the type and the frame's function) of a workspace frame that no algorithm owns. The uncarded tail of a sample is its workspace frames inside its innermost owned frame, or all of them without one: the sample is an uncarded leaf sample of the tail's innermost function, and an inclusive sample of every distinct function of the tail, each filed under the sample's owning algorithm, so a recursive or non-leaf walk counts once per sample and a driver function counts only the samples in which no algorithm runs inside it. A sample without an owned frame is filed under `(no algorithm)`, or under `(truncated stack)` when its stack does not reach the thread's start, since its owner may be among the missing outer frames. Frames outside the workspace (the standard library, dependencies, other libraries) belong to no algorithm and are never uncarded functions, so their samples count toward the innermost workspace frame. Shares divide by every sample of the profiled binary's process, which is CPU time on all threads";
 
-/// The `under` label of samples without an owning algorithm.
+/// The `under` label of samples without an owning algorithm on a complete stack.
 pub const NO_ALGORITHM: &str = "(no algorithm)";
+
+/// The `under` label of samples without an owning algorithm on a truncated stack, whose owner
+/// may be among the missing outer frames.
+pub const TRUNCATED_STACK: &str = "(truncated stack)";
 
 /// The most rows of each uncarded table a `profile.toml` keeps.
 const KEPT_ROWS: usize = 100;
@@ -57,6 +61,13 @@ pub struct StackFrame {
 pub struct SampledStack {
     pub samples: u64,
     pub frames: Vec<u32>,
+    /// The unwinder stopped before the thread's start: outer frames are missing.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub truncated: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 /// The symbolicated, folded samples of one profile.
@@ -93,18 +104,22 @@ impl Stacks {
             .iter()
             .map(|index| self.frames[*index].clone())
             .collect();
-        let mut merged = BTreeMap::<Vec<u32>, u64>::new();
+        let mut merged = BTreeMap::<(Vec<u32>, bool), u64>::new();
         for stack in &self.stacks {
             let frames = stack
                 .frames
                 .iter()
                 .map(|frame| renumber[*frame as usize])
                 .collect();
-            *merged.entry(frames).or_default() += stack.samples;
+            *merged.entry((frames, stack.truncated)).or_default() += stack.samples;
         }
         self.stacks = merged
             .into_iter()
-            .map(|(frames, samples)| SampledStack { samples, frames })
+            .map(|((frames, truncated), samples)| SampledStack {
+                samples,
+                frames,
+                truncated,
+            })
             .collect();
     }
 
@@ -452,7 +467,7 @@ pub fn fold_samply_json(
     let mut frame_ids = HashMap::<StackFrame, u32>::new();
     let mut frames = Vec::<StackFrame>::new();
     let mut resolved = HashMap::<u64, Vec<u32>>::new();
-    let mut folded = HashMap::<Vec<u32>, u64>::new();
+    let mut folded = HashMap::<(Vec<u32>, bool), u64>::new();
     let mut truncated = 0u64;
     let mut intern = |frame: StackFrame, frames: &mut Vec<StackFrame>| -> u32 {
         *frame_ids.entry(frame.clone()).or_insert_with(|| {
@@ -545,7 +560,7 @@ pub fn fold_samply_json(
             if !*rooted {
                 truncated += weight;
             }
-            *folded.entry(symbolic.clone()).or_default() += weight;
+            *folded.entry((symbolic.clone(), !*rooted)).or_default() += weight;
         }
     }
     let mut stacks = Stacks {
@@ -556,7 +571,11 @@ pub fn fold_samply_json(
         frames,
         stacks: folded
             .into_iter()
-            .map(|(frames, samples)| SampledStack { samples, frames })
+            .map(|((frames, truncated), samples)| SampledStack {
+                samples,
+                frames,
+                truncated,
+            })
             .collect(),
     };
     stacks.canonicalize();
@@ -611,6 +630,9 @@ pub struct SampledProfile {
     pub outside_workspace_samples: u64,
     /// Samples whose owner was chosen among equal items of several algorithms.
     pub tied_samples: u64,
+    /// Samples of truncated stacks without an owned frame.
+    #[serde(default)]
+    pub truncated_unowned_samples: u64,
     #[serde(rename = "algorithm", default)]
     pub algorithms: Vec<SampledAlgorithm>,
     /// Uncarded leaf functions by samples; at most 100, each with at least 0.1 % of the samples.
@@ -642,7 +664,7 @@ impl SampledProfile {
         let mut out = String::new();
         let _ = writeln!(
             out,
-            "{} samples{}; owned by an algorithm {}, uncarded leaf {}, outside the workspace {}, truncated stacks {}",
+            "{} samples{}; owned by an algorithm {}, uncarded leaf {}, outside the workspace {}, truncated stacks {} ({} without an owned frame)",
             self.samples,
             self.interval_ms
                 .map(|interval| format!(" at {:.0} Hz", 1000.0 / interval))
@@ -650,7 +672,8 @@ impl SampledProfile {
             percent(self.owned_samples),
             percent(self.uncarded_leaf_samples),
             percent(self.outside_workspace_samples),
-            percent(self.truncated_samples)
+            percent(self.truncated_samples),
+            percent(self.truncated_unowned_samples)
         );
         let _ = writeln!(out, "\nalgorithm: self, total");
         let mut algorithms = self.algorithms.iter().collect::<Vec<_>>();
@@ -864,6 +887,7 @@ pub fn attribute(stacks: &Stacks, graph: &Graph, root: &Path) -> Result<SampledP
     let mut uncarded_leaf = 0;
     let mut outside = 0;
     let mut tied = 0;
+    let mut truncated_unowned = 0;
     for stack in &stacks.stacks {
         let weight = stack.samples;
         let workspace = stack
@@ -893,7 +917,17 @@ pub fn attribute(stacks: &Stacks, graph: &Graph, root: &Path) -> Result<SampledP
         {
             *total_samples.entry(id.clone()).or_default() += weight;
         }
-        let under = owner_id.unwrap_or_else(|| NO_ALGORITHM.to_owned());
+        if owner_id.is_none() && stack.truncated {
+            truncated_unowned += weight;
+        }
+        let under = owner_id.unwrap_or_else(|| {
+            if stack.truncated {
+                TRUNCATED_STACK
+            } else {
+                NO_ALGORITHM
+            }
+            .to_owned()
+        });
         if innermost.owner.is_none() {
             uncarded_leaf += weight;
             *leaves
@@ -963,6 +997,7 @@ pub fn attribute(stacks: &Stacks, graph: &Graph, root: &Path) -> Result<SampledP
         uncarded_leaf_samples: uncarded_leaf,
         outside_workspace_samples: outside,
         tied_samples: tied,
+        truncated_unowned_samples: truncated_unowned,
         algorithms: total_samples
             .into_iter()
             .map(|(id, total)| SampledAlgorithm {
@@ -1072,26 +1107,31 @@ mod tests {
                 SampledStack {
                     samples: 5,
                     frames: vec![0, 1, 2, 3, 4],
+                    truncated: false,
                 },
                 // run -> walk (self in walk).
                 SampledStack {
                     samples: 3,
                     frames: vec![0, 1, 2],
+                    truncated: false,
                 },
                 // run -> Walker::step -> leaf -> memcpy: leaf under b.step.
                 SampledStack {
                     samples: 2,
                     frames: vec![0, 1, 5, 4, 6],
+                    truncated: false,
                 },
                 // No workspace frame.
                 SampledStack {
                     samples: 1,
                     frames: vec![0, 6],
+                    truncated: false,
                 },
                 // run itself.
                 SampledStack {
                     samples: 4,
                     frames: vec![0, 1],
+                    truncated: false,
                 },
             ],
         }
@@ -1163,10 +1203,18 @@ mod tests {
             SampledStack {
                 samples: 6,
                 frames: vec![0, 2, 1],
+                truncated: false,
             },
             SampledStack {
                 samples: 2,
                 frames: vec![0, 2],
+                truncated: false,
+            },
+            // A truncated stack without an owned frame: its owner may be missing.
+            SampledStack {
+                samples: 2,
+                frames: vec![2],
+                truncated: true,
             },
         ];
         let profile = attribute(&stacks, &graph(), &root).unwrap();
@@ -1180,10 +1228,11 @@ mod tests {
             inclusive,
             vec![(
                 "crates/demo/src/helper.rs::walk",
-                2,
-                NO_ALGORITHM.to_owned()
+                4,
+                format!("{NO_ALGORITHM} (50 %), {TRUNCATED_STACK} (50 %)")
             )]
         );
+        assert_eq!(profile.truncated_unowned_samples, 2);
         assert_eq!(profile.algorithms[0].self_samples, 6);
     }
 
@@ -1254,15 +1303,16 @@ mod tests {
                         .map(|frame| stacks.frames[*frame as usize].function.as_str())
                         .collect::<Vec<_>>(),
                     stack.samples,
+                    stack.truncated,
                 )
             })
             .collect::<Vec<_>>();
         assert_eq!(
             named,
             vec![
-                (vec!["libc.so.6", "run"], 1),
-                (vec!["libc.so.6", "run", "walk", "leaf"], 2),
-                (vec!["walk"], 1),
+                (vec!["libc.so.6", "run"], 1, false),
+                (vec!["libc.so.6", "run", "walk", "leaf"], 2, false),
+                (vec!["walk"], 1, true),
             ]
         );
         // The lone `walk` stack starts inside the binary without `_start`: truncated.
