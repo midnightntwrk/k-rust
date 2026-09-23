@@ -128,6 +128,7 @@ class Inventory:
         self.placeholders = placeholders
         self.components: dict[str, dict[str, Any]] = {}
         self.errors: list[str] = []
+        self.krs_notices: list[str] = []  # licenses-manual.toml [krs] notices, added to every krs:<package>
 
     def expand(self, text: str) -> Path:
         for key, value in self.placeholders.items():
@@ -218,6 +219,12 @@ def pkg_component(inv: Inventory, pkg: dict[str, Any], overrides: dict[str, dict
     inv.component(cid, name=pkg["name"], version=pkg["version"], origin=origin, spdx=spdx, license_status=status, basis=basis)
     if new and source is not None:
         inv.notices_from_dir(cid, Path(pkg["manifest_path"]).parent, f"crates.io package {pkg['name']} {pkg['version']}")
+    elif new:
+        for n in inv.krs_notices:
+            path = inv.expand(n)
+            if not path.is_file():
+                die(f"{cid}: notice {path} does not exist")
+            inv.add_notice(cid, path, n)
     return cid
 
 
@@ -304,6 +311,7 @@ def licenses(args: argparse.Namespace) -> int:
     manual = tomllib.loads(args.manual.read_text())
     fork_source, fork_build = args.fork_source.resolve(), args.fork_build.resolve()
     inv = Inventory(out, {"fork-source": fork_source, "fork-build": fork_build, "repo": repo})
+    inv.krs_notices = manual.get("krs", {}).get("notices", [])
     assets = staged_assets(staged, exclude_licenses=True)
     manifest = tomllib.loads((staged / "pack" / "pack-manifest.toml").read_text())
     pack_json = json.loads((staged / "pack.json").read_text())
