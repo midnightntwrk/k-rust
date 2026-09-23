@@ -7,7 +7,7 @@
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
 //! span = "per problem"
-//! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree", "KRust.MaximalModels.runs_agree_lowered"]
+//! lean = ["KRust.SubsortEncoding.new_equiv", "KRust.MaximalModels.maximal_models_spec", "KRust.MaximalModels.runs_agree_up_to_pref", "KRust.MaximalModels.runs_agree", "KRust.MaximalModels.runs_agree_lowered", "KRust.MaximalModels.runs_agree_candidates"]
 //!
 //! [[cost]]
 //! mode = "encoding construction"

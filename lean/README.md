@@ -15,7 +15,7 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | `KRust/TermAttributes.lean` | the backend `Term` model; `ceilFree_sound` (OT-01), `hasMacro_iff`, `macro_shortcut_eq` and `rule_index_same` (OT-02) |
 | `KRust/SynthAttr.lean` | the generic synthesized-attribute lemma `fold_rel`, with case 3 restated through it |
 | `KRust/Examples.lean` | `#guard` checks that run the term model at build time |
-| `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree`, `runs_agree_lowered`) |
+| `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree`, `runs_agree_lowered`, `runs_agree_candidates`) |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs, and the theorem list |
 | `KRustBridge/Json.lean` | the JSON form of the term model, shared with the Rust encoder of the bridge tests |
 | `KRustBridge/Dispatch.lean` | the bridged models by name; each applies a `KRust` definition, never a copy |
@@ -132,6 +132,12 @@ note = "false in general (8 WASM sentences, S4b); LT-05 decides how the Rust enf
 theorem = "KRust.MaximalModels.runs_agree_lowered"
 hypothesis = "hl : LoweringConstOnPref P f"
 meaning = "model application followed by lowering gives the same result for every admissible parameter vector of a recorded maximal real projection; implied by UniquePref"
-rust_test = "crates/k-rust/tests/inner_rules.rs sort_parameter_choice_visible_after_lowering_is_rejected"
-note = "enforced at run time, not only tested: Encoding::check_parameter_choice (z3_inference.rs) enumerates every admissible parameter vector of each recorded model, lowers each with Grammar::lower_inferred, and fails the compile with ParseError::ParameterChoice when two differ; inner_rules.rs sort_parameter_choice_erased_by_lowering_compiles covers a non-singleton admissible set that lowers to one term"
+rust_test = "crates/k-rust/tests/inner_rules.rs sort_parameter_choice_erased_by_lowering_compiles"
+note = "no longer what the Rust enforces or relies on: false in general (inner_rules.rs sort_parameter_choice_visible_after_lowering_is_ambiguous has two vectors that lower to f{A} and f{B}); LT-05 enforced it at run time, and since LT-09 the Rust applies every admissible vector and relies on runs_agree_candidates, which does not assume it. The test covers the WASM shape where it holds: a non-singleton admissible set that lowers to one term"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.runs_agree_candidates"
+hypothesis = "enumeration conformance (the candidate set is P.candidates out f)"
+meaning = "for each recorded maximal real projection a, Encoding::maximal_models returns, through Encoding::admissible_parameters, exactly the parameter vectors b with P.pref a b, without duplicates, and the inference applies each of them; checked against a brute-force Pref(a) under random_seed, disjunct-order and full-disjunction perturbations"
+rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::admissible_parameters_conform_to_brute_force"
 ```

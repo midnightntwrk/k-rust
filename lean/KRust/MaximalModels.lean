@@ -38,6 +38,9 @@ test behind each):
     projection;
   * `hl : LoweringConstOnPref P f`: model application followed by lowering gives the same result
     for every admissible parameter vector (implied by `hu`).
+`runs_agree_candidates` needs neither `hu` nor `hl`: since cc55d55c the Rust applies every
+admissible parameter vector (`Problem.candidates`), so its output does not read the vector
+`prefer_parameters` keeps.
 "Z3 decides" (every check answers Sat with a model of the assertions, or Unsat; `Unknown` is an
 error return, :1701-1705, :1766-1770) is the trust base and is not a hypothesis here: a check is
 modelled by its answer.
@@ -316,12 +319,10 @@ from (`lower_term`, `parser.rs:1490-1492` drops transparent and bracket producti
 lowers `#KRewrite` to a `Term::Rewrite` without a sort); neither is opened here.
 The hypothesis is weaker than `UniquePref` (`uniquePref_loweringConst`): it also holds when the
 free parameter is erased by lowering, as for the parameter of `#KRewrite` inside a bracket.
-Rust check: `Encoding::check_parameter_choice` (`z3_inference.rs`, LT-05) enumerates the
-admissible parameter vectors of every recorded model, lowers each with `Grammar::lower_inferred`
-(`parser.rs`), and fails the compile when two lowered terms differ, so a compile that succeeds
-satisfies this hypothesis for the `f` it computes; `none` there also covers a lowering error.
-Rust test: `crates/k-rust/tests/inner_rules.rs`
-`sort_parameter_choice_visible_after_lowering_is_rejected`. -/
+The hypothesis is false in general: `crates/k-rust/tests/fixtures/sort-inference/parameter-choice.k`
+has two admissible vectors that lower to `f{A}` and `f{B}`. LT-05 enforced it at run time; since
+cc55d55c (LT-09) the Rust no longer does, and relies on `runs_agree_candidates` instead, which does
+not assume it. -/
 def LoweringConstOnPref {C : Type} (P : Problem A B) (f : A → B → Option C) : Prop :=
   ∀ a b b', P.IsMax a → P.pref a b → P.pref a b' → f a b = f a b'
 
@@ -365,5 +366,49 @@ theorem runs_agree_lowered {C : Type} (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
   intro c
   exact ⟨key out out' (fun a => (hs a).mp) (fun a => (hs'P a).mpr) hp hp'P c,
     key out' out (fun a => (hs'P a).mp) (fun a => (hs a).mpr) hp'P hp c⟩
+
+/-- The candidate set of a run: `c` is a candidate when some recorded real projection `a` of
+`out` and some parameter vector `b` that `prefer_parameters` admits for it (`P.pref a b`) give
+`f a b = some c`.
+`f a b` is model application as an opaque function, `none` standing for an application error
+(`apply_model_packed` and `apply_model`); the Rust collects the applied terms of every admissible
+`(a, b)` in one `BTreeSet` and hands that set, as one ambiguity, to the post-inference passes
+(`Grammar::lower_inferred`), so the parse is a function of this set.
+Rust, with line anchors at cc55d55c:
+  crates/k-rust/src/inner/parser/z3_inference.rs
+    Grammar::infer_packed_sorts_z3   :245-304 (every admissible model applied :280-295, the set
+                                              as one ambiguity :301-302)
+    Grammar::infer_sorts_z3          :447-510 (the unpacked twin: :493-508)
+    Encoding::maximal_models         :1889-2009 (each recorded typing with its admissible set)
+    Encoding::admissible_parameters  :2031-2117 (the enumeration of `pref a ·`; it fails instead of
+                                              returning a subset past 256 vectors)
+  crates/k-rust/src/inner/parser.rs
+    Grammar::lower_inferred          :1179-1186
+That `admissible_parameters` returns exactly `{ b | P.pref a b }` for each recorded `a` is a
+hypothesis about the Rust (enumeration conformance); its test is `z3_inference.rs`
+`tests::admissible_parameters_conform_to_brute_force`. -/
+def Problem.candidates {C : Type} (P : Problem A B) (out : List (A × B)) (f : A → B → Option C)
+    (c : C) : Prop :=
+  ∃ a, a ∈ out.map Prod.fst ∧ ∃ b, P.pref a b ∧ f a b = some c
+
+/-- **Statement 5 (exact, over the admissible sets).** Two complete runs over equivalent
+encodings, with any Z3 answers, have the same candidate set, for any model application `f`.
+Neither `UniquePref` nor `LoweringConstOnPref` is assumed: every admissible parameter vector of
+every recorded real projection contributes its candidate, so the choice `prefer_parameters`
+happens to keep is not read.
+Equality proved: set equality (as a membership iff) of `P.candidates out f` and
+`Q.candidates out' f`. -/
+theorem runs_agree_candidates {C : Type} (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
+    (hRP : P.RoundTrip) (hRQ : Q.RoundTrip) (e : Equivalent P Q)
+    (f : A → B → Option C) {out out' : List (A × B)}
+    (h : Run P [] out) (h' : Run Q [] out') :
+    ∀ c, P.candidates out f c ↔ Q.candidates out' f c := by
+  obtain ⟨hs, _, _⟩ := runs_agree_up_to_pref hP hQ hRP hRQ e h h'
+  intro c
+  constructor
+  · rintro ⟨a, ha, b, hb, hf⟩
+    exact ⟨a, (hs a).mp ha, b, (e.pref a b).mp hb, hf⟩
+  · rintro ⟨a, ha, b, hb, hf⟩
+    exact ⟨a, (hs a).mpr ha, b, (e.pref a b).mpr hb, hf⟩
 
 end KRust.MaximalModels
