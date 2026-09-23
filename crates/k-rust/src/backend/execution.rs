@@ -423,7 +423,11 @@ fn run_backend_with_solver(
                 .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
                 .collect(),
         };
-        fs::write(path, KorePrinter::pretty(100).print_pattern(&marker))?;
+        // The file holds the text `print_pattern` returns, rendered into the file as it is
+        // produced so that the whole text is never held in memory.
+        let mut file = io::BufWriter::with_capacity(1 << 20, fs::File::create(path)?);
+        KorePrinter::pretty(100).write_pattern(&marker, &mut file)?;
+        file.into_inner().map_err(io::IntoInnerError::into_error)?;
     }
     let final_sort = execution
         .leaves
