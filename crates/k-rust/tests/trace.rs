@@ -288,3 +288,52 @@ fn an_uncreatable_trace_path_is_a_cli_error() {
     assert!(!stderr.contains("panicked"), "{stderr}");
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn trace_aggregate_counts_the_spans_the_trace_records() {
+    let (root, definition) = fixture();
+    let trace = root.join("trace.json");
+    let aggregate = root.join("aggregate.json");
+    run(Command::new(env!("CARGO_BIN_EXE_krust")).args([
+        "krun",
+        definition.to_str().unwrap(),
+        "--main-module",
+        "MAIN",
+        "--sort",
+        "Input",
+        "--expression",
+        "twice(21)",
+        "--trace",
+        trace.to_str().unwrap(),
+        "--trace-aggregate",
+        aggregate.to_str().unwrap(),
+    ]));
+
+    let events = read_trace(&trace);
+    let mut expected = BTreeMap::<&str, u64>::new();
+    for id in algorithm_ids(&events) {
+        *expected.entry(id).or_default() += 1;
+    }
+    let document: Value = serde_json::from_str(&fs::read_to_string(&aggregate).unwrap()).unwrap();
+    assert_eq!(document["schema"], "krust-trace-aggregate/1");
+    let counted = document["algorithms"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            (
+                entry["id"].as_str().unwrap(),
+                entry["count"].as_u64().unwrap(),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(counted, expected);
+    let phases = document["phases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["id"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert!(phases.contains(&"execute"), "{phases:?}");
+    fs::remove_dir_all(root).unwrap();
+}

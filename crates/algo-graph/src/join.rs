@@ -4,7 +4,10 @@ use std::{
     path::{Component, Path},
 };
 
-use k_rust_kore::measure::COUNTER_SCHEMA_VERSION;
+use k_rust_kore::{
+    measure::COUNTER_SCHEMA_VERSION,
+    trace_aggregate::{SpanAggregator, SpanKind, TRACE_AGGREGATE_SCHEMA, TraceAggregate},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -251,48 +254,8 @@ pub struct EdgeRun {
     pub evidence: String,
 }
 
-#[derive(Clone, Debug, Default)]
-struct Aggregate {
-    count: u64,
-    total_micros: f64,
-    self_micros: f64,
-    counters: BTreeMap<String, u64>,
-    self_counters: BTreeMap<String, u64>,
-}
-
-#[derive(Clone, Debug)]
-enum FrameKind {
-    Algorithm {
-        id: String,
-        parent: Option<String>,
-        phase: Option<String>,
-        child_micros: f64,
-        child_counters: BTreeMap<String, u64>,
-    },
-    Phase {
-        name: String,
-        serial: usize,
-    },
-    Other,
-}
-
-#[derive(Clone, Debug)]
-struct Frame {
-    name: String,
-    started: f64,
-    kind: FrameKind,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct TraceObservations {
-    algorithms: BTreeMap<String, Aggregate>,
-    phases: BTreeMap<String, Aggregate>,
-    nests: BTreeMap<(String, String), u64>,
-    contains: BTreeMap<(String, String), Aggregate>,
-    /// (phase, algorithm) for every algorithm span opened inside a phase span at any depth.
-    within: BTreeSet<(String, String)>,
-    follows: BTreeSet<(String, String)>,
-}
+/// A run's spans aggregated by algorithm id and phase, from a Chrome trace or an aggregate file.
+pub(crate) type TraceObservations = TraceAggregate;
 
 #[derive(Debug, Deserialize)]
 struct CounterDump {
@@ -320,6 +283,9 @@ pub fn join_files(
     let observations = parse_trace(&events)?;
     let (mut receipt_info, receipt_counters, timings_phases) = read_receipt(receipt)?;
     receipt_info.directory = workspace_relative(root, receipt, 2);
+    if events.get("schema").is_some() {
+        receipt_info.trace_schema = TRACE_AGGREGATE_SCHEMA.to_owned();
+    }
     let sites = match coverage {
         Some(path) => {
             let coverage = read_coverage(path)?;
@@ -392,9 +358,15 @@ pub fn canonical_join_toml(join: &Join) -> Result<String, Error> {
     Ok(output)
 }
 
+/// Aggregate a trace document: a Chrome trace-event array (or an object with `traceEvents`)
+/// written by `krust --trace`, or an aggregate written by `krust --trace-aggregate`, whose
+/// `schema` is [`TRACE_AGGREGATE_SCHEMA`]. Both go through the same aggregation.
 pub(crate) fn parse_trace(document: &Value) -> Result<TraceObservations, Error> {
     let events = match document {
         Value::Array(events) => events,
+        Value::Object(root) if root.get("schema").and_then(Value::as_str).is_some() => {
+            return TraceAggregate::from_json(document).map_err(Error::Invalid);
+        }
         Value::Object(root) => root
             .get("traceEvents")
             .and_then(Value::as_array)
@@ -405,11 +377,7 @@ pub(crate) fn parse_trace(document: &Value) -> Result<TraceObservations, Error> 
             ));
         }
     };
-    let mut result = TraceObservations::default();
-    let mut stacks = BTreeMap::<(String, String), Vec<Frame>>::new();
-    // Sibling phases are sequenced under their enclosing phase instance (None at top level).
-    let mut phase_sequences = BTreeMap::<(String, String, Option<usize>), Vec<String>>::new();
-
+    let mut aggregator = SpanAggregator::default();
     for (index, event) in events.iter().enumerate() {
         let Some(event) = event.as_object() else {
             return Err(Error::Invalid(format!(
@@ -422,9 +390,10 @@ pub(crate) fn parse_trace(document: &Value) -> Result<TraceObservations, Error> 
         if kind != "B" && kind != "E" {
             continue;
         }
-        let key = (
+        let thread = format!(
+            "{}/{}",
             json_identity(event.get("pid")),
-            json_identity(event.get("tid")),
+            json_identity(event.get("tid"))
         );
         let timestamp = event
             .get("ts")
@@ -435,178 +404,32 @@ pub(crate) fn parse_trace(document: &Value) -> Result<TraceObservations, Error> 
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        let stack = stacks.entry(key.clone()).or_default();
-
         if kind == "B" {
             let name = event
                 .get("name")
                 .and_then(Value::as_str)
-                .ok_or_else(|| Error::Invalid(format!("begin event {index} has no name")))?
-                .to_owned();
-            let frame_kind = match name.as_str() {
-                "algo" => {
-                    let id = string_arg(&args, "id", index)?;
-                    let parent = stack.iter().rev().find_map(|frame| match &frame.kind {
-                        FrameKind::Algorithm { id, .. } => Some(id.clone()),
-                        _ => None,
-                    });
-                    let phase = stack.iter().rev().find_map(|frame| match &frame.kind {
-                        FrameKind::Phase { name, .. } => Some(name.clone()),
-                        _ => None,
-                    });
-                    if let Some(parent) = &parent {
-                        checked_increment(&mut result.nests, (parent.clone(), id.clone()))?;
-                    }
-                    for frame in stack.iter() {
-                        if let FrameKind::Phase { name, .. } = &frame.kind {
-                            result.within.insert((name.clone(), id.clone()));
-                        }
-                    }
-                    FrameKind::Algorithm {
-                        id,
-                        parent,
-                        phase,
-                        child_micros: 0.0,
-                        child_counters: BTreeMap::new(),
-                    }
-                }
-                "phase" => {
-                    let phase = string_arg(&args, "name", index)?;
-                    let parent = stack.iter().rev().find_map(|frame| match &frame.kind {
-                        FrameKind::Phase { serial, .. } => Some(*serial),
-                        _ => None,
-                    });
-                    phase_sequences
-                        .entry((key.0.clone(), key.1.clone(), parent))
-                        .or_default()
-                        .push(phase.clone());
-                    FrameKind::Phase {
-                        name: phase,
-                        serial: index,
-                    }
-                }
-                _ => FrameKind::Other,
+                .ok_or_else(|| Error::Invalid(format!("begin event {index} has no name")))?;
+            let span = match name {
+                "algo" => SpanKind::Algorithm(string_arg(&args, "id", index)?),
+                "phase" => SpanKind::Phase(string_arg(&args, "name", index)?),
+                _ => SpanKind::Other,
             };
-            stack.push(Frame {
-                name,
-                started: timestamp,
-                kind: frame_kind,
-            });
-            continue;
-        }
-
-        let mut frame = stack
-            .pop()
-            .ok_or_else(|| Error::Invalid(format!("end event {index} has no matching begin")))?;
-        let event_name = event.get("name").and_then(Value::as_str).unwrap_or("");
-        if !event_name.is_empty() && event_name != frame.name {
-            return Err(Error::Invalid(format!(
-                "end event {index} closes {event_name}, but {} is open",
-                frame.name
-            )));
-        }
-        let duration = timestamp - frame.started;
-        if duration < 0.0 {
-            return Err(Error::Invalid(format!(
-                "end event {index} precedes its begin event"
-            )));
-        }
-        match &mut frame.kind {
-            FrameKind::Algorithm {
-                id,
-                parent,
-                phase,
-                child_micros,
-                child_counters,
-            } => {
-                let counters = parse_counter_args(&args, index)?;
-                // A recursive invocation lies inside an open invocation of the same id, whose
-                // inclusive duration and counter delta already contain it.
-                let recursive = stack.iter().any(|open| {
-                    matches!(&open.kind, FrameKind::Algorithm { id: open_id, .. } if open_id == id)
-                });
-                let recursive_in_phase = stack.iter().any(|open| {
-                    matches!(
-                        &open.kind,
-                        FrameKind::Algorithm { id: open_id, phase: open_phase, .. }
-                            if open_id == id && open_phase == phase
-                    )
-                });
-                let aggregate = result.algorithms.entry(id.clone()).or_default();
-                aggregate.count = aggregate
-                    .count
-                    .checked_add(1)
-                    .ok_or_else(|| Error::Invalid("algorithm count overflow".to_owned()))?;
-                if !recursive {
-                    aggregate.total_micros += duration;
-                    add_counters(&mut aggregate.counters, &counters)?;
-                }
-                aggregate.self_micros += (duration - *child_micros).max(0.0);
-                for (name, value) in &counters {
-                    let child = child_counters.get(name).copied().unwrap_or(0);
-                    checked_add(
-                        &mut aggregate.self_counters,
-                        name,
-                        value.saturating_sub(child),
-                    )?;
-                }
-                if let Some(phase) = phase {
-                    let contained = result
-                        .contains
-                        .entry((phase.clone(), id.clone()))
-                        .or_default();
-                    contained.count = contained
-                        .count
-                        .checked_add(1)
-                        .ok_or_else(|| Error::Invalid("containment count overflow".to_owned()))?;
-                    if !recursive_in_phase {
-                        contained.total_micros += duration;
-                    }
-                    contained.self_micros += (duration - *child_micros).max(0.0);
-                }
-                if let Some(parent) = parent
-                    && let Some((parent_child_micros, parent_child_counters)) = stack
-                        .iter_mut()
-                        .rev()
-                        .find_map(|open| match &mut open.kind {
-                            FrameKind::Algorithm {
-                                id,
-                                child_micros,
-                                child_counters,
-                                ..
-                            } if id == parent => Some((child_micros, child_counters)),
-                            _ => None,
-                        })
-                {
-                    *parent_child_micros += duration;
-                    add_counters(parent_child_counters, &counters)?;
-                }
-                let _ = phase;
-            }
-            FrameKind::Phase { name, .. } => {
-                let aggregate = result.phases.entry(name.clone()).or_default();
-                aggregate.count = aggregate
-                    .count
-                    .checked_add(1)
-                    .ok_or_else(|| Error::Invalid("phase count overflow".to_owned()))?;
-                aggregate.total_micros += duration;
-                aggregate.self_micros += duration;
-            }
-            FrameKind::Other => {}
+            aggregator
+                .begin(index, &thread, name, span, timestamp)
+                .map_err(Error::Invalid)?;
+        } else {
+            let counters = parse_counter_args(&args, index)?;
+            let counters = counters
+                .iter()
+                .map(|(name, value)| (name.as_str(), *value))
+                .collect::<Vec<_>>();
+            let name = event.get("name").and_then(Value::as_str);
+            aggregator
+                .end(index, &thread, name, &counters, timestamp)
+                .map_err(Error::Invalid)?;
         }
     }
-    if let Some((thread, stack)) = stacks.iter().find(|(_, stack)| !stack.is_empty()) {
-        return Err(Error::Invalid(format!(
-            "trace ends with {} open span(s) on process/thread {thread:?}",
-            stack.len()
-        )));
-    }
-    for sequence in phase_sequences.values() {
-        for pair in sequence.windows(2) {
-            result.follows.insert((pair[0].clone(), pair[1].clone()));
-        }
-    }
-    Ok(result)
+    aggregator.finish().map_err(Error::Invalid)
 }
 
 fn string_arg(args: &Map<String, Value>, name: &str, index: usize) -> Result<String, Error> {
@@ -635,32 +458,6 @@ fn parse_counter_args(
 
 fn json_identity(value: Option<&Value>) -> String {
     value.map_or_else(|| "null".to_owned(), Value::to_string)
-}
-
-fn checked_increment<K: Ord + Clone>(map: &mut BTreeMap<K, u64>, key: K) -> Result<(), Error> {
-    let value = map.entry(key).or_default();
-    *value = value
-        .checked_add(1)
-        .ok_or_else(|| Error::Invalid("observation count overflow".to_owned()))?;
-    Ok(())
-}
-
-fn checked_add(map: &mut BTreeMap<String, u64>, name: &str, addition: u64) -> Result<(), Error> {
-    let value = map.entry(name.to_owned()).or_default();
-    *value = value
-        .checked_add(addition)
-        .ok_or_else(|| Error::Invalid(format!("counter {name} overflow")))?;
-    Ok(())
-}
-
-fn add_counters(
-    target: &mut BTreeMap<String, u64>,
-    additions: &BTreeMap<String, u64>,
-) -> Result<(), Error> {
-    for (name, value) in additions {
-        checked_add(target, name, *value)?;
-    }
-    Ok(())
 }
 
 /// The receipt identity, its counter dump, and the phase names of a current-schema timings list.
@@ -1974,6 +1771,26 @@ provenance = "declared"
         assert_eq!(styled.len(), 1, "{overlay}");
         assert!(styled[0].contains("stroke-dasharray"), "{overlay}");
         assert!(!styled[0].split_whitespace().next().unwrap().contains(','));
+
+        // The aggregate of the same spans, as `krust --trace-aggregate` writes it, joins to the
+        // same projection; only the recorded trace schema differs.
+        let events: Value =
+            serde_json::from_str(&fs::read_to_string(&trace_path).unwrap()).unwrap();
+        let aggregate_path = root.join("trace-aggregate.json");
+        fs::write(
+            &aggregate_path,
+            parse_trace(&events)
+                .unwrap()
+                .to_json(AGGREGATION_RULE)
+                .to_string(),
+        )
+        .unwrap();
+        let (_, from_aggregate) =
+            join_files(&root, &graph_path, &aggregate_path, &receipt, None).unwrap();
+        assert_eq!(from_aggregate.receipt.trace_schema, TRACE_AGGREGATE_SCHEMA);
+        let mut expected = join.clone();
+        expected.receipt.trace_schema = TRACE_AGGREGATE_SCHEMA.to_owned();
+        assert_eq!(from_aggregate, expected);
 
         fs::remove_dir_all(root).unwrap();
     }

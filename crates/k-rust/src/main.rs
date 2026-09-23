@@ -96,10 +96,12 @@ use serde::{Deserialize, Serialize};
 use tracing_subscriber::prelude::*;
 
 mod rpc;
+mod trace_aggregate;
 
 struct TraceRecorder {
     default: Option<tracing::dispatcher::DefaultGuard>,
     flush: Option<tracing_chrome::FlushGuard>,
+    aggregate: Option<trace_aggregate::AggregateOutput>,
 }
 
 impl Drop for TraceRecorder {
@@ -107,33 +109,60 @@ impl Drop for TraceRecorder {
         // Stop routing new spans to the writer before asking it to finish the JSON document.
         drop(self.default.take());
         drop(self.flush.take());
+        if let Some(aggregate) = self.aggregate.take()
+            && let Err(error) = aggregate.write()
+        {
+            eprintln!("warning: trace aggregate not written: {error}");
+        }
     }
 }
 
-fn start_trace(path: Option<&Path>) -> Result<Option<TraceRecorder>, Box<dyn Error>> {
-    let Some(path) = path else {
+/// How `--trace` spans are aggregated; `algo-graph join` applies this rule to either output.
+const TRACE_AGGREGATION_RULE: &str = "per algorithm id: invocation count, total and self duration; counter deltas summed across invocations";
+
+fn start_trace(
+    path: Option<&Path>,
+    aggregate: Option<&Path>,
+) -> Result<Option<TraceRecorder>, Box<dyn Error>> {
+    if path.is_none() && aggregate.is_none() {
         return Ok(None);
+    }
+    let (chrome, flush) = match path {
+        Some(path) => {
+            let writer = fs::File::create(path).map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!("could not create trace file `{}`: {error}", path.display()),
+                )
+            })?;
+            let (layer, flush) = tracing_chrome::ChromeLayerBuilder::new()
+                .writer(writer)
+                .include_args(true)
+                .build();
+            (Some(layer), Some(flush))
+        }
+        None => (None, None),
     };
-    let writer = fs::File::create(path).map_err(|error| {
-        io::Error::new(
-            error.kind(),
-            format!("could not create trace file `{}`: {error}", path.display()),
-        )
-    })?;
-    let (layer, flush) = tracing_chrome::ChromeLayerBuilder::new()
-        .writer(writer)
-        .include_args(true)
-        .build();
-    let subscriber = tracing_subscriber::registry().with(layer);
+    let (aggregate_layer, aggregate) = match aggregate {
+        Some(path) => {
+            let (layer, output) = trace_aggregate::layer(path, TRACE_AGGREGATION_RULE)?;
+            (Some(layer), Some(output))
+        }
+        None => (None, None),
+    };
+    let subscriber = tracing_subscriber::registry()
+        .with(chrome)
+        .with(aggregate_layer);
     let default = tracing::subscriber::set_default(subscriber);
     tracing::info!(
         target: "algo_graph",
-        aggregation_rule = tracing::field::display("per algorithm id: invocation count, total and self duration; counter deltas summed across invocations"),
+        aggregation_rule = tracing::field::display(TRACE_AGGREGATION_RULE),
         "trace_metadata"
     );
     Ok(Some(TraceRecorder {
         default: Some(default),
-        flush: Some(flush),
+        flush,
+        aggregate,
     }))
 }
 
@@ -342,6 +371,11 @@ struct KcompileArgs {
     /// Write algorithm and phase spans as Chrome trace-event JSON.
     #[arg(long, value_name = "FILE")]
     trace: Option<PathBuf>,
+
+    /// Write only the per-algorithm and per-phase aggregate of the spans `--trace` would write,
+    /// as JSON that `algo-graph join --trace` reads in place of the trace.
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
 
     #[command(flatten)]
     warnings: WarningArgs,
@@ -620,6 +654,11 @@ struct KrunArgs {
     #[arg(long, value_name = "FILE")]
     trace: Option<PathBuf>,
 
+    /// Write only the per-algorithm and per-phase aggregate of the spans `--trace` would write,
+    /// as JSON that `algo-graph join --trace` reads in place of the trace.
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
+
     #[command(flatten)]
     warnings: WarningArgs,
 
@@ -842,6 +881,11 @@ struct KproveArgs {
     #[arg(long, value_name = "FILE")]
     trace: Option<PathBuf>,
 
+    /// Write only the per-algorithm and per-phase aggregate of the spans `--trace` would write,
+    /// as JSON that `algo-graph join --trace` reads in place of the trace.
+    #[arg(long, value_name = "FILE")]
+    trace_aggregate: Option<PathBuf>,
+
     /// Prove only claims with one of these labels. May be repeated.
     #[arg(long = "claim", value_name = "LABEL")]
     claims: Vec<String>,
@@ -963,6 +1007,7 @@ struct KcompileOptions {
     compiled_definition: Option<PathBuf>,
     timings: Option<PathBuf>,
     trace: Option<PathBuf>,
+    trace_aggregate: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -1086,6 +1131,7 @@ struct KrunOptions {
     smt: Z3Options,
     timings: Option<PathBuf>,
     trace: Option<PathBuf>,
+    trace_aggregate: Option<PathBuf>,
 }
 
 struct KrunCompiledInput {
@@ -1129,6 +1175,7 @@ struct KproveOptions {
     load_only: bool,
     timings: Option<PathBuf>,
     trace: Option<PathBuf>,
+    trace_aggregate: Option<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -1359,6 +1406,7 @@ impl From<KcompileArgs> for KcompileOptions {
             compiled_definition: arguments.compiled_definition,
             timings: arguments.timings,
             trace: arguments.trace,
+            trace_aggregate: arguments.trace_aggregate,
         }
     }
 }
@@ -1470,6 +1518,7 @@ impl From<KrunArgs> for KrunOptions {
             smt: arguments.smt.options(),
             timings: arguments.timings,
             trace: arguments.trace,
+            trace_aggregate: arguments.trace_aggregate,
         }
     }
 }
@@ -1564,6 +1613,7 @@ impl From<KproveArgs> for KproveOptions {
             load_only: arguments.load_only,
             timings: arguments.timings,
             trace: arguments.trace,
+            trace_aggregate: arguments.trace_aggregate,
         }
     }
 }
@@ -1651,7 +1701,7 @@ fn load_definition_impl(
 }
 
 fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
-    let _trace = start_trace(options.trace.as_deref())?;
+    let _trace = start_trace(options.trace.as_deref(), options.trace_aggregate.as_deref())?;
     if options.for_proving && options.backend != CompilationBackend::Rust {
         return Err("--for-proving requires --backend rust".into());
     }
@@ -2014,7 +2064,7 @@ fn kast(options: KastOptions) -> Result<(), Box<dyn Error>> {
 }
 
 fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
-    let _trace = start_trace(options.trace.as_deref())?;
+    let _trace = start_trace(options.trace.as_deref(), options.trace_aggregate.as_deref())?;
     if options.source.is_none() && options.compiled_definition.is_none() {
         return Err("a source definition or --definition DIR is required".into());
     }
@@ -2939,7 +2989,7 @@ fn prepared_artifact_directory(path: &Path) -> PathBuf {
 }
 
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
-    let _trace = start_trace(options.trace.as_deref())?;
+    let _trace = start_trace(options.trace.as_deref(), options.trace_aggregate.as_deref())?;
     let started = Instant::now();
     let syntax = {
         let _phase =

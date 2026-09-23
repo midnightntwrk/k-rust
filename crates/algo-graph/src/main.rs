@@ -46,7 +46,7 @@ enum Command {
         #[command(subcommand)]
         command: RenderCommand,
     },
-    /// Join a Chrome trace and receipt to a canonical static graph.
+    /// Join a Chrome trace (or a trace aggregate) and receipt to a canonical static graph.
     Join(JoinArgs),
     /// Reduce an `llvm-cov export` JSON document to the canonical coverage.toml the join reads.
     ///
@@ -367,7 +367,8 @@ struct JoinArgs {
     /// Canonical graph TOML produced by `algo-graph graph`.
     #[arg(long)]
     graph: PathBuf,
-    /// Chrome trace-event JSON produced by `krust --trace`.
+    /// Chrome trace-event JSON produced by `krust --trace`, or the aggregate produced by
+    /// `krust --trace-aggregate`.
     #[arg(long)]
     trace: PathBuf,
     /// Receipt directory containing metadata, timings, and counters JSON.
