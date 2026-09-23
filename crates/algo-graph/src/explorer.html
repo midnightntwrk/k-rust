@@ -759,7 +759,7 @@ table.data td:last-child { min-width: 280px; }
       legend.push(h("span", null, h("span", { class: "sw observed" }), "observed inside the phase in this run only"));
       legend.push(h("span", null, h("span", { class: "heatbar" }), "self time, square-root scale"));
       legend.push(h("span", null, h("span", { class: "sw notrun" }), "not-run: instrumentation that would record it recorded nothing"));
-      legend.push(h("span", null, h("span", { class: "sw unknown" }), "unknown: this run cannot tell (no span opened, or only counters)"));
+      legend.push(h("span", null, h("span", { class: "sw unknown" }), "unknown: this run cannot tell (no span opened, only counters, or a site without coverage)"));
     }
     $("lanes-legend").replaceChildren(...legend);
   }
@@ -1095,7 +1095,13 @@ table.data td:last-child { min-width: 280px; }
       h("div", null, "declared algorithms: " + j.summary.ran_algorithms + " ran, " + j.summary.not_run_algorithms + " not-run, " + j.summary.unknown_algorithms + " unknown of " + j.summary.declared_algorithms + "; largest self time: ",
         j.summary.largest_self_time_algorithm ? nodeLink(j.summary.largest_self_time_algorithm) : "none", " (" + fmtS(j.summary.largest_self_seconds) + ")"),
       h("div", null, "receipt " + rc.directory + " · counter schema " + rc.counter_schema + (rc.counters_partial ? " (partial)" : "") + " · timings schema " + rc.timings_schema + (rc.timings_partial ? " (partial)" : "")),
+
     ];
+    if (rc.coverage) {
+      const bypasses = j.summary.span_bypasses || [];
+      meta.push(h("div", null, "algorithm verdicts from coverage " + rc.coverage.file + "; span bypasses: ",
+        ...(bypasses.length ? bypasses.flatMap((id, i) => (i ? [", ", nodeLink(id)] : [nodeLink(id)])) : ["none"])));
+    }
     meta.push(h("details", null, h("summary", { class: "muted" }, "verdict rule"), h("p", { class: "hint" }, j.verdict_rule)));
     $("runmeta").replaceChildren(...meta);
     $("perfetto").replaceChildren("Per-invocation drill-down: open the run's ", h("code", null, "trace.json"), " (normally in ", h("code", null, rc.directory), ") in Perfetto (", h("code", null, "https://ui.perfetto.dev"), "). This page aggregates by algorithm id and draws no flame chart.");

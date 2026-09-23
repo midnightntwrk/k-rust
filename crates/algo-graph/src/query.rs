@@ -1207,6 +1207,9 @@ pub struct HotAnswer {
     /// Algorithms without a span invocation whose declared counters moved; they have no time,
     /// and their verdict is unknown because a counter is not attributed to one algorithm.
     pub counter_only: Vec<String>,
+    /// Algorithms that ran by coverage evidence without a span invocation; they have no time.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub coverage_untimed: Vec<String>,
 }
 
 /// One timed algorithm.
@@ -1344,6 +1347,21 @@ pub fn hot(graph: &Graph, join: &Join, by: HotOrder, limit: usize) -> HotAnswer 
             .filter(|node| node.kind == "algorithm" && node.evidence == "counter-moved")
             .map(|node| node.id.clone())
             .collect(),
+        coverage_untimed: join
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.kind == "algorithm"
+                    && node.evidence == "coverage"
+                    && node.verdict == Verdict::Ran
+            })
+            .filter(|node| {
+                join.algorithms
+                    .iter()
+                    .any(|algorithm| algorithm.id == node.id && algorithm.count == 0)
+            })
+            .map(|node| node.id.clone())
+            .collect(),
     }
 }
 
@@ -1426,6 +1444,15 @@ impl Answer for HotAnswer {
                 format!(
                     "no span but declared counters moved, so untimed and of unknown verdict: {}",
                     self.counter_only.join(", ")
+                ),
+            );
+        }
+        if !self.coverage_untimed.is_empty() {
+            line(
+                &mut out,
+                format!(
+                    "ran by coverage without opening a span, so untimed: {}",
+                    self.coverage_untimed.join(", ")
                 ),
             );
         }
@@ -2715,7 +2742,11 @@ mod tests {
                 run("t.d", 0, 0.0, 0.0),
                 run("zz.unknown", 2, 0.01, 0.01),
             ],
-            vec![node_run("t.e", Verdict::Unknown, "counter-moved")],
+            vec![
+                node_run("t.e", Verdict::Unknown, "counter-moved"),
+                node_run("t.d", Verdict::Ran, "coverage"),
+                node_run("t.b", Verdict::Ran, "coverage"),
+            ],
             Vec::new(),
         );
         let graph = synthetic();
@@ -2741,7 +2772,13 @@ mod tests {
         assert_eq!(row.nested_only_counters, ["t.nested"]);
         assert!(!by_self.rows[3].in_graph);
         assert_eq!(by_self.counter_only, ["t.e"]);
+        // `t.b` ran by coverage and opened its span, so only `t.d` is untimed.
+        assert_eq!(by_self.coverage_untimed, ["t.d"]);
         let text = by_self.text();
+        assert!(
+            text.contains("ran by coverage without opening a span, so untimed: t.d"),
+            "{text}"
+        );
         assert!(text.starts_with("hot by self: top 4 of 4 timed algorithms in run w claim claim at krust 0123456789ab"), "{text}");
         assert!(text.contains("3. t.a  self 0.2000s"), "{text}");
     }
