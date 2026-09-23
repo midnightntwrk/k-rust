@@ -1,8 +1,8 @@
-// The execution seam of the browser lesson (IR-20 -> IR-19).
+// The execution seam of the browser lesson (the page -> the k-rust handoff).
 //
 // The compiler worker ends at the canonical DescriptorBundle. Everything after
 // it, the stages the native CLI runs after the collector's stdout is
-// deserialized, belongs to IR-19's prebuilt module (proposed crate
+// deserialized, belongs to the k-rust handoff's prebuilt module (proposed crate
 // krs-lower-wasm, linking k-rust without Z3):
 //
 //   lower    serde DescriptorBundle -> lower_descriptor_bundle -> lower_semantic_theory -> emit_k
@@ -10,11 +10,11 @@
 //   execute  k-rust backend on the initial configuration
 //
 // The page consumes only the types below. `executionStatus()` is the single
-// place that decides whether execution exists: until IR-19 lands it reports
+// place that decides whether execution exists: until that module exists it reports
 // `available: false` and the page shows those stages as not yet available. It
 // never produces a result, a final configuration, or a diagnostic of its own.
 //
-// IR-19 plugs in by returning `{ available: true, create }` here (or from a
+// The handoff plugs in by returning `{ available: true, create }` here (or from a
 // module the build selects), where `create` loads its module from the same
 // asset base and returns a LessonExecutor.
 
@@ -29,7 +29,7 @@ export const EXECUTION_STAGES: ReadonlyArray<{ id: ExecutionStage; label: string
 ]
 
 /**
- * What the loaded module can do (IR-19 derives it from krs-k-rust's
+ * What the loaded module can do (derived from krs-k-rust's
  * FrontendCapabilities; operations the Z3-free k-rust lacks report false).
  */
 export interface ExecutionCapabilities {
@@ -66,7 +66,7 @@ export type ExecutionStatus =
   | { available: false; reason: string }
   | { available: true; create: (options: { packBase: string; packId: string }) => Promise<LessonExecutor> }
 
-/** Execution is not available in the browser yet: the k-rust handoff (IR-19) has not landed. */
+/** Execution is not available in the browser yet: the k-rust handoff does not exist yet. */
 export function executionStatus(): ExecutionStatus {
   return {
     available: false,

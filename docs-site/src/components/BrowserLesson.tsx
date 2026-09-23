@@ -1,7 +1,7 @@
 'use client'
 
-// The tour-minimal browser lesson (IR-20): an editor seeded from the synced
-// fixture mirror, the IR-15 compiler worker, stage progress, and diagnostics
+// The tour-minimal browser lesson: an editor seeded from the synced
+// fixture mirror, the browser/worker compiler worker, stage progress, and diagnostics
 // disclosed in three levels. Browser APIs (WebAssembly, Worker, Cache Storage)
 // are touched only inside effects and event handlers, so prerendering renders
 // the static shell.
@@ -725,7 +725,7 @@ interface RunView {
 }
 
 /**
- * The stages after the bundle. With no executor (IR-19 not landed) this shows
+ * The stages after the bundle. With no executor (the k-rust handoff does not exist yet) this shows
  * the stages as not yet available and a disabled Run button; it never shows a
  * result it did not receive from an executor.
  */

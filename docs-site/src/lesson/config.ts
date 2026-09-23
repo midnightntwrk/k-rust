@@ -1,4 +1,4 @@
-// Build-time configuration of the browser lesson (IR-20).
+// Build-time configuration of the browser lesson.
 //
 // VITE_KRS_BROWSER_PACK_BASE is read by Vite when the site is built (or when
 // `vocs dev` starts) and inlined into the client bundle. It names the root of a

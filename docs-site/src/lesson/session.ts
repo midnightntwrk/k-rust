@@ -1,7 +1,8 @@
-// Loading the browser lesson from a content-addressed release (IR-21 layout:
+// Loading the browser lesson from a content-addressed release (layout:
 // index.json -> releases/<sha256>.json -> blobs/<sha256>.<ext>) through
 // PackCache, then starting the compiler with workers that read the verified
-// assets from the release's Cache Storage namespace themselves (IR-20).
+// assets from the release's Cache Storage namespace themselves, so the
+// page never holds copies of the asset bytes.
 // Everything here runs only in the browser, from effects or event handlers.
 
 import {

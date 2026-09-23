@@ -463,7 +463,7 @@
   font-size: 0.85rem;
 }
 
-/* Execution (IR-19 seam) */
+/* Execution (the seam in lesson/execution.ts) */
 
 .execution {
   border-top: 1px dashed var(--vocs-border-color-primary);

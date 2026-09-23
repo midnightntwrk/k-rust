@@ -34,7 +34,7 @@ The page imports only `browser/worker/src/protocol.ts` and `controller.ts`.
 
 The compiler pack (about 207 MB, including an 88 MB `rustc.wasm`) is not part of the repository or of `dist/`.
 No CI job builds it.
-The compiler fork and the pack are built by hand on a machine that meets the IR-01 fork-build recipe (LLVM built from source; about 19 minutes at `-j 8`, 17 GB peak memory, and 17 GB of disk), and `../tests/browser-pack/run.py` runs every browser-lesson gate over the result.
+The compiler fork and the pack are built by hand on a machine that meets the fork-build requirements (LLVM built from source; about 19 minutes at `-j 8`, 17 GB peak memory, and 17 GB of disk), and `../tests/browser-pack/run.py` runs every browser-lesson gate over the result.
 Its location is a build-time setting:
 
 ```sh
