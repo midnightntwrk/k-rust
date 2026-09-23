@@ -2640,6 +2640,7 @@ mod tests {
                 trace_schema: "chrome-trace-event-B/E".to_owned(),
                 tools: Vec::new(),
                 revisions: Vec::new(),
+                coverage: None,
             },
             summary: Summary {
                 largest_self_time_algorithm: None,
@@ -2650,6 +2651,7 @@ mod tests {
                 unknown_algorithms: 0,
                 not_run_backend_algorithms: Vec::new(),
                 unknown_backend_algorithms: Vec::new(),
+                span_bypasses: Vec::new(),
             },
             algorithms,
             phases: Vec::new(),

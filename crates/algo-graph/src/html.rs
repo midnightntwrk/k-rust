@@ -154,6 +154,7 @@ mod tests {
             trace_schema: "chrome-trace-event-B/E".to_owned(),
             tools: Vec::new(),
             revisions: Vec::new(),
+            coverage: None,
         };
         project(
             graph,

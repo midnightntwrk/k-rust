@@ -5,7 +5,10 @@ use std::{
 };
 
 use serde::Deserialize;
-use syn::visit::{self, Visit};
+use syn::{
+    spanned::Spanned,
+    visit::{self, Visit},
+};
 
 use crate::model::{Anchor, Cost};
 
@@ -504,9 +507,32 @@ fn extract_fences(docs: &[String]) -> Vec<(CardKind, String)> {
     fences
 }
 
+/// The source lines of one item that a site symbol names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ItemSpan {
+    /// First line of the item, including its attributes and documentation, 1-based.
+    pub start: usize,
+    /// Last line of the item, inclusive.
+    pub end: usize,
+    /// The item holds code that can execute: a function, a method, or an `impl` block. A struct,
+    /// enum, union, or type alias holds none.
+    pub code: bool,
+}
+
+/// The lines of every item in `source` that a site symbol can name, keyed like the source
+/// index's symbols: `function`, `Type::method`, `impl Type`, and `Type`.
+pub(crate) fn item_spans(source: &str) -> syn::Result<BTreeMap<String, Vec<ItemSpan>>> {
+    let file = syn::parse_file(source)?;
+    let mut visitor = ItemVisitor::default();
+    visitor.visit_file(&file);
+    Ok(visitor.item_spans)
+}
+
 #[derive(Default)]
 struct ItemVisitor {
     symbols: BTreeMap<String, usize>,
+    /// The lines of each symbol's items; a symbol that resolves to several items has several.
+    item_spans: BTreeMap<String, Vec<ItemSpan>>,
     types: BTreeSet<String>,
     docs: Vec<String>,
     algorithm_spans: BTreeSet<String>,
@@ -529,9 +555,19 @@ impl ItemVisitor {
         *self.symbols.entry(symbol).or_default() += 1;
     }
 
-    fn add_type(&mut self, symbol: String) {
+    fn add_type(&mut self, symbol: String, item: &impl Spanned) {
         self.add_symbol(symbol.clone());
+        self.add_span(symbol.clone(), item, false);
         self.types.insert(symbol);
+    }
+
+    fn add_span(&mut self, symbol: String, item: &impl Spanned, code: bool) {
+        let span = item.span();
+        self.item_spans.entry(symbol).or_default().push(ItemSpan {
+            start: span.start().line,
+            end: span.end().line,
+            code,
+        });
     }
 
     fn visit_scrutinized_pattern(&mut self, pattern: &syn::Pat, scrutinee: &syn::Expr) {
@@ -573,6 +609,7 @@ impl<'ast> Visit<'ast> for ItemVisitor {
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
         if self.function_depth == 0 {
             self.add_symbol(item.sig.ident.to_string());
+            self.add_span(item.sig.ident.to_string(), item, true);
         }
         self.visit_top_level_function(item.sig.ident.to_string(), |visitor| {
             visit::visit_item_fn(visitor, item);
@@ -597,31 +634,37 @@ impl<'ast> Visit<'ast> for ItemVisitor {
     }
 
     fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        self.add_type(item.ident.to_string());
+        self.add_type(item.ident.to_string(), item);
         visit::visit_item_struct(self, item);
     }
 
     fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
-        self.add_type(item.ident.to_string());
+        self.add_type(item.ident.to_string(), item);
         visit::visit_item_enum(self, item);
     }
 
     fn visit_item_union(&mut self, item: &'ast syn::ItemUnion) {
-        self.add_type(item.ident.to_string());
+        self.add_type(item.ident.to_string(), item);
         visit::visit_item_union(self, item);
     }
 
     fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
-        self.add_type(item.ident.to_string());
+        self.add_type(item.ident.to_string(), item);
         visit::visit_item_type(self, item);
     }
 
     fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
         if let Some(type_name) = impl_type_name(&item.self_ty) {
             self.add_symbol(format!("impl {type_name}"));
+            self.add_span(format!("impl {type_name}"), item, true);
             for impl_item in &item.items {
                 if let syn::ImplItem::Fn(function) = impl_item {
                     self.add_symbol(format!("{type_name}::{}", function.sig.ident));
+                    self.add_span(
+                        format!("{type_name}::{}", function.sig.ident),
+                        function,
+                        true,
+                    );
                 }
             }
         }

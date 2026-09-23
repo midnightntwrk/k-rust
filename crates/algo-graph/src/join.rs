@@ -8,7 +8,10 @@ use k_rust_kore::measure::COUNTER_SCHEMA_VERSION;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::{Cost, Edge, Error, Graph};
+use crate::{
+    Cost, Edge, Error, Graph,
+    coverage::{SiteCoverage, SiteState, map_algorithm_sites, read_coverage},
+};
 
 /// Schema of the canonical run-projection TOML.
 pub const JOIN_SCHEMA_VERSION: u32 = 2;
@@ -17,7 +20,7 @@ pub const JOIN_SCHEMA_VERSION: u32 = 2;
 pub const AGGREGATION_RULE: &str = "per algorithm id: invocation count; total duration is the sum of inclusive invocation durations, where an invocation nested inside an open invocation of the same id (recursion) adds nothing because the outermost one already includes it; self duration subtracts direct nested algorithm durations; counter totals are summed across invocations with the same recursion rule and self counters subtract direct nested algorithm deltas";
 
 /// How a run's evidence decides each node's verdict; [`edge_verdict_rule`] gives the edge rules.
-pub const VERDICT_RULE: &str = "each node and edge is ran, not-run, or unknown: a positive observation proves presence, and absence proves absence only where the instrumentation would have recorded it. An algorithm ran when its own span opened and is unknown otherwise: some entries do an algorithm's work without opening its span, so a zero span count proves nothing, and a counter is incremented wherever its code runs, so a moved counter is not attributed to the card that declares it. A phase ran when its span opened or the receipt's timings list names it, and did not run when neither holds and the receipt has a current-schema timings list. A counter ran when it moved and did not run when a current-schema dump records it at zero. Representations, contracts, and registries are unknown: nothing records them. Span policies are those of the joined graph, which must be generated at the receipt's commit";
+pub const VERDICT_RULE: &str = "each node and edge is ran, not-run, or unknown: a positive observation proves presence, and absence proves absence only where the instrumentation would have recorded it. An algorithm ran when one of its site items executed. Without coverage, an algorithm ran when its own span opened and is unknown otherwise: some entries do an algorithm's work without opening its span, so a zero span count proves nothing, and a counter is incremented wherever its code runs, so a moved counter is not attributed to the card that declares it. With coverage (a coverage-instrumented execution of the receipt's command, which executes the same code because krust is deterministic on the receipt's inputs), an algorithm ran when some instrumented function inside one of its site items, closures and nested functions included, was entered; did not run when every site that holds code maps to at least one instrumented function and all of them were entered zero times; and is unknown when a site maps to none (an item that is not compiled into the binary, or a site that names no item) or when no site holds code. A type site (a struct, enum, union, or type alias) names the type's code: the instrumented functions in the type's item (derived-trait expansions) and in every inherent or trait impl block for the type in the site's file; a type site with no such function holds no code and is left out of both rules. An algorithm whose span opened must be coverage-ran, and one that is coverage-ran with a span policy and a zero span count is a span bypass. A phase ran when its span opened or the receipt's timings list names it, and did not run when neither holds and the receipt has a current-schema timings list. A counter ran when it moved and did not run when a current-schema dump records it at zero. Representations, contracts, and registries are unknown: nothing records them. Span policies are those of the joined graph, which must be generated at the receipt's commit";
 
 /// What one run's evidence establishes about a node or an edge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -92,6 +95,20 @@ pub struct Receipt {
     pub tools: Vec<ToolVersion>,
     #[serde(rename = "revision", default)]
     pub revisions: Vec<Revision>,
+    /// The coverage file that decided the algorithm verdicts, when the join was given one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<CoverageSource>,
+}
+
+/// The coverage evidence of a join.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CoverageSource {
+    /// Workspace-relative path of the `coverage.toml`, or its last three components when it lies
+    /// outside the workspace.
+    pub file: String,
+    /// SHA-256 of the instrumented binary that the coverage file records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_sha256: Option<String>,
 }
 
 /// One tool version copied out of `metadata.json`.
@@ -121,6 +138,10 @@ pub struct Summary {
     pub unknown_algorithms: usize,
     pub not_run_backend_algorithms: Vec<String>,
     pub unknown_backend_algorithms: Vec<String>,
+    /// Algorithms with coverage evidence whose site items executed while their span, whose policy
+    /// is `per call` or `per problem`, never opened: some entry does the work without the span.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub span_bypasses: Vec<String>,
 }
 
 /// Static claims and dynamic observations for one stable algorithm id.
@@ -197,8 +218,9 @@ pub struct ReceiptCounter {
 
 /// The verdict for every static graph node.
 ///
-/// `evidence` names the fact that decided the verdict. Algorithms: `span` (ran), `zero-span`,
-/// `unobservable`, `counter-moved`, `counter-idle` (unknown). Phases:
+/// `evidence` names the fact that decided the verdict. Algorithms without coverage: `span` (ran),
+/// `zero-span`, `unobservable`, `counter-moved`, `counter-idle` (unknown); with coverage:
+/// `coverage` (ran or not-run) and `coverage-gap` (unknown). Phases:
 /// `span`, `timings` (ran), `absent` (not-run), `unrecorded` (unknown). Counters: `counter`
 /// (ran), `counter-zero` (not-run), `counter-unrecorded` (unknown). Every other node kind:
 /// `unobserved` (unknown). `reason` states the same fact with the run's values.
@@ -280,27 +302,85 @@ struct CounterDump {
 
 /// Read the three inputs and project one run onto the static graph.
 ///
-/// `root` is the workspace root; the receipt directory is recorded relative to it.
+/// `root` is the workspace root; the receipt directory is recorded relative to it. With
+/// `coverage`, a `coverage.toml` written by `algo-graph coverage`, the algorithm verdicts are
+/// decided by the coverage of their sites, whose item lines are read from the sources below
+/// `root`; those sources must be the ones the coverage run compiled. An algorithm whose span
+/// opened while none of its sites executed is a mapping defect and fails the join.
 pub fn join_files(
     root: &Path,
     graph: &Path,
     trace: &Path,
     receipt: &Path,
+    coverage: Option<&Path>,
 ) -> Result<(Graph, Join), Error> {
     let mut graph: Graph = toml::from_str(&fs::read_to_string(graph)?)?;
     graph.sort();
     let events: Value = serde_json::from_str(&fs::read_to_string(trace)?)?;
     let observations = parse_trace(&events)?;
     let (mut receipt_info, receipt_counters, timings_phases) = read_receipt(receipt)?;
-    receipt_info.directory = receipt_directory(root, receipt);
-    let joined = project_with_timings(
+    receipt_info.directory = workspace_relative(root, receipt, 2);
+    let sites = match coverage {
+        Some(path) => {
+            let coverage = read_coverage(path)?;
+            let sites = map_algorithm_sites(root, &graph, &coverage)?;
+            check_spans_against_coverage(&observations, &sites)?;
+            receipt_info.coverage = Some(CoverageSource {
+                file: workspace_relative(root, path, 3),
+                binary_sha256: coverage.binary_sha256.clone(),
+            });
+            Some(sites)
+        }
+        None => None,
+    };
+    let joined = project_with_coverage(
         &graph,
         observations,
         receipt_info,
         receipt_counters,
         timings_phases,
+        sites.as_ref(),
     );
     Ok((graph, joined))
+}
+
+/// Every algorithm whose span opened must have an executed site: the span is opened by code
+/// that the card names as a site. A violation means the sites or the line mapping are wrong, so
+/// the coverage cannot decide the other verdicts either.
+fn check_spans_against_coverage(
+    observations: &TraceObservations,
+    sites: &BTreeMap<String, Vec<SiteCoverage>>,
+) -> Result<(), Error> {
+    let violations = observations
+        .algorithms
+        .iter()
+        .filter(|(_, aggregate)| aggregate.count > 0)
+        .filter_map(|(id, aggregate)| {
+            let sites = sites.get(id)?;
+            let executed = sites
+                .iter()
+                .any(|site| matches!(site.state, SiteState::Executed { .. }));
+            (!executed).then(|| {
+                format!(
+                    "{id}: its span opened {} times, but no site executed: {}",
+                    aggregate.count,
+                    sites
+                        .iter()
+                        .map(SiteCoverage::describe)
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if violations.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::Invalid(format!(
+            "coverage contradicts the trace, so the site mapping is defective:\n{}",
+            violations.join("\n")
+        )))
+    }
 }
 
 /// Serialize a run projection in its canonical TOML form.
@@ -681,13 +761,15 @@ fn read_receipt(receipt: &Path) -> Result<ReceiptFiles, Error> {
         trace_schema: "chrome-trace-event-B/E".to_owned(),
         tools,
         revisions,
+        coverage: None,
     };
     Ok((info, counters, timings_phases))
 }
 
-/// The receipt directory relative to the workspace root, or its last two components (the
-/// `evidence/<workload>/<commit>` shape) when it lies outside the root; never an absolute path.
-fn receipt_directory(root: &Path, receipt: &Path) -> String {
+/// A receipt path relative to the workspace root, or its last `keep` components (the
+/// `<workload>/<commit>` shape of an evidence directory, and a file within it) when it lies
+/// outside the root; never an absolute path.
+fn workspace_relative(root: &Path, receipt: &Path, keep: usize) -> String {
     let absolute = if receipt.is_absolute() {
         receipt.to_owned()
     } else {
@@ -714,7 +796,7 @@ fn receipt_directory(root: &Path, receipt: &Path) -> String {
         };
     }
     let parts = normal(&absolute);
-    parts[parts.len().saturating_sub(2)..].join("/")
+    parts[parts.len().saturating_sub(keep)..].join("/")
 }
 
 fn schema_label(version: Option<&Value>, absent: &str) -> Result<String, Error> {
@@ -747,12 +829,33 @@ pub(crate) fn project(
     project_with_timings(graph, observations, receipt, receipt_counter_values, None)
 }
 
+#[cfg(test)]
 pub(crate) fn project_with_timings(
     graph: &Graph,
     observations: TraceObservations,
     receipt: Receipt,
     receipt_counter_values: BTreeMap<String, u64>,
     timings_phases: Option<BTreeSet<String>>,
+) -> Join {
+    project_with_coverage(
+        graph,
+        observations,
+        receipt,
+        receipt_counter_values,
+        timings_phases,
+        None,
+    )
+}
+
+/// Project a run; `sites`, the coverage of every algorithm's sites, decides algorithm verdicts
+/// when present.
+pub(crate) fn project_with_coverage(
+    graph: &Graph,
+    observations: TraceObservations,
+    receipt: Receipt,
+    receipt_counter_values: BTreeMap<String, u64>,
+    timings_phases: Option<BTreeSet<String>>,
+    sites: Option<&BTreeMap<String, Vec<SiteCoverage>>>,
 ) -> Join {
     let node_by_id = graph
         .nodes
@@ -903,6 +1006,7 @@ pub(crate) fn project_with_timings(
         counters_current: !receipt.counters_partial,
         timings_phases: timings_phases.as_ref(),
         declarers: &declarers,
+        sites,
     };
     let nodes = graph
         .nodes
@@ -970,6 +1074,22 @@ pub(crate) fn project_with_timings(
             .map(|algorithm| algorithm.id.clone())
             .collect::<Vec<_>>()
     };
+    let span_bypasses = nodes
+        .iter()
+        .filter(|node| node.kind == "algorithm" && node.evidence == "coverage")
+        .filter(|node| node.verdict == Verdict::Ran)
+        .filter(|node| {
+            algorithms.iter().any(|algorithm| {
+                algorithm.id == node.id
+                    && algorithm.count == 0
+                    && matches!(
+                        algorithm.span_policy.as_deref(),
+                        Some("per call" | "per problem")
+                    )
+            })
+        })
+        .map(|node| node.id.clone())
+        .collect();
     let summary = Summary {
         largest_self_time_algorithm: largest
             .filter(|algorithm| algorithm.count > 0)
@@ -986,6 +1106,7 @@ pub(crate) fn project_with_timings(
         unknown_algorithms: count_verdict(Verdict::Unknown),
         not_run_backend_algorithms: backend_with(Verdict::NotRun),
         unknown_backend_algorithms: backend_with(Verdict::Unknown),
+        span_bypasses,
     };
     Join {
         schema_version: JOIN_SCHEMA_VERSION,
@@ -1026,6 +1147,8 @@ struct RunFacts<'a> {
     timings_phases: Option<&'a BTreeSet<String>>,
     /// Counter registry name to the algorithms whose cards declare it.
     declarers: &'a BTreeMap<&'a str, BTreeSet<&'a str>>,
+    /// The coverage of every algorithm's sites, when the join has coverage evidence.
+    sites: Option<&'a BTreeMap<String, Vec<SiteCoverage>>>,
 }
 
 /// A verdict with the evidence code and sentence that decided it.
@@ -1105,6 +1228,13 @@ impl RunFacts<'_> {
             .algorithms
             .get(&node.id)
             .map_or(0, |aggregate| aggregate.count);
+        if let Some(sites) = self.sites {
+            return coverage_verdict(
+                node,
+                count,
+                sites.get(&node.id).map(Vec::as_slice).unwrap_or_default(),
+            );
+        }
         if count > 0 {
             return Decided::ran("span", format!("its span opened {count} times"));
         }
@@ -1289,6 +1419,76 @@ impl RunFacts<'_> {
             _ => unknown,
         }
     }
+}
+
+/// The verdict of an algorithm from the coverage of its sites.
+///
+/// It ran when some site executed. A type site stands for the type's code: its item, which holds
+/// derived-trait expansions, and every inherent or trait `impl` block for the type in the site's
+/// file. A type site with no instrumented function there holds no code, so it neither executes
+/// nor hides an execution, and the verdict rests on the sites that hold code. The algorithm did not run
+/// when it has such a site and every such site maps to at least one instrumented function, none
+/// of them entered: the coverage counts every entry into the site's code, whatever caller
+/// reached it. Otherwise a site that holds code maps to no instrumented function, or no site
+/// holds code, and the verdict is unknown.
+fn coverage_verdict(node: &crate::Node, span_count: u64, sites: &[SiteCoverage]) -> Decided {
+    let policy = node.span.as_deref().unwrap_or("absent");
+    let span = if span_count > 0 {
+        format!("its span opened {span_count} times")
+    } else if matches!(policy, "per call" | "per problem") {
+        format!("span policy {policy} and its span never opened")
+    } else {
+        format!("span policy {policy}")
+    };
+    let describe = |keep: fn(&SiteState) -> bool| {
+        sites
+            .iter()
+            .filter(|site| keep(&site.state))
+            .map(SiteCoverage::describe)
+            .collect::<Vec<_>>()
+    };
+    let executed = describe(|state| matches!(state, SiteState::Executed { .. }));
+    if !executed.is_empty() {
+        let bypass = if span_count == 0 && matches!(policy, "per call" | "per problem") {
+            ", so an entry does its work without opening the span"
+        } else {
+            ""
+        };
+        return Decided::ran(
+            "coverage",
+            format!("site executed: {}; {span}{bypass}", executed.join("; ")),
+        );
+    }
+    let types = describe(|state| matches!(state, SiteState::TypeSite));
+    let types = if types.is_empty() {
+        String::new()
+    } else {
+        format!("; ignored: {}", types.join("; "))
+    };
+    let unmapped = describe(|state| matches!(state, SiteState::Unmapped(_)));
+    if !unmapped.is_empty() {
+        return Decided::unknown(
+            "coverage-gap",
+            format!(
+                "no mapped site executed, but a site that may hold code maps to no instrumented function, so the work may have run there: {}{types}; {span}",
+                unmapped.join("; ")
+            ),
+        );
+    }
+    let zero = describe(|state| matches!(state, SiteState::Zero { .. }));
+    if zero.is_empty() {
+        return Decided::unknown(
+            "coverage-gap",
+            format!("no site holds code that coverage records{types}; {span}"),
+        );
+    }
+    Decided::not_run(
+        "coverage",
+        format!(
+            "every site that holds code maps to instrumented functions and none was entered: {}{types}; {span}",
+            zero.join("; ")
+        ),
+    )
 }
 
 /// The rule that decides one edge kind's verdict, stated for the reader.
@@ -1539,7 +1739,12 @@ fn escape(value: &str) -> String {
 mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    use sha2::{Digest, Sha256};
+
     use super::*;
+    use crate::coverage::{
+        COVERAGE_SCHEMA_VERSION, Coverage, CoveredFile, CoveredFunction, canonical_coverage_toml,
+    };
 
     fn fixture() -> std::path::PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -1700,7 +1905,7 @@ provenance = "declared"
         )
         .unwrap();
 
-        let (graph, join) = join_files(&root, &graph_path, &trace_path, &receipt).unwrap();
+        let (graph, join) = join_files(&root, &graph_path, &trace_path, &receipt, None).unwrap();
         assert_eq!(join.receipt.directory, "receipt");
         assert_eq!(join.receipt.timings_schema, "pre-versioned");
         assert!(join.receipt.timings_partial);
@@ -1836,6 +2041,7 @@ provenance = "declared"
             trace_schema: "chrome-trace-event-B/E".to_owned(),
             tools: Vec::new(),
             revisions: Vec::new(),
+            coverage: None,
         }
     }
 
@@ -2062,17 +2268,233 @@ provenance = "declared"
         let inside = root.join("draft/evidence/imp-prove/working-tree");
         fs::create_dir_all(&inside).unwrap();
         assert_eq!(
-            receipt_directory(&root, &inside),
+            workspace_relative(&root, &inside, 2),
             "draft/evidence/imp-prove/working-tree"
         );
         let outside = fixture().join("imp-prove/working-tree");
         fs::create_dir_all(&outside).unwrap();
         assert_eq!(
-            receipt_directory(&root.join("draft"), &outside),
+            workspace_relative(&root.join("draft"), &outside, 2),
             "imp-prove/working-tree"
         );
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(outside.parent().unwrap().parent().unwrap()).unwrap();
+    }
+
+    /// One algorithm per coverage verdict rule, joined through `join_files` against a synthetic
+    /// source, trace, receipt, and coverage file.
+    #[test]
+    fn coverage_decides_algorithm_verdicts() {
+        let root = fixture();
+        let source = "\
+pub fn entry() {
+    let step = |x: u8| x + 1;
+    step(1);
+}
+
+pub fn helper() {}
+
+pub fn idle() {}
+
+pub fn idle_other() {}
+
+pub struct Holder;
+
+#[cfg(feature = \"absent\")]
+pub fn gated() {}
+
+pub fn spanned() {}
+
+pub struct Worker;
+
+impl Worker {
+    pub fn work(&self) {}
+}
+";
+        let file = "crates/demo/src/lib.rs";
+        fs::create_dir_all(root.join("crates/demo/src")).unwrap();
+        fs::write(root.join(file), source).unwrap();
+        let algorithm = |id: &str, span: &str, sites: &[&str]| {
+            let mut node = format!(
+                "[[node]]\nkind = \"algorithm\"\nid = \"{id}\"\nprovenance = \"declared\"\narea = \"backend\"\nspan = \"{span}\"\n[node.anchor]\ncrate = \"demo\"\nfile = \"{file}\"\nsymbol = \"{}\"\n",
+                sites[0]
+            );
+            for site in sites {
+                node.push_str(&format!(
+                    "[[node.sites]]\ncrate = \"demo\"\nfile = \"{file}\"\nsymbol = \"{site}\"\n"
+                ));
+            }
+            node + "\n"
+        };
+        let graph = [
+            algorithm("t.bypass", "per call", &["entry"]),
+            algorithm("t.spanned", "per call", &["spanned"]),
+            algorithm("t.unspanned", "none", &["helper"]),
+            algorithm("t.not_run", "per problem", &["idle", "idle_other"]),
+            algorithm("t.type_site", "none", &["idle", "Holder"]),
+            algorithm("t.type_only", "none", &["Holder"]),
+            algorithm("t.type_ran", "per call", &["idle", "Worker"]),
+            algorithm("t.cfg_gap", "none", &["idle", "gated"]),
+        ]
+        .concat();
+        let graph_path = root.join("graph.toml");
+        fs::write(&graph_path, graph).unwrap();
+        let receipt = root.join("receipt");
+        fs::create_dir(&receipt).unwrap();
+        fs::write(receipt.join("metadata.json"), r#"{"workload":"demo"}"#).unwrap();
+        let trace_path = root.join("trace.json");
+        let trace = |id: &str| {
+            serde_json::json!([
+                {"ph":"B","name":"algo","ts":0,"pid":1,"tid":1,"args":{"id":id}},
+                {"ph":"E","name":"algo","ts":1,"pid":1,"tid":1}
+            ])
+            .to_string()
+        };
+        fs::write(&trace_path, trace("t.spanned")).unwrap();
+        let function = |start: usize, end: usize, name: &str, count: u64| CoveredFunction {
+            start,
+            end,
+            name: name.to_owned(),
+            count,
+        };
+        let mut coverage = Coverage {
+            schema_version: COVERAGE_SCHEMA_VERSION,
+            binary_sha256: Some("b1".to_owned()),
+            files: vec![CoveredFile {
+                path: file.to_owned(),
+                sha256: Sha256::digest(source.as_bytes())
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+                functions: vec![
+                    // Only the closure ran: the site `entry` executed through it.
+                    function(1, 4, "demo::entry", 0),
+                    function(2, 2, "demo::entry::{closure#0}", 3),
+                    function(6, 6, "demo::helper", 5),
+                    function(8, 8, "demo::idle", 0),
+                    function(10, 10, "demo::idle_other", 0),
+                    function(17, 17, "demo::spanned", 2),
+                    function(22, 22, "demo::Worker::work", 1),
+                ],
+            }],
+        };
+        let coverage_path = root.join("coverage.toml");
+        fs::write(&coverage_path, canonical_coverage_toml(&coverage)).unwrap();
+
+        let (_, join) = join_files(
+            &root,
+            &graph_path,
+            &trace_path,
+            &receipt,
+            Some(&coverage_path),
+        )
+        .unwrap();
+        let node = |id: &str| {
+            join.nodes
+                .iter()
+                .find(|node| node.id == id)
+                .map(|node| (node.verdict, node.evidence.as_str(), node.reason.as_str()))
+                .unwrap()
+        };
+        use Verdict::{NotRun, Ran, Unknown};
+        let (verdict, evidence, reason) = node("t.bypass");
+        assert_eq!((verdict, evidence), (Ran, "coverage"));
+        assert!(reason.contains("without opening the span"), "{reason}");
+        let (verdict, evidence, reason) = node("t.spanned");
+        assert_eq!((verdict, evidence), (Ran, "coverage"));
+        assert!(reason.contains("its span opened 1 times"), "{reason}");
+        assert_eq!(node("t.unspanned").0, Ran);
+        let (verdict, evidence, reason) = node("t.not_run");
+        assert_eq!((verdict, evidence), (NotRun, "coverage"));
+        assert!(reason.contains("none was entered"), "{reason}");
+        // A type site holds no code: the function site decides.
+        let (verdict, evidence, reason) = node("t.type_site");
+        assert_eq!((verdict, evidence), (NotRun, "coverage"));
+        assert!(
+            reason.contains("ignored: crates/demo/src/lib.rs::Holder (a type site"),
+            "{reason}"
+        );
+        // The type's impl method executed while the function site did not.
+        let (verdict, evidence, reason) = node("t.type_ran");
+        assert_eq!((verdict, evidence), (Ran, "coverage"));
+        assert!(
+            reason.contains("lib.rs::Worker (executed: 1 of 1"),
+            "{reason}"
+        );
+        let (verdict, evidence, reason) = node("t.type_only");
+        assert_eq!((verdict, evidence), (Unknown, "coverage-gap"));
+        assert!(reason.contains("no site holds code"), "{reason}");
+        let (verdict, evidence, reason) = node("t.cfg_gap");
+        assert_eq!((verdict, evidence), (Unknown, "coverage-gap"));
+        assert!(
+            reason.contains("gated (no instrumented function"),
+            "{reason}"
+        );
+        assert_eq!(join.summary.span_bypasses, ["t.bypass", "t.type_ran"]);
+        assert_eq!(
+            (
+                join.summary.ran_algorithms,
+                join.summary.not_run_algorithms,
+                join.summary.unknown_algorithms
+            ),
+            (4, 2, 2)
+        );
+        assert_eq!(
+            join.receipt.coverage,
+            Some(CoverageSource {
+                file: "coverage.toml".to_owned(),
+                binary_sha256: Some("b1".to_owned()),
+            })
+        );
+        let text = canonical_join_toml(&join).unwrap();
+        let reread: Join = toml::from_str(&text).unwrap();
+        assert_eq!(reread, join);
+
+        // Without coverage, the same run keeps the span rule.
+        let (_, plain) = join_files(&root, &graph_path, &trace_path, &receipt, None).unwrap();
+        assert!(plain.receipt.coverage.is_none());
+        assert!(plain.summary.span_bypasses.is_empty());
+        let not_run = plain
+            .nodes
+            .iter()
+            .find(|node| node.id == "t.not_run")
+            .unwrap();
+        assert_eq!(
+            (not_run.verdict, not_run.evidence.as_str()),
+            (Unknown, "zero-span")
+        );
+
+        // A span that opened while no site executed is a mapping defect.
+        fs::write(&trace_path, trace("t.not_run")).unwrap();
+        let error = join_files(
+            &root,
+            &graph_path,
+            &trace_path,
+            &receipt,
+            Some(&coverage_path),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("t.not_run: its span opened 1 times, but no site executed"),
+            "{error}"
+        );
+
+        // A checkout whose source differs from the covered build is rejected.
+        fs::write(&trace_path, trace("t.spanned")).unwrap();
+        coverage.files[0].sha256 = "0".repeat(64);
+        fs::write(&coverage_path, canonical_coverage_toml(&coverage)).unwrap();
+        let error = join_files(
+            &root,
+            &graph_path,
+            &trace_path,
+            &receipt,
+            Some(&coverage_path),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("differs from the covered build"), "{error}");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -311,6 +311,12 @@ struct JoinArgs {
     /// Run-overlay Mermaid. Defaults to target/algo/run-overlay.mmd.
     #[arg(long)]
     overlay: Option<PathBuf>,
+    /// coverage.toml from `algo-graph coverage` for a coverage-instrumented execution of the
+    /// receipt's command. It decides each algorithm's verdict from whether its site items
+    /// executed; the site lines are read from the checkout named by --root, which must hold the
+    /// covered sources.
+    #[arg(long)]
+    coverage: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -438,6 +444,7 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
                 &arguments.graph,
                 &arguments.trace,
                 &arguments.receipt,
+                arguments.coverage.as_deref(),
             )?;
             let output = arguments
                 .output
