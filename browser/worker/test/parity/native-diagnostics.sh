@@ -49,7 +49,7 @@ record_exit() { echo "$2" >"$1/exit"; }
 # The oracle directory must describe this checkout (regenerate-oracle.sh at this revision).
 grep -q "crates_tree = \"$(git -C "$REPO" rev-parse HEAD:crates)\"" "$ORACLE_DIR/oracle.toml" \
   || { echo "$ORACLE_DIR/oracle.toml is not for this crates/ tree; run regenerate-oracle.sh first" >&2; exit 2; }
-COLLECTOR=$(find "$ORACLE_DIR/target-native/x86_64-unknown-linux-gnu/debug" -maxdepth 1 -type f -name 'krs-generated-collector-*' | head -1)
+COLLECTOR=$(find "$ORACLE_DIR/target-native/x86_64-unknown-linux-gnu/debug" -maxdepth 1 -type f -name 'krs-generated-collector-*' ! -name '*.d' -perm -u+x | head -1)
 [[ -x $COLLECTOR ]] || { echo "no native collector binary under $ORACLE_DIR" >&2; exit 2; }
 
 rm -rf "$OUT"
