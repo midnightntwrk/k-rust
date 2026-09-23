@@ -19,6 +19,10 @@ The modules are:
 - `support.kdefinition`: helpers over emitted K definitions and KORE;
 - `support.lsp`: the rust-analyzer probe shared by the semantics gates.
 
+The package needs only the standard library. It must stay importable by
+Python 3.10, which runs the M4 oracles inside the pinned pyk environment;
+`support.pins.load_toml` alone needs Python 3.11 for `tomllib`.
+
 Its unit tests run with
 
     PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/support -t tests

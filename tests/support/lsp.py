@@ -1,6 +1,6 @@
-"""The rust-analyzer probe the readable semantics gates run over their crate.
+"""The rust-analyzer client the gates' LSP probes share, and the semantics-gate probe.
 
-A gate's `lsp_probe.py` names its crate and a table of
+`Client` drives one rust-analyzer process over JSON-RPC. A semantics gate's `lsp_probe.py` names its crate and a table of
 `(name, fragment, needle, target_fragment)` probes and calls `probe`. Each probe
 places the cursor on `needle` inside the first source line containing
 `fragment`, and requires go-to-definition to land on the first line containing
@@ -16,7 +16,7 @@ from pathlib import Path
 import select
 import subprocess
 import time
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from support import GateError
 
@@ -28,11 +28,11 @@ ENVIRONMENT = {**os.environ, "RUSTUP_TOOLCHAIN": "stable"}
 class Client:
     """A minimal JSON-RPC client over one rust-analyzer process."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, environment: Mapping[str, str] | None = None) -> None:
         self.process = subprocess.Popen(
             ["rust-analyzer"],
             cwd=root,
-            env=ENVIRONMENT,
+            env={**ENVIRONMENT, **(environment or {})},
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -150,14 +150,10 @@ def meaningful_hover(result: Any) -> bool:
     return False
 
 
-def probe(root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float) -> None:
-    """Run the probes over `root/src/lib.rs` and print the JSON summary."""
+def version() -> str:
+    """The `rust-analyzer --version` line under the stable toolchain."""
 
-    source = root / "src/lib.rs"
-    text = source.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    uri = source.as_uri()
-    version = subprocess.run(
+    return subprocess.run(
         ["rust-analyzer", "--version"],
         check=True,
         text=True,
@@ -165,6 +161,16 @@ def probe(root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float) -> 
         timeout=10,
         env=ENVIRONMENT,
     ).stdout.strip()
+
+
+def probe(root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float) -> None:
+    """Run the probes over `root/src/lib.rs` and print the JSON summary."""
+
+    source = root / "src/lib.rs"
+    text = source.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    uri = source.as_uri()
+    analyzer = version()
     client = Client(root)
     try:
         client.request(
@@ -224,7 +230,7 @@ def probe(root: Path, probes: Sequence[Probe], *, diagnostic_timeout: float) -> 
 
         print(
             json.dumps(
-                {"rust_analyzer": version, "diagnostics": 0, "definitions_and_hovers": counts},
+                {"rust_analyzer": analyzer, "diagnostics": 0, "definitions_and_hovers": counts},
                 sort_keys=True,
             )
         )

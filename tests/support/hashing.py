@@ -24,7 +24,11 @@ def sha256_text(value: str) -> str:
 def sha256_file(path: Path) -> str:
     if not path.is_file():
         raise GateError(f"required file is missing: {path}")
-    return sha256_bytes(path.read_bytes())
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def canonical_json(value: Any) -> str:
