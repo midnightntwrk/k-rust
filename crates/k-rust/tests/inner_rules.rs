@@ -2932,28 +2932,21 @@ fn accepts_parametric_completion_with_an_admissible_singleton_bound() {
 
 #[cfg(feature = "z3-inference")]
 #[test]
-fn sort_parameter_choice_visible_after_lowering_is_rejected() {
-    // `wrap(I)` under `f(A) | f(B)` has one maximal typing (`I:Int`), and the parameter of
-    // `wrap` may be `A` or `B`; the two choices parse the rule as `f{A}` or `f{B}`. The parse must
-    // be a function of the sort constraints, so the compile fails instead of keeping one.
+fn sort_parameter_choice_visible_after_lowering_is_ambiguous() {
+    // `wrap(I)` under `f(A) | f(B)` has one maximal typing (`I:Int`). The result of `wrap` is its
+    // own parameter `S`, so `S` equals the sort its position expects: `A` under `f(A)`, `B` under
+    // `f(B)`. Both vectors are admissible and no inference criterion orders them, so each is a
+    // parse; they lower to distinct terms (`S` stays in the `wrap{S}` label), and no
+    // post-inference pass orders `f(A)` against `f(B)`, so the rule is ambiguous.
     let source = include_str!("fixtures/sort-inference/parameter-choice.k");
     let Err(error) = load_with_prelude(source, "parameter-choice.k", "TEST") else {
-        panic!("a visible sort parameter choice must fail the compile");
+        panic!("a sentence with differently lowering parameter choices must be ambiguous");
     };
     let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = &error else {
         panic!("expected a rule parse error, got {error:?}");
     };
-    let ParseError::ParameterChoice {
-        productions,
-        first,
-        second,
-        ..
-    } = &error.error
-    else {
-        panic!(
-            "expected ParseError::ParameterChoice, got {:?}",
-            error.error
-        );
+    let ParseError::Ambiguous { alternatives, .. } = &error.error else {
+        panic!("expected ParseError::Ambiguous, got {:?}", error.error);
     };
     assert_eq!(error.module, "TEST");
     assert_eq!(
@@ -2961,17 +2954,42 @@ fn sort_parameter_choice_visible_after_lowering_is_rejected() {
         Some(10),
         "the error names the rule's location"
     );
-    assert!(
-        matches!(productions.as_slice(), [production]
-            if production.contains("wrap")
-                && (production.ends_with(": A or B") || production.ends_with(": B or A"))),
-        "{productions:?}"
-    );
-    let mut terms = [first.as_str(), second.as_str()];
+    let mut terms = alternatives
+        .iter()
+        .map(|alternative| alternative.term.as_str())
+        .collect::<Vec<_>>();
     terms.sort_unstable();
-    assert!(
-        terms[0].contains("`f(_)_TEST_Top_A`") && terms[1].contains("`f(_)_TEST_Top_B`"),
-        "{terms:?}"
+    assert_eq!(
+        terms,
+        [
+            "`f(_)_TEST_Top_A`(`wrap(_)_TEST_S_S`{A}(#SemanticCastToInt(I)))",
+            "`f(_)_TEST_Top_B`(`wrap(_)_TEST_S_S`{B}(#SemanticCastToInt(I)))",
+        ]
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn sort_parameter_choice_resolved_by_prefer_compiles() {
+    // The `#KRewrite` result is its own parameter, so the parameter equals the sort its position
+    // expects: `Small` under `f(Small) [prefer]`, `Item` under `f(Item)`. Both vectors are
+    // admissible; lowering erases the parameter, so the parses are `f` of `Small` and `f` of
+    // `Item` over the same rewrite, and `prefer` keeps `f(Small)`. Keeping only the vector Z3
+    // returned would lose the `f(Small)` parse whenever Z3 returns `Item`.
+    let source = include_str!("fixtures/sort-inference/parameter-choice-prefer.k");
+    let loaded = load_with_prelude(
+        source,
+        "parameter-choice-prefer.k",
+        "PARAMETER-CHOICE-PREFER",
+    )
+    .expect("the post-inference prefer filter resolves the admissible parameter choices");
+    assert_eq!(
+        rule_bodies(&loaded),
+        ["`run(_)_PARAMETER-CHOICE-PREFER_KItem_Wrapped`(\
+             `f(_)_PARAMETER-CHOICE-PREFER_Wrapped_Small`(\
+             `small(_)_PARAMETER-CHOICE-PREFER_Small_Int`(#SemanticCastToInt(I))=>\
+             `small(_)_PARAMETER-CHOICE-PREFER_Small_Int`(\
+             `_+Int_`(#SemanticCastToInt(I),#token(\"1\",\"Int\")))))"],
     );
 }
 

@@ -163,9 +163,6 @@ fn bubble_error(
         }
         | ParseError::Ambiguous {
             span: Some(span), ..
-        }
-        | ParseError::ParameterChoice {
-            span: Some(span), ..
         } => contents
             .and_then(|contents| span_location(attributes, contents, *span))
             .or_else(|| attributes.location()),

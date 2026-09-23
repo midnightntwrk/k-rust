@@ -220,15 +220,6 @@ pub enum ParseError {
         alternatives: Vec<AmbiguousParse>,
         span: Option<TermSpan>,
     },
-    /// One maximal variable typing of a sentence admits several formal-parameter vectors, and
-    /// two of them lower to different terms (`Encoding::check_parameter_choice`).
-    ParameterChoice {
-        /// Each production whose parameters differ, with the two differing values.
-        productions: Vec<String>,
-        first: String,
-        second: String,
-        span: Option<TermSpan>,
-    },
     CyclicParseForest,
     CircularPriorities {
         path: Vec<String>,
@@ -362,29 +353,6 @@ impl fmt::Display for ParseError {
                         index + 1,
                         alternative.production.as_deref().unwrap_or(""),
                         alternative.term
-                    )?;
-                }
-                Ok(())
-            }
-            Self::ParameterChoice {
-                productions,
-                first,
-                second,
-                ..
-            } => {
-                formatter.write_str(
-                    "Sort parameter choice changes the parsed term: the sort constraints admit \
-                     several parameter choices for the same variable sorts, and they parse the \
-                     sentence differently.",
-                )?;
-                for production in productions {
-                    write!(formatter, "\n  parameters of {production}")?;
-                }
-                write!(formatter, "\n1: {first}\n2: {second}")?;
-                if first == second {
-                    formatter.write_str(
-                        "\n(the two terms differ only in their compiler annotations: \
-                         source production, attached sort or origin)",
                     )?;
                 }
                 Ok(())
@@ -1208,8 +1176,6 @@ impl Grammar {
     }
 
     /// The post-inference passes that turn a sort-inferred tree into the parsed term.
-    /// `Encoding::check_parameter_choice` lowers each admissible parameter choice with this same
-    /// function, so the terms it compares are the terms the parse would return.
     fn lower_inferred(&self, inferred: ParsedTerm, start: &Sort) -> Result<Term, ParseError> {
         let resolved = self.resolve_overloaded_terminators(inferred)?;
         let filtered = self.filter_overloads_prefer_avoid(resolved);
