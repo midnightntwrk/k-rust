@@ -3121,6 +3121,187 @@ mod tests {
         }
     }
 
+    /// The order of a generated subsort problem: sorts `S0..S{n-1}` and the nullary sorts in
+    /// `EXTRA_ORDER_SORTS`, related by pairs oriented from the lesser to the greater index, so
+    /// every generated relation is acyclic.
+    const EXTRA_ORDER_SORTS: [&str; 4] = ["K", "KItem", "KList", "#RuleBody"];
+
+    fn order_sort(index: usize, sort_count: usize) -> Sort {
+        if index < sort_count {
+            Sort::new(format!("S{index}"))
+        } else {
+            Sort::new(EXTRA_ORDER_SORTS[(index - sort_count) % EXTRA_ORDER_SORTS.len()])
+        }
+    }
+
+    fn oriented_pairs(pairs: &[(usize, usize)], sort_count: usize) -> BTreeSet<(Sort, Sort)> {
+        let element_count = sort_count + EXTRA_ORDER_SORTS.len();
+        pairs
+            .iter()
+            .map(|(left, right)| (left % element_count, right % element_count))
+            .filter(|(left, right)| left != right)
+            .map(|(left, right)| {
+                (
+                    order_sort(left.min(right), sort_count),
+                    order_sort(left.max(right), sort_count),
+                )
+            })
+            .collect()
+    }
+
+    /// A grammar whose encoding datatype has the generated nullary sorts, the unary head `Box`
+    /// (the top sort `Box{S0}`) and the binary head `Pair` (a production of sort `Pair{S0, S1}`);
+    /// `semantic` and `syntactic` become its two subsort relations.
+    fn order_fixture(
+        sort_count: usize,
+        semantic: &[(usize, usize)],
+        syntactic: &[(usize, usize)],
+    ) -> (Grammar, Sort, TermSorts) {
+        let mut grammar = Grammar::default();
+        for index in 0..sort_count + EXTRA_ORDER_SORTS.len() {
+            grammar
+                .add(
+                    order_sort(index, sort_count),
+                    vec![ProductionItem::Terminal(format!("s{index}"))],
+                    Some(Label::new(format!("s{index}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        grammar
+            .add(
+                Sort::with_parameters("Pair", vec![Sort::new("S0"), Sort::new("S1")]),
+                vec![ProductionItem::Terminal("pair".into())],
+                Some(Label::new("pair")),
+                false,
+                false,
+            )
+            .unwrap();
+        grammar.subsort_relations = oriented_pairs(semantic, sort_count);
+        grammar.syntactic_subsort_relations = oriented_pairs(syntactic, sort_count);
+        let top_sort = Sort::with_parameters("Box", vec![Sort::new("S0")]);
+        (grammar, top_sort, TermSorts::default())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(48))]
+
+        /// Rust side of the hypothesis `hP : P.WF` of `KRust.MaximalModels`
+        /// (lean/KRust/MaximalModels.lean): `Encoding::less_than_eq(_, _, syntactic)` is
+        /// reflexive and transitive on every value of the encoding datatype.
+        /// Fresh constants range over every value a Z3 model can give a variable or a parameter,
+        /// including values of the parametric heads and of the parser sorts that
+        /// `restrict_to_real_sorts` excludes, so Z3 must report an irreflexive or a
+        /// transitivity-breaking assignment unsatisfiable.
+        /// Both relations are checked; the climb and the blocking clause use the syntactic one.
+        #[test]
+        fn subsort_order_is_a_preorder_on_model_values(
+            sort_count in 2usize..5,
+            semantic in proptest::collection::vec((0usize..16, 0usize..16), 0..10),
+            syntactic in proptest::collection::vec((0usize..16, 0usize..16), 0..10),
+        ) {
+            let (grammar, top_sort, term_sorts) = order_fixture(sort_count, &semantic, &syntactic);
+            let encoding =
+                Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
+            let sort = &encoding.datatype.sort;
+            let x = Datatype::new_const("x", sort);
+            let y = Datatype::new_const("y", sort);
+            let z = Datatype::new_const("z", sort);
+            for syntactic in [false, true] {
+                let le = |lesser: &Datatype, greater: &Datatype| {
+                    encoding.less_than_eq(lesser, greater, syntactic).unwrap()
+                };
+                let solver = Solver::new();
+                solver.assert(le(&x, &x).not());
+                prop_assert_eq!(
+                    solver.check(),
+                    SatResult::Unsat,
+                    "less_than_eq(x, x, {}) is falsifiable",
+                    syntactic
+                );
+                let solver = Solver::new();
+                solver.assert(le(&x, &y));
+                solver.assert(le(&y, &z));
+                solver.assert(le(&x, &z).not());
+                prop_assert_eq!(
+                    solver.check(),
+                    SatResult::Unsat,
+                    "less_than_eq(_, _, {}) is not transitive",
+                    syntactic
+                );
+            }
+        }
+
+        /// Rust side of the hypothesis `hR : P.RoundTrip` of `KRust.MaximalModels`: for every
+        /// value `v` that `model.eval` returns for a constant of the encoding datatype,
+        /// `sort_value(decode_sort(v))` is the same Z3 term as `v` (`Datatype`'s `==` is
+        /// `Z3_is_eq_ast`). This extends `cached_sort_values_round_trip`, which starts from
+        /// ground sorts, to the values of models, including nested parametric values.
+        /// The constants are constrained at random (a constructor applied to other constants, a
+        /// tester, an equality or a disequality with a cached ground value), and always so that
+        /// `x3 = Pair(x0, x1)` with `x0 ≠ x1`.
+        #[test]
+        fn model_values_round_trip(
+            sort_count in 2usize..5,
+            semantic in proptest::collection::vec((0usize..16, 0usize..16), 0..6),
+            constraints in proptest::collection::vec(
+                (0usize..4, 0usize..6, 0usize..16, 0usize..16), 0..8,
+            ),
+        ) {
+            let (grammar, top_sort, term_sorts) = order_fixture(sort_count, &semantic, &[]);
+            let encoding =
+                Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
+            let datatype = &encoding.datatype;
+            let ground = encoding.ground_values.borrow().values().cloned().collect::<Vec<_>>();
+            let constants = (0..6)
+                .map(|index| Datatype::new_const(format!("x{index}"), &datatype.sort))
+                .collect::<Vec<_>>();
+            let apply = |head: usize, first: usize| {
+                let variant = &datatype.variants[head % datatype.variants.len()];
+                let arguments = (0..variant.accessors.len())
+                    .map(|offset| &constants[(first + offset) % constants.len()] as &dyn Ast)
+                    .collect::<Vec<_>>();
+                variant.constructor.apply(&arguments).as_datatype().unwrap()
+            };
+            let pair = encoding.head_indexes[&SortHead::new("Pair", 2)];
+            let solver = Solver::new();
+            solver.assert(constants[3].eq(apply(pair, 0)));
+            solver.assert(constants[0].ne(&constants[1]));
+            for (kind, subject, head, other) in &constraints {
+                let subject = &constants[*subject];
+                let constraint = match kind {
+                    0 => subject.eq(apply(*head, *other)),
+                    1 => datatype.variants[head % datatype.variants.len()]
+                        .tester
+                        .apply(&[subject])
+                        .as_bool()
+                        .unwrap(),
+                    2 => subject.eq(&ground[other % ground.len()]),
+                    _ => subject.ne(&ground[other % ground.len()]),
+                };
+                solver.assert(&constraint);
+            }
+            if solver.check() != SatResult::Sat {
+                return Ok(());
+            }
+            let model = solver.get_model().unwrap();
+            for constant in &constants {
+                let value = model.eval(constant, true).unwrap();
+                let sort = encoding.decode_sort(&value).unwrap();
+                let encoded = encoding.sort_value(&sort, &BTreeMap::new()).unwrap();
+                prop_assert!(
+                    encoded == value,
+                    "{} evaluates to {}, which decodes to {} and re-encodes to {}",
+                    constant,
+                    value,
+                    sort,
+                    encoded
+                );
+            }
+        }
+    }
+
     #[test]
     fn encoding_base_covers_its_grammar_sorts() {
         let mut grammar = Grammar::default();
