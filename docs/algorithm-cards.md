@@ -198,7 +198,7 @@ The output lists the added and removed algorithms, every changed span count, alg
 
 ## Summarizing receipts into a cost atlas
 
-An `atlas.toml` index (schema 1) names the receipts of one commit: per receipt its `workload`, `command`, optional ladder `param_name` and numeric `param`, `repeat`, `join` path relative to the index, `wall_seconds`, and `peak_rss_kib`.
+An `atlas.toml` index (schema 1) names the receipts of one commit: per receipt its `workload`, `command`, optional ladder `param_name` and numeric `param`, `repeat`, `join` path relative to the index, and the measured (untraced) run's `wall_seconds`, `peak_rss_kib`, and `stdout_bytes`; each measurement is optional, and `scripts/algo-receipt.sh --atlas` writes all three.
 
 ```sh
 cargo run -p algo-graph -- atlas --index <atlas.toml> [-o atlas.md] [--toml atlas.toml] [--check]
@@ -218,6 +218,12 @@ A workload is its receipts without a parameter, or, for a ladder, its receipts a
 - Slope: along a ladder, an algorithm whose median span count is positive at two or more parameter values is fitted by least squares of ln(value) on ln(param) for its span count, self seconds, and each counter its card declares (measured inside its spans including nested spans), over the parameter values where the median value is positive.
   Each fit prints its slope, its number of points, and R²; a fit from fewer than three points is marked `*`.
   The card's `[[cost]]` bounds and `variable` are printed beside the fit, not parsed.
+- Run growth: each ladder section opens with a table of the whole run at each parameter value (median wall seconds, peak RSS, and stdout size over the repeats that record them) and two slope rows for each of the three: the least-squares fit over every parameter value, with the same points and marks, and the top slope between the two largest parameter values.
+  They measure the whole process, so no algorithm row carries a space bound.
+  A fixed baseline (the binary, the loaded definition) lowers every slope below the exponent of the growing part, most at the smallest parameter values, so the top slope is the least lowered: `fun-build-list-length` at n = 10 to 300 fits peak RSS at 0.80 over the ladder and 2.03 between 100 and 300.
+  A ladder is marked when the peak-RSS fit or top slope exceeds 1.5: the ladders' parameters grow the input at most linearly, so a marked ladder's memory grows superlinearly in its input.
+  A stdout slope close to the peak-RSS slope points at output-driven memory; one well below it points at the algorithms.
+  The TOML output carries the table as `[[ladder.step]]`, each measurement as `ladder.wall_seconds`, `ladder.peak_rss_kib`, and `ladder.stdout_bytes` with its `fit`, `top_slope`, and `top_params`, and the mark as `ladder.memory_marked`.
 - Staleness: every row records the index commit.
   `--check` takes the site files of each listed algorithm (its anchor and sites) from the `graph.toml` beside a receipt's join, which is the graph at the receipt commit, runs `git diff --name-only <commit> -- <files>` in the checkout named by `--root`, prints the algorithms with a changed file, and exits 1 when there is one.
   A change outside the site files, such as in a callee or in a representation the algorithm reads, is not detected.

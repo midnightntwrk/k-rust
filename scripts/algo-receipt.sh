@@ -108,9 +108,9 @@ ALGO_RECEIPT_HEAVY_WAIT_SECONDS (default 600) they exit 4 without recording.
 
 atlas.toml: schema = 1, commit = the full krust revision, and one [[receipt]] per receipt with
 workload, command, param_name and param (ladder workloads only), repeat, join (the join.toml
-path relative to the atlas), wall_seconds and peak_rss_kib of the measured run, and profile
-(the profile.toml path relative to the atlas) once profiled. Recording a receipt again replaces
-its entry.
+path relative to the atlas), wall_seconds, peak_rss_kib and stdout_bytes of the measured run,
+and profile (the profile.toml path relative to the atlas) once profiled. Recording a receipt
+again replaces its entry.
 
 Requires: python3 (3.11 or later), jq, git; for profiles, samply and taskset.
 EOF
@@ -319,7 +319,7 @@ def update_atlas(atlas_path, commit, entries_path, profiles_path):
         return repr(item)
 
     lines = ["schema = 1", f"commit = {json.dumps(commit)}"]
-    order = ["workload", "command", "param_name", "param", "repeat", "join", "wall_seconds", "peak_rss_kib", "profile"]
+    order = ["workload", "command", "param_name", "param", "repeat", "join", "wall_seconds", "peak_rss_kib", "stdout_bytes", "profile"]
     for receipt in receipts:
         lines += ["", "[[receipt]]"]
         lines += [f"{field} = {value(receipt[field])}" for field in order if receipt.get(field) is not None]
@@ -790,10 +790,12 @@ record_receipt() {
       --arg join "$(realpath --relative-to="$(dirname "$atlas")" "$receipt/join.toml")" \
       --argjson wall "$(measure_field "$receipt/measured" wall_seconds)" \
       --argjson rss "$(measure_field "$receipt/measured" peak_rss_kib)" \
+      --argjson stdout_bytes "$stdout_bytes" \
       '{workload: $workload, command: $command,
         param_name: (if $param_name == "" then null else $param_name end),
         param: (if $param == "" then null else ($param | tonumber) end),
-        repeat: $repeat, join: $join, wall_seconds: $wall, peak_rss_kib: $rss}' >>"$atlas_entries"
+        repeat: $repeat, join: $join, wall_seconds: $wall, peak_rss_kib: $rss,
+        stdout_bytes: $stdout_bytes}' >>"$atlas_entries"
   fi
   echo "[$workload${value:+ $value} rep-$index] $(measure_field "$receipt/measured" wall_seconds) s, $(measure_field "$receipt/measured" peak_rss_mib) MiB; traced $(measure_field "$receipt/traced" wall_seconds) s; $receipt"
 }

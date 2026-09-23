@@ -2,9 +2,9 @@
 //! algorithm's work grows along a parameter ladder.
 //!
 //! The atlas reads an `atlas.toml` index of receipts (schema [`INDEX_SCHEMA_VERSION`]) and the
-//! joins it names. Every number follows from the joins by the rules [`SHARE_RULE`],
-//! [`AMDAHL_RULE`], [`CUT_RULE`], [`SLOPE_RULE`], and [`STALENESS_RULE`], which the rendered atlas
-//! repeats in its header.
+//! joins it names. Every number follows from the joins and the index's whole-run measurements by
+//! the rules [`SHARE_RULE`], [`AMDAHL_RULE`], [`CUT_RULE`], [`SLOPE_RULE`], [`RUN_GROWTH_RULE`],
+//! and [`STALENESS_RULE`], which the rendered atlas repeats in its header.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -39,6 +39,12 @@ pub const CUT_RULE: &str = "a workload lists its algorithms by decreasing share 
 
 /// How a growth exponent is fitted along a ladder.
 pub const SLOPE_RULE: &str = "for each ladder, each algorithm whose median span count is positive at two or more parameter values is fitted by ordinary least squares of ln(value) on ln(param), over the parameter values where the value's median over repeats is positive, for its span count, its self seconds, and each counter its card declares, measured inside its spans including nested spans (trace_total). The slope is the growth exponent, points is the number of parameter values fitted, R2 is 1 - residual / total sum of squares (absent when every fitted value is equal), and a fit from fewer than three points is marked *. The card's cost bounds and variable are printed beside the fit, not parsed. In the markdown, the per-call slope is the self-seconds slope minus the span-count slope, the growth of one invocation's own time; rows are sorted by self-seconds slope, and an algorithm whose span-count, self-seconds and counter slopes are all below 0.2 in magnitude (or absent) is listed on one Flat line instead of a row";
+
+/// A ladder whose peak-RSS slope exceeds this is marked by [`RUN_GROWTH_RULE`].
+pub const MEMORY_MARK_SLOPE: f64 = 1.5;
+
+/// How a ladder's whole-run growth is fitted and when a ladder is marked.
+pub const RUN_GROWTH_RULE: &str = "for each ladder, the wall seconds, peak RSS and stdout bytes of each receipt's untraced measured run (the index's wall_seconds, peak_rss_kib and stdout_bytes) are taken as the median over the repeats that record them at each parameter value, and fitted against the parameter over the values where that median is positive: by the least squares of the Slope rule, with the same points, R2 and * marks, and by the top slope, ln(v2 / v1) / ln(p2 / p1) between the two largest such parameter values p1 < p2. They measure the whole process, not an algorithm, so no card bound is printed beside them and no algorithm row carries a space bound. A measurement that is a fixed baseline b (the binary, the loaded definition) plus a growing part c p^k has every such slope between 0 and k, lowered most where b dominates, which is at the smallest parameter values; the top slope is the least lowered. A ladder is marked when the peak-RSS slope or top slope exceeds 1.5: the rule is meant for ladders whose parameter grows the input at most linearly, as every ladder of scripts/algo-workloads.toml does, so a marked ladder's memory grows superlinearly in its input. A stdout slope close to the peak-RSS slope points at output-driven memory (a result that is built or held whole before it is written); a stdout slope well below it points at the algorithms";
 
 /// How a workload's observed nesting outline is built.
 pub const NESTING_RULE: &str = "each workload's outline is the nesting observed on its run, not a declared relation: a child under a parent means the child's span opened while the parent's span was open on the same thread (the join's observed_nest edges), and algorithms without spans do not appear. With repeats, the edges are the first repeat's, and the outline says whether every repeat has the same edges. Roots are algorithms with a positive span count and no observed parent other than themselves; algorithms reachable only through a cycle are added as roots. Children are ordered by decreasing median total-seconds share of span time; a line reads `id - nested N x - total X % - self Y %`, with the span count in place of the nest count for a root. Nesting of an algorithm inside itself is a `(recursive, N x)` note, not a child. An algorithm with several parents is shown in full under the parent with the largest nest count and as `= id` under the others; `^ id (cycle)` marks a child that is already an ancestor on the path. Children and roots below 0.5 % total share are folded into a `+k more (Z %)` line with their summed total share";
@@ -86,6 +92,9 @@ pub struct IndexReceipt {
     pub wall_seconds: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peak_rss_kib: Option<u64>,
+    /// The size of the measured run's standard output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout_bytes: Option<u64>,
     /// The profile.toml of a sampled run, relative to the index file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
@@ -185,6 +194,7 @@ pub struct Rules {
     pub amdahl: String,
     pub cut: String,
     pub slope: String,
+    pub run_growth: String,
     pub staleness: String,
     pub nesting: String,
     pub sampled: String,
@@ -197,6 +207,7 @@ impl Rules {
             amdahl: AMDAHL_RULE.to_owned(),
             cut: CUT_RULE.to_owned(),
             slope: SLOPE_RULE.to_owned(),
+            run_growth: RUN_GROWTH_RULE.to_owned(),
             staleness: STALENESS_RULE.to_owned(),
             nesting: NESTING_RULE.to_owned(),
             sampled: SAMPLED_RULE.to_owned(),
@@ -433,6 +444,15 @@ pub struct Ladder {
     pub workload: String,
     pub param_name: String,
     pub params: Vec<f64>,
+    /// The peak-RSS slope or top slope exceeds [`MEMORY_MARK_SLOPE`] ([`RUN_GROWTH_RULE`]).
+    pub memory_marked: bool,
+    /// Whole-run fits by [`RUN_GROWTH_RULE`].
+    pub wall_seconds: RunFit,
+    pub peak_rss_kib: RunFit,
+    pub stdout_bytes: RunFit,
+    /// The whole-run medians at each parameter value, aligned with `params`.
+    #[serde(rename = "step")]
+    pub steps: Vec<LadderStep>,
     #[serde(rename = "algorithm")]
     pub rows: Vec<LadderRow>,
     /// The parameters with a profile, for the `sampled` rows.
@@ -441,6 +461,118 @@ pub struct Ladder {
     /// Uncarded functions by [`SAMPLED_RULE`].
     #[serde(rename = "sampled", skip_serializing_if = "Vec::is_empty")]
     pub sampled: Vec<SampledLadderRow>,
+}
+
+/// The whole-run measurements at one parameter value of a ladder: each is the median over the
+/// repeats that record it, absent when none does.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct LadderStep {
+    pub param: f64,
+    pub runs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wall_seconds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peak_rss_kib: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout_bytes: Option<f64>,
+}
+
+/// The growth of one whole-run measurement along a ladder by [`RUN_GROWTH_RULE`].
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RunFit {
+    /// The least-squares fit over every parameter value where the median is positive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fit: Option<Fit>,
+    /// The slope between the two largest parameter values where the median is positive.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_slope: Option<f64>,
+    /// Those two parameter values, when there is a top slope.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_params: Vec<f64>,
+}
+
+impl RunFit {
+    /// Fit `(param, value)` points in increasing parameter order.
+    fn of(points: &[(f64, f64)]) -> Self {
+        let positive = points
+            .iter()
+            .copied()
+            .filter(|(param, value)| *param > 0.0 && *value > 0.0)
+            .collect::<Vec<_>>();
+        let top = positive
+            .len()
+            .checked_sub(2)
+            .and_then(|start| fit_power_law(&positive[start..]));
+        Self {
+            fit: fit_power_law(&positive),
+            top_slope: top.map(|top| top.slope),
+            top_params: if top.is_some() {
+                positive[positive.len() - 2..]
+                    .iter()
+                    .map(|(param, _)| *param)
+                    .collect()
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    /// Whether the fit or the top slope exceeds `threshold`.
+    fn exceeds(&self, threshold: f64) -> bool {
+        self.fit.is_some_and(|fit| fit.slope > threshold)
+            || self.top_slope.is_some_and(|slope| slope > threshold)
+    }
+}
+
+/// The whole-run steps of a ladder, the fits of each measurement, and the memory mark, by
+/// [`RUN_GROWTH_RULE`].
+fn run_growth(receipts: &[&LoadedReceipt]) -> (Vec<LadderStep>, [RunFit; 3], bool) {
+    let mut by_param = BTreeMap::<u64, (f64, Vec<&IndexReceipt>)>::new();
+    for receipt in receipts {
+        if let Some(param) = receipt.entry.param {
+            by_param
+                .entry(param.to_bits())
+                .or_insert_with(|| (param, Vec::new()))
+                .1
+                .push(&receipt.entry);
+        }
+    }
+    let mut groups = by_param.into_values().collect::<Vec<_>>();
+    groups.sort_by(|left, right| left.0.total_cmp(&right.0));
+    let median = |entries: &[&IndexReceipt], value: fn(&IndexReceipt) -> Option<f64>| {
+        let values = entries
+            .iter()
+            .filter_map(|entry| value(entry))
+            .collect::<Vec<_>>();
+        (!values.is_empty()).then(|| Spread::of(&values).median)
+    };
+    let steps = groups
+        .iter()
+        .map(|(param, entries)| LadderStep {
+            param: *param,
+            runs: entries.len(),
+            wall_seconds: median(entries, |entry| entry.wall_seconds),
+            peak_rss_kib: median(entries, |entry| entry.peak_rss_kib.map(|kib| kib as f64)),
+            stdout_bytes: median(entries, |entry| {
+                entry.stdout_bytes.map(|bytes| bytes as f64)
+            }),
+        })
+        .collect::<Vec<_>>();
+    let fit = |value: fn(&LadderStep) -> Option<f64>| {
+        RunFit::of(
+            &steps
+                .iter()
+                .filter_map(|step| Some((step.param, value(step)?)))
+                .collect::<Vec<_>>(),
+        )
+    };
+    let fits = [
+        fit(|step| step.wall_seconds),
+        fit(|step| step.peak_rss_kib),
+        fit(|step| step.stdout_bytes),
+    ];
+    let marked = fits[1].exceeds(MEMORY_MARK_SLOPE);
+    (steps, fits, marked)
 }
 
 /// One uncarded function's inclusive share at each profiled parameter of a ladder.
@@ -1145,6 +1277,8 @@ fn nesting(
 
 fn ladder(name: &str, receipts: &[&LoadedReceipt], graph: Option<&Graph>, commit: &str) -> Ladder {
     let (sampled_params, sampled) = sampled_ladder(receipts);
+    let (run_steps, [wall_seconds, peak_rss_kib, stdout_bytes], memory_marked) =
+        run_growth(receipts);
     let mut by_param = BTreeMap::<u64, (f64, Vec<BTreeMap<String, Observed>>)>::new();
     for receipt in receipts {
         if let Some(param) = receipt.entry.param {
@@ -1236,6 +1370,11 @@ fn ladder(name: &str, receipts: &[&LoadedReceipt], graph: Option<&Graph>, commit
             .find_map(|receipt| receipt.entry.param_name.clone())
             .unwrap_or_else(|| "param".to_owned()),
         params: steps.iter().map(|(param, _)| *param).collect(),
+        memory_marked,
+        wall_seconds,
+        peak_rss_kib,
+        stdout_bytes,
+        steps: run_steps,
         rows,
         sampled_params,
         sampled,
@@ -1296,6 +1435,7 @@ impl Atlas {
             ("Ceiling", &self.rules.amdahl),
             ("Cut", &self.rules.cut),
             ("Slope", &self.rules.slope),
+            ("Run growth", &self.rules.run_growth),
             ("Staleness", &self.rules.staleness),
             ("Nesting", &self.rules.nesting),
             ("Sampled", &self.rules.sampled),
@@ -1498,6 +1638,7 @@ impl Atlas {
                     .collect::<Vec<_>>()
                     .join(", ")
             );
+            ladder_run_growth(&mut out, ladder);
             let (flat, mut growing): (Vec<&LadderRow>, Vec<&LadderRow>) =
                 ladder.rows.iter().partition(|row| row.is_flat());
             growing.sort_by(|left, right| {
@@ -1587,6 +1728,73 @@ impl Atlas {
             }
         }
         out
+    }
+}
+
+/// The whole-run table of a ladder, its fits, and the memory mark by [`RUN_GROWTH_RULE`].
+fn ladder_run_growth(out: &mut String, ladder: &Ladder) {
+    let optional = |value: Option<f64>, text: &dyn Fn(f64) -> String| {
+        value.map_or_else(|| "-".to_owned(), text)
+    };
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "Whole run (the untraced measured run of each receipt; medians over repeats):"
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "| {} | runs | wall s | peak RSS MiB | stdout MB |",
+        ladder.param_name
+    );
+    let _ = writeln!(out, "|--:|--:|--:|--:|--:|");
+    for step in &ladder.steps {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} |",
+            number(step.param),
+            step.runs,
+            optional(step.wall_seconds, &significant),
+            optional(step.peak_rss_kib, &|kib| format!("{:.0}", kib / 1024.0)),
+            optional(step.stdout_bytes, &|bytes| significant(bytes / 1e6)),
+        );
+    }
+    let _ = writeln!(
+        out,
+        "| slope (points, R2) | | {} | {} | {} |",
+        fit_text(ladder.wall_seconds.fit.as_ref()),
+        fit_text(ladder.peak_rss_kib.fit.as_ref()),
+        fit_text(ladder.stdout_bytes.fit.as_ref())
+    );
+    let top = |fit: &RunFit| match (fit.top_slope, fit.top_params.as_slice()) {
+        (Some(slope), [from, to]) => format!("{slope:.2} ({}..{})", number(*from), number(*to)),
+        _ => "-".to_owned(),
+    };
+    let _ = writeln!(
+        out,
+        "| top slope (between) | | {} | {} | {} |",
+        top(&ladder.wall_seconds),
+        top(&ladder.peak_rss_kib),
+        top(&ladder.stdout_bytes)
+    );
+    if ladder.memory_marked {
+        // A fit and a top slope exist together: both need two positive parameter values.
+        let exponent = |fit: &RunFit| match (fit.fit, fit.top_slope) {
+            (Some(all), Some(top)) => format!(
+                "{name}^{:.2} (fit), {name}^{top:.2} (top)",
+                all.slope,
+                name = ladder.param_name
+            ),
+            _ => "not fitted".to_owned(),
+        };
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "**Marked: peak RSS grows as {}, above {}^{MEMORY_MARK_SLOPE}; stdout grows as {}.**",
+            exponent(&ladder.peak_rss_kib),
+            ladder.param_name,
+            exponent(&ladder.stdout_bytes)
+        );
     }
 }
 
@@ -1813,6 +2021,7 @@ mod tests {
                 join: format!("{workload}/rep-{repeat}/join.toml"),
                 wall_seconds: Some(wall),
                 peak_rss_kib: Some(2048),
+                stdout_bytes: None,
                 profile: None,
             },
             join_path: PathBuf::from("join.toml"),
@@ -2231,6 +2440,148 @@ mod tests {
         let per_call = markdown.find("| a.per_call |").expect("per-call row");
         let linear = markdown.find("| a.linear |").expect("linear row");
         assert!(per_call < linear, "rows sort by self-seconds slope");
+    }
+
+    #[test]
+    fn ladders_fit_whole_run_growth_and_mark_superlinear_memory() {
+        let at = |workload: &str, n: f64, repeat: u32, rss: Option<f64>, stdout: Option<f64>| {
+            let rows = vec![run("a.linear", n as u64, n / 1000.0, n / 1000.0, &[])];
+            let mut receipt = receipt(
+                workload,
+                Some(n),
+                repeat,
+                join(workload, "c0ffee", rows, &[]),
+                n / 100.0,
+            );
+            receipt.entry.peak_rss_kib = rss.map(|kib| kib as u64);
+            receipt.entry.stdout_bytes = stdout.map(|bytes| bytes as u64);
+            receipt
+        };
+        // "grow": peak RSS 4 n^2 KiB and stdout n^3 bytes; the second repeat at n = 100 has no
+        // RSS, so that step's median is the first repeat's alone. "flat": RSS linear, no stdout.
+        // "baseline": a fixed 100000 KiB plus n^2.5 KiB, which holds the least-squares slope
+        // over n = 10..300 near 0.79 while the top slope (100..300) is about 1.93.
+        let baseline = |n: f64| Some(100_000.0 + n.powf(2.5));
+        let receipts = vec![
+            at("grow", 10.0, 1, Some(400.0), Some(1e3)),
+            at("grow", 100.0, 1, Some(40_000.0), Some(1e6)),
+            at("grow", 100.0, 2, None, Some(1e6)),
+            at("grow", 1000.0, 1, Some(4_000_000.0), Some(1e9)),
+            at("flat", 10.0, 1, Some(10_240.0), None),
+            at("flat", 100.0, 1, Some(102_400.0), None),
+            at("flat", 1000.0, 1, Some(1_024_000.0), None),
+            at("baseline", 10.0, 1, baseline(10.0), Some(1.0)),
+            at("baseline", 30.0, 1, baseline(30.0), Some(1.0)),
+            at("baseline", 100.0, 1, baseline(100.0), Some(1.0)),
+            at("baseline", 300.0, 1, baseline(300.0), Some(1.0)),
+        ];
+        let atlas = atlas(&index(&receipts), &receipts, "regenerate");
+        let ladder = |name: &str| {
+            atlas
+                .ladders
+                .iter()
+                .find(|ladder| ladder.workload == name)
+                .expect(name)
+        };
+        let grow = ladder("grow");
+        assert_eq!(grow.steps[1].runs, 2);
+        assert_eq!(grow.steps[1].peak_rss_kib, Some(40_000.0));
+        let slope = |fit: &RunFit| fit.fit.expect("fit").slope;
+        let top = |fit: &RunFit| fit.top_slope.expect("top slope");
+        assert!((slope(&grow.wall_seconds) - 1.0).abs() < 1e-9);
+        assert!((slope(&grow.peak_rss_kib) - 2.0).abs() < 1e-9);
+        assert!((top(&grow.peak_rss_kib) - 2.0).abs() < 1e-9);
+        assert_eq!(grow.peak_rss_kib.top_params, [100.0, 1000.0]);
+        assert!((slope(&grow.stdout_bytes) - 3.0).abs() < 1e-9);
+        assert_eq!(grow.peak_rss_kib.fit.expect("fit").points, 3);
+        assert!(grow.memory_marked);
+
+        let flat = ladder("flat");
+        assert!((slope(&flat.peak_rss_kib) - 1.0).abs() < 1e-9);
+        assert_eq!(flat.stdout_bytes.fit, None);
+        assert_eq!(flat.stdout_bytes.top_slope, None);
+        assert!(!flat.memory_marked, "linear memory is not marked");
+
+        let baseline = ladder("baseline");
+        assert!(slope(&baseline.peak_rss_kib) < 0.8, "{baseline:?}");
+        assert!(top(&baseline.peak_rss_kib) > 1.9, "{baseline:?}");
+        assert!(baseline.memory_marked, "the top slope marks it");
+        assert_eq!(slope(&baseline.stdout_bytes), 0.0);
+
+        // A slope at the threshold (truncated to whole KiB, so just below it) is not marked, and
+        // a ladder without peak RSS has no fit to mark.
+        let two = vec![
+            at("edge", 10.0, 1, Some(100.0), None),
+            at(
+                "edge",
+                100.0,
+                1,
+                Some(100.0 * 10f64.powf(MEMORY_MARK_SLOPE)),
+                None,
+            ),
+            at("none", 10.0, 1, None, None),
+            at("none", 100.0, 1, None, None),
+        ];
+        let edges = super::atlas(&index(&two), &two, "regenerate");
+        assert!(edges.ladders.iter().all(|ladder| !ladder.memory_marked));
+        assert!(
+            edges.ladders[0]
+                .peak_rss_kib
+                .fit
+                .expect("fit")
+                .fewer_than_three
+        );
+        assert_eq!(edges.ladders[1].peak_rss_kib.fit, None);
+
+        assert!(RUN_GROWTH_RULE.contains(&format!("exceeds {MEMORY_MARK_SLOPE}")));
+        let markdown = atlas.markdown();
+        assert!(
+            markdown.contains("- Run growth: for each ladder"),
+            "{markdown}"
+        );
+        let section = |name: &str| {
+            let start = markdown
+                .find(&format!("## Ladder {name} "))
+                .expect("ladder section");
+            let rest = &markdown[start + 1..];
+            &markdown[start..start + 1 + rest.find("\n## ").unwrap_or(rest.len())]
+        };
+        let grow = section("grow");
+        assert!(
+            grow.contains("| 1000 | 1 | 10.00 | 3906 | 1000 |"),
+            "{grow}"
+        );
+        assert!(
+            grow.contains(
+                "| slope (points, R2) | | 1.00 (3, 1.000) | 2.00 (3, 1.000) | 3.00 (3, 1.000) |"
+            ),
+            "{grow}"
+        );
+        assert!(
+            grow.contains(
+                "| top slope (between) | | 1.00 (100..1000) | 2.00 (100..1000) | 3.00 (100..1000) |"
+            ),
+            "{grow}"
+        );
+        assert!(
+            grow.contains(
+                "**Marked: peak RSS grows as n^2.00 (fit), n^2.00 (top), above n^1.5; stdout grows as n^3.00 (fit), n^3.00 (top).**"
+            ),
+            "{grow}"
+        );
+        let flat = section("flat");
+        assert!(flat.contains("| 10 | 1 | 0.1000 | 10 | - |"), "{flat}");
+        assert!(!flat.contains("Marked"), "{flat}");
+        let baseline = section("baseline");
+        assert!(
+            baseline.contains("**Marked: peak RSS grows as n^0.79 (fit), n^1.93 (top)"),
+            "{baseline}"
+        );
+        let toml = atlas.toml().expect("toml");
+        assert!(toml.contains("memory_marked = true"), "{toml}");
+        assert!(toml.contains("[[ladder.step]]"), "{toml}");
+        assert!(toml.contains("[ladder.peak_rss_kib.fit]"), "{toml}");
+        assert!(toml.contains("top_slope = "), "{toml}");
     }
 
     #[test]
