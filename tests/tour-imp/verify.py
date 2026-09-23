@@ -3,20 +3,22 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
-import subprocess
 import sys
 import tempfile
 
 import sync
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.hashing import sha256_file  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 MANIFEST = HERE / "Cargo.toml"
 SOURCE = HERE / "src" / "lib.rs"
 PACKAGE = "krs-tour-imp"
@@ -24,59 +26,12 @@ DEFINITION = "main"
 GENERATED = HERE / "generated"
 
 
-class GateError(RuntimeError):
-    pass
-
-
-def run(command: list[os.PathLike[str] | str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        [os.fspath(part) for part in command],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        check=False,
-    )
-    if result.returncode:
-        output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
-        raise GateError(f"command failed ({result.returncode}): {' '.join(map(os.fspath, command))}\n{output[:3000]}")
-    return result
-
-
-def z3_library() -> Path:
-    configured = os.environ.get("KRS_Z3_LIB")
-    candidates = [Path(configured)] if configured else []
-    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
-    for candidate in candidates:
-        if candidate.joinpath("libz3.so").is_file():
-            return candidate
-        if candidate.joinpath("lib", "libz3.so").is_file():
-            return candidate / "lib"
-    raise GateError("Z3 4.12.5 is unavailable; set KRS_Z3_LIB")
-
-
 def cli_environment() -> dict[str, str]:
-    env = os.environ.copy()
-    z3 = os.fspath(z3_library())
-    for name in ("LD_LIBRARY_PATH", "LIBRARY_PATH"):
-        env[name] = os.pathsep.join(item for item in (z3, env.get(name)) if item)
-    env["CARGO_TERM_COLOR"] = "never"
-    rustup = shutil.which("rustup")
-    if rustup is not None:
-        located = subprocess.run(
-            [rustup, "which", "--toolchain", "stable", "rustfmt"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if located.returncode == 0 and located.stdout.strip():
-            env["PATH"] = os.pathsep.join(
-                (os.fspath(Path(located.stdout.strip()).parent), env.get("PATH", ""))
-            )
-    return env
+    return {
+        **z3_environment(),
+        "CARGO_TERM_COLOR": "never",
+        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), os.environ.get("PATH", ""))),
+    }
 
 
 def cli(binary: Path, operation: str, *extra: os.PathLike[str] | str) -> list[os.PathLike[str] | str]:
@@ -180,22 +135,20 @@ def main() -> None:
         raise GateError("tour-imp capstone is not byte-identical to the M4 operational authority")
     print("PASS source: capstone and chapter slices match M4 exactly")
 
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        raise GateError("cargo is unavailable")
+    cargo = executable("cargo")
     run([cargo, "check", "--locked", "--offline", "--manifest-path", MANIFEST])
     print("PASS authored: locked/offline Cargo check")
 
     env = cli_environment()
-    run([cargo, "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], env=env)
+    run([cargo, "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], environment=env)
     binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
     if not binary.is_file():
         raise GateError("krs binary was not produced")
 
-    run([binary, "fmt", "--check", "--manifest-path", MANIFEST], env=env)
-    run(cli(binary, "check"), env=env)
-    first_expansion = run(cli(binary, "expand"), env=env).stdout
-    second_expansion = run(cli(binary, "expand"), env=env).stdout
+    run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
+    run(cli(binary, "check"), environment=env)
+    first_expansion = run(cli(binary, "expand"), environment=env).stdout
+    second_expansion = run(cli(binary, "expand"), environment=env).stdout
     if first_expansion != second_expansion:
         raise GateError("expanded IMP reference surface is nondeterministic")
     print("PASS KRS: format, check, and deterministic expansion")
@@ -203,8 +156,8 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="krs-tour-imp-a-") as first_name, tempfile.TemporaryDirectory(prefix="krs-tour-imp-b-") as second_name:
         first = Path(first_name)
         second = Path(second_name)
-        run(cli(binary, "emit-k", "--output", first), env=env)
-        run(cli(binary, "emit-k", "--output", second), env=env)
+        run(cli(binary, "emit-k", "--output", first), environment=env)
+        run(cli(binary, "emit-k", "--output", second), environment=env)
         first_artifacts = artifact_bytes(first)
         if first_artifacts != artifact_bytes(second):
             raise GateError("emitted IMP artifacts are nondeterministic")
@@ -213,7 +166,7 @@ def main() -> None:
         if len(descriptors) != 83:
             raise GateError(f"complete operational IMP must collect 83 descriptors, got {len(descriptors)}")
         sources = json.loads(first_artifacts["sources.json"])
-        digest = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
+        digest = sha256_file(SOURCE)
         authored_frames = [
             frame["range"]["file"]
             for entry in sources.get("entries", [])

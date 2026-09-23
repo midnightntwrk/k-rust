@@ -5,153 +5,33 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
-from typing import Any, Sequence
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.hashing import sha256_file  # noqa: E402
+from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
+from support.process import compact, run  # noqa: E402
+from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 MANIFEST = HERE / "Cargo.toml"
 SOURCE = HERE / "src" / "lib.rs"
 REFERENCE_SOURCE = HERE / "foo-bar.k"
 PACKAGE = "krs-tour-minimal"
 DEFINITION = "main"
 MODULE = "KRS-TOUR-MINIMAL"
-ARTIFACTS = (
-    ".krs-artifacts",
-    "definition-ir.json",
-    "definition.k",
-    "descriptor-bundle.json",
-    "semantic-ir.json",
-    "sources.json",
-    "symbols.json",
-)
-
-
-class GateError(RuntimeError):
-    """A required tour-minimal qualification step failed."""
-
-
-def compact(process: subprocess.CompletedProcess[str], limit: int = 2400) -> str:
-    output = "\n".join(
-        part.strip() for part in (process.stdout, process.stderr) if part.strip()
-    )
-    for path in (ROOT, HERE, Path(tempfile.gettempdir())):
-        output = output.replace(str(path), "<PATH>")
-    return output[:limit] + ("..." if len(output) > limit else "")
-
-
-def run(
-    command: Sequence[str | os.PathLike[str]],
-    *,
-    environment: dict[str, str] | None = None,
-    timeout: int = 600,
-) -> subprocess.CompletedProcess[str]:
-    process = subprocess.run(
-        [os.fspath(part) for part in command],
-        cwd=ROOT,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise GateError(
-            f"command failed ({process.returncode}): {command!r}\n{compact(process)}"
-        )
-    return process
-
-
-def executable(name: str) -> str:
-    result = shutil.which(name)
-    if result is None:
-        raise GateError(f"required executable is unavailable: {name}")
-    return result
-
-
-def z3_library_directory() -> Path:
-    configured = os.environ.get("KRS_Z3_LIB")
-    candidates = [Path(configured)] if configured else []
-    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
-    for candidate in candidates:
-        if candidate.joinpath("libz3.so").is_file():
-            return candidate
-        nested = candidate / "lib"
-        if nested.joinpath("libz3.so").is_file():
-            return nested
-    raise GateError(
-        "Z3 4.12.5 was not found; set KRS_Z3_LIB to its shared-library directory"
-    )
-
-
-def rustfmt_directory() -> Path:
-    """Find a real rustfmt, bypassing an active rustup toolchain without it."""
-
-    configured = os.environ.get("KRS_RUSTFMT")
-    candidates = [Path(configured)] if configured else []
-    on_path = shutil.which("rustfmt")
-    if on_path is not None:
-        candidates.append(Path(on_path))
-
-    rustup = shutil.which("rustup")
-    if rustup is not None:
-        listed = run([rustup, "toolchain", "list"], timeout=30)
-        toolchains = [
-            line.split()[0]
-            for line in listed.stdout.splitlines()
-            if line.strip()
-        ]
-        toolchains.sort(key=lambda name: (not name.startswith("stable"), name))
-        for toolchain in toolchains:
-            located = subprocess.run(
-                [rustup, "which", "--toolchain", toolchain, "rustfmt"],
-                cwd=ROOT,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-            if located.returncode == 0 and located.stdout.strip():
-                candidates.append(Path(located.stdout.strip()))
-
-    for candidate in candidates:
-        probe = subprocess.run(
-            [candidate, "--version"],
-            cwd=ROOT,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        if probe.returncode == 0:
-            return candidate.parent
-    raise GateError(
-        "a working rustfmt was not found; set KRS_RUSTFMT to the executable"
-    )
 
 
 def cli_environment() -> dict[str, str]:
-    environment = os.environ.copy()
-    z3 = os.fspath(z3_library_directory())
-    for name in ("LD_LIBRARY_PATH", "LIBRARY_PATH"):
-        existing = environment.get(name)
-        environment[name] = os.pathsep.join(
-            item for item in (z3, existing) if item
-        )
-    environment["CARGO_TERM_COLOR"] = "never"
-    return environment
+    return {**z3_environment(), "CARGO_TERM_COLOR": "never"}
 
 
 def production_binary(override: Path | None, environment: dict[str, str]) -> Path:
@@ -231,9 +111,9 @@ def load_json(artifacts: dict[str, bytes], name: str) -> Any:
 
 def verify_artifacts(directory: Path) -> dict[str, bytes]:
     names = tuple(sorted(path.name for path in directory.iterdir() if path.is_file()))
-    if names != tuple(sorted(ARTIFACTS)):
-        raise GateError(f"emit-k wrote {names}, expected {tuple(sorted(ARTIFACTS))}")
-    artifacts = {name: (directory / name).read_bytes() for name in ARTIFACTS}
+    if names != tuple(sorted(EMITTED_ARTIFACTS)):
+        raise GateError(f"emit-k wrote {names}, expected {tuple(sorted(EMITTED_ARTIFACTS))}")
+    artifacts = {name: (directory / name).read_bytes() for name in EMITTED_ARTIFACTS}
 
     marker = artifacts[".krs-artifacts"].decode("utf-8")
     if marker != "KRS artifact directory schema 1; safe to update.\n":
@@ -313,7 +193,7 @@ def verify_artifacts(directory: Path) -> dict[str, bytes]:
         raise GateError("reference theory does not contain exactly one bare foo-to-bar transition")
 
     sources = load_json(artifacts, "sources.json")
-    expected_digest = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
+    expected_digest = sha256_file(SOURCE)
     attributed_kinds: set[str] = set()
     for entry in sources.get("entries", []):
         for frame in entry.get("origin", []):
@@ -377,11 +257,10 @@ def main() -> int:
     binary = production_binary(arguments.krs, environment)
 
     before = SOURCE.read_bytes()
-    format_environment = environment.copy()
-    rustfmt = rustfmt_directory()
-    format_environment["PATH"] = os.pathsep.join(
-        (os.fspath(rustfmt), format_environment.get("PATH", ""))
-    )
+    format_environment = {
+        **environment,
+        "PATH": os.pathsep.join((os.fspath(rustfmt_dir()), os.environ.get("PATH", ""))),
+    }
     run(
         [binary, "fmt", "--check", "--manifest-path", MANIFEST, SOURCE],
         environment=format_environment,
@@ -413,7 +292,7 @@ def main() -> int:
         if first_artifacts != second_artifacts:
             changed = sorted(
                 name
-                for name in ARTIFACTS
+                for name in EMITTED_ARTIFACTS
                 if first_artifacts[name] != second_artifacts[name]
             )
             raise GateError(f"repeated emission differs byte-for-byte: {changed}")
@@ -425,6 +304,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (GateError, OSError, subprocess.TimeoutExpired) as error:
+    except (GateError, OSError) as error:
         print(f"FAIL tour-minimal: {error}", file=sys.stderr)
         raise SystemExit(1) from error

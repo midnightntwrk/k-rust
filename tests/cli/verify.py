@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,13 +13,18 @@ import sys
 import tempfile
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.hashing import sha256_bytes  # noqa: E402
+from support.process import compact, run  # noqa: E402
+from support.tools import executable, find_k_tool, k_tool  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent
 FIXTURE = HERE / "fixtures" / "m2"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
-K_VERSION = "v7.1.337"
+K_VERSION = "7.1.337"
 PACKAGE = "krs-cli-oracle-semantics"
 EXPECTED_K_FILES = {
     ".krs-artifacts",
@@ -43,40 +47,11 @@ class Results:
             self.failed = True
 
 
-def run(
-    command: list[str],
-    *,
-    cwd: Path | None = None,
-    env: dict[str, str] | None = None,
-    timeout: int = 300,
-) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        command,
-        cwd=cwd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-        check=False,
-    )
-
-
-def compact(process: subprocess.CompletedProcess[bytes], limit: int = 1000) -> str:
-    output = b"\n".join(part.strip() for part in (process.stdout, process.stderr) if part.strip())
-    text = output.decode("utf-8", errors="replace")
-    for path in (ROOT, HERE, Path(tempfile.gettempdir())):
-        text = text.replace(str(path), "<PATH>")
-    return text[:limit] + ("..." if len(text) > limit else "")
-
-
-def sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def build_cli(results: Results) -> Path | None:
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        results.add("tool_cargo", "FAIL", "cargo is not available on PATH")
+    try:
+        cargo = executable("cargo")
+    except GateError as error:
+        results.add("tool_cargo", "FAIL", str(error))
         return None
     process = run(
         [
@@ -90,7 +65,8 @@ def build_cli(results: Results) -> Path | None:
             "--bin",
             "krs",
         ],
-        cwd=ROOT,
+        check=False,
+        text=False,
     )
     binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
     ok = process.returncode == 0 and binary.is_file()
@@ -136,11 +112,12 @@ def cli_command(
         arguments.extend(["--definition", definition])
     if output is not None:
         arguments.extend(["--output", str(output)])
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = str(target)
-    environment["CARGO_NET_OFFLINE"] = "true"
-    environment["CARGO_TERM_COLOR"] = "never"
-    return run(arguments, cwd=manifest.parent, env=environment)
+    environment = {
+        "CARGO_TARGET_DIR": str(target),
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_TERM_COLOR": "never",
+    }
+    return run(arguments, cwd=manifest.parent, environment=environment, check=False, text=False)
 
 
 def assert_no_leaks(name: str, document: Any, raw: bytes, forbidden_paths: list[Path]) -> None:
@@ -250,7 +227,7 @@ def positive_run(binary: Path, workspace: Path, results: Results) -> dict[str, b
         if expand.returncode != 0:
             raise ValueError(compact(expand))
         verify_expanded_source(expand.stdout, [ROOT, workspace, language, target])
-        results.add(f"{workspace.name}_expand", "PASS", f"canonical expanded Rust sha256={sha256(expand.stdout)}")
+        results.add(f"{workspace.name}_expand", "PASS", f"canonical expanded Rust sha256={sha256_bytes(expand.stdout)}")
     except ValueError as error:
         results.add(f"{workspace.name}_expand", "FAIL", str(error))
         return None
@@ -298,15 +275,15 @@ def positive_run(binary: Path, workspace: Path, results: Results) -> dict[str, b
 def verify_pins(results: Results, artifacts: dict[str, bytes]) -> None:
     pins = json.loads(PINS.read_text(encoding="utf-8"))
     fixture_actual = {
-        "Cargo.toml.in": sha256((FIXTURE / "Cargo.toml.in").read_bytes()),
-        "src/lib.rs": sha256((FIXTURE / "src" / "lib.rs").read_bytes()),
+        "Cargo.toml.in": sha256_bytes((FIXTURE / "Cargo.toml.in").read_bytes()),
+        "src/lib.rs": sha256_bytes((FIXTURE / "src" / "lib.rs").read_bytes()),
     }
     results.add(
         "fixture_pins",
         "PASS" if fixture_actual == pins["fixture_sha256"] else "FAIL",
         f"sha256={fixture_actual}",
     )
-    actual = {name: sha256(data) for name, data in sorted(artifacts.items())}
+    actual = {name: sha256_bytes(data) for name, data in sorted(artifacts.items())}
     results.add(
         "artifact_pins",
         "PASS" if actual == pins["artifacts_sha256"] else "FAIL",
@@ -379,19 +356,14 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
 
 
 def reference_execution(results: Results, artifacts: dict[str, bytes], workspace: Path) -> None:
-    executables = {name: shutil.which(name) for name in ("kompile", "krun")}
-    missing = [name for name, executable in executables.items() if executable is None]
+    missing = [name for name in ("kompile", "krun") if find_k_tool(name) is None]
     if missing:
         results.add("reference_execution", "UNAVAILABLE", f"missing {', '.join(missing)}; K compile/execution did not run", required=False)
         return
-    versions = {}
-    for name, executable in executables.items():
-        assert executable is not None
-        process = run([executable, "--version"], timeout=30)
-        versions[name] = b"\n".join((process.stdout, process.stderr)).decode("utf-8", errors="replace")
-    mismatched = [name for name, version in versions.items() if K_VERSION not in version]
-    if mismatched:
-        results.add("reference_execution", "MISMATCH", f"present tools {mismatched} are not pinned {K_VERSION}; execution was refused")
+    try:
+        executables = {name: k_tool(name, K_VERSION) for name in ("kompile", "krun")}
+    except GateError as error:
+        results.add("reference_execution", "MISMATCH", f"{error}; execution was refused")
         return
 
     workspace.mkdir(parents=True)
@@ -418,12 +390,14 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
             str(definition),
         ],
         timeout=240,
+        check=False,
+        text=False,
     )
     if compile_process.returncode != 0:
         results.add("reference_execution", "FAIL", compact(compile_process))
         return
-    initial = run([executables["krun"], "--definition", str(definition), "--depth", "0", "--output", "kore"], timeout=60)
-    final = run([executables["krun"], "--definition", str(definition), "--output", "kore"], timeout=60)
+    initial = run([executables["krun"], "--definition", str(definition), "--depth", "0", "--output", "kore"], timeout=60, check=False, text=False)
+    final = run([executables["krun"], "--definition", str(definition), "--output", "kore"], timeout=60, check=False, text=False)
     ok = (
         initial.returncode == 0
         and final.returncode == 0

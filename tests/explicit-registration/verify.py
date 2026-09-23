@@ -16,19 +16,21 @@ crate is compiled from.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
-from typing import Any, Sequence
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.hashing import sha256_bytes  # noqa: E402
+from support.process import compact, run  # noqa: E402
+from support.tools import executable, z3_environment  # noqa: E402
 
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 FIXTURE = ROOT / "tests" / "tour-minimal"
 FACADE = ROOT / "crates" / "krs"
 PACKAGE = "krs-tour-minimal"
@@ -59,77 +61,8 @@ fn main() {
 """
 
 
-class GateError(RuntimeError):
-    """A required explicit-registration parity step failed."""
-
-
-def compact(process: subprocess.CompletedProcess[str], limit: int = 2400) -> str:
-    output = "\n".join(
-        part.strip() for part in (process.stdout, process.stderr) if part.strip()
-    )
-    for path in (ROOT, Path(tempfile.gettempdir())):
-        output = output.replace(str(path), "<PATH>")
-    return output[:limit] + ("..." if len(output) > limit else "")
-
-
-def run(
-    command: Sequence[str | os.PathLike[str]],
-    *,
-    environment: dict[str, str],
-    cwd: Path = ROOT,
-    timeout: int = 1200,
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    process = subprocess.run(
-        [os.fspath(part) for part in command],
-        cwd=cwd,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    if check and process.returncode != 0:
-        raise GateError(
-            f"command failed ({process.returncode}): {command!r}\n{compact(process)}"
-        )
-    return process
-
-
-def executable(name: str) -> str:
-    result = shutil.which(name)
-    if result is None:
-        raise GateError(f"required executable is unavailable: {name}")
-    return result
-
-
-def z3_library_directory() -> Path:
-    configured = os.environ.get("KRS_Z3_LIB")
-    candidates = [Path(configured)] if configured else []
-    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
-    for candidate in candidates:
-        if candidate.joinpath("libz3.so").is_file():
-            return candidate
-        nested = candidate / "lib"
-        if nested.joinpath("libz3.so").is_file():
-            return nested
-    raise GateError(
-        "Z3 4.12.5 was not found; set KRS_Z3_LIB to its shared-library directory"
-    )
-
-
 def cli_environment() -> dict[str, str]:
-    environment = os.environ.copy()
-    z3 = os.fspath(z3_library_directory())
-    for name in ("LD_LIBRARY_PATH", "LIBRARY_PATH"):
-        existing = environment.get(name)
-        environment[name] = os.pathsep.join(
-            item for item in (z3, existing) if item
-        )
-    environment["CARGO_TERM_COLOR"] = "never"
-    environment["CARGO_NET_OFFLINE"] = "true"
-    return environment
+    return {**z3_environment(), "CARGO_TERM_COLOR": "never", "CARGO_NET_OFFLINE": "true"}
 
 
 def production_binary(override: Path | None, environment: dict[str, str]) -> Path:
@@ -152,6 +85,7 @@ def production_binary(override: Path | None, environment: dict[str, str]) -> Pat
             "--message-format=json-render-diagnostics",
         ],
         environment=environment,
+        timeout=1200,
     )
     for line in built.stdout.splitlines():
         message = json.loads(line)
@@ -217,6 +151,7 @@ def cargo_metadata(manifest: Path, environment: dict[str, str]) -> dict[str, Any
             manifest,
         ],
         environment=environment,
+        timeout=1200,
     )
     return json.loads(output.stdout)
 
@@ -265,6 +200,7 @@ def take_census(
             census / "Cargo.toml",
         ],
         environment=environment,
+        timeout=1200,
         cwd=census,
     )
     registrations = []
@@ -362,15 +298,12 @@ def emit_bundle(
             output,
         ],
         environment=environment,
+        timeout=1200,
         check=check,
     )
     if process.returncode != 0:
         return None
     return (output / BUNDLE).read_bytes()
-
-
-def digest(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def descriptor_ids(bundle: bytes) -> list[str]:
@@ -424,7 +357,7 @@ def parity(
         raise GateError(f"{name}: explicit-mode collection failed")
     if inventory_bundle != explicit_bundle:
         raise GateError(
-            f"{name}: explicit bundle {digest(explicit_bundle)} differs from inventory bundle {digest(inventory_bundle)}"
+            f"{name}: explicit bundle {sha256_bytes(explicit_bundle)} differs from inventory bundle {sha256_bytes(inventory_bundle)}"
         )
     return {
         "root": root,
@@ -457,6 +390,7 @@ def verify_rejects_inventory(
             workspace / "rejected-out",
         ],
         environment=environment,
+        timeout=1200,
         check=False,
     )
     if process.returncode == 0 or "inventory" not in process.stderr:
@@ -517,17 +451,18 @@ def verify_fixture_difference(
             workspace / "fixture-out",
         ],
         environment=environment,
+        timeout=1200,
     )
     fixture_bundle = (workspace / "fixture-out" / BUNDLE).read_bytes()
-    original = digest((FIXTURE / "src" / "lib.rs").read_bytes())
-    modified = digest(base["source"])
+    original = sha256_bytes((FIXTURE / "src" / "lib.rs").read_bytes())
+    modified = sha256_bytes(base["source"])
     if fixture_bundle.count(original.encode()) == 0:
         raise GateError("the fixture bundle does not carry the fixture source hash")
     if fixture_bundle.replace(original.encode(), modified.encode()) != base["bundle"]:
         raise GateError(
             "the copy's bundle differs from the unmodified fixture beyond the src/lib.rs hash"
         )
-    return digest(fixture_bundle)
+    return sha256_bytes(fixture_bundle)
 
 
 def main() -> int:
@@ -559,7 +494,7 @@ def main() -> int:
         )
         print(
             f"PASS parity: explicit and inventory bundles are byte-identical "
-            f"({len(base['bundle'])} bytes, sha256 {digest(base['bundle'])}, {count} table entries)"
+            f"({len(base['bundle'])} bytes, sha256 {sha256_bytes(base['bundle'])}, {count} table entries)"
         )
 
         fixture_digest = verify_fixture_difference(binary, workspace, base, environment)
@@ -603,10 +538,10 @@ def main() -> int:
             (evidence / "bundle-inventory.json").write_bytes(base["bundle"])
             (evidence / "bundle-explicit.json").write_bytes(base["bundle"])
             (evidence / "hashes.txt").write_text(
-                f"{digest(base['bundle'])}  bundle-inventory.json\n"
-                f"{digest(base['bundle'])}  bundle-explicit.json\n"
+                f"{sha256_bytes(base['bundle'])}  bundle-inventory.json\n"
+                f"{sha256_bytes(base['bundle'])}  bundle-explicit.json\n"
                 f"{fixture_digest}  unmodified tour-minimal bundle\n"
-                f"{digest(hidden['bundle'])}  cfg-variant bundle (both modes)\n",
+                f"{sha256_bytes(hidden['bundle'])}  cfg-variant bundle (both modes)\n",
                 encoding="utf-8",
             )
     print("PASS explicit-registration")
@@ -616,6 +551,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (GateError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+    except (GateError, OSError, json.JSONDecodeError) as error:
         print(f"FAIL explicit-registration: {error}", file=sys.stderr)
         raise SystemExit(1) from error

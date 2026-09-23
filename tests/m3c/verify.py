@@ -6,20 +6,24 @@ from __future__ import annotations
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.checkouts import git_revision  # noqa: E402
+from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.process import compact, run  # noqa: E402
+from support.tools import find_k_tool  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent.parent
 FIXTURES = HERE / "fixtures"
 IMP = FIXTURES / "imp.k"
 INDUCED = FIXTURES / "induced-definition-error.k"
@@ -172,42 +176,11 @@ class Results:
             self.failed = True
 
 
-def run(
-    command: list[str],
-    *,
-    timeout: int = 180,
-    cwd: Path | None = None,
-) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        command,
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout,
-        check=False,
-    )
-
-
-def compact(process: subprocess.CompletedProcess[str], limit: int = 1200) -> str:
-    value = "\n".join(part.strip() for part in (process.stdout, process.stderr) if part.strip())
-    value = re.sub(r"/[A-Za-z0-9_.+@%/=-]+", "<PATH>", value)
-    return value[:limit] + ("…" if len(value) > limit else "")
-
-
-def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
 def aggregate(values: dict[str, Any]) -> str:
     material = "".join(
-        f"{name}\0{canonical(value)}\n" for name, value in sorted(values.items())
+        f"{name}\0{canonical_json(value)}\n" for name, value in sorted(values.items())
     )
-    return hashlib.sha256(material.encode()).hexdigest()
+    return sha256_text(material)
 
 
 def fixture_files() -> list[Path]:
@@ -233,23 +206,25 @@ def verify_pins(results: Results) -> dict[str, Any]:
         "PASS" if tool_pin and upstream_pin else "FAIL",
         "K and modern IMP revisions are exact",
     )
-    actual = {str(path.relative_to(HERE)): sha256(path) for path in fixture_files()}
+    actual = {str(path.relative_to(HERE)): sha256_file(path) for path in fixture_files()}
     results.add(
         "source_hashes",
         "PASS" if actual == pins.get("source_sha256") else "FAIL",
         f"{len(actual)} handwritten source hashes are exact; actual={actual}",
     )
-    layered = {"expr.k": sha256(M3B / "expr.k"), "calc.k": sha256(M3B / "calc.k")}
+    layered = {"expr.k": sha256_file(M3B / "expr.k"), "calc.k": sha256_file(M3B / "calc.k")}
     results.add(
         "m3b_layer",
         "PASS" if layered == pins.get("m3b_sha256") else "FAIL",
         f"the inherited expression/state oracle is exact; hashes={layered}",
     )
     upstream_hashes = {
-        name: sha256(UPSTREAM_DEFINITION / name) for name in ("expr.k", "calc.k", "imp.k")
+        name: sha256_file(UPSTREAM_DEFINITION / name) for name in ("expr.k", "calc.k", "imp.k")
     }
-    revision = run(["git", "rev-parse", "HEAD"], cwd=UPSTREAM, timeout=30)
-    actual_revision = revision.stdout.strip() if revision.returncode == 0 else ""
+    try:
+        actual_revision = git_revision(UPSTREAM)
+    except GateError:
+        actual_revision = ""
     results.add(
         "upstream_sources",
         "PASS"
@@ -282,11 +257,11 @@ def verify_pins(results: Results) -> dict[str, Any]:
 def verify_tools(results: Results) -> dict[str, str]:
     tools: dict[str, str] = {}
     for name in ("kompile", "kast", "kparse", "krun"):
-        executable = shutil.which(name)
+        executable = find_k_tool(name)
         if executable is None:
             results.add(f"tool_{name}", "FAIL", "not found on PATH")
             continue
-        version = run([executable, "--version"], timeout=30)
+        version = run([executable, "--version"], timeout=30, check=False)
         output = "\n".join((version.stdout, version.stderr))
         results.add(
             f"tool_{name}",
@@ -422,9 +397,9 @@ def normalized_definition(definition: dict[str, Any]) -> dict[str, Any]:
                     child = {name: item for name, item in child.items() if name not in METADATA_ATTRIBUTES}
                 result[key] = visit(child)
             if isinstance(result.get("imports"), list):
-                result["imports"].sort(key=canonical)
+                result["imports"].sort(key=canonical_json)
             if isinstance(result.get("localSentences"), list):
-                result["localSentences"].sort(key=canonical)
+                result["localSentences"].sort(key=canonical_json)
             if result.get("node") == "KSyntaxAssociativity":
                 result["tags"].sort()
             if result.get("node") == "KSyntaxPriority":
@@ -551,6 +526,7 @@ def compile_reference(kompile: str, output: Path) -> subprocess.CompletedProcess
             str(output),
         ],
         timeout=300,
+        check=False,
     )
 
 
@@ -564,7 +540,7 @@ def parse_accepted(
             tools["kast"], "--definition", str(definition), "--module", MODULE,
             "--sort", "Stmt", "--output", "json", str(path),
         ]
-        process = run(command, timeout=60)
+        process = run(command, timeout=60, check=False)
         if process.returncode != 0:
             raise RuntimeError(f"accepted parse failed for {path.name}: {compact(process)}")
         term = envelope(process.stdout)["term"]
@@ -575,16 +551,17 @@ def parse_accepted(
         portable = run(
             [tools["kparse"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", str(path)],
             timeout=60,
+            check=False,
         )
         if portable.returncode != 0 or "Lbl" not in portable.stdout:
             raise RuntimeError(f"kparse failed for {path.name}: {compact(portable)}")
-        pretty = run(command[:-2] + ["program", str(path)], timeout=60)
+        pretty = run(command[:-2] + ["program", str(path)], timeout=60, check=False)
         if pretty.returncode != 0:
             raise RuntimeError(f"unparse failed for {path.name}: {compact(pretty)}")
         roundtrip = workspace / f"roundtrip-{path.name}"
         roundtrip.write_text(pretty.stdout, encoding="utf-8")
-        reparsed = run(command[:-1] + [str(roundtrip)], timeout=60)
-        if reparsed.returncode != 0 or canonical(envelope(reparsed.stdout)["term"]) != canonical(term):
+        reparsed = run(command[:-1] + [str(roundtrip)], timeout=60, check=False)
+        if reparsed.returncode != 0 or canonical_json(envelope(reparsed.stdout)["term"]) != canonical_json(term):
             raise RuntimeError(f"parse/unparse/parse changed {path.name}: {compact(reparsed)}")
         unparsed[path.name] = pretty.stdout.strip()
     return trees, unparsed
@@ -607,7 +584,7 @@ def execute_case(
     if depth is not None:
         command.extend(["--depth", str(depth)])
     command.extend(["--output", "json", "-cENV=.Map", str(path)])
-    return run(command, timeout=60)
+    return run(command, timeout=60, check=False)
 
 
 def execute_accepted(krun: str, definition: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -681,7 +658,7 @@ def verify_search(
             )
         state = envelope(ordinary.stdout)["term"]
         search_term = envelope(searched.stdout, search=True)["term"]
-        if canonical(search_frontier(search_term)) != canonical(state):
+        if canonical_json(search_frontier(search_term)) != canonical_json(state):
             raise RuntimeError(f"search frontier differs from execution at {name}@{depth}")
         if nonterminating and final_environment_if_complete(state) is not None:
             raise RuntimeError(f"infinite loop unexpectedly terminated by depth {depth}")
@@ -719,6 +696,7 @@ def verify_rejections(
         process = run(
             [tools["kast"], "--definition", str(definition), "--module", MODULE, "--sort", "Stmt", "--output", "json", str(path)],
             timeout=60,
+            check=False,
         )
         match = re.search(r"Location\((\d+),(\d+),(\d+),(\d+)\)", process.stderr)
         actual = tuple(map(int, match.groups())) if match else None
@@ -752,6 +730,7 @@ def verify_induced_diagnostic(kompile: str, workspace: Path) -> str:
             "--backend", "llvm", "--output-definition", str(workspace / "induced-kompiled"),
         ],
         timeout=120,
+        check=False,
     )
     match = re.search(r"Location\((\d+),(\d+),(\d+),(\d+)\)", process.stderr)
     actual = tuple(map(int, match.groups())) if match else None
@@ -781,8 +760,8 @@ def reference_oracle(
         compiled = json.loads((definition / "compiled.json").read_text(encoding="utf-8"))
         verify_definition_structure(parsed, compiled)
         definition_hashes = {
-            "parsed": hashlib.sha256(canonical(normalized_definition(parsed)).encode()).hexdigest(),
-            "compiled": hashlib.sha256(canonical(normalized_definition(compiled)).encode()).hexdigest(),
+            "parsed": json_sha256(normalized_definition(parsed)),
+            "compiled": json_sha256(normalized_definition(compiled)),
         }
         results.add(
             "definition_structure",
@@ -846,7 +825,7 @@ def reference_oracle(
         )
 
         induced = verify_induced_diagnostic(tools["kompile"], workspace)
-        induced_hash = hashlib.sha256(induced.encode()).hexdigest()
+        induced_hash = sha256_text(induced)
         results.add(
             "definition_diagnostic",
             "PASS" if induced_hash == pins.get("induced_diagnostic_sha256") else "FAIL",

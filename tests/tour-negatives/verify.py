@@ -6,45 +6,25 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from support import ROOT, GateError  # noqa: E402
+from support.process import compact, render, run  # noqa: E402
+from support.tools import executable, z3_environment  # noqa: E402
+
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
 MACRO_NEGATIVES = ROOT / "crates" / "krs-macros" / "tests" / "fixtures" / "negative"
 
 
-class GateError(RuntimeError):
-    pass
+def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
+    """Run a command the negative case requires to fail."""
 
-
-def run(command: list[str], *, success: bool) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    candidates = []
-    if configured := os.environ.get("KRS_Z3_LIB"):
-        candidates.append(Path(configured))
-    candidates.extend(Path("/nix/store").glob("*-z3-4.12.5-lib/lib"))
-    z3 = next((path for path in candidates if path.joinpath("libz3.so").is_file()), None)
-    if z3 is not None:
-        for name in ("LD_LIBRARY_PATH", "LIBRARY_PATH"):
-            env[name] = os.pathsep.join(
-                value for value in (os.fspath(z3), env.get(name)) if value
-            )
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=600,
-        check=False,
-    )
-    if (result.returncode == 0) != success:
-        output = "\n".join(part.strip() for part in (result.stdout, result.stderr) if part.strip())
-        expectation = "succeed" if success else "fail"
-        raise GateError(f"command should {expectation}: {' '.join(command)}\n{output[:3000]}")
+    result = run(command, environment=z3_environment(), check=False)
+    if result.returncode == 0:
+        raise GateError(f"command should fail: {render(command)}\n{compact(result)}")
     return result
 
 
@@ -62,22 +42,18 @@ def primary_error(output: str) -> dict[str, object]:
 
 
 def check_rust_negative(binary: str, message: str, token: str) -> None:
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        raise GateError("cargo is unavailable")
-    result = run(
+    result = run_failing(
         [
-            cargo,
+            executable("cargo"),
             "check",
             "--locked",
             "--offline",
             "--manifest-path",
-            os.fspath(MACRO_NEGATIVES / "Cargo.toml"),
+            MACRO_NEGATIVES / "Cargo.toml",
             "--bin",
             binary,
             "--message-format=json",
         ],
-        success=False,
     )
     diagnostic = primary_error(result.stdout)
     if diagnostic.get("message") != message:
@@ -93,23 +69,22 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
 
 
 def check_overlap() -> None:
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        raise GateError("cargo is unavailable")
-    run([cargo, "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], success=True)
-    executable = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
-    result = run(
+    run(
+        [executable("cargo"), "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
+        environment=z3_environment(),
+    )
+    binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
+    result = run_failing(
         [
-            os.fspath(executable),
+            binary,
             "check",
             "--manifest-path",
-            os.fspath(HERE / "Cargo.toml"),
+            HERE / "Cargo.toml",
             "--package",
             "krs-tour-negatives",
             "--definition",
             "main",
         ],
-        success=False,
     )
     lines = [line for line in result.stderr.splitlines() if line.startswith("{")]
     if len(lines) != 1:
