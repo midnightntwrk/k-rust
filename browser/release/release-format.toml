@@ -62,7 +62,7 @@ description = """One entry per role; each has `status` ("present", "absent", or 
 unknown_value_encoding)."""
 krs-target-dependencies = "target-rlib, sysroot-supplement, and proc-macro-metadata assets of the pack"
 krs-expander = "the IR-11 expander module (path C, G1); `protocol` names its JSON protocol"
-lesson-policy = "the IR-13 policy module; `version` is the policy version"
+lesson-policy = "the IR-13 policy module; `version` is the policy version every staged lesson.json selects"
 collector-template = "status in-worker-bundle: browser/worker/src/collector-template.ts is compiled into worker.js; `source_git_blob` identifies it"
 direct-rustc-arguments = "the [direct_rustc] tables of pack-manifest.toml and pack.json"
 runtime-wasm = "status absent until IR-19 produces krs-lower-wasm and k-rust for Wasm; `reason` says why"

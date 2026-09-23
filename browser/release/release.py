@@ -688,6 +688,10 @@ def assemble(args: argparse.Namespace) -> int:
             entry["load_mode"] = "WebAssembly.compile after digest verification"
         entries.append(entry)
     ids = lambda *roles: sorted(e["id"] for e in entries if e["role"] in roles)
+    policy_versions = sorted({json.loads(path.read_text())["policy"]["version"]
+                              for asset_id, path in assets.items() if asset_id.startswith("lessons/") and asset_id.endswith("/lesson.json")})
+    if len(policy_versions) != 1:
+        die(f"the staged lessons select policy versions {policy_versions}; a release records exactly one")
     collector_template = repo / "browser/worker/src/collector-template.ts"
     release = {
         "schema": 1,
@@ -711,7 +715,7 @@ def assemble(args: argparse.Namespace) -> int:
         "roles": {
             "krs-target-dependencies": {"status": "present", "assets": ids("target-rlib", "sysroot-supplement", "proc-macro-metadata")},
             "krs-expander": {"status": "present", "path": "C (G1)", "assets": ids("krs-expander"), "protocol": "krs-expand-wasm JSON protocol schema 1 (crates/krs-expand-wasm/src/protocol.rs)"},
-            "lesson-policy": {"status": "present", "assets": ids("lesson-policy"), "version": 1},
+            "lesson-policy": {"status": "present", "assets": ids("lesson-policy"), "version": policy_versions[0]},
             "collector-template": {"status": "in-worker-bundle", "source": "browser/worker/src/collector-template.ts",
                                    "source_git_blob": git(repo, "rev-parse", "HEAD:browser/worker/src/collector-template.ts") if collector_template.is_file() else None},
             "direct-rustc-arguments": {"status": "present", "assets": ["pack/pack-manifest.toml", "pack.json"], "table": "[direct_rustc] of pack-manifest.toml; direct_rustc of pack.json"},
