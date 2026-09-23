@@ -13,6 +13,7 @@
 #   command     kcompile, kprove or krun; the recorder adds --timings, --trace-aggregate and
 #               KRUST_COUNTERS and redirects standard input from /dev/null
 #   weight      light (recorded with --repeat 3) or heavy (once, under the memory guard)
+#   memory_gib  heavy only: the guard's scope in GiB instead of its 16 GiB default
 #   pins        [reference.*] sections of scripts/reference-differential.toml whose checkouts must
 #               be at their pinned revision (k, imp, kevm, kevm-plugin, wasm, mir)
 #   args        the measured command's arguments after the subcommand
@@ -324,10 +325,10 @@ stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(
 stdout_absent = ['\or{']
 
 # Heavy compiles: benchmark.sh's KEVM compile phase and the WASM and MIR cases of
-# scripts/reference-differential.toml in their kore/llvm pairing. Their haskell/rust pairing
-# (--backend rust; WASM also with --md-selector "k & ! concrete") exceeded the memory guard's
-# 16 GiB scope at the commit that added this manifest, WASM after about 80 s and MIR after
-# about 55 s, so it cannot be recorded under the guard.
+# scripts/reference-differential.toml in both pairings. The haskell/rust pairing (--backend rust,
+# with --md-selector "k & ! concrete") peaked at 20.5 GiB (WASM) and 29.2 GiB (MIR) at 9c81f35b,
+# almost all of it while writing execution.json (draft/optimization-tickets OT-05), so those two
+# workloads carry a 40 GiB scope.
 [[workload]]
 name = "kevm-compile"
 command = "kcompile"
@@ -382,3 +383,41 @@ args = [
 ]
 [workload.check]
 files = ["${run}/compiled/definition.kore"]
+
+[[workload]]
+name = "wasm-compile-rust"
+command = "kcompile"
+weight = "heavy"
+memory_gib = 40
+pins = ["k", "wasm"]
+args = [
+  "${wasm}/pykwasm/src/pykwasm/kdist/wasm-semantics/test.md",
+  "--main-module", "WASM-TEST",
+  "--backend", "rust",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "--md-selector", "k & ! concrete",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/execution.json"]
+
+[[workload]]
+name = "mir-compile-rust"
+command = "kcompile"
+weight = "heavy"
+memory_gib = 40
+pins = ["k", "mir"]
+args = [
+  "${mir}/kmir/src/kmir/kdist/mir-semantics/kmir.md",
+  "--main-module", "KMIR",
+  "--backend", "rust",
+  "--output-directory", "${run}/compiled",
+  "--emit-json",
+  "-I", "${mir}/kmir/src/kmir/kdist",
+  "--md-selector", "k & ! concrete",
+  "--syntax-module", "KMIR-AST",
+  "--builtin-directory", "${builtin}",
+]
+[workload.check]
+files = ["${run}/compiled/definition.kore", "${run}/compiled/execution.json"]

@@ -77,8 +77,9 @@ Environment:
                     scripts/reference-manifest.py)
 
 Heavy workloads run the whole job under scripts/reference-memory-guard.sh (a 16 GiB user
-scope, or the RLIMIT_AS fallback), and first wait until /proc/meminfo reports
-ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB (default 24) GiB available; after
+scope, or the workload's memory_gib; or the RLIMIT_AS fallback 8 GiB above it), and first wait
+until /proc/meminfo reports ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB (default 24, and at least
+memory_gib + 8) GiB available; after
 ALGO_RECEIPT_HEAVY_WAIT_SECONDS (default 600) they exit 4 without recording.
 
 atlas.toml: schema = 1, commit = the full krust revision, and one [[receipt]] per receipt with
@@ -224,6 +225,7 @@ def resolve(name, param, prepared, run, input_path, shape=False):
         "name": entry["name"],
         "command": entry["command"],
         "weight": entry["weight"],
+        "memory_gib": entry.get("memory_gib"),
         "args": expand(entry["args"], variables),
         "prepare": prepare,
         "check": check,
@@ -238,6 +240,8 @@ def resolve(name, param, prepared, run, input_path, shape=False):
         raise SystemExit(f"error: {name} has unknown command {result['command']}")
     if result["weight"] not in ("light", "heavy"):
         raise SystemExit(f"error: {name} has unknown weight {result['weight']}")
+    if result["memory_gib"] is not None and result["weight"] != "heavy":
+        raise SystemExit(f"error: {name} sets memory_gib but is not heavy")
     print(json.dumps(result))
 
 
@@ -372,6 +376,7 @@ command -v jq >/dev/null 2>&1 || fail "jq is required"
 # The workload's shape: its weight, command, pins, and ladder values.
 shape=$(helper shape "$manifest" "$pins_manifest" "$workload")
 weight=$(jq -r .weight <<<"$shape")
+memory_gib=$(jq -r '.memory_gib // empty' <<<"$shape")
 command_kind=$(jq -r .command <<<"$shape")
 mapfile -t ladder_values < <(jq -r '.ladder_values[]' <<<"$shape")
 if ((${#ladder_values[@]})); then
@@ -436,12 +441,21 @@ if [[ "$dry_run" == 1 ]]; then
     printf 'traced: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.traced.json" \
       "$(shell_command "$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate RECEIPT/trace-aggregate.json)"
     printf 'check: %s\n' "$(jq -c .check <<<"$resolved")"
-    [[ "$weight" != heavy ]] || echo "guard: the whole job runs under scripts/reference-memory-guard.sh"
+    [[ "$weight" != heavy ]] || echo "guard: the whole job runs under scripts/reference-memory-guard.sh${memory_gib:+ with a $memory_gib GiB scope}"
   done
   exit
 fi
 
 if [[ "$weight" == heavy ]]; then
+  if [[ -n "$memory_gib" ]]; then
+    # The workload's own scope; the fallback's address-space limit and the availability wait
+    # keep the guard's 8 GiB of headroom above it.
+    export REFERENCE_DIFFERENTIAL_JOB_MEMORY_HIGH_KIB=$((memory_gib * 1024 * 1024))
+    export REFERENCE_DIFFERENTIAL_JOB_MEMORY_MAX_KIB=$((memory_gib * 1024 * 1024))
+    export REFERENCE_DIFFERENTIAL_JOB_FALLBACK_VIRTUAL_MEMORY_KIB=$(((memory_gib + 8) * 1024 * 1024))
+    ((ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB >= memory_gib + 8)) \
+      || ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB=$((memory_gib + 8))
+  fi
   # shellcheck disable=SC1091  # followed by shellcheck -x
   source "$workspace/scripts/reference-memory-guard.sh"
   reference_enter_whole_job "${original_args[@]}"
