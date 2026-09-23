@@ -2,26 +2,27 @@
 //! id = "definition.json.encode"
 //! name = "KAST JSON encoding of flat definitions"
 //! sites = ["to_string", "to_string_pretty", "to_provenance_string", "to_provenance_string_pretty", "serialize_provenance"]
-//! variable = "N = encoded definition nodes"
+//! variable = "N = encoded definition nodes; L = links of the distinct origin-set allocations the receipts share"
 //! counters = ["ProvenanceReceiptRenders"]
 //! constrains = [{ id = "definition.provenance.record", site = "serialize_provenance", via = "AttributeKey::Origin records generated origins and is excluded from semantic comparison before provenance serialization" }]
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N)"
+//! bound = "O(N + L)"
 //! ```
 //!
 //! This definition-layer algorithm scans or transforms its model in deterministic declaration order.
-//! Complexity: O(N) over encoded definition nodes.
+//! Complexity: O(N + L): each receipt is encoded once and names its origin set by index into the provenance envelope's table, which holds each distinct set once; a set shared by many receipts is looked up by its allocation after its first encounter, so its links are hashed and written once.
 //! Cost is linear in visited syntax unless its local documentation states another bound; `ProvenanceReceiptRenders` counts origin receipts rendered during provenance encoding.
 //!
 //! KAST JSON version 4 serialization for flat K definitions.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
+use k_rust_kore::measure::{self, Counter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -45,7 +46,10 @@ pub(crate) fn label_json(label: &Label) -> Value {
 /// Wire-format discriminator for definitions that retain compiler provenance.
 pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// Current [`PROVENANCE_FORMAT`] schema version.
-pub const PROVENANCE_VERSION: u32 = 2;
+///
+/// Version 3 writes each distinct origin set once, in the envelope's `originSets` table, and a
+/// receipt's `origins` is an index into that table.
+pub const PROVENANCE_VERSION: u32 = 3;
 
 #[derive(Debug)]
 pub enum Error {
@@ -167,6 +171,8 @@ struct ProvenanceEnvelope {
     version: u32,
     term: JsonDefinition,
     sources: Vec<JsonSourceRecord>,
+    /// Distinct origin sets in first-encounter order; receipts refer to them by index.
+    origin_sets: Vec<Vec<JsonProvenanceLink>>,
     term_metadata: Vec<JsonTermMetadataEntry>,
 }
 
@@ -222,7 +228,7 @@ struct JsonTermMetadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sort: Option<JsonSort>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    origin: Option<JsonOriginRecord>,
+    origin: Option<JsonOriginReceipt>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -233,12 +239,38 @@ struct JsonTermSpan {
     end: usize,
 }
 
+/// Wire form of one origin receipt: `origins` indexes the envelope's `originSets` table, so an
+/// origin set shared by many receipts is written once per document.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct JsonOriginRecord {
+struct JsonOriginReceipt {
     pass: String,
-    origins: Vec<JsonProvenanceLink>,
+    origins: u32,
     destination: Option<JsonDestinationAnchor>,
+}
+
+/// In-memory JSON form of a receipt held as a raw attribute value (`OriginRecord::to_value`):
+/// its source links name a [`SourceId`] of the definition's source table.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MemoryOriginRecord {
+    pass: String,
+    origins: Vec<MemoryProvenanceLink>,
+    destination: Option<JsonDestinationAnchor>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+enum MemoryProvenanceLink {
+    Source {
+        source: usize,
+        start: usize,
+        end: usize,
+    },
+    Sentence {
+        #[serde(rename = "uniqueId")]
+        unique_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -285,12 +317,14 @@ fn serialize_provenance(
     source_table: &SourceTable,
     serializer: impl FnOnce(&ProvenanceEnvelope) -> Result<String, serde_json::Error>,
 ) -> Result<String, Error> {
-    let mut wire_definition = definition.clone();
-    map_definition_attributes(&mut wire_definition, |attributes| {
-        encode_attribute_sources(attributes, source_table)
-    })?;
+    let mut encoder = ProvenanceEncoder::new(source_table);
+    // The wire definition is built from the borrowed definition: attributes are encoded as they
+    // are visited, so no receipt is rendered into the in-memory JSON form and no copy of the
+    // definition is made.
+    let term =
+        JsonDefinition::encode(definition, &mut |attributes| encoder.attributes(attributes))?;
     let mut term_metadata = Vec::new();
-    collect_definition_metadata(definition, source_table, &mut term_metadata)?;
+    collect_definition_metadata(definition, &mut encoder, &mut term_metadata)?;
     let sources = source_table
         .iter()
         .enumerate()
@@ -305,8 +339,9 @@ fn serialize_provenance(
     let envelope = ProvenanceEnvelope {
         format: PROVENANCE_FORMAT.into(),
         version: PROVENANCE_VERSION,
-        term: (&wire_definition).try_into()?,
+        term,
         sources,
+        origin_sets: encoder.origin_sets,
         term_metadata,
     };
     serializer(&envelope).map_err(Into::into)
@@ -341,9 +376,10 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
                 .map_err(Error::InvalidProvenance)?;
         }
     }
+    let origin_sets = decode_origin_sets(envelope.origin_sets, &source_table)?;
     let mut definition: Definition = envelope.term.try_into()?;
     map_definition_attributes(&mut definition, |attributes| {
-        decode_attribute_sources(attributes, &source_table)
+        decode_attribute_sources(attributes, &source_table, &origin_sets)
     })?;
     let mut addresses = BTreeSet::new();
     for entry in envelope.term_metadata {
@@ -359,7 +395,7 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
             ));
         }
         let term = addressed_term_mut(&mut definition, &entry)?;
-        let metadata = decode_term_metadata(entry.metadata, &source_table)?;
+        let metadata = decode_term_metadata(entry.metadata, &source_table, &origin_sets)?;
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
         *term = taken.with_metadata(metadata);
     }
@@ -397,39 +433,173 @@ fn map_definition_attributes(
     Ok(())
 }
 
-fn encode_attribute_sources(
-    attributes: &mut Attributes,
-    source_table: &SourceTable,
-) -> Result<(), Error> {
-    if let Some(source) = attributes.value(AttributeKey::SourceId) {
-        let source = source
-            .as_u64()
-            .and_then(|source| usize::try_from(source).ok())
-            .map(SourceId)
-            .ok_or_else(|| Error::InvalidProvenance("source id is not a valid index".into()))?;
-        attributes.set(
-            AttributeKey::SourceId,
-            serde_json::to_value(json_source(source_table, source)?)?,
-        );
+/// Encoder state of one `KRUST-PROVENANCE` document: the source table the definition's source
+/// ids index, and the table of distinct origin sets written so far.
+struct ProvenanceEncoder<'a> {
+    source_table: &'a SourceTable,
+    origin_sets: Vec<Vec<JsonProvenanceLink>>,
+    // Table index of every origin set already written, keyed by its links.
+    by_links: HashMap<Arc<[ProvenanceLink]>, u32>,
+    // Table index of every shared allocation already looked up, keyed by its address. The entry
+    // holds the allocation, so the address cannot be reused by another set while encoding.
+    by_allocation: HashMap<*const ProvenanceLink, (u32, Arc<[ProvenanceLink]>)>,
+}
+
+impl<'a> ProvenanceEncoder<'a> {
+    fn new(source_table: &'a SourceTable) -> Self {
+        Self {
+            source_table,
+            origin_sets: Vec::new(),
+            by_links: HashMap::new(),
+            by_allocation: HashMap::new(),
+        }
     }
-    if let Some(mut origin) = attributes.value(AttributeKey::Origin).cloned() {
-        map_origin_attribute_sources(&mut origin, |value| {
-            let source = value
+
+    /// The table index of `origins`, adding the set on its first encounter.
+    ///
+    /// Equal sets receive one index whether or not they share an allocation. A shared allocation
+    /// is resolved by its address after its first lookup, so the links of a set shared by many
+    /// receipts are compared and encoded once.
+    fn origin_set(&mut self, origins: &Arc<[ProvenanceLink]>) -> Result<u32, Error> {
+        let allocation = Arc::as_ptr(origins).cast::<ProvenanceLink>();
+        if let Some((index, _)) = self.by_allocation.get(&allocation) {
+            return Ok(*index);
+        }
+        let index = match self.by_links.get(origins) {
+            Some(index) => *index,
+            None => {
+                let index = u32::try_from(self.origin_sets.len())
+                    .map_err(|_| Error::InvalidProvenance("too many origin sets".into()))?;
+                let links = origins
+                    .iter()
+                    .map(|link| encode_link(link, self.source_table))
+                    .collect::<Result<_, _>>()?;
+                self.origin_sets.push(links);
+                self.by_links.insert(Arc::clone(origins), index);
+                index
+            }
+        };
+        self.by_allocation
+            .insert(allocation, (index, Arc::clone(origins)));
+        Ok(index)
+    }
+
+    fn receipt(&mut self, origin: &OriginRecord) -> Result<JsonOriginReceipt, Error> {
+        measure::bump(Counter::ProvenanceReceiptRenders);
+        Ok(JsonOriginReceipt {
+            pass: origin.pass.as_str().into(),
+            origins: self.origin_set(&origin.origins)?,
+            destination: origin
+                .destination
+                .as_ref()
+                .map(|destination| JsonDestinationAnchor {
+                    module: destination.module.clone(),
+                    sentence: destination.sentence.clone(),
+                    sentence_index: destination.sentence_index,
+                    path: destination.path.clone(),
+                }),
+        })
+    }
+
+    /// The wire attributes: the source id becomes its logical identity and the origin receipt
+    /// refers to its origin set by table index.
+    fn attributes(&mut self, attributes: &Attributes) -> Result<JsonAttributes, Error> {
+        let mut att = attributes.semantic_entries().clone();
+        if let Some(source) = att.get_mut(AttributeKey::SourceId.as_str()) {
+            let id = source
                 .as_u64()
-                .and_then(|value| usize::try_from(value).ok())
+                .and_then(|source| usize::try_from(source).ok())
                 .map(SourceId)
-                .ok_or_else(|| Error::InvalidProvenance("origin source is not an index".into()))?;
-            Ok(serde_json::to_value(json_source(source_table, source)?)?)
-        })?;
-        let origin = decode_origin(serde_json::from_value(origin)?, source_table)?;
-        attributes.set_origin(serde_json::to_value(encode_origin(&origin, source_table)?)?);
+                .ok_or_else(|| Error::InvalidProvenance("source id is not a valid index".into()))?;
+            *source = serde_json::to_value(json_source(self.source_table, id)?)?;
+        }
+        if let Some(receipt) = attributes.origin_receipt() {
+            let receipt = match receipt.record() {
+                Some(record) => self.receipt(record)?,
+                None => self.receipt(&memory_origin_record(receipt.value())?)?,
+            };
+            att.insert(
+                AttributeKey::Origin.as_str().into(),
+                serde_json::to_value(receipt)?,
+            );
+        }
+        Ok(JsonAttributes {
+            node: AttributeNode::KAtt,
+            att,
+        })
     }
-    Ok(())
+
+    fn term_metadata(&mut self, metadata: &TermMetadata) -> Result<JsonTermMetadata, Error> {
+        Ok(JsonTermMetadata {
+            span: metadata
+                .span
+                .map(|span| encode_span(span, self.source_table))
+                .transpose()?,
+            production: metadata.production.map(ProductionIdentity::to_hex),
+            sort: metadata.sort.as_ref().map(Into::into),
+            origin: metadata
+                .origin
+                .as_deref()
+                .map(|origin| self.receipt(origin))
+                .transpose()?,
+        })
+    }
+}
+
+/// Read a receipt stored as a raw attribute value in its in-memory JSON form.
+fn memory_origin_record(value: &Value) -> Result<OriginRecord, Error> {
+    let record = MemoryOriginRecord::deserialize(value)?;
+    Ok(OriginRecord {
+        pass: decode_pass(&record.pass)?,
+        origins: record
+            .origins
+            .into_iter()
+            .map(|link| match link {
+                MemoryProvenanceLink::Source { source, start, end } => ProvenanceLink::Source {
+                    span: TermSpan {
+                        source: SourceId(source),
+                        start,
+                        end,
+                    },
+                },
+                MemoryProvenanceLink::Sentence { unique_id } => {
+                    ProvenanceLink::Sentence { unique_id }
+                }
+            })
+            .collect::<Vec<_>>()
+            .into(),
+        destination: record.destination.map(decode_destination),
+    })
+}
+
+/// Decode the origin-set table; each entry becomes one shared allocation.
+fn decode_origin_sets(
+    origin_sets: Vec<Vec<JsonProvenanceLink>>,
+    source_table: &SourceTable,
+) -> Result<Vec<Arc<[ProvenanceLink]>>, Error> {
+    let decoded = origin_sets
+        .into_iter()
+        .map(|links| {
+            links
+                .into_iter()
+                .map(|link| decode_link(link, source_table))
+                .collect::<Result<Vec<_>, _>>()
+                .map(Arc::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut distinct = HashSet::with_capacity(decoded.len());
+    if !decoded.iter().all(|origins| distinct.insert(origins)) {
+        return Err(Error::InvalidProvenance(
+            "provenance origin-set table contains a duplicate set".into(),
+        ));
+    }
+    Ok(decoded)
 }
 
 fn decode_attribute_sources(
     attributes: &mut Attributes,
     source_table: &SourceTable,
+    origin_sets: &[Arc<[ProvenanceLink]>],
 ) -> Result<(), Error> {
     if let Some(source) = attributes.value(AttributeKey::SourceId).cloned() {
         attributes.set(
@@ -437,32 +607,9 @@ fn decode_attribute_sources(
             Value::from(source_id_from_value(source, source_table)?.0),
         );
     }
-    if let Some(origin) = attributes.value(AttributeKey::Origin).cloned() {
-        let origin = decode_origin(serde_json::from_value(origin)?, source_table)?;
+    if let Some(origin) = attributes.value(AttributeKey::Origin) {
+        let origin = decode_receipt(JsonOriginReceipt::deserialize(origin)?, origin_sets)?;
         attributes.set_origin_record(origin);
-    }
-    Ok(())
-}
-
-fn map_origin_attribute_sources(
-    origin: &mut Value,
-    mut map: impl FnMut(&Value) -> Result<Value, Error>,
-) -> Result<(), Error> {
-    let origins = origin
-        .get_mut("origins")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| Error::InvalidProvenance("origin attribute has no origins array".into()))?;
-    for link in origins {
-        if link.get("kind").and_then(Value::as_str) != Some("source") {
-            continue;
-        }
-        let source = link
-            .get("source")
-            .ok_or_else(|| Error::InvalidProvenance("source origin has no source".into()))?;
-        let mapped = map(source)?;
-        link.as_object_mut()
-            .expect("origin link was accessed as an object")
-            .insert("source".into(), mapped);
     }
     Ok(())
 }
@@ -474,7 +621,7 @@ fn source_id_from_value(value: Value, source_table: &SourceTable) -> Result<Sour
 
 fn collect_definition_metadata(
     definition: &Definition,
-    source_table: &SourceTable,
+    encoder: &mut ProvenanceEncoder<'_>,
     output: &mut Vec<JsonTermMetadataEntry>,
 ) -> Result<(), Error> {
     for (module_index, module) in definition.modules.iter().enumerate() {
@@ -482,7 +629,7 @@ fn collect_definition_metadata(
             for (field, term) in sentence_terms(sentence) {
                 collect_term_metadata(
                     term,
-                    source_table,
+                    encoder,
                     u32::try_from(module_index).expect("module count fits u32"),
                     u32::try_from(sentence_index).expect("sentence count fits u32"),
                     field,
@@ -498,7 +645,7 @@ fn collect_definition_metadata(
 // Invariant: `path` holds the child indices from the root of sentence term `field` to `term`, and each recursive call through `collect_metadata_child` pushes one index and descends into a strict subterm of `term`, so the size of `term` bounds the calls.
 fn collect_term_metadata(
     term: &Term,
-    source_table: &SourceTable,
+    encoder: &mut ProvenanceEncoder<'_>,
     module_index: u32,
     sentence_index: u32,
     field: u32,
@@ -511,7 +658,7 @@ fn collect_term_metadata(
             sentence_index,
             field,
             path: path.clone(),
-            metadata: encode_term_metadata(metadata, source_table)?,
+            metadata: encoder.term_metadata(metadata)?,
         });
     }
     match term.unannotated() {
@@ -519,7 +666,7 @@ fn collect_term_metadata(
             collect_metadata_child(
                 left,
                 0,
-                source_table,
+                encoder,
                 module_index,
                 sentence_index,
                 field,
@@ -529,7 +676,7 @@ fn collect_term_metadata(
             collect_metadata_child(
                 right,
                 1,
-                source_table,
+                encoder,
                 module_index,
                 sentence_index,
                 field,
@@ -541,7 +688,7 @@ fn collect_term_metadata(
             collect_metadata_child(
                 pattern,
                 0,
-                source_table,
+                encoder,
                 module_index,
                 sentence_index,
                 field,
@@ -551,7 +698,7 @@ fn collect_term_metadata(
             collect_metadata_child(
                 alias,
                 1,
-                source_table,
+                encoder,
                 module_index,
                 sentence_index,
                 field,
@@ -567,7 +714,7 @@ fn collect_term_metadata(
                 collect_metadata_child(
                     item,
                     u32::try_from(index).expect("term arity fits u32"),
-                    source_table,
+                    encoder,
                     module_index,
                     sentence_index,
                     field,
@@ -586,7 +733,7 @@ fn collect_term_metadata(
 fn collect_metadata_child(
     term: &Term,
     child: u32,
-    source_table: &SourceTable,
+    encoder: &mut ProvenanceEncoder<'_>,
     module_index: u32,
     sentence_index: u32,
     field: u32,
@@ -596,7 +743,7 @@ fn collect_metadata_child(
     path.push(child);
     let result = collect_term_metadata(
         term,
-        source_table,
+        encoder,
         module_index,
         sentence_index,
         field,
@@ -628,28 +775,10 @@ fn sentence_terms(sentence: &Sentence) -> Vec<(u32, &Term)> {
     }
 }
 
-fn encode_term_metadata(
-    metadata: &TermMetadata,
-    source_table: &SourceTable,
-) -> Result<JsonTermMetadata, Error> {
-    Ok(JsonTermMetadata {
-        span: metadata
-            .span
-            .map(|span| encode_span(span, source_table))
-            .transpose()?,
-        production: metadata.production.map(ProductionIdentity::to_hex),
-        sort: metadata.sort.as_ref().map(Into::into),
-        origin: metadata
-            .origin
-            .as_deref()
-            .map(|origin| encode_origin(origin, source_table))
-            .transpose()?,
-    })
-}
-
 fn decode_term_metadata(
     metadata: JsonTermMetadata,
     source_table: &SourceTable,
+    origin_sets: &[Arc<[ProvenanceLink]>],
 ) -> Result<TermMetadata, Error> {
     Ok(TermMetadata {
         span: metadata
@@ -669,7 +798,7 @@ fn decode_term_metadata(
         sort: metadata.sort.map(Into::into),
         origin: metadata
             .origin
-            .map(|origin| decode_origin(origin, source_table).map(Arc::new))
+            .map(|origin| decode_receipt(origin, origin_sets).map(Arc::new))
             .transpose()?,
     })
 }
@@ -690,70 +819,71 @@ fn decode_span(span: JsonTermSpan, source_table: &SourceTable) -> Result<TermSpa
     })
 }
 
-fn encode_origin(
-    origin: &OriginRecord,
+fn encode_link(
+    link: &ProvenanceLink,
     source_table: &SourceTable,
-) -> Result<JsonOriginRecord, Error> {
-    Ok(JsonOriginRecord {
-        pass: origin.pass.as_str().into(),
-        origins: origin
-            .origins
-            .iter()
-            .map(|link| match link {
-                ProvenanceLink::Source { span } => Ok(JsonProvenanceLink::Source {
-                    source: json_source(source_table, span.source)?,
-                    start: span.start,
-                    end: span.end,
-                }),
-                ProvenanceLink::Sentence { unique_id } => Ok(JsonProvenanceLink::Sentence {
-                    unique_id: unique_id.clone(),
-                }),
-            })
-            .collect::<Result<_, Error>>()?,
-        destination: origin
-            .destination
-            .as_ref()
-            .map(|destination| JsonDestinationAnchor {
-                module: destination.module.clone(),
-                sentence: destination.sentence.clone(),
-                sentence_index: destination.sentence_index,
-                path: destination.path.clone(),
-            }),
+) -> Result<JsonProvenanceLink, Error> {
+    Ok(match link {
+        ProvenanceLink::Source { span } => JsonProvenanceLink::Source {
+            source: json_source(source_table, span.source)?,
+            start: span.start,
+            end: span.end,
+        },
+        ProvenanceLink::Sentence { unique_id } => JsonProvenanceLink::Sentence {
+            unique_id: unique_id.clone(),
+        },
     })
 }
 
-fn decode_origin(
-    origin: JsonOriginRecord,
+fn decode_link(
+    link: JsonProvenanceLink,
     source_table: &SourceTable,
-) -> Result<OriginRecord, Error> {
-    let pass = GeneratingPass::from_name(&origin.pass).ok_or_else(|| {
-        Error::InvalidProvenance(format!("unknown generating pass {:?}", origin.pass))
-    })?;
-    Ok(OriginRecord {
-        pass,
-        origins: origin
-            .origins
-            .into_iter()
-            .map(|link| match link {
-                JsonProvenanceLink::Source { source, start, end } => Ok(ProvenanceLink::Source {
-                    span: TermSpan {
-                        source: source_id(source_table, &source)?,
-                        start,
-                        end,
-                    },
-                }),
-                JsonProvenanceLink::Sentence { unique_id } => {
-                    Ok(ProvenanceLink::Sentence { unique_id })
-                }
-            })
-            .collect::<Result<_, Error>>()?,
-        destination: origin.destination.map(|destination| DestinationAnchor {
-            module: destination.module,
-            sentence: destination.sentence,
-            sentence_index: destination.sentence_index,
-            path: destination.path,
-        }),
+) -> Result<ProvenanceLink, Error> {
+    Ok(match link {
+        JsonProvenanceLink::Source { source, start, end } => ProvenanceLink::Source {
+            span: TermSpan {
+                source: source_id(source_table, &source)?,
+                start,
+                end,
+            },
+        },
+        JsonProvenanceLink::Sentence { unique_id } => ProvenanceLink::Sentence { unique_id },
     })
+}
+
+/// Decode a receipt; its origin set is the table entry's allocation, shared rather than copied.
+fn decode_receipt(
+    origin: JsonOriginReceipt,
+    origin_sets: &[Arc<[ProvenanceLink]>],
+) -> Result<OriginRecord, Error> {
+    let origins = usize::try_from(origin.origins)
+        .ok()
+        .and_then(|index| origin_sets.get(index))
+        .ok_or_else(|| {
+            Error::InvalidProvenance(format!(
+                "origin receipt names origin set {}, which the table does not contain",
+                origin.origins
+            ))
+        })?;
+    Ok(OriginRecord {
+        pass: decode_pass(&origin.pass)?,
+        origins: Arc::clone(origins),
+        destination: origin.destination.map(decode_destination),
+    })
+}
+
+fn decode_pass(pass: &str) -> Result<GeneratingPass, Error> {
+    GeneratingPass::from_name(pass)
+        .ok_or_else(|| Error::InvalidProvenance(format!("unknown generating pass {pass:?}")))
+}
+
+fn decode_destination(destination: JsonDestinationAnchor) -> DestinationAnchor {
+    DestinationAnchor {
+        module: destination.module,
+        sentence: destination.sentence,
+        sentence_index: destination.sentence_index,
+        path: destination.path,
+    }
 }
 
 fn json_source(source_table: &SourceTable, source: SourceId) -> Result<JsonLogicalSource, Error> {
@@ -974,19 +1104,32 @@ enum DefinitionNode {
     KDefinition,
 }
 
+/// Wire encoder of one attribute map; KAST JSON copies the map, provenance encoding also
+/// rewrites source identities and origin receipts.
+type EncodeAttributes<'a> = dyn FnMut(&Attributes) -> Result<JsonAttributes, Error> + 'a;
+
 impl TryFrom<&Definition> for JsonDefinition {
     type Error = Error;
 
     fn try_from(definition: &Definition) -> Result<Self, Self::Error> {
+        Self::encode(definition, &mut |attributes| Ok(attributes.into()))
+    }
+}
+
+impl JsonDefinition {
+    fn encode(
+        definition: &Definition,
+        attributes: &mut EncodeAttributes<'_>,
+    ) -> Result<Self, Error> {
         Ok(Self {
             node: DefinitionNode::KDefinition,
             main_module: definition.main_module.clone(),
             modules: definition
                 .modules
                 .iter()
-                .map(TryInto::try_into)
+                .map(|module| JsonFlatModule::encode(module, attributes))
                 .collect::<Result<_, _>>()?,
-            att: (&definition.attributes).into(),
+            att: attributes(&definition.attributes)?,
         })
     }
 }
@@ -1022,10 +1165,8 @@ enum FlatModuleNode {
     KFlatModule,
 }
 
-impl TryFrom<&FlatModule> for JsonFlatModule {
-    type Error = Error;
-
-    fn try_from(module: &FlatModule) -> Result<Self, Self::Error> {
+impl JsonFlatModule {
+    fn encode(module: &FlatModule, attributes: &mut EncodeAttributes<'_>) -> Result<Self, Error> {
         Ok(Self {
             node: FlatModuleNode::KFlatModule,
             name: module.name.clone(),
@@ -1033,9 +1174,9 @@ impl TryFrom<&FlatModule> for JsonFlatModule {
             local_sentences: module
                 .local_sentences
                 .iter()
-                .map(|sentence| sentence.as_ref().try_into())
+                .map(|sentence| JsonSentence::encode(sentence, attributes))
                 .collect::<Result<_, _>>()?,
-            att: (&module.attributes).into(),
+            att: attributes(&module.attributes)?,
         })
     }
 }
@@ -1264,10 +1405,8 @@ enum JsonSentence {
     },
 }
 
-impl TryFrom<&Sentence> for JsonSentence {
-    type Error = Error;
-
-    fn try_from(sentence: &Sentence) -> Result<Self, Self::Error> {
+impl JsonSentence {
+    fn encode(sentence: &Sentence, att: &mut EncodeAttributes<'_>) -> Result<Self, Error> {
         Ok(match sentence {
             Sentence::SyntaxSort {
                 parameters,
@@ -1276,7 +1415,7 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KSyntaxSort {
                 sort: sort.into(),
                 params: parameters.iter().map(Into::into).collect(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::SortSynonym {
                 new_sort,
@@ -1285,7 +1424,7 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KSortSynonym {
                 new_sort: new_sort.into(),
                 old_sort: old_sort.into(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::SyntaxLexical {
                 name,
@@ -1294,7 +1433,7 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KSyntaxLexical {
                 name: name.clone(),
                 regex: regex.clone(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::Production {
                 label,
@@ -1307,7 +1446,7 @@ impl TryFrom<&Sentence> for JsonSentence {
                 production_items: items.iter().map(Into::into).collect(),
                 params: parameters.iter().map(Into::into).collect(),
                 sort: sort.into(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::SyntaxAssociativity {
                 associativity,
@@ -1316,14 +1455,14 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KSyntaxAssociativity {
                 assoc: (*associativity).into(),
                 tags: tags.clone(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::SyntaxPriority {
                 priorities,
                 attributes,
             } => Self::KSyntaxPriority {
                 priorities: priorities.clone(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::ContextAlias { .. } => Self::KBadsentence,
             Sentence::Context {
@@ -1333,7 +1472,7 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KContext {
                 body: body.into(),
                 requires: requires.into(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::Rule {
                 body,
@@ -1344,7 +1483,7 @@ impl TryFrom<&Sentence> for JsonSentence {
                 body: body.into(),
                 requires: requires.into(),
                 ensures: ensures.into(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::Claim {
                 body,
@@ -1355,7 +1494,7 @@ impl TryFrom<&Sentence> for JsonSentence {
                 body: body.into(),
                 requires: requires.into(),
                 ensures: ensures.into(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::Configuration {
                 body,
@@ -1364,7 +1503,7 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KConfiguration {
                 body: body.into(),
                 ensures: ensures.into(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
             Sentence::Bubble {
                 sentence_type,
@@ -1373,7 +1512,7 @@ impl TryFrom<&Sentence> for JsonSentence {
             } => Self::KBubble {
                 sentence_type: sentence_type.clone(),
                 contents: contents.clone(),
-                att: attributes.into(),
+                att: att(attributes)?,
             },
         })
     }
@@ -1474,5 +1613,230 @@ impl TryFrom<JsonSentence> for Sentence {
                 attributes: att.into(),
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+    use crate::{definition::FlatModule, kast::Sort, provenance::ORIGIN_ATTRIBUTE};
+
+    #[derive(Clone, Debug)]
+    enum Stored {
+        Record,
+        Value,
+    }
+
+    #[derive(Clone, Debug)]
+    struct SentencePlan {
+        receipt: Option<(usize, usize, Stored, bool)>,
+        body_receipt: Option<(usize, usize)>,
+        child_receipt: Option<(usize, usize)>,
+    }
+
+    fn link((sentence, value): (bool, u8)) -> ProvenanceLink {
+        if sentence {
+            ProvenanceLink::Sentence {
+                unique_id: format!("s{value}"),
+            }
+        } else {
+            ProvenanceLink::Source {
+                span: TermSpan {
+                    source: SourceId(usize::from(value % 2)),
+                    start: usize::from(value),
+                    end: usize::from(value) + 1,
+                },
+            }
+        }
+    }
+
+    fn record(
+        pool: &[Arc<[ProvenanceLink]>],
+        set: usize,
+        pass: usize,
+        anchored: bool,
+    ) -> OriginRecord {
+        OriginRecord {
+            pass: GeneratingPass::ALL[pass % GeneratingPass::ALL.len()],
+            origins: Arc::clone(&pool[set % pool.len()]),
+            destination: anchored.then(|| DestinationAnchor {
+                module: "MAIN".into(),
+                sentence: format!("rule:{set}"),
+                sentence_index: u32::try_from(set).unwrap(),
+                path: vec![0, u32::try_from(pass).unwrap()],
+            }),
+        }
+    }
+
+    fn metadata(pool: &[Arc<[ProvenanceLink]>], receipt: Option<(usize, usize)>) -> TermMetadata {
+        TermMetadata {
+            origin: receipt.map(|(set, pass)| Arc::new(record(pool, set, pass, true))),
+            ..TermMetadata::default()
+        }
+    }
+
+    /// Every origin set of a definition in traversal order: the sentence receipt, then the
+    /// receipts of the body root and its child.
+    fn origin_sets(definition: &Definition) -> Vec<Option<Arc<[ProvenanceLink]>>> {
+        let mut sets = Vec::new();
+        for sentence in &definition.modules[0].local_sentences {
+            sets.push(
+                sentence
+                    .attributes()
+                    .origin_record()
+                    .map(|record| Arc::clone(&record.origins)),
+            );
+            let Sentence::Rule { body, .. } = &**sentence else {
+                unreachable!()
+            };
+            let Term::Apply { arguments, .. } = body.unannotated() else {
+                unreachable!()
+            };
+            for term in [body, &arguments[0]] {
+                sets.push(
+                    term.metadata()
+                        .and_then(|metadata| metadata.origin.as_deref())
+                        .map(|origin| Arc::clone(&origin.origins)),
+                );
+            }
+        }
+        sets
+    }
+
+    fn sentence_plan() -> impl Strategy<Value = SentencePlan> {
+        let stored = prop_oneof![Just(Stored::Record), Just(Stored::Value)];
+        (
+            proptest::option::of((0_usize..8, 0_usize..32, stored, any::<bool>())),
+            proptest::option::of((0_usize..8, 0_usize..32)),
+            proptest::option::of((0_usize..8, 0_usize..32)),
+        )
+            .prop_map(|(receipt, body_receipt, child_receipt)| SentencePlan {
+                receipt,
+                body_receipt,
+                child_receipt,
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// Decoding the encoded document gives receipts equal to the encoded ones, and two
+        /// receipts share one decoded origin-set allocation exactly when their sets are equal;
+        /// in particular receipts that shared one allocation before encoding share one after
+        /// decoding. Each distinct set is written once.
+        #[test]
+        fn origin_set_table_round_trips_receipts_and_sharing(
+            pool in prop::collection::vec(
+                prop::collection::vec((any::<bool>(), 0_u8..4), 0..5),
+                1..6,
+            ),
+            plans in prop::collection::vec(sentence_plan(), 1..8),
+        ) {
+            let pool = pool
+                .into_iter()
+                .map(|links| links.into_iter().map(link).collect::<Vec<_>>().into())
+                .collect::<Vec<Arc<[ProvenanceLink]>>>();
+            let mut sources = SourceTable::default();
+            sources.intern(LogicalSourceId::new("a.k", b"a"));
+            sources.intern(LogicalSourceId::new("b.k", b"b"));
+            let mut raw_receipts = Vec::new();
+            let sentences = plans
+                .iter()
+                .map(|plan| {
+                    let mut attributes = Attributes::default();
+                    match &plan.receipt {
+                        Some((set, pass, Stored::Record, anchored)) => {
+                            attributes.set_origin_record(record(&pool, *set, *pass, *anchored));
+                            raw_receipts.push(None);
+                        }
+                        Some((set, pass, Stored::Value, anchored)) => {
+                            let value = record(&pool, *set, *pass, *anchored).to_value();
+                            attributes.insert(ORIGIN_ATTRIBUTE, value.clone());
+                            raw_receipts.push(Some(value));
+                        }
+                        None => raw_receipts.push(None),
+                    }
+                    let child = Term::variable("X").with_metadata(metadata(&pool, plan.child_receipt));
+                    Arc::new(Sentence::Rule {
+                        body: Term::apply("f", vec![child])
+                            .with_metadata(metadata(&pool, plan.body_receipt)),
+                        requires: Term::Token { token: "true".into(), sort: Sort::new("Bool") },
+                        ensures: Term::Token { token: "true".into(), sort: Sort::new("Bool") },
+                        attributes,
+                    })
+                })
+                .collect();
+            let definition = Definition {
+                main_module: "MAIN".into(),
+                modules: vec![FlatModule {
+                    name: "MAIN".into(),
+                    imports: Vec::new(),
+                    local_sentences: sentences,
+                    attributes: Attributes::default(),
+                }],
+                attributes: Attributes::default(),
+            };
+
+            let encoded = to_provenance_string(&definition, &sources).unwrap();
+            let decoded = from_provenance_str(&encoded).unwrap();
+            prop_assert_eq!(&decoded.source_table, &sources);
+            prop_assert_eq!(&decoded.definition, &definition);
+
+            for ((before, after), raw) in definition.modules[0]
+                .local_sentences
+                .iter()
+                .zip(&decoded.definition.modules[0].local_sentences)
+                .zip(&raw_receipts)
+            {
+                let decoded_record = after.attributes().origin_record();
+                match raw {
+                    Some(value) => prop_assert_eq!(&decoded_record.unwrap().to_value(), value),
+                    None => prop_assert_eq!(decoded_record, before.attributes().origin_record()),
+                }
+                let (Sentence::Rule { body: before, .. }, Sentence::Rule { body: after, .. }) =
+                    (&**before, &**after)
+                else {
+                    unreachable!()
+                };
+                prop_assert_eq!(after.metadata(), before.metadata());
+                let (Term::Apply { arguments: before, .. }, Term::Apply { arguments: after, .. }) =
+                    (before.unannotated(), after.unannotated())
+                else {
+                    unreachable!()
+                };
+                prop_assert_eq!(after[0].metadata(), before[0].metadata());
+            }
+
+            let before = origin_sets(&definition);
+            let after = origin_sets(&decoded.definition);
+            for (left, decoded_left) in before.iter().zip(&after) {
+                for (right, decoded_right) in before.iter().zip(&after) {
+                    let (Some(decoded_left), Some(decoded_right)) = (decoded_left, decoded_right)
+                    else {
+                        continue;
+                    };
+                    if let (Some(left), Some(right)) = (left, right)
+                        && Arc::ptr_eq(left, right)
+                    {
+                        prop_assert!(Arc::ptr_eq(decoded_left, decoded_right));
+                    }
+                    prop_assert_eq!(
+                        Arc::ptr_eq(decoded_left, decoded_right),
+                        decoded_left == decoded_right
+                    );
+                }
+            }
+
+            let distinct = after.iter().flatten().collect::<HashSet<_>>();
+            let envelope: Value = serde_json::from_str(&encoded).unwrap();
+            let table = envelope["originSets"].as_array().unwrap();
+            prop_assert_eq!(table.len(), distinct.len());
+            prop_assert_eq!(
+                table.iter().map(|set| set.as_array().unwrap().len()).sum::<usize>(),
+                distinct.iter().map(|set| set.len()).sum::<usize>()
+            );
+        }
     }
 }

@@ -394,10 +394,16 @@ fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
             [k_rust::definition::SOURCE_ID_ATTRIBUTE],
         &wire_identity
     );
+    // The sentence receipt and the body's term receipt hold one origin set, written once.
+    assert_eq!(envelope["originSets"].as_array().unwrap().len(), 1);
+    assert_eq!(&envelope["originSets"][0][0]["source"], &wire_identity);
     assert_eq!(
-        &envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["origins"]
-            [0]["source"],
-        &wire_identity
+        envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["origins"],
+        0
+    );
+    assert_eq!(
+        envelope["termMetadata"][0]["metadata"]["origin"]["origins"],
+        0
     );
     let decoded = json::from_provenance_str(&encoded).unwrap();
 
@@ -577,18 +583,61 @@ fn provenance_decoder_rejects_malformed_wire_forms() {
     ));
 
     let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
-    envelope["termMetadata"][0]["metadata"]["origin"]["origins"][0]["unexpected"] = value!(true);
+    envelope["originSets"][0][0]["unexpected"] = value!(true);
     assert!(matches!(
         json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
         Err(json::Error::Json(_))
     ));
 
     let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
-    envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["origins"]
-        [0]["unexpected"] = value!(true);
+    envelope["termMetadata"][0]["metadata"]["origin"]["unexpected"] = value!(true);
     assert!(matches!(
         json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
         Err(json::Error::Json(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["unexpected"] =
+        value!(true);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::Json(_))
+    ));
+
+    // A receipt must name an entry of the origin-set table.
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["termMetadata"][0]["metadata"]["origin"]["origins"] = value!(1);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::InvalidProvenance(_))
+    ));
+
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["term"]["modules"][0]["localSentences"][0]["att"]["att"][ORIGIN_ATTRIBUTE]["origins"] =
+        value!(1);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::InvalidProvenance(_))
+    ));
+
+    // Each set is written once, so a repeated table entry is malformed.
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    let duplicate = envelope["originSets"][0].clone();
+    envelope["originSets"]
+        .as_array_mut()
+        .unwrap()
+        .push(duplicate);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::InvalidProvenance(_))
+    ));
+
+    // Version 2 wrote every receipt's origin set in place; its documents are rebuilt, not read.
+    let mut envelope: Value = serde_json::from_str(&encoded).unwrap();
+    envelope["version"] = value!(2);
+    assert!(matches!(
+        json::from_provenance_str(&serde_json::to_string(&envelope).unwrap()),
+        Err(json::Error::UnsupportedVersion(2))
     ));
 
     let mut envelope: Value = serde_json::from_str(&encoded).unwrap();

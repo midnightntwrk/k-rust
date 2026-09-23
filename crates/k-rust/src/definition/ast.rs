@@ -320,10 +320,6 @@ impl Attributes {
         &self.entries
     }
 
-    pub(crate) fn set_origin(&mut self, value: Value) {
-        self.origin = Some(Arc::new(OriginReceipt::from_value(value)));
-    }
-
     /// Store a structured receipt; its JSON form is rendered only when a map view asks for it.
     pub(crate) fn set_origin_record(&mut self, record: OriginRecord) {
         self.origin = Some(Arc::new(OriginReceipt::from_record(record)));
