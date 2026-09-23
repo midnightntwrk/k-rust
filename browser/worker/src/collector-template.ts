@@ -1,8 +1,9 @@
 // Collector main.rs rendering: the program crates/krs-cli/src/generate.rs
-// render_main + render_production_main emit in explicit registration mode
-// (IR-07), for one PackageContext: the lesson at <manifest_dir>/Cargo.toml.
+// render_main + render_production_main emit in explicit registration mode,
+// for one PackageContext: the lesson at <manifest_dir>/Cargo.toml.
 // The `&<crate>::__KRS_REGISTRATIONS` table entry is also the strong reference
-// to the lesson rlib that BL-004 needed.
+// to the lesson rlib: with only `extern crate <lesson> as _;` direct linking
+// discards the rlib's object code and the collector finds no descriptors.
 
 import type { LessonManifest } from "./protocol.ts";
 

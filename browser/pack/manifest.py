@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""KRS browser dependency pack: assembly, manifest, verification, and path scan (IR-14).
+"""KRS browser dependency pack: assembly, manifest, verification, and path scan.
 
 Python 3 standard library only, plus `objcopy` (proc-macro metadata) and `strings` (path scan).
 The manifest format is specified in manifest-format.toml next to this file.
@@ -18,11 +18,11 @@ derived from Cargo's JSON messages in BUILD/build.jsonl, not from a directory li
 - each wasm32-wasip1 `.rlib` of a library target      -> deps/, role target-rlib
 - each proc-macro target's host `.so`                 -> proc-macro-meta/lib<name>-<hash>.rmeta, role
   proc-macro-metadata: the payload of the library's `.rustc` section after the 8-byte
-  METADATA_HEADER and the u64 length (IR-04: an --emit=metadata rerun has another crate hash)
+  METADATA_HEADER and the u64 length (an --emit=metadata rerun would have another crate hash)
 - the twin's wasm32-wasip1 libproc_macro and librustc_literal_escaper (.rlib and .rmeta)
-                                                      -> deps/, role sysroot-supplement (IR-04: the
+                                                      -> deps/, role sysroot-supplement (the
   sysroot bundle omits them, and proc-macro2's target rlib needs them)
-- crates/krs/Cargo.toml and crates/krs/src/lib.rs of the export -> krs/..., role framework-source (IR-12)
+- crates/krs/Cargo.toml and crates/krs/src/lib.rs of the export -> krs/..., role framework-source
 - the sysroot bundle and rustc.wasm                   -> sysroot/, compiler/
 """
 
@@ -285,7 +285,7 @@ def assemble(args):
     krs_deps = {d.rsplit("-", 1)[0] for d, _, _ in crate_deps(twin, os.path.join(pack, krs[0]["path"]))}
     for banned in ("inventory", "rustversion"):
         if banned in krs_deps:
-            raise SystemExit(f"krs target metadata depends on {banned} (IR-07 explicit registration expected)")
+            raise SystemExit(f"krs target metadata depends on {banned} (explicit descriptor registration expected)")
     compiler_art = next(a for a in artifacts if a["role"] == "compiler")
     so_files = [a["path"] for a in artifacts if a["path"].endswith(".so")]
     if so_files:
@@ -444,7 +444,7 @@ def declared_paths(fork_commit):
     """
     return [
         (re.escape(VIRTUAL_ROOT + "/"), "virtual-root", [],
-         "IR-12 virtual KRS root; never remapped (CARGO_MANIFEST_DIR, file!(), source file names)"),
+         "virtual KRS root; never remapped (CARGO_MANIFEST_DIR, file!(), source file names)"),
         ("/registry/", "remapped-registry", [],
          "target units: --remap-path-prefix of /cargo/registry/src/<index>; also the fork's own vendored crates"),
         ("/target/", "remapped-target", ["target-rlib"],
@@ -466,7 +466,7 @@ SCAN_TRIGGERS = ["/home/", "/var/tmp/", "/tmp/", "/nix/store", ".cargo/registry"
                  "/krs/", "/registry/", "/target/", "/rustc/", "/cargo/", "/pack-target/", "/fork/",
                  "/workspace/", "/work/", "/sysroot/"] + ([NS_TARGET + "/"] if NS_TARGET != "/pack-target" else [])
 # Fork products (rustc.wasm, the sysroot bundle, sysroot supplements) are copied verbatim from the fork
-# build; they are scanned for the host-path triggers only (IR-14 step 6), because their rustdoc text and
+# build; they are scanned for the host-path triggers only, because their rustdoc text and
 # string tables are full of relative links and literals under the virtual prefixes.
 HOST_TRIGGERS = ["/home/", "/var/tmp/", "/tmp/", "/nix/store", ".cargo/registry", "/srv/", "/root/"]
 FORK_PRODUCT_ROLES = ("compiler", "sysroot-bundle", "sysroot-supplement")
@@ -485,7 +485,7 @@ def scan(args):
     pack = os.path.realpath(args.pack)
     manifest = tomllib.load(open(os.path.join(pack, MANIFEST_NAME), "rb"))
     declared = [(re.compile(d["pattern"]), d["class"], d["roles"]) for d in manifest["paths"]["declared"]]
-    print("# IR-14 pack path scan (browser/pack/manifest.py scan; strings -a, as IR-12 step 5)")
+    print("# pack path scan (browser/pack/manifest.py scan; strings -a)")
     print(f"# pack_id = {manifest['pack_id']}")
     print("# declared prefixes:")
     for p, c, roles in declared:

@@ -1,4 +1,4 @@
-// IR-18 twin control helper: the worker's expand stage and rustc span mapping,
+// Diagnostic parity twin control helper: the worker's expand stage and rustc span mapping,
 // run under Bun over the same expander module, so that a native-twin compile of
 // the expanded text can be classified exactly as the worker classifies the
 // rustc.wasm compile.

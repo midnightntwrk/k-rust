@@ -1,4 +1,4 @@
-// Test page for the IR-15 worker: loads the staged pack from ./assets/,
+// Test page for the compiler worker: loads the staged pack from ./assets/,
 // verifies every hash, compiles the three modules once, and exposes
 // window.ir15 for the WebDriver/BiDi drivers.
 
@@ -116,9 +116,9 @@ async function run(name: string, options: { debugEvidence?: boolean; keepBundle?
 }
 
 /**
- * Compiles caller-supplied source (IR-17 edit round trip, IR-18 cases) in the
+ * Compiles caller-supplied source (the parity gate's edit round trip, the diagnostic cases) in the
  * current page session. `lesson` defaults to the staged tour-minimal manifest;
- * a caller may pass another manifest for the same pack (BL-006 packages).
+ * a caller may pass another manifest for the same pack (the diagnostic packages).
  */
 async function runSource(options: {
   label: string;
@@ -157,7 +157,7 @@ async function runSource(options: {
   };
 }
 
-/** The staged tour-minimal source and manifest (IR-17 applies E1 to this text). */
+/** The staged tour-minimal source and manifest (the parity gate applies edit E1 to this text). */
 function lessonSource() {
   if (!lesson) throw new Error("not initialized");
   return { lesson, source: fixtures.get("tour-minimal.rs")! };

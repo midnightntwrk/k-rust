@@ -1,4 +1,4 @@
-# HTTP response contract for a published browser-lesson release (IR-21).
+# HTTP response contract for a published browser-lesson release.
 #
 # This file is host-neutral. `release.py assemble` renders it as `_headers`
 # (the Netlify / Cloudflare Pages format) into the publication directory,
@@ -20,8 +20,8 @@
 # notice texts are always `.txt`. verify.py --check rejects a path matched by zero
 # or several rules.
 # Content-Encoding is a host choice: if a host compresses, integrity is still
-# checked against the decoded bytes that the release manifest records
-# (BL-009 "Hosting contract"), and Vary: Accept-Encoding is required.
+# checked against the decoded bytes that the release manifest records,
+# and Vary: Accept-Encoding is required.
 
 schema_version = 1
 

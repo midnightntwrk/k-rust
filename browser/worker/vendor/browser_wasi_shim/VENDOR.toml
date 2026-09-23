@@ -1,7 +1,8 @@
-# Vendored browser_wasi_shim (IR-15).
+# Vendored browser_wasi_shim.
 #
-# The JavaScript files are the minified copy that Weblings vendors, staged by
-# BL-001, plus the IR-12 path_readlink patch (../browser_wasi_shim-readlink.patch).
+# The JavaScript files are the minified copy that Weblings vendors, plus the
+# path_readlink patch (../browser_wasi_shim-readlink.patch), without which every
+# non-root canonicalize fails with ENOTSUP.
 # index.d.ts is written for this package and declares only the surface it uses.
 
 schema = 1
@@ -10,8 +11,8 @@ upstream = "@bjorn3/browser_wasi_shim (no version marker in the vendored copy)"
 source_repository = "https://github.com/AngelOnFira/weblings"
 source_revision = "d0cd7a9f3af7d8249b3948ac0e19d2afc0d01633"
 source_path = "app/public/vendor/browser_wasi_shim/"
-staged_from = "/var/tmp/krs-browser-lessons-bl001-run-1/weblings-source (BL-001 stage-approved-assets.sh)"
-patch = "../browser_wasi_shim-readlink.patch (IR-12; OpenDirectory.path_readlink returns EINVAL for an existing non-link, the lookup errno otherwise)"
+staged_from = "/var/tmp/krs-browser-lessons-bl001-run-1/weblings-source (the browser toolchain baseline's stage-approved-assets.sh)"
+patch = "../browser_wasi_shim-readlink.patch (OpenDirectory.path_readlink returns EINVAL for an existing non-link, the lookup errno otherwise)"
 patched_files = ["fs_mem.js"]
 
 [license]

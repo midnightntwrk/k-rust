@@ -1,10 +1,10 @@
-// IR-15 gate: unit tests, the pipeline under Bun and Node, the controller
+// Worker gate: unit tests, the pipeline under Bun and Node, the controller
 // under Bun, and the worker in headless Chromium and (when installed)
 // headless Firefox. Waits while the 1-minute load average exceeds --load-max.
 //
 //   bun test/verify.ts [--out DIR] [--load-max 40] [--skip-firefox]
 //
-// Prerequisites: an IR-14 pack (default /var/tmp/krs-ir14-pack-a/pack) staged by
+// Prerequisites: a dependency pack (default /var/tmp/krs-ir14-pack-a/pack) staged by
 // bun scripts/stage-assets.ts with the policy and expander modules, and the
 // native oracle bundle (default /var/tmp/krs-ir11-parity/oracle/descriptor-bundle.json).
 

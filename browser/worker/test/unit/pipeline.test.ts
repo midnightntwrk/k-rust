@@ -64,7 +64,7 @@ describe("collector template", () => {
   });
 });
 
-describe("pack adapter (IR-14 manifest, schema_version 2)", () => {
+describe("pack adapter (pack manifest, schema_version 2)", () => {
   test("maps roles to mounts, externs, and [direct_rustc]", async () => {
     const pack = await ir14Pack();
     expect(pack.pack_id).toBe("sha256:6c4a48d666c88d7422979908a28f2633fdae7f486407c0f4e235c515f8004117");
@@ -116,7 +116,7 @@ describe("pack adapter (IR-14 manifest, schema_version 2)", () => {
 });
 
 describe("rustc invocations", () => {
-  test("lesson and collector arguments follow the IR-14 [consumer] contract (IR-14 smoke-a.toml shape)", async () => {
+  test("lesson and collector arguments follow the pack manifest's [consumer] contract", async () => {
     const pack = await ir14Pack();
     const l = lessonInvocation(pack, lesson);
     expect(l.args).toContain("-Zproc-macro-metadata-only");
@@ -175,13 +175,13 @@ describe("diagnostics", () => {
     ]);
   });
 
-  test("expander diagnostic (BL-005 invalid sorts!) keeps 19..20 and code null", () => {
+  test("expander diagnostic (invalid sorts! probe) keeps 19..20 and code null", () => {
     const response = JSON.parse(fixture("expander-invalid.response.json")) as ExpandResponse;
     const [d] = response.diagnostics.map(fromExpander);
     expect(d).toMatchObject({ origin: "expander", code: null, class: "exact-authored", authored: { file: "src/lib.rs", start: 19, end: 20 } });
   });
 
-  test("rustc diagnostics map through the recorded IR-11 lookup; generated-only gets no authored range", () => {
+  test("rustc diagnostics map through the recorded krs_expand_lookup responses; generated-only gets no authored range", () => {
     const generated = "/work/expanded/tour-minimal/src/lib.rs";
     const span = (start: number, end: number, file = generated) => ({
       file_name: file, byte_start: start, byte_end: end, line_start: 1, line_end: 1, column_start: 1, column_end: 1, is_primary: true, label: null,
@@ -267,7 +267,7 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
     expect(events.map((e) => e.type)).toEqual(["diagnostics"]);
   });
 
-  test("expander output for tour-minimal equals IR-11's text (3e30f53d...) and lookup answers", async () => {
+  test("expander output for tour-minimal equals the recorded text (3e30f53d...) and lookup answers", async () => {
     const expander = await load(pack!.modules.expander.path);
     const request = JSON.parse(fixture("expander-tour-minimal.request.json"));
     const response = await runExpander(expander, request);
@@ -292,7 +292,7 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
   });
 });
 
-describe("test-only fault injection (IR-18)", () => {
+describe("test-only fault injection", () => {
   const table = [
     "fn a() {}\n",
     "fn __krs_register_descriptors(r: &mut R) {\n    r.factory(crate::__krs_sort_descriptor_14a572b2d7631807);\n}\n",

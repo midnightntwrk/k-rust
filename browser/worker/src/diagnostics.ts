@@ -54,7 +54,7 @@ export function lookupRanges(diagnostics: RustcDiagnostic[], generatedFile: stri
 }
 
 /**
- * rustc diagnostics in generated coordinates plus IR-10 lookup results for
+ * rustc diagnostics in generated coordinates plus krs-expand lookup results for
  * their primary spans -> Diagnostic. The generated range is always retained;
  * only exact-authored and invocation-level mappings carry an authored range.
  */
@@ -92,7 +92,7 @@ export function fromRustc(
   });
 }
 
-/** The collector's `KRS collector failed: …` stderr (IR-18 refines this into CollectionError fields). */
+/** The collector's `KRS collector failed: …` stderr. CollectionError's Display carries only the detail, so no code is available. */
 export function fromCollector(stderr: string, trap: string | null): Diagnostic[] {
   const lines = stderr.split("\n").filter((line) => line.trim() !== "");
   const messages = lines.length > 0 ? lines : trap ? [trap] : [];

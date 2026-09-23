@@ -1,4 +1,4 @@
-// IR-14 pack manifest (browser/pack/manifest-format.toml, schema_version 2)
+// Dependency-pack manifest (browser/pack/manifest-format.toml, schema_version 2)
 // -> the worker's PackManifest, following the format's [consumer] contract:
 //   - every [[artifact]] is verified (here: declared; the loader hashes the
 //     bytes) and pack_id is recomputed (ir14PackId, also run by the loader);
@@ -6,9 +6,10 @@
 //     sysroot.mount, framework sources at their virtual_path;
 //   - rustc arguments come from [direct_rustc]; lint flags and CARGO_* are
 //     lesson properties and are not taken from the pack.
-// The IR-11 expander and IR-13 policy modules are not pack artifacts; the
+// The expander and policy modules are not pack artifacts; the
 // caller passes them with the crates/ tree they were built from, which must
-// equal the pack's "KRS crates/ tree" input (IR-11: one KRS source for both).
+// equal the pack's "KRS crates/ tree" input, so the expander's output matches the krs-macros the pack's rlibs
+// were built from.
 
 import { ir14PackId } from "./pack.ts";
 import type { MountedSource, PackArtifact, PackAsset, PackManifest } from "./protocol.ts";
@@ -60,7 +61,7 @@ export interface Ir14Extra {
   modulesCratesTree: string;
   /** DescriptorBundle protocol of the pack's krs-ir (35 at 3501f86; STATUS.toml [[oracle]]). */
   protocolVersion: number;
-  /** Mount point of the pack in the compiler VFS (IR-15: /pack). */
+  /** Mount point of the pack in the compiler VFS (default /pack). */
   mount?: string;
 }
 
@@ -141,12 +142,12 @@ export async function packFromIr14(source: Ir14PackManifest, extra: Ir14Extra): 
       sysroot: d.sysroot,
       common_flags: ["-C", `panic=${d.panic}`, ...d.extra_flags],
       collector_flags: d.collector_flags,
-      // As in the BL-003 browser-rustc harness: CLIF2WASM_OBJECT=1 selects the clif2wasm
+      // CLIF2WASM_OBJECT=1 selects the clif2wasm
       // object path inside rustc.wasm; RIWL_TIMINGS=1 prints the riwl timing line.
       env: ["CLIF2WASM_OBJECT=1", "RIWL_TIMINGS=1"],
       library_dirs: d.dependency_search_paths.map((p) => `${mount}/${p}`),
     },
   };
-  if (problems.length > 0) throw new Error(`IR-14 pack manifest rejected:\n  ${problems.join("\n  ")}`);
+  if (problems.length > 0) throw new Error(`pack manifest rejected:\n  ${problems.join("\n  ")}`);
   return manifest;
 }

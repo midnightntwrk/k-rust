@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds the KRS browser dependency pack (IR-14) with the native twin of the wasip1-hosted rustc fork.
+# Builds the KRS browser dependency pack with the native twin of the wasip1-hosted rustc fork.
 #
 # Usage: browser/pack/build.sh FORK_ROOT OUTPUT_DIR
 #
-#   FORK_ROOT   a fork build root laid out as IR-01/IR-04 build it, e.g. /var/tmp/krs-browser-fork/R-k:
+#   FORK_ROOT   a fork build root laid out as the fork-build recipe builds it, e.g. /var/tmp/krs-browser-fork/R-k:
 #                 build/x86_64-unknown-linux-gnu/stage1/     native twin (bin/rustc, lib/rustlib/{x86_64-unknown-linux-gnu,wasm32-wasip1})
 #                 out/rustc/rustc.wasm                       wasip1-hosted rustc of the same fork commit
 #                 out/wasip1/stage/rustc/sysroot-wasip1.bundle   its RIWB1 sysroot bundle
@@ -26,8 +26,8 @@
 #   JOBS (default 4), LOAD_MAX (default 40), LOCK (default /var/tmp/krs-browser-fork/heavy-build.lock)
 #
 # The build is Cargo driving the twin (RUSTC) inside a bubblewrap mount namespace in which
-#   /krs          = the git archive export, read-only (IR-12 virtual root; never remapped)
-#   /pack-target  = OUTPUT_DIR/build/target (fixed path: proc-macro and build-script hashes depend on it, IR-06)
+#   /krs          = the git archive export, read-only (the stable virtual root of framework sources; never remapped)
+#   /pack-target  = OUTPUT_DIR/build/target (fixed path: proc-macro and build-script hashes depend on it)
 #   /cargo        = CARGO_HOME_HOST (fixed path for the registry sources)
 #   /fork/stage1  = the twin's stage1 directory, read-only
 # and every other top-level host directory at its own path.
@@ -68,11 +68,11 @@ die() { echo "build.sh: $*" >&2; exit 1; }
 # ------------------------------------------------------------------ preconditions
 
 for f in "$TWIN" "$RUSTC_WASM" "$BUNDLE"; do [[ -f $f ]] || die "missing $f"; done
-# IR-04: the stage1 sysroot keeps only the targets of the last x.py invocation; both std libraries are
+# The stage1 sysroot keeps only the targets of the last x.py invocation; both std libraries are
 # needed (host units link against x86_64 std, target units against wasm32-wasip1 std).
 for t in x86_64-unknown-linux-gnu "$TARGET"; do
   compgen -G "$STAGE1/lib/rustlib/$t/lib/libstd-*.rlib" >/dev/null \
-    || die "twin sysroot lacks $t std; run the fork's 'x.py build library --stage 1 --target x86_64-unknown-linux-gnu,$TARGET' (IR-04 build.sh library)"
+    || die "twin sysroot lacks $t std; run the fork's 'x.py build library --stage 1 --target x86_64-unknown-linux-gnu,$TARGET'"
 done
 if [[ -e $OUTPUT ]] && [[ -n $(ls -A "$OUTPUT") ]]; then die "$OUTPUT is not empty (a pack build must start clean)"; fi
 mkdir -p "$OUTPUT/build/src" "$OUTPUT/build/target" "$OUTPUT/pack"
@@ -95,7 +95,7 @@ process.exitCode = wasi.start(instance);
 twin_commit=$(sed -n 's/^commit-hash: //p' "$BUILD/twin-vV.txt")
 wasm_commit=$(sed -n 's/^commit-hash: //p' "$BUILD/rustc-wasm-vV.txt")
 [[ -n $twin_commit && $twin_commit == "$wasm_commit" ]] \
-  || die "twin ($twin_commit) and rustc.wasm ($wasm_commit) are not from one fork commit (IR-04: E0514)"
+  || die "twin ($twin_commit) and rustc.wasm ($wasm_commit) are not from one fork commit (rlibs would fail with E0514)"
 [[ $(head -1 "$BUILD/twin-vV.txt") == "$(head -1 "$BUILD/rustc-wasm-vV.txt")" ]] || die "twin and rustc.wasm version lines differ"
 grep -qx "host: $TARGET" "$BUILD/rustc-wasm-vV.txt" || die "rustc.wasm is not hosted on $TARGET"
 

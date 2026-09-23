@@ -1,5 +1,5 @@
 // Shared parts of the headless browser drivers: a static server with a
-// request log, a /proc process-tree memory sampler (the BL-001 method), and
+// request log, a /proc process-tree memory sampler, and
 // the scenario plan every browser runs in one page session.
 
 import { readdirSync, readFileSync, realpathSync, statSync, writeFileSync, mkdirSync } from "node:fs";
@@ -137,7 +137,7 @@ export class TreeSampler {
       p.samples += 1;
     }
     return {
-      method: "100 ms samples of /proc/<pid>/smaps_rollup Pss and VmRSS over the browser process tree (BL-001 method); RSS double-counts shared pages",
+      method: "100 ms samples of /proc/<pid>/smaps_rollup Pss and VmRSS over the browser process tree; RSS double-counts shared pages",
       sampleCount: this.samples.length,
       peakPss: peak("pssKb"),
       peakRss: peak("rssKb"),

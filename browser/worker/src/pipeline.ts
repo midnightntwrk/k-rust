@@ -1,17 +1,18 @@
-// Stage functions of the browser compiler pipeline (IR-15), independent of the
+// Stage functions of the browser compiler pipeline, independent of the
 // worker global so that tests and the Node/Bun runner call them directly.
 //
-//   assets -> policy (IR-13 module) -> expand (IR-11 module) -> rustc-lesson
+//   assets -> policy (krs-lesson-policy) -> expand (krs-expand-wasm) -> rustc-lesson
 //   -> rustc-collector (riwl links in-process) -> collect (WASI) -> bundle
 //
 // VFS for rustc.wasm (one preopen per layer):
 //   /sysroot    immutable  sysroot bundle (RIWB1), at the pack's sysroot.mount
 //   /pack       immutable  deps/ (target rlibs, sysroot supplement), proc-macro-meta/
-//   /krs        immutable  framework sources (IR-12)
+//   /krs        immutable  framework sources
 //   /workspace  per build  <lesson>/Cargo.toml, <lesson>/<display_file> (authored)
 //   /work       per build  expanded/<lesson>/<display_file>, collector/main.rs, out/
 //   /tmp        per run    empty
-// The collector sees one preopen, "/", holding only /krs and /workspace (IR-12).
+// The collector sees one preopen, "/", holding only /krs and /workspace: every
+// path it opens must be a declared virtual path, as in the pack rlibs.
 
 import { renderCollectorMain } from "./collector-template.ts";
 import { fromCollector, fromExpander, fromPolicy, fromRustc, lookupRanges } from "./diagnostics.ts";
@@ -79,7 +80,7 @@ export class StageFailure extends Error {
   readonly stage: Stage;
   readonly code: FailureCode;
   readonly diagnostics: Diagnostic[];
-  /** A trapped instance may leave shim objects inconsistent (IR-15 assumption). */
+  /** A trapped instance may leave shim objects inconsistent (assumed, not observed). */
   readonly replaceWorker: boolean;
   constructor(stage: Stage, code: FailureCode, message: string, diagnostics: Diagnostic[] = [], replaceWorker = false) {
     super(message);
@@ -399,7 +400,7 @@ export async function stageCollect(build: Build): Promise<void> {
   if (request.faultInjection?.kind === "collector-source") {
     workspace = collectorWorkspaceFault(build, request.faultInjection.files);
   }
-  // One preopen "/" over a tree with only /krs and /workspace (IR-12).
+  // One preopen "/" over a tree with only the declared virtual roots /krs and /workspace.
   const root = preopen("/", merge(new Map([["krs", ctx.layers.krs]]), new Map([["workspace", workspace]])));
   if (request.debugEvidence) build.evidence.vfs.collector = await listDirectory("/", root.dir);
   const args = ["collector"];

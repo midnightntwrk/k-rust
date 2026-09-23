@@ -1,13 +1,13 @@
-// IR-17 gate: real tour-minimal native/browser bundle parity.
+// tour-minimal bundle parity gate: real tour-minimal native/browser bundle parity.
 //
 //   bun test/parity/tour-minimal.ts [--regenerate-oracle] [--out DIR] [--repeats 2]
 //       [--browsers chromium,firefox] [--oracle-dir DIR] [--assets DIR] [--site DIR] [--load-max 40]
 //
 // Reads the editable lesson file tests/tour-minimal/src/lib.rs from the
-// checkout (not the pre-expanded BL-004 control) and E1 = edit-e1.patch applied
+// checkout (not a pre-expanded copy) and E1 = edit-e1.patch applied
 // to it, and runs, in each browser, one page session per repeat with a fresh
 // profile: S0 original (cold), S1 original (warm), S2 E1, S3 original again,
-// all through the IR-15 worker API with the IR-14 pack. Every bundle is
+// all through the worker API with the dependency pack. Every bundle is
 // compared byte for byte with the native `krs emit-k` oracle that
 // regenerate-oracle.sh recorded in <oracle-dir>/oracle.toml.
 //
@@ -87,7 +87,7 @@ interface OracleToml {
 }
 
 function refuse(problems: string[]): never {
-  process.stderr.write(`IR-17 gate refuses to compare:\n${problems.map((p) => `  - ${p}`).join("\n")}\nregenerate with:\n  ${regenerate}\n`);
+  process.stderr.write(`tour-minimal parity gate refuses to compare:\n${problems.map((p) => `  - ${p}`).join("\n")}\nregenerate with:\n  ${regenerate}\n`);
   writeFileSync(join(out, "gate.json"), `${JSON.stringify({ pass: false, refused: problems, regenerate }, null, 1)}\n`);
   process.exit(3);
 }
@@ -147,7 +147,7 @@ function kinds(bytes: Uint8Array): Record<string, number> {
 }
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** Every SourceFileId must be a package-relative path of a declared IR-12 virtual file. */
+/** Every SourceFileId must be a package-relative path of a declared virtual file. */
 function sourceFileIds(bytes: Uint8Array, lessonSha: string): { ok: boolean; ids: string[]; problems: string[] } {
   const declared = new Map([
     ["krs@0.1.0 (framework) src/lib.rs", current.krs_lib_rs_sha256], // /krs/crates/krs/src/lib.rs
@@ -245,7 +245,7 @@ async function runSession(browser: "chromium" | "firefox", repeat: number, port:
         checks.push({ name: `${spec.step}: worker-reported sha256 equals the bytes`, pass: success.bundleSha256 === sha256(bytes), detail: String(success.bundleSha256) });
         checks.push({ name: `${spec.step}: descriptor kinds equal the oracle's`, pass: JSON.stringify(counts) === JSON.stringify(wantRecord.descriptor_kinds), detail: JSON.stringify(counts) });
         checks.push({ name: `${spec.step}: no physical host path`, pass: hostPaths.length === 0, detail: hostPaths.join(", ") || "none" });
-        checks.push({ name: `${spec.step}: SourceFileIds are the IR-12 declared files`, pass: ids.ok, detail: ids.problems.join("; ") || ids.ids.join("; ") });
+        checks.push({ name: `${spec.step}: SourceFileIds are the declared virtual files`, pass: ids.ok, detail: ids.problems.join("; ") || ids.ids.join("; ") });
         if (spec.expect === "e1") checks.push({ name: `${spec.step}: differs from the original oracle`, pass: !sameBytes(bytes, oracleBytes.base), detail: "E1 must change the bundle" });
       } else {
         checks.push({ name: `${spec.step}: success`, pass: false, detail: String(bundleInfo.outcome) });
@@ -264,7 +264,7 @@ async function runSession(browser: "chromium" | "firefox", repeat: number, port:
         wallMs: result.wallMs,
         driverMs,
         workersStarted: result.workersStarted,
-        expansionPath: "C (lesson.expansion = krs-expander; IR-11 expander module)",
+        expansionPath: "C (lesson.expansion = krs-expander; krs-expand-wasm module)",
         bundle: bundleInfo,
         stageEvents: result.events.filter((e) => e.type === "progress").map((e) => ({ atMs: e.atMs, stage: e.stage, state: e.state, ms: e.ms })),
         stageMs: evidence?.stageMs ?? null,
@@ -340,5 +340,5 @@ writeFileSync(join(out, "gate.json"), `${JSON.stringify({
   validity: current,
   sessions: all.map((s) => ({ browser: s.browser, repeat: s.repeat, pass: s.pass, failed: s.checks.filter((c) => !c.pass).map((c) => c.name) })),
 }, null, 1)}\n`);
-process.stderr.write(`IR-17 gate: ${pass ? "PASS" : "FAIL"}\n`);
+process.stderr.write(`tour-minimal parity gate: ${pass ? "PASS" : "FAIL"}\n`);
 process.exit(pass ? 0 : 1);

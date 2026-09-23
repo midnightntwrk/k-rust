@@ -369,7 +369,7 @@ target-rlib = 22
 
 [paths]
 declared = [
-  { pattern = "/krs/", class = "virtual-root", roles = [], note = "IR-12 virtual KRS root; never remapped (CARGO_MANIFEST_DIR, file!(), source file names)" },
+  { pattern = "/krs/", class = "virtual-root", roles = [], note = "virtual KRS root; never remapped (CARGO_MANIFEST_DIR, file!(), source file names)" },
   { pattern = "/registry/", class = "remapped-registry", roles = [], note = "target units: --remap-path-prefix of /cargo/registry/src/<index>; also the fork's own vendored crates" },
   { pattern = "/target/", class = "remapped-target", roles = ["target-rlib"], note = "target units: --remap-path-prefix of /pack-target (build-script OUT_DIR includes)" },
   { pattern = "/rustc/195111dff60e2ce0c6d71f7302401cc4c07b0365", class = "fork-std", roles = [], note = "the fork's remapped standard-library and compiler source prefix (rust.remap-debuginfo)" },

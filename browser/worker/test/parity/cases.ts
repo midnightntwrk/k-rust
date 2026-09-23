@@ -1,6 +1,6 @@
-// IR-18 diagnostic parity cases: the BL-006 set (D001-D008; fixtures copied
-// byte for byte from the BL-006 spike into test/fixtures/bl006, hashes
-// checked against the BL-006 contract), D009, and
+// Diagnostic parity cases: the authored-source diagnostic set (D001-D008;
+// fixtures kept byte for byte in test/fixtures/bl006, hashes checked against
+// the recorded content_sha256 values), D009, and
 // two rustc cases that decide how respanned tokens map (X1, X2).
 //
 //   bun test/parity/cases.ts write-lessons ASSETS_DIR OUT_DIR   (lesson manifests for twin controls)
@@ -19,12 +19,12 @@ export interface DiagnosticCase {
   lesson: LessonName;
   /** Source file under test/fixtures. */
   fixture: string;
-  /** BL-006 contract content_sha256 of the fixture, when it is a BL-006 fixture. */
+  /** Recorded content_sha256 of the fixture, when it is one of the D001-D008 fixtures. */
   bl006Sha256?: string;
   faultInjection?: FaultInjection;
   /** Stage of the native producer (ticket table). */
   nativeStage: Stage;
-  /** The browser bundle is lowered natively (IR-19 has no Wasm lowering yet). */
+  /** The browser bundle is lowered natively (no Wasm lowering exists yet). */
   nativeLoweringOfBrowserBundle?: boolean;
   /** Which native diagnostic(s) this case compares (index into the native list), when a compile emits several. */
   nativeSelect?: number[];
@@ -43,7 +43,7 @@ export const CASES: DiagnosticCase[] = [
     fixture: "bl006/malformed_macro.rs",
     bl006Sha256: "1042c8f578f4d523bcc973f2ca1faa78d6b875df8bebe1f2a43e666a5aee563e",
     nativeStage: "expander",
-    note: "krs-macros compile_error! natively; the IR-11 expander diagnostic in the browser",
+    note: "krs-macros compile_error! natively; the krs-expand-wasm diagnostic in the browser",
   },
   {
     id: "D002",
@@ -53,7 +53,7 @@ export const CASES: DiagnosticCase[] = [
     bl006Sha256: "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa",
     nativeStage: "rustc",
     nativeSelect: [0],
-    blockedBy: { ticket: "IR-26", reason: "rustc.wasm (195111dff) traps with no diagnostic on E0433 for an unresolved module in a type path (IR-15 finding 1)" },
+    blockedBy: { ticket: "rustc.wasm error-exit trap (fixed by fork 0ce51e933)", reason: "rustc.wasm (195111dff) traps with no diagnostic on E0433 for an unresolved module in a type path" },
     note: "first E0433 (authored `missing`)",
   },
   {
@@ -74,7 +74,7 @@ export const CASES: DiagnosticCase[] = [
     bl006Sha256: "705c28f35e9f95938b7b95262ea6da8e9532fc1bf05eceb9b99a5aeceffebeaa",
     nativeStage: "rustc",
     nativeSelect: [1],
-    blockedBy: { ticket: "IR-26", reason: "same compile as D002" },
+    blockedBy: { ticket: "rustc.wasm error-exit trap (fixed by fork 0ce51e933)", reason: "same compile as D002" },
     note: "second E0433 (generated reference check, reported at the invocation)",
   },
   {
@@ -102,7 +102,7 @@ export const CASES: DiagnosticCase[] = [
     fixture: "bl006/external_proc_macro.rs",
     bl006Sha256: "0f488a13d0c0bcee66bff4d7472f29ae2e93d7b74136202e052ce61f9603b3c9",
     nativeStage: "policy",
-    note: "native cargo check succeeds; the browser policy target is serde::Serialize 9..25 (BL-006 contract)",
+    note: "native cargo check succeeds; the browser policy target is serde::Serialize 9..25",
   },
   {
     id: "D008",
@@ -121,15 +121,15 @@ export const CASES: DiagnosticCase[] = [
     fixture: "tour-minimal.rs",
     faultInjection: { kind: "registration-table-missing-factory" },
     nativeStage: "rustc",
-    note: "test-only fault injection after the IR-11 expander (path C): no authored input reaches the table without an expander defect",
+    note: "test-only fault injection after the krs-expand-wasm expander (path C): no authored input reaches the table without an expander defect",
   },
   {
     id: "X1",
-    title: "unresolved variant in k::k! (IR-15 two E0599)",
+    title: "unresolved variant in k::k! (two E0599)",
     lesson: "tour-minimal",
     fixture: "rustc-unresolved-variant.rs",
     nativeStage: "rustc",
-    note: "the second E0599 is on the respanned __krs_variant_type_id_Missing (IR-10/IR-15 finding)",
+    note: "the second E0599 is on the respanned __krs_variant_type_id_Missing",
   },
   {
     id: "X2",
@@ -137,7 +137,7 @@ export const CASES: DiagnosticCase[] = [
     lesson: "tour-minimal",
     fixture: "rustc-rule-head-missing-constructor.rs",
     nativeStage: "rustc",
-    note: "a rule-head anchor (IR-10: 4 respanned rule-head anchors) reaches rustc only as __krs_variant_type_id_Baz",
+    note: "a rule-head anchor (one of tour-minimal's four respanned rule-head anchors) reaches rustc only as __krs_variant_type_id_Baz",
   },
 ];
 
@@ -154,7 +154,7 @@ export function resolveFault(fault: FaultInjection | undefined): FaultInjection 
 }
 
 /**
- * Lesson manifests for the BL-006 packages, rendered as stage-assets.ts renders
+ * Lesson manifests for the diagnostic packages, rendered as stage-assets.ts renders
  * tour-minimal's: the package Cargo.toml text verbatim (workspace-inherited
  * fields included), no [lints] (no lint flags), facade `k`.
  */
@@ -176,7 +176,7 @@ export function lessonManifest(name: LessonName, tourMinimal: LessonManifest): L
     lesson: name,
     package: {
       cargo_name: cargoName,
-      // BL-006 workspace.package: version 0.0.0, edition 2024.
+      // The diagnostic workspace's workspace.package: version 0.0.0, edition 2024.
       cargo_version: "0.0.0",
       crate_name: cargoName.replaceAll("-", "_"),
       manifest_dir: `/workspace/${name}`,

@@ -6,9 +6,9 @@
 //   bun scripts/stage-assets.ts [--out DIR] [--pack DIR] [--krs-rev REV] [--policy-version N]
 //
 // Inputs:
-//   --pack               an IR-14 pack root (holds pack-manifest.toml; default /var/tmp/krs-ir14-pack-a/pack)
-//   --policy-version     the lesson manifest's [policy] version (default 2, IR-28; 1 reproduces the
-//                        IR-15..IR-18 manifests)
+//   --pack               a dependency pack root (holds pack-manifest.toml; default /var/tmp/krs-ir14-pack-a/pack)
+//   --policy-version     the lesson manifest's [policy] version (default 2; 1 reproduces the
+//                        manifests from before policy version 2)
 //   KRS_IR15_POLICY      krs_lesson_policy.wasm built from the pack's crates/ tree
 //   KRS_IR15_EXPANDER    krs_expand_wasm.wasm built from the pack's crates/ tree
 //   KRS_IR15_REPO        KRS checkout holding --krs-rev (module revision and the tour-minimal lesson)
@@ -77,7 +77,7 @@ function walk(dir: string): string[] {
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
-// The IR-14 pack, copied as is under pack/ (the loader verifies every artifact and pack_id).
+// The dependency pack, copied as is under pack/ (the loader verifies every artifact and pack_id).
 const manifestText = readFileSync(join(PACK, "pack-manifest.toml"), "utf8");
 const source = Bun.TOML.parse(manifestText) as unknown as Ir14PackManifest;
 for (const file of walk(PACK)) await placeFile(`pack/${relative(PACK, file)}`, file);

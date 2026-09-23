@@ -1,17 +1,16 @@
-# Format of a published KRS browser-lesson release (IR-21).
+# Format of a published KRS browser-lesson release.
 #
 # Producer: browser/release/release.py (licenses, assemble). Consumers: release.py fetch,
 # tests/browser-pack/verify.py --check, and browser/worker/src/pack-cache.ts.
 # This file is normative; release.py is the reference writer and verify.py the reference checker.
-# It promotes the BL-009 spike's example pack manifest: the BL-009
-# [schema_contract] required asset fields, url rule, activation, cache, and cleanup rules are
-# kept, and every BL-009 missing_final_role has an entry in the release's `roles`.
+# It fixes the required asset fields, the url rule, and the activation, cache, and cleanup rules,
+# and every role of the complete browser asset set has an entry in the release's `roles`.
 #
 # Layers (each names the one below by content):
 #   index.json                    mutable pointer, the only no-cache file
 #   releases/<sha256>.json        release manifest; <sha256> is the SHA-256 of its bytes
 #   blobs/<sha256>[.ext]          assets; <sha256> is the SHA-256 of the decoded bytes
-#   (inside the release) pack/pack-manifest.toml, the IR-14 pack manifest
+#   (inside the release) pack/pack-manifest.toml, the dependency-pack manifest
 #   (browser/pack/manifest-format.toml), whose pack_id is the content address of the
 #   compiler inputs, and licenses/licenses.toml, the license inventory.
 # Two releases of the same pack share pack_id and blobs; they differ when the modules,
@@ -46,7 +45,7 @@ krs_lock_k_rust_commit = "string: Krs.lock [k_rust].commit"
 descriptor_protocol_version = "integer: DescriptorBundle protocol of the oracle (krs-ir ProtocolVersion::CURRENT)"
 
 [release.oracle]
-description = "The IR-17 native oracle for this crates/ tree (regenerate-oracle.sh oracle.toml)."
+description = "The tour-minimal native oracle for this crates/ tree (regenerate-oracle.sh oracle.toml)."
 recipe = "string"
 krs_revision = "string: oracle.toml krs_revision"
 bundle_sha256 = "string: tour-minimal descriptor bundle"
@@ -54,19 +53,18 @@ bundle_bytes = "integer"
 e1_bundle_sha256 = "string: the E1 edit's bundle"
 
 [release.compiler]
-description = "Copied from pack-manifest.toml [compiler]: fork_repository, fork_revision, fork_commits (the patch set: IR-02, IR-04, IR-26 commits over krs/base), cfg_version, native_twin_rustc_vv, wasip1_host_rustc_vv, target_codegen_backend."
+description = "Copied from pack-manifest.toml [compiler]: fork_repository, fork_revision, fork_commits (the patch set over krs/base), cfg_version, native_twin_rustc_vv, wasip1_host_rustc_vv, target_codegen_backend."
 
 [release.roles]
 description = """One entry per role; each has `status` ("present", "absent", or "in-worker-bundle") and, when present, \
-`assets` (asset ids). An unknown or absent value is encoded as a status plus an omitted value (BL-009 \
-unknown_value_encoding)."""
+`assets` (asset ids). An unknown or absent value is encoded as a status plus an omitted value."""
 krs-target-dependencies = "target-rlib, sysroot-supplement, and proc-macro-metadata assets of the pack"
-krs-expander = "the IR-11 expander module (path C, G1); `protocol` names its JSON protocol"
-lesson-policy = "the IR-13 policy module; `version` is the policy version every staged lesson.json selects"
+krs-expander = "the krs-expand-wasm expander module (path C); `protocol` names its JSON protocol"
+lesson-policy = "the krs-lesson-policy module; `version` is the policy version every staged lesson.json selects"
 collector-template = "status in-worker-bundle: browser/worker/src/collector-template.ts is compiled into worker.js; `source_git_blob` identifies it"
 direct-rustc-arguments = "the [direct_rustc] tables of pack-manifest.toml and pack.json"
-runtime-wasm = "status absent until IR-19 produces krs-lower-wasm and k-rust for Wasm; `reason` says why"
-source-map-protocol = "the IR-10 source map returned by the expander and read by krs_expand_lookup"
+runtime-wasm = "status absent until krs-lower-wasm and k-rust exist as Wasm modules; `reason` says why"
+source-map-protocol = "the krs-expand source map returned by the expander and read by krs_expand_lookup"
 compiler = "compiler/rustc.wasm"
 sysroot = "the RIWB1 bundle and its mount"
 
@@ -80,14 +78,14 @@ components_with_gaps = "array of strings (copied)"
 description = "Prose copy of the url rule and header contract (hosting.toml)."
 
 [release.application_cache]
-description = "The BL-009 [application_cache] rules, as browser/worker/src/pack-cache.ts implements them."
+description = "The application cache rules, as browser/worker/src/pack-cache.ts implements them."
 namespace = "string: \"krs-pack-<pack_id hex>\" (Cache API cache name)"
 
 [release.asset]
 description = "Array `assets`, one object per file of the staged asset directory (including licenses/), sorted by id."
 id = "string: path relative to the staged directory (pack/..., modules/..., pack.json, lessons/..., licenses/...)"
-role = "string: an IR-14 artifact role, or pack-manifest, worker-pack-manifest, krs-expander, lesson-policy, lesson, license-inventory, notice"
-url = "string: blobs/<decoded_sha256>[.ext], relative to the base URL (BL-009 url_rule)"
+role = "string: a pack-manifest artifact role, or pack-manifest, worker-pack-manifest, krs-expander, lesson-policy, lesson, license-inventory, notice"
+url = "string: blobs/<decoded_sha256>[.ext], relative to the base URL"
 required_media_type = "string: the Content-Type hosting.toml assigns to url (application/wasm for .wasm)"
 decoded_bytes = "integer"
 decoded_sha256 = "string"

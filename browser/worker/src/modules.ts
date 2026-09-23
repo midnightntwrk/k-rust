@@ -1,5 +1,5 @@
-// JSON-over-linear-memory ABI of the IR-13 policy module and the IR-11
-// expander module: `<prefix>_alloc(len) -> ptr`, `<prefix>_<fn>(ptr, len) -> u64`
+// JSON-over-linear-memory ABI of the krs-lesson-policy module and the
+// krs-expand-wasm expander module: `<prefix>_alloc(len) -> ptr`, `<prefix>_<fn>(ptr, len) -> u64`
 // (response_len << 32 | response_ptr), `<prefix>_dealloc(ptr, len)`.
 // Both modules have no imports. Every call uses a fresh instance.
 
@@ -29,7 +29,7 @@ async function callJson(module: WebAssembly.Module, prefix: string, fn: string, 
   return JSON.parse(text);
 }
 
-// ---------------------------------------------------------------- IR-13 policy
+// ---------------------------------------------------------------- krs-lesson-policy
 
 export interface PolicyRequest {
   schema: 1;
@@ -56,7 +56,7 @@ export function runPolicy(module: WebAssembly.Module, request: PolicyRequest): P
   return callJson(module, "krs_lesson_policy", "run", request) as Promise<PolicyResponse>;
 }
 
-// ---------------------------------------------------------------- IR-11 expander
+// ---------------------------------------------------------------- krs-expand-wasm expander
 
 export interface ExpandRequest {
   schema: 1;

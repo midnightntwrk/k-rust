@@ -10,7 +10,7 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return out;
 }
 
-/** pack_id rule of the IR-14 format: SHA-256 of the sorted "<sha256>  <path>\n" lines of every artifact. */
+/** pack_id rule of the pack-manifest format: SHA-256 of the sorted "<sha256>  <path>\n" lines of every artifact. */
 export async function ir14PackId(artifacts: Array<{ path: string; sha256: string }>): Promise<string> {
   const lines = artifacts.map((a) => `${a.sha256}  ${a.path}\n`).sort();
   return `sha256:${await sha256Hex(new TextEncoder().encode(lines.join("")))}`;
@@ -46,7 +46,7 @@ export class PackIntegrityError extends Error {
 
 /**
  * Reads every asset through `read`, checks size and SHA-256 against the
- * manifest, recomputes the IR-14 pack_id, and compiles the three Wasm modules
+ * manifest, recomputes the pack_id, and compiles the three Wasm modules
  * once. Any mismatch throws PackIntegrityError before a module is compiled.
  */
 export async function loadVerifiedAssets(

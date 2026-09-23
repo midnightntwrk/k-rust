@@ -1,4 +1,4 @@
-IR-12: browser_wasi_shim in-memory path_readlink (POSIX errno for non-links)
+browser_wasi_shim in-memory path_readlink (POSIX errno for non-links)
 
 Target: the vendored browser_wasi_shim in Weblings d0cd7a9f
 (app/public/vendor/browser_wasi_shim/, staged as site/vendor/browser_wasi_shim/),

@@ -1,5 +1,5 @@
-// Test page for the IR-21 cache and corruption tests: exposes window.ir21 over
-// PackCache (src/pack-cache.ts) and the IR-15 controller. The asset host is a
+// Test page for the release cache and corruption tests: exposes window.ir21 over
+// PackCache (src/pack-cache.ts) and the worker controller. The asset host is a
 // separate origin (config.json `base`), so every asset request is a CORS fetch
 // under the hosting.toml headers. run.ts drives the page and the asset host.
 

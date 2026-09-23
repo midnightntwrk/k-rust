@@ -1,7 +1,7 @@
-# Format of pack-manifest.toml, the manifest of a KRS browser dependency pack (IR-14).
+# Format of pack-manifest.toml, the manifest of a KRS browser dependency pack.
 #
-# Producer: browser/pack/build.sh (via manifest.py assemble). Consumers: the IR-15 worker,
-# the IR-17 parity gate, and the IR-21 checker.
+# Producer: browser/pack/build.sh (via manifest.py assemble). Consumers: the browser/worker
+# compiler pipeline, the tour-minimal bundle parity gate, and tests/browser-pack/verify.py.
 # This file is the normative description; manifest.py is the reference writer and `manifest.py verify`
 # the reference checker. Field types use TOML names. A consumer must reject a manifest whose
 # schema_version or manifest_kind differs from the values below.
@@ -38,7 +38,7 @@ pack_id = { type = "string", format = "sha256:<hex>", rule = "SHA-256 of the UTF
 # ------------------------------------------------------------------ tables
 
 [tables.producer]
-description = "How the pack was built. Informational except krs_revision, which IR-17 compares with the oracle revision."
+description = "How the pack was built. Informational except krs_revision, which the tour-minimal parity gate compares with the oracle revision."
 builder = "string: always \"browser/pack/build.sh\""
 krs_revision = "string: full commit id exported with git archive"
 krs_source = "string: prose description of the source mount"
@@ -61,7 +61,7 @@ cfg_version = "string: rustc version string without the \"rustc \" prefix, e.g. 
 native_twin_rustc_vv = "array of strings: `rustc -vV` lines of the native twin"
 wasip1_host_rustc_vv = "array of strings: `rustc -vV` lines of rustc.wasm (first line equals the twin's)"
 target = "string: \"wasm32-wasip1\""
-target_codegen_backend = "string: \"llvm\" (the twin's default backend; IR-03)"
+target_codegen_backend = "string: \"llvm\" (the twin's default backend)"
 rustc_wasm = "string: pack path of the compiler artifact"
 rustc_wasm_sha256 = "string"
 
@@ -83,16 +83,16 @@ twin = "string: \"identical\" | \"absent\" (the twin has no file at that path); 
 [tables.direct_rustc]
 description = """How to call rustc.wasm on lesson and collector sources against this pack. Paths in \
 dependency_search_paths and externs are pack paths: prefix them with the directory where the pack is \
-mounted in the compiler's VFS (IR-15: /pack). Lint flags and CARGO_* variables are lesson properties (IR-11, IR-15) and are not recorded here."""
+mounted in the compiler's VFS (the worker uses /pack). Lint flags and CARGO_* variables are lesson properties and are not recorded here."""
 path_base = "string: \"pack root\""
 edition = "string: \"2024\" (--edition)"
 target = "string: --target"
 sysroot = "string: --sysroot (the sysroot.mount)"
 panic = "string: -C panic=<value>"
 dependency_search_paths = "array of pack paths: each becomes -L dependency=<mount>/<path>"
-extra_flags = "array of strings: always passed, e.g. -Zproc-macro-metadata-only (IR-04)"
+extra_flags = "array of strings: always passed, e.g. -Zproc-macro-metadata-only"
 rustc_bootstrap_required = "boolean: false; the fork's -dev channel accepts -Z flags without RUSTC_BOOTSTRAP"
-collector_flags = "array of strings: additional flags for the collector binary (IR-06: -C opt-level=2)"
+collector_flags = "array of strings: additional flags for the collector binary (-C opt-level=2)"
 framework_sources = "array of virtual paths the collector reads at run time; each is served from the framework-source artifact whose virtual_path matches"
 
 [tables."direct_rustc.externs"]
@@ -135,7 +135,7 @@ mount = "string: sysroot-bundle only; \"/sysroot\""
 host = "string: compiler only; \"wasm32-wasip1\""
 
 [tables."artifact.provenance"]
-description = "Present on proc-macro-metadata artifacts only: how the metadata-only file was made (IR-04 finding)."
+description = "Present on proc-macro-metadata artifacts only: how the metadata-only file was made (the library's .rustc payload, since an --emit=metadata rerun has another crate hash)."
 source_library = "string: the proc-macro .so in the build namespace (it is not shipped)"
 source_library_sha256 = "string"
 section = "string: \".rustc\""
@@ -168,17 +168,17 @@ source = "string (crate): Cargo source id"
 target-rlib = "wasm32-wasip1 rlib of the collector closure built by the native twin (LLVM); lives in deps/"
 sysroot-supplement = "the twin's wasm32-wasip1 libproc_macro and librustc_literal_escaper (.rlib and .rmeta), which the bundle omits and proc-macro2 needs; lives in deps/"
 proc-macro-metadata = "the proc-macro library's own .rustc metadata, loaded by rustc.wasm under -Zproc-macro-metadata-only; never invoked"
-framework-source = "a KRS source file the collector reads at run time (IR-12); served at virtual_path"
+framework-source = "a KRS source file the collector reads at run time; served at its stable virtual_path"
 sysroot-bundle = "the RIWB1 sysroot bundle of the fork build"
 compiler = "the wasip1-hosted rustc.wasm of the fork build"
 
-# ------------------------------------------------------------------ consumer contract (IR-15, IR-17, IR-21)
+# ------------------------------------------------------------------ consumer contract (worker, parity gate, release checker)
 
 [consumer]
 verify = "Before use, check every [[artifact]] against bytes and sha256 and recompute pack_id; reject on mismatch (failure code pack-integrity)."
-compiler_vfs = "Mount deps/ and proc-macro-meta/ read-only under one directory (IR-15: /pack/deps, /pack/proc-macro-meta) and materialize the bundle at /sysroot."
+compiler_vfs = "Mount deps/ and proc-macro-meta/ read-only under one directory (the worker uses /pack/deps and /pack/proc-macro-meta) and materialize the bundle at /sysroot."
 collector_vfs = "Serve each framework-source artifact at its virtual_path; nothing else from the pack is visible to the collector."
 lesson_rustc = "rustc.wasm <lesson> --crate-name <crate> --crate-type rlib --edition <edition> --target <target> --sysroot <sysroot> -C panic=<panic> <extra_flags> -L dependency=<mount>/<each dependency_search_path> --extern k=<mount>/<externs.k> <lesson lint flags> with CARGO_PKG_NAME, CARGO_PKG_VERSION, CARGO_MANIFEST_DIR, CARGO_CRATE_NAME in the WASI environment"
 collector_rustc = "rustc.wasm <collector> --crate-type bin <same common flags> <collector_flags> --extern <crate>=<lesson rlib> --extern __krs_host_runtime=<mount>/<externs.__krs_host_runtime> --extern __krs_compiler_runtime=<mount>/<externs.__krs_compiler_runtime>"
-same_revision = "The pack, the IR-11 expander module, and the native oracle must come from one KRS revision (IR-11 finding); compare producer.krs_revision."
+same_revision = "The pack, the expander module, and the native oracle must come from one KRS revision, because the expander's output must match the krs-macros the pack's rlibs were built from; compare producer.krs_revision."
 reference_run = "tests/browser-backend/verify.py applies this contract under Node WASI and in headless browsers (mount /pack)."

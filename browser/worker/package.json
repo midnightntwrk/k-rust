@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "KRS browser compiler pipeline (IR-15): editable lesson source to the canonical DescriptorBundle in a module worker.",
+  "description": "KRS browser compiler pipeline: editable lesson source to the canonical DescriptorBundle in a module worker.",
   "exports": {
     "./protocol": "./src/protocol.ts",
     "./controller": "./src/controller.ts"

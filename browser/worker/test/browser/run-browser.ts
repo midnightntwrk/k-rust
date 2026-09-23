@@ -1,9 +1,9 @@
-// IR-15 gate driver for one headless browser: fresh profile, one page session
+// Worker gate driver for one headless browser: fresh profile, one page session
 // running the whole scenario plan (test/scenarios.ts).
 //
 //   bun test/browser/run-browser.ts --browser chromium|firefox [--site DIR] [--out DIR] [--port N]
 //
-// run-chromium.ts and run-firefox.ts are kept as entry points with the IR-15 defaults.
+// run-chromium.ts and run-firefox.ts are kept as entry points with the worker gate defaults.
 
 import { parseArgs } from "node:util";
 import { SCENARIOS } from "../scenarios.ts";

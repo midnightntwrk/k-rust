@@ -1,4 +1,4 @@
-// IR-20 docs-site lesson check: drives the built docs site's /lessons/tour-minimal
+// Docs-site lesson check: drives the built docs site's /lessons/tour-minimal
 // page in headless Chromium and headless Firefox over WebDriver BiDi, through
 // the page's own controls, and records bundles, diagnostics, cancel latency,
 // cache behaviour, network requests, memory, and screenshots.
@@ -430,7 +430,7 @@ const e1Source = seedSource.replace("foo_to_bar: Foo() => Bar();", "foo_to_baz: 
 const x1Source = seedSource.replace("k: k::k![Object::Foo()],", "k: k::k![Object::Missing()],");
 // Directly above the item, after the KRS attributes (policy v2 rejects a derive before a KRS attribute separately).
 const policySource = seedSource.replace("pub enum Object {", "#[derive(serde::Serialize)]\npub enum Object {");
-// Before policy v2 (IR-28) this reached rustc as E0428 in the generated registration table (generated-only);
+// Before policy v2 this reached rustc as E0428 in the generated registration table (generated-only);
 // policy v2 rejects the reserved name at its authored range.
 const reservedNameSource = `${seedSource}\npub static __KRS_REGISTRATIONS: u8 = 0;\n`;
 const canary = `krs-canary-${randomBytes(16).toString("hex")}`;
@@ -496,7 +496,7 @@ async function runBrowser(browser: "chromium" | "firefox") {
     });
     const s0Bytes = s0?.bundle ? new Uint8Array(Buffer.from(s0.bundle.base64, "base64")) : new Uint8Array();
     check("S0 bundle equals the native oracle (cmp)", s0?.status === "success" && Buffer.compare(Buffer.from(s0Bytes), Buffer.from(oracle)) === 0 && s0.sha === sha256(oracle), { status: s0?.status, sha: s0?.sha, bytes: s0Bytes.byteLength });
-    // Execution (IR-19, k-rust) does not exist yet: the page must say so and offer nothing to run.
+    // Execution (the k-rust handoff) does not exist yet: the page must say so and offer nothing to run.
     const execution = await step("execution-unavailable", () =>
       evaluate(s, `const e = $('[data-execution]'); return { execution: e?.dataset.execution ?? null,
         stages: [...(e?.querySelectorAll('[data-stage]') ?? [])].map((li) => [li.dataset.stage, li.dataset.state, li.innerText.includes('not yet available')]),

@@ -26,20 +26,20 @@ export interface Scenario {
    * Expectations keyed by the pack's fork_revision, for a scenario whose outcome
    * depends on the compiler. There is no fallback: a fork revision without an
    * entry is an error (MissingForkExpectation), so a new fork commit must be
-   * recorded here on purpose (IR-21).
+   * recorded here on purpose.
    */
   expectByFork?: Record<string, Expectation>;
 }
 
-/** Fork 195111dff (IR-04): rustc.wasm traps after errors and loses the stashed type-path E0433. */
+/** Fork 195111dff (metadata-only proc-macro crates): rustc.wasm traps after errors and loses the stashed type-path E0433. */
 export const FORK_IR04 = "195111dff60e2ce0c6d71f7302401cc4c07b0365";
-/** Fork 0ce51e933 (IR-26): errors finish as natively (summary lines, exit 1, no trap). */
+/** Fork 0ce51e933 (panic=abort error-exit fix): errors finish as natively (summary lines, exit 1, no trap). */
 export const FORK_IR26 = "0ce51e9339ee538c16580fea01ca98dd89f6d7a0";
 
-/** Fork eb8eda040 (IR-27): clif2wasm gaps B17-B27 closed; error exits as on 0ce51e933. */
+/** Fork eb8eda040: clif2wasm gaps B17-B27 closed; error exits as on 0ce51e933. */
 export const FORK_IR27 = "eb8eda0400b8015a0751e48597eb0969dbbd7b36";
 
-/** Fork 8bf3c69b3 (IR-22): WASM_INIT_FUNCS for .init_array, std::simd fma; error exits as on 0ce51e933. */
+/** Fork 8bf3c69b3: WASM_INIT_FUNCS for .init_array, std::simd fma; error exits as on 0ce51e933. */
 export const FORK_IR22 = "8bf3c69b3a7340a1b4940b5575e9bdaeb0ade826";
 
 export class MissingForkExpectation extends Error {
@@ -104,7 +104,8 @@ export const SCENARIOS: Scenario[] = [
     // `Missing` (copied verbatim by k!), plus E0599 on the generated
     // `__krs_variant_type_id_Missing` check. That identifier is respanned at the
     // authored `Missing`; native rustc reports both there, and so does lookup
-    // since IR-18 (IR-15 expected the #[k::init] call site 593..603).
+    // since the diagnostic parity comparison fixed that rule (before, lookup
+    // gave the #[k::init] call site 593..603).
     name: "rustc-unresolved-variant",
     fixture: "rustc-unresolved-variant.rs",
     expect: {
@@ -118,9 +119,9 @@ export const SCENARIOS: Scenario[] = [
     },
   },
   {
-    // BL-006 D002 shape (`sort = missing::M2Obj`). rustc.wasm at 195111dff traps
+    // Diagnostic case D002 shape (`sort = missing::M2Obj`). rustc.wasm at 195111dff traps
     // with no output on E0433 in a type path (the twin reports E0433): compiler-trap.
-    // The IR-26 fork (0ce51e933), IR-27 (eb8eda040), and IR-22 (8bf3c69b3) report the E0433 and exit 1,
+    // Forks 0ce51e933, eb8eda040, and 8bf3c69b3 report the E0433 and exit 1,
     // as the twin does.
     name: "rustc-e0433-type-path-trap",
     fixture: "rustc-e0433-type-path.rs",

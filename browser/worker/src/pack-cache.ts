@@ -1,5 +1,5 @@
-// Application cache for a published browser-lesson release (IR-21), implementing
-// the BL-009 [application_cache] rules over the Cache API and Web Locks:
+// Application cache for a published browser-lesson release, implementing
+// the release's application cache rules over the Cache API and Web Locks:
 //
 // - namespace: one Cache API cache per pack, "krs-pack-<pack_id hex>"; keys are
 //   the absolute content-addressed asset URLs (browser/release/release-format.toml);
@@ -71,7 +71,7 @@ export type PackCacheReason =
 
 /**
  * The integrity error surface: code "pack-integrity" for bytes that do not
- * verify (the BL-009 corruption rule), "pack-unavailable" when the bytes cannot
+ * verify (the corruption rule), "pack-unavailable" when the bytes cannot
  * be obtained (network, HTTP status, offline without a complete generation).
  */
 export class PackCacheError extends PackIntegrityError {
@@ -217,7 +217,7 @@ export class PackCache {
     return (await sha256Hex(bytes)) === asset.decoded_sha256 ? null : "digest-mismatch";
   }
 
-  /** Verified bytes of one asset: the cached copy if it verifies, otherwise one network fetch (BL-009 corruption rule). */
+  /** Verified bytes of one asset: the cached copy if it verifies, otherwise one network fetch (corruption rule). */
   private async ensure(cache: Cache, asset: ReleaseAsset): Promise<Uint8Array> {
     const url = this.url(asset.url);
     let attempts = 0;
@@ -361,7 +361,7 @@ export class PackCache {
   }
 
   /**
-   * IR-20: compiles the three modules from an installed release and describes
+   * Compiles the three modules from an installed release and describes
    * where each worker reads the other assets (the release's namespace, keyed by
    * content-addressed URL). The returned object holds no asset bytes; drop the
    * InstalledRelease afterwards so the page does not keep them either.
@@ -423,7 +423,8 @@ export class PackCache {
 }
 
 /**
- * Worker side of StoredAssets (IR-20): reads the sysroot bundle, the pack
+ * Worker side of StoredAssets, which keeps asset bytes off the page thread
+ * (page-held copies cloned into each worker dominated browser memory): reads the sysroot bundle, the pack
  * artifacts, and the framework sources from the pack's namespace, verifies each
  * against the worker pack manifest, and returns VerifiedAssets for
  * createPipelineContext. A missing or mismatching entry is a PackCacheError

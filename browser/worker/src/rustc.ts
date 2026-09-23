@@ -1,6 +1,6 @@
 // rustc.wasm invocation shape and output interpretation.
 //
-// Cargo-free two-stage compile against a flat dependency directory (IR-06):
+// Cargo-free two-stage compile against a flat dependency directory:
 // the lesson rlib first, then the collector binary linked in-process by riwl.
 
 import type { FailureCode, LessonManifest, PackManifest } from "./protocol.ts";
@@ -12,7 +12,7 @@ export const COLLECTOR_CRATE = "krs_lesson_collector";
 
 /**
  * Lints rustc suppresses for proc-macro output (external-macro spans) but
- * reports on the same tokens in a pre-expanded file (IR-11 finding): generated
+ * reports on the same tokens in a pre-expanded file: generated
  * `__KrsEnumVariant_*` and `__krs_configuration_sort_*` names.
  */
 export const GENERATED_TEXT_LINT_ALLOWANCES = ["-A", "non_camel_case_types", "-A", "non_snake_case"];
@@ -120,7 +120,7 @@ export interface RustcDiagnostic {
 
 export interface ParsedStderr {
   diagnostics: RustcDiagnostic[];
-  /** Raw JSON lines, in order (IR-18 retains them unmapped). */
+  /** Raw JSON lines, in order, unmapped. */
   jsonLines: string[];
   riwl: Record<string, number> | null;
   /** Lines that are neither JSON diagnostics nor the riwl timing line (ICE text, panics). */
@@ -180,10 +180,10 @@ export interface RustcOutcome {
 export const OOM = /out of memory|cannot allocate memory|could not allocate|memory allocation of \d+ bytes failed/i;
 
 /**
- * Classifies one rustc.wasm run. rustc.wasm traps (RuntimeError: unreachable)
- * after printing diagnostics on every error exit, with no "aborting due to"
- * line (IR-03, IR-06): a trap that follows an emitted error is a failed
- * compile, not a compiler crash.
+ * Classifies one rustc.wasm run. rustc.wasm before fork 0ce51e933 traps
+ * (RuntimeError: unreachable) after printing diagnostics on every error exit,
+ * with no "aborting due to" line; later forks exit 1. A trap that follows an
+ * emitted error is a failed compile, not a compiler crash.
  */
 export function classifyRustc(
   stage: "rustc-lesson" | "rustc-collector",

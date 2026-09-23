@@ -1,17 +1,17 @@
-// IR-21 browser cache and corruption tests (BL-009 [application_cache] rules)
+// Browser cache and corruption tests of the release's application cache rules
 // in headless Chromium and headless Firefox.
 //
 //   bun test/cache/run.ts --staged DIR --oracle ORACLE_TOML [--out DIR] [--work DIR]
 //       [--browsers chromium,firefox] [--port 4371] [--asset-port 4391] [--load-max 40]
 //
 // Inputs: a staged asset directory with licenses/ (stage-assets.ts, then
-// `release.py licenses`) and the IR-17 oracle.toml of the same crates/ tree.
+// `release.py licenses`) and the tour-minimal oracle.toml of the same crates/ tree.
 // The runner publishes two releases into WORK/publish with browser/release/release.py:
 // A from --staged, and B from `release.py derive-generation` (a second, valid pack
 // generation that differs in one framework-source byte string). A test asset host
 // on its own origin serves the publication under browser/release/hosting.toml
 // (CORS included) and injects faults per URL; the page (test/cache/cache-page.ts)
-// drives src/pack-cache.ts and the IR-15 controller. One fresh-profile session per
+// drives src/pack-cache.ts and the worker controller. One fresh-profile session per
 // browser runs every case in order; OUT/cache-tests-<browser>.json records each case's
 // observations and verdict.
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# IR-18 native diagnostic baseline (ticket procedure step 1) and native-twin controls.
+# Native diagnostic baseline for the diagnostic parity gate, and native-twin controls.
 #
 #   native-diagnostics.sh [OUT]      (default /var/tmp/krs-ir18-native)
 #
 # Writes OUT/cases/<ID>/ for every case in cases.ts:
-#   D001, D002+D004, D007   cargo +stable check --message-format=json of the BL-006 bins (cargo.jsonl, exit)
-#   D003, D008              krs check of the BL-006 packages (stderr, exit) with the collector's stdout
+#   D001, D002+D004, D007   cargo +stable check --message-format=json of the diagnostic bins (cargo.jsonl, exit)
+#   D003, D008              krs check of the diagnostic packages (stderr, exit) with the collector's stdout
 #                           teed to native-bundle.json by the cargo shim (lower-shim/cargo)
-#   D005, D006              the BL-006 anchor-probe (bl006-probe.json), and the lesson-level faults the
+#   D005, D006              the anchor-probe (bl006-probe.json), and the lesson-level faults the
 #                           browser injects: the native tour-minimal collector binary run over an export
 #                           whose src/lib.rs is the E1 text (stale) or absent (missing) (stderr, exit)
 #   X1, X2                  cargo +stable check of tour-minimal variants (cargo.jsonl, exit)
@@ -62,9 +62,9 @@ mkdir -p "$CASES" "$OUT/lower-shim"
   echo "collector = $COLLECTOR"
 } >"$OUT/provenance.txt"
 
-# ---------------------------------------------------------------- BL-006 workspace
+# ---------------------------------------------------------------- diagnostic workspace
 
-# Rebuild the BL-006 spike workspace from its byte-identical fixtures; point the path
+# Rebuild the diagnostic workspace from its byte-identical fixtures; point the path
 # dependencies at this checkout's crates.
 for pair in Cargo.toml:workspace.Cargo.toml anchor-probe/Cargo.toml:anchor-probe.Cargo.toml anchor-probe/src/main.rs:anchor_probe.rs \
   overlap/Cargo.toml:overlap.Cargo.toml overlap/src/lib.rs:overlap.rs rust-expansion/Cargo.toml:rust-expansion.Cargo.toml \

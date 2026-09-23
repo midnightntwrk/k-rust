@@ -1,4 +1,4 @@
-# KRS browser dependency pack (IR-14).
+# KRS browser dependency pack.
 #
 # This package roots the dependency closure of the generated lesson collector
 # (`__krs_host_runtime = krs`, `__krs_compiler_runtime = krs-compiler`,
@@ -7,8 +7,9 @@
 # the KRS workspace members; build.sh builds it inside a mount namespace where
 # the KRS source tree is at the virtual root /krs.
 #
-# `krs` is built without default features: explicit registration (IR-07) and
-# no `inventory` or `rustversion` edge. build.sh fails if feature unification
+# `krs` is built without default features: explicit descriptor registration
+# (link-time constructors do not run in browser-compiled code) and no
+# `inventory` or `rustversion` edge. build.sh fails if feature unification
 # enables `inventory`.
 [package]
 name = "krs-browser-pack"

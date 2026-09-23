@@ -1,4 +1,4 @@
-# Hand-maintained input of the browser-lesson license inventory (IR-21).
+# Hand-maintained input of the browser-lesson license inventory.
 #
 # browser/release/release.py licenses generates licenses.toml from this file plus
 # `cargo metadata` / `cargo tree` (the Cargo closures), the fork's library/Cargo.lock
@@ -18,7 +18,7 @@
 #
 # Asset patterns are fnmatch patterns over staged asset ids (paths relative to the
 # staged asset directory, as stage-assets.ts writes it). A pattern that starts with
-# "site:" names a file that the docs site ships beside the release (IR-20), not a
+# "site:" names a file that the docs site ships beside the release, not a
 # release asset; the checker lists it but does not require it in the release.
 
 schema_version = 1
@@ -175,11 +175,11 @@ basis = "<repo>/Cargo.toml [workspace.package] license = \"MIT OR Apache-2.0\"; 
 notices = ["<repo>/LICENSE-APACHE", "<repo>/LICENSE-MIT"]
 assets = ["pack.json", "pack/pack-manifest.toml", "lessons/*"]
 
-# ------------------------------------------------------------------ docs-site worker bundle (IR-20), not a release asset
+# ------------------------------------------------------------------ docs-site worker bundle, not a release asset
 
 [[component]]
 id = "npm:browser_wasi_shim"
-name = "@bjorn3/browser_wasi_shim (minified copy vendored by Weblings, patched by IR-12)"
+name = "@bjorn3/browser_wasi_shim (minified copy vendored by Weblings, patched for path_readlink)"
 origin = "vendored-js"
 spdx = "MIT OR Apache-2.0"
 license_status = "declared"
@@ -189,11 +189,11 @@ assets = ["site:worker.js"]
 
 [[component]]
 id = "weblings"
-name = "Weblings (container of the vendored shim copy and the BL-001 browser host design)"
+name = "Weblings (container of the vendored shim copy and the browser host design the worker follows)"
 origin = "vendored-js"
 spdx = "MIT"
 license_status = "declared"
-basis = "<repo>/browser/worker/vendor/browser_wasi_shim/LICENSE-weblings (Weblings repository LICENSE, sha256 bcba9b44... in BL-009)"
+basis = "<repo>/browser/worker/vendor/browser_wasi_shim/LICENSE-weblings (Weblings repository LICENSE, sha256 bcba9b44...)"
 notices = ["<repo>/browser/worker/vendor/browser_wasi_shim/LICENSE-weblings"]
 assets = ["site:worker.js"]
 

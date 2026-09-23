@@ -1,5 +1,5 @@
-// Headless Firefox driver for the IR-15 gate over WebDriver BiDi (no
-// geckodriver), as BL-001's run-firefox-evidence.mjs:
+// Headless Firefox driver for the worker gate over WebDriver BiDi (no
+// geckodriver):
 // /usr/lib/firefox/firefox --headless --new-instance with a fresh /var/tmp
 // profile. No visible window is opened.
 //

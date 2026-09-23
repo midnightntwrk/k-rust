@@ -1,4 +1,4 @@
-// Unit tests of the IR-20 stored-assets path over PackCache (IR-21): the page
+// Unit tests of the stored-assets path over PackCache: the page
 // installs a release, compiles the modules, and hands workers a description of
 // the namespace; readStoredAssets reads and verifies the rest. In-memory
 // CacheStorage and fetch; no staged assets needed.
@@ -89,7 +89,7 @@ async function fixture() {
   return { pack, files, requests, storage, cache };
 }
 
-describe("PackCache stored assets (IR-20)", () => {
+describe("PackCache stored assets", () => {
   test("inspect reports the required size without fetching assets", async () => {
     const { cache, requests, files } = await fixture();
     const preview = await cache.inspect();

@@ -1,22 +1,22 @@
-// IR-18 gate: browser diagnostics against native diagnostics, per case.
+// Diagnostic parity gate: browser diagnostics against native diagnostics, per case.
 //
 //   bun test/parity/diagnostics.ts [--native DIR] [--assets DIR] [--site DIR] [--out DIR]
 //       [--browsers chromium,firefox] [--load-max 40]
 //
 // Prerequisite: native-diagnostics.sh (the native baseline and twin controls) at
 // this revision, over the same staged assets. Every case in cases.ts runs through
-// the IR-15 worker API (runSource) in one fresh-profile page session per browser.
+// the worker API (runSource) in one fresh-profile page session per browser.
 // For the lowering cases (D003, D008) the browser bundle is lowered natively by
 // krs-cli (`krs check` with the cargo shim substituting the collector's stdout),
-// because IR-19's Wasm lowering does not exist yet; these are labeled
+// because no Wasm lowering exists yet; these are labeled
 // "native lowering of the browser bundle".
 //
 // Classification is mechanical on both sides: native rustc from the primary
 // span (authored file and no expansion: exact-authored; an expansion:
 // invocation-level; no span: unmappable), krs-cli from the DiagnosticEnvelope
 // authored_range (unstructured text: unmappable), collector stderr unmappable;
-// browser from the worker's Diagnostic.class (krs_expand_lookup over the IR-10
-// map). Parity requires equal stage, code, message, and class, equal authored
+// browser from the worker's Diagnostic.class (krs_expand_lookup over the
+// krs-expand source map). Parity requires equal stage, code, message, and class, equal authored
 // ranges when both sides carry one, the same number of diagnostics per compile,
 // no authored range on generated-only or unmappable browser diagnostics, and
 // identical classification in Chromium and Firefox. Labels, notes, and helps are
@@ -186,7 +186,7 @@ function nativeFor(c: DiagnosticCase): { diagnostics: Normalized[]; compile: Nor
         diagnostics: all,
         compile: all,
         raw: { "collector.stderr": read(c.id, "collector.stderr"), "collector.exit": read(c.id, "collector.exit"), "bl006-probe.json": read(c.id, "bl006-probe.json") },
-        note: `BL-006 anchor-probe at this revision: ${read(c.id, "bl006-probe.json").trim()}`,
+        note: `anchor-probe at this revision: ${read(c.id, "bl006-probe.json").trim()}`,
       };
     }
     case "D007": {
@@ -199,7 +199,7 @@ function nativeFor(c: DiagnosticCase): { diagnostics: Normalized[]; compile: Nor
         message: null,
         class: "exact-authored",
         authored: [9, 25],
-        producer: `BL-006 contract target; native cargo check exit ${exit} with ${cargoDiagnostics(join(nativeDir, "cases/D007/cargo.jsonl")).length} diagnostics`,
+        producer: `policy target; native cargo check exit ${exit} with ${cargoDiagnostics(join(nativeDir, "cases/D007/cargo.jsonl")).length} diagnostics`,
       };
       return { diagnostics: [target], compile: [target], raw: { "cargo.jsonl": read("D007", "cargo.jsonl"), exit } };
     }
@@ -310,7 +310,7 @@ async function runBrowser(browser: "chromium" | "firefox", port: number, tour: L
         const nativeBundle = new Uint8Array(readFileSync(join(nativeDir, "cases", c.id, "native-bundle.json")));
         run.bundle = { path, sha256: sha256(bytes), bytes: bytes.length, equalsNative: bytes.length === nativeBundle.length && bytes.every((b, i) => b === nativeBundle[i]) };
         const lowered = lowerNatively(c, path);
-        run.lowering = { ...lowered, label: "native lowering of the browser bundle (krs check, collector stdout replaced by the browser bundle); IR-19 has no Wasm lowering yet" };
+        run.lowering = { ...lowered, label: "native lowering of the browser bundle (krs check, collector stdout replaced by the browser bundle); no Wasm lowering exists yet" };
         run.diagnostics = [...run.diagnostics, ...krsCli(lowered.stderr)];
       }
       // Raw worker events per case (bundle bytes dropped; kept in scratch).
@@ -376,7 +376,7 @@ if (!nativeProvenance.includes(`crates_tree = ${pack.crates_tree}`)) {
   process.exit(3);
 }
 for (const c of CASES) {
-  if (c.bl006Sha256 && sha256(fixtureText(c.fixture)) !== c.bl006Sha256) throw new Error(`${c.fixture} differs from the BL-006 fixture`);
+  if (c.bl006Sha256 && sha256(fixtureText(c.fixture)) !== c.bl006Sha256) throw new Error(`${c.fixture} differs from its recorded content_sha256`);
 }
 await waitForLoad();
 const site = Bun.spawnSync(["bun", "scripts/build-site.ts", "--out", values.site!, "--assets", values.assets!], { cwd: workerRoot, stderr: "pipe" });
@@ -410,7 +410,7 @@ const cases = CASES.map((c) => {
   const classes = perBrowser.map((p) => JSON.stringify(p.run?.rawDiagnostics.map((d) => [d.class, d.authored?.start, d.authored?.end]) ?? null));
   const crossBrowser = classes.every((x) => x === classes[0]);
   const pass = perBrowser.every((p) => p.pass) && crossBrowser;
-  // IR-26 (fork 0ce51e933) fixed the rustc.wasm trap; the blocker applies only to the IR-04 fork.
+  // Fork 0ce51e933 fixed the rustc.wasm trap; the blocker applies only to fork 195111dff.
   const blocked = c.blockedBy !== undefined && pack.fork_revision === FORK_IR04;
   return { case: c, native, perBrowser, crossBrowser, pass, blocked, status: pass ? "match" : blocked ? `blocked-by ${c.blockedBy!.ticket}` : "mismatch" };
 });
@@ -430,10 +430,9 @@ for (const id of ["D002-D004", "D009", "X1", "X2"]) {
 const q = (v: unknown) => JSON.stringify(v ?? "");
 const range = (r: [number, number] | null | undefined) => (r ? `[${r[0]}, ${r[1]}]` : "[]");
 const lines: string[] = [
-  "# IR-18 comparison contract: BL-006 schema plus stage, path, and generated_* fields (browser side).",
+  "# Diagnostic parity comparison contract: authored-source diagnostic schema plus stage, path, and generated_* fields (browser side).",
   "# Generated by browser/worker/test/parity/diagnostics.ts; do not edit by hand.",
   "schema_version = 2",
-  'ticket = "IR-18"',
   'classification_values = ["exact-authored", "invocation-level", "generated-only", "unmappable"]',
   'stage_values = ["expander", "policy", "rustc", "collector", "lowering"]',
   'path = "C"',
@@ -450,7 +449,7 @@ for (const r of cases) {
   lines.push(`native_stage = ${q(c.nativeStage)}`, `status = ${q(r.status)}`, `cross_browser_identical = ${r.crossBrowser}`);
   if (r.blocked) lines.push(`blocked_by = ${q(c.blockedBy!.ticket)}`, `blocked_reason = ${q(c.blockedBy!.reason)}`);
   else if (c.blockedBy) lines.push(`formerly_blocked_by = ${q(`${c.blockedBy.ticket} (fork ${FORK_IR04.slice(0, 9)}); fixed in the pack's fork`)}`);
-  if (c.nativeLoweringOfBrowserBundle) lines.push('lowering = "native lowering of the browser bundle (IR-19 pending)"');
+  if (c.nativeLoweringOfBrowserBundle) lines.push('lowering = "native lowering of the browser bundle (no Wasm lowering yet)"');
   lines.push(`note = ${q(c.note)}`);
   r.native.diagnostics.forEach((n, i) => {
     lines.push("[[case.native]]", `index = ${i}`, `producer = ${q(n.producer)}`, `stage = ${q(n.stage)}`, `code = ${q(n.code)}`, `level = ${q(n.level)}`, `message = ${q(n.message)}`, `class = ${q(n.class)}`, `authored = ${range(n.authored)}`);
@@ -502,5 +501,5 @@ const summary = {
 };
 writeFileSync(join(out, "comparison.json"), `${JSON.stringify(summary, null, 1)}\n`);
 for (const r of cases) process.stderr.write(`${r.case.id}: ${r.status}${r.perBrowser.some((p) => p.problems.length) ? ` (${r.perBrowser.map((p) => `${p.browser}: ${p.problems.join("; ")}`).join(" | ")})` : ""}\n`);
-process.stderr.write(`IR-18 gate: ${summary.pass ? "PASS" : "FAIL"}\n`);
+process.stderr.write(`diagnostic parity gate: ${summary.pass ? "PASS" : "FAIL"}\n`);
 process.exit(summary.pass ? 0 : 1);

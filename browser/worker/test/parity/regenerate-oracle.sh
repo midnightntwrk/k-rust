@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# IR-17 native oracle regeneration (ticket procedure steps 1 to 3).
+# Native oracle regeneration for the tour-minimal bundle parity gate.
 #
 #   regenerate-oracle.sh [OUT] [ORACLE_TOML]
 #
@@ -12,7 +12,7 @@
 # git export of HEAD. The fixture in the checkout is never modified: each
 # export is mounted read-only over the checkout path in a private bwrap
 # namespace, because krs-cli finds the framework through its compile-time
-# CARGO_MANIFEST_DIR (IR-06 finding; IR-06 run.sh step oracle).
+# CARGO_MANIFEST_DIR.
 #
 # Environment: KRS_BIN (a krs binary built from this checkout; built when
 # absent), KRS_Z3_LIB, LOAD_MAX (default 40).
@@ -127,7 +127,7 @@ def q(value):
     return json.dumps(value)
 
 lines = [
-    "# IR-17 native oracle provenance (browser/worker/test/parity/regenerate-oracle.sh).",
+    "# tour-minimal native oracle provenance (browser/worker/test/parity/regenerate-oracle.sh).",
     "# The gate refuses to compare when any [validity] value differs from the checkout.",
     "schema = 1",
     f"krs_revision = {q(rev)}",

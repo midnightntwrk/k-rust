@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""KRS browser-lesson release: license inventory, content-addressed publication, fetch, and local hosting (IR-21).
+"""KRS browser-lesson release: license inventory, content-addressed publication, fetch, and local hosting.
 
 Python 3 standard library only (plus `cargo +stable` for the license walk).
 Formats: release-format.toml (release manifest and index), hosting.toml (HTTP headers),
 licenses-manual.toml (hand-maintained license input).
 
 A *staged asset directory* is what browser/worker/scripts/stage-assets.ts writes:
-  pack/                      the IR-14 pack (pack-manifest.toml and its artifacts)
+  pack/                      the dependency pack (pack-manifest.toml and its artifacts)
   modules/                   krs_lesson_policy.wasm, krs_expand_wasm.wasm
   pack.json                  the worker's PackManifest
   lessons/<lesson>/...       lesson manifests and sources
@@ -727,8 +727,8 @@ def assemble(args: argparse.Namespace) -> int:
             "collector-template": {"status": "in-worker-bundle", "source": "browser/worker/src/collector-template.ts",
                                    "source_git_blob": git(repo, "rev-parse", "HEAD:browser/worker/src/collector-template.ts") if collector_template.is_file() else None},
             "direct-rustc-arguments": {"status": "present", "assets": ["pack/pack-manifest.toml", "pack.json"], "table": "[direct_rustc] of pack-manifest.toml; direct_rustc of pack.json"},
-            "runtime-wasm": {"status": "absent", "reason": "IR-19 (krs-lower-wasm and k-rust for Wasm) has not produced a module; lowering runs natively"},
-            "source-map-protocol": {"status": "present", "assets": ids("krs-expander"), "protocol": "IR-10 source map inside the expander response; krs_expand_lookup ABI"},
+            "runtime-wasm": {"status": "absent", "reason": "krs-lower-wasm and k-rust do not exist as Wasm modules yet; lowering runs natively"},
+            "source-map-protocol": {"status": "present", "assets": ids("krs-expander"), "protocol": "krs-expand source map inside the expander response; krs_expand_lookup ABI"},
             "compiler": {"status": "present", "assets": ids("compiler")},
             "sysroot": {"status": "present", "assets": ids("sysroot-bundle"), "mount": manifest["sysroot"]["mount"]},
         },
@@ -898,7 +898,7 @@ def derive_generation(args: argparse.Namespace) -> int:
         os.link(path.resolve(), target)
     rel = "krs/crates/krs/Cargo.toml"
     target = out / "pack" / rel
-    data = target.read_bytes() + b"# second generation (IR-21 cache tests; test-only)\n"
+    data = target.read_bytes() + b"# second generation (cache tests; test-only)\n"
     target.unlink()
     target.write_bytes(data)
     old_sha, new_sha, new_bytes = sha256_file(staged / "pack" / rel), sha256_bytes(data), len(data)

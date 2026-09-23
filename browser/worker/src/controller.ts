@@ -24,7 +24,7 @@ import {
 
 /** The asset loader (hash verification + one module compile per page), re-exported for docs-site. */
 export { loadVerifiedAssets, PackIntegrityError } from "./pack.ts";
-/** The release cache (IR-21); PackCache.storedAssets lets workers read verified assets themselves (IR-20). */
+/** The release cache; PackCache.storedAssets lets workers read verified assets themselves. */
 export {
   type CacheEvent,
   InstalledRelease,
@@ -40,7 +40,7 @@ export interface KrsCompilerOptions {
   /**
    * Web Locks lease each worker holds (shared) for its lifetime, e.g.
    * InstalledRelease.lease: PackCache.cleanup() never deletes the namespace of
-   * a pack while a worker built from it is alive (IR-21).
+   * a pack while a worker built from it is alive.
    */
   lease?: string;
 }

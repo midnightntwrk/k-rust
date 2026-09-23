@@ -1,6 +1,6 @@
 // Headless browser sessions for the worker gates: Chromium over WebDriver
 // (a ChromeDriver this module starts) and Firefox over WebDriver BiDi (no
-// geckodriver; /usr/lib/firefox/firefox --headless --new-instance, as BL-001).
+// geckodriver; /usr/lib/firefox/firefox --headless --new-instance).
 // Each session uses a fresh /var/tmp profile, serves the site from localhost,
 // samples the browser process tree, and removes the profile on close. No
 // visible window is opened.

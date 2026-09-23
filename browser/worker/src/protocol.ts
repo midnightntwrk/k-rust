@@ -1,4 +1,4 @@
-// Public types of the KRS browser compiler worker (IR-15).
+// Public types of the KRS browser compiler worker.
 //
 // docs-site imports this module and controller.ts only. Everything here is
 // plain data: every value crosses the page/worker boundary by structured clone.
@@ -23,7 +23,7 @@ export const STAGES: readonly Stage[] = [
   "bundle",
 ];
 
-/** The lesson manifest's IR-13 `[policy]` table (LessonPolicy, schema 1). */
+/** The lesson manifest's `[policy]` table (LessonPolicy, schema 1). */
 export interface LessonPolicy {
   version: number;
   editable_files: string[];
@@ -37,13 +37,13 @@ export interface LessonManifest {
   lesson: string;
   /** The pack this lesson was authored against (PackManifest.pack_id). */
   pack_id: string;
-  /** "krs-expander" on path C (IR-11 expander); "rustc" on path W. */
+  /** "krs-expander" on path C (krs-expand-wasm); "rustc" on path W. */
   expansion: "krs-expander" | "rustc";
   package: {
     cargo_name: string;
     cargo_version: string;
     crate_name: string;
-    /** "/workspace/<lesson>" (IR-12 virtual identity). */
+    /** "/workspace/<lesson>" (stable virtual identity). */
     manifest_dir: string;
     edition: string;
     /** `[package.metadata.krs] k-namespace`. */
@@ -55,7 +55,7 @@ export interface LessonManifest {
   };
   /** The facade dependency: `alias` is the extern name, `path` its absolute path. */
   facade: { alias: string; path: string };
-  /** The editable file that holds the definition (IR-13: src/lib.rs or src/main.rs). */
+  /** The editable file that holds the definition (the policy allows src/lib.rs or src/main.rs). */
   display_file: string;
   policy: LessonPolicy;
   /** Lint flags rendered from the manifest's `[lints.rust]` table, e.g. ["-D", "warnings"]. */
@@ -70,12 +70,12 @@ export interface CompileRequest {
   files: Record<string, string>;
   /** Attach expanded text, rustc arguments, VFS listings, and raw stderr to the result. */
   debugEvidence?: boolean;
-  /** Test-only fault injection (IR-18 D005, D006, D009); the docs site never sets it. */
+  /** Test-only fault injection (diagnostic cases D005, D006, D009); the docs site never sets it. */
   faultInjection?: FaultInjection;
 }
 
 /**
- * Test-only faults that no authored input can produce without a defect (IR-18).
+ * Test-only faults that no authored input can produce without a defect, so the diagnostic parity gate can exercise those paths.
  *
  * - `registration-table-missing-factory`: after expansion, the first
  *   registration's factory reference inside the generated-only registration
@@ -224,26 +224,26 @@ export interface MountedSource extends PackAsset {
 
 /**
  * Normalized pack manifest consumed by the worker (schema 1). pack-ir14.ts
- * derives it from an IR-14 pack-manifest.toml (schema_version 2) plus the
- * IR-11/IR-13 modules, which the IR-14 pack does not carry.
+ * derives it from a pack-manifest.toml (schema_version 2) plus the
+ * expander and policy modules, which the pack does not carry.
  */
 export interface PackManifest {
   schema: 1;
   kind: "krs-browser-worker-pack";
-  /** The IR-14 pack_id ("sha256:<hex>"), recomputed by the loader. */
+  /** The pack_id ("sha256:<hex>"), recomputed by the loader. */
   pack_id: string;
   source: { format: string; sha256: string; path: string };
-  /** How the loader recomputes pack_id: the IR-14 rule over every asset under `root`. */
+  /** How the loader recomputes pack_id: the pack-manifest rule over every asset under `root`. */
   integrity: { rule: "ir14-sorted-artifact-lines"; root: string };
   krs_revision: string;
-  /** git tree id of crates/ the pack was built from (IR-14 [[input]] "KRS crates/ tree"). */
+  /** git tree id of crates/ the pack was built from (pack-manifest [[input]] "KRS crates/ tree"). */
   crates_tree: string;
   fork_revision: string;
   cfg_version: string;
   /** DescriptorBundle protocol version the pack's krs-ir writes. */
   protocol_version: number;
   compiler: { rustc: PackAsset; sysroot_bundle: PackAsset; host_rustc_vv: string[] };
-  /** IR-13 policy and IR-11 expander modules, built from the same crates/ tree. */
+  /** Policy and expander modules, built from the same crates/ tree. */
   modules: { policy: PackAsset; expander: PackAsset; krs_revision: string; crates_tree: string };
   artifacts: PackArtifact[];
   framework_sources: MountedSource[];
@@ -266,7 +266,7 @@ export interface PackManifest {
 
 /**
  * Assets after the loader verified every hash against the pack manifest
- * (BL-009 activation rule). Modules are compiled once per page and cloned.
+ * (activation rule). Modules are compiled once per page and cloned.
  */
 export interface VerifiedAssets {
   packId: string;
@@ -280,12 +280,13 @@ export interface VerifiedAssets {
 
 /**
  * Verified pack assets that each worker reads from Cache Storage itself
- * (IR-20). The page installs a release through PackCache (pack-cache.ts),
+ * The page installs a release through PackCache (pack-cache.ts),
  * compiles the three modules, and keeps no asset bytes; each worker reads the
  * rlibs, the sysroot bundle, and the framework sources from the release's
  * cache namespace and verifies them again (readStoredAssets). Starting or
  * replacing a worker then clones only the compiled modules, not about 120 MB
- * of bytes on the page thread (IR-15 finding 5).
+ * of bytes on the page thread, which dominated browser memory and delayed
+ * the cancelled event of a replaced worker.
  */
 export interface StoredAssets {
   packId: string;
