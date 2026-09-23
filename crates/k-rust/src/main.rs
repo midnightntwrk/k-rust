@@ -2521,7 +2521,35 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         output_seconds,
     }
     .write(options.timings.as_deref())?;
-    Ok(ExitCode::from(output.exit_code))
+    let exit_code = ExitCode::from(output.exit_code);
+    // The result and the timings are written, and the process exits once `main` returns.
+    // `_trace` still drops normally: it finishes the trace and aggregate files.
+    // Borrowers are released before what they borrow.
+    release_at_exit(config_injector);
+    release_at_exit(config_parsers);
+    release_at_exit(macro_definition);
+    release_at_exit(program_resolved);
+    release_at_exit(program_definition);
+    release_at_exit((
+        compiled.frontend_definition,
+        compiled.execution_definition,
+        compiled.definition_kore,
+    ));
+    release_at_exit(syntax);
+    release_at_exit(backend);
+    release_at_exit(output);
+    Ok(exit_code)
+}
+
+/// Leave a value allocated until the process exits instead of dropping it.
+///
+/// The operating system reclaims all of a process's memory when it exits, so walking and freeing
+/// a definition-sized structure just before that has no observable effect and only takes time.
+/// Callers pass only values whose drop does nothing but free memory: no file, buffered writer,
+/// child process, temporary directory, lock, or trace guard is reachable from them. A command
+/// calls this only after writing all of its output, right before returning to `main`.
+fn release_at_exit<T>(value: T) {
+    std::mem::forget(value);
 }
 
 /// Return the macro expander's definition for `definition`, preparing it on first use.
@@ -3311,6 +3339,11 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     drop(proof_phase);
     saved_proofs.save(spec_module, &proven_ids)?;
     timings.write(options.timings.as_deref())?;
+    // The claim results and the timings are written; `output` and `_trace` still drop normally.
+    release_at_exit(circularities);
+    release_at_exit(kept);
+    release_at_exit(backend);
+    release_at_exit(syntax);
     if !all_proven {
         return Err("one or more reachability claims were not proven".into());
     }
