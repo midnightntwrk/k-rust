@@ -9,6 +9,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import GateError  # noqa: E402
+from support.lock import k_version  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool  # noqa: E402
 
@@ -17,12 +18,11 @@ HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "rust-definition" / "Cargo.toml"
 PACKAGE = "krs-c7-associativity"
 MODULE = "KRS-C7-ASSOCIATIVITY"
-K_VERSION = "7.1.337"
 
 
 def main() -> int:
-    kompile = k_tool("kompile", K_VERSION)
-    kast = k_tool("kast", K_VERSION)
+    kompile = k_tool("kompile", k_version())
+    kast = k_tool("kast", k_version())
 
     with tempfile.TemporaryDirectory(prefix="krs-c7-") as temporary:
         workspace = Path(temporary)

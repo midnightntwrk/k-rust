@@ -6,10 +6,7 @@ definition_ir = 27
 kast_json = 4
 
 [cargo]
-lock_sha256 = "0a35b1084e8dfd15a589824a992afbb494225d937883d853dd1889a159edfc02"
 msrv = "1.88.0"
-native_frontend_rust = "1.98.0"
-native_frontend_msrv_status = "msrv-compatible"
 
 [k]
 version = "7.1.337"
@@ -29,7 +26,6 @@ kore_version = "0.4.0"
 tracked_kore_sha256 = "e8de6794ce13316e37fdae5dd4de91270418dc9fae5955e46d245e95ad79901b"
 
 [builtin_registry]
-source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
 sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"]
 
 [solver]

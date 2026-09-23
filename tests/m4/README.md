@@ -16,8 +16,8 @@ all 15 upstream IMP claims, and five independently selectable adjunct claims.
 Its only normal dependency is the author-facing `krs` facade renamed to `k`.
 Every authored source file is rustc-valid Rust.
 
-The authored and independently expanded IMP packages are checked on Rust 1.88.0.
-Native/frontend helpers are additionally qualified on exact stable Rust 1.98.0.
+The authored and independently expanded IMP packages are checked on the `Krs.lock` MSRV, Rust 1.88.0.
+Native/frontend helpers are additionally qualified on the current stable Rust, which must be at or above that MSRV.
 Clean k-rust main `efda6192785d4113eeea2fa090e4662d30dc8801` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
 Earlier k-rust revisions used if-let guards, which Rust 1.88.0 rejects; that discrepancy previously blocked this alignment and is now closed.
 The complete M4.1-M4.8 gate passed against that pin on 2026-09-15 JST.
@@ -27,7 +27,8 @@ The complete M4.1-M4.8 gate passed against that pin on 2026-09-15 JST.
 `verify.py` owns the ordered top-level gate and stops at the first failed
 layer:
 
-1. exact source, tool, checkout, schema, lock, and corpus pins;
+1. external checkout revisions and file digests, `Krs.lock` tool and schema
+   versions, and the corpus;
 2. ordinary Rust formatting, check, Clippy, docs, tests, and LSP evidence;
 3. repeated KRS collection, byte-exact layer-2 Rust expansion, `.k`, sidecar,
    IR, and native artifact determinism;
@@ -56,13 +57,36 @@ fallback, or unclassified difference fails the gate.
 - `corpus.json`, `pins.json`, and `verify.py` are the root integration
   contract and contain no alternate semantics.
 - `proof-pins/` holds the three frozen reference-proof ledgers (`selected`,
-  `reference`, and `adjunct`) that `pins.json` hash-pins as provenance; M4
+  `reference`, and `adjunct`) as provenance; M4 does not read them and
   re-proves all 21 outcomes from `pins.json` itself.
 
-The expression corpus lives in `corpus/expr/` and is hash-pinned with the rest of
-this directory in `pins.json`. The M3B--M3D corpora and upstream IMP sources
+The expression corpus lives in `corpus/expr/`; `corpus.json` names it and is
+hash-pinned in `pins.json`. The M3B--M3D corpora and upstream IMP sources
 remain the canonical input files for the other cases; `corpus.json` points to
-them, hashes their pin ledgers, and M4 does not copy them.
+the M3B--M3D ledgers, M4 checks those corpora against the ledgers'
+`corpus_sha256` tables, and M4 does not copy them.
+
+## Pins
+
+`pins.json` holds three kinds of values:
+
+- inputs M4 does not control: the IMP revision, the digests of the external
+  k-rust and IMP files it relies on (`external_sha256`), and the corpus digest.
+  The K and k-rust revisions, their tracked-tree digests, the K, kore-exec, LLVM
+  backend, pyk, and Z3 versions, the MSRV, and the schema versions come from
+  `Krs.lock`;
+- outputs KRS produces: the artifact and native artifact digests, the
+  source-definition projection digests, the LLVM capability diagnostic digest,
+  the behavior summary, and the compatibility report digest;
+- reviewed comparison policy: claim labels, the source-definition and term
+  allowances, the native label map, and the 21 reference proof outcomes, which
+  describe the upstream reference route rather than KRS output.
+
+KRS source is not pinned, so a change that leaves every output identical passes
+unchanged. After an intended output change, run the gate with `--record` (with
+the same memory-bounded recipe below). It runs every phase and, only if all of
+them pass, rewrites exactly the output pins it measured. It never rewrites an
+input or a reviewed policy value; edit those deliberately.
 
 ## Proof policy
 

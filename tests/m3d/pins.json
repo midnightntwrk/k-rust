@@ -1,4 +1,11 @@
 {
+  "corpus_sha256": {
+    "claims/static-spec.k": "b56a4697e158d5a0ad37c2b7dd434406330c6e509047e9cf1eb4971dfe50de92",
+    "corpus/static-evaluation.imp": "c4ed13fb308ccbb904c2aee5ba3486dc7cfeee3d63075e3c69508326840811b5",
+    "fixtures/induced-definition-error.k": "1eae8e8e5ae92d940047828bbffa87e355ef2e3b2962a4058426b595c567ae24",
+    "fixtures/induced-source-error.k": "a79bd5e152247b07153025c5be1626a40338cec4f23b81349384d06b46354a9c",
+    "fixtures/static-adjunct.k": "8fbc3493b8d5dc41d05521cc790372bb55c84bebac9d34da1d980ebc8d9d45cf"
+  },
   "milestone": "M3D-reconstructed",
   "proof_outcomes": {
     "addition-1": {
@@ -173,21 +180,7 @@
     "original_spec_sha256": "2b32479b9e982cac3c8ebb0b6e423662219c9d1ed1d387be80050732a522d444",
     "original_verify_sha256": "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f"
   },
-  "reference_k": {
-    "commit": "4a46d1231473b599c699160132fd6e76a5c46406",
-    "version": "7.1.337"
-  },
   "schema": 1,
-  "source_sha256": {
-    "README.md": "228ed57061a2d7f3f4cafa9921dc7ee97ea5b7700c096b5684d0691019869c2f",
-    "claims/static-spec.k": "b56a4697e158d5a0ad37c2b7dd434406330c6e509047e9cf1eb4971dfe50de92",
-    "corpus/static-evaluation.imp": "c4ed13fb308ccbb904c2aee5ba3486dc7cfeee3d63075e3c69508326840811b5",
-    "fixtures/induced-definition-error.k": "1eae8e8e5ae92d940047828bbffa87e355ef2e3b2962a4058426b595c567ae24",
-    "fixtures/induced-source-error.k": "a79bd5e152247b07153025c5be1626a40338cec4f23b81349384d06b46354a9c",
-    "fixtures/static-adjunct.k": "8fbc3493b8d5dc41d05521cc790372bb55c84bebac9d34da1d980ebc8d9d45cf",
-    "normalize.py": "1bef613f3fae237240c516d3bcbf2b7fe075a05b3be233bdf7e8cc92dc1d12f6",
-    "verify.py": "9597d62ba8accfe9897ea41c0009a59fcaf1efda1adeebeabd195e4c794e601b"
-  },
   "static_execution": {
     "environment": {
       "x": 6,

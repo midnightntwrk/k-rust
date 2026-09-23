@@ -18,11 +18,10 @@ retain the state surface that KRS must eventually emit:
 - map lookup, insertion, and replacement; and
 - the labeled `step`, `var`, and `assign` multi-cell rules with cell frames.
 
-The reference toolchain is K 7.1.337 at commit
-`4a46d1231473b599c699160132fd6e76a5c46406`. The upstream sources are modern
-IMP commit `683a773418add3bcae8ded47c2b24e94494e1988`; their exact `expr.k` and
-`calc.k` hashes, every handwritten input hash, and every derived oracle hash
-are recorded in `pins.json`.
+The reference toolchain is the K release `Krs.lock` pins. The upstream
+sources are modern IMP commit `683a773418add3bcae8ded47c2b24e94494e1988`;
+their exact `expr.k` and `calc.k` hashes, every corpus and fixture hash
+(`corpus_sha256`), and every derived oracle hash are recorded in `pins.json`.
 
 ## Accepted corpus
 

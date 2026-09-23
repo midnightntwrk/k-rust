@@ -39,7 +39,7 @@ runner.
    bounds, and representative applied user labels before checking pins.
 
 `proofs.verify_m3d_selected_pins` additionally requires exact legacy outcomes
-computed with the hash-checked M3D normalizer in `tests/m3d/normalize.py`.  It covers the six individually
+computed with the M3D normalizer in `tests/m3d/normalize.py`.  It covers the six individually
 frozen invocations.  The old `static-adjunct` hash represents five claims in
 one module, so root must add five per-claim M4 pins; this library does not
 pretend that the aggregate pin selects them independently.

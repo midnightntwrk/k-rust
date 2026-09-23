@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
+from support.lock import k_version  # noqa: E402
+from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import executable, find_k_tool, k_tool  # noqa: E402
 
@@ -24,7 +27,6 @@ HERE = Path(__file__).resolve().parent
 FIXTURE = HERE / "fixtures" / "m2"
 AMBIGUOUS = HERE / "fixtures" / "ambiguous"
 PINS = HERE / "pins.json"
-K_VERSION = "7.1.337"
 PACKAGE = "krs-cli-oracle-semantics"
 EXPECTED_K_FILES = {
     ".krs-artifacts",
@@ -272,8 +274,7 @@ def positive_run(binary: Path, workspace: Path, results: Results) -> dict[str, b
     return artifacts
 
 
-def verify_pins(results: Results, artifacts: dict[str, bytes]) -> None:
-    pins = json.loads(PINS.read_text(encoding="utf-8"))
+def verify_pins(results: Results, pins: Ledger, artifacts: dict[str, bytes]) -> None:
     fixture_actual = {
         "Cargo.toml.in": sha256_bytes((FIXTURE / "Cargo.toml.in").read_bytes()),
         "src/lib.rs": sha256_bytes((FIXTURE / "src" / "lib.rs").read_bytes()),
@@ -284,11 +285,19 @@ def verify_pins(results: Results, artifacts: dict[str, bytes]) -> None:
         f"sha256={fixture_actual}",
     )
     actual = {name: sha256_bytes(data) for name, data in sorted(artifacts.items())}
-    results.add(
-        "artifact_pins",
-        "PASS" if actual == pins["artifacts_sha256"] else "FAIL",
-        f"sha256={actual}",
-    )
+    failures = []
+    if not pins.record and set(actual) != set(pins.table("artifacts_sha256")):
+        failures.append(f"artifact set differs from pins.json: {sorted(actual)}")
+    for name, digest in actual.items():
+        try:
+            pins.expect(("artifacts_sha256", name), digest)
+        except GateError as error:
+            failures.append(str(error))
+    if failures:
+        results.add("artifact_pins", "FAIL", "; ".join(failures))
+    else:
+        status = "RECORDED" if pins.record else "PASS"
+        results.add("artifact_pins", status, f"sha256={actual}", required=False)
 
 
 def verify_relocation(results: Results, left: dict[str, bytes], right: dict[str, bytes]) -> None:
@@ -361,7 +370,7 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
         results.add("reference_execution", "UNAVAILABLE", f"missing {', '.join(missing)}; K compile/execution did not run", required=False)
         return
     try:
-        executables = {name: k_tool(name, K_VERSION) for name in ("kompile", "krun")}
+        executables = {name: k_tool(name, k_version()) for name in ("kompile", "krun")}
     except GateError as error:
         results.add("reference_execution", "MISMATCH", f"{error}; execution was refused")
         return
@@ -406,10 +415,18 @@ def reference_execution(results: Results, artifacts: dict[str, bytes], workspace
         and b"Lblbar" in final.stdout
         and b"Lblfoo" not in final.stdout
     )
-    results.add("reference_execution", "PASS" if ok else "FAIL", f"K {K_VERSION} compiled canonical output and executed foo -> bar" if ok else compact(final))
+    results.add("reference_execution", "PASS" if ok else "FAIL", f"K {k_version()} compiled canonical output and executed foo -> bar" if ok else compact(final))
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="run the oracle and rewrite the artifact pins it measured",
+    )
+    arguments = parser.parse_args()
+    pins = Ledger(PINS, record=arguments.record)
     results = Results()
     binary = build_cli(results)
     if binary is None:
@@ -422,11 +439,13 @@ def main() -> int:
         second = positive_run(binary, second_root / "run-b", results)
         if first is not None and second is not None:
             verify_relocation(results, first, second)
-            verify_pins(results, first)
+            verify_pins(results, pins, first)
             reference_execution(results, first, first_root / "reference")
         else:
             results.add("clean_relocation", "FAIL", "positive command run did not complete")
         negative_cases(binary, first_root / "negative", results)
+    if not results.failed:
+        pins.finish("CLI acceptance oracle")
     print("\nCLI acceptance oracle:", "FAIL" if results.failed else "PASS")
     return int(results.failed)
 

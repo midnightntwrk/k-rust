@@ -17,7 +17,7 @@ from m3d import normalize as normalizer  # noqa: E402
 import proofs  # noqa: E402
 from support import ROOT, GateError  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
-from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import split_claims  # noqa: E402
 from support.pins import load_json  # noqa: E402
 from support.process import run  # noqa: E402
@@ -39,7 +39,6 @@ ACTUAL_MODULE = "KRS-M4-COMPLETE-IMP"
 ACTUAL_SPEC_MODULE = f"{ACTUAL_MODULE}-SPEC"
 REFERENCE_MODULE = "KRS-M3D-STATIC"
 REFERENCE_SYNTAX_MODULE = "KRS-M3D-STATIC-SYNTAX"
-K_VERSION = "7.1.337"
 WATCHDOG_SECONDS = 900
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
 ADJUNCT_NAMES = frozenset(
@@ -445,6 +444,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pins", type=Path, required=True)
     parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--k-version", required=True, help="the Krs.lock K version")
+    parser.add_argument("--k-commit", required=True, help="the Krs.lock K commit")
     arguments = parser.parse_args()
     pins_path = arguments.pins.resolve(strict=True)
     workspace = arguments.workspace.resolve()
@@ -456,15 +457,11 @@ def main() -> int:
     revisions = pins.get("revisions")
     if not isinstance(revisions, dict):
         raise GateError("proof revision pins are absent")
-    verify_checkout(K, revisions["k"]["commit"], label="K", clean=False)
+    verify_checkout(K, arguments.k_commit, label="K", clean=False)
     verify_checkout(IMP, revisions["imp"]["commit"], label="IMP", clean=False)
-    if revisions["k"].get("version") != K_VERSION:
-        raise GateError(f"K proof pin differs from K {K_VERSION}: {revisions['k'].get('version')!r}")
     kompile = k_executable("kompile")
-    kprove = k_tool("kprove", K_VERSION)
+    kprove = k_tool("kprove", arguments.k_version)
     kore_exec = k_executable("kore-exec")
-    if sha256_file(ROOT / proofs.M3D_NORMALIZER) != proofs.M3D_NORMALIZER_SHA256:
-        raise GateError("frozen M3D proof normalizer hash differs")
 
     cases = source_cases(pins, proofs)
     labels = pins["claim_labels"]

@@ -11,9 +11,8 @@ checkouts:
 - `adjunct/pins.json`: the five M3D static-adjunct claims
   (`tests/m3d/claims/static-spec.k`), each proved on its own.
 
-The ledgers are frozen provenance. `tests/m4/verify.py` checks each one against
-its `proof_ledgers` hash in `../pins.json` and requires it to be non-empty. The
-M4 proof phase then proves all 21 invocations again from `../pins.json`
+The ledgers are frozen provenance; `tests/m4/verify.py` does not read them.
+The M4 proof phase proves all 21 invocations from `../pins.json`
 `proof_outcomes`, so the gate does not rely on the ledgers' own evidence.
 
 The scripts that generated the ledgers are retired, because they pinned the

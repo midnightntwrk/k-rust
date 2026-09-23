@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.checkouts import git_revision  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.lock import k_version  # noqa: E402
+from support.pins import table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import find_k_tool  # noqa: E402
 
@@ -46,9 +48,6 @@ SYNTAX_MODULE = "KRS-M3B-CALC-SYNTAX"
 EXPR_SYNTAX_MODULE = "KRS-M3B-EXPR-SYNTAX"
 EXPR_RULES_MODULE = "KRS-M3B-EXPR-RULES"
 INDUCED_MODULE = "KRS-M3B-INDUCED-DEFINITION-ERROR"
-K_VERSION = "v7.1.337"
-K_COMMIT = "4a46d1231473b599c699160132fd6e76a5c46406"
-UPSTREAM_COMMIT = "683a773418add3bcae8ded47c2b24e94494e1988"
 
 EXPECTED_TREES: dict[str, Any] = {
     "single-assignment.calc": ["assign", ["Id", "x"], ["Int", "1"]],
@@ -144,21 +143,12 @@ def fixture_files() -> list[Path]:
 
 def verify_pins(results: Results) -> dict[str, Any]:
     pins = json.loads(PINS.read_text(encoding="utf-8"))
-    tool_pin = pins.get("reference_k") == {
-        "version": K_VERSION.removeprefix("v"),
-        "commit": K_COMMIT,
-    }
-    upstream_pin = pins.get("upstream_imp") == {"commit": UPSTREAM_COMMIT}
-    results.add(
-        "declared_pins",
-        "PASS" if tool_pin and upstream_pin else "FAIL",
-        "K and modern IMP revisions are exact",
-    )
+    upstream_commit = table(pins.get("upstream_imp"), "pins.upstream_imp").get("commit")
     actual = {str(path.relative_to(HERE)): sha256_file(path) for path in fixture_files()}
     results.add(
-        "source_hashes",
-        "PASS" if actual == pins.get("source_sha256") else "FAIL",
-        f"{len(actual)} handwritten source hashes are exact; actual={actual}",
+        "corpus_hashes",
+        "PASS" if actual == pins.get("corpus_sha256") else "FAIL",
+        f"{len(actual)} corpus and fixture hashes are exact; actual={actual}",
     )
     upstream_hashes = {
         "expr.k": sha256_file(UPSTREAM_DEFINITION / "expr.k"),
@@ -171,7 +161,7 @@ def verify_pins(results: Results) -> dict[str, Any]:
     results.add(
         "upstream_sources",
         "PASS"
-        if upstream_hashes == pins.get("upstream_sha256") and actual_revision == UPSTREAM_COMMIT
+        if upstream_hashes == pins.get("upstream_sha256") and actual_revision == upstream_commit
         else "FAIL",
         f"modern IMP {actual_revision or '<unknown>'}; hashes={upstream_hashes}",
     )
@@ -208,7 +198,7 @@ def verify_tools(results: Results) -> dict[str, str]:
         text = "\n".join((version.stdout, version.stderr))
         results.add(
             f"tool_{name}",
-            "PASS" if version.returncode == 0 and K_VERSION in text else "FAIL",
+            "PASS" if version.returncode == 0 and f"v{k_version()}" in text else "FAIL",
             text.strip().splitlines()[0] if text.strip() else "empty version output",
         )
         tools[name] = executable

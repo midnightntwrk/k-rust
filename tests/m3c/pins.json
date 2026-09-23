@@ -1,5 +1,5 @@
 {
-  "source_sha256": {
+  "corpus_sha256": {
     "corpus/accepted/block-sequence.imp": "fc4aaaff87bd929cd5cdd82c5655df8f92ddecbc29a24473c37c78e8955fe592",
     "corpus/accepted/dangling-else.imp": "b06ae064145d551a7a0fc45437c841e00d1fa944c49989f8fee1b29e377263f4",
     "corpus/accepted/empty-block.imp": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
@@ -27,10 +27,6 @@
     "expr.k": "8aff9b14929cc0573545beb9724b213623a227c91635b784bab2f27a3799f3a0",
     "calc.k": "7a6535283b8985ac5710f529f8e04b7bf97feefbcde6ef48146441d4c67ee2b8",
     "imp.k": "4786bda6a993f21b78a7b7b1b4a88d47cfc812e3acc585f0aa3121d272dbfd2b"
-  },
-  "reference_k": {
-    "version": "7.1.337",
-    "commit": "4a46d1231473b599c699160132fd6e76a5c46406"
   },
   "upstream_imp": {
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"

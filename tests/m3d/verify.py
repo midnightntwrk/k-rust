@@ -15,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from m3d.normalize import envelope, normalize_claim_spec, normalize_proof  # noqa: E402
 from support import ROOT, GateError  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
+from support.lock import k_commit, k_version  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
+from support.pins import load_json  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool  # noqa: E402
 
@@ -30,7 +32,6 @@ FIXTURE = HERE / "fixtures/static-adjunct.k"
 STATIC_SPEC = HERE / "claims/static-spec.k"
 STATIC_PROGRAM = HERE / "corpus/static-evaluation.imp"
 PINS = HERE / "pins.json"
-K_VERSION = "7.1.337"
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
 
 
@@ -200,16 +201,15 @@ def prove(
     }
 
 
-def source_paths() -> dict[str, Path]:
+def corpus_paths() -> dict[str, Path]:
+    """The corpus and fixtures the oracle runs; KRS source is deliberately absent."""
+
     return {
-        "README.md": HERE / "README.md",
         "claims/static-spec.k": STATIC_SPEC,
         "corpus/static-evaluation.imp": STATIC_PROGRAM,
         "fixtures/induced-definition-error.k": HERE / "fixtures/induced-definition-error.k",
         "fixtures/induced-source-error.k": HERE / "fixtures/induced-source-error.k",
         "fixtures/static-adjunct.k": FIXTURE,
-        "normalize.py": HERE / "normalize.py",
-        "verify.py": HERE / "verify.py",
     }
 
 
@@ -223,7 +223,7 @@ def upstream_paths() -> dict[str, Path]:
     }
 
 
-def observed_ledger(outcomes: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def observed_ledger(outcomes: dict[str, dict[str, Any]], upstream_commit: str) -> dict[str, Any]:
     selected_names = {
         "addition-1",
         "addition-var",
@@ -244,11 +244,7 @@ def observed_ledger(outcomes: dict[str, dict[str, Any]]) -> dict[str, Any]:
     return {
         "schema": 1,
         "milestone": "M3D-reconstructed",
-        "reference_k": {
-            "version": K_VERSION,
-            "commit": "4a46d1231473b599c699160132fd6e76a5c46406",
-        },
-        "upstream_imp": {"commit": "683a773418add3bcae8ded47c2b24e94494e1988"},
+        "upstream_imp": {"commit": upstream_commit},
         "reconstruction": {
             "original_verify_sha256": "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f",
             "original_pins_sha256": "2a27f0efead1c233f59f81d4e7c4fe37b56d8b1dcba203ff52e63d7769ecc085",
@@ -256,7 +252,7 @@ def observed_ledger(outcomes: dict[str, dict[str, Any]]) -> dict[str, Any]:
             "original_spec_sha256": "2b32479b9e982cac3c8ebb0b6e423662219c9d1ed1d387be80050732a522d444",
             "claim": "functional reconstruction; original blobs unavailable",
         },
-        "source_sha256": {name: sha256_file(path) for name, path in source_paths().items()},
+        "corpus_sha256": {name: sha256_file(path) for name, path in corpus_paths().items()},
         "upstream_sha256": {name: sha256_file(path) for name, path in upstream_paths().items()},
         "static_execution": {
             "program": "corpus/static-evaluation.imp",
@@ -302,11 +298,12 @@ def main() -> int:
     if options.timeout <= 0:
         raise GateError("--timeout must be positive")
 
-    kompile = k_tool("kompile", K_VERSION)
-    kprove = k_tool("kprove", K_VERSION)
-    krun = k_tool("krun", K_VERSION)
-    verify_checkout(K, "4a46d1231473b599c699160132fd6e76a5c46406", label="K", clean=False)
-    verify_checkout(IMP, "683a773418add3bcae8ded47c2b24e94494e1988", label="IMP", clean=False)
+    kompile = k_tool("kompile", k_version())
+    kprove = k_tool("kprove", k_version())
+    krun = k_tool("krun", k_version())
+    verify_checkout(K, k_commit(), label="K", clean=False)
+    upstream_commit = str(load_json(PINS).get("upstream_imp", {}).get("commit"))
+    verify_checkout(IMP, upstream_commit, label="IMP", clean=False)
 
     with tempfile.TemporaryDirectory(prefix="krs-m3d-reconstructed-") as temporary:
         workspace = Path(temporary)
@@ -375,7 +372,7 @@ def main() -> int:
                 f"frontier={outcome['frontier_count']}"
             )
 
-    observed = observed_ledger(outcomes)
+    observed = observed_ledger(outcomes, upstream_commit)
     if options.write_proposal is not None:
         destination = options.write_proposal.resolve()
         if destination.exists():

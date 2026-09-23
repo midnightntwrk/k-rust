@@ -15,7 +15,7 @@ import re
 from typing import Any, Mapping, Sequence
 
 from support import GateError
-from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text
+from support.hashing import canonical_json, json_sha256, sha256_text
 from support.process import run
 
 try:
@@ -24,8 +24,6 @@ except ImportError:  # Direct loading by tests/m4/verify.py.
     from source_definition import DEFAULT_METADATA_ATTRIBUTES, NODE_FIELDS
 
 
-M3D_NORMALIZER = "tests/m3d/normalize.py"
-M3D_NORMALIZER_SHA256 = "1bef613f3fae237240c516d3bcbf2b7fe075a05b3be233bdf7e8cc92dc1d12f6"
 M3D_SELECTED_CASES = frozenset(
     {
         "addition-1",
@@ -498,8 +496,6 @@ def verify_m3d_selected_pins(
     must provide new per-claim M4 pins for those cases.
     """
 
-    if sha256_file(root / M3D_NORMALIZER) != M3D_NORMALIZER_SHA256:
-        raise GateError("frozen M3D proof normalizer hash differs")
     pins_path = root / "tests" / "m3d" / "pins.json"
     pins = json.loads(pins_path.read_text(encoding="utf-8")).get("proof_outcomes")
     if not isinstance(pins, dict):

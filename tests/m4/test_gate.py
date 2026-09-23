@@ -3,32 +3,27 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 import unittest
 
 import verify
 from support.hashing import relevant_untracked
+from support.pins import load_json
 
 
-class SourceLedgerTests(unittest.TestCase):
-    def test_build_and_test_inputs_are_ledger_sources(self) -> None:
-        self.assertTrue(verify.is_crate_source(Path("src/lib.rs")))
-        self.assertTrue(verify.is_crate_source(Path("tests/golden/value.json")))
-        self.assertTrue(verify.is_crate_source(Path("tests/lsp_probe.py")))
-        self.assertTrue(verify.is_crate_source(Path("Cargo.lock")))
-        self.assertTrue(verify.is_crate_source(Path("tests/fixture.custom")))
-        self.assertFalse(verify.is_crate_source(Path("target/output")))
-        self.assertFalse(verify.is_crate_source(Path("__pycache__/module.py")))
-        self.assertFalse(verify.is_crate_source(Path("module.pyc")))
+class InputPinTests(unittest.TestCase):
+    def test_ledger_pins_external_inputs_but_no_krs_source(self) -> None:
+        pins = load_json(verify.PINS_PATH)
+        self.assertNotIn("source_sha256", pins)
+        external = pins["external_sha256"]
+        self.assertTrue(external)
+        for relative in external:
+            self.assertTrue(relative.startswith("../inspirations/"), relative)
 
-    def test_complete_path_set_includes_non_rust_inputs_and_external_manifest(self) -> None:
-        paths = verify.expected_source_ledger_paths()
-        self.assertIn("crates/krs-ir/tests/golden/empty_bundle.json", paths)
-        self.assertIn("crates/krs-macros/tests/lsp_probe.py", paths)
-        self.assertIn("crates/krs-macros/tests/fixtures/negative/Cargo.lock", paths)
-        self.assertIn("tests/m4/rust-definition/tools/lsp_probe.py", paths)
-        self.assertIn("tests/m4/goldens/imp.identities.txt", paths)
-        self.assertIn("../inspirations/midnightntwrk/k-rust-krs-main/Cargo.toml", paths)
+    def test_ledger_does_not_repeat_krs_lock(self) -> None:
+        pins = load_json(verify.PINS_PATH)
+        for key in ("schemas", "toolchain_compatibility"):
+            self.assertNotIn(key, pins)
+        self.assertEqual(set(pins["revisions"]), {"imp"})
 
     def test_only_python_cache_is_ignored_in_external_source_tree(self) -> None:
         self.assertEqual(

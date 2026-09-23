@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
+from support.lock import msrv  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
 
@@ -243,7 +244,7 @@ def main() -> int:
     run(
         [
             cargo,
-            "+1.88.0",
+            f"+{msrv()}",
             "check",
             "--locked",
             "--offline",
@@ -251,7 +252,7 @@ def main() -> int:
             MANIFEST,
         ]
     )
-    print("PASS authored: Rust 1.88 locked/offline check")
+    print(f"PASS authored: Rust {msrv()} locked/offline check")
 
     environment = cli_environment()
     binary = production_binary(arguments.krs, environment)

@@ -17,10 +17,9 @@ preserves all of its control-flow surface:
 - the labeled `if-true`, `if-false`, `if-else`, `while`, `block`, and `done`
   rules.
 
-The reference toolchain is K 7.1.337 at commit
-`4a46d1231473b599c699160132fd6e76a5c46406`. The upstream sources are modern
-IMP commit `683a773418add3bcae8ded47c2b24e94494e1988`. Exact upstream, inherited
-M3B, handwritten-source, definition, parse, execution, search, rejection, and
+The reference toolchain is the K release `Krs.lock` pins. The upstream
+sources are modern IMP commit `683a773418add3bcae8ded47c2b24e94494e1988`. Exact
+upstream, inherited M3B, corpus and fixture (`corpus_sha256`), definition, parse, execution, search, rejection, and
 diagnostic hashes are recorded in `pins.json`.
 
 ## Parse and execution corpus

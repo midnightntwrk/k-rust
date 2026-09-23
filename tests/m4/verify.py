@@ -22,6 +22,7 @@ from typing import Any, Callable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
+from support import lock  # noqa: E402
 from support.checkouts import git_revision  # noqa: E402
 from support.hashing import (  # noqa: E402
     canonical_json,
@@ -32,7 +33,7 @@ from support.hashing import (  # noqa: E402
     tracked_tree_sha256,
 )
 from support.kdefinition import split_claims  # noqa: E402
-from support.pins import load_json, table  # noqa: E402
+from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import executable, z3_environment  # noqa: E402
 
@@ -333,62 +334,9 @@ def _verify_replacement_parity(authored: Path, replacement: Path) -> None:
         )
 
 
-def is_crate_source(path: Path) -> bool:
-    """Whether one crate-tree file can affect a build, test, or live probe."""
-
-    return (
-        "target" not in path.parts
-        and "__pycache__" not in path.parts
-        and path.suffix != ".pyc"
-    )
-
-
-def expected_source_ledger_paths() -> set[str]:
-    """Return the complete, deterministic set of source paths guarded by M4.
-
-    The ledger deliberately excludes its own ``pins.json`` entry (which would
-    be self-referential) and generated Cargo/Python output.  Comparing this
-    set before checking hashes makes addition of an unreviewed production or
-    M4 gate source fail closed, not merely edits to already-known files.
-    """
-
-    paths = {"Cargo.toml", "Cargo.lock", "Krs.lock", "rust-analyzer.toml"}
-    crates = ROOT / "crates"
-    for path in crates.rglob("*"):
-        if not path.is_file() or not is_crate_source(path):
-            continue
-        paths.add(path.relative_to(ROOT).as_posix())
-
-    for path in HERE.rglob("*"):
-        if not path.is_file():
-            continue
-        relative_parts = path.relative_to(HERE).parts
-        if "target" in relative_parts or "__pycache__" in relative_parts:
-            continue
-        if path.name == "pins.json" or path.suffix == ".pyc":
-            continue
-        paths.add(path.relative_to(ROOT).as_posix())
-
-    paths.update(
-        {
-            "../inspirations/midnightntwrk/k-rust-krs-main/Cargo.lock",
-            "../inspirations/midnightntwrk/k-rust-krs-main/Cargo.toml",
-            "../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/Cargo.toml",
-            "../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/src/backend.rs",
-            "../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust/src/kompile/compile.rs",
-            "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/calc.k",
-            "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/expr.k",
-            "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp-verification.k",
-            "../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/imp.k",
-            "tests/m3d/fixtures/static-adjunct.k",
-        }
-    )
-    return paths
-
-
 @dataclass
 class Context:
-    pins: dict[str, Any]
+    pins: Ledger
     corpus: dict[str, Any]
     workspace: Path
     target: Path
@@ -403,7 +351,22 @@ class Context:
     artifact_hashes: dict[str, str] = field(default_factory=dict)
 
 
+KRS_LOCK_EXTERNAL_TREES = (
+    ("k", "pyk_source_sha256", "k", "pyk/src", True),
+    ("k_rust", "tracked_crate_sha256", "k_rust", "crates/k-rust", False),
+    ("k_rust", "tracked_backend_sha256", "k_rust", "crates/k-rust-backend", False),
+    ("k_rust", "tracked_kore_sha256", "k_rust", "crates/k-rust-kore", False),
+)
+"""`Krs.lock` digests of external source trees: (section, key, checkout, prefix, reject untracked)."""
+
+
 def phase_preflight(context: Context) -> str:
+    """Check the input pins: external checkouts, their files, the corpus, and tools.
+
+    KRS source is deliberately not pinned; the later phases pin what KRS
+    produces. Toolchain and schema versions come from `Krs.lock`.
+    """
+
     pins = context.pins
     corpus = context.corpus
     if pins.get("schema") != 1 or pins.get("milestone") != "M4":
@@ -413,60 +376,48 @@ def phase_preflight(context: Context) -> str:
     if sha256_file(CORPUS_PATH) != pins.get("corpus_sha256"):
         raise GateError("corpus.json hash differs from pins.json")
 
+    # M4 reuses the M3B--M3D corpora; each is pinned in its own gate ledger.
     ledgers = table(corpus.get("input_ledgers"), "corpus.input_ledgers")
     if set(ledgers) != {"m3b", "m3c", "m3d"}:
         raise GateError("corpus must name exactly the M3B--M3D input ledgers")
     for name, raw in ledgers.items():
-        entry = table(raw, f"input ledger {name}")
-        path = ROOT / str(entry.get("path"))
-        if sha256_file(path) != entry.get("sha256"):
-            raise GateError(f"{name} pin-ledger hash differs")
+        path = ROOT / str(table(raw, f"input ledger {name}").get("path"))
         ledger = load_json(path)
-        base = path.parent
         for relative, expected in table(
-            ledger.get("source_sha256"), f"{name}.source_sha256"
+            ledger.get("corpus_sha256"), f"{name}.corpus_sha256"
         ).items():
-            if sha256_file(base / relative) != expected:
+            if sha256_file(path.parent / relative) != expected:
                 raise GateError(f"{name} corpus hash differs: {relative}")
 
-    source_ledger = table(pins.get("source_sha256"), "pins.source_sha256")
-    expected_paths = expected_source_ledger_paths()
-    if set(source_ledger) != expected_paths:
-        missing = sorted(expected_paths - set(source_ledger))
-        extra = sorted(set(source_ledger) - expected_paths)
-        raise GateError(f"M4 source ledger path set differs: missing={missing}, extra={extra}")
-    for relative, expected in source_ledger.items():
-        if sha256_file(ROOT / relative) != expected:
-            raise GateError(f"M4 source hash differs: {relative}")
-
-    for name, entry_raw in table(
-        pins.get("proof_ledgers"), "pins.proof_ledgers"
-    ).items():
-        entry = table(entry_raw, f"proof ledger {name}")
-        path = ROOT / str(entry.get("path"))
-        if sha256_file(path) != entry.get("sha256"):
-            raise GateError(f"proof ledger hash differs: {name}")
-        proof_ledger = load_json(path)
-        declared = proof_ledger.get("proof_outcomes")
-        if not isinstance(declared, dict) or not declared:
-            raise GateError(f"proof ledger is empty: {name}")
-
-    revisions = table(pins.get("revisions"), "pins.revisions")
-    imp = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
-    k_checkout = ROOT.parent / "inspirations/runtimeverification/k"
-    native = ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main"
-    observed = {
-        "k": git_revision(k_checkout),
-        "imp": git_revision(imp),
-        "k_rust": git_revision(native),
+    checkouts = {
+        "k": ROOT.parent / "inspirations/runtimeverification/k",
+        "imp": ROOT.parent / "inspirations/runtimeverification/imp-semantics",
+        "k_rust": ROOT.parent / "inspirations/midnightntwrk/k-rust-krs-main",
     }
     expected = {
-        "k": table(revisions.get("k"), "revisions.k").get("commit"),
-        "imp": table(revisions.get("imp"), "revisions.imp").get("commit"),
-        "k_rust": table(revisions.get("k_rust"), "revisions.k_rust").get("commit"),
+        "k": lock.k_commit(),
+        "imp": table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit"),
+        "k_rust": str(lock.value("k_rust", "commit")),
     }
+    observed = {name: git_revision(path) for name, path in checkouts.items()}
     if observed != expected:
         raise GateError(f"checkout revision differs: expected={expected}, actual={observed}")
+    for relative, digest in table(pins.get("external_sha256"), "pins.external_sha256").items():
+        if sha256_file(ROOT / relative) != digest:
+            raise GateError(f"external input differs from its pin: {relative}")
+    for section, key, checkout, prefix, reject_untracked in KRS_LOCK_EXTERNAL_TREES:
+        digest = tracked_tree_sha256(
+            checkouts[checkout], prefix, reject_untracked=reject_untracked
+        )
+        if digest != lock.value(section, key):
+            raise GateError(f"{checkout} {prefix} differs from Krs.lock [{section}] {key}")
+    for crate, key in (
+        ("k-rust", "version"), ("k-rust-backend", "backend_version"), ("k-rust-kore", "kore_version")
+    ):
+        manifest = load_toml(checkouts["k_rust"] / "crates" / crate / "Cargo.toml")
+        if table(manifest.get("package"), f"{crate} package").get("version") != lock.value("k_rust", key):
+            raise GateError(f"{crate} version differs from Krs.lock [k_rust] {key}")
+    lock.verify_schema_constants()
 
     tools = (
         "cargo", "rustc", "rustfmt", "clippy-driver", "rust-analyzer", "git",
@@ -474,122 +425,9 @@ def phase_preflight(context: Context) -> str:
     )
     context.tools = {name: executable(name) for name in tools}
     version = run([context.tools["kompile"], "--version"], timeout=30)
-    k_version = table(revisions.get("k"), "revisions.k").get("version")
-    if f"v{k_version}" not in version.stdout + version.stderr:
-        raise GateError(f"K tool version differs: {compact(version)}")
-
-    protocol = (ROOT / "crates/krs-ir/src/lib.rs").read_text(encoding="utf-8")
-    ir = (ROOT / "crates/krs-ir/src/ir.rs").read_text(encoding="utf-8")
-    schemas = table(pins.get("schemas"), "pins.schemas")
-    if f"pub const CURRENT: Self = Self({schemas.get('protocol')});" not in protocol:
-        raise GateError("ProtocolVersion::CURRENT differs from its M4 pin")
-    if f"pub const CURRENT: Self = Self({schemas.get('ir')});" not in ir:
-        raise GateError("IrSchemaVersion::CURRENT differs from its M4 pin")
-    toolchain = table(
-        pins.get("toolchain_compatibility"), "pins.toolchain_compatibility"
-    )
-    expected_toolchain = {
-        "schema": 1,
-        "backends": ["haskell", "llvm"],
-        "msrv": "1.88.0",
-        "native_frontend_rust": "1.98.0",
-        "native_frontend_msrv_status": "msrv-compatible",
-        "builtin_sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"],
-        "descriptor_protocol": 35,
-        "definition_ir_schema": 27,
-        "k_commit": expected["k"],
-        "k_rust_commit": expected["k_rust"],
-        "llvm_existential_policy": "typed-backend-capability-error",
-        "native_haskell_policy": "exact-kore-comparison",
-    }
-    if toolchain != expected_toolchain:
-        raise GateError("supplemental K/k-rust/backend/builtin toolchain unit differs")
-    lock_path = ROOT / "Krs.lock"
-    expected_lock = {
-        "schema": 1,
-        "schemas": {"descriptor_protocol": 35, "definition_ir": 27, "kast_json": 4},
-        "cargo": {
-            "lock_sha256": sha256_file(ROOT / "Cargo.lock"),
-            "msrv": "1.88.0",
-            "native_frontend_rust": "1.98.0",
-            "native_frontend_msrv_status": "msrv-compatible",
-        },
-        "k": {
-            "version": "7.1.337",
-            "commit": expected["k"],
-            "pyk_version": "7.1.337",
-            "kore_exec_version": "0.1.155",
-            "llvm_backend_version": "0.1.140",
-            "pyk_source_sha256": tracked_tree_sha256(
-                k_checkout, "pyk/src", reject_untracked=True
-            ),
-        },
-        "k_rust": {
-            "version": "0.4.0",
-            "commit": expected["k_rust"],
-            "tracked_crate_sha256": tracked_tree_sha256(native, "crates/k-rust"),
-            "backend_version": "0.3.0",
-            "tracked_backend_sha256": tracked_tree_sha256(native, "crates/k-rust-backend"),
-            "kore_version": "0.4.0",
-            "tracked_kore_sha256": tracked_tree_sha256(native, "crates/k-rust-kore"),
-        },
-        "builtin_registry": {
-            "source_sha256": sha256_file(ROOT / "crates/krs/src/lib.rs"),
-            "sorts": ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"],
-        },
-        "solver": {"profile": "z3-inference", "version": "4.12.5"},
-        "backend_policy": {
-            "haskell": "exact-kore-comparison",
-            "llvm_existential_claims": "typed-backend-capability-error",
-        },
-    }
-    expected_lock_text = '''schema = 1
-
-[schemas]
-descriptor_protocol = 35
-definition_ir = 27
-kast_json = 4
-
-[cargo]
-lock_sha256 = "0a35b1084e8dfd15a589824a992afbb494225d937883d853dd1889a159edfc02"
-msrv = "1.88.0"
-native_frontend_rust = "1.98.0"
-native_frontend_msrv_status = "msrv-compatible"
-
-[k]
-version = "7.1.337"
-commit = "4a46d1231473b599c699160132fd6e76a5c46406"
-pyk_version = "7.1.337"
-kore_exec_version = "0.1.155"
-llvm_backend_version = "0.1.140"
-pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147d88d4"
-
-[k_rust]
-version = "0.4.0"
-commit = "efda6192785d4113eeea2fa090e4662d30dc8801"
-tracked_crate_sha256 = "fa370981fb26255cce152cba31e5a5573bf8a24128522119af76dbce56b25359"
-backend_version = "0.3.0"
-tracked_backend_sha256 = "852e65b378c07027da83c9fc578662ac6fb6700cf9476f78303c38c2db206b78"
-kore_version = "0.4.0"
-tracked_kore_sha256 = "e8de6794ce13316e37fdae5dd4de91270418dc9fae5955e46d245e95ad79901b"
-
-[builtin_registry]
-source_sha256 = "7076fb0bcf4667b8e819445995b1055d55b10d9fc4f7a5b8e037189556c2910a"
-sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"]
-
-[solver]
-profile = "z3-inference"
-version = "4.12.5"
-
-[backend_policy]
-haskell = "exact-kore-comparison"
-llvm_existential_claims = "typed-backend-capability-error"
-'''
-    if lock_path.read_text(encoding="utf-8") != expected_lock_text:
-        raise GateError("Krs.lock differs from the exact v0.1 compatibility unit")
-    lock = expected_lock
-
-    pyk_python = k_checkout / "pyk/.venv/bin/python"
+    if f"v{lock.k_version()}" not in version.stdout + version.stderr:
+        raise GateError(f"K tool version differs from Krs.lock: {compact(version)}")
+    pyk_python = checkouts["k"] / "pyk/.venv/bin/python"
     if not pyk_python.is_file():
         raise GateError("pinned K checkout pyk virtualenv is missing")
     pyk = run(
@@ -599,29 +437,28 @@ llvm_existential_claims = "typed-backend-capability-error"
         ],
         timeout=30,
     ).stdout.strip()
-    if pyk != lock["k"]["pyk_version"]:
-        raise GateError(f"pinned checkout pyk version differs: {pyk}")
+    if pyk != lock.value("k", "pyk_version"):
+        raise GateError(f"pinned checkout pyk version differs from Krs.lock: {pyk}")
     kore = run([context.tools["kore-exec"], "--version"], timeout=30).stdout.strip()
-    if kore != lock["k"]["kore_exec_version"]:
-        raise GateError(f"kore-exec version differs: {kore}")
+    if kore != lock.value("k", "kore_exec_version"):
+        raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
     llvm = Path(context.tools["llvm-kompile"]).resolve()
-    if f"llvm-backend-{lock['k']['llvm_backend_version']}" not in llvm.as_posix():
+    if f"llvm-backend-{lock.value('k', 'llvm_backend_version')}" not in llvm.as_posix():
         raise GateError("LLVM backend version differs from Krs.lock")
     z3 = run([context.tools["z3"], "--version"], timeout=30).stdout.strip()
-    if z3 != f"Z3 version {lock['solver']['version']} - 64 bit":
+    if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
         raise GateError(f"Z3 version differs from Krs.lock: {z3}")
     context.environment = z3_environment()
     context.tools["pyk_python"] = os.fspath(pyk_python)
     context.tools["python"] = os.fspath(pyk_python)
-    msrv = run(["rustc", "+1.88.0", "--version"], timeout=30).stdout.strip()
-    if not msrv.startswith("rustc 1.88.0 "):
+    msrv = run(["rustc", f"+{lock.msrv()}", "--version"], timeout=30).stdout.strip()
+    if not msrv.startswith(f"rustc {lock.msrv()} "):
         raise GateError(f"MSRV toolchain differs from Krs.lock: {msrv}")
     native_rust = run(["rustc", "+stable", "--version"], timeout=30).stdout.strip()
-    if not native_rust.startswith("rustc 1.98.0 "):
-        raise GateError(f"native frontend toolchain differs from Krs.lock: {native_rust}")
+    lock.require_stable_at_least_msrv(native_rust)
     return (
-        "exact sources, ledgers, tools, revisions, protocol 35, IR schema 27, "
-        "authored MSRV 1.88.0, and native frontend Rust 1.98.0"
+        f"external checkouts and files, corpus, tools, protocol {lock.descriptor_protocol()}, "
+        f"IR schema {lock.definition_ir()}, MSRV {lock.msrv()}, and {native_rust}"
     )
 
 
@@ -660,7 +497,7 @@ def phase_rust(context: Context) -> str:
     # qualification above. Earlier k-rust used if-let guards, which 1.88 rejects.
     run(
         [
-            "cargo", "+1.88.0", "check", "--workspace",
+            "cargo", f"+{lock.msrv()}", "check", "--workspace",
             "--all-targets", "--locked",
         ],
         timeout=900,
@@ -669,7 +506,7 @@ def phase_rust(context: Context) -> str:
     for manifest in (RUST_MANIFEST, EXPANDED_MANIFEST, NATIVE_MANIFEST):
         run(
             [
-                "cargo", "+1.88.0", "check", "--manifest-path", manifest,
+                "cargo", f"+{lock.msrv()}", "check", "--manifest-path", manifest,
                 "--all-targets", "--locked",
             ],
             timeout=900,
@@ -849,26 +686,10 @@ def phase_artifacts(context: Context) -> str:
         "sources.json",
         "symbols.json",
     )
-    emitted_hashes = exact_directory(emit_a, emit_b, emitted_names)
-    expected_artifacts = table(
-        context.pins.get("artifact_sha256"), "pins.artifact_sha256"
-    )
-    expected_native = table(
-        context.pins.get("native_artifact_sha256"), "pins.native_artifact_sha256"
-    )
-    expected_emitted = {
-        ".krs-artifacts": expected_native.get(".krs-artifacts"),
-        **{
-            name: expected_artifacts.get(name)
-            for name in emitted_names
-            if name != ".krs-artifacts"
-        },
-    }
-    if emitted_hashes != expected_emitted:
-        raise GateError(
-            f"emitted artifact hashes differ: expected={expected_emitted}, "
-            f"actual={emitted_hashes}"
-        )
+    for name, digest in exact_directory(emit_a, emit_b, emitted_names).items():
+        # The ownership marker is the same file `krs build` writes natively.
+        table_name = "native_artifact_sha256" if name == ".krs-artifacts" else "artifact_sha256"
+        context.pins.expect((table_name, name), digest)
 
     probes: list[Path] = []
     for name in ("probe-a", "probe-b"):
@@ -891,9 +712,8 @@ def phase_artifacts(context: Context) -> str:
         if emit_a.joinpath(name).read_bytes() != probes[0].joinpath(name).read_bytes():
             raise GateError(f"CLI and production API probe differ: {name}")
 
-    expected = expected_artifacts
-    if probe_hashes != expected:
-        raise GateError(f"artifact pins differ: expected={expected}, actual={probe_hashes}")
+    for name, digest in probe_hashes.items():
+        context.pins.expect(("artifact_sha256", name), digest)
     context.artifacts = probes[0]
     context.artifact_hashes = probe_hashes
     return f"124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; six repeated CLI/API source artifacts; sha256={json_sha256(probe_hashes)}"
@@ -1032,7 +852,6 @@ def phase_source_definition(context: Context) -> str:
             _projection_policy(actual_raw),
             file_policy["compatible_sentence_pairs"],
         )
-    expected = table(policies.get("expected"), "source_definition.expected")
     observed = {
         "parsed_reference_sha256": comparison["parsed.json"].baseline_sha256,
         "parsed_actual_sha256": comparison["parsed.json"].actual_sha256,
@@ -1041,8 +860,7 @@ def phase_source_definition(context: Context) -> str:
         "parsed_sentence_count": comparison["parsed.json"].sentence_count,
         "compiled_sentence_count": comparison["compiled.json"].sentence_count,
     }
-    if observed != expected:
-        raise GateError(f"source-definition evidence pin differs: {observed}")
+    context.pins.expect(("source_definition", "expected"), observed)
     return f"parsed/compiled fail-closed projection: {observed}"
 
 
@@ -1090,12 +908,7 @@ def phase_native(context: Context) -> str:
         envelopes.append(value)
     if len(envelopes) != 6:
         raise GateError(f"expected six deduplicated LLVM diagnostics, found {len(envelopes)}")
-    llvm_digest = sha256_text(diagnostic_text)
-    expected_llvm = context.pins.get("native_comparison", {}).get("llvm_failure_sha256")
-    if llvm_digest != expected_llvm:
-        raise GateError(
-            f"LLVM capability diagnostic hash differs: expected={expected_llvm}, actual={llvm_digest}"
-        )
+    context.pins.expect(("native_comparison", "llvm_failure_sha256"), sha256_text(diagnostic_text))
 
     builds: list[Path] = []
     for name in ("native-a", "native-b"):
@@ -1109,9 +922,8 @@ def phase_native(context: Context) -> str:
     native_files = tuple(context.pins.get("native_artifact_sha256", {}).keys())
     if not native_files:
         raise GateError("native artifact set is absent from pins.json")
-    observed = exact_directory(builds[0], builds[1], native_files)
-    if observed != context.pins.get("native_artifact_sha256"):
-        raise GateError(f"native artifact hashes differ: {observed}")
+    for name, digest in exact_directory(builds[0], builds[1], native_files).items():
+        context.pins.expect(("native_artifact_sha256", name), digest)
 
     native_kore = builds[0] / "definition.kore"
     reference_kore = context.actual_definition / "definition.kore"
@@ -1216,7 +1028,6 @@ def phase_behavior(context: Context) -> str:
         ),
         plan=plan,
     )
-    expected = table(context.pins["behavior"].get("expected"), "behavior.expected")
     observed = {
         "parse_count": summary.parse_count,
         "execution_count": summary.execution_count,
@@ -1226,8 +1037,7 @@ def phase_behavior(context: Context) -> str:
         "failure_count": summary.failure_count,
         "evidence_sha256": summary.evidence_sha256,
     }
-    if observed != expected:
-        raise GateError(f"behavior summary differs from pins: {observed}")
+    context.pins.expect(("behavior", "expected"), observed)
     return canonical_json(observed)
 
 
@@ -1239,7 +1049,11 @@ def phase_proofs(context: Context) -> str:
     if not harness.is_file():
         raise GateError("complete source/native proof harness is missing")
     result = run(
-        [context.tools["python"], harness, "--pins", PINS_PATH, "--workspace", context.workspace / "proofs"],
+        [
+            context.tools["python"], harness, "--pins", PINS_PATH,
+            "--workspace", context.workspace / "proofs",
+            "--k-version", lock.k_version(), "--k-commit", lock.k_commit(),
+        ],
         timeout=7200,
         environment={
             **context.environment,
@@ -1280,9 +1094,9 @@ def phase_compatibility(context: Context) -> str:
     for command in commands:
         reports.append(run(command, timeout=900, environment=env).stdout.strip())
     digest = sha256_text("\n".join(reports))
-    expected = table(context.pins.get("compatibility"), "pins.compatibility")
-    if expected.get("policy_version") != 1 or digest != expected.get("report_sha256"):
-        raise GateError(f"live compatibility report hash differs: {digest}")
+    if table(context.pins.get("compatibility"), "pins.compatibility").get("policy_version") != 1:
+        raise GateError("compatibility policy version differs from 1")
+    context.pins.expect(("compatibility", "report_sha256"), digest)
     return f"seven live compatibility probes; policy=1; sha256={digest}"
 
 
@@ -1302,6 +1116,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--audit-all", action="store_true")
     parser.add_argument(
+        "--record",
+        action="store_true",
+        help="run every phase and rewrite the output pins it measured",
+    )
+    parser.add_argument(
         "--target-dir",
         type=Path,
         default=Path(
@@ -1312,7 +1131,7 @@ def main() -> int:
         ),
     )
     arguments = parser.parse_args()
-    pins = load_json(PINS_PATH)
+    pins = Ledger(PINS_PATH, record=arguments.record)
     corpus = load_json(CORPUS_PATH)
     failures: list[tuple[str, str]] = []
     with tempfile.TemporaryDirectory(prefix="krs-m4-root-") as temporary:
@@ -1334,11 +1153,15 @@ def main() -> int:
             for name, error in failures:
                 print(f"- {name}: {error}", file=sys.stderr)
         return 1
+    pins.finish("M4 complete IMP")
     summary = {
-        "protocol": pins["schemas"]["protocol"],
-        "ir_schema": pins["schemas"]["ir"],
-        "k": pins["revisions"]["k"],
-        "k_rust": pins["revisions"]["k_rust"],
+        "protocol": lock.descriptor_protocol(),
+        "ir_schema": lock.definition_ir(),
+        "k": {"version": lock.k_version(), "commit": lock.k_commit()},
+        "k_rust": {
+            "version": lock.value("k_rust", "version"),
+            "commit": lock.value("k_rust", "commit"),
+        },
         "proof_bounds": pins["proof_policy"],
         "artifacts": context.artifact_hashes,
         "compatibility_policy": pins["compatibility"]["policy_version"],

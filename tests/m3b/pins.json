@@ -1,5 +1,5 @@
 {
-  "source_sha256": {
+  "corpus_sha256": {
     "corpus/accepted/initial-environment.calc": "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298",
     "corpus/accepted/lookup-evaluation-order.calc": "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420",
     "corpus/accepted/right-associated-sequence.calc": "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa",
@@ -17,10 +17,6 @@
   "upstream_sha256": {
     "expr.k": "8aff9b14929cc0573545beb9724b213623a227c91635b784bab2f27a3799f3a0",
     "calc.k": "7a6535283b8985ac5710f529f8e04b7bf97feefbcde6ef48146441d4c67ee2b8"
-  },
-  "reference_k": {
-    "version": "7.1.337",
-    "commit": "4a46d1231473b599c699160132fd6e76a5c46406"
   },
   "upstream_imp": {
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"

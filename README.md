@@ -18,8 +18,8 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 - **Language-scale ports.** Incremental KWasm, KEVM, and KMIR ports live in `semantics/`.
   None is complete; `semantics/coverage.toml` records what each covers, what is deferred, and every adapter boundary.
   Their gates execute 32 (KWasm), 240 (KEVM), and 184 (KMIR) pinned cases natively through `k-rust`.
-- **Toolchain pins.** `Krs.lock` pins K 7.1.337, the `k-rust` frontend commit, Z3 4.12.5, and the IR schema versions.
-  The workspace MSRV is Rust 1.88.0; native-frontend helpers are also qualified on stable Rust 1.98.0.
+- **Toolchain pins.** `Krs.lock` pins K 7.1.337, the `k-rust` frontend commit, Z3 4.12.5, and the IR schema versions; every gate reads them from there.
+  The workspace MSRV is Rust 1.88.0; the gates also qualify native-frontend helpers on any stable Rust at or above it.
 - **Documentation.** `docs-plan/tour.toml` is the curriculum and feature-status ledger for a 17-chapter language tour, published by the Vocs site in `docs-site/`.
   `docs-plan/authoring-spec/` is the normative readable-authoring specification.
 - **Browser lessons.** `browser/` contains a Web Worker that expands and compiles lessons in the browser, together with its dependency pack and release tooling.
@@ -78,6 +78,17 @@ cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --wor
 Run every gate from the repository root with `PYTHONDONTWRITEBYTECODE=1 python3 tests/<gate>/verify.py`.
 The KWasm, KEVM, KMIR, and M4 gates are memory heavy and must run one at a time.
 `tests/m4/README.md` gives the memory-bounded recipe for M4; other gate-specific instructions live in each gate directory's README where one exists.
+
+A gate pins what it does not control and what KRS produces, never KRS source:
+
+- inputs: the revisions and file digests of the sibling checkouts, the toolchain and schema versions in `Krs.lock`, and the gate's corpus;
+- outputs: emitted artifact, KORE, and behavior digests.
+
+A source change that leaves every output identical passes without a pin edit.
+When an output changes on purpose, re-record it by running the gate with `--record` (the KWasm, KEVM, KMIR, M4, and CLI gates support it); the gate runs completely and, only if every step passes, rewrites exactly the output pins it measured.
+Review the resulting pin diff like any other change.
+`--record` never rewrites an input pin: a new checkout revision, corpus, or toolchain is a deliberate edit to the gate ledger or `Krs.lock`.
+The shared pin handling lives in `tests/support`, whose unit tests run with `python3 -m unittest discover support` from `tests/`.
 
 The repository hygiene check fails if any tracked file references the untracked, local-only notes directory or one of the retired root tracking ledgers:
 
