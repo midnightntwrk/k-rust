@@ -35,7 +35,9 @@ test behind each):
     returns, so re-encoding a decoded model value gives back the same value;
   * `e : Equivalent P Q`: two encodings define the same `sat`, `le` and `pref`;
   * `hu : UniquePref P`: `prefer_parameters` has one admissible answer per maximal real
-    projection.
+    projection;
+  * `hl : LoweringConstOnPref P f`: model application followed by lowering gives the same result
+    for every admissible parameter vector (implied by `hu`).
 "Z3 decides" (every check answers Sat with a model of the assertions, or Unsat; `Unknown` is an
 error return, :1701-1705, :1766-1770) is the trust base and is not a hypothesis here: a check is
 modelled by its answer.
@@ -302,5 +304,60 @@ theorem runs_agree (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
   intro p
   exact ⟨key out out' (fun a => (hs a).mp) (fun a => (hs'P a).mpr) hp hp'P p,
     key out' out (fun a => (hs'P a).mp) (fun a => (hs a).mpr) hp'P hp p⟩
+
+/-- Hypothesis `hl`: what a recorded model contributes to the output does not depend on which
+admissible parameter vector `prefer_parameters` keeps.
+`f a b` is model application followed by lowering, as an opaque function: `apply_model_packed`
+(:1813-2021, called at :201-214) builds the applied term for the recorded model, `none` standing
+for an application error, and lowering maps it to the KAST term that the compiled rule is built
+from (`lower_term`, `parser.rs:1490-1492` drops transparent and bracket productions, `:1517-1520`
+lowers `#KRewrite` to a `Term::Rewrite` without a sort); neither is opened here.
+The hypothesis is weaker than `UniquePref` (`uniquePref_loweringConst`): it also holds when the
+free parameter is erased by lowering, as for the parameter of `#KRewrite` inside a bracket.
+Rust test: none yet; the check that compares lowered terms per recorded model is owed to
+ticket LT-05. -/
+def LoweringConstOnPref {C : Type} (P : Problem A B) (f : A → B → Option C) : Prop :=
+  ∀ a b b', P.IsMax a → P.pref a b → P.pref a b' → f a b = f a b'
+
+/-- `UniquePref` is the special case of `LoweringConstOnPref` that holds for every `f`
+(implication, no equality). -/
+theorem uniquePref_loweringConst {C : Type} (hu : UniquePref P) (f : A → B → Option C) :
+    LoweringConstOnPref P f := by
+  intro a b b' ha hb hb'
+  rw [hu a b b' ha hb hb']
+
+/-- **Statement 4 (exact after lowering).** If model application followed by lowering is constant
+on each admissible parameter set (hypothesis `hl`), two complete runs over equivalent encodings
+give the same set of lowered candidates.
+Equality proved: set equality (as a membership iff) of `out.filterMap (f · ·)`, the lowered
+candidates of the models that application accepts. That the compiled rule is a function of this
+set, rather than of the set of applied terms that `infer_packed_sorts_z3` collects (:198-223), is
+not opened here. -/
+theorem runs_agree_lowered {C : Type} (hP : P.WF) {Q : Problem A B} (hQ : Q.WF)
+    (hRP : P.RoundTrip) (hRQ : Q.RoundTrip) (e : Equivalent P Q)
+    (f : A → B → Option C) (hl : LoweringConstOnPref P f) {out out' : List (A × B)}
+    (h : Run P [] out) (h' : Run Q [] out') :
+    ∀ c, c ∈ out.filterMap (fun p => f p.1 p.2) ↔ c ∈ out'.filterMap (fun p => f p.1 p.2) := by
+  obtain ⟨hs, _, hp⟩ := maximal_models_spec hP hRP h
+  obtain ⟨hs', _, hp'⟩ := maximal_models_spec hQ hRQ h'
+  have hp'P : ∀ p, p ∈ out' → P.pref p.1 p.2 := fun p hin => (e.pref p.1 p.2).mpr (hp' p hin)
+  have hs'P : ∀ a, a ∈ out'.map Prod.fst ↔ P.IsMax a :=
+    fun a => (hs' a).trans (isMax_congr e a).symm
+  have key : ∀ (l l' : List (A × B)),
+      (∀ a, a ∈ l.map Prod.fst → P.IsMax a) →
+      (∀ a, P.IsMax a → a ∈ l'.map Prod.fst) →
+      (∀ p, p ∈ l → P.pref p.1 p.2) → (∀ p, p ∈ l' → P.pref p.1 p.2) →
+      ∀ c, c ∈ l.filterMap (fun p => f p.1 p.2) → c ∈ l'.filterMap (fun p => f p.1 p.2) := by
+    intro l l' hl' hcov hpl hpl' c hc
+    obtain ⟨p, hin, hfp⟩ := List.mem_filterMap.mp hc
+    have hmax : P.IsMax p.1 := hl' p.1 (List.mem_map.mpr ⟨p, hin, rfl⟩)
+    obtain ⟨q, hq, hqa⟩ := List.mem_map.mp (hcov p.1 hmax)
+    have hfq : f q.1 q.2 = some c := by
+      rw [hqa, hl p.1 q.2 p.2 hmax (hqa ▸ hpl' q hq) (hpl p hin)]
+      exact hfp
+    exact List.mem_filterMap.mpr ⟨q, hq, hfq⟩
+  intro c
+  exact ⟨key out out' (fun a => (hs a).mp) (fun a => (hs'P a).mpr) hp hp'P c,
+    key out' out (fun a => (hs'P a).mp) (fun a => (hs a).mpr) hp'P hp c⟩
 
 end KRust.MaximalModels

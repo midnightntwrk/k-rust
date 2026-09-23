@@ -14,7 +14,7 @@ The method, its limits and the case studies are in `draft/lean-verification/READ
 | `KRust/TermAttributes.lean` | the backend `Term` model; `ceilFree_sound` (OT-01), `hasMacro_iff`, `macro_shortcut_eq` and `rule_index_same` (OT-02) |
 | `KRust/SynthAttr.lean` | the generic synthesized-attribute lemma `fold_rel`, with case 3 restated through it |
 | `KRust/Examples.lean` | `#guard` checks that run the term model at build time |
-| `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree`) |
+| `KRust/MaximalModels.lean` | the maximal-model enumeration of the Z3 sort inference (`maximal_models_spec`, `runs_agree_up_to_pref`, `runs_agree`, `runs_agree_lowered`) |
 | `Audit.lean` | `krust-audit`: the `sorry` and axiom audit that `scripts/lean-check.sh` runs |
 | `KRustBridge/Json.lean` | the JSON form of the term model, shared with the Rust encoder of the bridge tests |
 | `KRustBridge/Dispatch.lean` | the bridged models by name; each applies a `KRust` definition, never a copy |
@@ -114,5 +114,11 @@ rust_test = "none yet: OT-03's per-call-site equivalence test discharges it"
 theorem = "KRust.MaximalModels.runs_agree"
 hypothesis = "hu : UniquePref P"
 meaning = "prefer_parameters has one admissible parameter vector per maximal real projection"
-rust_test = "none yet: false in general; ticket LT-05 decides how the Rust enforces it"
+rust_test = "none yet: false in general (8 WASM sentences, S4b); ticket LT-05 decides how the Rust enforces it"
+
+[[hypothesis]]
+theorem = "KRust.MaximalModels.runs_agree_lowered"
+hypothesis = "hl : LoweringConstOnPref P f"
+meaning = "model application followed by lowering gives the same result for every admissible parameter vector of a recorded maximal real projection; implied by UniquePref"
+rust_test = "none yet: owed to ticket LT-05, a check that compares the lowered terms of the admissible parameter vectors per recorded model"
 ```
