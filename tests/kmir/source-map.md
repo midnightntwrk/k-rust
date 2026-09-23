@@ -290,7 +290,7 @@ A later slice may extend KRS only when one of these shapes is selected as accept
 
 The checked-in default gate must establish deterministic collection and expansion, formatting, warnings-denied Clippy, focused rust-analyzer probes, direct Definition IR compilation through K-Rust, and K-Rust behavior for the selected graph and local-state paths.
 The all-path proof and K toolchain comparison are deliberate final-reference evidence selected with `--java-reference`.
-Pins may be updated only after reviewing emitted K and structured behavior.
+Pins may be updated only after reviewing emitted K and structured behavior; re-record them by running the gate with `--record` (add `--java-reference` to re-record the kompiled reference digest) and review the pin diff.
 
 The canonical KRS port is `semantics/kmir`, the corpus is `tests/kmir/corpus.toml`, and the fail-closed entry point is `python3 tests/kmir/verify.py`.
 

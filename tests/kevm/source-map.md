@@ -167,7 +167,7 @@ A later slice may extend KRS only when one of those shapes is selected as accept
 
 The checked-in development gate must establish deterministic collection and expansion, formatting, warnings-denied Clippy, focused rust-analyzer probes, emitted-K compilation under K 7.1.337, and K-Rust behavior for the selected normal and exceptional paths.
 The pinned Java/K behavior and proof gate remains available only as the explicit `--java-reference` milestone or final authority check.
-Pins may be updated only after reviewing emitted K and structured behavior.
+Pins may be updated only after reviewing emitted K and structured behavior; re-record them by running the gate with `--record` (add `--java-reference` to re-record the kompiled reference digest) and review the pin diff.
 
 The canonical KRS port is `semantics/kevm`, the corpus is
 `tests/kevm/corpus.toml`, and the fail-closed entry point is

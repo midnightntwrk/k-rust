@@ -93,6 +93,10 @@ jobs:
       - name: Check repository hygiene
         run: python3 tests/repo-hygiene/verify.py
 
+      - name: Test the gate support package
+        working-directory: starstream-fv/krs/tests
+        run: python3 -m unittest discover support
+
       - name: Test the workspace
         run: cargo +stable test --workspace --locked --offline
 

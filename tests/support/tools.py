@@ -10,7 +10,20 @@ from support import GateError
 from support.process import compact, run
 
 
-Z3_VERSION = "4.12.5"
+def nix_store() -> Path:
+    """The Nix store searched for pinned libraries; `KRS_NIX_STORE` overrides it."""
+
+    return Path(os.environ.get("KRS_NIX_STORE", "/nix/store"))
+
+
+def scratch_root() -> Path:
+    """The disk-backed directory for gate workspaces and Cargo targets.
+
+    `KRS_GATE_SCRATCH` overrides the default `/var/tmp`; per-gate target
+    variables such as `KRS_KWASM_ROOT_TARGET` still override single targets.
+    """
+
+    return Path(os.environ.get("KRS_GATE_SCRATCH", "/var/tmp"))
 
 
 def executable(name: str) -> str:
@@ -26,17 +39,21 @@ def z3_library_dir() -> Path:
     """Locate the qualified Z3 shared-library directory.
 
     `KRS_Z3_LIB` wins when set; it may name the library directory itself or the
-    package root that contains `lib/`. Otherwise the Nix store is searched.
+    package root that contains `lib/`. Otherwise the Nix store is searched for
+    the `Krs.lock` solver version.
     """
 
+    from support.lock import z3_version
+
+    version = z3_version()
     configured = os.environ.get("KRS_Z3_LIB")
     candidates = [Path(configured)] if configured else []
-    candidates.extend(sorted(Path("/nix/store").glob(f"*-z3-{Z3_VERSION}-lib/lib")))
+    candidates.extend(sorted(nix_store().glob(f"*-z3-{version}-lib/lib")))
     for candidate in candidates:
         for directory in (candidate, candidate / "lib"):
             if directory.joinpath("libz3.so").is_file():
                 return directory
-    raise GateError(f"Z3 {Z3_VERSION} was not found; set KRS_Z3_LIB to its shared-library directory")
+    raise GateError(f"Z3 {version} was not found; set KRS_Z3_LIB to its shared-library directory")
 
 
 def z3_environment() -> dict[str, str]:
@@ -113,11 +130,22 @@ def rustfmt_dir() -> Path:
 
 
 def rust_analyzer() -> Path:
-    """Locate the qualified rust-analyzer, preferring the pinned 1.97.1 builds."""
+    """Locate the qualified rust-analyzer.
 
+    `KRS_RUST_ANALYZER` wins when set; then the pinned 1.97.1 builds under the
+    scratch root; then rust-analyzer on PATH.
+    """
+
+    configured = os.environ.get("KRS_RUST_ANALYZER")
+    if configured:
+        candidate = Path(configured)
+        if not candidate.is_file():
+            raise GateError(f"KRS_RUST_ANALYZER does not name a file: {configured}")
+        return candidate.absolute()
+    scratch = scratch_root()
     candidates = [
-        Path("/var/tmp/krs-ra-1.97.1-bin/rust-analyzer"),
-        Path("/var/tmp/krs-rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rust-analyzer"),
+        scratch / "krs-ra-1.97.1-bin/rust-analyzer",
+        scratch / "krs-rustup/toolchains/1.97.1-x86_64-unknown-linux-gnu/bin/rust-analyzer",
     ]
     ambient = shutil.which("rust-analyzer")
     if ambient:

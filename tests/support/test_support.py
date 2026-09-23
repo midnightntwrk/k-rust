@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
-from support import checkouts, hashing, kdefinition, lsp, pins, process, tools  # noqa: E402
+from support import checkouts, hashing, kdefinition, lock, lsp, pins, process, tools  # noqa: E402
 
 
 def write_executable(path: Path, body: str) -> Path:
@@ -221,22 +221,115 @@ class KDefinitionTests(unittest.TestCase):
             kdefinition.split_claims(duplicated, 2)
 
     def test_normalized_kore_is_location_and_binder_independent(self) -> None:
-        def kore(directory: Path, variable: str) -> str:
+        def kore(directory: Path, variable: str, k_install: str) -> str:
             return (
                 f'[source("{directory / "semantics.k"}")]\n'
+                f'[Source("Source({k_install}/include/kframework/builtin/domains.md)")]\n'
                 f"\\exists{{R}} ({variable}:SortInt{{}}, f({variable}:SortInt{{}}) \\bottom{{R}}())\n"
             )
 
         with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
             digests = []
-            for directory, variable in ((Path(first), "Var'Unds'Gen1"), (Path(second), "Var'Unds'Gen7")):
-                (directory / "definition.kore").write_text(kore(directory, variable))
+            for directory, variable, k_install in (
+                (Path(first), "Var'Unds'Gen1", "/nix/store/aaaa-k-7.1.337"),
+                (Path(second), "Var'Unds'Gen7", "/opt/k"),
+            ):
+                (directory / "definition.kore").write_text(kore(directory, variable, k_install))
                 digests.append(
                     kdefinition.normalized_kore_sha256(
                         directory / "definition.kore", directory / "semantics.k"
                     )
                 )
             self.assertEqual(digests[0], digests[1])
+
+
+class LedgerTests(unittest.TestCase):
+    TOML = (
+        'schema = 1\n'
+        'corpus_sha256 = "input"\n'
+        'expansion_sha256 = "old"\n'
+        '\n'
+        '[checkout]\n'
+        'commit = "abc"\n'
+        '\n'
+        '[artifact_sha256]\n'
+        '"definition.k" = "old-k"\n'
+        '"sources.json" = "old-s"\n'
+    )
+
+    def ledger(self, directory: str, *, record: bool, suffix: str = ".toml") -> pins.Ledger:
+        path = Path(directory) / f"pins{suffix}"
+        if not path.exists():
+            path.write_text(self.TOML, encoding="utf-8")
+        return pins.Ledger(path, record=record)
+
+    def test_toml_writer_round_trips_the_ledger_spelling(self) -> None:
+        import tomllib
+
+        self.assertEqual(pins.dump_toml(tomllib.loads(self.TOML)), self.TOML)
+
+    def test_check_mode_compares_and_never_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(temporary, record=False)
+            ledger.expect("expansion_sha256", "old")
+            ledger.expect(("artifact_sha256", "definition.k"), "old-k")
+            with self.assertRaisesRegex(GateError, "expansion_sha256 was observed twice"):
+                ledger.expect("expansion_sha256", "new")
+            with self.assertRaisesRegex(GateError, "artifact_sha256.sources.json differs from its pin"):
+                ledger.expect(("artifact_sha256", "sources.json"), "new-s")
+            with self.assertRaisesRegex(GateError, "has no pin missing; run the gate with --record"):
+                ledger.expect("missing", "value")
+            with self.assertRaisesRegex(GateError, "only a record-mode ledger"):
+                ledger.write()
+            ledger.finish("fixture")
+            self.assertEqual(ledger.path.read_text(encoding="utf-8"), self.TOML)
+
+    def test_record_mode_rewrites_only_observed_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(temporary, record=True)
+            ledger.expect("expansion_sha256", "new")
+            ledger.expect(("artifact_sha256", "definition.k"), "old-k")
+            with self.assertRaisesRegex(GateError, "observed twice"):
+                ledger.expect("expansion_sha256", "other")
+            self.assertEqual(ledger.write(), ["expansion_sha256"])
+            text = ledger.path.read_text(encoding="utf-8")
+            self.assertEqual(text, self.TOML.replace('"old"', '"new"'))
+            reloaded = pins.Ledger(ledger.path)
+            reloaded.expect("expansion_sha256", "new")
+            self.assertEqual(reloaded.get("corpus_sha256"), "input")
+            self.assertEqual(reloaded.table("checkout"), {"commit": "abc"})
+
+    def test_record_mode_writes_nested_json_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pins.json"
+            path.write_text('{\n  "schema": 1,\n  "behavior": {"expected": {"count": 1}}\n}\n')
+            ledger = pins.Ledger(path, record=True)
+            ledger.expect(("behavior", "expected"), {"count": 2})
+            ledger.expect(("native", "definition.kore"), "digest")
+            self.assertEqual(sorted(ledger.write()), ["behavior.expected", "native.definition.kore"])
+            self.assertEqual(
+                pins.load_json(path),
+                {"schema": 1, "behavior": {"expected": {"count": 2}}, "native": {"definition.kore": "digest"}},
+            )
+
+
+class LockTests(unittest.TestCase):
+    def test_krs_lock_supplies_the_toolchain_pins(self) -> None:
+        self.assertRegex(lock.k_version(), r"^\d+\.\d+\.\d+$")
+        self.assertRegex(lock.msrv(), r"^\d+\.\d+\.\d+$")
+        self.assertRegex(lock.z3_version(), r"^\d+\.\d+\.\d+$")
+        lock.verify_schema_constants()
+
+    def test_stable_rustc_at_or_above_the_msrv(self) -> None:
+        with mock.patch.object(lock, "msrv", return_value="1.88.0"):
+            lock.require_stable_at_least_msrv("rustc 1.88.0 (6b00bc388 2025-06-23)")
+            lock.require_stable_at_least_msrv("rustc 1.98.0 (88d9e12ae 2026-08-18)")
+            with self.assertRaisesRegex(GateError, "older than the Krs.lock MSRV"):
+                lock.require_stable_at_least_msrv("rustc 1.87.0 (17067e9ac 2025-05-09)")
+            with self.assertRaisesRegex(GateError, "not a stable rustc"):
+                lock.require_stable_at_least_msrv("rustc 1.99.0-nightly (0123456 2026-09-01)")
+            with self.assertRaisesRegex(GateError, "cannot parse"):
+                lock.require_stable_at_least_msrv("cargo 1.98.0")
 
 
 class LspTests(unittest.TestCase):

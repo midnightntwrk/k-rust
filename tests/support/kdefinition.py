@@ -73,10 +73,15 @@ _GENERATED_BINDER = re.compile(
 )
 
 
-def normalized_kore_sha256(path: Path, semantics: Path) -> str:
-    """Digest a kompiled `definition.kore` independent of its build location.
+_K_INCLUDE = re.compile(rb"Source\(/[^()\"]*?/include/kframework/")
 
-    The recorded semantics source path becomes `semantics.k`, and each
+
+def normalized_kore_sha256(path: Path, semantics: Path) -> str:
+    """Digest a kompiled `definition.kore` independent of where things live.
+
+    The recorded semantics source path becomes `semantics.k`; the recorded
+    location of K's own builtin sources (the K installation prefix, which
+    differs between two builds of the same K release) becomes `k`; and each
     generated sort-binder variable becomes one stable alpha name.
     """
 
@@ -87,6 +92,9 @@ def normalized_kore_sha256(path: Path, semantics: Path) -> str:
     if temporary_source not in contents:
         raise GateError("definition.kore does not record its semantics source")
     normalized = contents.replace(temporary_source, b"semantics.k")
+    normalized, include_count = _K_INCLUDE.subn(b"Source(k/include/kframework/", normalized)
+    if include_count == 0:
+        raise GateError("definition.kore does not record K's builtin sources")
 
     def alpha(match: re.Match[bytes]) -> bytes:
         variable = match.group("variable") + match.group("sort")

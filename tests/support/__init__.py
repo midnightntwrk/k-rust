@@ -12,16 +12,19 @@ The modules are:
   cleanup;
 - `support.hashing`: file, text, canonical-JSON, tracked-tree, and artifact
   directory digests;
-- `support.pins`: JSON and TOML ledger loading;
+- `support.pins`: ledger loading, input and output pins, and `--record`;
+- `support.lock`: the `Krs.lock` toolchain and schema pins;
 - `support.tools`: executable, Z3 library, K tool, rustfmt, and rust-analyzer
-  discovery;
+  discovery, and the scratch root for workspaces and Cargo targets;
 - `support.checkouts`: pinned external checkout verification;
 - `support.kdefinition`: helpers over emitted K definitions and KORE;
+- `support.semantics`: the gate flow the KWasm, KMIR, and KEVM ports share;
 - `support.lsp`: the rust-analyzer probe shared by the semantics gates.
 
 The package needs only the standard library. It must stay importable by
 Python 3.10, which runs the M4 oracles inside the pinned pyk environment;
-`support.pins.load_toml` alone needs Python 3.11 for `tomllib`.
+`support.pins.load_toml` (and so `support.lock` and a TOML `Ledger`) alone
+needs Python 3.11 for `tomllib`.
 
 Its unit tests run with
 

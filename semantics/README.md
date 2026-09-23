@@ -30,3 +30,8 @@ python3 tests/kwasm/verify.py
 python3 tests/kevm/verify.py
 python3 tests/kmir/verify.py
 ```
+
+Each gate pins the external checkout it is qualified against (revision, K release, and the digest of every cited source file), its corpus, and the outputs KRS produces: the expansion, emitted artifact, native KORE, and behavior digests, plus the normalized kompiled KORE digest under `--java-reference`.
+It does not pin KRS source, and it reads K and schema versions from `Krs.lock`.
+After an intended output change, run the gate with `--record` (and `--java-reference --record` for the kompiled digest); it rewrites only the output pins that run measured, and only when every step passes.
+Cargo targets and workspaces default to `/var/tmp`; `KRS_GATE_SCRATCH` moves them, and `KRS_<PORT>_ROOT_TARGET` or `KRS_<PORT>_FIXTURE_TARGET` moves one target.

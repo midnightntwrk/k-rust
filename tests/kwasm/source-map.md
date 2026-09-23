@@ -166,6 +166,7 @@ PASS readable KWasm integer slice: 60 descriptors; 32 K-Rust executions; 1 refer
 The 32 native executions cover both integer widths, zero, maxima, negative constants, operand order, nesting, every selected add/sub/mul wraparound form, exact and truncated unsigned division, high-bit unsigned values, and divide-by-zero traps.
 The checked-in all-path simple-addition claim remains pinned but is not run during routine development.
 `python3 tests/kwasm/verify.py --java-reference` performs the deliberate final K toolchain comparison and proof.
+Pins may be updated only after reviewing emitted K and structured behavior; re-record them by running the gate with `--record` (add `--java-reference` to re-record the kompiled reference digest) and review the pin diff.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics, including the new trap constructor.
 
 Definition IR compiles directly to KORE through K-Rust with SHA-256 `35835f531a224c68f5ab63892448d2a2f60a6f0c268be521189a8f4df04245d1`.

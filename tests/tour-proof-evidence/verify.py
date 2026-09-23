@@ -173,10 +173,14 @@ def verify_capability_matrix() -> None:
 
     require_fragments(
         "tests/kwasm/verify.py",
-        '"--backend",\n            "haskell"',
-        'k["kprove"]',
-        'if proof.stdout.strip() != "#Top":',
+        "semantics.reference_definition(",
+        'semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])',
         '"1 reference proof deferred to --java-reference"',
+    )
+    require_fragments(
+        "tests/support/semantics.py",
+        '"--backend", "haskell"',
+        'if proof.stdout.strip() != "#Top":',
     )
     require_fragments(
         "crates/krs-syntax/tests/claims.rs",
