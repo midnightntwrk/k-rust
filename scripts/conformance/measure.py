@@ -19,7 +19,10 @@ waited-for descendants), and the wall time ends when that wait returns. With --t
 of the command is polled first with the timeout, so the exit is noticed when it happens rather
 than at a polling step; at the timeout the command's process group is killed with SIGKILL. The
 command is not reaped before the kill, so its process group ID cannot have been reused.
-Requires Linux 5.3 or later (pidfd_open).
+Where pidfd_open is missing or fails (Linux before 5.3, or a seccomp filter), a timer thread
+kills the process group instead, and the main thread waits for the exit with waitid(WNOWAIT),
+which leaves the command unreaped; a lock and a flag set before the reap keep the timer from
+killing after it.
 """
 import argparse, fcntl, json, math, os, select, subprocess, sys, threading, time, signal
 
@@ -63,17 +66,48 @@ if streamed:
 
     reader = threading.Thread(target=read_stdout)
     reader.start()
-if a.timeout is not None:
-    pidfd = os.pidfd_open(proc.pid)
+
+def wait_with_pidfd(pidfd, timeout):
+    """Wait for the exit up to `timeout`, then kill the process group; returns whether it timed out."""
     try:
         poller = select.poll()
         poller.register(pidfd, select.POLLIN)
         # The pidfd becomes readable when the command exits; it stays unreaped until wait4.
-        if not poller.poll(max(0, math.ceil(a.timeout * 1000))):
-            timed_out = True
-            os.killpg(proc.pid, signal.SIGKILL)
+        if poller.poll(max(0, math.ceil(timeout * 1000))):
+            return False
+        os.killpg(proc.pid, signal.SIGKILL)
+        return True
     finally:
         os.close(pidfd)
+
+
+def wait_with_timer(timeout):
+    """Wait for the exit with a timer that kills the process group; returns whether it fired."""
+    guard = threading.Lock()
+    state = {"exited": False, "fired": False}
+
+    def kill():
+        with guard:
+            if not state["exited"]:
+                state["fired"] = True
+                os.killpg(proc.pid, signal.SIGKILL)
+
+    timer = threading.Timer(timeout, kill)
+    timer.start()
+    # WNOWAIT leaves the command unreaped, so the timer's kill cannot reach a reused group ID.
+    os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+    with guard:
+        state["exited"] = True
+    timer.cancel()
+    return state["fired"]
+
+
+if a.timeout is not None:
+    try:
+        pidfd = os.pidfd_open(proc.pid)
+    except (AttributeError, OSError):
+        pidfd = None
+    timed_out = wait_with_pidfd(pidfd, a.timeout) if pidfd is not None else wait_with_timer(a.timeout)
 _, status, ru = os.wait4(proc.pid, 0)
 wall = time.monotonic() - t0
 rc = proc.returncode = os.waitstatus_to_exitcode(status)
