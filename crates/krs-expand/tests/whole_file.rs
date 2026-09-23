@@ -1,7 +1,7 @@
 //! Whole-file expansion of tour-minimal and of small edge-case files.
 //!
 //! The tour-minimal checks compare the whole-file driver with the
-//! independent IR-10 test driver (`support`), which expands the same six
+//! independent test driver (`support`), which expands the same six
 //! invocations by hand, and, when `KRS_NATIVE_CAPTURE` is set, with the
 //! native per-invocation capture.
 
@@ -20,9 +20,9 @@ use support::{Expansion, TOUR_MINIMAL, expand_tour_minimal};
 
 const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
 
-/// SHA-256 of IR-10's whole-file print of tour-minimal
-/// (`evidence/IR-10/tour-minimal.expanded.rs`), which has no registration
-/// table.
+/// SHA-256 of the reviewed whole-file print of tour-minimal from before the
+/// registration table was appended; the text up to the table must still
+/// equal it.
 const IR10_EXPANDED_SHA256: &str =
     "9266825207f3d6fe9baa269fd123d02ff46456d6691ddaabdc3a08b894934643";
 
@@ -387,7 +387,7 @@ fn a_file_without_invocations_gets_an_empty_table() {
 /// Compares every tour-minimal expansion with a native per-invocation
 /// capture, token for token, as `fallback.rs` does for the support driver.
 ///
-/// `KRS_NATIVE_CAPTURE` names a JSON Lines capture (IR-09 method); the rows
+/// `KRS_NATIVE_CAPTURE` names a JSON Lines capture; the rows
 /// of `krs_tour_minimal` with display file `src/lib.rs` (the `krs emit-k`
 /// collector build) are compared after re-lexing rustc's text through
 /// `proc_macro2`.

@@ -229,7 +229,7 @@ pub struct Diagnostic {
     pub severity: &'static str,
     /// The message.
     pub message: String,
-    /// BL-006 class.
+    /// Mapping class ([`krs_expand::sink::MappingClass::name`]).
     pub class: &'static str,
     /// The file the diagnostic concerns.
     pub file: String,
@@ -269,7 +269,7 @@ pub struct Evidence {
     pub policy_version: Option<u32>,
 }
 
-/// The JSON form of [`SourceMap`] (IR-10 format), plus the authored hash.
+/// The JSON form of [`SourceMap`], plus the authored hash.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceMapJson {
@@ -309,7 +309,7 @@ pub struct InvocationJson {
 pub struct SegmentJson {
     /// Generated range.
     pub generated: [usize; 2],
-    /// BL-006 class.
+    /// Mapping class ([`krs_expand::sink::MappingClass::name`]).
     pub class: String,
     /// Authored range of an exact-authored segment.
     pub authored: Option<[usize; 2]>,
@@ -671,7 +671,7 @@ pub struct LookupResponse {
 /// One classified range.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct MappingJson {
-    /// BL-006 class.
+    /// Mapping class ([`krs_expand::sink::MappingClass::name`]).
     pub class: &'static str,
     /// The exact authored range, or the invocation's call site.
     pub authored: Option<[usize; 2]>,

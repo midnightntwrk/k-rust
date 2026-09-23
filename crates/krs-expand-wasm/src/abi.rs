@@ -1,4 +1,4 @@
-//! Wasm ABI, in the shape of the BL-005 probe and `krs-lesson-policy`.
+//! Wasm ABI, in the shape of the `krs-lesson-policy` module.
 //!
 //! The host allocates a request buffer, writes the UTF-8 JSON request into
 //! linear memory at the returned pointer, calls `run` (or `lookup`), reads

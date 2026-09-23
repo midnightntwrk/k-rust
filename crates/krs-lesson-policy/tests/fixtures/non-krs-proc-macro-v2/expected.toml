@@ -1,4 +1,4 @@
-# IR-13's non-krs-proc-macro source under version 2: `rustfmt::skip` and the variant `#[default]` are accepted.
+# The non-krs-proc-macro source under version 2: `rustfmt::skip` and the variant `#[default]` are accepted.
 versions = [2]
 
 [[diagnostic]]

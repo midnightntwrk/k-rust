@@ -3,8 +3,8 @@
 //!
 //! With `KRS_IR10_EVIDENCE` set to a directory, the test also writes the
 //! generated file, its map, the per-surface measurement, and the anchor
-//! coverage there; `KRS_BL005_OUTPUT` names BL-005's
-//! `observed-wasm-output.json`, whose anchors are then covered too.
+//! coverage there; `KRS_BL005_OUTPUT` names the `observed-wasm-output.json`
+//! of the ordinary-Wasm KRS parser probe, whose anchors are then covered too.
 
 mod support;
 
@@ -293,7 +293,7 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
             reason: String::new(),
         };
     }
-    // A respanned token maps exact-authored to its span through lookup (IR-18).
+    // A respanned token maps exact-authored to its span through lookup.
     let respanned = printed
         .source
         .map
@@ -313,7 +313,7 @@ fn coverage(printed: &Printed, anchor: &Range<usize>) -> Coverage {
             generated: respanned,
             class: MappingClass::ExactAuthored,
             reason: format!(
-                "rustc-visible only as {}, spanned at this authored range with different text (respanned); lookup maps it exact-authored, where native rustc reports it (IR-18)",
+                "rustc-visible only as {}, spanned at this authored range with different text (respanned); lookup maps it exact-authored, where native rustc reports it",
                 texts(printed, |segment| segment.respanned.as_ref()
                     == Some(anchor))
             ),
@@ -450,7 +450,7 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
     if let Ok(directory) = std::env::var("KRS_IR10_EVIDENCE") {
         write_evidence(&printed, &anchors, std::path::Path::new(&directory));
     }
-    // Representative anchors of the IR-10 ticket that rustc sees as authored
+    // Representative authored anchors that rustc sees as authored
     // tokens map exactly.
     for (text, authored) in [
         ("M2Obj", 303..308),
@@ -522,7 +522,7 @@ fn map_json(printed: &Printed) -> serde_json::Value {
     })
 }
 
-/// One anchor of BL-005's `observed-wasm-output.json`.
+/// One anchor of the parser probe's `observed-wasm-output.json`.
 struct Bl005Anchor {
     surface: String,
     role: String,
@@ -533,8 +533,8 @@ struct Bl005Anchor {
 fn bl005_anchors() -> Option<Vec<Bl005Anchor>> {
     let path = std::env::var("KRS_BL005_OUTPUT").ok()?;
     let output: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(path).expect("BL-005 output is readable"))
-            .expect("BL-005 output is JSON");
+        serde_json::from_str(&std::fs::read_to_string(path).expect("probe output is readable"))
+            .expect("probe output is JSON");
     let mut anchors = Vec::new();
     for invocation in output["invocations"].as_array().expect("invocations") {
         for anchor in invocation["authored_anchors"].as_array().expect("anchors") {
@@ -749,7 +749,7 @@ fn anchor_coverage(printed: &Printed, anchors: &BTreeSet<Anchor>) -> String {
                     && anchor.range() == bl005.authored
             });
             write_row(
-                "BL-005",
+                "WasmParserProbe",
                 &bl005.surface,
                 &bl005.role,
                 bl005.ordinal,
@@ -778,7 +778,7 @@ fn anchor_coverage(printed: &Printed, anchors: &BTreeSet<Anchor>) -> String {
     rows
 }
 
-/// BL-006 D002 (`browser/worker/test/fixtures/bl006/unresolved_constructor.rs`,
+/// Diagnostic case D002 (`browser/worker/test/fixtures/bl006/unresolved_constructor.rs`,
 /// sha256 705c28f3...ebeaa): native rustc reports E0433 at the authored
 /// `missing` (bytes 207..214, exact-authored) and D004 at the invocation
 /// (183..241, invocation-level). The expansion carries `missing` verbatim, so
@@ -857,8 +857,8 @@ fn unresolved_constructor_sort_path_maps_like_native() {
     assert_eq!(source.map.invocations[1].call_site, 183..241);
 }
 
-/// Prints every expansion of a native per-invocation capture (the IR-09
-/// capture method; `KRS_NATIVE_CAPTURE`) through the recording printer. The
+/// Prints every expansion of a native per-invocation capture
+/// (`KRS_NATIVE_CAPTURE`) through the recording printer. The
 /// native text is re-lexed through `proc_macro2`, so this checks the printer's
 /// `Display` emulation over the corpus's token shapes, not the map.
 #[test]

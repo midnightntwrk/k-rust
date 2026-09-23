@@ -1,4 +1,4 @@
-//! Wasm ABI, in the shape of the IR-11 expander module.
+//! Wasm ABI, in the shape of the `krs-expand-wasm` expander module.
 //!
 //! ```text
 //! krs_lesson_policy_alloc(len: u32) -> ptr: u32

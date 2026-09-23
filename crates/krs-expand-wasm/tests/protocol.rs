@@ -1,4 +1,5 @@
-//! The expander protocol over tour-minimal and the BL-005/BL-006 probes.
+//! The expander protocol over tour-minimal and the authored-anchor and
+//! diagnostic probes.
 //!
 //! With `KRS_IR11_EVIDENCE` set to a directory, the tour-minimal test writes
 //! `request.json`, `response.json` (native), and `expanded.rs` there, and the
@@ -179,7 +180,7 @@ fn bl005_invalid_sorts_reports_expected_identifier() {
 
 #[test]
 fn policy_diagnostics_stop_before_expansion() {
-    // BL-006 D007: an external derive, rejected at 9..25.
+    // Diagnostic case D007: an external derive, rejected at 9..25.
     let source = "#[derive(serde::Serialize)]\npub struct S;\n";
     let (_, _, value) = run(&request(source, &json!("whole-file")));
     assert_eq!(value["ok"], false);
@@ -196,7 +197,7 @@ fn policy_diagnostics_stop_before_expansion() {
 /// two inputs that version 1 lets through to a later failure: a derive before
 /// a KRS attribute (the expander's `krs::expand::attribute-order`) and an
 /// authored item named like the registration table (E0428 in the browser's
-/// generated table, IR-18 finding 3). tour-minimal expands identically under
+/// generated table, although it compiles natively). tour-minimal expands identically under
 /// both versions.
 #[test]
 fn policy_version_2_rejects_expander_mismatches_before_expansion() {

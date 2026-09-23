@@ -98,7 +98,7 @@ fn entry_point_names_round_trip() {
 }
 
 /// Compares the fallback expansion of every tour-minimal invocation with a
-/// native per-invocation capture (the IR-09 capture method), token for token.
+/// native per-invocation capture, token for token.
 ///
 /// `KRS_NATIVE_CAPTURE` names a JSON Lines capture whose rows carry `crate`,
 /// `file`, `line`, `column`, and rustc's `output` text; the rows of

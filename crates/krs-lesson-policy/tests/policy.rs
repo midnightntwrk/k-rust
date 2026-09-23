@@ -279,7 +279,7 @@ fn tour_minimal_passes_policy_versions_1_and_2() {
 }
 
 /// tour-imp passes version 2; version 1 rejects it only for its two
-/// `#[rustfmt::skip]` attributes (IR-13 corpus probe).
+/// `#[rustfmt::skip]` attributes.
 #[test]
 fn tour_imp_passes_version_2_and_fails_version_1_only_for_rustfmt_skip() {
     let source = include_str!("../../../tests/tour-imp/src/lib.rs");
@@ -311,7 +311,7 @@ fn bl006_d007_is_rejected_at_the_external_derive_path() {
     }
 }
 
-/// IR-18 finding 3: the two crate-root names the path-C expander appends
+/// The two crate-root names the path-C expander appends
 /// compile natively but collide (E0428) with the generated table in the
 /// browser. Version 2 rejects them at the authored name; version 1 does not.
 #[test]
@@ -507,7 +507,7 @@ fn krs_entry_allowlists_equal_the_krs_macros_entry_points() {
 }
 
 /// Version 1 is frozen: its tables equal the values it was published with
-/// (IR-13, 8f1c64c). Version 2 reuses every version 1 table except the
+/// (commit 8f1c64c). Version 2 reuses every version 1 table except the
 /// allowlists it adds.
 #[test]
 fn version_1_tables_are_frozen_and_reused_by_version_2() {

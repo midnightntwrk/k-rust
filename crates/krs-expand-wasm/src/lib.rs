@@ -1,7 +1,7 @@
 //! Browser-lesson KRS expander module.
 //!
 //! This crate is the `wasm32-unknown-unknown` module that the browser
-//! worker (IR-15) calls to turn one editable lesson file into Rust that its
+//! worker (`browser/worker`) calls to turn one editable lesson file into Rust that its
 //! rustc compiles without KRS procedural macros. It holds only the JSON
 //! protocol ([`protocol`]) and the Wasm ABI; expansion, source maps, and the
 //! registration table are `krs_expand::whole_file`, and the lesson policy

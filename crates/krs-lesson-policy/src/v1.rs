@@ -34,7 +34,7 @@
 //! The crate root is `src/lib.rs` or `src/main.rs`.
 //!
 //! `krs::policy::krs-item-scope` exists because explicit descriptor
-//! registration (IR-07) names each generated factory from the crate root and
+//! registration names each generated factory from the crate root and
 //! the factories are private to the scope that defines them. A KRS macro in
 //! expression, pattern, or type position inside a block defines no factory
 //! and is accepted there, for example `k::term![…]` in a helper function.

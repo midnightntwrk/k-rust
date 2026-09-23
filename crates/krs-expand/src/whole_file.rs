@@ -22,8 +22,8 @@
 //!    with its nested expansions spliced in, replaces the invocation's
 //!    authored range.
 //! 6. Every `__register_host_descriptor!` and `__request_framework_sorts!`
-//!    the expansions emit is collected, and the IR-07 crate-root
-//!    registration table (`__KRS_REGISTRATIONS`) is appended as
+//!    the expansions emit is collected, and the crate-root explicit
+//!    descriptor registration table (`__KRS_REGISTRATIONS`) is appended as
 //!    generated-only text.
 //!
 //! Declarative and standard macros, including the facade's registration
@@ -82,7 +82,8 @@ pub const SELECTION: &str = "krs::expand::selection";
 /// An expansion cannot be printed as text without changing its tokens.
 pub const PRINT: &str = "krs::expand::print";
 
-/// Name of the crate-root registration table (IR-07).
+/// Name of the crate-root registration table, which replaces `inventory`
+/// collection where link-time constructors do not run (the browser rustc).
 pub const REGISTRATION_TABLE: &str = "__KRS_REGISTRATIONS";
 
 /// Single-segment attributes rustc never expands (a subset of its built-in
@@ -421,7 +422,7 @@ fn print(
     Ok(generated)
 }
 
-/// Renders the IR-07 crate-root registration table.
+/// Renders the crate-root explicit descriptor registration table.
 ///
 /// Each factory is listed once, sorted by path, under the `#[cfg]`
 /// attributes of its registration; `#[cfg]` on statements is stable.

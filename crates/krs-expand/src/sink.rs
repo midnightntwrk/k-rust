@@ -9,8 +9,8 @@
 //! file was lexed ([`AuthoredFile::lex`]), and a token the expansion
 //! synthesized has the call-site span or a span in a re-parsed string.
 //!
-//! Each [`Segment`] carries one of the four classes of the BL-006 comparison
-//! contract ([`MappingClass`]). A segment is [`MappingClass::ExactAuthored`]
+//! Each [`Segment`] carries one of the four classes of the authored-source
+//! diagnostic comparison ([`MappingClass`]). A segment is [`MappingClass::ExactAuthored`]
 //! only when its token's span lies in the authored file and the authored bytes
 //! equal the printed text, so the map never assigns an authored range the
 //! expansion did not copy from authored tokens.
@@ -158,7 +158,7 @@ impl AuthoredFile {
     }
 }
 
-/// The BL-006 classification of a generated range.
+/// The classification of a generated range against the authored file.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MappingClass {
     /// The generated text equals the authored text of the recorded range.
@@ -172,7 +172,7 @@ pub enum MappingClass {
 }
 
 impl MappingClass {
-    /// The BL-006 `classification_values` spelling.
+    /// The spelling the diagnostic comparison and the JSON protocol use.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -225,7 +225,7 @@ pub struct Segment {
     /// The map does not classify the segment exact-authored, because the
     /// generated text is not the authored text. Native rustc reports a
     /// diagnostic at such a token at this authored range with no expansion
-    /// context, so [`lookup`] maps it exact-authored to this range (IR-18).
+    /// context, so [`lookup`] maps it exact-authored to this range.
     pub respanned: Option<Range<usize>>,
 }
 
@@ -657,7 +657,7 @@ pub enum Mapping {
 }
 
 impl Mapping {
-    /// The BL-006 class of this mapping.
+    /// The class of this mapping.
     #[must_use]
     pub const fn class(&self) -> MappingClass {
         match self {
@@ -676,7 +676,7 @@ impl Mapping {
 /// range inside one segment takes that segment's class; an exact-authored
 /// segment maps the corresponding authored subrange, and a respanned
 /// invocation-level token maps exact-authored to its whole respanned range,
-/// where native rustc reports it (IR-18).
+/// where native rustc reports it.
 ///
 /// A range across several segments is classified in the innermost invocation
 /// (or the text outside every invocation) that owns or encloses all of them,
@@ -691,7 +691,8 @@ impl Mapping {
 /// expansion put between them. Otherwise the range is invocation-level in its
 /// context, generated-only when it lies in generated-only text outside every
 /// invocation, and unmappable when it mixes that text with other text. This is
-/// the final rule the IR-18 diagnostic comparison fixed against native rustc.
+/// the rule the browser diagnostic parity comparison fixed against native
+/// rustc.
 #[must_use]
 pub fn lookup(
     source: &GeneratedSource,
