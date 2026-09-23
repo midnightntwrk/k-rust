@@ -44,7 +44,8 @@ VITE_KRS_BROWSER_PACK_BASE=https://example.org/krs-lesson/ bun run build
 The value is an absolute URL or an origin-relative path, and it is inlined into the client bundle when Vite builds the site (or when `vocs dev` starts).
 It must name the root of a release publication assembled by `browser/release/release.py assemble` (format: `browser/release/release-format.toml`): `index.json` points to `releases/<sha256>.json`, whose assets are served from `blobs/<sha256>.<ext>`.
 Serve it with the headers in `browser/release/hosting.toml`; a cross-origin base must answer `GET` with `Access-Control-Allow-Origin` for the site's origin.
-When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state; the documentation workflow (`.github/workflows/docs.yml`) builds this way.
+When the variable is unset, the build still succeeds and the page renders its "lesson unavailable" state.
+No CI builds the site; `.github/workflows/krs.yml` checks only that the tours are still correct KRS.
 
 The page fetches `index.json` and the release manifest on load, and the assets only after the reader presses the download button.
 `browser/worker/src/pack-cache.ts` verifies every required asset against the release, keeps it in one Cache Storage namespace per `pack_id`, and deletes inactive namespaces that no worker leases.
