@@ -3005,6 +3005,122 @@ mod tests {
         }
     }
 
+    /// The ground-side subsort encoding of ticket OT-03, built in test code only; it mirrors
+    /// `KRust.SubsortEncoding.new` (lean/KRust/SubsortEncoding.lean).
+    /// A side is ground when it is one of the cached constructor terms in `ground_values`, by AST
+    /// identity: a lesser ground value `l` gives `OR over (l, r) in R of greater = r`, a greater
+    /// ground value `r` gives `OR over (l, r) in R of lesser = l`, each followed by
+    /// `lesser = greater`; two ground sides are decided here; otherwise it is today's
+    /// `Encoding::less_than_eq`.
+    fn ground_side_less_than_eq(
+        encoding: &Encoding<'_>,
+        lesser: &Datatype,
+        greater: &Datatype,
+    ) -> Result<Bool, ParseError> {
+        let relation = &encoding.semantic_relation;
+        let cached = |side: &Datatype| {
+            encoding
+                .ground_values
+                .borrow()
+                .values()
+                .find(|value| *value == side)
+                .cloned()
+        };
+        match (cached(lesser), cached(greater)) {
+            (Some(l), Some(r)) => Ok(Bool::from_bool(
+                l == r
+                    || relation
+                        .iter()
+                        .any(|(left, right)| *left == l && *right == r),
+            )),
+            (Some(l), None) => {
+                let mut cases = relation
+                    .iter()
+                    .filter(|(left, _)| *left == l)
+                    .map(|(_, right)| greater.eq(right))
+                    .collect::<Vec<_>>();
+                cases.push(lesser.eq(greater));
+                Ok(or_all(&cases))
+            }
+            (None, Some(r)) => {
+                let mut cases = relation
+                    .iter()
+                    .filter(|(_, right)| *right == r)
+                    .map(|(left, _)| lesser.eq(left))
+                    .collect::<Vec<_>>();
+                cases.push(lesser.eq(greater));
+                Ok(or_all(&cases))
+            }
+            (None, None) => encoding.less_than_eq(lesser, greater, false),
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(48))]
+
+        /// Rust side of the Lean theorem `KRust.SubsortEncoding.new_equiv`
+        /// (lean/KRust/SubsortEncoding.lean): for every relation `R` over cached ground sort
+        /// values, today's `Encoding::less_than_eq` and the ground-side encoding
+        /// (`ground_side_less_than_eq`) are logically equivalent, so Z3 must report
+        /// `¬(old ⇔ new)` unsatisfiable.
+        /// The Lean proof says this test cannot fail as long as its one hypothesis `hI` holds
+        /// (distinct cached constructor terms denote distinct values in every Z3 model); the test
+        /// checks that the Rust code matches the Lean model and that Z3 satisfies `hI`.
+        /// `R` is arbitrary, not a closed partial order, because the theorem needs no hypothesis
+        /// on it. The sides are every cached ground value and, for the model's `other` case, two
+        /// variables, a constructor applied to a variable, and an accessor applied to a cached
+        /// value (a closed term that is not a cached constructor term).
+        #[test]
+        fn ground_side_encoding_is_equivalent(
+            sort_count in 2usize..5,
+            pairs in proptest::collection::vec((0usize..16, 0usize..16), 0..12),
+        ) {
+            let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
+            let mut term_sorts = TermSorts::default();
+            collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
+            let mut base = EncodingBase::build(&grammar, &top_sort, &term_sorts).unwrap();
+            let ground = base.ground_values.borrow().values().cloned().collect::<Vec<_>>();
+            let relation = pairs
+                .iter()
+                .map(|(left, right)| {
+                    (ground[left % ground.len()].clone(), ground[right % ground.len()].clone())
+                })
+                .collect::<Vec<_>>();
+            base.semantic_relation = relation;
+            let mut encoding =
+                Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
+            encoding.base = Rc::new(base);
+
+            let sort = &encoding.datatype.sort;
+            let box_index = encoding.head_indexes[&SortHead::from(&top_sort)];
+            let box_variant = &encoding.datatype.variants[box_index];
+            let boxed = encoding.sort_value(&top_sort, &BTreeMap::new()).unwrap();
+            let x = Datatype::new_const("x", sort);
+            let others = vec![
+                x.clone(),
+                Datatype::new_const("y", sort),
+                box_variant.constructor.apply(&[&x]).as_datatype().unwrap(),
+                box_variant.accessors[0].apply(&[&boxed]).as_datatype().unwrap(),
+            ];
+            let sides = ground.iter().chain(&others).collect::<Vec<_>>();
+            for lesser in &sides {
+                for greater in &sides {
+                    let old = encoding.less_than_eq(lesser, greater, false).unwrap();
+                    let new = ground_side_less_than_eq(&encoding, lesser, greater).unwrap();
+                    let solver = Solver::new();
+                    solver.assert(old.iff(&new).not());
+                    prop_assert_eq!(
+                        solver.check(),
+                        SatResult::Unsat,
+                        "old and new differ for {} <= {}",
+                        lesser,
+                        greater
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn encoding_base_covers_its_grammar_sorts() {
         let mut grammar = Grammar::default();
