@@ -17,6 +17,7 @@ mod diff;
 mod drift;
 mod html;
 mod join;
+mod map;
 mod model;
 pub mod query;
 mod render;
@@ -55,6 +56,7 @@ use k_rust::kompile::pipeline::{
     EMISSION_PHASES, LOAD_PHASES, StageDescription, prologue_descriptions, stage_descriptions,
 };
 use k_rust_kore::measure::{Algorithm, Counter};
+pub use map::{MAP_COMMAND, MAP_PATH, render_map};
 pub use model::{Anchor, Cost, Edge, Graph, Node};
 pub use render::{
     Filters, render_composition, render_composition_focus, render_module_map, render_pipeline,

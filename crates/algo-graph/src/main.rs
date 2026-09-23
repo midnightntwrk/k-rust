@@ -4,11 +4,11 @@ use std::{
 };
 
 use algo_graph::{
-    Filters, atlas, build_graph, canonical_coverage_toml, canonical_join_toml, canonical_toml,
-    check_staleness, diff, drift, join_files, normalize_export,
+    Filters, MAP_PATH, atlas, build_graph, canonical_coverage_toml, canonical_join_toml,
+    canonical_toml, check_staleness, diff, drift, join_files, normalize_export,
     query::{self, Answer, HotOrder, NotFound},
     read_atlas_index, read_join_file, receipt_graph, render_composition, render_composition_focus,
-    render_drift, render_html, render_module_map, render_pipeline, render_run_overlay,
+    render_drift, render_html, render_map, render_module_map, render_pipeline, render_run_overlay,
     workspace_root, write_output, write_report,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -30,6 +30,14 @@ enum Command {
     Graph {
         /// Destination path. Defaults to target/algo/graph.toml below the repository root, in which
         /// case the advisory report is also written to target/algo/report.txt.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Write the generated algorithm map, the whole graph in one Markdown document for work that
+    /// spans algorithms: pipelines, representations, contracts, fallbacks, entry sites, and leads.
+    Map {
+        /// Destination path. Defaults to docs/algorithm-map.md below the repository root, the
+        /// checked-in copy that the freshness test compares with the rendered map.
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
@@ -435,6 +443,12 @@ fn run(root: &Path, command: Command) -> Result<(), algo_graph::Error> {
             }
             let output = output.unwrap_or_else(|| default_output(&root, "graph.toml"));
             write_output(&output, &canonical_toml(&build.graph)?)?;
+            println!("wrote {}", output.display());
+        }
+        Command::Map { output } => {
+            let build = report_build(build_graph(&root)?);
+            let output = output.unwrap_or_else(|| root.join(MAP_PATH));
+            write_output(&output, &render_map(&build.graph))?;
             println!("wrote {}", output.display());
         }
         Command::Render { command } => match command {

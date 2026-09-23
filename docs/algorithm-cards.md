@@ -2,6 +2,7 @@
 
 Algorithm cards are the source declarations from which the workspace algorithm graph is generated.
 They live beside the implementation they describe; this document defines their syntax and validation contract.
+The generated [algorithm map](algorithm-map.md) renders the whole graph in one document and is the starting point for work that spans algorithms.
 
 ## Fences and primary cards
 
