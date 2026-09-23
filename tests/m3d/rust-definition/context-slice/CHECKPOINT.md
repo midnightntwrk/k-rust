@@ -21,9 +21,9 @@ strictness-field coverage.
 Run the focused Rust gates with:
 
 ```bash
-CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-syntax --test m3b_state
-CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-ir --test protocol_v7 --test m3_state_ir
-CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-compiler --test m3b_lowering
+CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-syntax --test fixed_state
+CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-ir --test protocol_v7 --test fixed_state_ir
+CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-compiler --test fixed_state_lowering
 ```
 
 Run the permanent public native gate with:
