@@ -297,12 +297,11 @@ stdout_absent = ['\or{']
 # constructor-list-length with the list built by the program: length (build n) is n, and the
 # list of n constructors is the growing input.
 # The printed result carries the whole <store>, every closure the run allocated: 39 MB at n=100,
-# 1.3 GB at n=300, 34 GB at n=1000. krun writes it as it renders (OT-06), so its peak RSS is the
-# externalized result pattern, twice while the match output is filtered: 0.59 GiB at n=300 and
-# 5.5 GiB at n=1000 (66.6 s with stdout to /dev/null), down from 1.9 GiB and 37 GiB when the
-# whole text was held. The ladder still stops at 300 because the recorder is not streamed:
-# measure.py writes each run's stdout to a file (34 GB per run at n=1000, measured and traced)
-# and the output check reads the whole file into memory to remove its whitespace.
+# 1.3 GB at n=300, 34 GB at n=1000. krun writes it as it renders (OT-06), and the recorder reads
+# it as a stream (OT-08), keeping its size, SHA-256 and first 64 KiB. Search filters the
+# externalized result without copying it (OT-07), so peak RSS is about one copy of that pattern:
+# with krust at ca771053, n=1000 measured 62.4 s and 1.09 GiB and printed 33 659 357 067 bytes;
+# n=300 measured 2.9 s and 0.19 GiB.
 [[workload]]
 name = "fun-build-list-length"
 command = "krun"
