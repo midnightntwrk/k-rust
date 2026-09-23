@@ -10,7 +10,7 @@ use syn::{
 use crate::attribute::{is_plain_path, path_spelling};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
-/// Syntactic shape at the root of an accepted M1 term.
+/// Syntactic shape at the root of an accepted term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TermRootKind {
     /// Bare named path: a variable/reference or a unit constructor after resolution.
@@ -25,7 +25,7 @@ pub enum TermRootKind {
     Wildcard,
 }
 
-/// Exact literal families admitted by the M3A term grammar.
+/// Exact literal families admitted by the term grammar.
 #[derive(Clone, Debug)]
 pub enum TermLiteral {
     /// Unsuffixed decimal Rust integer literal.
@@ -415,7 +415,7 @@ impl TermSymbol {
     }
 }
 
-/// A validated Rust-expression term in the deliberately small M1 grammar.
+/// A validated Rust-expression term in the deliberately small term grammar.
 ///
 /// Accepted nodes are plain paths, named calls, named record construction,
 /// parentheses/groups, and Rust literals below a named root. No operator,
@@ -431,7 +431,7 @@ pub struct TermExpression {
 }
 
 impl TermExpression {
-    /// Validates a previously parsed Rust expression as an M1 term.
+    /// Validates a previously parsed Rust expression as a term.
     ///
     /// # Errors
     ///
@@ -537,14 +537,14 @@ impl TermExpression {
     }
 
     /// Returns payload plus typed application/reference/literal anchors for
-    /// protocol-v6 lowering. The compact M1 path catalog remains available via
+    /// protocol-v6 lowering. The compact path catalog remains available via
     /// [`Self::provenance`].
     ///
     /// # Errors
     ///
     /// Returns an endpoint or occurrence-overflow error.
-    pub fn m3a_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        self.m3a_provenance_with_roles(
+    pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        self.full_provenance_with_roles(
             ProvenanceRole::TermPayload,
             ProvenanceRole::TermApplicationHead,
             ProvenanceRole::TermReference,
@@ -553,7 +553,7 @@ impl TermExpression {
         )
     }
 
-    pub(crate) fn m3a_provenance_with_roles(
+    pub(crate) fn full_provenance_with_roles(
         &self,
         payload_role: ProvenanceRole,
         application_role: ProvenanceRole,
@@ -942,7 +942,7 @@ fn validate_record(
     if let Some(rest) = &record.rest {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "record update/rest syntax is outside M1 term construction",
+                reason: "record update/rest syntax is not supported in term construction",
             },
             rest.span(),
         ));
@@ -1073,7 +1073,7 @@ fn reject_attributes(
     } else {
         Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "expression attributes are outside M1 term payloads",
+                reason: "expression attributes are not supported in term payloads",
             },
             span,
         ))

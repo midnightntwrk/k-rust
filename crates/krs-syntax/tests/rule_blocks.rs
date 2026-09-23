@@ -77,7 +77,7 @@ fn imp_expression_table_reuses_the_structured_rule_grammar() {
         1
     );
 
-    let anchors = block.clauses()[0].rule().m3a_provenance().unwrap();
+    let anchors = block.clauses()[0].rule().full_provenance().unwrap();
     assert!(
         anchors
             .iter()

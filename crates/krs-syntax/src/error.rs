@@ -5,7 +5,7 @@ use proc_macro2::Span;
 
 use crate::SourceRange;
 
-/// Machine-readable category for a rejected M1 syntax shape.
+/// Machine-readable category for a rejected syntax shape.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SyntaxErrorKind {
@@ -16,7 +16,7 @@ pub enum SyntaxErrorKind {
         /// Attribute whose payload must be empty.
         attribute: &'static str,
     },
-    /// A keyed attribute argument is not part of the M1 grammar.
+    /// A keyed attribute argument is not part of the attribute grammar.
     UnknownArgument {
         /// Rejected argument name.
         name: String,
@@ -38,7 +38,7 @@ pub enum SyntaxErrorKind {
         /// Expected source shape.
         expected: &'static str,
     },
-    /// A Rust path uses generics or another form outside the M1 path subset.
+    /// A Rust path uses generics or another form outside the plain-path subset.
     UnsupportedPath,
     /// A `sort` trait was not a non-generic, safe, empty marker trait.
     UnsupportedSortDeclaration {
@@ -50,17 +50,17 @@ pub enum SyntaxErrorKind {
         /// Specific constructor-shape restriction.
         reason: &'static str,
     },
-    /// A closed enum constructor family was outside the M3A Rust shape.
+    /// A closed enum constructor family was outside the supported Rust enum shape.
     UnsupportedEnumConstructorDeclaration {
         /// Specific closed-enum restriction.
         reason: &'static str,
     },
-    /// A token newtype was outside the closed M3A token declaration shape.
+    /// A token newtype was outside the closed token declaration shape.
     UnsupportedTokenDeclaration {
         /// Specific token-newtype restriction.
         reason: &'static str,
     },
-    /// A subsort implementation was outside the explicit M3A shape.
+    /// A subsort implementation was outside the explicit subsort impl shape.
     UnsupportedSubsortDeclaration {
         /// Specific impl restriction.
         reason: &'static str,
@@ -109,12 +109,12 @@ pub enum SyntaxErrorKind {
         /// Specific exhaustive-chain failure.
         reason: String,
     },
-    /// A configuration item was not a fixed schema-v3 cell-tree shape.
+    /// A configuration item was not a fixed cell-tree shape.
     UnsupportedConfigurationDeclaration {
         /// Specific declaration restriction.
         reason: &'static str,
     },
-    /// A configuration field was outside the fixed schema-v3 cell shape.
+    /// A configuration field was outside the fixed cell shape.
     UnsupportedConfigurationField {
         /// Specific field restriction.
         reason: &'static str,
@@ -124,7 +124,7 @@ pub enum SyntaxErrorKind {
         /// Specific signature restriction.
         reason: &'static str,
     },
-    /// A configuration-variable parameter was outside the schema-v3 subset.
+    /// A configuration-variable parameter was outside the fixed-state subset.
     UnsupportedConfigurationVariable {
         /// Specific parameter restriction.
         reason: &'static str,
@@ -168,7 +168,7 @@ pub enum SyntaxErrorKind {
         /// DSL macro whose source body contained the comment.
         macro_name: &'static str,
     },
-    /// A rule function used a signature feature outside the one-clause M1 ABI.
+    /// A rule function used a signature feature outside the one-clause rule ABI.
     UnsupportedRuleSignature {
         /// Specific signature restriction.
         reason: &'static str,
@@ -279,28 +279,26 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::InvalidArgumentValue { name, expected } => {
                 write!(formatter, "`{name}` must be {expected}")
             }
-            SyntaxErrorKind::UnsupportedPath => formatter
-                .write_str("M1 Rust references must be plain paths without generic arguments"),
+            SyntaxErrorKind::UnsupportedPath => {
+                formatter.write_str("Rust references must be plain paths without generic arguments")
+            }
             SyntaxErrorKind::UnsupportedSortDeclaration { reason } => {
-                write!(formatter, "unsupported M1 sort declaration: {reason}")
+                write!(formatter, "unsupported sort declaration: {reason}")
             }
             SyntaxErrorKind::UnsupportedConstructorDeclaration { reason } => {
-                write!(
-                    formatter,
-                    "unsupported M1 constructor declaration: {reason}"
-                )
+                write!(formatter, "unsupported constructor declaration: {reason}")
             }
             SyntaxErrorKind::UnsupportedEnumConstructorDeclaration { reason } => {
                 write!(
                     formatter,
-                    "unsupported M3A enum constructor declaration: {reason}"
+                    "unsupported enum constructor declaration: {reason}"
                 )
             }
             SyntaxErrorKind::UnsupportedTokenDeclaration { reason } => {
-                write!(formatter, "unsupported M3A token declaration: {reason}")
+                write!(formatter, "unsupported token declaration: {reason}")
             }
             SyntaxErrorKind::UnsupportedSubsortDeclaration { reason } => {
-                write!(formatter, "unsupported M3A subsort declaration: {reason}")
+                write!(formatter, "unsupported subsort declaration: {reason}")
             }
             SyntaxErrorKind::InvalidSyntaxTemplate { reason } => {
                 write!(formatter, "invalid KRS syntax template: {reason}")
@@ -375,16 +373,16 @@ impl fmt::Display for SyntaxError {
                 "non-documentation block comments are not allowed inside `{macro_name}!` bodies; use `//`"
             ),
             SyntaxErrorKind::UnsupportedRuleSignature { reason } => {
-                write!(formatter, "unsupported M1 rule signature: {reason}")
+                write!(formatter, "unsupported rule signature: {reason}")
             }
             SyntaxErrorKind::UnsupportedRulePattern { reason } => {
-                write!(formatter, "unsupported M1 rule pattern: {reason}")
+                write!(formatter, "unsupported rule pattern: {reason}")
             }
             SyntaxErrorKind::InvalidTermType => {
                 formatter.write_str("expected `Term<SortPath>` or `Term<dyn SortPath>`")
             }
             SyntaxErrorKind::UnsupportedRuleBody { reason } => {
-                write!(formatter, "unsupported M1 rule body: {reason}")
+                write!(formatter, "unsupported rule body: {reason}")
             }
             SyntaxErrorKind::UnexpectedMacro { path } => {
                 write!(
@@ -393,7 +391,7 @@ impl fmt::Display for SyntaxError {
                 )
             }
             SyntaxErrorKind::UnsupportedTermExpression { reason } => {
-                write!(formatter, "unsupported M1 term expression: {reason}")
+                write!(formatter, "unsupported term expression: {reason}")
             }
             SyntaxErrorKind::MissingTokenEndpoint => {
                 formatter.write_str("semantic node had no token endpoints")

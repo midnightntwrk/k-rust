@@ -3034,7 +3034,7 @@ fn collect_invocations(
                     let mut anchors = parsed.production().provenance().map_err(source_syntax)?;
                     anchors.extend(declaration.provenance().map_err(source_syntax)?);
                     let mut grammar_anchors = parsed.provenance().map_err(source_syntax)?;
-                    grammar_anchors.extend(declaration.m3a_provenance().map_err(source_syntax)?);
+                    grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
                     if parsed.is_total() {
                         grammar_anchors.push(ProvenanceAnchor::new(
                             ProvenanceRole::FunctionDeclaration,
@@ -3066,8 +3066,8 @@ fn collect_invocations(
                         .map_err(source_syntax)?;
                     let mut anchors = parsed.provenance().map_err(source_syntax)?;
                     anchors.extend(declaration.provenance().map_err(source_syntax)?);
-                    let mut grammar_anchors = parsed.m3a_provenance().map_err(source_syntax)?;
-                    grammar_anchors.extend(declaration.m3a_provenance().map_err(source_syntax)?);
+                    let mut grammar_anchors = parsed.full_provenance().map_err(source_syntax)?;
+                    grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
                     if let Some(symbol) = &constructor_symbol {
                         let symbol_anchors = symbol.provenance().map_err(source_syntax)?;
                         anchors.extend(symbol_anchors.clone());
@@ -3337,7 +3337,7 @@ fn collect_invocations(
                         .collect();
                     let legacy_anchors =
                         parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
-                    let mut anchors = rule.m3a_provenance().map_err(source_syntax)?;
+                    let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     anchors.push(ProvenanceAnchor::new(
                         ProvenanceRole::SimplificationMarker,
                         0,
@@ -3381,7 +3381,7 @@ fn collect_invocations(
                         .collect();
                     let legacy_anchors =
                         parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
-                    let mut anchors = rule.m3a_provenance().map_err(source_syntax)?;
+                    let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     for priority in item_fn
                         .attrs
                         .iter()
@@ -3430,7 +3430,7 @@ fn collect_invocations(
                         .collect();
                     let legacy_anchors =
                         parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
-                    let mut anchors = rule.m3a_provenance().map_err(source_syntax)?;
+                    let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     anchors.push(ProvenanceAnchor::new(
                         ProvenanceRole::AliasClause,
                         0,
@@ -3484,7 +3484,7 @@ fn collect_invocations(
                         .collect();
                     let legacy_anchors =
                         parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
-                    let mut anchors = rule.m3a_provenance().map_err(source_syntax)?;
+                    let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
                     let mut invocation = parsed_invocation(
                         ProvenanceRole::RuleDeclaration,

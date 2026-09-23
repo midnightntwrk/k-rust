@@ -90,7 +90,7 @@ impl ConfigurationVariable {
     ///
     /// # Panics
     ///
-    /// Panics for a direct typed builtin value. Schema-v3 consumers should use
+    /// Panics for a direct typed builtin value. Fixed-state consumers should use
     /// [`Self::optional_term_sort`] or [`Self::sort`].
     #[must_use]
     pub const fn term_sort(&self) -> &TermSort {
@@ -231,7 +231,7 @@ impl ComputationCellInitializer {
     }
 }
 
-/// A complete declarative schema-v3 initializer associated-function shape.
+/// A complete declarative fixed-state initializer associated-function shape.
 ///
 /// The stable procedural-macro API supplies an associated method as item
 /// tokens without its invoking `#[k::init]` attribute. Consequently this AST
@@ -318,7 +318,7 @@ impl InitializerFunction {
     ///
     /// # Panics
     ///
-    /// Panics unless this is a legacy single-item `k` initializer. Schema-v3
+    /// Panics unless this is a legacy single-item `k` initializer. Fixed-state
     /// consumers should use [`Self::cells`].
     #[must_use]
     pub const fn cell(&self) -> &ComputationCellInitializer {
@@ -452,7 +452,7 @@ impl InitializerFunction {
     }
 }
 
-/// Parses a schema-v3 initializer method from proc-macro item tokens.
+/// Parses a fixed-state initializer method from proc-macro item tokens.
 ///
 /// # Errors
 ///
@@ -461,7 +461,7 @@ pub fn parse_initializer_function(tokens: TokenStream) -> Result<InitializerFunc
     InitializerFunction::from_item(syn::parse2::<ImplItemFn>(tokens)?)
 }
 
-/// Parses a schema-v3 initializer method shape directly from source text.
+/// Parses a fixed-state initializer method shape directly from source text.
 ///
 /// The source is the method item delivered to an attribute macro, so it does
 /// not include the invoking `#[k::init]` attribute.

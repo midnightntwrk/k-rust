@@ -1,4 +1,4 @@
-//! M1 unit and record constructor declaration parser tests.
+//! Unit and record constructor declaration parser tests.
 
 use krs_syntax::{ProvenanceRole, SyntaxErrorKind, parse_constructor_declaration_source};
 
@@ -53,7 +53,7 @@ fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
 }
 
 #[test]
-fn production_rustdoc_is_normalized_and_has_exact_m3a_provenance() {
+fn production_rustdoc_is_normalized_and_has_exact_full_provenance() {
     let constructor = parse_constructor_declaration_source(
         "/// First line.\n#[doc = \"Second line.\"]\nstruct Documented;",
     )
@@ -67,7 +67,7 @@ fn production_rustdoc_is_normalized_and_has_exact_m3a_provenance() {
         ["First line.", "Second line."],
     );
     let documentation = constructor
-        .m3a_provenance()
+        .full_provenance()
         .unwrap()
         .into_iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::ConstructorDocumentation)

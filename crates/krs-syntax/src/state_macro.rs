@@ -281,7 +281,7 @@ impl MapExpression {
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)] // Avoid hiding parser AST ownership behind allocation.
 pub enum StateTerm {
-    /// Ordinary M3A named term.
+    /// Ordinary named term.
     Term(TermExpression),
     /// Compiler-parsed K sequence.
     KSequence(KSequence),

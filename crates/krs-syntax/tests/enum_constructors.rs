@@ -242,7 +242,7 @@ enum Op {
     #[dialect::strict]
     Neg { value: ExprAlias },
     #[dialect::syntax("{lhs} * {rhs}")]
-    #[dialect::seqstrict(using = m3d_eval, lhs, rhs)]
+    #[dialect::seqstrict(using = eval_context, lhs, rhs)]
     Mul { lhs: ExprAlias, rhs: builtin::Int },
     #[dialect::syntax("{{{body}}}")]
     #[dialect::format("{{%i%n{body}%d%n}}")]
@@ -299,7 +299,7 @@ enum Op {
             .unwrap()
             .using()
             .unwrap(),
-        "m3d_eval"
+        "eval_context"
     );
     assert_eq!(
         declaration.variants()[3].fields()[0]

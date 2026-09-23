@@ -9,9 +9,9 @@ use crate::attribute::is_plain_path;
 use crate::rule::{TermSort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
-/// One validated named field of an M1 record constructor.
+/// One validated named field of a record constructor.
 ///
-/// M1 deliberately accepts only symbolic `Term<SortPath>` and
+/// The parser deliberately accepts only symbolic `Term<SortPath>` and
 /// `Term<dyn SortPath>` fields. Bare token and builtin field types need the
 /// later builtin catalog to distinguish an object-language sort from an
 /// ordinary Rust representation type, so they are not guessed here.
@@ -68,7 +68,7 @@ impl ProductionDocumentation {
     }
 }
 
-/// Validated M1 unit or named-field record constructor declaration.
+/// Validated unit or named-field record constructor declaration.
 #[derive(Clone, Debug)]
 pub struct ConstructorDeclaration {
     item: ItemStruct,
@@ -77,7 +77,7 @@ pub struct ConstructorDeclaration {
 }
 
 impl ConstructorDeclaration {
-    /// Validates a previously parsed Rust struct as an M1 constructor.
+    /// Validates a previously parsed Rust struct as a constructor.
     ///
     /// # Errors
     ///
@@ -105,7 +105,7 @@ impl ConstructorDeclaration {
                 for field in &named.named {
                     if let Some(attribute) = field.attrs.first() {
                         return Err(unsupported_constructor(
-                            "constructor field attributes are outside M1",
+                            "constructor field attributes are not supported",
                             attribute.span(),
                         ));
                     }
@@ -126,7 +126,7 @@ impl ConstructorDeclaration {
             }
             Fields::Unnamed(unnamed) => {
                 return Err(unsupported_constructor(
-                    "tuple structs are outside M1; use a unit or named-field struct",
+                    "tuple structs are not supported; use a unit or named-field struct",
                     unnamed.span(),
                 ));
             }
@@ -191,12 +191,12 @@ impl ConstructorDeclaration {
         Ok(anchors)
     }
 
-    /// Returns M1 anchors plus each constructor field declaration name.
+    /// Returns the compact anchors plus each constructor field declaration name.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if a parsed node emits no leaves.
-    pub fn m3a_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.provenance()?;
         for (ordinal, field) in self.fields.iter().enumerate() {
             anchors.push(ProvenanceAnchor::new(
@@ -257,7 +257,7 @@ pub(crate) fn production_documentation(
         .collect()
 }
 
-/// Parses and validates an M1 constructor struct from tokens.
+/// Parses and validates a constructor struct from tokens.
 ///
 /// # Errors
 ///
@@ -268,7 +268,7 @@ pub fn parse_constructor_declaration(
     ConstructorDeclaration::from_item(syn::parse2::<ItemStruct>(tokens)?)
 }
 
-/// Parses and validates an M1 constructor struct from source text.
+/// Parses and validates a constructor struct from source text.
 ///
 /// # Errors
 ///
@@ -279,7 +279,7 @@ pub fn parse_constructor_declaration_source(
     ConstructorDeclaration::from_item(syn::parse_str::<ItemStruct>(source)?)
 }
 
-/// Validated M1 marker-trait sort declaration.
+/// Validated marker-trait sort declaration.
 #[derive(Clone, Debug)]
 pub struct SortDeclaration {
     item: ItemTrait,
@@ -287,7 +287,7 @@ pub struct SortDeclaration {
 }
 
 impl SortDeclaration {
-    /// Validates a previously parsed Rust trait as an M1 open sort.
+    /// Validates a previously parsed Rust trait as an open sort.
     ///
     /// # Errors
     ///
@@ -391,7 +391,7 @@ impl SortDeclaration {
     }
 }
 
-/// Parses and validates an M1 sort marker trait from tokens.
+/// Parses and validates a sort marker trait from tokens.
 ///
 /// # Errors
 ///
@@ -400,7 +400,7 @@ pub fn parse_sort_declaration(tokens: TokenStream) -> Result<SortDeclaration, Sy
     SortDeclaration::from_item(syn::parse2::<ItemTrait>(tokens)?)
 }
 
-/// Parses and validates an M1 sort marker trait from source text.
+/// Parses and validates a sort marker trait from source text.
 ///
 /// # Errors
 ///

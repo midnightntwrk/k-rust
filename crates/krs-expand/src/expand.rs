@@ -813,7 +813,7 @@ fn constructor_like(
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let provenance = host_provenance(env, &facade, fallback, &declaration_anchors)?;
     let mut grammar_anchors = attribute
-        .m3a_provenance()
+        .full_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     if !attribute.avoid
         && grammar_anchors
@@ -827,7 +827,7 @@ fn constructor_like(
     }
     grammar_anchors.extend(
         declaration
-            .m3a_provenance()
+            .full_provenance()
             .map_err(krs_syntax::SyntaxError::into_syn_error)?,
     );
     if let Some(symbol) = &explicit_symbol {
@@ -2752,7 +2752,7 @@ fn expand_ordinary_rule(
 ) -> syn::Result<TokenStream> {
     let facade = env.facade_path()?;
     let mut anchors = rule
-        .m3a_provenance()
+        .full_provenance()
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     anchors.extend(
         attribute

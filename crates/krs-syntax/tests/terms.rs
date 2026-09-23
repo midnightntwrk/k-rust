@@ -76,7 +76,7 @@ fn int_and_bool_literals_are_root_and_nested_nodes() {
 
     let boolean = parse_term_expression_source("bool_ops::not(false)").unwrap();
     assert_eq!(boolean.nodes().len(), 2);
-    let anchors = boolean.m3a_provenance().unwrap();
+    let anchors = boolean.full_provenance().unwrap();
     assert_eq!(anchors[1].role(), ProvenanceRole::TermApplicationHead);
     assert_eq!(anchors[2].role(), ProvenanceRole::TermLiteral);
 }

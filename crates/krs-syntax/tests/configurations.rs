@@ -1,4 +1,4 @@
-//! Explicit single-`<k>` M2 configuration parser tests.
+//! Explicit single-`<k>` configuration parser tests.
 
 use krs_syntax::{
     ConfigurationCellContent, ProvenanceRole, SyntaxErrorKind,

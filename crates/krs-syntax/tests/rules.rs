@@ -1,4 +1,4 @@
-//! Simple M1 rule signature, pattern, and result parser tests.
+//! Simple rule signature, pattern, and result parser tests.
 
 use krs_syntax::{
     ProvenanceRole, RulePattern, SyntaxErrorKind, TermSymbolKind, parse_rule_item_source,
@@ -86,7 +86,7 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
     );
 
     let references = rule
-        .m3a_term_reference_candidates()
+        .term_reference_candidates()
         .unwrap()
         .into_iter()
         .filter(|candidate| candidate.key().role().starts_with("rule_requires"))
@@ -211,7 +211,7 @@ fn repeated_rule_pattern_binders_are_one_binding_with_two_occurrences() {
         assert_eq!(rule.parameter().pattern.term().is_some(), is_term_pattern);
 
         let occurrences = rule
-            .m3a_provenance()
+            .full_provenance()
             .unwrap()
             .into_iter()
             .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftReference)
@@ -306,7 +306,7 @@ fn native_binding_has_exact_compact_and_typed_left_provenance() {
     let rule = parse_rule_item_source(source).unwrap();
     assert_eq!(rule.parameter().pattern.bindings(), ["lhs"]);
 
-    let anchors = rule.m3a_provenance().unwrap();
+    let anchors = rule.full_provenance().unwrap();
     let left = anchors
         .iter()
         .filter(|anchor| {
@@ -346,7 +346,7 @@ fn native_binding_has_exact_compact_and_typed_left_provenance() {
     assert_eq!(compact_candidates, [(0, "Add".into())]);
 
     let typed_candidates = rule
-        .m3a_term_reference_candidates()
+        .term_reference_candidates()
         .unwrap()
         .into_iter()
         .filter(|candidate| candidate.key().role().starts_with("rule_left_"))
@@ -380,7 +380,7 @@ fn nested_reordered_native_records_retain_binding_preorder() {
         ["right", "left", "lhs"]
     );
 
-    let anchors = rule.m3a_provenance().unwrap();
+    let anchors = rule.full_provenance().unwrap();
     let compact_left = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftPath)
@@ -466,7 +466,7 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
     );
 
     let typed = rule
-        .m3a_term_reference_candidates()
+        .term_reference_candidates()
         .unwrap()
         .into_iter()
         .map(|candidate| {

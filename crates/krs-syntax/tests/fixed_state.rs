@@ -1,4 +1,4 @@
-//! Schema-v3 fixed-state authoring parser freeze.
+//! Fixed-state authoring parser freeze.
 
 use krs_syntax::{
     ConfigurationCellContent, InitializerCellContent, KSequenceNotation, MapBody, ProvenanceRole,

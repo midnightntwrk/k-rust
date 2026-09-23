@@ -1,4 +1,4 @@
-//! Restricted declarative M2 initializer parser tests.
+//! Restricted declarative single-cell initializer parser tests.
 
 use krs_syntax::{
     ProvenanceRole, SyntaxErrorKind, parse_init_attribute_source, parse_initializer_function_source,

@@ -292,7 +292,7 @@ impl StateClaimItem {
             output.extend(
                 ensures
                     .term
-                    .m3a_provenance_with_roles(
+                    .full_provenance_with_roles(
                         ProvenanceRole::ClaimEnsures,
                         ProvenanceRole::ClaimEnsuresApplicationHead,
                         ProvenanceRole::ClaimEnsuresReference,

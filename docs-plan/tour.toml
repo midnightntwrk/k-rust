@@ -494,7 +494,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-machine-rules"
 prerequisites = ["single-item-sequence", "rule-tables"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/m3b_state.rs"]
+evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
 
 [[concept]]
 id = "fixed-configurations"
@@ -553,7 +553,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-machine-rules"
 prerequisites = ["machine-rules", "core-builtins"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/m3b_state.rs"]
+evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
 
 [[concept]]
 id = "nested-cells"

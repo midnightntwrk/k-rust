@@ -564,7 +564,7 @@ impl ConfigurationAttribute {
     ///
     /// # Panics
     ///
-    /// Panics for a generated-top configuration. Schema-v3 consumers should
+    /// Panics for a generated-top configuration. Fixed-state consumers should
     /// use [`Self::optional_root`] when either root policy is accepted.
     #[must_use]
     pub fn root(&self) -> &LitStr {
@@ -707,7 +707,7 @@ impl Parse for InitAttribute {
     }
 }
 
-/// M1 arguments of `#[k::constructor(...)]`.
+/// Arguments of `#[k::constructor(...)]`.
 #[derive(Clone, Debug)]
 pub struct ConstructorAttribute {
     /// Required Rust-resolved sort trait path.
@@ -768,7 +768,7 @@ impl FunctionAttribute {
     /// Returns an endpoint error only if a parsed token-bearing node emits no
     /// leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.constructor.m3a_provenance()?;
+        let mut anchors = self.constructor.full_provenance()?;
         let (role, marker) = match &self.totality {
             FunctionTotality::Total(marker) => (ProvenanceRole::FunctionTotal, marker),
             FunctionTotality::Partial(marker) => (ProvenanceRole::FunctionPartial, marker),
@@ -1046,13 +1046,13 @@ impl ConstructorAttribute {
         Ok(anchors)
     }
 
-    /// Returns the complete M3A anchor catalog while preserving the compact
-    /// M1 [`Self::provenance`] result for protocol-v5 consumers.
+    /// Returns the complete anchor catalog, including syntax-template, group,
+    /// and avoid anchors; [`Self::provenance`] keeps the compact protocol-v5 catalog.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if a parsed Rust node emits no tokens.
-    pub fn m3a_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.provenance()?;
         if let Some(template) = &self.syntax_template {
             anchors.extend(template.provenance(

@@ -54,9 +54,9 @@ impl TermSort {
     }
 }
 
-/// Supported M1 subject-pattern shell.
+/// Supported subject-pattern shell.
 #[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)] // Public M1 variant field types are a compatibility contract.
+#[allow(clippy::large_enum_variant)] // Public variant field types are a compatibility contract.
 pub enum RulePattern {
     /// Ordinary Rust named constructor pattern.
     Native {
@@ -214,7 +214,7 @@ impl RuleReferenceCandidate {
     }
 }
 
-/// The one typed subject parameter of an M1 rule clause.
+/// The one typed subject parameter of a rule clause.
 #[derive(Clone, Debug)]
 pub struct RuleParameter {
     /// Validated named-constructor subject pattern.
@@ -283,7 +283,7 @@ impl RuleCondition {
         bindings: &[Ident],
     ) -> Result<Vec<RuleTermReferenceCandidate>, SyntaxError> {
         let mut candidates = Vec::new();
-        push_m3a_candidates(
+        push_term_reference_candidates(
             &mut candidates,
             self.term.nodes(),
             bindings,
@@ -294,7 +294,7 @@ impl RuleCondition {
     }
 }
 
-/// Validated one-clause M1 rule function.
+/// Validated one-clause rule function.
 #[derive(Clone, Debug)]
 pub struct RuleItem {
     item: ItemFn,
@@ -508,7 +508,7 @@ impl RuleClause {
     /// Returns endpoint or provenance-ordinal overflow errors.
     #[allow(clippy::too_many_lines)] // One ordered pass retains exact aggregate term ordinals.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.rule.m3a_provenance()?;
+        let mut anchors = self.rule.full_provenance()?;
         if self.attribute.label().is_none() {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleLabel,
@@ -1618,7 +1618,7 @@ fn map_update_arguments(update: &TermExpression) -> [&Expr; 3] {
 }
 
 impl RuleItem {
-    /// Validates a previously parsed Rust function as an M1 rule clause.
+    /// Validates a previously parsed Rust function as a rule clause.
     ///
     /// # Errors
     ///
@@ -1653,7 +1653,7 @@ impl RuleItem {
         };
         if !argument.attrs.is_empty() {
             return Err(unsupported_signature(
-                "parameter attributes are outside the M1 rule shape",
+                "parameter attributes are outside the rule shape",
                 argument.attrs[0].span(),
             ));
         }
@@ -1779,13 +1779,13 @@ impl RuleItem {
         Ok(anchors)
     }
 
-    /// Returns the compact M1 catalog plus typed subject/result term-node
+    /// Returns the compact catalog plus typed subject/result term-node
     /// anchors required by protocol v6.
     ///
     /// # Errors
     ///
     /// Returns endpoint or occurrence-overflow errors.
-    pub fn m3a_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.provenance()?;
         push_term_node_anchors(
             &mut anchors,
@@ -1913,18 +1913,18 @@ impl RuleItem {
     /// # Errors
     ///
     /// Returns an occurrence-overflow error for pathological input.
-    pub fn m3a_term_reference_candidates(
+    pub fn term_reference_candidates(
         &self,
     ) -> Result<Vec<RuleTermReferenceCandidate>, SyntaxError> {
         let mut candidates = Vec::new();
-        push_m3a_candidates(
+        push_term_reference_candidates(
             &mut candidates,
             self.parameter.pattern.nodes(),
             self.parameter.pattern.bindings(),
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
         )?;
-        push_m3a_candidates(
+        push_term_reference_candidates(
             &mut candidates,
             self.result.nodes(),
             self.parameter.pattern.bindings(),
@@ -1979,7 +1979,7 @@ pub(crate) fn take_requires_helper(
     Ok(condition)
 }
 
-/// Parses and validates an M1 rule function from tokens.
+/// Parses and validates a rule function from tokens.
 ///
 /// # Errors
 ///
@@ -1988,7 +1988,7 @@ pub fn parse_rule_item(tokens: TokenStream) -> Result<RuleItem, SyntaxError> {
     RuleItem::from_item(syn::parse2::<ItemFn>(tokens)?)
 }
 
-/// Parses and validates an M1 rule function from source text.
+/// Parses and validates a rule function from source text.
 ///
 /// # Errors
 ///
@@ -2122,13 +2122,13 @@ fn validate_signature_features(item: &ItemFn) -> Result<(), SyntaxError> {
     }
     if !signature.generics.params.is_empty() {
         return Err(unsupported_signature(
-            "rule generics are outside M1",
+            "rule generics are not supported",
             signature.generics.params.span(),
         ));
     }
     if let Some(where_clause) = &signature.generics.where_clause {
         return Err(unsupported_signature(
-            "rule where clauses are outside M1",
+            "rule where clauses are not supported",
             where_clause.span(),
         ));
     }
@@ -2364,7 +2364,7 @@ fn validate_native_pattern(
             }
             if !allow_record_rest && let Some(rest) = &record.rest {
                 return Err(unsupported_pattern(
-                    "record rest patterns are outside the simple M1 rule shape",
+                    "record rest patterns are outside the simple rule shape",
                     rest.span(),
                 ));
             }
@@ -2414,7 +2414,7 @@ fn validate_native_pattern(
                 Ok(TermTree::Wildcard(TokenRange::for_tokens(wildcard)?))
             } else {
                 Err(unsupported_pattern(
-                    "pattern attributes are outside M1",
+                    "pattern attributes are not supported",
                     wildcard.span(),
                 ))
             }
@@ -2424,7 +2424,7 @@ fn validate_native_pattern(
             Ok(TermTree::Literal(literal))
         }
         Pat::Macro(macro_pattern) => Err(unsupported_pattern(
-            "nested pattern macros are outside M1",
+            "nested pattern macros are not supported",
             macro_pattern.span(),
         )),
         _ => Err(unsupported_pattern(
@@ -2474,7 +2474,7 @@ fn validate_pattern_literal(
 ) -> Result<TermLiteral, SyntaxError> {
     if !literal.attrs.is_empty() {
         return Err(unsupported_pattern(
-            "pattern attributes are outside M3A",
+            "pattern attributes are not supported",
             literal.span(),
         ));
     }
@@ -2510,7 +2510,7 @@ fn validate_binding(identifier: &PatIdent, bindings: &mut Vec<Ident>) -> Result<
         Ok(())
     } else {
         Err(unsupported_pattern(
-            "M1 constructor arguments allow only plain identifier bindings",
+            "constructor arguments allow only plain identifier bindings",
             identifier.span(),
         ))
     }
@@ -2614,7 +2614,7 @@ fn push_wildcard_anchors(
     Ok(())
 }
 
-fn push_m3a_candidates(
+fn push_term_reference_candidates(
     candidates: &mut Vec<RuleTermReferenceCandidate>,
     nodes: &[TermNode],
     bindings: &[Ident],

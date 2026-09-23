@@ -153,8 +153,8 @@ fn alias_rejects_recursive_and_other_payloads() {
 
 #[test]
 fn context_alias_requires_typed_name_and_here_identifiers() {
-    let parsed = parse_context_alias_attribute_source("here = site, name = m3d_eval,").unwrap();
-    assert_eq!(parsed.name(), "m3d_eval");
+    let parsed = parse_context_alias_attribute_source("here = site, name = eval_context,").unwrap();
+    assert_eq!(parsed.name(), "eval_context");
     assert_eq!(parsed.here(), "site");
 
     let anchors = parsed.provenance().unwrap();

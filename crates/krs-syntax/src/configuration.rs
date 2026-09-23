@@ -77,7 +77,7 @@ pub struct FixedCellField {
     cell_helper_present: bool,
 }
 
-/// Backward-compatible name for the M2 computation-cell field type.
+/// Name of the computation-cell field type in the single-cell configuration surface.
 pub type ComputationCellField = FixedCellField;
 
 impl FixedCellField {
@@ -115,7 +115,7 @@ impl FixedCellField {
     ///
     /// # Panics
     ///
-    /// Panics for a nested cell; M3B consumers should use [`Self::cell_content`].
+    /// Panics for a nested cell; nested-cell consumers should use [`Self::cell_content`].
     #[must_use]
     pub fn wrapper(&self) -> &Path {
         match &self.content {
@@ -128,7 +128,7 @@ impl FixedCellField {
     ///
     /// # Panics
     ///
-    /// Panics for a nested cell; M3B consumers should use [`Self::cell_content`].
+    /// Panics for a nested cell; nested-cell consumers should use [`Self::cell_content`].
     #[must_use]
     pub fn content(&self) -> &Path {
         match &self.content {
@@ -170,7 +170,7 @@ pub struct ConfigurationDeclaration {
 }
 
 impl ConfigurationDeclaration {
-    /// Validates an ordered fixed-cell struct for the schema-v3 state model.
+    /// Validates an ordered fixed-cell struct for the fixed-state model.
     ///
     /// # Errors
     ///
@@ -269,7 +269,7 @@ impl ConfigurationDeclaration {
         &self.cells
     }
 
-    /// Returns the first cell for the legacy single-cell M2 surface.
+    /// Returns the first cell for the single-cell configuration surface.
     #[must_use]
     pub fn cell(&self) -> &ComputationCellField {
         &self.cells[0]
@@ -418,7 +418,7 @@ impl ConfigurationDeclaration {
     }
 }
 
-/// Parses a schema-v3 fixed configuration declaration.
+/// Parses a fixed configuration declaration.
 ///
 /// # Errors
 ///
@@ -429,7 +429,7 @@ pub fn parse_configuration_declaration(
     ConfigurationDeclaration::from_item(syn::parse2::<ItemStruct>(tokens)?)
 }
 
-/// Parses a schema-v3 fixed configuration declaration from source text.
+/// Parses a fixed configuration declaration from source text.
 ///
 /// # Errors
 ///

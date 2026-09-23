@@ -707,7 +707,7 @@ pub struct TokenDeclaration {
 }
 
 impl TokenDeclaration {
-    /// Validates the exact M3A token representation `struct Name(String);`.
+    /// Validates the exact token representation `struct Name(String);`.
     ///
     /// # Errors
     ///
@@ -798,7 +798,7 @@ impl TokenDeclaration {
     }
 }
 
-/// Parses an M3A token newtype from proc-macro tokens.
+/// Parses a token newtype from proc-macro tokens.
 ///
 /// # Errors
 ///
@@ -807,7 +807,7 @@ pub fn parse_token_declaration(tokens: TokenStream) -> Result<TokenDeclaration, 
     TokenDeclaration::from_item(syn::parse2(tokens)?)
 }
 
-/// Parses an M3A token newtype from source text.
+/// Parses a token newtype from source text.
 ///
 /// # Errors
 ///

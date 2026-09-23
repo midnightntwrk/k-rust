@@ -1,4 +1,4 @@
-//! M3A object-grammar, metadata, and provenance contract tests.
+//! Object-grammar, metadata, and provenance contract tests.
 
 use krs_syntax::{
     GroupAssociativity, ProvenanceRole, StrictnessKind, StructuredFormatFragment, SyntaxErrorKind,
@@ -43,7 +43,7 @@ fn nominal_expr_production_is_checked_and_keyed() {
     );
 
     let roles = attribute
-        .m3a_provenance()
+        .full_provenance()
         .unwrap()
         .into_iter()
         .map(|anchor| anchor.role())
@@ -61,7 +61,7 @@ fn nominal_expr_production_is_checked_and_keyed() {
     assert!(roles.contains(&ProvenanceRole::ConstructorFormatFragment));
 
     let declaration_roles = declaration
-        .m3a_provenance()
+        .full_provenance()
         .unwrap()
         .into_iter()
         .map(|anchor| anchor.role())
@@ -174,7 +174,7 @@ fn syntax_layout_is_nonsemantic_and_terminals_match_k_token_boundaries() {
     );
     assert_eq!(
         operators
-            .m3a_provenance()
+            .full_provenance()
             .unwrap()
             .iter()
             .filter(|anchor| anchor.role() == ProvenanceRole::ConstructorSyntaxItem)
@@ -316,11 +316,11 @@ fn strictness_is_ordered_typed_and_field_checked() {
         .unwrap();
 
     let sequential = parse_seqstrict_attribute_source(
-        "result = value::Value, using = m3d_eval, sequence = [rhs, lhs],",
+        "result = value::Value, using = eval_context, sequence = [rhs, lhs],",
     )
     .unwrap();
     assert_eq!(sequential.kind(), StrictnessKind::SeqStrict);
-    assert_eq!(sequential.using().unwrap(), "m3d_eval");
+    assert_eq!(sequential.using().unwrap(), "eval_context");
     assert_eq!(sequential.fields()[0], "rhs");
     assert_eq!(sequential.fields()[1], "lhs");
     let anchors = sequential.provenance().unwrap();
@@ -536,7 +536,7 @@ fn rules_preserve_builtin_heads_binders_and_literals_for_v6() {
         "fn add(Add { lhs, rhs }: Term<Expr>) -> Term<Value> { int::add(lhs, int::sub(rhs, 0)) }",
     )
     .unwrap();
-    let candidates = rule.m3a_term_reference_candidates().unwrap();
+    let candidates = rule.term_reference_candidates().unwrap();
     let actual = candidates
         .iter()
         .map(|candidate| {
@@ -568,7 +568,7 @@ fn rules_preserve_builtin_heads_binders_and_literals_for_v6() {
             .any(|(_, _, path)| path == "lhs" || path == "rhs")
     );
     assert!(
-        rule.m3a_provenance()
+        rule.full_provenance()
             .unwrap()
             .iter()
             .any(|anchor| anchor.role() == ProvenanceRole::RuleRightLiteral)
@@ -578,7 +578,7 @@ fn rules_preserve_builtin_heads_binders_and_literals_for_v6() {
         parse_rule_item_source("fn identity(true: Term<k::Bool>) -> Term<k::Bool> { true }")
             .unwrap();
     let roles = literal_root
-        .m3a_provenance()
+        .full_provenance()
         .unwrap()
         .into_iter()
         .map(|anchor| anchor.role())
@@ -617,7 +617,7 @@ fn rule_records_preserve_field_identity_on_both_sides() {
         .collect::<Vec<_>>();
     assert_eq!(right_names, ["lhs", "rhs"]);
 
-    let anchors = rule.m3a_provenance().unwrap();
+    let anchors = rule.full_provenance().unwrap();
     let left_fields = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftRecordFieldName)
@@ -651,7 +651,7 @@ fn rule_subject_wildcards_are_structured_and_exactly_keyed() {
     assert!(arguments[1].value().wildcard_range().is_some());
 
     let wildcards = rule
-        .m3a_provenance()
+        .full_provenance()
         .unwrap()
         .into_iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
@@ -665,7 +665,7 @@ fn rule_subject_wildcards_are_structured_and_exactly_keyed() {
         parse_rule_item_source("fn many(Pair(_, Pair(_, _)): Term<Expr>) -> Term<Expr> { Done }")
             .unwrap();
     let multiple_wildcards = multiple
-        .m3a_provenance()
+        .full_provenance()
         .unwrap()
         .into_iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
@@ -759,7 +759,7 @@ fn every_imp_expression_operator_template_uses_the_frozen_item_shapes() {
 }
 
 #[test]
-fn m3a_reference_spans_and_ordinals_are_exact_and_deterministic() {
+fn term_reference_spans_and_ordinals_are_exact_and_deterministic() {
     let precedence =
         parse_precedence_declaration_source("multiplicative > additive; prefix > equality")
             .unwrap();
