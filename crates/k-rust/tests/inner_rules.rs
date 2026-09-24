@@ -3555,3 +3555,82 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
         );
     }
 }
+
+/// A strict cast (`t::S`, `{t}::S`) fixes the sort of its inner term to exactly `S`. Both
+/// inference engines must implement that one relation, so a strict cast whose inner term has a
+/// proper subsort of the cast sort is ill-sorted in either build, and a cast at the term's own
+/// sort still selects the same term.
+fn strict_cast_source(rule: &str) -> String {
+    format!(
+        "module MAIN\n  syntax K\n  syntax A ::= B\n  syntax B ::= \"b\"\n  syntax B ::= g(KItem)\n  syntax KItem ::= f(A)\n  rule {rule}\nendmodule\n"
+    )
+}
+
+fn strict_cast_rule_bodies(rule: &str) -> Result<Vec<String>, RuleError> {
+    let resolved = resolve_rule_bubbles(&lowered(&strict_cast_source(rule)))?;
+    Ok(resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .collect())
+}
+
+#[test]
+fn strict_cast_rejects_an_inner_term_of_a_proper_subsort() {
+    for rule in ["f({b}::A) => .K", "f(b::A) => .K", "f({g(X)}::A) => .K"] {
+        let result = strict_cast_rule_bodies(rule);
+        assert!(
+            matches!(
+                result,
+                Err(RuleError::Parse(ref error))
+                    if matches!(error.error, ParseError::SortInference { .. })
+            ),
+            "`rule {rule}` casts a B-sorted term to its proper supersort A: {result:?}"
+        );
+    }
+}
+
+#[test]
+fn strict_cast_at_the_inner_terms_own_sort_selects_the_same_term() {
+    for (rule, body) in [
+        (
+            "f({b}::B) => .K",
+            "`f(_)_MAIN_KItem_A`(`b_MAIN_B`(.KList))=>.K",
+        ),
+        (
+            "f({g(X)}::B) => .K",
+            "`f(_)_MAIN_KItem_A`(`g(_)_MAIN_B_KItem`(#SemanticCastToKItem(X)))=>.K",
+        ),
+        (
+            "f(X::A) => .K",
+            "`f(_)_MAIN_KItem_A`(#SemanticCastToA(X))=>.K",
+        ),
+    ] {
+        assert_eq!(
+            strict_cast_rule_bodies(rule).unwrap(),
+            [body],
+            "`rule {rule}`"
+        );
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn strict_cast_rejection_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "strict_cast_rejects_an_inner_term_of_a_proper_subsort",
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn strict_cast_at_the_inner_terms_own_sort_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "strict_cast_at_the_inner_terms_own_sort_selects_the_same_term",
+    );
+}
