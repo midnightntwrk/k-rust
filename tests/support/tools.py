@@ -21,9 +21,12 @@ def scratch_root() -> Path:
 
     `KRS_GATE_SCRATCH` overrides the default `/var/tmp`; per-gate target
     variables such as `KRS_KWASM_ROOT_TARGET` still override single targets.
+    The directory is created if it does not exist.
     """
 
-    return Path(os.environ.get("KRS_GATE_SCRATCH", "/var/tmp"))
+    root = Path(os.environ.get("KRS_GATE_SCRATCH", "/var/tmp"))
+    root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def executable(name: str) -> str:
