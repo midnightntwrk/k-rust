@@ -704,7 +704,13 @@ fn rule_grammar(
     }
     add_synonym_casts(&mut grammar, &visible)?;
     #[cfg(not(feature = "z3-inference"))]
-    grammar.admit_rewrites_in_argument_positions(&rule_sorts);
+    {
+        let scaffolding = rule_sorts
+            .iter()
+            .flat_map(|(sort, rule)| [rule.clone(), rewrite_side_sort(sort)])
+            .collect::<BTreeSet<_>>();
+        grammar.admit_rewrites_in_argument_positions(&rule_sorts, &scaffolding);
+    }
 
     Ok(grammar)
 }
@@ -953,39 +959,59 @@ fn add_rule_k_syntax(
 
 #[cfg(not(feature = "z3-inference"))]
 fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
+    // A pattern of sort `S` in a rule is a term of sort `S`, an `#as` pattern `P #as V`, or a
+    // rewrite `L => R` whose sides are each a term or an `#as` pattern of sort `S`:
+    //   #Rule<S>        ::= S | S "#as" S | S "=>" S   (operands of `=>` recognized as the side)
+    //   #RewriteSide<S> ::= S | S "#as" S
+    // `P #as V` is the conjunction of `P` and `V` at one position: it matches the terms that
+    // match both and binds `V` to the matched term. Both conjuncts occupy that position, so the
+    // alias is an operand of `sort` like the pattern: a bare variable there is bounded by `sort`,
+    // and a sort-annotated variable (`V:Int`) can stand there. An `#as` pattern is a pattern of
+    // sort `S` like any other, so it can also stand where a rewrite side stands.
+    // The operands of `=>` stay declared `S`, so inference bounds a plain side by `S` and an
+    // `#as` side by its own operands. A rewrite is not a side, so `A => B => C` and a rewrite as
+    // an operand of `#as` need parentheses, where the scope rules apply. `#Rule<S>` and
+    // `#RewriteSide<S>` each derive an `#as` directly, so an `#as` has one derivation wherever
+    // it stands: at a `#Rule<S>` position outside a rewrite, or as a side inside one.
     let result = rule_sort(sort);
+    let side = rewrite_side_sort(sort);
     let child = ProductionItem::NonTerminal {
         sort: sort.clone(),
         name: None,
     };
-    grammar.add(result.clone(), vec![child.clone()], None, false, true)?;
-    grammar.add(
-        result.clone(),
-        vec![
-            child.clone(),
-            ProductionItem::Terminal("=>".into()),
-            child.clone(),
-        ],
-        Some(Label::new("#KRewrite")),
-        false,
-        false,
-    )?;
-    // `P #as V` is the conjunction of `P` and `V` at one position: it matches the terms that
-    // match both and binds `V` to the matched term. Both conjuncts occupy that position, so the
-    // alias is an operand of `sort` like the pattern: a bare variable there is bounded by `sort`,
-    // and a sort-annotated variable (`V:Int`) can stand there.
-    grammar.add(
+    let alias = vec![
+        child.clone(),
+        ProductionItem::Terminal("#as".into()),
+        child.clone(),
+    ];
+    for scaffolding in [&side, &result] {
+        grammar.add(scaffolding.clone(), vec![child.clone()], None, false, true)?;
+        grammar.add(
+            scaffolding.clone(),
+            alias.clone(),
+            Some(Label::new("#KAs")),
+            false,
+            false,
+        )?;
+    }
+    grammar.add_with_recognized_operands(
         result,
-        vec![child.clone(), ProductionItem::Terminal("#as".into()), child],
-        Some(Label::new("#KAs")),
-        false,
-        false,
+        vec![child.clone(), ProductionItem::Terminal("=>".into()), child],
+        Some(Label::new("#KRewrite")),
+        sort,
+        &side,
     )
 }
 
 #[cfg(not(feature = "z3-inference"))]
 fn rule_sort(sort: &Sort) -> Sort {
     Sort::new(format!("#Rule{}", sort.name))
+}
+
+// The prefix differs from `#Rule`, so no user sort name makes the two families collide.
+#[cfg(not(feature = "z3-inference"))]
+fn rewrite_side_sort(sort: &Sort) -> Sort {
+    Sort::new(format!("#RewriteSide{}", sort.name))
 }
 
 #[cfg(feature = "z3-inference")]

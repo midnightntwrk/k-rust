@@ -2364,6 +2364,106 @@ as_pattern_snapshot!(
     as_pattern_at_a_kitem_argument_position,
     "ListItem(foo(0) #as V)"
 );
+// A rewrite side is a pattern of the rewrite's sort, and `P #as V` is one: an `#as` stands as
+// either side of a rewrite, at the top of the rule, in a cell, or at an argument position.
+as_pattern_snapshot!(
+    as_pattern_as_the_left_side_of_a_rewrite,
+    "foo(0) #as V => V"
+);
+as_pattern_snapshot!(
+    as_pattern_as_the_left_side_of_a_rewrite_in_a_cell,
+    "<k> foo(0) #as V => V </k>"
+);
+as_pattern_snapshot!(
+    as_pattern_as_the_left_side_of_a_rewrite_in_a_cell_with_dots,
+    "<k> foo(0) #as V => V ... </k>"
+);
+as_pattern_snapshot!(
+    as_pattern_as_the_left_side_of_a_rewrite_at_an_argument_position,
+    "foo(0 #as V => 1)"
+);
+as_pattern_snapshot!(
+    as_pattern_as_the_right_side_of_a_rewrite_at_a_kitem_argument_position,
+    "ListItem(foo(0) => foo(1) #as V)"
+);
+as_pattern_snapshot!(
+    as_pattern_as_both_sides_of_a_rewrite,
+    "foo(0) #as V => foo(1) #as W"
+);
+as_pattern_snapshot!(
+    as_pattern_with_a_nested_alias_as_a_rewrite_side,
+    "bar(0 #as V) #as W => W"
+);
+as_pattern_snapshot!(
+    as_pattern_with_a_cast_alias_as_a_rewrite_side,
+    "bar(0 #as V:Int) => bar(V)"
+);
+as_pattern_snapshot!(
+    as_pattern_as_both_sides_of_a_rewrite_at_an_argument_position,
+    "bar(0 #as V => 1 #as W)"
+);
+as_pattern_snapshot!(
+    as_pattern_as_the_left_side_of_a_rewrite_followed_by_a_sequence,
+    "<k> foo(0) #as V => V ~> X ... </k>"
+);
+as_pattern_snapshot!(
+    as_pattern_with_a_cast_alias_as_the_left_side_of_a_rewrite,
+    "foo(0) #as V:KItem => V"
+);
+as_pattern_snapshot!(
+    as_pattern_with_an_anonymous_alias_as_the_left_side_of_a_rewrite,
+    "foo(0) #as _ => .K"
+);
+
+/// A parenthesized `#as` or rewrite means the same rule as the unparenthesized one. The
+/// portable build either parses it to that rule or reports that it needs Z3 inference.
+#[test]
+fn parenthesized_as_pattern_under_a_rewrite_means_the_unparenthesized_rule() {
+    let rule_body = |rule: &str| {
+        let source = format!(
+            indoc! {r#"
+                module MAIN
+                  syntax Int ::= r"[0-9]+" [token]
+                  syntax KItem ::= foo(Int) [symbol(foo)]
+                  syntax KCell ::= "<k>" K "</k>" [cell]
+                  rule {}
+                endmodule
+            "#},
+            rule
+        );
+        resolve_rule_bubbles(&lowered(&source)).map(|resolved| {
+            resolved
+                .main_module()
+                .unwrap()
+                .local_sentences
+                .iter()
+                .find_map(|sentence| match &**sentence {
+                    Sentence::Rule { body, .. } => Some(body.to_string()),
+                    _ => None,
+                })
+                .unwrap()
+        })
+    };
+    for (parenthesized, plain) in [
+        ("(foo(0) #as V) => V", "foo(0) #as V => V"),
+        ("(foo(0) #as V => V)", "foo(0) #as V => V"),
+        ("foo(0) #as (V) => V", "foo(0) #as V => V"),
+        (
+            "<k> (foo(0) #as V) => V ... </k>",
+            "<k> foo(0) #as V => V ... </k>",
+        ),
+        ("foo((0 #as V) => 1)", "foo(0 #as V => 1)"),
+    ] {
+        let expected = rule_body(plain).expect(plain);
+        match rule_body(parenthesized) {
+            Ok(body) => assert_eq!(body, expected, "{parenthesized}"),
+            #[cfg(not(feature = "z3-inference"))]
+            Err(RuleError::Parse(error))
+                if matches!(error.error, ParseError::Z3InferenceRequired { .. }) => {}
+            Err(error) => panic!("{parenthesized}: {error:?}"),
+        }
+    }
+}
 
 rule_snapshot!(
     parses_nested_collection_operations_in_a_record_field,
