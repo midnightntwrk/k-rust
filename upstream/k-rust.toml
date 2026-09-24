@@ -163,7 +163,7 @@ Only a caller that wraps the call in diagnostic::collect (diagnostic.rs:59-66) s
 After budget exhaustion execution continues with a partially simplified term, so a leaf can look stuck when it is not.
 """
 reproducer = "Execute a rule whose right side calls a function with the rule g(X) => g(g(X)), under max_simplification_iterations = 20; diagnostic::collect returns SimplificationBudgetExhausted { limit: 20, .. }, and the ExecutionResult alone does not show it."
-local_workaround = "kink-native wraps every execute call in diagnostic::collect and treats any diagnostic as an incomplete run: every path of the run is a BackendLimit, so state-set slots and a pattern Match or NoMatch become Unknown. The search adapter does not collect diagnostics yet."
+local_workaround = "kink-native wraps every execute and search call in diagnostic::collect and treats any diagnostic as an incomplete run: every path of the run or search response is a BackendLimit, so state-set slots and a pattern Match or NoMatch become Unknown."
 requested_action = "Return the run's diagnostics as a typed field on ExecutionResult and on the search response, so a caller on another thread or across the wire sees them (KRS KR-07, in review, adds the diagnostic kinds for equation conditions)."
 sources = ["k-in-k2 k-rust migration design, section 8 risk 4 and critique C3"]
 

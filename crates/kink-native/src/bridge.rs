@@ -478,8 +478,7 @@ pub fn paths_from_search(
     if search_type != SearchTypeArg::Final {
         return Err(BridgeFailure::UnsupportedQueryShape(search_type));
     }
-    // The search adapter does not collect backend diagnostics yet.
-    let mut paths = PathSet::new(context, false);
+    let mut paths = PathSet::new(context, !search.diagnostics().is_empty());
     for witness in search
         .outcome()
         .witnesses()
@@ -1159,13 +1158,30 @@ mod tests {
             assert_eq!(bridged.paths.len(), paths, "{id}");
             assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
         }
-        // A ground witness is still a complete final path.
-        let bridged = paths_from_search(
-            &search(unbounded, vec![witness(0, 1)], Vec::new()),
-            &bridge_context(&sorts),
-        )
-        .expect("witness");
-        assert!(bridged.paths[0].complete);
+        // A ground witness is still a complete final path, unless the search collected a
+        // backend diagnostic (review P2.3; the live row is in tests/bridge.rs).
+        let budget = k_rust_backend::diagnostic::BackendDiagnostic::SimplificationBudgetExhausted {
+            limit: 1,
+            subject: k_rust_backend::simplify::BudgetSubject::Term,
+        };
+        // (id, diagnostics, expected path stop, collection stop)
+        #[rustfmt::skip]
+        let diagnosed = [
+            ("undiagnosed-witness", Vec::new(), P::Terminal, CollectionStop::ExhaustionUnrecorded),
+            ("diagnosed-witness", vec![budget], P::BackendLimit, CollectionStop::BackendLimit),
+        ];
+        for (id, diagnostics, stop, collection) in diagnosed {
+            let adapted =
+                search(unbounded, vec![witness(0, 1)], Vec::new()).with_diagnostics(diagnostics);
+            let bridged = paths_from_search(&adapted, &bridge_context(&sorts))
+                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+            let [path] = bridged.paths.as_slice() else {
+                panic!("{id}: one path");
+            };
+            assert_eq!(path.complete, stop == P::Terminal, "{id}");
+            assert_eq!(path.stop, stop, "{id}");
+            assert_eq!(bridged.collection.stop, collection, "{id}");
+        }
     }
 
     #[test]

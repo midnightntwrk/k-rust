@@ -8,7 +8,9 @@
 //! response may map to `kink_patch::Completeness::CompleteFinite` until upstream provides an
 //! exhaustion record. The bridge (`crate::bridge::paths_from_search`) reads frontier and
 //! incomplete items as limit or indeterminate stops, and otherwise reports the collection stop
-//! `kink_pattern::CollectionStop::ExhaustionUnrecorded`, never `SearchExhausted`.
+//! `kink_pattern::CollectionStop::ExhaustionUnrecorded`, never `SearchExhausted`. The adapter
+//! collects the backend diagnostics of each search, and the bridge makes every path of a
+//! diagnosed response `BackendLimit`, as for an execution.
 
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendError, BindingOutput, BuiltinFailureOutput,
@@ -17,6 +19,7 @@ use k_rust::backend::{
     SearchFailureOutput, SearchPatternRequest, SearchRequest, SearchResponse, SearchTypeArg,
     SmtFailureOutput, TermPairOutput, TranslationFailureOutput,
 };
+use k_rust_backend::diagnostic::{self, BackendDiagnostic};
 
 use crate::ProvenanceStatus;
 use crate::observation::{
@@ -200,6 +203,7 @@ macro_rules! adapted_search {
             frontier: Vec<$item>,
             effects: Vec<EffectOutput>,
             incomplete: Vec<AdaptedIncomplete>,
+            diagnostics: Vec<BackendDiagnostic>,
             authority: AdapterAuthority,
         }
 
@@ -234,6 +238,13 @@ macro_rules! adapted_search {
                 &self.incomplete
             }
 
+            /// Backend diagnostics collected while the search ran. Any diagnostic makes
+            /// every path of the response incomplete (`crate::bridge::paths_from_search`).
+            #[must_use]
+            pub fn diagnostics(&self) -> &[BackendDiagnostic] {
+                &self.diagnostics
+            }
+
             #[must_use]
             pub const fn authority(&self) -> AdapterAuthority {
                 self.authority
@@ -253,6 +264,14 @@ adapted_search!(
     AdaptedPathSearch,
     AdaptedBranch
 );
+
+#[cfg(test)]
+impl AdaptedPathSearch {
+    pub(crate) fn with_diagnostics(mut self, diagnostics: Vec<BackendDiagnostic>) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+}
 
 adapted_search!(
     /// A pattern state-set response.
@@ -367,13 +386,19 @@ impl SearchAdapter {
         request: SearchRequest,
     ) -> Result<AdaptedStateSearch, SearchAdapterFailure> {
         let query = QueryShape::of_state(&request);
-        let response = backend
-            .search_observed(ObservedRequest {
+        let (response, diagnostics) = diagnostic::collect(|| {
+            backend.search_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
-            .map_err(SearchAdapterFailure::backend)?;
-        adapt_state_response(&self.manifest, query, response)
+        });
+        let mut adapted = adapt_state_response(
+            &self.manifest,
+            query,
+            response.map_err(SearchAdapterFailure::backend)?,
+        )?;
+        adapted.diagnostics = diagnostics;
+        Ok(adapted)
     }
 
     /// Executes public observed path search.
@@ -383,13 +408,19 @@ impl SearchAdapter {
         request: SearchRequest,
     ) -> Result<AdaptedPathSearch, SearchAdapterFailure> {
         let query = QueryShape::of_state(&request);
-        let response = backend
-            .search_paths_observed(ObservedRequest {
+        let (response, diagnostics) = diagnostic::collect(|| {
+            backend.search_paths_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
-            .map_err(SearchAdapterFailure::backend)?;
-        adapt_path_response(&self.manifest, query, response)
+        });
+        let mut adapted = adapt_path_response(
+            &self.manifest,
+            query,
+            response.map_err(SearchAdapterFailure::backend)?,
+        )?;
+        adapted.diagnostics = diagnostics;
+        Ok(adapted)
     }
 
     /// Executes public observed pattern state search.
@@ -399,13 +430,19 @@ impl SearchAdapter {
         request: SearchPatternRequest,
     ) -> Result<AdaptedPatternSearch, SearchAdapterFailure> {
         let query = QueryShape::of_pattern(&request);
-        let response = backend
-            .search_pattern_observed(ObservedRequest {
+        let (response, diagnostics) = diagnostic::collect(|| {
+            backend.search_pattern_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
-            .map_err(SearchAdapterFailure::backend)?;
-        adapt_pattern_response(&self.manifest, query, response)
+        });
+        let mut adapted = adapt_pattern_response(
+            &self.manifest,
+            query,
+            response.map_err(SearchAdapterFailure::backend)?,
+        )?;
+        adapted.diagnostics = diagnostics;
+        Ok(adapted)
     }
 
     /// Executes public observed pattern path search.
@@ -415,13 +452,19 @@ impl SearchAdapter {
         request: SearchPatternRequest,
     ) -> Result<AdaptedPatternPathSearch, SearchAdapterFailure> {
         let query = QueryShape::of_pattern(&request);
-        let response = backend
-            .search_pattern_paths_observed(ObservedRequest {
+        let (response, diagnostics) = diagnostic::collect(|| {
+            backend.search_pattern_paths_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
-            .map_err(SearchAdapterFailure::backend)?;
-        adapt_pattern_path_response(&self.manifest, query, response)
+        });
+        let mut adapted = adapt_pattern_path_response(
+            &self.manifest,
+            query,
+            response.map_err(SearchAdapterFailure::backend)?,
+        )?;
+        adapted.diagnostics = diagnostics;
+        Ok(adapted)
     }
 
     /// Exact selected profile.
@@ -490,6 +533,7 @@ fn adapt_state_response(
         frontier,
         effects: response.effects,
         incomplete,
+        diagnostics: Vec::new(),
         authority: AdapterAuthority::NONE,
     })
 }
@@ -527,6 +571,7 @@ pub(crate) fn adapt_path_response(
         frontier,
         effects: response.effects,
         incomplete,
+        diagnostics: Vec::new(),
         authority: AdapterAuthority::NONE,
     })
 }
@@ -568,6 +613,7 @@ fn adapt_pattern_response(
         frontier,
         effects: response.effects,
         incomplete,
+        diagnostics: Vec::new(),
         authority: AdapterAuthority::NONE,
     })
 }
@@ -609,6 +655,7 @@ fn adapt_pattern_path_response(
         frontier,
         effects: response.effects,
         incomplete,
+        diagnostics: Vec::new(),
         authority: AdapterAuthority::NONE,
     })
 }
