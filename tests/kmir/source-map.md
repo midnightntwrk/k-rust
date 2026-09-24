@@ -83,9 +83,10 @@ The fixture now preserves that boundary directly as `List<BasicBlock>`.
 Execution begins at index zero, retains the program list in state, and projects `PROGRAM [ INDEX ]` to `BasicBlock` before entering the source pipeline.
 
 The fixture now represents locals as KMIR-shaped typed builtin-`List` entries.
-Reads project a concrete `TypedValue`; writes to `NewLocal`, initialized, or moved entries preserve the entry's type and mutability; moving a value replaces its source with a metadata-preserving moved entry.
+As upstream, a moved local is a `TypedValue` whose value is the `Moved` constructor of `Value`, not a separate entry form.
+Reads project the value of a `TypedValue`; writes to `NewLocal` or `TypedValue` entries preserve the entry's type and mutability; moving a value replaces its source with `typedValue(Moved, TY, MUTABILITY)`, keeping the entry's type and mutability.
 Moving a projected value first reads the selected value, then persistently reconstructs its enclosing aggregate or range with only that projection replaced by the source `Moved` marker.
-Reading a moved or uninitialized entry has no rule and therefore halts, matching the selected upstream failure boundary.
+Reading an uninitialized entry has no rule and therefore halts; reading a moved entry yields `Moved`, as upstream's `typedValue(VAL, _, _) => VAL` does.
 The selected nonempty `Place` surface admits arbitrary chains of `projectionElemField` over aggregate values and dynamic or constant indices over `Range` values.
 Recursive reads use typed builtin-List lookup at every selected depth; writes rebuild each enclosing aggregate or range and the typed local through persistent List updates while preserving every variant index, local type, and mutability.
 An index local must contain `Integer(_, 64, false)`, matching KMIR's partial `#expectUsize` boundary; invalid indices and value/projection combinations remain undefined.

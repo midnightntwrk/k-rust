@@ -674,7 +674,7 @@ pub enum MirMetadata {
 }
 
 #[k::constructors(sort = TypedLocal, result = KResult)]
-#[k::precedence((NewLocal, TypedValue, MovedLocal))]
+#[k::precedence((NewLocal, TypedValue))]
 pub enum LocalValue {
     #[k::syntax("newLocal({ty}, {mutability})")]
     NewLocal { ty: Ty, mutability: Mutability },
@@ -684,8 +684,6 @@ pub enum LocalValue {
         ty: Ty,
         mutability: Mutability,
     },
-    #[k::syntax("typedValue(Moved, {ty}, {mutability})")]
-    MovedLocal { ty: Ty, mutability: Mutability },
 }
 
 #[k::function(total, sort = Ty, syntax = "#localTy({entry})")]
@@ -710,15 +708,6 @@ fn local_ty_value(
             ty,
             mutability: _,
         },
-    }]: k::Term<Ty>,
-) -> k::Term<Ty> {
-    ty
-}
-
-#[k::equation]
-fn local_ty_moved(
-    k::term![LocalTy {
-        entry: LocalValue::MovedLocal { ty, mutability: _ },
     }]: k::Term<Ty>,
 ) -> k::Term<Ty> {
     ty
@@ -4669,7 +4658,11 @@ fn moved_entry(
         },
     }]: k::Term<TypedLocal>,
 ) -> k::Term<TypedLocal> {
-    k::term![LocalValue::MovedLocal { ty, mutability }]
+    k::term![LocalValue::TypedValue {
+        value: Value::Moved(),
+        ty,
+        mutability,
+    }]
 }
 
 #[k::function(total, sort = List, syntax = "#reserveFor({locals})")]
@@ -6871,7 +6864,7 @@ k::rules! {
         locals: locals,
     } => {
         k: [Execution::Continue { value, continuation }, ..],
-        locals: list::update(locals, index, LocalValue::MovedLocal { ty, mutability }),
+        locals: list::update(locals, index, LocalValue::TypedValue { value: Value::Moved(), ty, mutability }),
     }
     where value: MirValue, ty: Ty, mutability: Mutability, index: Int, continuation: Continuation, locals: List;
 
@@ -7781,15 +7774,6 @@ k::rules! {
         locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
     }
     where value: MirValue, ty: Ty, mutability: Mutability, index: Int, locals: List;
-
-    write_moved_local: {
-        k: [Execution::WriteLocal { entry: LocalValue::MovedLocal { ty, mutability }, index, value }, ..],
-        locals: locals,
-    } => {
-        k: [..],
-        locals: list::update(locals, index, LocalValue::TypedValue { value, ty, mutability }),
-    }
-    where value: MirValue, ty: Ty, mutability: Mutability, index: Int, locals: List;
 }
 
 k::rules! {
@@ -8292,7 +8276,7 @@ mod tests {
         assert!(!source.source().contains("<blocks>"));
         assert!(source.source().contains("<locals>"));
         assert!(source.source().contains(" <- "));
-        assert!(source.source().contains("typedValue(Moved"));
+        assert!(source.source().contains("typedValue ( Moved , "));
         assert!(source.source().contains("projectionElemField"));
         assert!(source.source().contains("Aggregate"));
         assert!(source.source().contains("#execBlockIdx"));
