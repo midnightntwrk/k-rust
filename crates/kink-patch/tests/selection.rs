@@ -3,18 +3,20 @@
 //!
 //! The selection rows are the former `selectionCases` of
 //! `mutation-selection-vectors.json`, with their IDs kept. Sites are the
-//! bodies of the `write`, `load` and `free` rules; tuples that
-//! `derive_sites` does not produce (joined, repeated, or from a
-//! non-exhaustive discovery) are built by hand from those sites.
+//! bodies of the `write`, `load` and `free` rules and `write`'s right-hand
+//! side. An exhaustive row's discovery is derived: every authored position,
+//! narrowed to the named sites, and joined with itself for pairs. Tuples no
+//! derivation produces (repeated, or from a non-exhaustive discovery) are
+//! supplied by hand, which is never exhaustive.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
 use k_rust::kast::Term;
 use kink_patch::{
-    Baseline, Bindings, CandidateDisposition, CandidateFailureKind, Completeness, Discovery,
-    DiscoveryTuple, Edit, InsertPosition, Patch, PatchFailureKind, PatchOrigin, SelectionPolicy,
-    Site, SiteSelector, TermRef, derive_sites, select,
+    Baseline, Bindings, CandidateDisposition, CandidateFailureKind, CandidateGeneration,
+    Completeness, Discovery, DiscoveryTuple, Edit, InsertPosition, Patch, PatchFailureKind,
+    PatchOrigin, SelectionPolicy, SentenceRef, Site, SiteSelector, TermRef, derive_sites, select,
 };
 
 const NAMES: [&str; 3] = ["write", "load", "free"];
@@ -42,14 +44,54 @@ impl Memory {
         )
     }
 
-    fn name(&self, at: &TermRef) -> &'static str {
+    fn named(&self, at: &TermRef) -> Option<&'static str> {
         NAMES
             .into_iter()
             .chain(["write.rhs"])
             .find(|name| self.site(name) == *at)
+    }
+
+    fn name(&self, at: &TermRef) -> &'static str {
+        self.named(at)
             .unwrap_or_else(|| panic!("{at:?} is not a named site"))
     }
 
+    /// The named sites of an exhaustive derivation, as unary tuples of `role`.
+    fn derived(&self, role: &str) -> Discovery<'_> {
+        derive_sites(&self.baseline, role, &[])
+            .filter(|tuple| self.named(&tuple.sites[0].at).is_some())
+    }
+
+    /// An exhaustive discovery of exactly the `supplied` tuples: the named
+    /// sites, or their pairs when `joined`. Each tuple is unary, or a pair
+    /// when joined.
+    fn discovery(
+        &self,
+        supplied: &[&[&str]],
+        joined: bool,
+        tuple_symmetric: bool,
+    ) -> Discovery<'_> {
+        let names = |tuple: &DiscoveryTuple| {
+            tuple
+                .sites
+                .iter()
+                .map(|site| self.name(&site.at))
+                .collect::<Vec<_>>()
+        };
+        if !joined {
+            return self
+                .derived("site")
+                .filter(|tuple| supplied.iter().any(|wanted| *wanted == names(tuple)));
+        }
+        self.derived("left")
+            .join(&self.derived("right"), tuple_symmetric, |left, right| {
+                let pair = [names(left), names(right)].concat();
+                supplied.iter().any(|wanted| *wanted == pair)
+            })
+            .expect("one baseline, no bindings")
+    }
+
+    /// A hand-supplied tuple, for a non-exhaustive discovery.
     fn tuple(&self, names: &[&str]) -> DiscoveryTuple {
         DiscoveryTuple {
             sites: names
@@ -76,6 +118,18 @@ impl Memory {
             expected: term(&side(1)),
             replacement: term(&side(0)),
         }
+    }
+
+    /// Selects under `policy` and folds with [`Self::patch`].
+    fn fold<'b>(
+        &self,
+        discovery: &Discovery<'b>,
+        policy: SelectionPolicy,
+    ) -> CandidateGeneration<'b> {
+        select(discovery, policy, 4)
+            .expect("selection")
+            .fold("rhs-to-lhs", |origin| self.patch(origin))
+            .expect("every origin edits its own rule")
     }
 
     /// One edit per site of the origin.
@@ -108,6 +162,7 @@ struct Row {
     policy: SelectionPolicy,
     supplied: &'static [&'static [&'static str]],
     tuple_symmetric: bool,
+    /// Derived when true, supplied by hand (never exhaustive) otherwise.
     exhaustive: bool,
     cap: usize,
     /// Every origin builds the first origin's patch; the fold's sentence
@@ -193,6 +248,8 @@ const ROWS: &[Row] = &[
         &[&["write"]],
         failed(CandidateFailureKind::InvalidJoin),
     ),
+    // A derivation is already in canonical order; the supplied reversal of
+    // `discovery_authority_adversaries_publish_no_scored_generation` is not.
     row(
         "each-canonical-order",
         SelectionPolicy::Each,
@@ -257,12 +314,16 @@ const ROWS: &[Row] = &[
             },
         )
     },
-    row(
-        "duplicate-site-rejected",
-        SelectionPolicy::Each,
-        &[&["write"], &["write"]],
-        Expected::Rejected(CandidateFailureKind::DuplicateSite),
-    ),
+    // No derivation repeats a tuple, so this one is supplied.
+    Row {
+        exhaustive: false,
+        ..row(
+            "duplicate-site-rejected",
+            SelectionPolicy::Each,
+            &[&["write"], &["write"]],
+            Expected::Rejected(CandidateFailureKind::DuplicateSite),
+        )
+    },
 ];
 
 #[test]
@@ -270,18 +331,21 @@ fn selection_rows_fold_discovered_tuples() {
     let memory = Memory::new();
     for row in ROWS {
         let id = row.id;
-        let tuples = row
-            .supplied
-            .iter()
-            .map(|names| memory.tuple(names))
-            .collect::<Vec<_>>();
-        let discovery = Discovery {
-            joined: row.policy == SelectionPolicy::TupleEach
-                || tuples.iter().any(|tuple| tuple.sites.len() > 1),
-            tuples,
-            exhaustive: row.exhaustive,
-            tuple_symmetric: row.tuple_symmetric,
+        let joined = row.policy == SelectionPolicy::TupleEach
+            || row.supplied.iter().any(|names| names.len() > 1);
+        let discovery = if row.exhaustive {
+            memory.discovery(row.supplied, joined, row.tuple_symmetric)
+        } else {
+            let tuples = row.supplied.iter().map(|names| memory.tuple(names));
+            Discovery::supplied(
+                &memory.baseline,
+                tuples.collect(),
+                joined,
+                row.tuple_symmetric,
+            )
+            .unwrap_or_else(|error| panic!("{id}: {error}"))
         };
+        assert_eq!(discovery.exhaustive(), row.exhaustive, "{id}");
         let selection = select(&discovery, row.policy, row.cap);
         let (complete, failure, site_tuples, retained) = match row.expected {
             Expected::Rejected(kind) => {
@@ -301,14 +365,13 @@ fn selection_rows_fold_discovered_tuples() {
         };
         let generation = selection.unwrap_or_else(|error| panic!("{id}: {error}"));
         assert_eq!(
-            generation.completeness == Completeness::CompleteFinite,
+            generation.completeness() == Completeness::CompleteFinite,
             complete,
             "{id}"
         );
-        assert_eq!(generation.failure, failure, "{id}");
-        assert_eq!(generation.scored, failure.is_none(), "{id}");
+        assert_eq!(generation.failure(), failure, "{id}");
         let actual = generation
-            .selected_origins
+            .selected_origins()
             .iter()
             .map(|origin| {
                 origin
@@ -322,7 +385,7 @@ fn selection_rows_fold_discovered_tuples() {
         if let Some(retained) = retained {
             assert_eq!(
                 generation
-                    .selected_origins
+                    .selected_origins()
                     .iter()
                     .map(|origin| origin.discovery_tuples.len())
                     .sum::<usize>(),
@@ -331,10 +394,10 @@ fn selection_rows_fold_discovered_tuples() {
             );
         }
 
-        let origins = generation.selected_origins.clone();
+        let origins = generation.selected_origins().to_vec();
         let same = origins.first().map(|origin| memory.patch(origin));
-        let (folded, dispositions) = generation
-            .fold(&memory.baseline, "rhs-to-lhs", |origin| {
+        let folded = generation
+            .fold("rhs-to-lhs", |origin| {
                 if row.same_patch {
                     same.clone().expect("an origin exists")
                 } else {
@@ -347,16 +410,24 @@ fn selection_rows_fold_discovered_tuples() {
         } else {
             origins.len()
         };
-        assert_eq!(folded.candidates.len(), expected_candidates, "{id}");
+        assert_eq!(folded.candidates().len(), expected_candidates, "{id}");
+        assert_eq!(folded.scored(), failure.is_none(), "{id}");
+        assert_eq!(
+            folded.completeness() == Completeness::CompleteFinite,
+            complete,
+            "{id}"
+        );
+        assert_eq!(folded.failure(), failure, "{id}");
         assert_eq!(
             folded
-                .candidates
+                .candidates()
                 .iter()
                 .flat_map(|candidate| candidate.origins.iter().cloned())
                 .collect::<Vec<_>>(),
             origins,
             "{id}: every origin is kept, in order"
         );
+        let dispositions = folded.dispositions();
         assert!(
             dispositions
                 .iter()
@@ -405,26 +476,21 @@ fn bindings_are_name_sorted_by_construction() {
 #[test]
 fn cap_is_applied_before_patch_deduplication() {
     let memory = Memory::new();
-    let discovery = Discovery {
-        tuples: vec![memory.tuple(&["write"]), memory.tuple(&["load"])],
-        exhaustive: true,
-        joined: false,
-        tuple_symmetric: false,
-    };
+    let discovery = memory.discovery(&[&["write"], &["load"]], false, false);
     let selected = select(&discovery, SelectionPolicy::Each, 1).expect("selection");
-    assert_eq!(selected.selected_origins.len(), 1);
+    assert_eq!(selected.selected_origins().len(), 1);
     assert_eq!(
-        selected.failure,
+        selected.failure(),
         Some(CandidateFailureKind::IncompleteGeneration)
     );
-    assert!(!selected.scored);
-    let same = memory.patch(&selected.selected_origins[0]);
-    let (folded, _) = selected
-        .fold(&memory.baseline, "rhs-to-lhs", |_| same.clone())
+    let same = memory.patch(&selected.selected_origins()[0]);
+    let folded = selected
+        .fold("rhs-to-lhs", |_| same.clone())
         .expect("the one origin builds its own patch");
-    assert_eq!(folded.candidates.len(), 1);
+    assert!(!folded.scored());
+    assert_eq!(folded.candidates().len(), 1);
     assert_eq!(
-        folded.candidates[0].origins.len(),
+        folded.candidates()[0].origins.len(),
         1,
         "the capped origin never reaches the fold"
     );
@@ -434,10 +500,10 @@ fn cap_is_applied_before_patch_deduplication() {
 fn sites_are_derived_in_definition_order_from_memory_k() {
     let memory = Memory::new();
     let bodies = derive_sites(&memory.baseline, "body", &[SiteSelector::Root(0)]);
-    assert!(bodies.exhaustive && !bodies.joined && !bodies.tuple_symmetric);
+    assert!(bodies.exhaustive() && !bodies.joined() && !bodies.tuple_symmetric());
     assert_eq!(
         bodies
-            .tuples
+            .tuples()
             .iter()
             .map(|tuple| {
                 assert_eq!(tuple.bindings, Bindings::default());
@@ -460,7 +526,7 @@ fn sites_are_derived_in_definition_order_from_memory_k() {
         ],
     );
     assert_eq!(
-        load.tuples,
+        load.tuples(),
         [DiscoveryTuple {
             sites: vec![Site {
                 role: "body".to_owned(),
@@ -483,7 +549,7 @@ fn sites_are_derived_in_definition_order_from_memory_k() {
     );
     assert_eq!(
         successors
-            .tuples
+            .tuples()
             .iter()
             .map(|tuple| tuple.sites[0].at.clone())
             .collect::<Vec<_>>(),
@@ -502,8 +568,8 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
     let discovery = derive_sites(&memory.baseline, "body", &[SiteSelector::Root(0)]);
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
     let write = memory.site("write");
-    let (folded, dispositions) = generation
-        .fold(&memory.baseline, "rhs-to-lhs", |origin| {
+    let folded = generation
+        .fold("rhs-to-lhs", |origin| {
             if origin.site_tuple == [write.clone()] {
                 let at = TermRef::new(write.sentence.clone(), [0, 1]);
                 let current = memory.baseline.term(&at).expect("term").clone();
@@ -518,7 +584,8 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
             }
         })
         .expect("every origin edits its own rule");
-    let [write_disposition, load, free] = dispositions.as_slice() else {
+    let dispositions = folded.dispositions();
+    let [write_disposition, load, free] = dispositions else {
         panic!("one disposition per origin: {dispositions:?}");
     };
     match write_disposition {
@@ -536,7 +603,7 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
     );
     assert_eq!(
         folded
-            .candidates
+            .candidates()
             .iter()
             .map(|candidate| memory.name(&candidate.origins[0].site_tuple[0]))
             .collect::<Vec<_>>(),
@@ -544,7 +611,7 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
     );
     assert!(
         folded
-            .candidates
+            .candidates()
             .iter()
             .all(|candidate| candidate.operator == "rhs-to-lhs")
     );
@@ -554,7 +621,7 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
 /// `discovery_authority_and_edit_receipt_adversaries_publish_nothing`: every
 /// edit must target a sentence of the origin it was built from, and one
 /// foreign edit publishes no generation at all. The discovery-authority half
-/// is not ported, because `derive_sites` reads the baseline in-process.
+/// is `discovery_authority_adversaries_publish_no_scored_generation`.
 #[test]
 fn edits_outside_their_origin_publish_nothing() {
     let memory = Memory::new();
@@ -588,12 +655,7 @@ fn edits_outside_their_origin_publish_nothing() {
         ("insert-at-another-module-start", &["write"], vec![insert(InsertPosition::ModuleStart("MEMORY-SYNTAX".to_owned()))], false),
     ];
     for (id, sites, edits, authorized) in rows {
-        let discovery = Discovery {
-            tuples: vec![memory.tuple(sites)],
-            exhaustive: true,
-            joined: sites.len() > 1,
-            tuple_symmetric: false,
-        };
+        let discovery = memory.discovery(&[sites], sites.len() > 1, false);
         let policy = if sites.len() > 1 {
             SelectionPolicy::TupleEach
         } else {
@@ -601,12 +663,12 @@ fn edits_outside_their_origin_publish_nothing() {
         };
         let generation = select(&discovery, policy, 4).expect("selection");
         let patch = Patch::new(edits).expect("nonempty");
-        let folded = generation.fold(&memory.baseline, "adversary", |_| patch.clone());
+        let folded = generation.fold("adversary", |_| patch.clone());
         if authorized {
             // The patch may still be rejected by `apply`; only the fold's
             // authorization is under test.
-            let (_, dispositions) = folded.unwrap_or_else(|error| panic!("{id}: {error}"));
-            assert_eq!(dispositions.len(), 1, "{id}");
+            let folded = folded.unwrap_or_else(|error| panic!("{id}: {error}"));
+            assert_eq!(folded.dispositions().len(), 1, "{id}");
         } else {
             assert_eq!(
                 folded.expect_err(id).kind(),
@@ -617,19 +679,164 @@ fn edits_outside_their_origin_publish_nothing() {
     }
 
     // A later foreign edit withdraws the earlier origins' candidates too.
-    let discovery = Discovery {
-        tuples: vec![memory.tuple(&["write"]), memory.tuple(&["load"])],
-        exhaustive: true,
-        joined: false,
-        tuple_symmetric: false,
-    };
+    let discovery = memory.discovery(&[&["write"], &["load"]], false, false);
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
-    let write_patch = memory.patch(&generation.selected_origins[0]);
+    let write_patch = memory.patch(&generation.selected_origins()[0]);
     assert_eq!(
         generation
-            .fold(&memory.baseline, "adversary", |_| write_patch.clone())
+            .fold("adversary", |_| write_patch.clone())
             .expect_err("load's origin edits write")
             .kind(),
         CandidateFailureKind::UnauthorizedEdit
     );
+}
+
+/// The discovery-authority half of the former
+/// `discovery_authority_and_edit_receipt_adversaries_publish_nothing`. The
+/// registry digests are gone, so each adversary becomes a typing rule: a
+/// claimant's tuple order is replaced by canonical order, a hand-supplied
+/// discovery (forged, or missing a member) is never exhaustive and so never
+/// scored, a stale site is rejected, and discoveries of another baseline do
+/// not join.
+#[test]
+fn discovery_authority_adversaries_publish_no_scored_generation() {
+    let memory = Memory::new();
+    let supplied = |names: &[&[&str]]| {
+        Discovery::supplied(
+            &memory.baseline,
+            names.iter().map(|names| memory.tuple(names)).collect(),
+            false,
+            false,
+        )
+    };
+
+    // Claimant tuple order is replaced by canonical order, and the supplied
+    // set is not complete even when it is every site the operator selects.
+    let reversed = supplied(&[&["load"], &["write"]]).expect("known sites");
+    assert!(!reversed.exhaustive());
+    let generation = memory.fold(&reversed, SelectionPolicy::Each);
+    assert_eq!(
+        generation
+            .selected_origins()
+            .iter()
+            .map(|origin| memory.name(&origin.site_tuple[0]))
+            .collect::<Vec<_>>(),
+        ["write", "load"]
+    );
+    assert_eq!(generation.completeness(), Completeness::Incomplete);
+    assert!(!generation.scored());
+
+    // A forged complete registry: the supplied tuple is exactly the derived
+    // one, and the exact policy still refuses to count it.
+    let exact = SelectionPolicy::Exact {
+        expected_tuple_count: 1,
+        expected_tuple_arity: 1,
+    };
+    let derived = memory.fold(&memory.discovery(&[&["write"]], false, false), exact);
+    assert!(derived.scored());
+    let forged = memory.fold(&supplied(&[&["write"]]).expect("known site"), exact);
+    assert_eq!(
+        forged.failure(),
+        Some(CandidateFailureKind::IncompleteGeneration)
+    );
+    assert!(forged.selected_origins().is_empty() && !forged.scored());
+
+    // Stale site metadata: a position the baseline does not have.
+    let write = memory.site("write").sentence;
+    for (id, at) in [
+        ("path-past-a-leaf", TermRef::new(write.clone(), [0, 9])),
+        ("unknown-field", TermRef::new(write.clone(), [3])),
+        (
+            "sentence-past-the-module",
+            TermRef::new(SentenceRef::new("MEMORY", 999), [0]),
+        ),
+        (
+            "unknown-module",
+            TermRef::new(SentenceRef::new("NOWHERE", write.index), [0]),
+        ),
+    ] {
+        let tuple = DiscoveryTuple {
+            sites: vec![Site {
+                role: "site".to_owned(),
+                at,
+            }],
+            bindings: Bindings::default(),
+        };
+        assert_eq!(
+            Discovery::supplied(&memory.baseline, vec![tuple], false, false)
+                .expect_err(id)
+                .kind(),
+            CandidateFailureKind::UnknownSite,
+            "{id}"
+        );
+    }
+
+    // Stale registry identity: an equal baseline loaded again is another
+    // baseline, and a generation records which one it was derived from.
+    let other = Memory::new();
+    assert_eq!(
+        memory
+            .derived("left")
+            .join(&other.derived("right"), false, |_, _| true)
+            .expect_err("two baselines")
+            .kind(),
+        CandidateFailureKind::InvalidJoin
+    );
+    assert!(derived.derived_from(&memory.baseline));
+    assert!(!derived.derived_from(&other.baseline));
+}
+
+/// An empty generation is not scored, whether nothing was selected or every
+/// origin was rejected; the two stay apart in the dispositions.
+#[test]
+fn empty_generations_are_not_scored() {
+    let memory = Memory::new();
+    let nothing = derive_sites(
+        &memory.baseline,
+        "body",
+        &[SiteSelector::RuleLabel("MEMORY.nothing".to_owned())],
+    );
+    let write = memory.discovery(&[&["write"]], false, false);
+    let no_change = |origin: &PatchOrigin| {
+        let at = origin.site_tuple[0].clone();
+        let current = memory.baseline.term(&at).expect("term").clone();
+        Patch::new(vec![Edit::ReplaceTerm {
+            at,
+            expected: current.clone(),
+            replacement: current,
+        }])
+        .expect("one edit")
+    };
+    // (id, discovery, no-change patch, dispositions, scored)
+    #[rustfmt::skip]
+    let rows: [(&str, &Discovery<'_>, bool, usize, bool); 3] = [
+        ("nothing-selected", &nothing, false, 0, false),
+        ("every-origin-rejected", &write, true, 1, false),
+        ("one-candidate", &write, false, 1, true),
+    ];
+    for (id, discovery, rejected, dispositions, scored) in rows {
+        let generation = select(discovery, SelectionPolicy::Each, 4)
+            .expect("selection")
+            .fold("rhs-to-lhs", |origin| {
+                if rejected {
+                    no_change(origin)
+                } else {
+                    memory.patch(origin)
+                }
+            })
+            .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(
+            (generation.completeness(), generation.failure()),
+            (Completeness::CompleteFinite, None),
+            "{id}"
+        );
+        assert_eq!(generation.dispositions().len(), dispositions, "{id}");
+        assert_eq!(
+            generation.candidates().is_empty(),
+            !scored,
+            "{id}: {:?}",
+            generation.dispositions()
+        );
+        assert_eq!(generation.scored(), scored, "{id}");
+    }
 }

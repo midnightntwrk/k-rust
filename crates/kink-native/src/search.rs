@@ -813,7 +813,10 @@ pub enum ReplaySearch {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReplayAgreement;
 
-/// Compares only adapted branch/witness/event structures. Mismatch returns no result payload.
+/// Compares two adapted responses field by field: the query shape, outcome, frontier,
+/// effects, incomplete items and backend diagnostics. A replay that collected a different
+/// diagnostic ran under different evidence, so it disagrees even when its witnesses match.
+/// Mismatch returns no result payload.
 pub fn compare_replay(
     expected: &ReplaySearch,
     actual: &ReplaySearch,
@@ -1764,5 +1767,31 @@ endmodule []"#;
             .unwrap(),
         );
         assert_eq!(compare_replay(&result, &other), Err(ReplayMismatch));
+
+        // The same witnesses with a backend diagnostic collected are another replay.
+        let path = adapt_path_response(
+            &empty_manifest(),
+            UNBOUNDED_FINAL,
+            PathSearchResponse {
+                schema_version: BACKEND_SCHEMA_VERSION,
+                modality: ResultModalityOutput::PathSet,
+                witnesses: Vec::new(),
+                effects: Vec::new(),
+                incomplete: Vec::new(),
+            },
+        )
+        .unwrap();
+        let diagnosed =
+            path.clone()
+                .with_diagnostics(vec![BackendDiagnostic::SimplificationBudgetExhausted {
+                    limit: 2,
+                    subject: k_rust_backend::simplify::BudgetSubject::Term,
+                }]);
+        let path = ReplaySearch::Path(path);
+        assert_eq!(compare_replay(&path, &path), Ok(ReplayAgreement));
+        assert_eq!(
+            compare_replay(&path, &ReplaySearch::Path(diagnosed)),
+            Err(ReplayMismatch)
+        );
     }
 }

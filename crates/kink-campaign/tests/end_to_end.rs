@@ -22,8 +22,8 @@ use kink_native::observation::DomainEventSpec;
 use kink_native::search::{SearchAdapter, SolverProfile};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
-    Baseline, Candidate, CandidateFailureKind, CandidateGeneration, Completeness, Discovery, Edit,
-    Patch, SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
+    Baseline, CandidateFailureKind, CandidateGeneration, Discovery, Edit, Patch, SelectionPolicy,
+    SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::{
     Atom, Constructor, EventVocabulary, ExecutionTerminalKind, OriginMode, PatternArm, PatternPlan,
@@ -138,35 +138,41 @@ fn normal(_: &Pattern) -> ExecutionTerminalKind {
     ExecutionTerminalKind::Normal
 }
 
-/// Replaces the term at `path` of the rule `label` with `replacement`.
-fn replace(baseline: &Baseline, label: &str, path: &[u32], replacement: Term) -> Patch {
+/// The mutant that replaces the term at `path` of the rule `label` with `replacement`,
+/// at that term as its site.
+fn replace(baseline: &Baseline, label: &str, path: &[u32], replacement: Term) -> (TermRef, Patch) {
     let at = TermRef::new(support::rule(baseline, label), path);
-    Patch::new(vec![Edit::ReplaceTerm {
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
         expected: baseline.term(&at).expect("baseline term").clone(),
-        at,
+        at: at.clone(),
         replacement,
     }])
-    .expect("one edit")
+    .expect("one edit");
+    (at, patch)
 }
 
-/// A complete, scored generation whose candidates are exactly `patches`, in order, as an
-/// operator's fold over an exhaustive discovery would give. Only the rows of
-/// `incomplete_and_failed_generations_are_not_scored` exercise selection itself.
-fn generation(patches: impl IntoIterator<Item = Patch>) -> CandidateGeneration {
-    CandidateGeneration {
-        candidates: patches
-            .into_iter()
-            .map(|patch| Candidate {
-                operator: "test".to_owned(),
-                patch,
-                origins: Vec::new(),
-            })
-            .collect(),
-        selected_origins: Vec::new(),
-        completeness: Completeness::CompleteFinite,
-        failure: None,
-        scored: true,
-    }
+/// The generation whose candidates are exactly `mutants`' patches, through the real path:
+/// every authored position of `baseline` (an exhaustive derivation) narrowed to the
+/// mutants' sites, selected `Each` and folded with each site's patch. The candidates come
+/// in site order, and the generation is scored when it has one.
+fn generation<'b>(baseline: &'b Baseline, mutants: &[(TermRef, Patch)]) -> CandidateGeneration<'b> {
+    let discovery = derive_sites(baseline, "site", &[])
+        .filter(|tuple| mutants.iter().any(|(site, _)| *site == tuple.sites[0].at));
+    assert_eq!(
+        discovery.tuples().len(),
+        mutants.len(),
+        "one site per mutant"
+    );
+    select(&discovery, SelectionPolicy::Each, mutants.len().max(1))
+        .expect("selection")
+        .fold("test", |origin| {
+            let (_, patch) = mutants
+                .iter()
+                .find(|(site, _)| origin.site_tuple == [site.clone()])
+                .expect("a mutant's site");
+            patch.clone()
+        })
+        .expect("every patch edits its site's rule")
 }
 
 fn term_at(baseline: &Baseline, label: &str, path: &[u32]) -> Term {
@@ -241,7 +247,18 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
                 ],
             },
         ];
+        // In site order: increment's body, then its right-hand side, branch and fallback.
         let mutants = [
+            // k-rust rejects the unknown attribute.
+            (
+                TermRef::new(support::rule(baseline, "COUNTER.increment"), [0]),
+                Patch::new(vec![Edit::AddAttribute {
+                    at: support::rule(baseline, "COUNTER.increment"),
+                    key: "foo".to_owned(),
+                    value: Value::String(String::new()),
+                }])
+                .expect("one edit"),
+            ),
             // increment: counter(N, s(L)) => counter(N, L)
             replace(
                 baseline,
@@ -253,13 +270,6 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             replace(baseline, "COUNTER.branch", &[1], bool_token("false")),
             // fallback: choose(B) => selected(true); it never fires on these tests.
             replace(baseline, "COUNTER.fallback", &[0, 1, 0], bool_token("true")),
-            // k-rust rejects the unknown attribute.
-            Patch::new(vec![Edit::AddAttribute {
-                at: support::rule(baseline, "COUNTER.increment"),
-                key: "foo".to_owned(),
-                value: Value::String(String::new()),
-            }])
-            .expect("one edit"),
         ];
         let campaign = Campaign {
             validator: &validator,
@@ -270,8 +280,12 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             tests: &tests,
             budget: BUDGET,
         };
-        let run =
-            run_campaign(&campaign, &generation(mutants), ScheduleMode::Full).expect("admitted");
+        let run = run_campaign(
+            &campaign,
+            &generation(baseline, &mutants),
+            ScheduleMode::Full,
+        )
+        .expect("admitted");
 
         let final_state = |program| {
             OracleSide::Normal(OracleValue::FinalResult(
@@ -303,14 +317,14 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             .map(|mutant| mutant.report.status)
             .collect::<Vec<_>>();
         use MutantStatus::{Invalid, Killed, Survived};
-        assert_eq!(statuses, [Killed, Killed, Survived, Invalid]);
+        assert_eq!(statuses, [Invalid, Killed, Killed, Survived]);
         #[rustfmt::skip]
         let expected: [&[(&str, Vec<OracleOutcome>)]; 3] = [
             &[("t1", vec![Distinguish, Agree]), ("t2", vec![Agree, Agree])],
             &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Distinguish])],
             &[("t1", vec![Agree, Agree]), ("t2", vec![Agree, Agree])],
         ];
-        for (mutant, expected) in run.mutants.iter().zip(expected) {
+        for (mutant, expected) in run.mutants[1..].iter().zip(expected) {
             let id = mutant.plan.mutant_id;
             assert_eq!(outcomes(&mutant.plan.tests), expected, "{id:?}");
             assert_eq!(mutant.plan.mutant_failure, None, "{id:?}");
@@ -320,13 +334,13 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         }
         // The branch mutant ends where the baseline does, but branch never fires.
         assert_eq!(
-            sides(&run.mutants[1].evidence[1]),
+            sides(&run.mutants[2].evidence[1]),
             [
                 final_state(t2_final),
                 OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch))
             ]
         );
-        let invalid = &run.mutants[3];
+        let invalid = &run.mutants[0];
         assert_eq!(
             invalid.plan.mutant_failure,
             Some(MutantScopeFailure::Rejected)
@@ -356,10 +370,10 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             .collect::<Vec<_>>();
         #[rustfmt::skip]
         let first_kill: [(&[&str], &[&str]); 4] = [
+            (&[], &[]),
             (&["t1"], &["t1"]),
             (&["t1", "t2"], &["t2"]),
             (&["t1", "t2"], &[]),
-            (&[], &[]),
         ];
         for (mutant, (executed, killing)) in run.mutants.iter().zip(first_kill) {
             let report = derive_mutant_report(&mutant.plan, &manifest, ScheduleMode::FirstKill)
@@ -403,8 +417,12 @@ fn nonterminating_mutant_is_a_timeout() {
                 ..BUDGET
             },
         };
-        let run =
-            run_campaign(&campaign, &generation([spin]), ScheduleMode::Full).expect("admitted");
+        let run = run_campaign(
+            &campaign,
+            &generation(baseline, &[spin]),
+            ScheduleMode::Full,
+        )
+        .expect("admitted");
         sides(&run.baseline[0]);
         let [mutant] = run.mutants.as_slice() else {
             panic!("one mutant");
@@ -469,7 +487,7 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
                     tests: &tests,
                     budget: BUDGET,
                 },
-                &generation([]),
+                &generation(validator.baseline(), &[]),
                 ScheduleMode::Full,
             )
         };
@@ -487,7 +505,8 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
             panic!("a crash side");
         };
         assert!(contains(term, "Lblselected"));
-        assert_eq!(admitted.score.map(|score| score.denominator), Some(0));
+        // A generation with no candidates claims no score, not one over zero mutants.
+        assert_eq!(admitted.score, None);
     });
 }
 
@@ -537,7 +556,10 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                         ..BUDGET
                     },
                 },
-                &generation([replace(baseline, label, &[1], bool_token("true"))]),
+                &generation(
+                    baseline,
+                    &[replace(baseline, label, &[1], bool_token("true"))],
+                ),
                 ScheduleMode::Full,
             )
             .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
@@ -578,7 +600,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                     tests: &tests,
                     budget: BUDGET,
                 },
-                &generation([]),
+                &generation(baseline, &[]),
                 ScheduleMode::Full,
             )
             .expect_err(id);
@@ -662,8 +684,10 @@ fn search_paths_are_never_a_state_value() {
 
 /// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and
 /// survives in every row, but only a complete generation is scored. A non-exhaustive
-/// discovery gives an incomplete generation, and a cardinality mismatch a failed one with no
-/// candidates; neither has a score.
+/// (supplied) discovery gives an incomplete generation, and a cardinality mismatch a failed
+/// one with no candidates; neither has a score. A complete generation with no candidates,
+/// because nothing was selected or its one origin's patch changes nothing, has no score
+/// either, rather than one over zero mutants.
 #[test]
 fn incomplete_and_failed_generations_are_not_scored() {
     with_stack(|| {
@@ -693,37 +717,43 @@ fn incomplete_and_failed_generations_are_not_scored() {
                 SiteSelector::Root(1),
             ],
         );
-        assert_eq!(exhaustive.tuples.len(), 1);
-        let partial = Discovery {
-            exhaustive: false,
-            ..exhaustive.clone()
-        };
+        assert_eq!(exhaustive.tuples().len(), 1);
+        let partial = Discovery::supplied(baseline, exhaustive.tuples().to_vec(), false, false)
+            .expect("derived sites are known");
+        let nothing = exhaustive.clone().filter(|_| false);
         let mismatch = SelectionPolicy::Exact {
             expected_tuple_count: 2,
             expected_tuple_arity: 1,
         };
-        // (id, discovery, policy, generation failure, mutant count, score)
+        // (id, discovery, policy, patch changes nothing, generation failure, mutant count, score)
         #[rustfmt::skip]
         let rows = [
-            ("complete-is-scored", &exhaustive, SelectionPolicy::Each, None, 1, Some((0, 1))),
-            ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
-            ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, Some(CandidateFailureKind::CardinalityMismatch), 0, None),
+            ("complete-is-scored", &exhaustive, SelectionPolicy::Each, false, None, 1, Some((0, 1))),
+            ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
+            ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, false, Some(CandidateFailureKind::CardinalityMismatch), 0, None),
+            ("empty-selection-is-not-scored", &nothing, SelectionPolicy::Each, false, None, 0, None),
+            ("every-origin-rejected-is-not-scored", &exhaustive, SelectionPolicy::Each, true, None, 0, None),
         ];
-        for (id, discovery, policy, failure, mutants, expected) in rows {
+        for (id, discovery, policy, no_change, failure, mutants, expected) in rows {
             // requires B  =>  requires false: fallback still ends in selected(true).
-            let (generation, _) = select(discovery, policy, 4)
+            let generation = select(discovery, policy, 4)
                 .unwrap_or_else(|failure| panic!("{id}: {failure}"))
-                .fold(baseline, "requires-false", |origin| {
+                .fold("requires-false", |origin| {
                     let at = origin.site_tuple[0].clone();
+                    let expected = baseline.term(&at).expect("requires").clone();
                     Patch::new(vec![Edit::ReplaceTerm {
-                        expected: baseline.term(&at).expect("requires").clone(),
+                        replacement: if no_change {
+                            expected.clone()
+                        } else {
+                            bool_token("false")
+                        },
+                        expected,
                         at,
-                        replacement: bool_token("false"),
                     }])
                     .expect("one edit")
                 })
                 .unwrap_or_else(|failure| panic!("{id}: {failure}"));
-            assert_eq!(generation.failure, failure, "{id}");
+            assert_eq!(generation.failure(), failure, "{id}");
             let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
                 .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
             assert_eq!(run.mutants.len(), mutants, "{id}");
@@ -737,4 +767,41 @@ fn incomplete_and_failed_generations_are_not_scored() {
             );
         }
     });
+}
+
+/// A campaign runs only a generation derived from its validator's own baseline. One derived
+/// from another load of the same file, or from an equal clone, is refused before anything
+/// compiles, whatever it would score.
+#[test]
+fn a_generation_of_another_baseline_is_refused() {
+    let validator = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+    let vocabulary = vocabulary(&["unused"]);
+    let tests = [TestCase {
+        id: "t2".to_owned(),
+        initial_state: choose_state(),
+        oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+    }];
+    let campaign = Campaign {
+        validator: &validator,
+        module: "COUNTER",
+        observed_rules: &[],
+        vocabulary: &vocabulary,
+        classify: &normal,
+        tests: &tests,
+        budget: BUDGET,
+    };
+    let reloaded = support::load("counter.k");
+    let cloned = validator.baseline().clone();
+    for (id, other) in [("reloaded", &reloaded), ("cloned", &cloned)] {
+        let mutant = replace(other, "COUNTER.branch", &[1], bool_token("false"));
+        let generation = generation(other, &[mutant]);
+        assert!(generation.scored(), "{id}");
+        assert_eq!(
+            run_campaign(&campaign, &generation, ScheduleMode::Full)
+                .expect_err(id)
+                .kind(),
+            CampaignFailureKind::ForeignGeneration,
+            "{id}"
+        );
+    }
 }

@@ -917,14 +917,14 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
     let memory = support::load("memory.k");
     // Two positions of `write`: its body and the body's left-hand side. The
     // origins share a rule, since an origin may only edit its own sentences.
-    let mut discovery = derive_sites(
+    let discovery = derive_sites(
         &memory,
         "position",
         &[SiteSelector::RuleLabel("MEMORY.write".to_owned())],
-    );
-    discovery.tuples.truncate(2);
+    )
+    .filter(|tuple| matches!(tuple.sites[0].at.path.0.as_slice(), [0] | [0, 0]));
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
-    let origins = generation.selected_origins.clone();
+    let origins = generation.selected_origins().to_vec();
     assert_eq!(origins.len(), 2);
     // Both origins build the patch that turns `write`'s right-hand side into
     // its left-hand side.
@@ -941,23 +941,23 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
         replacement: term(&[0, 0]),
     }])
     .expect("one edit");
-    let (generation, dispositions) = generation
-        .fold(&memory, "rhs-to-lhs", |_| patch.clone())
+    let generation = generation
+        .fold("rhs-to-lhs", |_| patch.clone())
         .expect("both origins lie in `write`");
-    assert_eq!(generation.candidates.len(), 1);
-    let candidate = &generation.candidates[0];
+    assert_eq!(generation.candidates().len(), 1);
+    let candidate = &generation.candidates()[0];
     assert_eq!(candidate.origins, origins);
     assert_eq!(
-        dispositions,
+        generation.dispositions(),
         [
             CandidateDisposition::Mutant(0),
             CandidateDisposition::Mutant(0)
         ]
     );
-    let duplicates = generation.selected_origins.len() - generation.candidates.len();
+    let duplicates = generation.selected_origins().len() - generation.candidates().len();
     assert_eq!(duplicates, 1);
 
-    let reports = (0..generation.candidates.len())
+    let reports = (0..generation.candidates().len())
         .map(|index| {
             report(
                 &MutantPlan {

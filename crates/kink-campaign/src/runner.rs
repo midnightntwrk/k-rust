@@ -24,8 +24,8 @@
 //!
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
-//! mutants are the candidates of one folded generation, and only a complete generation
-//! is scored.
+//! mutants are the candidates of one folded generation derived from the campaign's own
+//! baseline, and only a complete, nonempty generation is scored.
 
 use std::collections::BTreeSet;
 
@@ -44,7 +44,7 @@ use kink_native::execution::{
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
-use kink_patch::{CandidateGeneration, Completeness, Patch};
+use kink_patch::{CandidateGeneration, Patch};
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionBounds, ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure,
@@ -193,20 +193,25 @@ pub struct CampaignRun {
     /// `candidates[index]`.
     pub mutants: Vec<MutantRun>,
     /// `None` when the generation is not scored (see [`run_campaign`]): its mutants still
-    /// run and have statuses, but they are not every mutant the operator selects, so no
-    /// score is claimed over them.
+    /// run and have statuses, but they are not every mutant the operator selects, or there
+    /// are none, so no score is claimed over them.
     pub score: Option<Score>,
 }
 
 /// Runs the baseline, admits it, then runs every candidate of a folded `generation` as a
 /// mutant, and scores the result when the generation is scored.
 ///
-/// A generation is scored only when selection considered its whole declared input: it is
-/// `scored`, `CompleteFinite` and has no failure. An incomplete generation (a
-/// non-exhaustive discovery or a candidate cap) or a failed selection has no score (review
-/// P2.2, plan row C4); a selection that returned `Err` has no generation at all. The
-/// generation must be folded (`CandidateGeneration::fold`): its candidates are the
-/// mutants.
+/// A `CandidateGeneration` only comes out of `Selection::fold`, so an unfolded selection
+/// cannot be run. It must have been derived from the validator's own baseline
+/// (`CandidateGeneration::derived_from`); a generation of any other baseline, even an
+/// equal clone, is refused as `ForeignGeneration` before anything compiles.
+///
+/// A generation is scored only as `CandidateGeneration::scored` decides: selection
+/// considered its whole declared input and at least one candidate exists. An incomplete
+/// generation (a non-exhaustive discovery or a candidate cap) or a failed selection has no
+/// score (review P2.2, plan row C4); a selection that returned `Err` has no generation at
+/// all. An empty generation, where nothing was selected or every origin was rejected, has
+/// no score either, rather than a claim over zero mutants.
 ///
 /// The baseline must compile, and every one of its sides must be a value or a crash its
 /// declaration admits; otherwise no mutant is validated. Every test runs on every mutant
@@ -214,7 +219,7 @@ pub struct CampaignRun {
 /// only decides the report.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
-    generation: &CandidateGeneration,
+    generation: &CandidateGeneration<'_>,
     schedule: ScheduleMode,
 ) -> Result<CampaignRun, CampaignFailure> {
     let manifest = campaign
@@ -226,6 +231,12 @@ pub fn run_campaign(
         })
         .collect::<Vec<_>>();
     check_manifest(&manifest)?;
+    if !generation.derived_from(campaign.validator.baseline()) {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::ForeignGeneration,
+            "the generation was derived from another baseline than the validator's",
+        ));
+    }
 
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
@@ -249,8 +260,8 @@ pub fn run_campaign(
         .collect::<Vec<_>>();
     validate_baseline(admit(campaign.tests, &baseline_evidence))?;
 
-    let mut runs = Vec::with_capacity(generation.candidates.len());
-    for (index, candidate) in generation.candidates.iter().enumerate() {
+    let mut runs = Vec::with_capacity(generation.candidates().len());
+    for (index, candidate) in generation.candidates().iter().enumerate() {
         let (tests, mutant_failure, evidence) =
             run_mutant(campaign, &candidate.patch, &baseline_evidence);
         let plan = MutantPlan {
@@ -266,13 +277,10 @@ pub fn run_campaign(
         });
     }
     let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
-    let scored = generation.scored
-        && generation.completeness == Completeness::CompleteFinite
-        && generation.failure.is_none();
     Ok(CampaignRun {
         baseline: baseline_evidence,
         mutants: runs,
-        score: scored.then(|| score(&statuses)),
+        score: generation.scored().then(|| score(&statuses)),
     })
 }
 

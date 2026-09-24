@@ -2,10 +2,22 @@
 //!
 //! Sites are term positions of one [`Baseline`], identified by their
 //! [`TermRef`]; there are no site, candidate or mutant digests. Operators build
-//! a [`Patch`] from a selected origin, and [`CandidateGeneration::fold`]
-//! checks that every edit targets a sentence of that origin. Equal patches
-//! fold into one candidate that keeps every origin, and a patch that does not
-//! apply is a rejected disposition, never a mutant.
+//! a [`Patch`] from a selected origin, and [`Selection::fold`] checks that
+//! every edit targets a sentence of that origin. Equal patches fold into one
+//! candidate that keeps every origin, and a patch that does not apply is a
+//! rejected disposition, never a mutant.
+//!
+//! The stages are distinct types with private fields: a [`Discovery`], the
+//! [`Selection`] that [`select`] makes of it, and the [`CandidateGeneration`]
+//! that [`Selection::fold`] makes of that, which is the only one a campaign
+//! runs. A generation can be scored only when its discovery was exhaustive,
+//! which only [`derive_sites`] (possibly narrowed or joined) gives; a
+//! [`Discovery::supplied`] one never is. Each stage borrows the baseline it
+//! was derived from, and a campaign compares that borrow with its own
+//! baseline by address. Address identity needs no digest: the borrow keeps
+//! the baseline alive, so no other live baseline can share its address. An
+//! equal clone is a different baseline to this check, which refuses it
+//! conservatively.
 
 use crate::{
     Baseline, Edit, InsertPosition, Patch, PatchFailure, SentenceRef, TermRef, apply, child,
@@ -27,6 +39,8 @@ pub enum CandidateFailureKind {
     InvalidBinding,
     /// An operator built an edit outside the sentences of its origin.
     UnauthorizedEdit,
+    /// A supplied site is not a term position of the baseline.
+    UnknownSite,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -102,16 +116,152 @@ pub struct DiscoveryTuple {
     pub bindings: Bindings,
 }
 
-/// The discovered tuples of one operator and whether they are all of them.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Discovery {
-    pub tuples: Vec<DiscoveryTuple>,
+/// The discovered tuples of one operator over one baseline, and whether they
+/// are all of them.
+///
+/// Only [`derive_sites`], and [`Discovery::filter`] and [`Discovery::join`]
+/// over exhaustive discoveries, give an exhaustive discovery: each considers
+/// every match of its (narrowed or joined) selector. Hand-supplied tuples
+/// ([`Discovery::supplied`]) are never exhaustive, because nothing shows that
+/// every match was considered, so a selection over them is never scored.
+#[derive(Clone)]
+pub struct Discovery<'b> {
+    baseline: &'b Baseline,
+    tuples: Vec<DiscoveryTuple>,
+    exhaustive: bool,
+    joined: bool,
+    tuple_symmetric: bool,
+}
+
+impl<'b> Discovery<'b> {
+    /// Tuples supplied by hand over `baseline`, for shapes no derivation
+    /// produces. The discovery is not exhaustive.
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnknownSite` when a site is not a term position of `baseline`.
+    pub fn supplied(
+        baseline: &'b Baseline,
+        tuples: Vec<DiscoveryTuple>,
+        joined: bool,
+        tuple_symmetric: bool,
+    ) -> Result<Self, CandidateFailure> {
+        if let Some(site) = tuples
+            .iter()
+            .flat_map(|tuple| &tuple.sites)
+            .find(|site| baseline.term(&site.at).is_none())
+        {
+            return Err(CandidateFailure::new(
+                CandidateFailureKind::UnknownSite,
+                format!("{:?} is not a term position of the baseline", site.at),
+            ));
+        }
+        Ok(Self {
+            baseline,
+            tuples,
+            exhaustive: false,
+            joined,
+            tuple_symmetric,
+        })
+    }
+
+    /// Keeps the tuples `keep` accepts. Exhaustiveness is kept: every match
+    /// of the narrowed selector was considered.
+    #[must_use]
+    pub fn filter(mut self, mut keep: impl FnMut(&DiscoveryTuple) -> bool) -> Self {
+        self.tuples.retain(|tuple| keep(tuple));
+        self
+    }
+
+    /// Joins every tuple of `self` with every tuple of `other`, in that
+    /// order, and keeps the pairs `keep` accepts. A joined tuple lists both
+    /// tuples' sites and bindings. The join is exhaustive when both inputs
+    /// are, since every pair is considered. A pair that repeats a site is
+    /// kept if `keep` accepts it, and [`select`] rejects it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidJoin` for discoveries of different baselines, and
+    /// `InvalidBinding` for a kept pair whose bindings share a name.
+    pub fn join(
+        &self,
+        other: &Self,
+        tuple_symmetric: bool,
+        mut keep: impl FnMut(&DiscoveryTuple, &DiscoveryTuple) -> bool,
+    ) -> Result<Self, CandidateFailure> {
+        if !std::ptr::eq(self.baseline, other.baseline) {
+            return Err(CandidateFailure::new(
+                CandidateFailureKind::InvalidJoin,
+                "discoveries of different baselines do not join",
+            ));
+        }
+        let mut tuples = Vec::new();
+        for left in &self.tuples {
+            for right in &other.tuples {
+                if keep(left, right) {
+                    tuples.push(DiscoveryTuple {
+                        sites: left.sites.iter().chain(&right.sites).cloned().collect(),
+                        bindings: Bindings::new(
+                            left.bindings
+                                .0
+                                .iter()
+                                .chain(&right.bindings.0)
+                                .cloned()
+                                .collect(),
+                        )?,
+                    });
+                }
+            }
+        }
+        Ok(Self {
+            baseline: self.baseline,
+            tuples,
+            exhaustive: self.exhaustive && other.exhaustive,
+            joined: true,
+            tuple_symmetric,
+        })
+    }
+
+    /// The baseline the sites are positions of.
+    #[must_use]
+    pub const fn baseline(&self) -> &'b Baseline {
+        self.baseline
+    }
+
+    #[must_use]
+    pub fn tuples(&self) -> &[DiscoveryTuple] {
+        &self.tuples
+    }
+
     /// Every match was considered.
-    pub exhaustive: bool,
+    #[must_use]
+    pub const fn exhaustive(&self) -> bool {
+        self.exhaustive
+    }
+
     /// Tuples join several selector roles.
-    pub joined: bool,
+    #[must_use]
+    pub const fn joined(&self) -> bool {
+        self.joined
+    }
+
     /// Tuples that are permutations of one another are one instance.
-    pub tuple_symmetric: bool,
+    #[must_use]
+    pub const fn tuple_symmetric(&self) -> bool {
+        self.tuple_symmetric
+    }
+}
+
+impl fmt::Debug for Discovery<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Discovery")
+            .field("tuples", &self.tuples)
+            .field("exhaustive", &self.exhaustive)
+            .field("joined", &self.joined)
+            .field("tuple_symmetric", &self.tuple_symmetric)
+            .finish_non_exhaustive()
+    }
 }
 
 /// One conjunctive clause of a site selector.
@@ -131,7 +281,11 @@ pub enum SiteSelector {
 /// The result is exhaustive: every written rule and every position in it is
 /// considered.
 #[must_use]
-pub fn derive_sites(baseline: &Baseline, role: &str, selector: &[SiteSelector]) -> Discovery {
+pub fn derive_sites<'b>(
+    baseline: &'b Baseline,
+    role: &str,
+    selector: &[SiteSelector],
+) -> Discovery<'b> {
     let mut sites = Vec::new();
     for (sentence_ref, sentence) in baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. })
@@ -174,6 +328,7 @@ pub fn derive_sites(baseline: &Baseline, role: &str, selector: &[SiteSelector]) 
     }
     sites.sort();
     Discovery {
+        baseline,
         tuples: sites
             .into_iter()
             .map(|at| DiscoveryTuple {
@@ -235,13 +390,140 @@ pub enum CandidateDisposition {
     Rejected(PatchFailure),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CandidateGeneration {
-    pub candidates: Vec<Candidate>,
-    pub selected_origins: Vec<PatchOrigin>,
-    pub completeness: Completeness,
-    pub failure: Option<CandidateFailureKind>,
-    pub scored: bool,
+/// The origins [`select`] chose from one discovery, before any patch exists.
+///
+/// A selection has no candidates and is never scored; [`Selection::fold`]
+/// turns it into a [`CandidateGeneration`].
+#[derive(Clone)]
+pub struct Selection<'b> {
+    baseline: &'b Baseline,
+    selected_origins: Vec<PatchOrigin>,
+    completeness: Completeness,
+    failure: Option<CandidateFailureKind>,
+}
+
+impl<'b> Selection<'b> {
+    /// The baseline of the discovery the origins were selected from.
+    #[must_use]
+    pub const fn baseline(&self) -> &'b Baseline {
+        self.baseline
+    }
+
+    /// The origins in canonical order, after the candidate cap.
+    #[must_use]
+    pub fn selected_origins(&self) -> &[PatchOrigin] {
+        &self.selected_origins
+    }
+
+    #[must_use]
+    pub const fn completeness(&self) -> Completeness {
+        self.completeness
+    }
+
+    /// Why the selection is not a complete one: a cardinality or join
+    /// mismatch (with no origins), or an incomplete generation.
+    #[must_use]
+    pub const fn failure(&self) -> Option<CandidateFailureKind> {
+        self.failure
+    }
+}
+
+impl fmt::Debug for Selection<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Selection")
+            .field("selected_origins", &self.selected_origins)
+            .field("completeness", &self.completeness)
+            .field("failure", &self.failure)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The candidates of one folded selection, the only input a campaign runs.
+///
+/// It is built only by [`Selection::fold`], so it always went through
+/// [`select`] and the fold's edit and apply checks against the baseline it
+/// records.
+#[derive(Clone)]
+pub struct CandidateGeneration<'b> {
+    baseline: &'b Baseline,
+    candidates: Vec<Candidate>,
+    selected_origins: Vec<PatchOrigin>,
+    dispositions: Vec<CandidateDisposition>,
+    completeness: Completeness,
+    failure: Option<CandidateFailureKind>,
+}
+
+impl<'b> CandidateGeneration<'b> {
+    /// The baseline every candidate applies to.
+    #[must_use]
+    pub const fn baseline(&self) -> &'b Baseline {
+        self.baseline
+    }
+
+    /// Whether this generation was derived from `baseline` itself (by
+    /// address; see the module documentation).
+    #[must_use]
+    pub fn derived_from(&self, baseline: &Baseline) -> bool {
+        std::ptr::eq(self.baseline, baseline)
+    }
+
+    /// The distinct applicable patches, in the order of their first origin.
+    #[must_use]
+    pub fn candidates(&self) -> &[Candidate] {
+        &self.candidates
+    }
+
+    #[must_use]
+    pub fn selected_origins(&self) -> &[PatchOrigin] {
+        &self.selected_origins
+    }
+
+    /// What became of each selected origin, parallel to `selected_origins`.
+    /// Every origin rejected is an empty generation with nonempty
+    /// dispositions; nothing selected is one with none.
+    #[must_use]
+    pub fn dispositions(&self) -> &[CandidateDisposition] {
+        &self.dispositions
+    }
+
+    #[must_use]
+    pub const fn completeness(&self) -> Completeness {
+        self.completeness
+    }
+
+    #[must_use]
+    pub const fn failure(&self) -> Option<CandidateFailureKind> {
+        self.failure
+    }
+
+    /// Whether a score over this generation's mutants is a claim about every
+    /// mutant its operator selects: selection considered the whole declared
+    /// input (`CompleteFinite`, no failure) and at least one candidate exists.
+    ///
+    /// An empty generation, whether nothing was selected or every origin was
+    /// rejected, is not scored: a score over no mutants would claim nothing
+    /// about the operator, and cannot tell a selector that matches nothing
+    /// from a mistaken one.
+    #[must_use]
+    pub fn scored(&self) -> bool {
+        self.completeness == Completeness::CompleteFinite
+            && self.failure.is_none()
+            && !self.candidates.is_empty()
+    }
+}
+
+impl fmt::Debug for CandidateGeneration<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CandidateGeneration")
+            .field("candidates", &self.candidates)
+            .field("selected_origins", &self.selected_origins)
+            .field("dispositions", &self.dispositions)
+            .field("completeness", &self.completeness)
+            .field("failure", &self.failure)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Folds exact/each/tuple-each/all-matches over discovered tuples.
@@ -255,11 +537,11 @@ pub struct CandidateGeneration {
 /// site or has an empty role, a non-unary tuple of an unjoined discovery, and
 /// symmetric handling of an unjoined discovery. None of these publish a
 /// generation.
-pub fn select(
-    discovery: &Discovery,
+pub fn select<'b>(
+    discovery: &Discovery<'b>,
     policy: SelectionPolicy,
     candidate_cap: usize,
-) -> Result<CandidateGeneration, CandidateFailure> {
+) -> Result<Selection<'b>, CandidateFailure> {
     if candidate_cap == 0 {
         return Err(CandidateFailure::new(
             CandidateFailureKind::CandidateCap,
@@ -290,28 +572,40 @@ pub fn select(
             expected_tuple_arity,
         } => {
             if !discovery.exhaustive {
-                return Ok(incomplete());
+                return Ok(incomplete(discovery.baseline));
             }
             if tuples
                 .iter()
                 .any(|tuple| tuple.sites.len() != expected_tuple_arity)
             {
-                return Ok(failed(CandidateFailureKind::InvalidJoin));
+                return Ok(failed(
+                    discovery.baseline,
+                    CandidateFailureKind::InvalidJoin,
+                ));
             }
             if tuples.len() != expected_tuple_count {
-                return Ok(failed(CandidateFailureKind::CardinalityMismatch));
+                return Ok(failed(
+                    discovery.baseline,
+                    CandidateFailureKind::CardinalityMismatch,
+                ));
             }
             tuples.iter().map(ordinary_origin).collect()
         }
         SelectionPolicy::Each => {
             if discovery.joined || tuples.iter().any(|tuple| tuple.sites.len() != 1) {
-                return Ok(failed(CandidateFailureKind::InvalidJoin));
+                return Ok(failed(
+                    discovery.baseline,
+                    CandidateFailureKind::InvalidJoin,
+                ));
             }
             tuples.iter().map(ordinary_origin).collect()
         }
         SelectionPolicy::TupleEach => {
             if !discovery.joined {
-                return Ok(failed(CandidateFailureKind::InvalidJoin));
+                return Ok(failed(
+                    discovery.baseline,
+                    CandidateFailureKind::InvalidJoin,
+                ));
             }
             if discovery.tuple_symmetric {
                 tuples
@@ -335,7 +629,10 @@ pub fn select(
         }
         SelectionPolicy::AllMatches => {
             if discovery.joined || tuples.iter().any(|tuple| tuple.sites.len() != 1) {
-                return Ok(failed(CandidateFailureKind::InvalidJoin));
+                return Ok(failed(
+                    discovery.baseline,
+                    CandidateFailureKind::InvalidJoin,
+                ));
             }
             if tuples.is_empty() {
                 Vec::new()
@@ -350,8 +647,8 @@ pub fn select(
     let omitted = origins.len() > candidate_cap;
     origins.truncate(candidate_cap);
     let complete = discovery.exhaustive && !omitted;
-    Ok(CandidateGeneration {
-        candidates: Vec::new(),
+    Ok(Selection {
+        baseline: discovery.baseline,
         selected_origins: origins,
         completeness: if complete {
             Completeness::CompleteFinite
@@ -359,14 +656,13 @@ pub fn select(
             Completeness::Incomplete
         },
         failure: (!complete).then_some(CandidateFailureKind::IncompleteGeneration),
-        scored: complete,
     })
 }
 
-impl CandidateGeneration {
+impl<'b> Selection<'b> {
     /// Builds one patch per retained origin with `patch_for`, folds equal
     /// patches into one candidate that keeps every origin, and applies each
-    /// distinct patch to `baseline` once.
+    /// distinct patch once to the baseline the selection was derived from.
     ///
     /// Every edit must target a sentence that holds a site of its origin: a
     /// term, sentence or attribute edit names that sentence, an insertion
@@ -379,8 +675,9 @@ impl CandidateGeneration {
     /// they share a sentence.
     ///
     /// A patch that does not apply (for example a no-change patch) is a
-    /// rejected disposition and never a candidate. The dispositions are
-    /// parallel to `selected_origins`.
+    /// rejected disposition and never a candidate. The generation keeps the
+    /// selection's origins, completeness and failure, and one disposition per
+    /// origin.
     ///
     /// # Errors
     ///
@@ -388,11 +685,11 @@ impl CandidateGeneration {
     /// origin's sentences. No generation is published then, not even the
     /// candidates of the other origins.
     pub fn fold(
-        mut self,
-        baseline: &Baseline,
+        self,
         operator: &str,
         mut patch_for: impl FnMut(&PatchOrigin) -> Patch,
-    ) -> Result<(Self, Vec<CandidateDisposition>), CandidateFailure> {
+    ) -> Result<CandidateGeneration<'b>, CandidateFailure> {
+        let mut candidates: Vec<Candidate> = Vec::new();
         let mut rejected: Vec<(Patch, PatchFailure)> = Vec::new();
         let mut dispositions = Vec::with_capacity(self.selected_origins.len());
         for origin in &self.selected_origins {
@@ -410,20 +707,19 @@ impl CandidateGeneration {
                     ),
                 ));
             }
-            if let Some(index) = self
-                .candidates
+            if let Some(index) = candidates
                 .iter()
                 .position(|candidate| candidate.patch == patch)
             {
-                self.candidates[index].origins.push(origin.clone());
+                candidates[index].origins.push(origin.clone());
                 dispositions.push(CandidateDisposition::Mutant(index));
             } else if let Some((_, failure)) = rejected.iter().find(|(other, _)| *other == patch) {
                 dispositions.push(CandidateDisposition::Rejected(failure.clone()));
             } else {
-                match apply(baseline, &patch) {
+                match apply(self.baseline, &patch) {
                     Ok(_) => {
-                        dispositions.push(CandidateDisposition::Mutant(self.candidates.len()));
-                        self.candidates.push(Candidate {
+                        dispositions.push(CandidateDisposition::Mutant(candidates.len()));
+                        candidates.push(Candidate {
                             operator: operator.to_owned(),
                             patch,
                             origins: vec![origin.clone()],
@@ -436,7 +732,14 @@ impl CandidateGeneration {
                 }
             }
         }
-        Ok((self, dispositions))
+        Ok(CandidateGeneration {
+            baseline: self.baseline,
+            candidates,
+            selected_origins: self.selected_origins,
+            dispositions,
+            completeness: self.completeness,
+            failure: self.failure,
+        })
     }
 }
 
@@ -531,22 +834,20 @@ fn ordinary_origin(tuple: &DiscoveryTuple) -> PatchOrigin {
     }
 }
 
-fn failed(kind: CandidateFailureKind) -> CandidateGeneration {
-    CandidateGeneration {
-        candidates: Vec::new(),
+const fn failed(baseline: &Baseline, kind: CandidateFailureKind) -> Selection<'_> {
+    Selection {
+        baseline,
         selected_origins: Vec::new(),
         completeness: Completeness::CompleteFinite,
         failure: Some(kind),
-        scored: false,
     }
 }
 
-fn incomplete() -> CandidateGeneration {
-    CandidateGeneration {
-        candidates: Vec::new(),
+const fn incomplete(baseline: &Baseline) -> Selection<'_> {
+    Selection {
+        baseline,
         selected_origins: Vec::new(),
         completeness: Completeness::Incomplete,
         failure: Some(CandidateFailureKind::IncompleteGeneration),
-        scored: false,
     }
 }

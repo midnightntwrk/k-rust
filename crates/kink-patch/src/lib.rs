@@ -10,8 +10,9 @@
 //! mutant compiles is decided by k-rust `compile_loaded_definition` over
 //! [`Mutant::to_loaded`], which kink-native's validator runs.
 //!
-//! [`derive_sites`], [`select`] and [`CandidateGeneration::fold`] turn the
-//! baseline's term positions into deduplicated candidate patches.
+//! [`derive_sites`], [`select`] and [`Selection::fold`] turn the baseline's
+//! term positions into a [`CandidateGeneration`] of deduplicated candidate
+//! patches.
 
 mod apply;
 mod candidate;
@@ -21,8 +22,8 @@ mod sort;
 pub use apply::{Mutant, SentenceOrigin, apply};
 pub use candidate::{
     Bindings, Candidate, CandidateDisposition, CandidateFailure, CandidateFailureKind,
-    CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, SelectionPolicy,
-    Site, SiteSelector, derive_sites, select,
+    CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, Selection,
+    SelectionPolicy, Site, SiteSelector, derive_sites, select,
 };
 pub use failure::{PatchFailure, PatchFailureKind};
 
