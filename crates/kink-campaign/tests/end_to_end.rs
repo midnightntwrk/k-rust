@@ -21,7 +21,10 @@ use kink_native::execution::{ExecutionAdapter, ExecutionBudget, ExecutionRoute};
 use kink_native::observation::DomainEventSpec;
 use kink_native::search::{SearchAdapter, SolverProfile};
 use kink_native::{NativeValidator, ObservedRule};
-use kink_patch::{Baseline, Edit, Patch, TermRef};
+use kink_patch::{
+    Baseline, Candidate, CandidateFailureKind, CandidateGeneration, Completeness, Discovery, Edit,
+    Patch, SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
+};
 use kink_pattern::{
     Atom, Constructor, EventVocabulary, ExecutionTerminalKind, OriginMode, PatternArm, PatternPlan,
     SymbolSorts,
@@ -146,6 +149,26 @@ fn replace(baseline: &Baseline, label: &str, path: &[u32], replacement: Term) ->
     .expect("one edit")
 }
 
+/// A complete, scored generation whose candidates are exactly `patches`, in order, as an
+/// operator's fold over an exhaustive discovery would give. Only the rows of
+/// `incomplete_and_failed_generations_are_not_scored` exercise selection itself.
+fn generation(patches: impl IntoIterator<Item = Patch>) -> CandidateGeneration {
+    CandidateGeneration {
+        candidates: patches
+            .into_iter()
+            .map(|patch| Candidate {
+                operator: "test".to_owned(),
+                patch,
+                origins: Vec::new(),
+            })
+            .collect(),
+        selected_origins: Vec::new(),
+        completeness: Completeness::CompleteFinite,
+        failure: None,
+        scored: true,
+    }
+}
+
 fn term_at(baseline: &Baseline, label: &str, path: &[u32]) -> Term {
     baseline
         .term(&TermRef::new(support::rule(baseline, label), path))
@@ -247,7 +270,8 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             tests: &tests,
             budget: BUDGET,
         };
-        let run = run_campaign(&campaign, &mutants, ScheduleMode::Full).expect("admitted");
+        let run =
+            run_campaign(&campaign, &generation(mutants), ScheduleMode::Full).expect("admitted");
 
         let final_state = |program| {
             OracleSide::Normal(OracleValue::FinalResult(
@@ -311,9 +335,10 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         assert!(invalid.evidence.is_empty());
         assert!(invalid.report.executed_test_ids.is_empty());
 
-        assert_eq!((run.score.killed, run.score.survived), (2, 1));
+        let score = run.score.expect("a complete generation is scored");
+        assert_eq!((score.killed, score.survived), (2, 1));
         assert_eq!(
-            run.score.ratio,
+            score.ratio,
             Some(Rational {
                 numerator: 2,
                 denominator: 3
@@ -378,7 +403,8 @@ fn nonterminating_mutant_is_a_timeout() {
                 ..BUDGET
             },
         };
-        let run = run_campaign(&campaign, &[spin], ScheduleMode::Full).expect("admitted");
+        let run =
+            run_campaign(&campaign, &generation([spin]), ScheduleMode::Full).expect("admitted");
         sides(&run.baseline[0]);
         let [mutant] = run.mutants.as_slice() else {
             panic!("one mutant");
@@ -388,7 +414,7 @@ fn nonterminating_mutant_is_a_timeout() {
             TestRun::Failed(ExecutionFailureKind::TimeLimit)
         );
         assert_eq!(mutant.report.status, MutantStatus::Timeout);
-        assert_eq!(run.score.denominator, 0);
+        assert_eq!(run.score.map(|score| score.denominator), Some(0));
     });
 }
 
@@ -443,7 +469,7 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
                     tests: &tests,
                     budget: BUDGET,
                 },
-                &[],
+                &generation([]),
                 ScheduleMode::Full,
             )
         };
@@ -461,7 +487,7 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
             panic!("a crash side");
         };
         assert!(contains(term, "Lblselected"));
-        assert_eq!(admitted.score.denominator, 0);
+        assert_eq!(admitted.score.map(|score| score.denominator), Some(0));
     });
 }
 
@@ -511,7 +537,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                         ..BUDGET
                     },
                 },
-                &[replace(baseline, label, &[1], bool_token("true"))],
+                &generation([replace(baseline, label, &[1], bool_token("true"))]),
                 ScheduleMode::Full,
             )
             .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
@@ -531,7 +557,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
             assert_eq!(sides, &[OracleSide::Unknown], "{id}");
             assert_eq!(mutant.report.status, MutantStatus::Unknown, "{id}");
             assert!(mutant.report.killing_test_ids.is_empty(), "{id}");
-            assert_eq!(run.score.killed, 0, "{id}");
+            assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
         }
 
         // (id, observed rule, initial state)
@@ -552,7 +578,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                     tests: &tests,
                     budget: BUDGET,
                 },
-                &[],
+                &generation([]),
                 ScheduleMode::Full,
             )
             .expect_err(id);
@@ -631,5 +657,83 @@ fn search_paths_are_never_a_state_value() {
             OracleSide::Normal(_)
         ));
         assert_eq!(state_side(&projection, &searched), OracleSide::Unknown);
+    });
+}
+
+/// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and
+/// survives in every row, but only a complete generation is scored. A non-exhaustive
+/// discovery gives an incomplete generation, and a cardinality mismatch a failed one with no
+/// candidates; neither has a score.
+#[test]
+fn incomplete_and_failed_generations_are_not_scored() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let vocabulary = vocabulary(&["unused"]);
+        let tests = [TestCase {
+            id: "t2".to_owned(),
+            initial_state: choose_state(),
+            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+        }];
+        let campaign = Campaign {
+            validator: &validator,
+            module: "COUNTER",
+            observed_rules: &[],
+            vocabulary: &vocabulary,
+            classify: &normal,
+            tests: &tests,
+            budget: BUDGET,
+        };
+        let exhaustive = derive_sites(
+            baseline,
+            "requires",
+            &[
+                SiteSelector::RuleLabel("COUNTER.branch".to_owned()),
+                SiteSelector::Root(1),
+            ],
+        );
+        assert_eq!(exhaustive.tuples.len(), 1);
+        let partial = Discovery {
+            exhaustive: false,
+            ..exhaustive.clone()
+        };
+        let mismatch = SelectionPolicy::Exact {
+            expected_tuple_count: 2,
+            expected_tuple_arity: 1,
+        };
+        // (id, discovery, policy, generation failure, mutant count, score)
+        #[rustfmt::skip]
+        let rows = [
+            ("complete-is-scored", &exhaustive, SelectionPolicy::Each, None, 1, Some((0, 1))),
+            ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
+            ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, Some(CandidateFailureKind::CardinalityMismatch), 0, None),
+        ];
+        for (id, discovery, policy, failure, mutants, expected) in rows {
+            // requires B  =>  requires false: fallback still ends in selected(true).
+            let (generation, _) = select(discovery, policy, 4)
+                .unwrap_or_else(|failure| panic!("{id}: {failure}"))
+                .fold(baseline, "requires-false", |origin| {
+                    let at = origin.site_tuple[0].clone();
+                    Patch::new(vec![Edit::ReplaceTerm {
+                        expected: baseline.term(&at).expect("requires").clone(),
+                        at,
+                        replacement: bool_token("false"),
+                    }])
+                    .expect("one edit")
+                });
+            assert_eq!(generation.failure, failure, "{id}");
+            let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
+                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+            assert_eq!(run.mutants.len(), mutants, "{id}");
+            for mutant in &run.mutants {
+                assert_eq!(mutant.report.status, MutantStatus::Survived, "{id}");
+            }
+            assert_eq!(
+                run.score.map(|score| (score.killed, score.survived)),
+                expected,
+                "{id}"
+            );
+        }
     });
 }

@@ -23,7 +23,9 @@
 //!   `BackendLimit`, and an occurrence there is no witness.
 //!
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
-//! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing.
+//! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
+//! mutants are the candidates of one folded generation, and only a complete generation
+//! is scored.
 
 use std::collections::BTreeSet;
 
@@ -42,7 +44,7 @@ use kink_native::execution::{
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
-use kink_patch::Patch;
+use kink_patch::{CandidateGeneration, Completeness, Patch};
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionBounds, ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure,
@@ -187,12 +189,24 @@ pub struct MutantRun {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampaignRun {
     pub baseline: Vec<TestEvidence>,
-    /// In `mutants` order: `mutants[index]` is `MutantId(index)`.
+    /// In candidate order: `mutants[index]` is `MutantId(index)`, the generation's
+    /// `candidates[index]`.
     pub mutants: Vec<MutantRun>,
-    pub score: Score,
+    /// `None` when the generation is not scored (see [`run_campaign`]): its mutants still
+    /// run and have statuses, but they are not every mutant the operator selects, so no
+    /// score is claimed over them.
+    pub score: Option<Score>,
 }
 
-/// Runs the baseline, admits it, then runs every mutant patch and scores the result.
+/// Runs the baseline, admits it, then runs every candidate of a folded `generation` as a
+/// mutant, and scores the result when the generation is scored.
+///
+/// A generation is scored only when selection considered its whole declared input: it is
+/// `scored`, `CompleteFinite` and has no failure. An incomplete generation (a
+/// non-exhaustive discovery or a candidate cap) or a failed selection has no score (review
+/// P2.2, plan row C4); a selection that returned `Err` has no generation at all. The
+/// generation must be folded (`CandidateGeneration::fold`): its candidates are the
+/// mutants.
 ///
 /// The baseline must compile, and every one of its sides must be a value or a crash its
 /// declaration admits; otherwise no mutant is validated. Every test runs on every mutant
@@ -200,7 +214,7 @@ pub struct CampaignRun {
 /// only decides the report.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
-    mutants: &[Patch],
+    generation: &CandidateGeneration,
     schedule: ScheduleMode,
 ) -> Result<CampaignRun, CampaignFailure> {
     let manifest = campaign
@@ -235,9 +249,10 @@ pub fn run_campaign(
         .collect::<Vec<_>>();
     validate_baseline(admit(campaign.tests, &baseline_evidence))?;
 
-    let mut runs = Vec::with_capacity(mutants.len());
-    for (index, patch) in mutants.iter().enumerate() {
-        let (tests, mutant_failure, evidence) = run_mutant(campaign, patch, &baseline_evidence);
+    let mut runs = Vec::with_capacity(generation.candidates.len());
+    for (index, candidate) in generation.candidates.iter().enumerate() {
+        let (tests, mutant_failure, evidence) =
+            run_mutant(campaign, &candidate.patch, &baseline_evidence);
         let plan = MutantPlan {
             mutant_id: MutantId(index),
             tests,
@@ -251,10 +266,13 @@ pub fn run_campaign(
         });
     }
     let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
+    let scored = generation.scored
+        && generation.completeness == Completeness::CompleteFinite
+        && generation.failure.is_none();
     Ok(CampaignRun {
         baseline: baseline_evidence,
         mutants: runs,
-        score: score(&statuses),
+        score: scored.then(|| score(&statuses)),
     })
 }
 
