@@ -157,6 +157,7 @@ fn replace(baseline: &Baseline, label: &str, path: &[u32], replacement: Term) ->
 /// in site order, and the generation is scored when it has one.
 fn generation<'b>(baseline: &'b Baseline, mutants: &[(TermRef, Patch)]) -> CandidateGeneration<'b> {
     let discovery = derive_sites(baseline, "site", &[])
+        .expect("no bindings")
         .filter(|tuple| mutants.iter().any(|(site, _)| *site == tuple.sites[0].at));
     assert_eq!(
         discovery.tuples().len(),
@@ -738,9 +739,10 @@ fn incomplete_and_failed_generations_are_not_scored() {
             "requires",
             &[
                 SiteSelector::RuleLabel("COUNTER.branch".to_owned()),
-                SiteSelector::Root(1),
+                SiteSelector::Path(vec![1]),
             ],
-        );
+        )
+        .expect("no bindings");
         assert_eq!(exhaustive.tuples().len(), 1);
         let partial = Discovery::supplied(baseline, exhaustive.tuples().to_vec(), false, false)
             .expect("derived sites are known");

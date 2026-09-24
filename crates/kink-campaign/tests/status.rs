@@ -1054,6 +1054,7 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
         "position",
         &[SiteSelector::RuleLabel("MEMORY.write".to_owned())],
     )
+    .expect("no bindings")
     .filter(|tuple| matches!(tuple.sites[0].at.path.0.as_slice(), [0] | [0, 0]));
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
     let origins = generation.selected_origins().to_vec();

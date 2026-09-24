@@ -4,7 +4,8 @@
 //! - [`execution`] runs observed, time-bounded executions through the k-rust `execute` facade.
 //! - [`search`] adapts the k-rust search facade existentially: a response can witness members
 //!   of a result set, never show that the set is complete or empty.
-//! - [`observation`] installs exact-label rule observations and adapts branch-local events.
+//! - [`observation`] installs exact-label rule observations and adapts branch-local events;
+//!   [`select_rules`] chooses those rules by label, attribute, term structure or all of them.
 //! - [`bridge`] maps adapted executions and searches to kink-pattern paths and collection
 //!   evidence.
 //!
@@ -17,8 +18,10 @@ pub mod bridge;
 pub mod execution;
 pub mod observation;
 pub mod search;
+mod selector;
 mod validator;
 
+pub use selector::{RuleSelection, RuleSelector, SelectionFailure, select_rules};
 pub use validator::{
     IdentityError, ManifestFailure, MutantRejection, NativeValidator, ObservedRule,
     ValidatedDefinition,

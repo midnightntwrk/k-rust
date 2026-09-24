@@ -19,12 +19,13 @@
 //! equal clone is a different baseline to this check, which refuses it
 //! conservatively.
 
+use crate::sort::Typing;
 use crate::{
     Baseline, Edit, InsertPosition, Patch, PatchFailure, SentenceRef, TermRef, apply, child,
     field_term,
 };
 use k_rust::definition::{AttributeKey, Sentence};
-use k_rust::kast::Term;
+use k_rust::kast::{Sort, Term};
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -92,20 +93,22 @@ impl Bindings {
     /// followed by ASCII alphanumerics or underscores.
     pub fn new(mut bindings: Vec<(String, Term)>) -> Result<Self, CandidateFailure> {
         bindings.sort_by(|left, right| left.0.cmp(&right.0));
-        if bindings.iter().any(|(name, _)| !valid_binding_name(name))
-            || bindings.windows(2).any(|pair| pair[0].0 == pair[1].0)
-        {
-            return Err(CandidateFailure::new(
-                CandidateFailureKind::InvalidBinding,
-                "binding names must be unique K variable names",
-            ));
-        }
+        check_binding_names(bindings.iter().map(|(name, _)| name.as_str()))?;
         Ok(Self(bindings))
     }
 
     #[must_use]
     pub fn as_slice(&self) -> &[(String, Term)] {
         &self.0
+    }
+
+    /// The term bound to `name`.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&Term> {
+        self.0
+            .binary_search_by(|(bound, _)| bound.as_str().cmp(name))
+            .ok()
+            .map(|index| &self.0[index].1)
     }
 }
 
@@ -119,9 +122,10 @@ pub struct DiscoveryTuple {
 /// The discovered tuples of one operator over one baseline, and whether they
 /// are all of them.
 ///
-/// Only [`derive_sites`], and [`Discovery::filter`] and [`Discovery::join`]
-/// over exhaustive discoveries, give an exhaustive discovery: each considers
-/// every match of its (narrowed or joined) selector. Hand-supplied tuples
+/// Only [`derive_sites`] when it decided every position, and
+/// [`Discovery::filter`] and [`Discovery::join`] over exhaustive discoveries,
+/// give an exhaustive discovery: each considers every match of its (narrowed
+/// or joined) selector. Hand-supplied tuples
 /// ([`Discovery::supplied`]) are never exhaustive, because nothing shows that
 /// every match was considered, so a selection over them is never scored.
 #[derive(Clone)]
@@ -175,14 +179,17 @@ impl<'b> Discovery<'b> {
 
     /// Joins every tuple of `self` with every tuple of `other`, in that
     /// order, and keeps the pairs `keep` accepts. A joined tuple lists both
-    /// tuples' sites and bindings. The join is exhaustive when both inputs
+    /// tuples' sites, and their bindings with each name once.
+    ///
+    /// A name bound on both sides is one pattern variable: a pair that binds
+    /// it to different terms (by `Term` equality) does not match and is
+    /// dropped before `keep` sees it. The join is exhaustive when both inputs
     /// are, since every pair is considered. A pair that repeats a site is
     /// kept if `keep` accepts it, and [`select`] rejects it.
     ///
     /// # Errors
     ///
-    /// Returns `InvalidJoin` for discoveries of different baselines, and
-    /// `InvalidBinding` for a kept pair whose bindings share a name.
+    /// Returns `InvalidJoin` for discoveries of different baselines.
     pub fn join(
         &self,
         other: &Self,
@@ -198,17 +205,23 @@ impl<'b> Discovery<'b> {
         let mut tuples = Vec::new();
         for left in &self.tuples {
             for right in &other.tuples {
-                if keep(left, right) {
+                let unified =
+                    right.bindings.0.iter().all(|(name, term)| {
+                        left.bindings.get(name).is_none_or(|bound| bound == term)
+                    });
+                if unified && keep(left, right) {
+                    let mut bindings = left.bindings.0.clone();
+                    bindings.extend(
+                        right
+                            .bindings
+                            .0
+                            .iter()
+                            .filter(|(name, _)| left.bindings.get(name).is_none())
+                            .cloned(),
+                    );
                     tuples.push(DiscoveryTuple {
                         sites: left.sites.iter().chain(&right.sites).cloned().collect(),
-                        bindings: Bindings::new(
-                            left.bindings
-                                .0
-                                .iter()
-                                .chain(&right.bindings.0)
-                                .cloned()
-                                .collect(),
-                        )?,
+                        bindings: Bindings::new(bindings)?,
                     });
                 }
             }
@@ -264,28 +277,73 @@ impl fmt::Debug for Discovery<'_> {
     }
 }
 
-/// One conjunctive clause of a site selector.
+/// One conjunctive clause of a site selector. A selector without a clause of
+/// some kind does not constrain that property: without a `RuleLabel` clause,
+/// labelled and unlabelled rules both match.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SiteSelector {
     /// The rule carries this module-qualified label.
     RuleLabel(String),
-    /// The position is a whole sentence field: 0 body, 1 requires, 2 ensures.
-    Root(u32),
+    /// The position is exactly this term path; `[0]`, `[1]` and `[2]` are
+    /// the body, requires and ensures fields.
+    Path(Vec<u32>),
+    /// The term at the position has exactly this sort (not a subsort).
+    Sort(Sort),
     /// The position holds an application of this label.
     Head { label: String },
+    /// Binds the term at the position to this name, which must be an
+    /// upper-case K variable name. It constrains nothing by itself; a join
+    /// unifies the names both sides bind ([`Discovery::join`]).
+    Bind(String),
 }
 
 /// Derives every term position of the baseline's written rules that
-/// satisfies all `selector` clauses, as unary tuples in [`TermRef`] order.
+/// satisfies all `selector` clauses, as unary tuples in [`TermRef`] order,
+/// each binding the matched term to every `Bind` name.
 ///
-/// The result is exhaustive: every written rule and every position in it is
-/// considered.
-#[must_use]
+/// Every written rule and every position in it is considered. Only rules are
+/// considered, and only written ones: generated sentences are excluded.
+/// A position that satisfies every other clause but whose sort cannot be
+/// decided locally (see the sort module) is neither a site nor a non-site,
+/// so a selector with a `Sort` clause that meets one yields a discovery that
+/// is not exhaustive, and is never scored.
+///
+/// # Errors
+///
+/// Returns `InvalidBinding` when the `Bind` names are not unique K variable
+/// names, whether or not any position matches.
 pub fn derive_sites<'b>(
     baseline: &'b Baseline,
     role: &str,
     selector: &[SiteSelector],
-) -> Discovery<'b> {
+) -> Result<Discovery<'b>, CandidateFailure> {
+    let mut names = selector
+        .iter()
+        .filter_map(|clause| match clause {
+            SiteSelector::Bind(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    check_binding_names(names.iter().copied())?;
+    let bind = |term: &Term| {
+        Bindings(
+            names
+                .iter()
+                .map(|name| ((*name).to_owned(), term.clone()))
+                .collect(),
+        )
+    };
+    let sorts = selector
+        .iter()
+        .filter_map(|clause| match clause {
+            SiteSelector::Sort(sort) => Some(sort),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let resolved = &baseline.loaded().resolved;
+    let views = resolved.views();
+    let mut exhaustive = true;
     let mut sites = Vec::new();
     for (sentence_ref, sentence) in baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. })
@@ -293,11 +351,13 @@ pub fn derive_sites<'b>(
                 SiteSelector::RuleLabel(label) => {
                     sentence.attributes().string(AttributeKey::Label) == Some(label.as_str())
                 }
-                SiteSelector::Root(_) | SiteSelector::Head { .. } => true,
+                _ => true,
             })
         {
             continue;
         }
+        let typing =
+            (!sorts.is_empty()).then(|| Typing::new(resolved, &views, &sentence_ref.module));
         for field in 0..3 {
             let Some(root) = field_term(sentence, field) else {
                 continue;
@@ -305,15 +365,28 @@ pub fn derive_sites<'b>(
             let mut stack = vec![(vec![field], root)];
             while let Some((path, term)) = stack.pop() {
                 let matched = selector.iter().all(|clause| match clause {
-                    SiteSelector::RuleLabel(_) => true,
-                    SiteSelector::Root(root) => path.as_slice() == [*root],
+                    SiteSelector::RuleLabel(_) | SiteSelector::Sort(_) | SiteSelector::Bind(_) => {
+                        true
+                    }
+                    SiteSelector::Path(wanted) => path == *wanted,
                     SiteSelector::Head { label } => matches!(
                         term.unannotated(),
                         Term::Apply { label: head, .. } if head.name == *label
                     ),
                 });
-                if matched {
-                    sites.push(TermRef::new(sentence_ref.clone(), path.clone()));
+                let sorted = match &typing {
+                    Some(typing) if matched => {
+                        let actual = typing
+                            .as_ref()
+                            .ok()
+                            .and_then(|typing| typing.site_sort(sentence, &path).ok());
+                        exhaustive &= actual.is_some();
+                        actual.is_some_and(|actual| sorts.iter().all(|wanted| actual == **wanted))
+                    }
+                    _ => true,
+                };
+                if matched && sorted {
+                    sites.push((TermRef::new(sentence_ref.clone(), path.clone()), bind(term)));
                 }
                 let children = (0..)
                     .map_while(|step| Some((step, child(term, step)?)))
@@ -326,23 +399,23 @@ pub fn derive_sites<'b>(
             }
         }
     }
-    sites.sort();
-    Discovery {
+    sites.sort_by(|left, right| left.0.cmp(&right.0));
+    Ok(Discovery {
         baseline,
         tuples: sites
             .into_iter()
-            .map(|at| DiscoveryTuple {
+            .map(|(at, bindings)| DiscoveryTuple {
                 sites: vec![Site {
                     role: role.to_owned(),
                     at,
                 }],
-                bindings: Bindings::default(),
+                bindings,
             })
             .collect(),
-        exhaustive: true,
+        exhaustive,
         joined: false,
         tuple_symmetric: false,
-    }
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -819,6 +892,24 @@ fn symmetric_key(tuple: &DiscoveryTuple) -> Vec<TermRef> {
     let mut key = site_refs(tuple);
     key.sort();
     key
+}
+
+/// Rejects a repeated name among sorted `names`, or a name that is not an
+/// upper-case initial followed by ASCII alphanumerics or underscores.
+fn check_binding_names<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+) -> Result<(), CandidateFailure> {
+    let mut previous = None;
+    for name in names {
+        if !valid_binding_name(name) || previous == Some(name) {
+            return Err(CandidateFailure::new(
+                CandidateFailureKind::InvalidBinding,
+                "binding names must be unique K variable names",
+            ));
+        }
+        previous = Some(name);
+    }
+    Ok(())
 }
 
 fn valid_binding_name(value: &str) -> bool {

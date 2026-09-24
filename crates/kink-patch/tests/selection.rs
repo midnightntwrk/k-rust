@@ -8,15 +8,22 @@
 //! narrowed to the named sites, and joined with itself for pairs. Tuples no
 //! derivation produces (repeated, or from a non-exhaustive discovery) are
 //! supplied by hand, which is never exhaustive.
+//!
+//! The site-derivation rows are the former selector registries
+//! (`counter-mutation-site-registry.json`, `mutation-site-registry.json`)
+//! over `testdata/k`, and the operators are the two those registries fed:
+//! `counter-plus-one-site` and `coupled-memory-representation`.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use k_rust::kast::Term;
+use k_rust::definition::sentence_mut;
+use k_rust::kast::{Sort, Term};
 use kink_patch::{
     Baseline, Bindings, CandidateDisposition, CandidateFailureKind, CandidateGeneration,
     Completeness, Discovery, DiscoveryTuple, Edit, InsertPosition, Patch, PatchFailureKind,
-    PatchOrigin, SelectionPolicy, SentenceRef, Site, SiteSelector, TermRef, derive_sites, select,
+    PatchOrigin, SelectionPolicy, SentenceRef, Site, SiteSelector, TermRef, apply, derive_sites,
+    select,
 };
 
 const NAMES: [&str; 3] = ["write", "load", "free"];
@@ -59,6 +66,7 @@ impl Memory {
     /// The named sites of an exhaustive derivation, as unary tuples of `role`.
     fn derived(&self, role: &str) -> Discovery<'_> {
         derive_sites(&self.baseline, role, &[])
+            .expect("no bindings")
             .filter(|tuple| self.named(&tuple.sites[0].at).is_some())
     }
 
@@ -499,7 +507,8 @@ fn cap_is_applied_before_patch_deduplication() {
 #[test]
 fn sites_are_derived_in_definition_order_from_memory_k() {
     let memory = Memory::new();
-    let bodies = derive_sites(&memory.baseline, "body", &[SiteSelector::Root(0)]);
+    let bodies = derive_sites(&memory.baseline, "body", &[SiteSelector::Path(vec![0])])
+        .expect("no bindings");
     assert!(bodies.exhaustive() && !bodies.joined() && !bodies.tuple_symmetric());
     assert_eq!(
         bodies
@@ -522,9 +531,10 @@ fn sites_are_derived_in_definition_order_from_memory_k() {
         "body",
         &[
             SiteSelector::RuleLabel("MEMORY.load".to_owned()),
-            SiteSelector::Root(0),
+            SiteSelector::Path(vec![0]),
         ],
-    );
+    )
+    .expect("no bindings");
     assert_eq!(
         load.tuples(),
         [DiscoveryTuple {
@@ -546,7 +556,8 @@ fn sites_are_derived_in_definition_order_from_memory_k() {
         &[SiteSelector::Head {
             label: "s".to_owned(),
         }],
-    );
+    )
+    .expect("no bindings");
     assert_eq!(
         successors
             .tuples()
@@ -565,7 +576,8 @@ fn sites_are_derived_in_definition_order_from_memory_k() {
 #[test]
 fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
     let memory = Memory::new();
-    let discovery = derive_sites(&memory.baseline, "body", &[SiteSelector::Root(0)]);
+    let discovery = derive_sites(&memory.baseline, "body", &[SiteSelector::Path(vec![0])])
+        .expect("no bindings");
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
     let write = memory.site("write");
     let folded = generation
@@ -795,7 +807,8 @@ fn empty_generations_are_not_scored() {
         &memory.baseline,
         "body",
         &[SiteSelector::RuleLabel("MEMORY.nothing".to_owned())],
-    );
+    )
+    .expect("no bindings");
     let write = memory.discovery(&[&["write"]], false, false);
     let no_change = |origin: &PatchOrigin| {
         let at = origin.site_tuple[0].clone();
@@ -839,4 +852,363 @@ fn empty_generations_are_not_scored() {
         );
         assert_eq!(generation.scored(), scored, "{id}");
     }
+}
+
+fn label(label: &str) -> SiteSelector {
+    SiteSelector::RuleLabel(label.to_owned())
+}
+
+fn path(path: &[u32]) -> SiteSelector {
+    SiteSelector::Path(path.to_vec())
+}
+
+fn sort(name: &str) -> SiteSelector {
+    SiteSelector::Sort(Sort::new(name))
+}
+
+fn head(label: &str) -> SiteSelector {
+    SiteSelector::Head {
+        label: label.to_owned(),
+    }
+}
+
+fn bind(name: &str) -> SiteSelector {
+    SiteSelector::Bind(name.to_owned())
+}
+
+/// Expected sites as (rule label, path).
+type Sites = &'static [(&'static str, &'static [u32])];
+
+/// (id, baseline, selector, expected sites, bound names)
+type DerivationRow<'a> = (
+    &'static str,
+    &'a Baseline,
+    Vec<SiteSelector>,
+    Sites,
+    &'static [&'static str],
+);
+
+/// The derived sites as (rule label, path).
+fn labelled_sites(baseline: &Baseline, discovery: &Discovery<'_>) -> Vec<(String, Vec<u32>)> {
+    discovery
+        .tuples()
+        .iter()
+        .flat_map(|tuple| &tuple.sites)
+        .map(|site| {
+            let rule = baseline.sentence(&site.at.sentence).expect("sentence");
+            let label = rule
+                .attributes()
+                .string(k_rust::definition::AttributeKey::Label)
+                .expect("labelled rule");
+            (label.to_owned(), site.at.path.0.clone())
+        })
+        .collect()
+}
+
+/// Plan row S4: sites are derived from the definition by conjunctive clauses
+/// (label, term path, sort, head), in site order, and each binds its term to
+/// the selector's `Bind` names.
+#[test]
+fn sites_are_derived_from_selector_clauses_with_bindings() {
+    let counter = support::load("counter.k");
+    let memory = support::load("memory.k");
+    #[rustfmt::skip]
+    let rows: [DerivationRow<'_>; 10] = [
+        // The former `counter-mutation-site-registry.json`, over `counter.k`'s
+        // `s(N)` where the portable counter had `plusOne(N)`.
+        ("counter-increment-expression", &counter, vec![path(&[0, 1, 0]), sort("Nat"), head("s"), bind("E")], &[("COUNTER.increment", &[0, 1, 0])], &["E"]),
+        // Without a label clause, labelled rules match too.
+        ("no-label-clause-matches-labelled-rules", &counter, vec![path(&[0, 1]), sort("Control")], &[("COUNTER.branch", &[0, 1]), ("COUNTER.fallback", &[0, 1])], &[]),
+        ("label-clause-narrows", &counter, vec![label("COUNTER.branch"), path(&[0, 1]), sort("Control")], &[("COUNTER.branch", &[0, 1])], &[]),
+        ("sort-clauses-are-conjunctive", &counter, vec![path(&[0, 1, 0]), sort("Nat"), sort("Bool")], &[], &[]),
+        ("sort-is-exact-not-a-supersort", &counter, vec![path(&[0, 1, 0]), sort("KItem")], &[], &[]),
+        ("wrong-head", &counter, vec![path(&[0, 1]), sort("Counter"), head("selected")], &[], &[]),
+        ("path-past-a-leaf", &counter, vec![path(&[0, 1, 99]), sort("Nat")], &[], &[]),
+        // A variable takes the sort of the cast the loader wraps it in; the
+        // cast and the variable are two positions of that sort.
+        ("variable-under-a-cast-has-the-cast-sort", &counter, vec![label("COUNTER.branch"), sort("Bool"), bind("B")], &[("COUNTER.branch", &[0, 0, 0]), ("COUNTER.branch", &[0, 0, 0, 0]), ("COUNTER.branch", &[0, 1, 0]), ("COUNTER.branch", &[0, 1, 0, 0]), ("COUNTER.branch", &[1]), ("COUNTER.branch", &[1, 0]), ("COUNTER.branch", &[2])], &["B"]),
+        // The two clauses of the former `mutation-site-registry.json`.
+        ("memory-write-address", &memory, vec![label("MEMORY.write"), path(&[0, 0, 0]), sort("Address"), bind("A")], &[("MEMORY.write", &[0, 0, 0])], &["A"]),
+        ("memory-load-address", &memory, vec![label("MEMORY.load"), path(&[0, 0, 0]), sort("Address"), bind("A")], &[("MEMORY.load", &[0, 0, 0])], &["A"]),
+    ];
+    for (id, baseline, selector, expected, names) in rows {
+        let discovery = derive_sites(baseline, "role", &selector)
+            .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert!(discovery.exhaustive() && !discovery.joined(), "{id}");
+        let expected = expected
+            .iter()
+            .map(|(rule, path)| ((*rule).to_owned(), path.to_vec()))
+            .collect::<Vec<_>>();
+        assert_eq!(labelled_sites(baseline, &discovery), expected, "{id}");
+        for tuple in discovery.tuples() {
+            let term = baseline
+                .term(&tuple.sites[0].at)
+                .expect("a derived site resolves");
+            assert_eq!(
+                tuple.bindings.as_slice(),
+                names
+                    .iter()
+                    .map(|name| ((*name).to_owned(), term.clone()))
+                    .collect::<Vec<_>>(),
+                "{id}: each name binds the site's own term"
+            );
+        }
+    }
+}
+
+/// The former `ordered-shared-term` join: a name both roles bind is one
+/// pattern variable, so only pairs that bind it to equal terms are tuples,
+/// and each tuple binds it once.
+#[test]
+fn a_join_unifies_the_names_both_roles_bind() {
+    let memory = support::load("memory.k");
+    let role = |role: &str, rule: &str, at: &[u32], sort_name: &str, name: &str| {
+        derive_sites(
+            &memory,
+            role,
+            &[label(rule), path(at), sort(sort_name), bind(name)],
+        )
+        .expect("valid selector")
+    };
+    let write_address = role("write-address", "MEMORY.write", &[0, 0, 0], "Address", "A");
+    let load_address = role("load-address", "MEMORY.load", &[0, 0, 0], "Address", "A");
+    let shared = write_address
+        .join(&load_address, false, |_, _| true)
+        .expect("one baseline");
+    assert!(shared.exhaustive() && shared.joined());
+    let [tuple] = shared.tuples() else {
+        panic!("one pair: {:?}", shared.tuples());
+    };
+    assert_eq!(
+        tuple
+            .sites
+            .iter()
+            .map(|site| site.role.as_str())
+            .collect::<Vec<_>>(),
+        ["write-address", "load-address"]
+    );
+    let address = memory.term(&tuple.sites[0].at).expect("site").clone();
+    assert_eq!(tuple.bindings.as_slice(), [("A".to_owned(), address)]);
+
+    // `A` bound to `load`'s value `V` is another term: no pair, and the join
+    // still considered every pair.
+    let load_value = role("load-value", "MEMORY.load", &[0, 0, 1], "Nat", "A");
+    let mismatch = write_address
+        .join(&load_value, false, |_, _| true)
+        .expect("one baseline");
+    assert!(mismatch.tuples().is_empty() && mismatch.exhaustive());
+
+    // Distinct names do not constrain each other.
+    let value = role("load-value", "MEMORY.load", &[0, 0, 1], "Nat", "V");
+    let distinct = write_address
+        .join(&value, false, |_, _| true)
+        .expect("one baseline");
+    let [tuple] = distinct.tuples() else {
+        panic!("one pair: {:?}", distinct.tuples());
+    };
+    assert_eq!(
+        tuple
+            .bindings
+            .as_slice()
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["A", "V"]
+    );
+}
+
+#[test]
+fn bind_clauses_must_name_unique_k_variables() {
+    let memory = support::load("memory.k");
+    for (id, names) in [
+        ("lower-case", &["a"][..]),
+        ("repeated", &["A", "A"]),
+        ("empty", &[""]),
+    ] {
+        // Rejected whether or not any position matches.
+        for selector in [vec![], vec![label("MEMORY.nothing")]] {
+            let selector = selector
+                .into_iter()
+                .chain(names.iter().map(|name| bind(name)))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                derive_sites(&memory, "role", &selector)
+                    .expect_err(id)
+                    .kind(),
+                CandidateFailureKind::InvalidBinding,
+                "{id}"
+            );
+        }
+    }
+}
+
+/// A position whose sort cannot be decided is neither a site nor a non-site:
+/// the discovery is not exhaustive, so its generation is never scored. A
+/// selector that never asks for that position's sort is unaffected.
+#[test]
+fn an_undecided_sort_makes_the_discovery_incomplete() {
+    let counter = support::load("counter.k");
+    let increment = support::rule(&counter, "COUNTER.increment");
+    // `increment`'s `requires` becomes a variable without a sort or cast.
+    let mut loaded = counter.loaded().clone();
+    let module = loaded
+        .definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == increment.module)
+        .expect("module");
+    let slot = &mut module.local_sentences[usize::try_from(increment.index).expect("index")];
+    let k_rust::definition::Sentence::Rule { requires, .. } = sentence_mut(slot) else {
+        panic!("increment is a rule");
+    };
+    *requires = Term::Variable {
+        name: "B".to_owned(),
+        sort: None,
+    };
+    let unsorted = Baseline::new(loaded);
+
+    let requires =
+        derive_sites(&unsorted, "requires", &[path(&[1]), sort("Bool")]).expect("valid selector");
+    assert!(!requires.exhaustive());
+    assert_eq!(
+        labelled_sites(&unsorted, &requires),
+        [
+            ("COUNTER.branch".to_owned(), vec![1]),
+            ("COUNTER.fallback".to_owned(), vec![1])
+        ]
+    );
+    let generation = select(&requires, SelectionPolicy::Each, 4)
+        .expect("selection")
+        .fold("unused", |origin| {
+            let at = origin.site_tuple[0].clone();
+            let current = unsorted.term(&at).expect("term").clone();
+            Patch::new(vec![Edit::ReplaceTerm {
+                at,
+                expected: current,
+                replacement: Term::Token {
+                    token: "false".to_owned(),
+                    sort: Sort::new("Bool"),
+                },
+            }])
+            .expect("one edit")
+        })
+        .expect("each origin edits its own rule");
+    assert_eq!(generation.completeness(), Completeness::Incomplete);
+    assert!(!generation.scored());
+
+    let ensures =
+        derive_sites(&unsorted, "ensures", &[path(&[2]), sort("Bool")]).expect("valid selector");
+    assert!(ensures.exhaustive());
+    assert_eq!(ensures.tuples().len(), 3);
+}
+
+/// The two operators of the former selector registries, now built from
+/// derived sites and their bindings. Each yields one scored candidate whose
+/// mutant k-rust compiles.
+#[test]
+fn operators_build_their_patches_from_bound_terms() {
+    // `counter-plus-one-site`: each `s(E')` on a right-hand side's first
+    // argument loses its successor, `E` becoming its argument.
+    let counter = support::load("counter.k");
+    let increments = derive_sites(
+        &counter,
+        "increment-expression",
+        &[path(&[0, 1, 0]), sort("Nat"), head("s"), bind("E")],
+    )
+    .expect("valid selector");
+    let generation = select(&increments, SelectionPolicy::Each, 16)
+        .expect("selection")
+        .fold("counter-plus-one-site", |origin| {
+            let tuple = &origin.discovery_tuples[0];
+            let Term::Apply { arguments, .. } =
+                tuple.bindings.get("E").expect("bound").unannotated()
+            else {
+                panic!("E is an application of s");
+            };
+            let at = tuple.sites[0].at.clone();
+            Patch::new(vec![Edit::ReplaceTerm {
+                expected: counter.term(&at).expect("term").clone(),
+                at,
+                replacement: arguments[0].clone(),
+            }])
+            .expect("one edit")
+        })
+        .expect("each origin edits its own rule");
+    assert!(generation.scored());
+    let [candidate] = generation.candidates() else {
+        panic!("one candidate: {generation:?}");
+    };
+    let increment = support::rule(&counter, "COUNTER.increment");
+    let at = |path: &[u32]| TermRef::new(increment.clone(), path);
+    let term = |path: &[u32]| counter.term(&at(path)).expect("term").clone();
+    assert_eq!(
+        candidate.patch,
+        Patch::new(vec![Edit::ReplaceTerm {
+            at: at(&[0, 1, 0]),
+            expected: term(&[0, 1, 0]),
+            replacement: term(&[0, 1, 0, 0]),
+        }])
+        .expect("one edit"),
+        "the hand-built increment mutant of the validator tests"
+    );
+    let mutant = apply(&counter, &candidate.patch).expect("applies");
+    support::compile(&mutant.to_loaded(&counter)).expect("the mutant compiles");
+
+    // `coupled-memory-representation`: the value `write` stores and the value
+    // `load` reads change representation together, as one mutant. Exactly
+    // one pair shares `V`; each site becomes `s(V)`.
+    let memory = support::load("memory.k");
+    let value = |role: &str, rule: &str| {
+        derive_sites(
+            &memory,
+            role,
+            &[label(rule), path(&[0, 0, 1]), sort("Nat"), bind("V")],
+        )
+        .expect("valid selector")
+    };
+    let coupled = value("write-value", "MEMORY.write")
+        .join(&value("load-value", "MEMORY.load"), false, |_, _| true)
+        .expect("one baseline");
+    let generation = select(&coupled, EXACT_PAIR, 8)
+        .expect("selection")
+        .fold("coupled-memory-representation", |origin| {
+            let tuple = &origin.discovery_tuples[0];
+            let bound = tuple.bindings.get("V").expect("bound");
+            Patch::new(
+                tuple
+                    .sites
+                    .iter()
+                    .map(|site| Edit::ReplaceTerm {
+                        at: site.at.clone(),
+                        expected: memory.term(&site.at).expect("term").clone(),
+                        replacement: Term::apply("s", vec![bound.clone()]),
+                    })
+                    .collect(),
+            )
+            .expect("two edits")
+        })
+        .expect("the origin holds both rules");
+    assert!(generation.scored());
+    let [candidate] = generation.candidates() else {
+        panic!("one candidate: {generation:?}");
+    };
+    assert_eq!(candidate.patch.edits().len(), 2);
+    let mutant = apply(&memory, &candidate.patch).expect("applies");
+    for rule in ["MEMORY.write", "MEMORY.load"] {
+        let at = TermRef::new(support::rule(&memory, rule), [0, 0, 1]);
+        assert_eq!(
+            kink_patch::term_at(
+                mutant.definition(),
+                &at.sentence.module,
+                at.sentence.index,
+                &at.path.0
+            ),
+            Some(&Term::apply(
+                "s",
+                vec![memory.term(&at).expect("term").clone()]
+            )),
+            "{rule}"
+        );
+    }
+    support::compile(&mutant.to_loaded(&memory)).expect("the mutant compiles");
 }

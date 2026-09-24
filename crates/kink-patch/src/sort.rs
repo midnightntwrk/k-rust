@@ -100,6 +100,22 @@ impl<'v, 'a> Typing<'v, 'a> {
         Ok(())
     }
 
+    /// The sort of the term at `path`: its own sort, or the cast sort for a
+    /// sortless variable directly under a semantic cast, which is how the
+    /// loader types it.
+    pub(crate) fn site_sort(&self, sentence: &Sentence, path: &[u32]) -> Result<Sort, String> {
+        let term = path_in(sentence, path).ok_or("path does not resolve")?;
+        if matches!(term.unannotated(), Term::Variable { sort: None, .. })
+            && let Some((_, parent_path)) = path.split_last()
+            && let Some(parent) = path_in(sentence, parent_path)
+            && let Term::Apply { label, .. } = parent.unannotated()
+            && let Some(cast) = label.semantic_cast_sort()
+        {
+            return Ok(cast);
+        }
+        self.sort_of(term)
+    }
+
     pub(crate) fn check(&self, term: &Term, expected: &Sort) -> Result<(), String> {
         let sort = self.sort_of(term)?;
         if self.subsorts.less_than_eq(&sort, expected) {
