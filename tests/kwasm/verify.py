@@ -99,7 +99,7 @@ def main() -> int:
         if arguments.java_reference:
             k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
             proof_count = java_reference_gate(
-                workspace, artifacts, k, pins, corpus
+                workspace, artifacts, k, pins, corpus, native_outcomes
             )
     pins.finish("readable KWasm integer slice")
     proof_status = (
