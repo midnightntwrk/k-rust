@@ -216,23 +216,26 @@ fn killed_cannot_fail_validation() {
         MutantScopeFailure::Rejected,
         one_test(&[Distinguish, Agree]),
     );
-    assert_eq!(
-        derive_mutant_report(&killed, &declared, ScheduleMode::Full)
-            .expect_err("a rejected mutant cannot carry a kill")
-            .kind(),
-        CampaignFailureKind::InvalidManifest
-    );
     let rejected = with_failure(MutantScopeFailure::Rejected, Vec::new());
-    let actual = report(&rejected, &declared, ScheduleMode::Full);
-    assert_eq!(actual.status, Invalid);
-    assert!(actual.killing_test_ids.is_empty());
     let corrupted = with_failure(
         MutantScopeFailure::Infrastructure,
         one_test(&[Distinguish, Agree]),
     );
-    let actual = report(&corrupted, &declared, ScheduleMode::Full);
-    assert_eq!(actual.status, Error);
-    assert!(actual.killing_test_ids.is_empty());
+    for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
+        assert_eq!(
+            derive_mutant_report(&killed, &declared, schedule)
+                .expect_err("a rejected mutant cannot carry a kill")
+                .kind(),
+            CampaignFailureKind::InvalidManifest,
+            "{schedule:?}"
+        );
+        let actual = report(&rejected, &declared, schedule);
+        assert_eq!(actual.status, Invalid, "{schedule:?}");
+        assert!(actual.killing_test_ids.is_empty(), "{schedule:?}");
+        let actual = report(&corrupted, &declared, schedule);
+        assert_eq!(actual.status, Error, "{schedule:?}");
+        assert!(actual.killing_test_ids.is_empty(), "{schedule:?}");
+    }
 }
 
 /// One row per failure-kind `status` arm. A mutant-scope failure decides the
@@ -251,54 +254,65 @@ fn every_failure_kind_maps_to_one_status() {
         (S::LoweringResourceLimit, Unknown),
         (S::Infrastructure, Error),
     ];
-    let declared = manifest(&[("t1", 2)]);
-    for (kind, expected) in scope_rows {
-        assert_eq!(kind.status(), expected, "{kind:?}");
-        for tests in [
-            Vec::new(),
-            one_test(&[Distinguish, Agree]),
-            one_test(&[Agree, Agree]),
-        ] {
-            let executed = !tests.is_empty();
-            let derived = derive_mutant_report(
-                &MutantPlan {
-                    mutant_failure: Some(kind),
-                    ..plan(tests)
-                },
-                &declared,
-                ScheduleMode::Full,
-            );
-            if executed && kind != S::Infrastructure {
-                assert_eq!(
-                    derived.expect_err("no test ran").kind(),
-                    CampaignFailureKind::InvalidManifest,
-                    "{kind:?}"
-                );
-                continue;
-            }
-            let actual = derived.expect("plan derives a report");
-            assert_eq!(actual.status, expected, "{kind:?}");
-            assert!(actual.killing_test_ids.is_empty(), "{kind:?}");
-        }
-    }
     let execution_rows = [
         (E::Indeterminate, Unknown),
         (E::ResourceLimit, Unknown),
         (E::TimeLimit, Timeout),
         (E::Infrastructure, Error),
     ];
-    for (kind, expected) in execution_rows {
-        assert_eq!(kind.status(), expected, "{kind:?}");
-        let failed = TestPlan {
-            test_id: "t1".to_owned(),
-            run: TestRun::Failed(kind),
-        };
-        let alone = plan(vec![failed.clone(), compared("t2", &[Agree])]);
-        let actual = report(&alone, &manifest_of(&alone), ScheduleMode::Full);
-        assert_eq!(actual.status, expected, "{kind:?} beside agreement");
-        let killed = plan(vec![failed, compared("t2", &[Distinguish])]);
-        let actual = report(&killed, &manifest_of(&killed), ScheduleMode::Full);
-        assert_eq!(actual.status, Killed, "{kind:?}: a kill takes precedence");
+    let declared = manifest(&[("t1", 2)]);
+    for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
+        for (kind, expected) in scope_rows {
+            assert_eq!(kind.status(), expected, "{kind:?}");
+            for tests in [
+                Vec::new(),
+                one_test(&[Distinguish, Agree]),
+                one_test(&[Agree, Agree]),
+            ] {
+                let executed = !tests.is_empty();
+                let derived = derive_mutant_report(
+                    &MutantPlan {
+                        mutant_failure: Some(kind),
+                        ..plan(tests)
+                    },
+                    &declared,
+                    schedule,
+                );
+                if executed && kind != S::Infrastructure {
+                    assert_eq!(
+                        derived.expect_err("no test ran").kind(),
+                        CampaignFailureKind::InvalidManifest,
+                        "{kind:?} under {schedule:?}"
+                    );
+                    continue;
+                }
+                let actual = derived.expect("plan derives a report");
+                assert_eq!(actual.status, expected, "{kind:?} under {schedule:?}");
+                assert!(
+                    actual.killing_test_ids.is_empty(),
+                    "{kind:?} under {schedule:?}"
+                );
+            }
+        }
+        for (kind, expected) in execution_rows {
+            assert_eq!(kind.status(), expected, "{kind:?}");
+            let failed = TestPlan {
+                test_id: "t1".to_owned(),
+                run: TestRun::Failed(kind),
+            };
+            let alone = plan(vec![failed.clone(), compared("t2", &[Agree])]);
+            let actual = report(&alone, &manifest_of(&alone), schedule);
+            assert_eq!(
+                actual.status, expected,
+                "{kind:?} beside agreement under {schedule:?}"
+            );
+            let killed = plan(vec![failed, compared("t2", &[Distinguish])]);
+            let actual = report(&killed, &manifest_of(&killed), schedule);
+            assert_eq!(
+                actual.status, Killed,
+                "{kind:?}: a kill takes precedence under {schedule:?}"
+            );
+        }
     }
 }
 
