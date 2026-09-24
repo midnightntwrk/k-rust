@@ -957,3 +957,291 @@ fn refresh_test_definition(definition: &mut SemanticJson) {
         ),
     );
 }
+
+fn first_edit_mut(patch: &mut SemanticJson) -> &mut BTreeMap<String, SemanticJson> {
+    object_mut(&mut patch_edits_mut(patch)[0])
+}
+
+fn replacement_sentence_mut(patch: &mut SemanticJson) -> &mut BTreeMap<String, SemanticJson> {
+    let value = first_edit_mut(patch).get_mut("value").expect("value");
+    object_mut(object_mut(value).get_mut("sentence").expect("sentence"))
+}
+
+fn original_reference_sort_drift(patch: &mut SemanticJson, _: &SemanticJson) {
+    patch_edits_mut(patch).truncate(1);
+    let edit = first_edit_mut(patch);
+    let lineage = edit
+        .get("targetLineage")
+        .and_then(SemanticJson::as_str)
+        .expect("target lineage")
+        .to_owned();
+    // body.rhs argument 1 is an Int; the replaced subterm is an Address.
+    let value = format!(
+        r#"{{"kind":"original-reference","fromOriginalLineage":"{lineage}","fromOriginalPath":[{{"kind":"field","name":"body"}},{{"kind":"field","name":"rhs"}},{{"kind":"argument","index":1}}]}}"#
+    );
+    edit.insert(
+        "value".to_owned(),
+        parse_json(value.as_bytes()).expect("original reference"),
+    );
+}
+
+fn attribute_name_mismatch(patch: &mut SemanticJson, _: &SemanticJson) {
+    let value = first_edit_mut(patch).get_mut("value").expect("value");
+    object_mut(value).insert(
+        "name".to_owned(),
+        SemanticJson::String("renamed-without-operation".to_owned()),
+    );
+}
+
+fn replacement_module_drift(patch: &mut SemanticJson, _: &SemanticJson) {
+    replacement_sentence_mut(patch).insert(
+        "module".to_owned(),
+        SemanticJson::String("WRONG-MODULE".to_owned()),
+    );
+}
+
+fn replacement_source_drift(patch: &mut SemanticJson, _: &SemanticJson) {
+    replacement_sentence_mut(patch).insert(
+        "source".to_owned(),
+        SemanticJson::String("repo://wrong/source.k".to_owned()),
+    );
+}
+
+fn replacement_kind_drift(patch: &mut SemanticJson, _: &SemanticJson) {
+    replacement_sentence_mut(patch)
+        .insert("kind".to_owned(), SemanticJson::String("claim".to_owned()));
+}
+
+fn replacement_location_drift(patch: &mut SemanticJson, _: &SemanticJson) {
+    replacement_sentence_mut(patch).insert(
+        "location".to_owned(),
+        parse_json(br#"{"startLine":90,"startColumn":1,"endLine":90,"endColumn":2}"#)
+            .expect("location"),
+    );
+}
+
+fn count_symbol_uses(term: &SemanticJson, counts: &mut BTreeMap<String, usize>) {
+    let node = object(object(term).get("node").expect("node"));
+    for child in term_children(node) {
+        count_symbol_uses(child, counts);
+    }
+    if let Some(symbol) = node.get("symbolId").and_then(SemanticJson::as_str) {
+        *counts.entry(symbol.to_owned()).or_default() += 1;
+    }
+}
+
+fn term_children(node: &BTreeMap<String, SemanticJson>) -> Vec<&SemanticJson> {
+    match node.get("kind").and_then(SemanticJson::as_str) {
+        Some("application") => node
+            .get("args")
+            .and_then(SemanticJson::as_array)
+            .expect("args")
+            .iter()
+            .collect(),
+        Some("rewrite") => vec![
+            node.get("left").expect("left"),
+            node.get("right").expect("right"),
+        ],
+        Some("sequence") => node
+            .get("items")
+            .and_then(SemanticJson::as_array)
+            .expect("items")
+            .iter()
+            .collect(),
+        Some("injection") => vec![node.get("term").expect("term")],
+        _ => Vec::new(),
+    }
+}
+
+/// Appends `-conflict` to the label of the first application whose symbol occurs once.
+fn relabel_unique_application(term: &mut SemanticJson, counts: &BTreeMap<String, usize>) -> bool {
+    let node = object_mut(object_mut(term).get_mut("node").expect("node"));
+    if let Some(SemanticJson::String(symbol)) = node.get("symbolId")
+        && counts.get(symbol) == Some(&1)
+    {
+        let SemanticJson::String(label) = node.get_mut("label").expect("label") else {
+            panic!("label string")
+        };
+        label.push_str("-conflict");
+        return true;
+    }
+    let children: Vec<&mut SemanticJson> = match node.get("kind").and_then(SemanticJson::as_str) {
+        Some("application") | Some("sequence") => {
+            let key = if node.get("args").is_some() {
+                "args"
+            } else {
+                "items"
+            };
+            match node.get_mut(key).expect("children") {
+                SemanticJson::Array(items) => items.iter_mut().collect(),
+                _ => panic!("children array"),
+            }
+        }
+        Some("rewrite") => {
+            let mut left = node.remove("left").expect("left");
+            let mut right = node.remove("right").expect("right");
+            let found = relabel_unique_application(&mut left, counts)
+                || relabel_unique_application(&mut right, counts);
+            node.insert("left".to_owned(), left);
+            node.insert("right".to_owned(), right);
+            return found;
+        }
+        Some("injection") => vec![node.get_mut("term").expect("term")],
+        _ => Vec::new(),
+    };
+    children
+        .into_iter()
+        .any(|child| relabel_unique_application(child, counts))
+}
+
+fn last_occurrence_signature_drift(patch: &mut SemanticJson, baseline: &SemanticJson) {
+    let lineage = first_edit_mut(patch)
+        .get("targetLineage")
+        .expect("target lineage")
+        .clone();
+    let mut sentence = object(baseline)
+        .get("modules")
+        .and_then(SemanticJson::as_array)
+        .expect("modules")
+        .iter()
+        .flat_map(|module| {
+            object(module)
+                .get("sentences")
+                .and_then(SemanticJson::as_array)
+                .expect("sentences")
+        })
+        .find(|sentence| {
+            object(sentence)
+                .get("provenance")
+                .and_then(SemanticJson::as_object)
+                .and_then(|provenance| provenance.get("lineageId"))
+                == Some(&lineage)
+        })
+        .and_then(|sentence| object(sentence).get("value"))
+        .expect("target sentence")
+        .clone();
+    let body = object_mut(&mut sentence).get_mut("body").expect("body");
+    let mut counts = BTreeMap::new();
+    count_symbol_uses(body, &mut counts);
+    assert!(
+        relabel_unique_application(body, &counts),
+        "target body has a symbol used exactly once"
+    );
+    first_edit_mut(patch).insert(
+        "value".to_owned(),
+        SemanticJson::Object(BTreeMap::from([
+            (
+                "kind".to_owned(),
+                SemanticJson::String("sentence".to_owned()),
+            ),
+            ("sentence".to_owned(), sentence),
+        ])),
+    );
+}
+
+fn unchanged(_: &mut SemanticJson, _: &SemanticJson) {}
+
+fn valued_existing_attribute(patch: &mut SemanticJson, _: &SemanticJson) {
+    first_edit_mut(patch).insert(
+        "value".to_owned(),
+        parse_json(
+            br#"{"kind":"attribute","name":"transition","value":{"encoding":"portable-term-v1","sort":"Bool","node":{"kind":"token","text":"true"}}}"#,
+        )
+        .expect("valued attribute"),
+    );
+}
+
+#[test]
+fn inline_well_sortedness_and_attribute_adversaries_publish_nothing() {
+    type Mutation = fn(&mut SemanticJson, &SemanticJson);
+    let rows: [(&str, &str, &str, Mutation, &str); 9] = [
+        // M2: an original reference is typed at the subterm it copies.
+        (
+            "original-reference-sort-drift",
+            "semantic-definition-memory.json",
+            "atomic-distinct-sentence-replacements",
+            original_reference_sort_drift,
+            ("locally-ill-formed"),
+        ),
+        // M2: an attribute value names the attribute its path targets.
+        (
+            "attribute-target-value-name-mismatch",
+            "semantic-definition-counter.json",
+            "add-attribute",
+            attribute_name_mismatch,
+            ("locally-ill-formed"),
+        ),
+        // M2: a replacement sentence keeps module, source, kind and location.
+        (
+            "replacement-sentence-module-drift",
+            "semantic-definition-counter.json",
+            "replace-sentence-second-family",
+            replacement_module_drift,
+            ("locally-ill-formed"),
+        ),
+        (
+            "replacement-sentence-source-drift",
+            "semantic-definition-counter.json",
+            "replace-sentence-second-family",
+            replacement_source_drift,
+            ("locally-ill-formed"),
+        ),
+        (
+            "replacement-sentence-kind-drift",
+            "semantic-definition-counter.json",
+            "replace-sentence-second-family",
+            replacement_kind_drift,
+            ("locally-ill-formed"),
+        ),
+        (
+            "replacement-sentence-location-drift",
+            "semantic-definition-counter.json",
+            "replace-sentence-second-family",
+            replacement_location_drift,
+            ("locally-ill-formed"),
+        ),
+        // M2: signatures are seeded from the immutable baseline, so replacing the last
+        // occurrence of a symbol cannot re-type it.
+        (
+            "last-occurrence-signature-drift",
+            "semantic-definition-counter.json",
+            "replace-sentence-second-family",
+            last_occurrence_signature_drift,
+            ("locally-ill-formed"),
+        ),
+        // M6: add-attribute never overwrites an existing attribute, with or without a value.
+        (
+            "add-existing-bare-attribute",
+            "semantic-definition-counter.json",
+            "add-existing-attribute",
+            unchanged,
+            ("stale-precondition"),
+        ),
+        (
+            "add-existing-valued-attribute",
+            "semantic-definition-counter.json",
+            "add-existing-attribute",
+            valued_existing_attribute,
+            ("stale-precondition"),
+        ),
+    ];
+    let root = package_root();
+    let vectors = load(root.join("vectors/patch-application-vectors.json"));
+    let cases = object(&vectors)
+        .get("cases")
+        .and_then(SemanticJson::as_array)
+        .expect("cases");
+    for (id, fixture, case_id, mutate, expected) in rows {
+        let baseline = load(root.join("fixtures").join(fixture));
+        let case = cases
+            .iter()
+            .find(|case| object(case).get("id").and_then(SemanticJson::as_str) == Some(case_id))
+            .expect("base case");
+        let mut patch = materialize_patch(&vectors, case, false).to_json();
+        mutate(&mut patch, &baseline);
+        let patch = rematerialize_patch(&mut patch);
+        let failure = apply_patch(&baseline, &patch).expect_err(id);
+        assert_eq!(failure.kind().as_str(), expected, "{id}: {failure}");
+        assert_eq!(failure.applied_edit_count(), 0, "{id}: atomic failure");
+    }
+}

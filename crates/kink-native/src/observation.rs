@@ -590,6 +590,123 @@ mod tests {
         assert_eq!(second.transition_ordinal, 3);
     }
 
+    /// One O2 emission row: selected rules as (label, emits `RuleApplied`, domain
+    /// constructors), the branch as backend rule identities (unselected ones end in
+    /// `-unselected`), and the expected (event, event ordinal, transition ordinal, emission
+    /// ordinal) sequence.
+    struct EmissionRow {
+        id: &'static str,
+        rules: &'static [(&'static str, bool, &'static [&'static str])],
+        branch: &'static [&'static str],
+        events: &'static [(&'static str, usize, usize, usize)],
+    }
+
+    fn event_clock(event: &NativeEvent) -> (&str, usize, usize, usize) {
+        match event {
+            NativeEvent::RuleApplied(event) => (
+                "RuleApplied",
+                event.event_ordinal,
+                event.transition_ordinal,
+                event.emission_ordinal,
+            ),
+            NativeEvent::Domain(event) => (
+                event.constructor.as_str(),
+                event.event_ordinal,
+                event.transition_ordinal,
+                event.emission_ordinal,
+            ),
+        }
+    }
+
+    #[test]
+    fn event_clock_rows_are_dense_and_independent_of_transition_adjacency() {
+        let rows = [
+            EmissionRow {
+                id: "one-transition-multiple-events",
+                rules: &[("write", true, &["memoryWrite", "auditWrite"])],
+                branch: &["write-id"],
+                events: &[
+                    ("RuleApplied", 0, 0, 0),
+                    ("memoryWrite", 1, 0, 1),
+                    ("auditWrite", 2, 0, 2),
+                ],
+            },
+            // Adjacent events from non-adjacent transitions: next-event holds on the event
+            // clock although a next-transition reading would not.
+            EmissionRow {
+                id: "unobserved-transition-does-not-advance-event-clock",
+                rules: &[
+                    ("write", false, &["memoryWrite"]),
+                    ("load", false, &["memoryLoad"]),
+                ],
+                branch: &["write-id", "middle-unselected", "load-id"],
+                events: &[("memoryWrite", 0, 0, 0), ("memoryLoad", 1, 2, 0)],
+            },
+            EmissionRow {
+                id: "rule-applied-interrupts-domain-adjacency",
+                rules: &[
+                    ("write", false, &["memoryWrite"]),
+                    ("middle", true, &[]),
+                    ("load", false, &["memoryLoad"]),
+                ],
+                branch: &["write-id", "middle-id", "load-id"],
+                events: &[
+                    ("memoryWrite", 0, 0, 0),
+                    ("RuleApplied", 1, 1, 0),
+                    ("memoryLoad", 2, 2, 0),
+                ],
+            },
+        ];
+        for row in rows {
+            let manifest = InstalledObservationManifest::install(
+                row.rules
+                    .iter()
+                    .map(|(label, generic, domain)| RuleObservationSpec {
+                        label: (*label).into(),
+                        backend_rule_identity: format!("{label}-id"),
+                        emit_rule_applied: *generic,
+                        domain_events: domain
+                            .iter()
+                            .map(|constructor| DomainEventSpec {
+                                constructor: (*constructor).into(),
+                                payload: vec![PayloadSource::AfterState],
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            )
+            .unwrap();
+            let identity = row
+                .branch
+                .iter()
+                .zip(0..)
+                .map(|(rule, marker)| transition_id(rule, marker))
+                .collect::<Vec<_>>();
+            let observations = row
+                .branch
+                .iter()
+                .zip(0..)
+                .filter(|(rule, _)| !rule.ends_with("-unselected"))
+                .map(|(rule, marker)| transition(rule, rule.trim_end_matches("-id"), marker))
+                .collect();
+            let branch = adapt_branch(
+                Some(&manifest),
+                identity,
+                Value::Null,
+                u64::try_from(row.branch.len()).unwrap(),
+                Vec::new(),
+                observations,
+            )
+            .unwrap_or_else(|failure| panic!("{}: {failure:?}", row.id));
+            assert_eq!(
+                branch.events.iter().map(event_clock).collect::<Vec<_>>(),
+                row.events,
+                "{}",
+                row.id
+            );
+        }
+    }
+
     #[test]
     fn fabricated_misordered_and_duplicate_observation_occurrences_fail_closed() {
         let manifest = installed();

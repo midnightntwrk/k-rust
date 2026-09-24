@@ -846,6 +846,148 @@ endmodule []"#;
         ));
     }
 
+    /// How an O1 selection row must end: installed with this many committed events, refused
+    /// by local installation, or refused by the public facade before any result.
+    #[derive(Debug)]
+    enum SelectionExpectation {
+        Committed(usize),
+        InstallRejected(ObservationFailure),
+        BackendRejected,
+    }
+
+    #[test]
+    fn selection_rows_over_a_real_definition_install_atomically() {
+        use SelectionExpectation::{BackendRejected, Committed, InstallRejected};
+        // Each selector is a (label, backend rule identity) pair.
+        type Selectors = &'static [(&'static str, &'static str)];
+        let rows: [(&str, Selectors, SelectionExpectation); 5] = [
+            (
+                "exact-identity-selects-one-rule",
+                &[("step", "step-id")],
+                Committed(1),
+            ),
+            (
+                "identity-selecting-no-rule-is-a-cardinality-mismatch",
+                &[("missing", "unknown-id")],
+                BackendRejected,
+            ),
+            (
+                "identity-selecting-two-rules-is-a-cardinality-mismatch",
+                &[("ambiguous-one", "duplicate-id")],
+                BackendRejected,
+            ),
+            (
+                "stale-allowlist-member-rejects-the-whole-manifest",
+                &[("step", "step-id"), ("missing", "unknown-id")],
+                BackendRejected,
+            ),
+            (
+                "two-selectors-for-one-site-are-a-duplicate-site",
+                &[("step", "step-id"), ("step-alias", "step-id")],
+                InstallRejected(ObservationFailure::DuplicateRuleIdentity("step-id".into())),
+            ),
+        ];
+        for (id, selectors, expected) in rows {
+            let specs = selectors
+                .iter()
+                .map(|(label, identity)| RuleObservationSpec {
+                    label: (*label).into(),
+                    backend_rule_identity: (*identity).into(),
+                    emit_rule_applied: true,
+                    domain_events: Vec::new(),
+                })
+                .collect();
+            let manifest = match (InstalledObservationManifest::install(specs), &expected) {
+                (Err(failure), InstallRejected(kind)) => {
+                    assert_eq!(&failure, kind, "{id}");
+                    continue;
+                }
+                (Ok(manifest), Committed(_) | BackendRejected) => manifest,
+                (actual, _) => panic!("{id}: expected {expected:?}, installed {actual:?}"),
+            };
+            let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+            let adapter =
+                SearchAdapter::new(SolverProfile::StructuredNoZ3Inference, manifest).unwrap();
+            let result = adapter.search(
+                &mut backend,
+                SearchRequest {
+                    state: kore("a{}()"),
+                    ..SearchRequest::default()
+                },
+            );
+            match (result, expected) {
+                (Ok(result), Committed(count)) => {
+                    let events = result
+                        .states
+                        .iter()
+                        .map(|state| state.events.len())
+                        .sum::<usize>();
+                    assert_eq!(events, count, "{id}");
+                }
+                (Err(SearchAdapterFailure::BackendRejected(_)), BackendRejected) => {}
+                (actual, expected) => panic!("{id}: expected {expected:?}, got {actual:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn erasing_observation_preserves_the_baseline_result() {
+        // (id, depth bound). The bounded row keeps its bound as an explicit incomplete item.
+        let rows = [
+            ("observer-erasure-is-identity", None),
+            ("bounded-erasure-is-identity", Some(0)),
+        ];
+        for (id, max_depth) in rows {
+            let request = SearchRequest {
+                state: kore("a{}()"),
+                max_depth,
+                ..SearchRequest::default()
+            };
+            let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+            let baseline =
+                adapt_state_response(&empty_manifest(), backend.search(request.clone()).unwrap())
+                    .unwrap();
+            let observed = SearchAdapter::new(
+                SolverProfile::StructuredNoZ3Inference,
+                observed_manifest("step-id"),
+            )
+            .unwrap()
+            .search(&mut backend, request)
+            .unwrap();
+            // The unobserved facade reports no branch identities, so erasure is compared on
+            // the semantic content: final state, depth and rule trace.
+            let semantic = |states: &[AdaptedBranch]| {
+                states
+                    .iter()
+                    .map(|state| {
+                        let erased = state.erase_observations();
+                        (erased.state, erased.depth, erased.trace)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                semantic(&observed.states),
+                semantic(&baseline.states),
+                "{id}"
+            );
+            assert_eq!(observed.outcome, baseline.outcome, "{id}");
+            let classes = |search: &AdaptedStateSearch| {
+                search
+                    .incomplete
+                    .iter()
+                    .map(AdaptedIncomplete::class)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(classes(&observed), classes(&baseline), "{id}");
+            assert_eq!(
+                classes(&observed).contains(&IncompleteClass::DepthBound),
+                max_depth.is_some(),
+                "{id}"
+            );
+            assert!(!observed.authority.proves_exhaustive_absence(), "{id}");
+        }
+    }
+
     #[test]
     fn all_eight_incomplete_variants_are_closed_and_ordered() {
         let base = state(1);

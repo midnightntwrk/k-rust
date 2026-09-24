@@ -1873,3 +1873,555 @@ fn frozen_site_instance_candidate_and_mutant_identities_are_exact() {
         "same lineage at another typed path must remain distinct"
     );
 }
+
+/// One path of an inline row. Events name entries of the frozen event pool; transition
+/// ordinals default to one transition per event, and emission ordinals are derived.
+struct LiteralPath {
+    key: Option<&'static str>,
+    events: &'static [&'static str],
+    transitions: &'static [u64],
+}
+
+fn literal_paths(data: &Value, case_id: &str, rows: &[LiteralPath]) -> Vec<PathInput> {
+    rows.iter()
+        .enumerate()
+        .map(|(ordinal, row)| {
+            let mut value = serde_json::json!({
+                "complete": true,
+                "stopReason": "terminal",
+                "eventRefs": row.events,
+            });
+            if let Some(key) = row.key {
+                value["pathKey"] = Value::from(key);
+            }
+            let mut path = path(&value, data, case_id, ordinal);
+            if !row.transitions.is_empty() {
+                assert_eq!(row.transitions.len(), path.events.len(), "{case_id}");
+                let mut previous = None;
+                let mut emission = 0;
+                for (event, transition) in path.events.iter_mut().zip(row.transitions) {
+                    emission = if previous == Some(*transition) {
+                        emission + 1
+                    } else {
+                        0
+                    };
+                    event.transition_ordinal = *transition;
+                    event.emission_ordinal = emission;
+                    previous = Some(*transition);
+                }
+                refresh_path(&mut path);
+            }
+            path
+        })
+        .collect()
+}
+
+fn frozen_plan(data: &Value, name: &str) -> PatternPlan {
+    let value = &data["plans"][name];
+    let vocabulary = data["eventVocabularies"]
+        .as_object()
+        .expect("vocabularies")
+        .values()
+        .find(|item| item["eventVocabularyDigest"] == value["eventVocabularyDigest"])
+        .map(vocabulary)
+        .expect("plan vocabulary");
+    PatternPlan::from_json(&semantic(value), &vocabulary).expect("frozen plan")
+}
+
+struct DenotationRow {
+    id: &'static str,
+    plan: &'static str,
+    stable: bool,
+    paths: &'static [LiteralPath],
+    witnesses: &'static [(Option<&'static str>, &'static [usize])],
+}
+
+#[test]
+fn inline_occurrence_and_adjacency_rows_report_every_witness() {
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let rows = [
+        // P1: every occurrence is reported; the primary witness is the earliest one.
+        DenotationRow {
+            id: "write-load-load-reports-both-occurrences",
+            plan: "write-eventually-load",
+            stable: true,
+            paths: &[LiteralPath {
+                key: Some("p0"),
+                events: &["wa", "la", "la"],
+                transitions: &[],
+            }],
+            witnesses: &[(Some("p0"), &[0, 1]), (Some("p0"), &[0, 2])],
+        },
+        DenotationRow {
+            id: "unkeyed-write-load-load-reports-both-occurrences",
+            plan: "write-eventually-load",
+            stable: false,
+            paths: &[LiteralPath {
+                key: None,
+                events: &["wa", "la", "la"],
+                transitions: &[],
+            }],
+            witnesses: &[(None, &[0, 1]), (None, &[0, 2])],
+        },
+        // O2: next-event is adjacency on the observed-event clock, not on transitions.
+        DenotationRow {
+            id: "adjacent-events-from-non-adjacent-transitions",
+            plan: "write-next-load",
+            stable: true,
+            paths: &[LiteralPath {
+                key: Some("p0"),
+                events: &["wa", "la"],
+                transitions: &[7, 9],
+            }],
+            witnesses: &[(Some("p0"), &[0, 1])],
+        },
+        DenotationRow {
+            id: "two-events-of-one-transition-are-adjacent",
+            plan: "write-next-load",
+            stable: true,
+            paths: &[LiteralPath {
+                key: Some("p0"),
+                events: &["wa", "la"],
+                transitions: &[7, 7],
+            }],
+            witnesses: &[(Some("p0"), &[0, 1])],
+        },
+        // P8: two branches with identical traces are two occurrences.
+        DenotationRow {
+            id: "identical-keyed-branches-are-two-occurrences",
+            plan: "write-eventually-load",
+            stable: true,
+            paths: &[
+                LiteralPath {
+                    key: Some("left"),
+                    events: &["wa", "la"],
+                    transitions: &[],
+                },
+                LiteralPath {
+                    key: Some("right"),
+                    events: &["wa", "la"],
+                    transitions: &[],
+                },
+            ],
+            witnesses: &[(Some("left"), &[0, 1]), (Some("right"), &[0, 1])],
+        },
+    ];
+    for row in rows {
+        let plan = frozen_plan(&data, row.plan);
+        let paths = literal_paths(&data, row.id, row.paths);
+        let result = evaluate(
+            &authority(row.id, &paths),
+            &plan,
+            &paths,
+            &collection(&paths, SearchPolicy::Exhaustive),
+            None,
+            EvaluationOptions {
+                stable_path_keys: row.stable,
+                ..exhaustive_options()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{}: {error}", row.id));
+        assert_eq!(result.outcome, PatternOutcome::Match, "{}", row.id);
+        assert!(result.complete_coverage, "{}", row.id);
+        assert_eq!(
+            result
+                .witnesses
+                .iter()
+                .map(|witness| (
+                    witness.path_key.as_deref(),
+                    witness.event_indices.as_slice()
+                ))
+                .collect::<Vec<_>>(),
+            row.witnesses.to_vec(),
+            "{}",
+            row.id
+        );
+        assert_eq!(
+            result.primary_witness,
+            row.stable.then_some(0),
+            "{}",
+            row.id
+        );
+    }
+}
+
+struct RejectionScenario {
+    paths: Vec<PathInput>,
+    collection: CollectionEvidence,
+    search_policy: SearchPolicy,
+}
+
+fn complete_with_depth_limit(scenario: &mut RejectionScenario) {
+    let path = &mut scenario.paths[0];
+    path.stop = PathStop::DepthLimit;
+    path.execution_stop = ExecutionStop::DepthLimit;
+    path.execution_terminal = None;
+    refresh_path(path);
+}
+
+fn complete_with_depth_limit_and_terminal(scenario: &mut RejectionScenario) {
+    let path = &mut scenario.paths[0];
+    path.stop = PathStop::DepthLimit;
+    path.execution_stop = ExecutionStop::DepthLimit;
+    refresh_path(path);
+}
+
+fn duplicate_event_index(scenario: &mut RejectionScenario) {
+    let path = &mut scenario.paths[0];
+    path.events[1].index = 0;
+    refresh_path(path);
+}
+
+fn existential_match_without_match_stop(scenario: &mut RejectionScenario) {
+    let path = &mut scenario.paths[0];
+    path.complete = false;
+    path.stop = PathStop::MatchFound;
+    path.execution_stop = ExecutionStop::QuerySatisfied;
+    path.execution_terminal = None;
+    refresh_path(path);
+    scenario.search_policy = SearchPolicy::ExistentialFirst;
+}
+
+fn match_stop_under_exhaustive_policy(scenario: &mut RejectionScenario) {
+    existential_match_without_match_stop(scenario);
+    scenario.search_policy = SearchPolicy::Exhaustive;
+    scenario.collection.stop = CollectionStop::MatchFound;
+    scenario.collection.pending_work = 1;
+}
+
+fn exhaustion_with_pending_work(scenario: &mut RejectionScenario) {
+    scenario.collection.pending_work = 1;
+}
+
+fn contradictory_symbolic_relations(scenario: &mut RejectionScenario) {
+    let path = &mut scenario.paths[0];
+    let pair = path.inequalities[0].clone();
+    path.equivalences.push(pair);
+    refresh_path(path);
+}
+
+#[test]
+fn inline_trace_honesty_and_relation_rows_reject_with_typed_kinds() {
+    use kink_pattern::PatternFailureKind;
+
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let write_load = serde_json::json!({
+        "pathKey": "p0", "complete": true, "stopReason": "terminal", "eventRefs": ["wa", "la"],
+    });
+    let proven_unequal = serde_json::json!({
+        "pathKey": "p0", "complete": true, "stopReason": "terminal",
+        "eventRefs": ["wSymbolicX", "lSymbolicY"],
+        "inequalities": [["symbolicX", "symbolicY"]],
+        "pathPredicate": "x-not-equals-y",
+    });
+    type Mutation = fn(&mut RejectionScenario);
+    let rows: [(&str, &Value, Mutation, PatternFailureKind); 7] = [
+        // P2: a complete trace cannot carry a bounded stop.
+        (
+            "complete-trace-with-depth-limit-stop",
+            &write_load,
+            complete_with_depth_limit,
+            PatternFailureKind::TerminalMismatch,
+        ),
+        (
+            "complete-trace-with-depth-limit-stop-and-terminal",
+            &write_load,
+            complete_with_depth_limit_and_terminal,
+            PatternFailureKind::TerminalMismatch,
+        ),
+        // P2: event indices are dense and unique.
+        (
+            "duplicate-event-index",
+            &write_load,
+            duplicate_event_index,
+            PatternFailureKind::InvalidPath,
+        ),
+        // P2: an existential match stop appears only as the collection's own stop.
+        (
+            "existential-match-path-under-exhausted-collection",
+            &write_load,
+            existential_match_without_match_stop,
+            PatternFailureKind::InvalidCollection,
+        ),
+        (
+            "match-found-collection-under-exhaustive-policy",
+            &write_load,
+            match_stop_under_exhaustive_policy,
+            PatternFailureKind::InvalidCollection,
+        ),
+        (
+            "clean-exhaustion-with-pending-work",
+            &write_load,
+            exhaustion_with_pending_work,
+            PatternFailureKind::InvalidCollection,
+        ),
+        // P3: one path cannot both equate and separate two terms.
+        (
+            "contradictory-symbolic-relations",
+            &proven_unequal,
+            contradictory_symbolic_relations,
+            PatternFailureKind::InvalidPath,
+        ),
+    ];
+    let plan = frozen_plan(&data, "write-eventually-load");
+    for (id, base, mutate, expected) in rows {
+        let paths = vec![path(base, &data, id, 0)];
+        let mut scenario = RejectionScenario {
+            collection: collection(&paths, SearchPolicy::Exhaustive),
+            paths,
+            search_policy: SearchPolicy::Exhaustive,
+        };
+        evaluate(
+            &authority(id, &scenario.paths),
+            &plan,
+            &scenario.paths,
+            &scenario.collection,
+            None,
+            exhaustive_options(),
+        )
+        .unwrap_or_else(|error| panic!("{id}: unmutated base rejected: {error}"));
+        mutate(&mut scenario);
+        let failure = evaluate(
+            &authority(id, &scenario.paths),
+            &plan,
+            &scenario.paths,
+            &scenario.collection,
+            None,
+            EvaluationOptions {
+                search_policy: scenario.search_policy,
+                ..exhaustive_options()
+            },
+        )
+        .expect_err(id);
+        assert_eq!(failure.kind(), expected, "{id}: {failure}");
+    }
+}
+
+/// One side-condition lookup row. `address` replaces the address payload of every event.
+struct SideKeyRow {
+    id: &'static str,
+    plan: &'static str,
+    events: [&'static str; 2],
+    predicate: &'static str,
+    address: Option<&'static str>,
+    outcome: PatternOutcome,
+}
+
+#[test]
+fn inline_side_condition_rows_key_only_declared_inputs_and_path_predicate() {
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let table = side_table(&data["sideConditionTable"]);
+    let address = |text: &str| Term {
+        sort: "Address".to_owned(),
+        node: TermNode::Token {
+            text: text.to_owned(),
+        },
+    };
+    let rows = [
+        SideKeyRow {
+            id: "exact-key-resolves-true",
+            plan: "write-then-load-side-condition",
+            events: ["wa", "la"],
+            predicate: "true",
+            address: None,
+            outcome: PatternOutcome::Match,
+        },
+        SideKeyRow {
+            id: "exact-key-resolves-false",
+            plan: "write-then-load-side-condition",
+            events: ["wb", "lb"],
+            predicate: "true",
+            address: None,
+            outcome: PatternOutcome::NoMatch,
+        },
+        SideKeyRow {
+            id: "another-path-predicate-is-unknown",
+            plan: "write-then-load-side-condition",
+            events: ["wa", "la"],
+            predicate: "false",
+            address: None,
+            outcome: PatternOutcome::Unknown,
+        },
+        SideKeyRow {
+            id: "another-binding-tuple-is-unknown",
+            plan: "write-then-load-side-condition",
+            events: ["wa", "la"],
+            predicate: "true",
+            address: Some("3"),
+            outcome: PatternOutcome::Unknown,
+        },
+        // A = b has a false row, but a constant condition keys on no binding at all.
+        SideKeyRow {
+            id: "constant-condition-ignores-witness-bindings",
+            plan: "write-then-load-constant-side-condition",
+            events: ["wb", "lb"],
+            predicate: "true",
+            address: None,
+            outcome: PatternOutcome::Match,
+        },
+        // Only VALUE is declared; the undeclared ADDRESS binding never enters the key.
+        SideKeyRow {
+            id: "undeclared-binding-never-enters-the-key",
+            plan: "nonlexical-subset-side-condition",
+            events: ["wa", "la"],
+            predicate: "true",
+            address: Some("2"),
+            outcome: PatternOutcome::Match,
+        },
+    ];
+    for SideKeyRow {
+        id,
+        plan: plan_name,
+        events,
+        predicate,
+        address: replacement,
+        outcome: expected,
+    } in rows
+    {
+        let plan = frozen_plan(&data, plan_name);
+        let mut path = path(
+            &serde_json::json!({
+                "pathKey": "p0", "complete": true, "stopReason": "terminal",
+                "eventRefs": events, "pathPredicate": predicate,
+            }),
+            &data,
+            id,
+            0,
+        );
+        if let Some(text) = replacement {
+            for event in &mut path.events {
+                event.payload[0] = address(text);
+            }
+            refresh_path(&mut path);
+        }
+        let paths = vec![path];
+        let result = evaluate(
+            &authority(id, &paths),
+            &plan,
+            &paths,
+            &collection(&paths, SearchPolicy::Exhaustive),
+            Some(&table),
+            exhaustive_options(),
+        )
+        .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(result.outcome, expected, "{id}");
+        assert_eq!(
+            result.complete_coverage,
+            expected != PatternOutcome::Unknown,
+            "{id}"
+        );
+        if expected == PatternOutcome::Unknown {
+            assert!(result.witnesses.is_empty(), "{id}");
+        }
+    }
+}
+
+#[test]
+fn inline_plan_adversaries_return_their_typed_failure_kind() {
+    use kink_pattern::PatternFailureKind;
+
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let memory = vocabulary(&data["eventVocabularies"]["memory"]);
+    let counter_digest = data["eventVocabularies"]["counter"]["eventVocabularyDigest"].clone();
+    type Mutation = fn(&mut Value, &Value);
+    let rows: [(&str, Mutation, PatternFailureKind); 9] = [
+        (
+            "unknown-constructor",
+            |plan, _| plan["arms"][0]["atoms"][0]["constructor"] = "missingEvent".into(),
+            PatternFailureKind::UnknownConstructor,
+        ),
+        (
+            "payload-position-out-of-range",
+            |plan, _| plan["arms"][0]["atoms"][0]["payload"][0]["position"] = 9.into(),
+            PatternFailureKind::InvalidPayload,
+        ),
+        (
+            "duplicate-payload-position",
+            |plan, _| {
+                plan["arms"][0]["atoms"][0]["payload"]
+                    .as_array_mut()
+                    .expect("payload")
+                    .push(serde_json::json!({"position": 0, "mode": "use", "variable": "A"}));
+            },
+            PatternFailureKind::InvalidPayload,
+        ),
+        (
+            "cross-sort-variable",
+            |plan, _| plan["variables"][0]["sort"] = "Int".into(),
+            PatternFailureKind::InvalidPayload,
+        ),
+        (
+            "use-before-bind",
+            |plan, _| plan["arms"][0]["atoms"][0]["payload"][0]["mode"] = "use".into(),
+            PatternFailureKind::InvalidVariable,
+        ),
+        (
+            "rebound-variable",
+            |plan, _| plan["arms"][0]["atoms"][1]["payload"][0]["mode"] = "bind".into(),
+            PatternFailureKind::InvalidVariable,
+        ),
+        (
+            "unused-declared-variable",
+            |plan, _| {
+                plan["variables"]
+                    .as_array_mut()
+                    .expect("variables")
+                    .push(serde_json::json!({"name": "B", "sort": "Address"}));
+            },
+            PatternFailureKind::InvalidVariable,
+        ),
+        (
+            "relation-count-drift",
+            |plan, _| {
+                plan["arms"][0]["relations"]
+                    .as_array_mut()
+                    .expect("relations")
+                    .push("eventually-after".into());
+            },
+            PatternFailureKind::InvalidArm,
+        ),
+        (
+            "plan-bound-to-another-vocabulary",
+            |plan, counter| plan["eventVocabularyDigest"] = counter.clone(),
+            PatternFailureKind::VocabularyIdentity,
+        ),
+    ];
+    for (id, mutate, expected) in rows {
+        let mut plan = data["plans"]["write-eventually-load"].clone();
+        mutate(&mut plan, &counter_digest);
+        rehash_plan(&mut plan);
+        assert_eq!(
+            PatternPlan::from_json(&semantic(&plan), &memory)
+                .expect_err(id)
+                .kind(),
+            expected,
+            "{id}"
+        );
+    }
+
+    // The unchanged plan resolved against a vocabulary whose memoryWrite lost its payload.
+    let mut drifted = data["eventVocabularies"]["memory"].clone();
+    let constructors = drifted["constructors"]
+        .as_array_mut()
+        .expect("constructors");
+    constructors
+        .iter_mut()
+        .find(|item| item["constructor"] == "memoryWrite")
+        .expect("memoryWrite")["payloadSorts"] = serde_json::json!([]);
+    let drifted_digest = kink_portable::digest(
+        &kink_portable::DigestDomain::new("k-in-k/event-vocabulary/v1").expect("domain"),
+        &semantic(&drifted["constructors"]),
+    )
+    .expect("vocabulary payload");
+    drifted["eventVocabularyDigest"] = Value::from(drifted_digest.to_string());
+    let drifted = vocabulary(&drifted);
+    let mut plan = data["plans"]["write-eventually-load"].clone();
+    plan["eventVocabularyDigest"] = Value::from(drifted_digest.to_string());
+    rehash_plan(&mut plan);
+    assert_eq!(
+        PatternPlan::from_json(&semantic(&plan), &drifted)
+            .expect_err("constructor arity drift")
+            .kind(),
+        PatternFailureKind::InvalidPayload
+    );
+}
