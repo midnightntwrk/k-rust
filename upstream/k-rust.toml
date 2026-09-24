@@ -31,7 +31,7 @@ needed_by = ["exhaustive absence", "complete pattern denotation", "finite not-re
 summary = """
 Result-limit truncation is usually reported, a zero result limit is never reported as exhaustive, and a truncated sibling is not claimed absent.
 There is no exhaustion record, and an empty IncompleteSearch list (k-rust-backend/src/search.rs:150-173) is not evidence of exhaustion: a Final result-bound break can leave the frontier unreported (see reproducer).
-Final search returns states that reach the depth bound as results without checking whether they can still rewrite (search.rs:593-594 state search, 1169-1170 path search; pattern matches are taken from the same results), so a depth-bounded Final result is not a final state.
+Final search returns states that reach the depth bound as results without checking whether they can still rewrite (search.rs:593-594 state search, 1169-1170 path search; pattern matches are taken from the same results), so a depth-bounded Final result is not a final state. Upstream documents the depth cut (docs/backend-port.md:102-108); what is missing is a per-result frontier marker in the host API.
 Cancellation is only partly distinct from failure: a hook that notices cancellation returns BuiltinError::Interrupted (timeout.rs:25-28, builtin.rs:502-507), which reaches the caller as a builtin failure, not as IncompleteSearch::Cancelled.
 """
 reproducer = """
@@ -61,7 +61,7 @@ blocking = false
 needed_by = ["path-sensitive event occurrence", "counterexample receipts"]
 summary = """
 ResultModality::{StateSet, PathSet} and content-derived PathWitness identities are present, and converging paths are no longer collapsed.
-When the result bound is reached, ResultBound drops the retained paths (search.rs:1187-1204); witness identity omits the source state and the substitution; hand-written KORE rules without UNIQUE_ID fall back to "UNKNOWN" (rule.rs:1666-1670).
+When the result bound is reached, witnesses already found are kept but the unexamined paths (pending, plus the path being processed) are dropped without a record (search.rs:1249-1257, retain_witness :1383-1387); witness identity omits the source state and the substitution; hand-written KORE rules without UNIQUE_ID fall back to "UNKNOWN" (rule.rs:1666-1670).
 """
 reproducer = "Run a path search whose result bound truncates a diamond graph and inspect the returned witnesses and ResultBound."
 local_workaround = "none"
