@@ -39,16 +39,16 @@ pub(super) fn materialize_descriptor_provenance(
     CollectionError,
 > {
     let primary = payload_primary_key(payload, id.item_kind())?;
-    let (parsed, origins) = materialize_invocation(
-        &host.provenance,
-        &primary,
-        id.item_name(),
-        descriptor_label(id.item_kind()),
+    let (parsed, origins) = materialize_invocation(&mut MaterializationContext {
+        provenance: &host.provenance,
+        primary_key: &primary,
+        expected_item_name: id.item_name(),
+        label: descriptor_label(id.item_kind()),
         id,
         context_index,
         contexts,
         source_cache,
-    )?;
+    })?;
     validate_reparsed_payload(payload, &parsed, id)?;
 
     let provenance = DescriptorProvenance::new(primary, origins).map_err(|error| {
@@ -63,209 +63,280 @@ pub(super) fn materialize_descriptor_provenance(
     Ok((provenance, parsed.visibility, parsed.explicit_symbol))
 }
 
-#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
-fn materialize_invocation(
-    provenance: &HostProvenance,
-    primary_key: &ProvenanceKey,
-    expected_item_name: &str,
-    label: &str,
-    id: &StableItemId,
+struct MaterializationContext<'a> {
+    provenance: &'a HostProvenance,
+    primary_key: &'a ProvenanceKey,
+    expected_item_name: &'a str,
+    label: &'a str,
+    id: &'a StableItemId,
     context_index: usize,
-    contexts: &[PreparedContext],
-    source_cache: &mut BTreeMap<(usize, String), SourceDocument>,
+    contexts: &'a [PreparedContext],
+    source_cache: &'a mut BTreeMap<(usize, String), SourceDocument>,
+}
+
+struct LoadedSources {
+    relative: String,
+    invocation_range: SourceRange,
+    authored_documents: BTreeMap<ProvenanceKey, (usize, String)>,
+    materialized: BTreeMap<ProvenanceKey, SourceRange>,
+}
+
+fn materialize_invocation(
+    context: &mut MaterializationContext<'_>,
 ) -> Result<(ParsedInvocation, Vec<DescriptorNodeOrigin>), CollectionError> {
-    let display_file = provenance.invocation().display_file();
-    let relative = normalize_display_file(display_file)?;
-    let cache_key = (context_index, relative.clone());
-    if !source_cache.contains_key(&cache_key) {
-        let document = load_source_document(&contexts[context_index], &relative)?;
-        source_cache.insert(cache_key.clone(), document);
-    }
-    let invocation_document = source_cache.get(&cache_key).ok_or_else(|| {
-        CollectionError::new(
-            CollectionErrorKind::HostIo,
-            "internal source cache insertion failed",
-        )
-    })?;
-    let invocation_range = source_range(invocation_document, provenance.invocation())?;
+    let loaded = context.load_sources()?;
+    let (primary_invocation_index, invocation, primary_cache_key) =
+        context.reparse_primary(&loaded)?;
+    context.verify_authored(
+        &loaded,
+        primary_cache_key,
+        primary_invocation_index,
+        invocation,
+    )?;
+    let origins = build_origins(
+        loaded.materialized,
+        &loaded.invocation_range,
+        context.id,
+        context.label,
+    );
+    Ok((invocation.clone(), origins))
+}
 
-    let mut authored_documents = BTreeMap::new();
-    for authored in provenance.authored() {
-        let authored_relative = normalize_display_file(authored.anchor().display_file())?;
-        let authored_cache_key = (context_index, authored_relative.clone());
-        if !source_cache.contains_key(&authored_cache_key) {
-            let document = load_source_document(&contexts[context_index], &authored_relative)?;
-            source_cache.insert(authored_cache_key.clone(), document);
+impl MaterializationContext<'_> {
+    fn load_sources(&mut self) -> Result<LoadedSources, CollectionError> {
+        let display_file = self.provenance.invocation().display_file();
+        let relative = normalize_display_file(display_file)?;
+        let cache_key = (self.context_index, relative.clone());
+        if !self.source_cache.contains_key(&cache_key) {
+            let document = load_source_document(&self.contexts[self.context_index], &relative)?;
+            self.source_cache.insert(cache_key.clone(), document);
         }
-        authored_documents.insert(authored.key().clone(), authored_cache_key);
-    }
-
-    let mut materialized = BTreeMap::new();
-    for authored in provenance.authored() {
-        let authored_cache_key = authored_documents
-            .get(authored.key())
-            .expect("every authored key has a loaded document");
-        let document = source_cache.get(authored_cache_key).ok_or_else(|| {
+        let invocation_document = self.source_cache.get(&cache_key).ok_or_else(|| {
             CollectionError::new(
                 CollectionErrorKind::HostIo,
-                "internal authored source cache insertion failed",
+                "internal source cache insertion failed",
             )
         })?;
-        materialized.insert(
-            authored.key().clone(),
-            source_range(document, authored.anchor())?,
-        );
-    }
-    let primary_host = provenance
-        .authored()
-        .iter()
-        .find(|anchor| anchor.key() == primary_key)
-        .ok_or_else(|| {
-            CollectionError::new(
-                CollectionErrorKind::ProvenanceMismatch,
-                format!(
-                    "descriptor `{}` lacks primary provenance key `{}`#{}",
-                    display_item(id),
-                    primary_key.role(),
-                    primary_key.ordinal()
-                ),
-            )
-        })?;
-    let primary_coordinates = host_coordinates(primary_host.anchor());
-    let primary_cache_key = authored_documents
-        .get(primary_key)
-        .expect("the primary authored key has a loaded document");
-    let primary_document = source_cache.get(primary_cache_key).ok_or_else(|| {
-        CollectionError::new(
-            CollectionErrorKind::HostIo,
-            "internal primary source cache insertion failed",
-        )
-    })?;
-    let primary_candidates = primary_document
-        .invocations
-        .iter()
-        .enumerate()
-        .filter(|invocation| {
-            let invocation = invocation.1;
-            (id.item_kind() == ItemKind::Grammar || invocation.item_name == expected_item_name)
-                && &invocation.primary == primary_key
-                && invocation.anchors.get(primary_key) == Some(&primary_coordinates)
+        let invocation_range = source_range(invocation_document, self.provenance.invocation())?;
+
+        let mut authored_documents = BTreeMap::new();
+        for authored in self.provenance.authored() {
+            let authored_relative = normalize_display_file(authored.anchor().display_file())?;
+            let authored_cache_key = (self.context_index, authored_relative.clone());
+            if !self.source_cache.contains_key(&authored_cache_key) {
+                let document =
+                    load_source_document(&self.contexts[self.context_index], &authored_relative)?;
+                self.source_cache
+                    .insert(authored_cache_key.clone(), document);
+            }
+            authored_documents.insert(authored.key().clone(), authored_cache_key);
+        }
+
+        let mut materialized = BTreeMap::new();
+        for authored in self.provenance.authored() {
+            let authored_cache_key = authored_documents
+                .get(authored.key())
+                .expect("every authored key has a loaded document");
+            let document = self.source_cache.get(authored_cache_key).ok_or_else(|| {
+                CollectionError::new(
+                    CollectionErrorKind::HostIo,
+                    "internal authored source cache insertion failed",
+                )
+            })?;
+            materialized.insert(
+                authored.key().clone(),
+                source_range(document, authored.anchor())?,
+            );
+        }
+        Ok(LoadedSources {
+            relative,
+            invocation_range,
+            authored_documents,
+            materialized,
         })
-        .collect::<Vec<_>>();
-    let (primary_invocation_index, invocation) = match primary_candidates.as_slice() {
-        [] => {
-            return Err(CollectionError::new(
-                CollectionErrorKind::StaleAnchor,
-                format!(
-                    "primary anchor for `{}` does not match the reparsed `{}` source",
-                    display_item(id),
-                    relative
-                ),
-            ));
-        }
-        [invocation] => *invocation,
-        _ => {
-            return Err(CollectionError::new(
-                CollectionErrorKind::AmbiguousAnchor,
-                format!(
-                    "primary anchor for `{}` matches multiple shared-parser invocations",
-                    display_item(id)
-                ),
-            ));
-        }
-    };
-    if id.item_kind() != ItemKind::Grammar && invocation.item_name != expected_item_name {
-        return Err(CollectionError::new(
-            CollectionErrorKind::StaleAnchor,
-            format!(
-                "reparsed item name `{}` does not match host identity `{}`",
-                invocation.item_name, expected_item_name
-            ),
-        ));
     }
-    let host_keys = provenance
-        .authored()
-        .iter()
-        .map(|anchor| anchor.key().clone())
-        .collect::<BTreeSet<_>>();
-    let mut parser_keys = BTreeSet::new();
-    let mut matched_invocations = BTreeSet::new();
-    for authored in provenance.authored() {
-        if authored.anchor().precision() != AnchorPrecision::Exact {
-            return Err(CollectionError::new(
-                CollectionErrorKind::ImpreciseAuthoredAnchor,
-                format!(
-                    "authored provenance `{}`#{} for `{}` is not leaf-exact",
-                    authored.key().role(),
-                    authored.key().ordinal(),
-                    display_item(id)
-                ),
-            ));
-        }
-        let authored_cache_key = authored_documents
-            .get(authored.key())
-            .expect("every authored key has a loaded document");
-        let document = source_cache.get(authored_cache_key).ok_or_else(|| {
+
+    fn reparse_primary<'a>(
+        &self,
+        loaded: &'a LoadedSources,
+    ) -> Result<(usize, &ParsedInvocation, &'a (usize, String)), CollectionError> {
+        let primary_host = self
+            .provenance
+            .authored()
+            .iter()
+            .find(|anchor| anchor.key() == self.primary_key)
+            .ok_or_else(|| {
+                CollectionError::new(
+                    CollectionErrorKind::ProvenanceMismatch,
+                    format!(
+                        "descriptor `{}` lacks primary provenance key `{}`#{}",
+                        display_item(self.id),
+                        self.primary_key.role(),
+                        self.primary_key.ordinal()
+                    ),
+                )
+            })?;
+        let primary_coordinates = host_coordinates(primary_host.anchor());
+        let primary_cache_key = loaded
+            .authored_documents
+            .get(self.primary_key)
+            .expect("the primary authored key has a loaded document");
+        let primary_document = self.source_cache.get(primary_cache_key).ok_or_else(|| {
             CollectionError::new(
                 CollectionErrorKind::HostIo,
-                "internal authored source cache lookup failed",
+                "internal primary source cache insertion failed",
             )
         })?;
-        let coordinates = host_coordinates(authored.anchor());
-        let candidate_hits = if authored_cache_key == primary_cache_key
-            && invocation.anchors.get(authored.key()) == Some(&coordinates)
-        {
-            vec![(primary_invocation_index, invocation)]
-        } else {
-            document
-                .invocations
-                .iter()
-                .enumerate()
-                .filter(|(_, candidate)| {
-                    candidate.anchors.get(authored.key()) == Some(&coordinates)
-                })
-                .collect::<Vec<_>>()
-        };
-        let (invocation_index, parsed_invocation) = match candidate_hits.as_slice() {
+        let primary_candidates = primary_document
+            .invocations
+            .iter()
+            .enumerate()
+            .filter(|invocation| {
+                let invocation = invocation.1;
+                (self.id.item_kind() == ItemKind::Grammar
+                    || invocation.item_name == self.expected_item_name)
+                    && &invocation.primary == self.primary_key
+                    && invocation.anchors.get(self.primary_key) == Some(&primary_coordinates)
+            })
+            .collect::<Vec<_>>();
+        let (primary_invocation_index, invocation) = match primary_candidates.as_slice() {
             [] => {
                 return Err(CollectionError::new(
                     CollectionErrorKind::StaleAnchor,
                     format!(
-                        "anchor `{}`#{} for `{}` no longer matches reparsed source",
-                        authored.key().role(),
-                        authored.key().ordinal(),
-                        display_item(id)
+                        "primary anchor for `{}` does not match the reparsed `{}` source",
+                        display_item(self.id),
+                        loaded.relative
                     ),
                 ));
             }
-            [candidate] => *candidate,
+            [invocation] => *invocation,
             _ => {
                 return Err(CollectionError::new(
                     CollectionErrorKind::AmbiguousAnchor,
                     format!(
-                        "anchor `{}`#{} for `{}` matches multiple shared-parser invocations",
-                        authored.key().role(),
-                        authored.key().ordinal(),
-                        display_item(id)
+                        "primary anchor for `{}` matches multiple shared-parser invocations",
+                        display_item(self.id)
                     ),
                 ));
             }
         };
-        if matched_invocations.insert((authored_cache_key.clone(), invocation_index)) {
-            parser_keys.extend(parsed_invocation.anchors.keys().cloned());
+        if self.id.item_kind() != ItemKind::Grammar
+            && invocation.item_name != self.expected_item_name
+        {
+            return Err(CollectionError::new(
+                CollectionErrorKind::StaleAnchor,
+                format!(
+                    "reparsed item name `{}` does not match host identity `{}`",
+                    invocation.item_name, self.expected_item_name
+                ),
+            ));
         }
-    }
-    if host_keys != parser_keys {
-        return Err(CollectionError::new(
-            CollectionErrorKind::ProvenanceMismatch,
-            format!(
-                "macro and shared parser disagree about provenance keys for `{}`",
-                display_item(id)
-            ),
-        ));
+        Ok((primary_invocation_index, invocation, primary_cache_key))
     }
 
-    let origins = materialized
+    fn verify_authored(
+        &self,
+        loaded: &LoadedSources,
+        primary_cache_key: &(usize, String),
+        primary_invocation_index: usize,
+        invocation: &ParsedInvocation,
+    ) -> Result<(), CollectionError> {
+        let host_keys = self
+            .provenance
+            .authored()
+            .iter()
+            .map(|anchor| anchor.key().clone())
+            .collect::<BTreeSet<_>>();
+        let mut parser_keys = BTreeSet::new();
+        let mut matched_invocations = BTreeSet::new();
+        for authored in self.provenance.authored() {
+            if authored.anchor().precision() != AnchorPrecision::Exact {
+                return Err(CollectionError::new(
+                    CollectionErrorKind::ImpreciseAuthoredAnchor,
+                    format!(
+                        "authored provenance `{}`#{} for `{}` is not leaf-exact",
+                        authored.key().role(),
+                        authored.key().ordinal(),
+                        display_item(self.id)
+                    ),
+                ));
+            }
+            let authored_cache_key = loaded
+                .authored_documents
+                .get(authored.key())
+                .expect("every authored key has a loaded document");
+            let document = self.source_cache.get(authored_cache_key).ok_or_else(|| {
+                CollectionError::new(
+                    CollectionErrorKind::HostIo,
+                    "internal authored source cache lookup failed",
+                )
+            })?;
+            let coordinates = host_coordinates(authored.anchor());
+            let candidate_hits = if authored_cache_key == primary_cache_key
+                && invocation.anchors.get(authored.key()) == Some(&coordinates)
+            {
+                vec![(primary_invocation_index, invocation)]
+            } else {
+                document
+                    .invocations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, candidate)| {
+                        candidate.anchors.get(authored.key()) == Some(&coordinates)
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let (invocation_index, parsed_invocation) = match candidate_hits.as_slice() {
+                [] => {
+                    return Err(CollectionError::new(
+                        CollectionErrorKind::StaleAnchor,
+                        format!(
+                            "anchor `{}`#{} for `{}` no longer matches reparsed source",
+                            authored.key().role(),
+                            authored.key().ordinal(),
+                            display_item(self.id)
+                        ),
+                    ));
+                }
+                [candidate] => *candidate,
+                _ => {
+                    return Err(CollectionError::new(
+                        CollectionErrorKind::AmbiguousAnchor,
+                        format!(
+                            "anchor `{}`#{} for `{}` matches multiple shared-parser invocations",
+                            authored.key().role(),
+                            authored.key().ordinal(),
+                            display_item(self.id)
+                        ),
+                    ));
+                }
+            };
+            if matched_invocations.insert((authored_cache_key.clone(), invocation_index)) {
+                parser_keys.extend(parsed_invocation.anchors.keys().cloned());
+            }
+        }
+        if host_keys != parser_keys {
+            return Err(CollectionError::new(
+                CollectionErrorKind::ProvenanceMismatch,
+                format!(
+                    "macro and shared parser disagree about provenance keys for `{}`",
+                    display_item(self.id)
+                ),
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+fn build_origins(
+    materialized: BTreeMap<ProvenanceKey, SourceRange>,
+    invocation_range: &SourceRange,
+    id: &StableItemId,
+    label: &str,
+) -> Vec<DescriptorNodeOrigin> {
+    materialized
         .into_iter()
         .map(|(key, range)| {
             let mut origin = OriginStack::authored(range);
@@ -282,8 +353,7 @@ fn materialize_invocation(
             });
             DescriptorNodeOrigin::new(key, origin)
         })
-        .collect();
-    Ok((invocation.clone(), origins))
+        .collect()
 }
 
 pub(super) fn token_coordinates(range: TokenRange) -> Result<Coordinates, CollectionError> {
