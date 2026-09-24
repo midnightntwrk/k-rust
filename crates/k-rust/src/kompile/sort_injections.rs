@@ -354,21 +354,58 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.term_sort_with_arity(term, expected, true)
     }
 
-    // Invariant: each recursive call descends into a direct subterm of `term` (a rewrite side, an `as` pattern or alias, or one argument of a sort-transparent application), so the depth of `term` bounds the recursion.
     fn term_sort_with_arity(
         &self,
         term: &Term,
         expected: Option<&Sort>,
         allow_trailing_arguments: bool,
     ) -> Result<Sort, SortInjectionError> {
-        // A semantic cast on an application records the intended overload/context, not a
-        // replacement for the selected production's result sort. In particular, `{P}:K` where
-        // `P:KItem` must still materialize the KItem-to-K sequence wrapper.
-        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. })
-            && let Some(sort) = term.metadata().and_then(|metadata| metadata.sort.clone())
-        {
-            return Ok(sort);
+        Ok(self
+            .sort_and_downcast(term, expected, allow_trailing_arguments)?
+            .0)
+    }
+
+    /// Infer a term's sort together with the downcast target the injector projects it to.
+    ///
+    /// A semantic cast on an application or token whose target is at or above the selected
+    /// production's result sort records the intended overload/context, not a replacement for that
+    /// result sort: `{P}:K` where `P:KItem` must still materialize the KItem-to-K sequence wrapper,
+    /// and an exact-sort cast needs nothing. A target strictly below the result sort is a
+    /// downcast: the injector replaces the term by `project:<target>(term)`, whose declared result
+    /// sort is `target`, so `target` is the sort of the term the sentence contains and the second
+    /// component is `Some(target)`. Every enclosing inference must see that sort.
+    fn sort_and_downcast(
+        &self,
+        term: &Term,
+        expected: Option<&Sort>,
+        allow_trailing_arguments: bool,
+    ) -> Result<(Sort, Option<Sort>), SortInjectionError> {
+        let cast = term.metadata().and_then(|metadata| metadata.sort.as_ref());
+        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. }) {
+            if let Some(sort) = cast {
+                return Ok((sort.clone(), None));
+            }
+            return Ok((
+                self.natural_sort(term, expected, allow_trailing_arguments)?,
+                None,
+            ));
         }
+        let natural = self.natural_sort(term, expected, allow_trailing_arguments)?;
+        match cast {
+            Some(target) if *target != natural && self.subsorts.less_than_eq(target, &natural) => {
+                Ok((target.clone(), Some(target.clone())))
+            }
+            _ => Ok((natural, None)),
+        }
+    }
+
+    // Invariant: each recursive call (through `term_sort_with_arity` and `sort_and_downcast`, which call `natural_sort` once on the same term) descends into a direct subterm of `term` (a rewrite side, an `as` pattern or alias, or one argument of a sort-transparent application), so the depth of `term` bounds the recursion.
+    fn natural_sort(
+        &self,
+        term: &Term,
+        expected: Option<&Sort>,
+        allow_trailing_arguments: bool,
+    ) -> Result<Sort, SortInjectionError> {
         match term.unannotated() {
             Term::InjectedLabel(_) => Ok(Sort::builtin(BuiltinSort::KItem)),
             Term::Rewrite { left, right } => {
@@ -498,8 +535,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         expected: &Sort,
         is_lhs: bool,
     ) -> Result<Term, SortInjectionError> {
-        let actual = self.term_sort(term, Some(expected))?;
-        if let Some(projected) = self.semantic_projection(term, &actual) {
+        let (actual, downcast) = self.sort_and_downcast(term, Some(expected), false)?;
+        if let Some(target) = downcast {
+            let projected = semantic_projection(term, &target);
             return self.inject_with_position(&projected, expected, is_lhs);
         }
         if actual == *expected {
@@ -526,27 +564,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             return Ok(wrapped);
         }
         Ok(injection(actual, expected.clone(), visited))
-    }
-
-    fn semantic_projection(&self, term: &Term, actual: &Sort) -> Option<Term> {
-        let target = term.metadata()?.sort.as_ref()?;
-        // Semantic-cast resolution stores a non-variable cast target in metadata. Upcasts remain
-        // ordinary injections (or K sequences), but a cast from a heterogeneous super-sort such
-        // as KItem to Int needs the runtime projection generated for the target sort.
-        if actual == target || !self.subsorts.less_than_eq(target, actual) {
-            return None;
-        }
-
-        let mut argument_metadata = term.metadata()?.clone();
-        argument_metadata.sort = None;
-        let argument = term
-            .clone()
-            .into_unannotated()
-            .with_metadata(argument_metadata);
-        Some(Term::Apply {
-            label: Label::projection(target),
-            arguments: vec![argument],
-        })
     }
 
     fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {
@@ -1351,5 +1368,22 @@ fn with_variable_sort(term: &Term, sort: &Sort) -> Term {
             },
         ),
         _ => term.clone(),
+    }
+}
+
+/// Wrap a downcast term in the runtime projection generated for its cast target.
+///
+/// The argument keeps its metadata except the cast sort, so it sorts as its production's natural
+/// result sort and is not projected again.
+fn semantic_projection(term: &Term, target: &Sort) -> Term {
+    let mut argument = term.clone().into_unannotated();
+    if let Some(metadata) = term.metadata() {
+        let mut metadata = metadata.clone();
+        metadata.sort = None;
+        argument = argument.with_metadata(metadata);
+    }
+    Term::Apply {
+        label: Label::projection(target),
+        arguments: vec![argument],
     }
 }

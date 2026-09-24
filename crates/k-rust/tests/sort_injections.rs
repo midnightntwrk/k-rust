@@ -597,15 +597,95 @@ fn semantic_casts_project_heterogeneous_collection_results() {
     insta::assert_debug_snapshot!(summaries, @r###"
     [
         (
-            "inj{Int,KItem}(`project:Int`(`List:get`(COLLECTION,#token(\"0\",\"Int\"))))",
-            "inj{SortInt{}, SortKItem{}}(\n  Lblproject'Coln'Int{}(\n    kseq{}(LblList'Coln'get{}(VarCOLLECTION:SortList{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n  )\n)",
+            "`project:Int`(`List:get`(COLLECTION,#token(\"0\",\"Int\")))",
+            "Lblproject'Coln'Int{}(\n  kseq{}(LblList'Coln'get{}(VarCOLLECTION:SortList{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n)",
         ),
         (
-            "inj{Int,KItem}(`project:Int`(`Map:lookup`(COLLECTION,#token(\"0\",\"Int\"))))",
-            "inj{SortInt{}, SortKItem{}}(\n  Lblproject'Coln'Int{}(\n    kseq{}(LblMap'Coln'lookup{}(VarCOLLECTION:SortMap{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n  )\n)",
+            "`project:Int`(`Map:lookup`(COLLECTION,#token(\"0\",\"Int\")))",
+            "Lblproject'Coln'Int{}(\n  kseq{}(LblMap'Coln'lookup{}(VarCOLLECTION:SortMap{}, \\dv{SortInt{}}(\"0\")), dotk{}())\n)",
         ),
     ]
     "###);
+}
+
+#[test]
+fn a_semantic_downcast_application_sorts_as_the_projection_the_injector_builds() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax List
+          syntax KItem ::= List "[" Int "]" [function, symbol(List:get)]
+          syntax Int ::= "size" "(" List ")" [function, symbol(size)]
+        endmodule
+    "#});
+    let definition = k_rust::kompile::subsort_kitem(&definition).unwrap();
+    let definition = generate_sort_projections(&definition).unwrap();
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let list = || Term::Variable {
+        name: "L".into(),
+        sort: Some(Sort::new("List")),
+    };
+    let cast = |term: Term, sort: &str| {
+        term.with_metadata(TermMetadata {
+            sort: Some(Sort::new(sort)),
+            ..TermMetadata::default()
+        })
+    };
+    let get = || {
+        Term::apply(
+            "List:get",
+            vec![
+                list(),
+                Term::Token {
+                    token: "0".into(),
+                    sort: Sort::new("Int"),
+                },
+            ],
+        )
+    };
+    let downcast = cast(get(), "Int");
+    let upcast = cast(Term::apply("size", vec![list()]), "KItem");
+    let exact = cast(get(), "KItem");
+
+    // (term, its sort, the term injected at that sort, the term injected at KItem)
+    let cases = [
+        (
+            &downcast,
+            "Int",
+            "`project:Int`(`List:get`(L,#token(\"0\",\"Int\")))",
+            "inj{Int,KItem}(`project:Int`(`List:get`(L,#token(\"0\",\"Int\"))))",
+        ),
+        (&upcast, "Int", "size(L)", "inj{Int,KItem}(size(L))"),
+        (
+            &exact,
+            "KItem",
+            "`List:get`(L,#token(\"0\",\"Int\"))",
+            "`List:get`(L,#token(\"0\",\"Int\"))",
+        ),
+    ];
+    for (term, sort, at_sort, at_kitem) in cases {
+        let actual = injector.term_sort(term, None).unwrap();
+        assert_eq!(actual, Sort::new(sort), "{term}");
+        assert_eq!(injector.inject(term, &actual).unwrap().to_string(), at_sort);
+        assert_eq!(
+            injector
+                .inject(term, &Sort::new("KItem"))
+                .unwrap()
+                .to_string(),
+            at_kitem
+        );
+    }
+
+    // A rewrite whose right side is the downcast sorts at the left side's Int, not KItem.
+    let rewrite = Term::Rewrite {
+        left: Box::new(Term::apply("size", vec![list()])),
+        right: Box::new(downcast.clone()),
+    };
+    assert_eq!(
+        injector.term_sort(&rewrite, None).unwrap(),
+        Sort::new("Int")
+    );
 }
 
 injection_snapshot!(
@@ -896,7 +976,8 @@ fn synthetic_application_sort_metadata_projects_only_strict_subsorts() {
 
     assert_eq!(exact, "item(.KList)");
     assert_eq!(upcast, "inj{Int,KItem}(int(.KList))");
-    assert_eq!(downcast, "inj{Int,KItem}(`project:Int`(item(.KList)))");
+    // A downcast sorts as its target, so injecting it at its own sort adds no injection.
+    assert_eq!(downcast, "`project:Int`(item(.KList))");
     assert_eq!(unrelated, "item(.KList)");
 }
 
