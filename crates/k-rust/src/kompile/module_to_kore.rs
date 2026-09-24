@@ -1294,7 +1294,7 @@ fn symbol_attributes(
     {
         entries.insert(AttributeKey::Hook.as_str().into(), hook.clone());
     }
-    if base_constructor && !macro_like && !anywhere {
+    if base_constructor && !macro_like && !anywhere && !is_token_production(source) {
         entries.insert(
             AttributeKey::Constructor.as_str().into(),
             Value::String(String::new()),
@@ -1747,6 +1747,14 @@ fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
 
 fn is_builtin_label(label: &str) -> bool {
     InternalLabel::of(label).is_some_and(|label| InternalLabel::MATCHING_LOGIC.contains(&label))
+}
+
+/// A `token` production defines the lexical form of its sort's domain values: every term it
+/// parses is a domain value, its sort is declared `hasDomainValues`, and its label is never
+/// applied. Its symbol therefore denotes no element of the term algebra, and classifying it as a
+/// constructor would assert a rigid element provably distinct from every domain value of the sort.
+fn is_token_production(attributes: &KAttributes) -> bool {
+    attributes.has(AttributeKey::Token)
 }
 
 /// Encode a K label as a KORE symbol head.

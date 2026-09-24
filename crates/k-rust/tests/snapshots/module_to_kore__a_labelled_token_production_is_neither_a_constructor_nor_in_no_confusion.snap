@@ -1,0 +1,100 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Str ::= r\"[a-z]+\" [token, symbol(strLit)]\n  syntax Str ::= r\"[A-Z]+\" [token, symbol(idLit)]\n  syntax Exp ::= \"wrap(\" Str \")\" [symbol(wrap)]\nendmodule\n"
+---
+// semantics
+module MAIN
+  import K []
+  sort SortExp{} []
+  sort SortStr{} [hasDomainValues{}()]
+  symbol LblstrLit{}() : SortStr{}
+  [
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("strLit"),
+    token{}()
+  ]
+  symbol LblidLit{}() : SortStr{}
+  [
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("idLit"),
+    token{}()
+  ]
+  symbol Lblwrap{}(SortStr{}) : SortExp{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("wrap")
+  ]
+  axiom{R}
+    \exists{R}(Val:SortStr{}, \equals{SortStr{}, R}(Val:SortStr{}, LblstrLit{}()))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortStr{}, \equals{SortStr{}, R}(Val:SortStr{}, LblidLit{}()))
+    [functional{}()]
+  axiom{R}
+    \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblwrap{}(K0:SortStr{})))
+    [functional{}()]
+  axiom{}
+    \implies{SortExp{}}(
+      \and{SortExp{}}(Lblwrap{}(X0:SortStr{}), Lblwrap{}(Y0:SortStr{})),
+      Lblwrap{}(\and{SortStr{}}(X0:SortStr{}, Y0:SortStr{}))
+    )
+    [constructor{}()]
+  axiom{}
+    \or{SortExp{}}(\exists{SortExp{}}(X0:SortStr{}, Lblwrap{}(X0:SortStr{})), \bottom{SortExp{}}())
+    [constructor{}()]
+  axiom{} \or{SortStr{}}(\top{SortStr{}}(), LblidLit{}(), \bottom{SortStr{}}()) [constructor{}()]
+endmodule [
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
+]
+
+// syntax
+module MAIN
+  import K []
+  sort SortExp{} []
+  sort SortStr{} [hasDomainValues{}()]
+  symbol LblstrLit{}() : SortStr{}
+  [
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(2,18,2,51)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("strLit"),
+    token{}()
+  ]
+  symbol LblidLit{}() : SortStr{}
+  [
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    symbol'Kywd'{}("idLit"),
+    token{}()
+  ]
+  symbol Lblwrap{}(SortStr{}) : SortExp{}
+  [
+    constructor{}(),
+    format{}(),
+    functional{}(),
+    injective{}(),
+    left{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,48)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
+    priorities{}(),
+    right{}(),
+    symbol'Kywd'{}("wrap"),
+    terminals{}("101")
+  ]
+endmodule []
+
+// macros
