@@ -13,10 +13,14 @@ from typing import Any, Mapping
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, semantics  # noqa: E402
 from support.hashing import json_sha256  # noqa: E402
+from support.kdefinition import parse_kore_pattern  # noqa: E402
 from support.lock import descriptor_protocol, k_version  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool, scratch_root  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import native  # noqa: E402
 
 
 PORT = semantics.Port(
@@ -272,20 +276,6 @@ def definition_checks(readable: str) -> None:
         raise GateError("emitted KMIR definition omits typed builtin-list lookup")
 
 
-def normalize_term(value: str) -> str:
-    value = re.sub(r"\s+", " ", value.strip())
-    value = re.sub(r"\s*([(),;:])\s*", r"\1", value)
-    value = re.sub(r"\.\s+", ".", value)
-    return value
-
-
-def observed_cell(result: str, name: str) -> str:
-    match = re.search(rf"<{name}>\s*(.*?)\s*</{name}>", result, re.DOTALL)
-    if match is None:
-        raise GateError(f"native output omitted <{name}>: {result}")
-    return normalize_term(match.group(1))
-
-
 def java_reference_gate(
     workspace: Path,
     artifacts: Path,
@@ -332,33 +322,12 @@ def java_reference_gate(
                 f"-cTYPES={types}",
                 f"-cMEMORY={memory}",
                 "--output",
-                "pretty",
+                "kore",
             ],
             timeout=120,
         ).stdout
-        if observed_cell(result, "k") != ".K":
-            raise GateError(f"{case['id']} did not halt: {result}")
-        program = observed_cell(result, "currentBody")
-        block_count = len(re.findall(r"ListItem\(basicBlock", program))
-        observed = {
-            "id": str(case["id"]),
-            "program": program,
-            "block_count": block_count,
-            "locals": observed_cell(result, "locals"),
-            "return": observed_cell(result, "retVal"),
-            "stack_depth": len(re.findall(r"ListItem\(StackFrame", observed_cell(result, "stack"))),
-        }
-        expected = {
-            "block_count": int(case["expected_block_count"]),
-            "locals": normalize_term(str(case["expected_locals"])),
-            "return": normalize_term(str(case["expected_return"])),
-            "stack_depth": int(case.get("expected_stack_depth", 0)),
-        }
-        if {key: observed[key] for key in expected} != expected:
-            raise GateError(
-                f"{case['id']} differs: expected={expected}, actual={observed}"
-            )
-        outcomes.append(observed)
+        state = parse_kore_pattern(result)
+        outcomes.append(native.checked(case, native.observed(case, state)))
     pins.expect("behavior_sha256", json_sha256(outcomes))
 
     semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])

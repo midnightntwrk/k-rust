@@ -1538,10 +1538,10 @@ def applications(value: Any, name: str) -> list[Mapping[str, Any]]:
 def cell(state: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     matches = applications(state, f"Lbl'-LT-'{name}'-GT-'")
     if len(matches) != 1:
-        raise GateError(f"native result contains {len(matches)} <{name}> cells")
+        raise GateError(f"result contains {len(matches)} <{name}> cells")
     arguments = matches[0].get("args")
     if not isinstance(arguments, list) or len(arguments) != 1 or not isinstance(arguments[0], dict):
-        raise GateError(f"native <{name}> cell is malformed")
+        raise GateError(f"<{name}> cell is malformed")
     return arguments[0]
 
 
@@ -1849,8 +1849,14 @@ def sole_state(result: Mapping[str, Any]) -> Mapping[str, Any]:
     return state["term"]
 
 
-def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, Any]:
-    state = sole_state(result)
+def observed(case: Mapping[str, Any], state: Mapping[str, Any]) -> dict[str, Any]:
+    """Render one final KORE JSON configuration into the comparable behavior outcome.
+
+    The K-Rust runner returns KORE JSON and the reference route parses
+    `krun --output kore` into the same shape, so both routes share this
+    rendering and hash to one behavior digest.
+    """
+
     computation = cell(state, "k")
     blocks = applications(cell(state, "currentBody"), "LblListItem")
     outcome = {
@@ -1874,6 +1880,22 @@ def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, An
         raise GateError(f"{case['id']} did not halt")
     returned = app_arguments(cell(state, "retVal"), "returned", 1)[0]
     outcome["return"] = normalize_term(f"return({rendered_mir_value(returned)})")
+    return outcome
+
+
+def checked(case: Mapping[str, Any], outcome: dict[str, Any]) -> dict[str, Any]:
+    """Return `outcome` after requiring it to match the case's expected fields."""
+
+    expected: dict[str, Any] = {
+        "block_count": int(case["expected_block_count"]),
+        "locals": normalize_term(str(case["expected_locals"])),
+        "return": normalize_term(str(case["expected_return"])),
+        "stack_depth": int(case.get("expected_stack_depth", 0)),
+    }
+    if "expected_error" in case:
+        expected["error"] = normalize_term(str(case["expected_error"]))
+    if {key: outcome[key] for key in expected} != expected:
+        raise GateError(f"{case['id']} differs: expected={expected}, actual={outcome}")
     return outcome
 
 
@@ -1913,18 +1935,7 @@ def main() -> int:
     for case, response in zip(cases, responses, strict=True):
         if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
             raise GateError(f"native response order or shape differs: {response}")
-        outcome = observed(case, response["result"])
-        expected: dict[str, Any] = {
-            "block_count": int(case["expected_block_count"]),
-            "locals": normalize_term(str(case["expected_locals"])),
-            "return": normalize_term(str(case["expected_return"])),
-            "stack_depth": int(case.get("expected_stack_depth", 0)),
-        }
-        if "expected_error" in case:
-            expected["error"] = normalize_term(str(case["expected_error"]))
-        if {key: outcome[key] for key in expected} != expected:
-            raise GateError(f"{case['id']} differs: expected={expected}, actual={outcome}")
-        outcomes.append(outcome)
+        outcomes.append(checked(case, observed(case, sole_state(response["result"]))))
     digest = json_sha256(outcomes)
     print(f"PASS native KMIR behavior: {len(outcomes)} executions; sha256={digest}")
     return 0

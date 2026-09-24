@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import os
 from pathlib import Path
 import re
@@ -106,3 +107,106 @@ def normalized_kore_sha256(path: Path, semantics: Path) -> str:
     if binder_count == 0:
         raise GateError("definition.kore has no generated sort binders")
     return sha256_bytes(normalized)
+
+
+_KORE_TOKEN = re.compile(
+    r"""(?:\s|/\*.*?\*/)*(?:(?P<string>"(?:[^"\\]|\\.)*")|(?P<ident>\\?[A-Za-z][A-Za-z0-9'-]*)|(?P<punct>[{}(),]))""",
+    re.DOTALL,
+)
+_KORE_ESCAPES = {'"': '"', "\\": "\\", "n": "\n", "t": "\t", "r": "\r", "f": "\f"}
+
+
+def _kore_string(literal: str) -> str:
+    body = literal[1:-1]
+    value: list[str] = []
+    index = 0
+    while index < len(body):
+        character = body[index]
+        if character != "\\":
+            value.append(character)
+            index += 1
+            continue
+        escape = body[index + 1 : index + 2]
+        widths = {"x": 2, "u": 4, "U": 8}
+        if escape in _KORE_ESCAPES:
+            value.append(_KORE_ESCAPES[escape])
+            index += 2
+        elif escape in widths:
+            digits = body[index + 2 : index + 2 + widths[escape]]
+            if len(digits) != widths[escape]:
+                raise GateError(f"truncated KORE string escape in {literal}")
+            value.append(chr(int(digits, 16)))
+            index += 2 + widths[escape]
+        else:
+            raise GateError(f"unsupported KORE string escape \\{escape} in {literal}")
+    return "".join(value)
+
+
+def parse_kore_pattern(text: str) -> dict[str, object]:
+    """Parse one ground textual KORE pattern into the KORE JSON (v1) shape.
+
+    Covers what a concrete final configuration contains: symbol applications
+    and `\\dv` domain values, with sort applications; `/* ... */` comments, as
+    `krun --output kore` prints before builtin collections and injections, are
+    skipped. Any other connective or a variable is rejected, since a concrete
+    result never contains one.
+    """
+
+    tokens: list[tuple[str, str]] = []
+    position = 0
+    text = text.rstrip()
+    while position < len(text):
+        match = _KORE_TOKEN.match(text, position)
+        if match is None or match.end() == position:
+            raise GateError(f"unexpected KORE text at offset {position}: {text[position:position + 40]!r}")
+        kind = match.lastgroup
+        assert kind is not None
+        tokens.append((kind, match.group(kind)))
+        position = match.end()
+    cursor = 0
+
+    def take(kind: str, value: str | None = None) -> str:
+        nonlocal cursor
+        if cursor >= len(tokens) or tokens[cursor][0] != kind or (value is not None and tokens[cursor][1] != value):
+            found = tokens[cursor][1] if cursor < len(tokens) else "end of input"
+            raise GateError(f"expected KORE {value or kind}, found {found!r}")
+        cursor += 1
+        return tokens[cursor - 1][1]
+
+    def peek(value: str) -> bool:
+        return cursor < len(tokens) and tokens[cursor] == ("punct", value)
+
+    def separated(close: str, item: Callable[[], dict[str, object]]) -> list[dict[str, object]]:
+        items = []
+        if not peek(close):
+            items.append(item())
+            while peek(","):
+                take("punct", ",")
+                items.append(item())
+        take("punct", close)
+        return items
+
+    def sort() -> dict[str, object]:
+        name = take("ident")
+        take("punct", "{")
+        return {"tag": "SortApp", "name": name, "args": separated("}", sort)}
+
+    def pattern() -> dict[str, object]:
+        name = take("ident")
+        take("punct", "{")
+        sorts = separated("}", sort)
+        take("punct", "(")
+        if name == "\\dv":
+            if len(sorts) != 1:
+                raise GateError("a KORE domain value takes exactly one sort")
+            value = _kore_string(take("string"))
+            take("punct", ")")
+            return {"tag": "DV", "sort": sorts[0], "value": value}
+        if name.startswith("\\"):
+            raise GateError(f"unsupported KORE connective {name} in a concrete pattern")
+        return {"tag": "App", "name": name, "sorts": sorts, "args": separated(")", pattern)}
+
+    result = pattern()
+    if cursor != len(tokens):
+        raise GateError(f"trailing KORE text after the pattern: {tokens[cursor][1]!r}")
+    return result
