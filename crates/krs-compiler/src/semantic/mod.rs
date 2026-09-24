@@ -38,7 +38,6 @@ use references::validate_all_stable_references;
 /// Returns [`DescriptorLoweringError`] for duplicate or dangling identities,
 /// wrong descriptor shapes, parser/reference disagreement, malformed terms,
 /// invalid generated identities, or a failed whole-theory invariant.
-#[allow(clippy::too_many_lines)]
 pub fn lower_descriptor_bundle(
     bundle: &DescriptorBundle,
 ) -> Result<SemanticTheory, DescriptorLoweringError> {

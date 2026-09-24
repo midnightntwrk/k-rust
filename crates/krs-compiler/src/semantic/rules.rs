@@ -2,11 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     BuiltinSort, CellContentFrame, CellPost, Descriptor, DescriptorCellDeclaration,
-    DescriptorCellIdentity, DescriptorPayload, DescriptorRuleLabel, DescriptorSortRef,
-    FixedCellClause, FixedConfigurationRewrite, ItemKind, MapOperation, ProtocolCellContent,
-    SemanticId, SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
-    SemanticSimplification, SemanticSimplificationPriority, SemanticSortRef, SemanticTerm,
-    SemanticVariable, StableItemId, StructuredRuleDescriptor,
+    DescriptorCellIdentity, DescriptorCellReference, DescriptorFixedConfiguration,
+    DescriptorHeadRuleExtra, DescriptorPayload, DescriptorRuleCondition, DescriptorRuleLabel,
+    DescriptorRulePriority, DescriptorSimplification, DescriptorSortRef, DescriptorSortReference,
+    DescriptorTerm, FixedCellClause, FixedConfigurationRewrite, ItemKind, MapOperation,
+    ProtocolCellContent, ProvenanceKey, SemanticId, SemanticRule, SemanticRuleCondition,
+    SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
+    SemanticSimplificationPriority, SemanticSortRef, SemanticTerm, SemanticVariable, StableItemId,
+    StructuredRuleDescriptor,
 };
 use krs_syntax::ProvenanceRole;
 
@@ -44,7 +47,96 @@ pub(super) fn framework_k_item_sort(
     Ok(SemanticSortRef::Declared(first.clone()))
 }
 
-#[allow(clippy::too_many_lines)]
+/// Resolves `configuration` to its fixed-configuration payload.
+pub(super) fn require_fixed_configuration<'a>(
+    configuration: &StableItemId,
+    declarations: &'a BTreeMap<StableItemId, &Descriptor>,
+    node: &'static str,
+    detail: &'static str,
+) -> Result<&'a DescriptorFixedConfiguration, DescriptorLoweringError> {
+    let configuration_descriptor =
+        require_descriptor(configuration, ItemKind::Configuration, declarations)?;
+    let DescriptorPayload::FixedConfiguration(configuration) = &configuration_descriptor.payload
+    else {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node,
+            detail: detail.into(),
+        });
+    };
+    Ok(configuration)
+}
+
+/// Returns the semantic identities of every fixed leaf cell of `declaration`
+/// that `selected` does not name, in declaration order.
+pub(super) fn omitted_leaf_cells(
+    declaration: &DescriptorCellDeclaration,
+    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    selected: &BTreeSet<DescriptorCellIdentity>,
+) -> Result<Vec<SemanticId>, DescriptorLoweringError> {
+    let mut all_leaves = Vec::new();
+    collect_declared_leaf_identities(
+        declaration,
+        declarations,
+        &mut BTreeSet::new(),
+        &mut all_leaves,
+    )?;
+    all_leaves
+        .into_iter()
+        .filter(|identity| !selected.contains(identity))
+        .map(|identity| semantic_cell_id(&identity))
+        .collect()
+}
+
+/// Lowers an optional rule priority with the given origin role.
+pub(super) fn lower_rule_priority(
+    descriptor: &Descriptor,
+    priority: Option<&DescriptorRulePriority>,
+    role: &str,
+) -> Result<Option<SemanticRulePriority>, DescriptorLoweringError> {
+    priority
+        .map(|priority| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRulePriority::new(
+                semantic_origin(descriptor, priority.key.clone(), role)?,
+                priority.value,
+            ))
+        })
+        .transpose()
+}
+
+/// Lowers an optional Boolean `requires` condition through an inferred builder.
+fn lower_rule_requires(
+    builder: &mut StructuredTermBuilder<'_>,
+    requires: Option<&DescriptorRuleCondition>,
+) -> Result<Option<SemanticRuleCondition>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+    requires
+        .map(|condition| -> Result<_, DescriptorLoweringError> {
+            Ok(SemanticRuleCondition::new(
+                semantic_origin(descriptor, condition.key.clone(), "rule-requires")?,
+                builder.lower(&condition.term, Some(&bool_sort), false)?,
+            ))
+        })
+        .transpose()
+}
+
+/// Binding names and the sorts known before head-rule inference: authored
+/// refinements, sorts implied by selected cells, and each extra cell's sort.
+struct HeadRuleSeeds {
+    binding_names: BTreeSet<String>,
+    binding_sorts: BTreeMap<String, SemanticSortRef>,
+    map_argument_sorts: BTreeMap<DescriptorCellIdentity, (SemanticSortRef, SemanticSortRef)>,
+    cell_sorts: BTreeMap<DescriptorCellIdentity, SemanticSortRef>,
+}
+
+fn head_rule_extra_cell(extra: &DescriptorHeadRuleExtra) -> &DescriptorCellReference {
+    match extra {
+        krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
+        | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
+        | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
+    }
+}
+
 pub(super) fn lower_head_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
@@ -52,21 +144,105 @@ pub(super) fn lower_head_rule_descriptor(
     sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
+    let configuration = head_rule_configuration(rule, declarations)?;
+    let seeds = seed_head_rule_sorts(descriptor, rule, declarations)?;
+    let binding_constraints = initial_binding_constraints(&seeds.binding_sorts);
+    let mut builder = StructuredTermBuilder {
+        descriptor,
+        catalog,
+        declarations: Some(declarations),
+        k_item_sort: Some(framework_k_item_sort(declarations)?),
+        sort_parents,
+        binding_names: &seeds.binding_names,
+        pattern_key: Some(&rule.pattern_key),
+        binding_sorts: BTreeMap::new(),
+        binding_constraints,
+        wildcard_offset: 0,
+        wildcards: Vec::new(),
+    };
+    let head_sort = rule
+        .head_sort
+        .as_ref()
+        .map(|sort| semantic_sort_ref(&sort.sort));
+    infer_head_rule(&mut builder, rule, head_sort.as_ref(), &seeds)?;
+
+    let mut clauses = vec![lower_head_rule_computation_clause(
+        &mut builder,
+        rule,
+        head_sort.as_ref(),
+        sort_parents,
+    )?];
+    let mut selected = BTreeSet::from([rule.computation_cell.cell.clone()]);
+    for extra in &rule.extras {
+        clauses.push(lower_head_rule_extra(
+            &mut builder,
+            extra,
+            declarations,
+            &mut selected,
+        )?);
+    }
+    let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
+    let body = FixedConfigurationRewrite::new(
+        semantic_origin(
+            descriptor,
+            rule.pattern_key.clone(),
+            "completed-configuration-rewrite",
+        )?,
+        generated_semantic_id("configuration", &rule.configuration, None)?,
+        clauses,
+        omitted_siblings,
+    )?;
+    let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    let priority = lower_rule_priority(descriptor, rule.priority.as_ref(), "rule-owise")?;
+    let mut variables = rule
+        .bindings
+        .iter()
+        .map(|binding| {
+            Ok(SemanticVariable::new(
+                SemanticId::new(binding.name.clone())?,
+                builder
+                    .binding_sorts
+                    .get(&binding.name)
+                    .cloned()
+                    .expect("all binding sorts were inferred"),
+            ))
+        })
+        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+    variables.append(&mut builder.wildcards);
+    Ok(SemanticRule::new_configuration(
+        semantic_origin(
+            descriptor,
+            role_key(ProvenanceRole::RuleDeclaration, 0)?,
+            "head-anchored-rule",
+        )?,
+        descriptor.id.clone(),
+        rule.sentence_kind,
+        variables,
+        body,
+    )?
+    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
+    .with_priority(priority)?
+    .with_requires(requires)?)
+}
+
+/// Checks the head rule's sentence kind and computation cell and returns its
+/// fixed configuration.
+fn head_rule_configuration<'a>(
+    rule: &krs_ir::DescriptorHeadRule,
+    declarations: &'a BTreeMap<StableItemId, &Descriptor>,
+) -> Result<&'a DescriptorFixedConfiguration, DescriptorLoweringError> {
     if rule.sentence_kind != krs_ir::SentenceKind::Transition {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
             detail: "readable head completion currently supports transition rules only".into(),
         });
     }
-    let configuration_descriptor =
-        require_descriptor(&rule.configuration, ItemKind::Configuration, declarations)?;
-    let DescriptorPayload::FixedConfiguration(configuration) = &configuration_descriptor.payload
-    else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule",
-            detail: "head completion requires a fixed configuration".into(),
-        });
-    };
+    let configuration = require_fixed_configuration(
+        &rule.configuration,
+        declarations,
+        "head-anchored rule",
+        "head completion requires a fixed configuration",
+    )?;
     let computation = require_cell_field(&rule.computation_cell.cell, declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &computation.content else {
         return Err(DescriptorLoweringError::UnsupportedShape {
@@ -82,7 +258,14 @@ pub(super) fn lower_head_rule_descriptor(
             detail: "resolved computation cell is not KCell<KSequence>".into(),
         });
     }
+    Ok(configuration)
+}
 
+fn seed_head_rule_sorts(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorHeadRule,
+    declarations: &BTreeMap<StableItemId, &Descriptor>,
+) -> Result<HeadRuleSeeds, DescriptorLoweringError> {
     let binding_names = rule
         .bindings
         .iter()
@@ -103,11 +286,7 @@ pub(super) fn lower_head_rule_descriptor(
     let mut map_argument_sorts = BTreeMap::new();
     let mut cell_sorts = BTreeMap::new();
     for extra in &rule.extras {
-        let cell = match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
-            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
-            | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
-        };
+        let cell = head_rule_extra_cell(extra);
         let declared = require_cell_field(&cell.cell, declarations)?;
         let ProtocolCellContent::Leaf {
             sort, arguments, ..
@@ -154,32 +333,29 @@ pub(super) fn lower_head_rule_descriptor(
             }
         }
     }
-    let binding_constraints = initial_binding_constraints(&binding_sorts);
-    let mut builder = StructuredTermBuilder {
-        descriptor,
-        catalog,
-        declarations: Some(declarations),
-        k_item_sort: Some(framework_k_item_sort(declarations)?),
-        sort_parents,
-        binding_names: &binding_names,
-        pattern_key: Some(&rule.pattern_key),
-        binding_sorts: BTreeMap::new(),
-        binding_constraints,
-        wildcard_offset: 0,
-        wildcards: Vec::new(),
-    };
-    let head_sort = rule
-        .head_sort
-        .as_ref()
-        .map(|sort| semantic_sort_ref(&sort.sort));
-    builder.infer(&rule.subject, head_sort.as_ref(), true)?;
+    Ok(HeadRuleSeeds {
+        binding_names,
+        binding_sorts,
+        map_argument_sorts,
+        cell_sorts,
+    })
+}
+
+/// Infers every term of the head rule and checks that each binding has a sort.
+fn infer_head_rule(
+    builder: &mut StructuredTermBuilder<'_>,
+    rule: &krs_ir::DescriptorHeadRule,
+    head_sort: Option<&SemanticSortRef>,
+    seeds: &HeadRuleSeeds,
+) -> Result<(), DescriptorLoweringError> {
+    builder.infer(&rule.subject, head_sort, true)?;
     match &rule.result {
         krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            builder.infer(term, head_sort.as_ref(), false)?;
+            builder.infer(term, head_sort, false)?;
         }
         krs_ir::ProtocolHeadRuleResult::Splice(items) => {
             for term in items {
-                builder.infer(term, head_sort.as_ref(), false)?;
+                builder.infer(term, head_sort, false)?;
             }
         }
         krs_ir::ProtocolHeadRuleResult::Erase => {}
@@ -187,7 +363,8 @@ pub(super) fn lower_head_rule_descriptor(
     for extra in &rule.extras {
         match extra {
             krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, key, .. } => {
-                let expected = map_argument_sorts
+                let expected = seeds
+                    .map_argument_sorts
                     .get(&cell.cell)
                     .map(|(key_sort, _)| key_sort);
                 builder.infer(key, expected, true)?;
@@ -197,7 +374,7 @@ pub(super) fn lower_head_rule_descriptor(
                 base_binding,
                 update,
             } => {
-                let expected = cell_sorts.get(&cell.cell).ok_or_else(|| {
+                let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
                     DescriptorLoweringError::UnsupportedShape {
                         node: "head-anchored rule extra",
                         detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
@@ -207,7 +384,7 @@ pub(super) fn lower_head_rule_descriptor(
                     update,
                     base_binding,
                     expected,
-                    map_argument_sorts.get(&cell.cell),
+                    seeds.map_argument_sorts.get(&cell.cell),
                 )?;
             }
             krs_ir::ProtocolHeadRuleExtra::RewriteCell {
@@ -216,7 +393,7 @@ pub(super) fn lower_head_rule_descriptor(
                 after,
                 ..
             } => {
-                let expected = cell_sorts.get(&cell.cell).ok_or_else(|| {
+                let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
                     DescriptorLoweringError::UnsupportedShape {
                         node: "head-anchored rule extra",
                         detail: format!("ordinary cell {:?} is not a fixed leaf", cell.cell.field),
@@ -235,13 +412,24 @@ pub(super) fn lower_head_rule_descriptor(
     for binding in &rule.bindings {
         if !builder.binding_sorts.contains_key(&binding.name) {
             return Err(DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id.clone()),
+                id: Box::new(builder.descriptor.id.clone()),
                 detail: format!("binding {:?} has no inferred semantic sort", binding.name),
             });
         }
     }
+    Ok(())
+}
 
-    let subject_head = builder.lower(&rule.subject, head_sort.as_ref(), true)?;
+/// Lowers the matched head and its result into the computation-cell clause,
+/// which preserves the implicit K-sequence tail.
+fn lower_head_rule_computation_clause(
+    builder: &mut StructuredTermBuilder<'_>,
+    rule: &krs_ir::DescriptorHeadRule,
+    head_sort: Option<&SemanticSortRef>,
+    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    let subject_head = builder.lower(&rule.subject, head_sort, true)?;
     let subject_item_sort = subject_head.sort().clone();
     let before_k = SemanticTerm::k_sequence(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-subject")?,
@@ -250,11 +438,11 @@ pub(super) fn lower_head_rule_descriptor(
     );
     let result_items = match &rule.result {
         krs_ir::ProtocolHeadRuleResult::Replace(term) => {
-            vec![builder.lower(term, head_sort.as_ref(), false)?]
+            vec![builder.lower(term, head_sort, false)?]
         }
         krs_ir::ProtocolHeadRuleResult::Splice(items) => items
             .iter()
-            .map(|term| builder.lower(term, head_sort.as_ref(), false))
+            .map(|term| builder.lower(term, head_sort, false))
             .collect::<Result<Vec<_>, _>>()?,
         krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
     };
@@ -264,7 +452,7 @@ pub(super) fn lower_head_rule_descriptor(
         result_item_sort,
         result_items,
     );
-    let mut clauses = vec![FixedCellClause::new(
+    Ok(FixedCellClause::new(
         semantic_origin(descriptor, rule.pattern_key.clone(), "completed-k-clause")?,
         semantic_cell_id(&rule.computation_cell.cell)?,
         before_k,
@@ -273,227 +461,183 @@ pub(super) fn lower_head_rule_descriptor(
             origin: semantic_origin(descriptor, rule.pattern_key.clone(), "implicit-k-tail")?,
             binding: None,
         },
-    )];
-    let mut selected = BTreeSet::from([rule.computation_cell.cell.clone()]);
-    for extra in &rule.extras {
-        let cell_reference = match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap { cell, .. }
-            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { cell, .. }
-            | krs_ir::ProtocolHeadRuleExtra::RewriteCell { cell, .. } => cell,
-        };
-        if !selected.insert(cell_reference.cell.clone()) {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "head-anchored rule",
-                detail: format!(
-                    "cell {:?} is mentioned more than once",
-                    cell_reference.cell.field
-                ),
-            });
-        }
-        let declared = require_cell_field(&cell_reference.cell, declarations)?;
-        let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "head-anchored rule extra",
-                detail: "extra cell is not a fixed leaf".into(),
-            });
-        };
-        match extra {
-            krs_ir::ProtocolHeadRuleExtra::HaveMap {
-                cell,
-                key,
-                value_binding,
-            } => {
-                if *wrapper != krs_ir::CellWrapper::Cell
-                    || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
-                {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "head-anchored rule extra",
-                        detail: format!(
-                            "extra cell {:?} is not a Map cell",
-                            cell_reference.cell.field
-                        ),
-                    });
-                }
-                let key = builder.lower(key, None, true)?;
-                let value_sort = builder
-                    .binding_sorts
-                    .get(value_binding)
-                    .cloned()
-                    .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id.clone()),
-                        detail: format!("map value binding {value_binding:?} has no inferred sort"),
-                    })?;
-                let value = SemanticTerm::variable(
-                    semantic_origin(descriptor, cell.key.clone(), "map-binding-value")?,
-                    value_sort,
-                    SemanticId::new(value_binding.clone())?,
-                );
-                clauses.push(FixedCellClause::new(
-                    semantic_origin(descriptor, cell.key.clone(), "completed-map-read")?,
-                    semantic_cell_id(&cell.cell)?,
-                    SemanticTerm::map(
-                        semantic_origin(descriptor, cell.key.clone(), "completed-map-item")?,
-                        MapOperation::Item,
-                        vec![key, value],
-                    ),
-                    CellPost::Preserve,
-                    CellContentFrame::MapRemainder {
-                        origin: semantic_origin(
-                            descriptor,
-                            cell.key.clone(),
-                            "implicit-map-remainder",
-                        )?,
-                        binding: None,
-                    },
-                ));
-            }
-            krs_ir::ProtocolHeadRuleExtra::UpdateMap {
-                cell,
-                base_binding,
-                update,
-            } => {
-                if *wrapper != krs_ir::CellWrapper::Cell
-                    || !matches!(
-                        sort.sort,
-                        DescriptorSortRef::Builtin(BuiltinSort::Map | BuiltinSort::List)
-                    )
-                {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "head-anchored rule extra",
-                        detail: format!(
-                            "updated cell {:?} is not a Map or List cell",
-                            cell_reference.cell.field
-                        ),
-                    });
-                }
-                let expected = semantic_sort_ref(&sort.sort);
-                let (before_role, write_role) =
-                    if sort.sort == DescriptorSortRef::Builtin(BuiltinSort::Map) {
-                        ("map-update-before", "completed-map-write")
-                    } else {
-                        ("list-update-before", "completed-list-write")
-                    };
-                let before = SemanticTerm::variable(
-                    semantic_origin(descriptor, cell.key.clone(), before_role)?,
-                    expected.clone(),
-                    SemanticId::new(base_binding.clone())?,
-                );
-                let after = builder.lower(update, Some(&expected), false)?;
-                clauses.push(FixedCellClause::new(
-                    semantic_origin(descriptor, cell.key.clone(), write_role)?,
-                    semantic_cell_id(&cell.cell)?,
-                    before,
-                    CellPost::Replace { term: after },
-                    CellContentFrame::Exact,
-                ));
-            }
-            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
-                cell,
-                result_key,
-                before,
-                after,
-            } => {
-                if *wrapper != krs_ir::CellWrapper::Cell {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "head-anchored rule extra",
-                        detail: format!(
-                            "ordinary cell {:?} does not use the Cell wrapper",
-                            cell_reference.cell.field
-                        ),
-                    });
-                }
-                let expected = semantic_sort_ref(&sort.sort);
-                let before = builder.lower(before, Some(&expected), true)?;
-                let after = builder.lower(after, Some(&expected), false)?;
-                clauses.push(FixedCellClause::new(
-                    semantic_origin(descriptor, cell.key.clone(), "completed-cell-rewrite")?,
-                    semantic_cell_id(&cell.cell)?,
-                    before,
-                    CellPost::Replace { term: after },
-                    CellContentFrame::Exact,
-                ));
-                let _ = semantic_origin(
-                    descriptor,
-                    result_key.clone(),
-                    "completed-cell-rewrite-result",
-                )?;
-            }
-        }
-    }
-    let mut all_leaves = Vec::new();
-    collect_declared_leaf_identities(
-        &configuration.declaration,
-        declarations,
-        &mut BTreeSet::new(),
-        &mut all_leaves,
-    )?;
-    let omitted_siblings = all_leaves
-        .into_iter()
-        .filter(|identity| !selected.contains(identity))
-        .map(|identity| semantic_cell_id(&identity))
-        .collect::<Result<Vec<_>, _>>()?;
-    let body = FixedConfigurationRewrite::new(
-        semantic_origin(
-            descriptor,
-            rule.pattern_key.clone(),
-            "completed-configuration-rewrite",
-        )?,
-        generated_semantic_id("configuration", &rule.configuration, None)?,
-        clauses,
-        omitted_siblings,
-    )?;
-    let requires = rule
-        .requires
-        .as_ref()
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), "rule-requires")?,
-                builder.lower(&condition.term, Some(&bool_sort), false)?,
-            ))
-        })
-        .transpose()?;
-    let priority = rule
-        .priority
-        .as_ref()
-        .map(|priority| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRulePriority::new(
-                semantic_origin(descriptor, priority.key.clone(), "rule-owise")?,
-                priority.value,
-            ))
-        })
-        .transpose()?;
-    let mut variables = rule
-        .bindings
-        .iter()
-        .map(|binding| {
-            Ok(SemanticVariable::new(
-                SemanticId::new(binding.name.clone())?,
-                builder
-                    .binding_sorts
-                    .get(&binding.name)
-                    .cloned()
-                    .expect("all binding sorts were inferred"),
-            ))
-        })
-        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
-    variables.append(&mut builder.wildcards);
-    Ok(SemanticRule::new_configuration(
-        semantic_origin(
-            descriptor,
-            role_key(ProvenanceRole::RuleDeclaration, 0)?,
-            "head-anchored-rule",
-        )?,
-        descriptor.id.clone(),
-        rule.sentence_kind,
-        variables,
-        body,
-    )?
-    .with_label(lower_rule_label(descriptor, rule.label.as_ref())?)
-    .with_priority(priority)?
-    .with_requires(requires)?)
+    ))
 }
 
-pub(super) fn collect_declared_leaf_identities(
+/// Lowers one extra-cell read or write after checking that the cell is
+/// selected once and has the leaf shape the extra requires.
+fn lower_head_rule_extra(
+    builder: &mut StructuredTermBuilder<'_>,
+    extra: &DescriptorHeadRuleExtra,
+    declarations: &BTreeMap<StableItemId, &Descriptor>,
+    selected: &mut BTreeSet<DescriptorCellIdentity>,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let cell_reference = head_rule_extra_cell(extra);
+    if !selected.insert(cell_reference.cell.clone()) {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "head-anchored rule",
+            detail: format!(
+                "cell {:?} is mentioned more than once",
+                cell_reference.cell.field
+            ),
+        });
+    }
+    let declared = require_cell_field(&cell_reference.cell, declarations)?;
+    let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "head-anchored rule extra",
+            detail: "extra cell is not a fixed leaf".into(),
+        });
+    };
+    match extra {
+        krs_ir::ProtocolHeadRuleExtra::HaveMap {
+            cell,
+            key,
+            value_binding,
+        } => lower_head_rule_map_read(builder, cell, key, value_binding, *wrapper, sort),
+        krs_ir::ProtocolHeadRuleExtra::UpdateMap {
+            cell,
+            base_binding,
+            update,
+        } => lower_head_rule_collection_write(builder, cell, base_binding, update, *wrapper, sort),
+        krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+            cell,
+            result_key,
+            before,
+            after,
+        } => lower_head_rule_cell_rewrite(builder, cell, result_key, before, after, *wrapper, sort),
+    }
+}
+
+fn lower_head_rule_map_read(
+    builder: &mut StructuredTermBuilder<'_>,
+    cell: &DescriptorCellReference,
+    key: &DescriptorTerm,
+    value_binding: &str,
+    wrapper: krs_ir::CellWrapper,
+    sort: &DescriptorSortReference,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    if wrapper != krs_ir::CellWrapper::Cell
+        || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::Map)
+    {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "head-anchored rule extra",
+            detail: format!("extra cell {:?} is not a Map cell", cell.cell.field),
+        });
+    }
+    let key = builder.lower(key, None, true)?;
+    let value_sort = builder
+        .binding_sorts
+        .get(value_binding)
+        .cloned()
+        .ok_or_else(|| DescriptorLoweringError::InvalidTerm {
+            id: Box::new(descriptor.id.clone()),
+            detail: format!("map value binding {value_binding:?} has no inferred sort"),
+        })?;
+    let value = SemanticTerm::variable(
+        semantic_origin(descriptor, cell.key.clone(), "map-binding-value")?,
+        value_sort,
+        SemanticId::new(value_binding.to_owned())?,
+    );
+    Ok(FixedCellClause::new(
+        semantic_origin(descriptor, cell.key.clone(), "completed-map-read")?,
+        semantic_cell_id(&cell.cell)?,
+        SemanticTerm::map(
+            semantic_origin(descriptor, cell.key.clone(), "completed-map-item")?,
+            MapOperation::Item,
+            vec![key, value],
+        ),
+        CellPost::Preserve,
+        CellContentFrame::MapRemainder {
+            origin: semantic_origin(descriptor, cell.key.clone(), "implicit-map-remainder")?,
+            binding: None,
+        },
+    ))
+}
+
+fn lower_head_rule_collection_write(
+    builder: &mut StructuredTermBuilder<'_>,
+    cell: &DescriptorCellReference,
+    base_binding: &str,
+    update: &DescriptorTerm,
+    wrapper: krs_ir::CellWrapper,
+    sort: &DescriptorSortReference,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    if wrapper != krs_ir::CellWrapper::Cell
+        || !matches!(
+            sort.sort,
+            DescriptorSortRef::Builtin(BuiltinSort::Map | BuiltinSort::List)
+        )
+    {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "head-anchored rule extra",
+            detail: format!(
+                "updated cell {:?} is not a Map or List cell",
+                cell.cell.field
+            ),
+        });
+    }
+    let expected = semantic_sort_ref(&sort.sort);
+    let (before_role, write_role) = if sort.sort == DescriptorSortRef::Builtin(BuiltinSort::Map) {
+        ("map-update-before", "completed-map-write")
+    } else {
+        ("list-update-before", "completed-list-write")
+    };
+    let before = SemanticTerm::variable(
+        semantic_origin(descriptor, cell.key.clone(), before_role)?,
+        expected.clone(),
+        SemanticId::new(base_binding.to_owned())?,
+    );
+    let after = builder.lower(update, Some(&expected), false)?;
+    Ok(FixedCellClause::new(
+        semantic_origin(descriptor, cell.key.clone(), write_role)?,
+        semantic_cell_id(&cell.cell)?,
+        before,
+        CellPost::Replace { term: after },
+        CellContentFrame::Exact,
+    ))
+}
+
+fn lower_head_rule_cell_rewrite(
+    builder: &mut StructuredTermBuilder<'_>,
+    cell: &DescriptorCellReference,
+    result_key: &ProvenanceKey,
+    before: &DescriptorTerm,
+    after: &DescriptorTerm,
+    wrapper: krs_ir::CellWrapper,
+    sort: &DescriptorSortReference,
+) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = builder.descriptor;
+    if wrapper != krs_ir::CellWrapper::Cell {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "head-anchored rule extra",
+            detail: format!(
+                "ordinary cell {:?} does not use the Cell wrapper",
+                cell.cell.field
+            ),
+        });
+    }
+    let expected = semantic_sort_ref(&sort.sort);
+    let before = builder.lower(before, Some(&expected), true)?;
+    let after = builder.lower(after, Some(&expected), false)?;
+    let clause = FixedCellClause::new(
+        semantic_origin(descriptor, cell.key.clone(), "completed-cell-rewrite")?,
+        semantic_cell_id(&cell.cell)?,
+        before,
+        CellPost::Replace { term: after },
+        CellContentFrame::Exact,
+    );
+    let _ = semantic_origin(
+        descriptor,
+        result_key.clone(),
+        "completed-cell-rewrite-result",
+    )?;
+    Ok(clause)
+}
+
+fn collect_declared_leaf_identities(
     declaration: &DescriptorCellDeclaration,
     declarations: &BTreeMap<StableItemId, &Descriptor>,
     visiting: &mut BTreeSet<StableItemId>,
@@ -522,7 +666,6 @@ pub(super) fn collect_declared_leaf_identities(
     Ok(())
 }
 
-#[allow(clippy::too_many_lines)] // One closed pass performs inference, lowering, and metadata.
 pub(super) fn lower_structured_rule_descriptor(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
@@ -554,58 +697,17 @@ pub(super) fn lower_structured_rule_descriptor(
     builder.resolve_binding_sorts()?;
     let subject = builder.lower(&rule.subject, Some(&subject_sort), true)?;
     let result = builder.lower(&rule.result, Some(&result_sort), false)?;
-    let requires = rule
-        .requires
-        .as_ref()
-        .map(|condition| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRuleCondition::new(
-                semantic_origin(descriptor, condition.key.clone(), "rule-requires")?,
-                builder.lower(&condition.term, Some(&bool_sort), false)?,
-            ))
-        })
-        .transpose()?;
-    let priority = rule
-        .priority
-        .as_ref()
-        .map(|priority| -> Result<_, DescriptorLoweringError> {
-            Ok(SemanticRulePriority::new(
-                semantic_origin(
-                    descriptor,
-                    priority.key.clone(),
-                    if rule.sentence_kind == krs_ir::SentenceKind::Transition {
-                        "rule-owise"
-                    } else {
-                        "equation-priority"
-                    },
-                )?,
-                priority.value,
-            ))
-        })
-        .transpose()?;
-    let simplification = rule
-        .simplification
-        .as_ref()
-        .map(|simplification| -> Result<_, DescriptorLoweringError> {
-            let priority = simplification
-                .priority
-                .as_ref()
-                .map(|priority| -> Result<_, DescriptorLoweringError> {
-                    Ok(SemanticSimplificationPriority::new(
-                        semantic_origin(
-                            descriptor,
-                            priority.key.clone(),
-                            "simplification-priority",
-                        )?,
-                        priority.value,
-                    ))
-                })
-                .transpose()?;
-            Ok(SemanticSimplification::new(
-                semantic_origin(descriptor, simplification.key.clone(), "simplification")?,
-                priority,
-            ))
-        })
-        .transpose()?;
+    let requires = lower_rule_requires(&mut builder, rule.requires.as_ref())?;
+    let priority = lower_rule_priority(
+        descriptor,
+        rule.priority.as_ref(),
+        if rule.sentence_kind == krs_ir::SentenceKind::Transition {
+            "rule-owise"
+        } else {
+            "equation-priority"
+        },
+    )?;
+    let simplification = lower_rule_simplification(descriptor, rule.simplification.as_ref())?;
     let mut variables = Vec::new();
     for binding in &rule.bindings {
         let sort = builder.binding_sorts.get(binding).cloned().ok_or_else(|| {
@@ -642,6 +744,34 @@ pub(super) fn lower_structured_rule_descriptor(
     .with_priority(priority)?
     .with_simplification(simplification)
     .with_requires(requires)?)
+}
+
+fn lower_rule_simplification(
+    descriptor: &Descriptor,
+    simplification: Option<&DescriptorSimplification>,
+) -> Result<Option<SemanticSimplification>, DescriptorLoweringError> {
+    simplification
+        .map(|simplification| -> Result<_, DescriptorLoweringError> {
+            let priority = simplification
+                .priority
+                .as_ref()
+                .map(|priority| -> Result<_, DescriptorLoweringError> {
+                    Ok(SemanticSimplificationPriority::new(
+                        semantic_origin(
+                            descriptor,
+                            priority.key.clone(),
+                            "simplification-priority",
+                        )?,
+                        priority.value,
+                    ))
+                })
+                .transpose()?;
+            Ok(SemanticSimplification::new(
+                semantic_origin(descriptor, simplification.key.clone(), "simplification")?,
+                priority,
+            ))
+        })
+        .transpose()
 }
 
 pub(super) fn lower_rule_label(
