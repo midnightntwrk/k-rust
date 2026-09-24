@@ -18,7 +18,8 @@ pub enum OracleOutcome {
     Agree,
     /// Complete semantic distinction; the only killing outcome.
     Distinguish,
-    /// Two complete sides cannot be compared under the declaration.
+    /// Two complete sides cannot be compared under the declaration; folds to
+    /// `Error`, because more bounds never settle it.
     Incomparable,
     /// A declared time bound prevented a conclusion.
     Timeout,
@@ -41,53 +42,97 @@ pub enum MutantStatus {
     Invalid,
     /// A time limit prevented a conclusion.
     Timeout,
-    /// Another declared limit or incomparable result prevented a conclusion.
+    /// Another declared limit or indeterminate evidence prevented a conclusion.
     Unknown,
-    /// Infrastructure/backend/worker failure.
+    /// Infrastructure, backend, worker or oracle-declaration failure.
     Error,
 }
 
-/// Closed classification of the failure that ended a valid mutant's run.
+/// A failure that invalidates every test's evidence for one mutant.
 ///
-/// Only the classes a mutant can reach after candidate generation are
-/// modelled; operator, patch, selection, report and baseline failures never
-/// produce a `MutantPlan`.
+/// It dominates every oracle outcome, including a kill: a distinction computed
+/// against a rejected, unlowered or corrupted mutant says nothing about the
+/// mutant that is reported.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MutantFailureKind {
+pub enum MutantScopeFailure {
     /// Validation, lowering or backend compilation rejected the mutant.
     Rejected,
     /// Lowering or validation of the mutant does not terminate.
     LoweringNontermination,
-    /// A declared time limit was reached during lowering or execution.
-    TimeLimit,
-    /// A declared depth, breadth, result or other resource bound was reached.
-    ResourceLimit,
-    /// The solver or matcher could not decide.
-    Indeterminate,
-    /// Backend, worker or other infrastructure failure.
+    /// A declared time limit was reached while lowering the mutant.
+    LoweringTimeLimit,
+    /// A declared resource bound was reached while lowering the mutant.
+    LoweringResourceLimit,
+    /// Infrastructure failure or artifact corruption affecting the whole mutant.
     Infrastructure,
 }
 
-impl MutantFailureKind {
-    /// Status of a mutant whose oracles neither distinguished nor all agreed.
+impl MutantScopeFailure {
+    /// Status of a mutant with this failure, whatever its oracles reported.
     #[must_use]
     pub const fn status(self) -> MutantStatus {
         match self {
             Self::Rejected | Self::LoweringNontermination => MutantStatus::Invalid,
-            Self::TimeLimit => MutantStatus::Timeout,
-            Self::ResourceLimit | Self::Indeterminate => MutantStatus::Unknown,
+            Self::LoweringTimeLimit => MutantStatus::Timeout,
+            Self::LoweringResourceLimit => MutantStatus::Unknown,
             Self::Infrastructure => MutantStatus::Error,
         }
     }
 }
 
-/// One manifest-ordered test and its declaration-slot outcomes.
+/// Why one test's mutant execution produced no operand for any of its slots.
+///
+/// Bounded or indeterminate evidence that still yields an operand belongs in
+/// the slot outcome (`OracleSide::Unknown` or an incomplete `Normal`), not here.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionFailureKind {
+    /// The run could not decide how to proceed, for example a solver step.
+    Indeterminate,
+    /// A declared step, depth or other resource bound stopped the run.
+    ResourceLimit,
+    /// A declared wall-clock limit stopped the run.
+    TimeLimit,
+    /// The worker, backend or other infrastructure failed during the run.
+    Infrastructure,
+}
+
+impl ExecutionFailureKind {
+    /// Status this failed test contributes to the inconclusive fold.
+    #[must_use]
+    pub const fn status(self) -> MutantStatus {
+        match self {
+            Self::Indeterminate | Self::ResourceLimit => MutantStatus::Unknown,
+            Self::TimeLimit => MutantStatus::Timeout,
+            Self::Infrastructure => MutantStatus::Error,
+        }
+    }
+}
+
+/// What one test's mutant execution produced.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TestRun {
+    /// The run produced operands; one outcome per declared oracle slot.
+    Compared(Vec<OracleOutcome>),
+    /// The run produced no operand, so no slot was compared.
+    Failed(ExecutionFailureKind),
+}
+
+/// One manifest-ordered test and what its mutant execution produced.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestPlan {
     /// Unique manifest test ID.
     pub test_id: String,
-    /// Ordered nonempty oracle-slot outcomes.
-    pub oracle_outcomes: Vec<OracleOutcome>,
+    /// Slot outcomes, or the failure that prevented them.
+    pub run: TestRun,
+}
+
+/// One selected test of the campaign's test manifest.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ManifestTest {
+    /// Unique manifest test ID.
+    pub test_id: String,
+    /// Number of declared oracle slots; at least one.
+    pub slot_count: usize,
 }
 
 /// A mutation candidate ready for scheduling.
@@ -95,15 +140,11 @@ pub struct TestPlan {
 pub struct MutantPlan {
     /// Stable mutant identity.
     pub mutant_id: Digest,
-    /// Manifest-ordered unique tests.
+    /// Every manifest test in manifest order, or none when a mutant-scope
+    /// failure stopped the mutant before execution began.
     pub tests: Vec<TestPlan>,
-    /// Validation-stage classification, if execution must not begin.
-    pub preclassified: Option<MutantStatus>,
-    /// Classified failure of a valid mutant's run, if one occurred.
-    ///
-    /// It decides the status only when no selected oracle distinguished and
-    /// not every one agreed; a preclassification takes precedence over it.
-    pub failure: Option<MutantFailureKind>,
+    /// Failure invalidating every test's evidence; it decides the status.
+    pub mutant_failure: Option<MutantScopeFailure>,
 }
 
 /// One scheduled mutant result.
@@ -115,96 +156,136 @@ pub struct MutantReport {
     pub status: MutantStatus,
     /// Tests actually executed in manifest order.
     pub executed_test_ids: Vec<String>,
-    /// Exact killing-test prefix or full list.
+    /// Exact killing-test prefix or full list; empty unless `Killed`.
     pub killing_test_ids: Vec<String>,
     /// Explicit skipped suffix under first-kill.
     pub skipped_test_ids: Vec<String>,
 }
 
-/// Derives a deterministic schedule result without creating suffix work.
+/// Precedence of a status in the oracle fold; the fold keeps the maximum.
 ///
-/// Precedence: a validation preclassification, then any distinguishing oracle
-/// (killed), then complete agreement (survived), then the supplied failure
-/// kind, and only without one the folded inconclusive oracle outcomes.
-pub fn derive_mutant_report(
-    plan: &MutantPlan,
-    schedule: ScheduleMode,
-) -> Result<MutantReport, CampaignFailure> {
+/// A kill stands on its own complete evidence, so it beats any inconclusive
+/// outcome; complete agreement is what remains when nothing else was seen.
+const fn fold_rank(status: MutantStatus) -> u8 {
+    match status {
+        MutantStatus::Survived => 0,
+        MutantStatus::Unknown => 1,
+        MutantStatus::Timeout => 2,
+        MutantStatus::Error => 3,
+        MutantStatus::Killed => 4,
+        // Never produced by a slot or a failed test.
+        MutantStatus::Invalid => 5,
+    }
+}
+
+/// Status one compared slot contributes to the fold.
+const fn slot_status(outcome: OracleOutcome) -> MutantStatus {
+    match outcome {
+        OracleOutcome::Agree => MutantStatus::Survived,
+        OracleOutcome::Distinguish => MutantStatus::Killed,
+        OracleOutcome::Incomparable | OracleOutcome::Error => MutantStatus::Error,
+        OracleOutcome::Timeout => MutantStatus::Timeout,
+        OracleOutcome::Unknown => MutantStatus::Unknown,
+        // Rejected as input before the fold.
+        OracleOutcome::Skipped => MutantStatus::Error,
+    }
+}
+
+fn fold(left: MutantStatus, right: MutantStatus) -> MutantStatus {
+    if fold_rank(right) > fold_rank(left) {
+        right
+    } else {
+        left
+    }
+}
+
+fn invalid_manifest(detail: &str) -> CampaignFailure {
+    CampaignFailure::new(CampaignFailureKind::InvalidManifest, detail)
+}
+
+/// Rejects a manifest, or a plan that does not match it, before any fold.
+fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), CampaignFailure> {
     let mut unique = BTreeSet::new();
-    if plan.tests.is_empty()
-        || !plan
-            .tests
+    if manifest.is_empty()
+        || !manifest
             .iter()
-            .all(|test| !test.oracle_outcomes.is_empty() && unique.insert(test.test_id.as_str()))
+            .all(|test| test.slot_count > 0 && unique.insert(test.test_id.as_str()))
     {
-        return Err(CampaignFailure::new(
-            CampaignFailureKind::InvalidManifest,
-            "tests must be nonempty, unique, and contain an oracle declaration",
+        return Err(invalid_manifest(
+            "the manifest must be nonempty, unique, and declare an oracle slot per test",
         ));
     }
-    if let Some(status) = plan.preclassified {
-        if matches!(status, MutantStatus::Killed | MutantStatus::Survived) {
-            return Err(CampaignFailure::new(
-                CampaignFailureKind::InvalidPreclassification,
-                "killed and survived require scheduled oracle evidence",
+    if plan.tests.is_empty() && plan.mutant_failure.is_some() {
+        return Ok(());
+    }
+    if plan.tests.len() != manifest.len() {
+        return Err(invalid_manifest(
+            "mutant tests differ from the selected-test manifest",
+        ));
+    }
+    for (test, declared) in plan.tests.iter().zip(manifest) {
+        if test.test_id != declared.test_id {
+            return Err(invalid_manifest(
+                "mutant tests differ from the selected-test manifest order",
             ));
         }
-        return Ok(MutantReport {
-            mutant_id: plan.mutant_id.clone(),
-            status,
-            executed_test_ids: Vec::new(),
-            killing_test_ids: Vec::new(),
-            skipped_test_ids: plan.tests.iter().map(|test| test.test_id.clone()).collect(),
-        });
+        if let TestRun::Compared(outcomes) = &test.run {
+            if outcomes.len() != declared.slot_count {
+                return Err(invalid_manifest(
+                    "compared outcomes differ from the declared oracle slots",
+                ));
+            }
+            if outcomes.contains(&OracleOutcome::Skipped) {
+                return Err(CampaignFailure::new(
+                    CampaignFailureKind::FabricatedSkip,
+                    "input outcomes may not pre-mark a selected oracle as skipped",
+                ));
+            }
+        }
     }
+    Ok(())
+}
+
+/// Derives a deterministic schedule result without creating suffix work.
+///
+/// The plan must list every manifest test in order with one outcome per
+/// declared slot, or no tests when a mutant-scope failure stopped the mutant
+/// before execution. The status is one fold with a single precedence: a
+/// mutant-scope failure, then any distinguishing slot (killed), then error
+/// (including incomparable slots and failed infrastructure runs), timeout and
+/// unknown, and complete agreement (survived) only when nothing else was seen.
+pub fn derive_mutant_report(
+    plan: &MutantPlan,
+    manifest: &[ManifestTest],
+    schedule: ScheduleMode,
+) -> Result<MutantReport, CampaignFailure> {
+    check_plan(plan, manifest)?;
 
     let mut executed = Vec::new();
     let mut killing = Vec::new();
-    let mut seen_timeout = false;
-    let mut seen_unknown = false;
-    let mut seen_error = false;
-    let mut first_kill = None;
-    for (ordinal, test) in plan.tests.iter().enumerate() {
-        if schedule == ScheduleMode::FirstKill && first_kill.is_some() {
+    let mut status = MutantStatus::Survived;
+    for test in &plan.tests {
+        if schedule == ScheduleMode::FirstKill && !killing.is_empty() {
             break;
         }
-        if test.oracle_outcomes.contains(&OracleOutcome::Skipped) {
-            return Err(CampaignFailure::new(
-                CampaignFailureKind::FabricatedSkip,
-                "input outcomes may not pre-mark a selected oracle as skipped",
-            ));
-        }
         executed.push(test.test_id.clone());
-        if test.oracle_outcomes.contains(&OracleOutcome::Distinguish) {
+        let test_status = match &test.run {
+            TestRun::Compared(outcomes) => outcomes
+                .iter()
+                .map(|outcome| slot_status(*outcome))
+                .fold(MutantStatus::Survived, fold),
+            TestRun::Failed(kind) => kind.status(),
+        };
+        if test_status == MutantStatus::Killed {
             killing.push(test.test_id.clone());
-            first_kill = Some(ordinal);
-        } else if test.oracle_outcomes.contains(&OracleOutcome::Error) {
-            seen_error = true;
-        } else if test.oracle_outcomes.contains(&OracleOutcome::Timeout) {
-            seen_timeout = true;
-        } else if test.oracle_outcomes.iter().any(|outcome| {
-            matches!(
-                outcome,
-                OracleOutcome::Unknown | OracleOutcome::Incomparable
-            )
-        }) {
-            seen_unknown = true;
         }
+        status = fold(status, test_status);
     }
-    let status = if !killing.is_empty() {
-        MutantStatus::Killed
-    } else if !(seen_error || seen_timeout || seen_unknown) {
-        MutantStatus::Survived
-    } else if let Some(failure) = plan.failure {
-        failure.status()
-    } else if seen_error {
-        MutantStatus::Error
-    } else if seen_timeout {
-        MutantStatus::Timeout
-    } else {
-        MutantStatus::Unknown
-    };
-    let skipped_test_ids = plan.tests[executed.len()..]
+    if let Some(failure) = plan.mutant_failure {
+        status = failure.status();
+        killing.clear();
+    }
+    let skipped_test_ids = manifest[executed.len()..]
         .iter()
         .map(|test| test.test_id.clone())
         .collect();
@@ -312,10 +393,8 @@ const fn gcd(mut left: u64, mut right: u64) -> u64 {
 /// Closed campaign failure classifications.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CampaignFailureKind {
-    /// Manifest test/slot shape is invalid.
+    /// Manifest test/slot shape is invalid, or a plan does not match it.
     InvalidManifest,
-    /// A conclusive status was supplied without oracle evidence.
-    InvalidPreclassification,
     /// A selected input was already marked skipped.
     FabricatedSkip,
     /// Baseline validation rejected.

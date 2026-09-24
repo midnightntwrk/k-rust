@@ -43,6 +43,8 @@ pub enum OracleSide {
     },
     /// Object-language crash operand, identified by its crash digest.
     SemanticCrash(Digest),
+    /// A declared time bound stopped operand production.
+    Timeout,
     /// Operand production was semantically unknown.
     Unknown,
     /// Operand production failed in infrastructure/backend code.
@@ -50,7 +52,8 @@ pub enum OracleSide {
 }
 /// Compares two already kind-validated supplied sides.
 ///
-/// This function performs no K parsing, projection, solver work, or discovery.
+/// A failed side decides first, in the order error, timeout, unknown. This
+/// function performs no K parsing, projection, solver work, or discovery.
 pub fn compare_supplied(
     kind: OracleKind,
     crash_policy: CrashPolicy,
@@ -59,6 +62,7 @@ pub fn compare_supplied(
 ) -> Result<OracleOutcome, OracleFailure> {
     match (baseline, mutant) {
         (OracleSide::Error, _) | (_, OracleSide::Error) => Ok(OracleOutcome::Error),
+        (OracleSide::Timeout, _) | (_, OracleSide::Timeout) => Ok(OracleOutcome::Timeout),
         (OracleSide::Unknown, _) | (_, OracleSide::Unknown) => Ok(OracleOutcome::Unknown),
         (
             OracleSide::Normal {

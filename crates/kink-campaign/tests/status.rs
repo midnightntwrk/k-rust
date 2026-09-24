@@ -8,12 +8,13 @@
 //! named in the commit that added this file. The four crash-versus-crash
 //! `oracleTerminalCases` rows are also left out: the former Python checker
 //! and `compare_supplied` disagree on them until crashes are compared by
-//! their terminal terms.
+//! their terminal terms. Tables marked Rust-only have no source vector.
 
 use kink_campaign::{
-    BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantFailureKind, MutantPlan,
-    MutantReport, MutantStatus, OracleKind, OracleOutcome, OracleSide, Rational, ScheduleMode,
-    Score, TestPlan, compare_supplied, derive_mutant_report, score, validate_baseline,
+    BaselineAdmission, CampaignFailureKind, CrashPolicy, ExecutionFailureKind, ManifestTest,
+    MutantPlan, MutantReport, MutantScopeFailure, MutantStatus, OracleKind, OracleOutcome,
+    OracleSide, Rational, ScheduleMode, Score, TestPlan, TestRun, compare_supplied,
+    derive_mutant_report, score, validate_baseline,
 };
 use kink_pattern::{
     CandidateGeneration, Completeness, PatchOrigin, SuppliedPatch, derive_mutant_id,
@@ -41,15 +42,54 @@ fn text(value: &str) -> SemanticJson {
     SemanticJson::String(value.to_owned())
 }
 
-fn one_test(outcomes: Vec<OracleOutcome>) -> Vec<TestPlan> {
-    vec![TestPlan {
-        test_id: "t1".to_owned(),
-        oracle_outcomes: outcomes,
-    }]
+fn compared(id: &str, outcomes: &[OracleOutcome]) -> TestPlan {
+    TestPlan {
+        test_id: id.to_owned(),
+        run: TestRun::Compared(outcomes.to_vec()),
+    }
 }
 
-fn report(plan: &MutantPlan, schedule: ScheduleMode) -> MutantReport {
-    derive_mutant_report(plan, schedule).expect("plan derives a report")
+fn one_test(outcomes: &[OracleOutcome]) -> Vec<TestPlan> {
+    vec![compared("t1", outcomes)]
+}
+
+/// A valid mutant's plan over `tests`.
+fn plan(tests: Vec<TestPlan>) -> MutantPlan {
+    MutantPlan {
+        mutant_id: digest('a'),
+        tests,
+        mutant_failure: None,
+    }
+}
+
+/// A manifest of `(test id, declared slot count)` pairs.
+fn manifest(tests: &[(&str, usize)]) -> Vec<ManifestTest> {
+    tests
+        .iter()
+        .map(|(id, slot_count)| ManifestTest {
+            test_id: (*id).to_owned(),
+            slot_count: *slot_count,
+        })
+        .collect()
+}
+
+/// The manifest a well-formed plan was built against; a failed test declares
+/// one slot.
+fn manifest_of(plan: &MutantPlan) -> Vec<ManifestTest> {
+    plan.tests
+        .iter()
+        .map(|test| ManifestTest {
+            test_id: test.test_id.clone(),
+            slot_count: match &test.run {
+                TestRun::Compared(outcomes) => outcomes.len(),
+                TestRun::Failed(_) => 1,
+            },
+        })
+        .collect()
+}
+
+fn report(plan: &MutantPlan, manifest: &[ManifestTest], schedule: ScheduleMode) -> MutantReport {
+    derive_mutant_report(plan, manifest, schedule).expect("plan derives a report")
 }
 
 fn ratio(numerator: u64, denominator: u64) -> Option<Rational> {
@@ -59,112 +99,90 @@ fn ratio(numerator: u64, denominator: u64) -> Option<Rational> {
     })
 }
 
-/// Mutant validation outcome, decided before any oracle runs.
+/// What the source row's single test `t1` produced, if the mutant reached it.
 #[derive(Clone, Copy, Debug)]
-enum Validation {
-    Valid,
-    Invalid,
-    Error,
+enum Run {
+    /// Every slot was compared.
+    Compared(&'static [OracleOutcome]),
+    /// The mutant run failed; the source row marks the remaining slot
+    /// `skipped`, which Rust reserves for the scheduler.
+    Failed(ExecutionFailureKind),
+    /// A mutant-scope failure stopped the mutant before execution.
+    NotExecuted,
 }
 
-/// The kind of an old failure-taxonomy classification reached by these rows.
-fn failure_kind(classification: &str) -> MutantFailureKind {
-    match classification {
-        "ill-sorted" => MutantFailureKind::Rejected,
-        "lowering-nontermination" => MutantFailureKind::LoweringNontermination,
-        "time-limit" => MutantFailureKind::TimeLimit,
-        "resource-limit" => MutantFailureKind::ResourceLimit,
-        "solver-unknown" => MutantFailureKind::Indeterminate,
-        "worker-lost" => MutantFailureKind::Infrastructure,
-        other => panic!("no failure kind for classification {other}"),
-    }
-}
-
-/// Builds the plan for one validation outcome and the source row's oracle
-/// slots and failure classification.
-///
-/// A mutant that failed validation is preclassified. For a valid mutant the
-/// source rows mark the slot that was never evaluated after a failed mutant
-/// execution as `skipped`; Rust reserves `Skipped` for the scheduler and rejects
-/// it as input, so that slot is omitted.
-fn status_plan(
-    validation: Validation,
-    outcomes: &[OracleOutcome],
-    failure: Option<&str>,
-) -> MutantPlan {
-    let (preclassified, outcomes) = match validation {
-        Validation::Valid => (
-            None,
-            outcomes
-                .iter()
-                .copied()
-                .filter(|outcome| *outcome != Skipped)
-                .collect(),
-        ),
-        Validation::Invalid => (Some(Invalid), outcomes.to_vec()),
-        Validation::Error => (Some(Error), outcomes.to_vec()),
-    };
-    MutantPlan {
-        mutant_id: digest('a'),
-        tests: one_test(outcomes),
-        preclassified,
-        failure: failure.map(failure_kind),
-    }
-}
-
-/// (id, validation, oracle slots, failure classification, status, excluded bucket)
+/// (id, mutant-scope failure, t1 run, status, excluded bucket)
 type StatusRow = (
     &'static str,
-    Validation,
-    &'static [OracleOutcome],
-    Option<&'static str>,
+    Option<MutantScopeFailure>,
+    Run,
     MutantStatus,
     Option<MutantStatus>,
 );
 
-/// C1: mutant status is a total function of validation and oracle outcomes,
-/// and only killed and survived enter the score.
+/// C1: mutant status is a total function of the mutant-scope failure and the
+/// per-test runs, and only killed and survived enter the score.
+///
+/// The source rows put the lowering time and resource limits on a selected
+/// test with a `mutant-execution` failure; here they are mutant-scope failures,
+/// so `t1` is skipped rather than executed. The taxonomy gives both contexts
+/// the same disposition, so the status is unchanged. The source row
+/// `infrastructure-failure-is-error` has validation outcome `error`, which is
+/// the mutant-scope `Infrastructure` failure.
 #[test]
 fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
+    use ExecutionFailureKind as E;
+    use MutantScopeFailure as S;
     use OracleOutcome as O;
-    use Validation::{Error as VError, Invalid as VInvalid, Valid};
+    use Run::{Compared, Failed, NotExecuted};
     #[rustfmt::skip]
     let rows: [StatusRow; 10] = [
-        ("ordinary-result-kill", Valid, &[O::Distinguish, O::Agree], None, Killed, None),
-        ("complete-survival", Valid, &[O::Agree, O::Agree], None, Survived, None),
-        ("ill-sorted-invalid", VInvalid, &[O::Skipped, O::Skipped], Some("ill-sorted"), Invalid, Some(Invalid)),
-        ("lowering-nontermination-is-invalid", VInvalid, &[O::Skipped, O::Skipped], Some("lowering-nontermination"), Invalid, Some(Invalid)),
-        ("lowering-time-limit-is-timeout", Valid, &[O::Timeout, O::Skipped], Some("time-limit"), Timeout, Some(Timeout)),
-        ("lowering-resource-limit-is-unknown", Valid, &[O::Unknown, O::Skipped], Some("resource-limit"), Unknown, Some(Unknown)),
-        ("time-limit-is-timeout", Valid, &[O::Timeout, O::Skipped], Some("time-limit"), Timeout, Some(Timeout)),
-        ("solver-indeterminate-is-unknown", Valid, &[O::Unknown, O::Skipped], Some("solver-unknown"), Unknown, Some(Unknown)),
-        ("infrastructure-failure-is-error", VError, &[O::Error, O::Skipped], Some("worker-lost"), Error, Some(Error)),
-        ("bounded-agreement-is-survived-not-equivalent", Valid, &[O::Agree, O::Agree], None, Survived, None),
+        ("ordinary-result-kill", None, Compared(&[O::Distinguish, O::Agree]), Killed, None),
+        ("complete-survival", None, Compared(&[O::Agree, O::Agree]), Survived, None),
+        ("ill-sorted-invalid", Some(S::Rejected), NotExecuted, Invalid, Some(Invalid)),
+        ("lowering-nontermination-is-invalid", Some(S::LoweringNontermination), NotExecuted, Invalid, Some(Invalid)),
+        ("lowering-time-limit-is-timeout", Some(S::LoweringTimeLimit), NotExecuted, Timeout, Some(Timeout)),
+        ("lowering-resource-limit-is-unknown", Some(S::LoweringResourceLimit), NotExecuted, Unknown, Some(Unknown)),
+        ("time-limit-is-timeout", None, Failed(E::TimeLimit), Timeout, Some(Timeout)),
+        ("solver-indeterminate-is-unknown", None, Failed(E::Indeterminate), Unknown, Some(Unknown)),
+        ("infrastructure-failure-is-error", Some(S::Infrastructure), NotExecuted, Error, Some(Error)),
+        ("bounded-agreement-is-survived-not-equivalent", None, Compared(&[O::Agree, O::Agree]), Survived, None),
     ];
-    for (id, validation, outcomes, failure, expected, excluded) in rows {
-        if matches!(validation, Validation::Valid) && outcomes.contains(&Skipped) {
-            let verbatim = MutantPlan {
-                mutant_id: digest('a'),
-                tests: one_test(outcomes.to_vec()),
-                preclassified: None,
-                failure: None,
+    let declared = manifest(&[("t1", 2)]);
+    for (id, mutant_failure, run, expected, excluded) in rows {
+        let tests = match run {
+            Compared(outcomes) => one_test(outcomes),
+            Failed(kind) => vec![TestPlan {
+                test_id: "t1".to_owned(),
+                run: TestRun::Failed(kind),
+            }],
+            NotExecuted => Vec::new(),
+        };
+        let plan = MutantPlan {
+            mutant_failure,
+            ..plan(tests)
+        };
+        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
+            let actual = report(&plan, &declared, schedule);
+            assert_eq!(actual.status, expected, "{id} under {schedule:?}");
+            let executed: &[&str] = if matches!(run, NotExecuted) {
+                &[]
+            } else {
+                &["t1"]
             };
             assert_eq!(
-                derive_mutant_report(&verbatim, ScheduleMode::Full)
-                    .expect_err("a supplied skip is rejected")
-                    .kind(),
-                CampaignFailureKind::FabricatedSkip,
+                actual.executed_test_ids, executed,
+                "{id} under {schedule:?}"
+            );
+            let counted = score(&[actual.status]);
+            assert_eq!(counted.killed, u64::from(actual.status == Killed), "{id}");
+            assert_eq!(
+                counted.survived,
+                u64::from(actual.status == Survived),
                 "{id}"
             );
-        }
-        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
-            let actual = report(&status_plan(validation, outcomes, failure), schedule).status;
-            assert_eq!(actual, expected, "{id} ({failure:?}) under {schedule:?}");
-            let counted = score(&[actual]);
-            assert_eq!(counted.killed, u64::from(actual == Killed), "{id}");
-            assert_eq!(counted.survived, u64::from(actual == Survived), "{id}");
             assert_eq!(
-                (counted.denominator == 0).then_some(actual),
+                (counted.denominator == 0).then_some(actual.status),
                 excluded,
                 "{id}: excluded bucket"
             );
@@ -172,106 +190,216 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
     }
 }
 
-/// C1 `statusContradictionCases`: a status that contradicts validation cannot
-/// be derived, and cannot be supplied as a preclassification either.
+/// C1 `statusContradictionCases`: a mutant-scope failure decides the status
+/// even over a kill, and no conclusive status can be supplied as one.
+///
+/// The three failure-classification rows of `statusContradictionCases`
+/// (`lowering-time-limit-cannot-be-unknown`,
+/// `lowering-resource-limit-cannot-be-timeout` and
+/// `lowering-nontermination-cannot-be-timeout`) are unrepresentable: each
+/// paired a failure with a slot outcome reporting a different one, but a
+/// failed test carries no slots and a mutant-scope failure is not a slot.
 #[test]
 fn killed_cannot_fail_validation() {
-    let plan = status_plan(
-        Validation::Invalid,
-        &[Distinguish, Agree],
-        Some("ill-sorted"),
-    );
-    assert_eq!(report(&plan, ScheduleMode::Full).status, Invalid);
-    for claimed in [Killed, Survived] {
-        let forged = MutantPlan {
-            preclassified: Some(claimed),
-            ..plan.clone()
-        };
-        assert_eq!(
-            derive_mutant_report(&forged, ScheduleMode::Full)
-                .expect_err("a conclusive preclassification is rejected")
-                .kind(),
-            CampaignFailureKind::InvalidPreclassification,
-            "{claimed:?}"
-        );
-    }
+    let plan = MutantPlan {
+        mutant_failure: Some(MutantScopeFailure::Rejected),
+        ..plan(one_test(&[Distinguish, Agree]))
+    };
+    let actual = report(&plan, &manifest(&[("t1", 2)]), ScheduleMode::Full);
+    assert_eq!(actual.status, Invalid);
+    assert!(actual.killing_test_ids.is_empty());
 }
 
-/// C1 `statusContradictionCases` on failure classification: a valid mutant
-/// whose oracles neither distinguish nor all agree takes its status from the
-/// failure kind, not from the inconclusive oracle outcome.
-#[test]
-fn failure_kind_decides_status_over_inconclusive_outcomes() {
-    use OracleOutcome as O;
-    // (id, oracle slots, failure classification, contradicting status, status)
-    #[rustfmt::skip]
-    let rows: [(&str, &[OracleOutcome], &str, MutantStatus, MutantStatus); 3] = [
-        ("lowering-time-limit-cannot-be-unknown", &[O::Unknown, O::Skipped], "time-limit", Unknown, Timeout),
-        ("lowering-resource-limit-cannot-be-timeout", &[O::Timeout, O::Skipped], "resource-limit", Timeout, Unknown),
-        ("lowering-nontermination-cannot-be-timeout", &[O::Timeout, O::Skipped], "lowering-nontermination", Timeout, Invalid),
-    ];
-    for (id, outcomes, failure, contradicting, expected) in rows {
-        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
-            let actual = report(
-                &status_plan(Validation::Valid, outcomes, Some(failure)),
-                schedule,
-            )
-            .status;
-            assert_eq!(actual, expected, "{id} under {schedule:?}");
-            assert_ne!(actual, contradicting, "{id} under {schedule:?}");
-        }
-    }
-}
-
-/// One row per `MutantFailureKind::status` arm: the failure kind decides an
-/// inconclusive valid mutant, but never overrides a kill, complete agreement
-/// or a validation preclassification.
+/// One row per failure-kind `status` arm. A mutant-scope failure decides the
+/// status whether or not execution began, even over a kill; a failed test
+/// contributes its status to the fold, so it never survives and never
+/// overrides a kill in another test.
 #[test]
 fn every_failure_kind_maps_to_one_status() {
-    use MutantFailureKind as F;
-    let rows = [
-        (F::Rejected, Invalid),
-        (F::LoweringNontermination, Invalid),
-        (F::TimeLimit, Timeout),
-        (F::ResourceLimit, Unknown),
-        (F::Indeterminate, Unknown),
-        (F::Infrastructure, Error),
+    use ExecutionFailureKind as E;
+    use MutantScopeFailure as S;
+    let scope_rows = [
+        (S::Rejected, Invalid),
+        (S::LoweringNontermination, Invalid),
+        (S::LoweringTimeLimit, Timeout),
+        (S::LoweringResourceLimit, Unknown),
+        (S::Infrastructure, Error),
     ];
-    for (kind, expected) in rows {
+    let declared = manifest(&[("t1", 2)]);
+    for (kind, expected) in scope_rows {
         assert_eq!(kind.status(), expected, "{kind:?}");
-        let plan = |outcomes: Vec<OracleOutcome>, preclassified| MutantPlan {
-            mutant_id: digest('a'),
-            tests: one_test(outcomes),
-            preclassified,
-            failure: Some(kind),
-        };
-        for inconclusive in [
-            OracleOutcome::Timeout,
-            OracleOutcome::Unknown,
-            OracleOutcome::Incomparable,
-            OracleOutcome::Error,
+        for tests in [
+            Vec::new(),
+            one_test(&[Distinguish, Agree]),
+            one_test(&[Agree, Agree]),
         ] {
-            let actual = report(&plan(vec![Agree, inconclusive], None), ScheduleMode::Full);
-            assert_eq!(actual.status, expected, "{kind:?} with {inconclusive:?}");
-        }
-        let killed = report(
-            &plan(vec![OracleOutcome::Unknown, Distinguish], None),
-            ScheduleMode::Full,
-        );
-        assert_eq!(killed.status, Killed, "{kind:?}: a kill takes precedence");
-        let survived = report(&plan(vec![Agree, Agree], None), ScheduleMode::Full);
-        assert_eq!(
-            survived.status, Survived,
-            "{kind:?}: complete agreement takes precedence"
-        );
-        for preclassified in [Invalid, Error, Timeout, Unknown] {
             let actual = report(
-                &plan(vec![OracleOutcome::Unknown], Some(preclassified)),
+                &MutantPlan {
+                    mutant_failure: Some(kind),
+                    ..plan(tests)
+                },
+                &declared,
                 ScheduleMode::Full,
             );
+            assert_eq!(actual.status, expected, "{kind:?}");
+            assert!(actual.killing_test_ids.is_empty(), "{kind:?}");
+        }
+    }
+    let execution_rows = [
+        (E::Indeterminate, Unknown),
+        (E::ResourceLimit, Unknown),
+        (E::TimeLimit, Timeout),
+        (E::Infrastructure, Error),
+    ];
+    for (kind, expected) in execution_rows {
+        assert_eq!(kind.status(), expected, "{kind:?}");
+        let failed = TestPlan {
+            test_id: "t1".to_owned(),
+            run: TestRun::Failed(kind),
+        };
+        let alone = plan(vec![failed.clone(), compared("t2", &[Agree])]);
+        let actual = report(&alone, &manifest_of(&alone), ScheduleMode::Full);
+        assert_eq!(actual.status, expected, "{kind:?} beside agreement");
+        let killed = plan(vec![failed, compared("t2", &[Distinguish])]);
+        let actual = report(&killed, &manifest_of(&killed), ScheduleMode::Full);
+        assert_eq!(actual.status, Killed, "{kind:?}: a kill takes precedence");
+    }
+}
+
+/// One test's run in a fold-order row.
+#[derive(Clone, Copy, Debug)]
+enum Fold {
+    C(&'static [OracleOutcome]),
+    F(ExecutionFailureKind),
+}
+
+/// (id, mutant-scope failure, tests, status, killing tests under full,
+/// executed tests under first-kill)
+type FoldRow = (
+    &'static str,
+    Option<MutantScopeFailure>,
+    &'static [(&'static str, Fold)],
+    MutantStatus,
+    &'static [&'static str],
+    &'static [&'static str],
+);
+
+/// Rust-only: the single fold precedence is mutant-scope failure, then kill,
+/// then error (including incomparable), timeout and unknown, then survival,
+/// within a test and across tests alike.
+#[test]
+fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
+    use ExecutionFailureKind as E;
+    use Fold::{C, F};
+    use OracleOutcome as O;
+    #[rustfmt::skip]
+    let rows: [FoldRow; 17] = [
+        ("timeout-over-unknown", None, &[("t1", C(&[O::Timeout, O::Unknown]))], Timeout, &[], &["t1"]),
+        ("error-over-unknown", None, &[("t1", C(&[O::Unknown, O::Error]))], Error, &[], &["t1"]),
+        ("error-over-timeout", None, &[("t1", C(&[O::Timeout, O::Error]))], Error, &[], &["t1"]),
+        ("agree-does-not-mask", None, &[("t1", C(&[O::Agree, O::Unknown]))], Unknown, &[], &["t1"]),
+        ("incomparable-is-error", None, &[("t1", C(&[O::Incomparable]))], Error, &[], &["t1"]),
+        ("incomparable-over-timeout", None, &[("t1", C(&[O::Incomparable, O::Timeout]))], Error, &[], &["t1"]),
+        ("fold-across-tests", None, &[("t1", C(&[O::Unknown])), ("t2", C(&[O::Timeout]))], Timeout, &[], &["t1", "t2"]),
+        ("error-in-one-test", None, &[("t1", C(&[O::Error])), ("t2", C(&[O::Agree]))], Error, &[], &["t1", "t2"]),
+        ("kill-after-inconclusive", None, &[("t1", C(&[O::Timeout])), ("t2", C(&[O::Distinguish]))], Killed, &["t2"], &["t1", "t2"]),
+        ("kill-beats-error-in-same-test", None, &[("t1", C(&[O::Distinguish, O::Error]))], Killed, &["t1"], &["t1"]),
+        ("kill-after-incomparable", None, &[("t1", C(&[O::Incomparable])), ("t2", C(&[O::Distinguish])), ("t3", C(&[O::Agree]))], Killed, &["t2"], &["t1", "t2"]),
+        ("failed-resource-limit-beside-timeout-slot", None, &[("t1", F(E::ResourceLimit)), ("t2", C(&[O::Timeout]))], Timeout, &[], &["t1", "t2"]),
+        ("failed-time-limit-beside-error-slot", None, &[("t1", F(E::TimeLimit)), ("t2", C(&[O::Error]))], Error, &[], &["t1", "t2"]),
+        ("failed-infrastructure-then-kill", None, &[("t1", F(E::Infrastructure)), ("t2", C(&[O::Distinguish]))], Killed, &["t2"], &["t1", "t2"]),
+        ("every-test-failed", None, &[("t1", F(E::TimeLimit)), ("t2", F(E::Indeterminate))], Timeout, &[], &["t1", "t2"]),
+        ("failed-test-beside-agreement", None, &[("t1", F(E::ResourceLimit)), ("t2", C(&[O::Agree]))], Unknown, &[], &["t1", "t2"]),
+        ("mutant-failure-beats-kill", Some(MutantScopeFailure::Infrastructure), &[("t1", C(&[O::Distinguish])), ("t2", C(&[O::Agree]))], Error, &[], &["t1"]),
+    ];
+    for (id, mutant_failure, tests, expected, killing, first_kill_executed) in rows {
+        let plan = MutantPlan {
+            mutant_failure,
+            ..plan(
+                tests
+                    .iter()
+                    .map(|(test_id, run)| TestPlan {
+                        test_id: (*test_id).to_owned(),
+                        run: match run {
+                            C(outcomes) => TestRun::Compared(outcomes.to_vec()),
+                            F(kind) => TestRun::Failed(*kind),
+                        },
+                    })
+                    .collect(),
+            )
+        };
+        let declared = manifest_of(&plan);
+        let all = tests
+            .iter()
+            .map(|(test_id, _)| *test_id)
+            .collect::<Vec<_>>();
+        let full = report(&plan, &declared, ScheduleMode::Full);
+        assert_eq!(full.status, expected, "{id} under Full");
+        assert_eq!(full.executed_test_ids, all, "{id} under Full");
+        assert_eq!(full.killing_test_ids, killing, "{id} under Full");
+        assert!(full.skipped_test_ids.is_empty(), "{id} under Full");
+        let first_kill = report(&plan, &declared, ScheduleMode::FirstKill);
+        assert_eq!(first_kill.status, expected, "{id} under FirstKill");
+        assert_eq!(
+            first_kill.executed_test_ids, first_kill_executed,
+            "{id} under FirstKill"
+        );
+        assert_eq!(
+            first_kill.killing_test_ids,
+            &killing[..killing.len().min(1)],
+            "{id} under FirstKill"
+        );
+        assert_eq!(
+            first_kill.skipped_test_ids,
+            &all[first_kill_executed.len()..],
+            "{id} under FirstKill"
+        );
+    }
+}
+
+/// (id, mutant-scope failure, tests, manifest, rejection)
+type RejectionRow = (
+    &'static str,
+    Option<MutantScopeFailure>,
+    Vec<TestPlan>,
+    &'static [(&'static str, usize)],
+    CampaignFailureKind,
+);
+
+/// Rust-only: a plan must match the selected-test manifest exactly, so no
+/// omitted test or slot can let an inconclusive mutant survive.
+#[test]
+fn plans_that_differ_from_the_manifest_are_rejected() {
+    use CampaignFailureKind::{FabricatedSkip, InvalidManifest};
+    use OracleOutcome as O;
+    let agree = |id| compared(id, &[Agree]);
+    let t1_t2: &[(&str, usize)] = &[("t1", 1), ("t2", 1)];
+    #[rustfmt::skip]
+    let rows: [RejectionRow; 11] = [
+        ("missing-test", None, vec![agree("t1")], t1_t2, InvalidManifest),
+        ("extra-test", None, vec![agree("t1"), agree("t2")], &[("t1", 1)], InvalidManifest),
+        ("reordered-tests", None, vec![agree("t2"), agree("t1")], t1_t2, InvalidManifest),
+        ("fewer-slots", None, vec![agree("t1")], &[("t1", 2)], InvalidManifest),
+        ("more-slots", None, vec![compared("t1", &[Agree, Agree])], &[("t1", 1)], InvalidManifest),
+        ("no-tests-without-mutant-failure", None, Vec::new(), &[("t1", 1)], InvalidManifest),
+        ("partial-tests-with-mutant-failure", Some(MutantScopeFailure::Infrastructure), vec![agree("t1")], t1_t2, InvalidManifest),
+        ("empty-manifest", Some(MutantScopeFailure::Rejected), Vec::new(), &[], InvalidManifest),
+        ("duplicate-manifest-test", None, vec![agree("t1"), agree("t1")], &[("t1", 1), ("t1", 1)], InvalidManifest),
+        ("manifest-test-without-slots", Some(MutantScopeFailure::Rejected), Vec::new(), &[("t1", 0)], InvalidManifest),
+        ("fabricated-skip", None, vec![compared("t1", &[O::Timeout, Skipped])], &[("t1", 2)], FabricatedSkip),
+    ];
+    for (id, mutant_failure, tests, declared, expected) in rows {
+        let plan = MutantPlan {
+            mutant_failure,
+            ..plan(tests)
+        };
+        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
             assert_eq!(
-                actual.status, preclassified,
-                "{kind:?}: validation takes precedence"
+                derive_mutant_report(&plan, &manifest(declared), schedule)
+                    .expect_err("the plan is rejected")
+                    .kind(),
+                expected,
+                "{id} under {schedule:?}"
             );
         }
     }
@@ -291,25 +419,17 @@ type ScheduleRow = (
 fn first_kill_and_full_schedules_agree_on_status() {
     // `scheduleCases` first-kill/full and `campaignCases` first-kill-and-full-agree
     // share this manifest.
-    let manifest = [("t1", Agree), ("t2", Distinguish), ("t3", Distinguish)];
-    let plan = MutantPlan {
-        mutant_id: digest('a'),
-        tests: manifest
-            .iter()
-            .map(|(id, outcome)| TestPlan {
-                test_id: (*id).to_owned(),
-                oracle_outcomes: vec![*outcome],
-            })
-            .collect(),
-        preclassified: None,
-        failure: None,
-    };
+    let plan = plan(vec![
+        compared("t1", &[Agree]),
+        compared("t2", &[Distinguish]),
+        compared("t3", &[Distinguish]),
+    ]);
     let rows: [ScheduleRow; 2] = [
         (ScheduleMode::FirstKill, &["t1", "t2"], &["t2"], &["t3"]),
         (ScheduleMode::Full, &["t1", "t2", "t3"], &["t2", "t3"], &[]),
     ];
     for (schedule, executed, killing, skipped) in rows {
-        let actual = report(&plan, schedule);
+        let actual = report(&plan, &manifest_of(&plan), schedule);
         assert_eq!(actual.status, Killed, "{schedule:?}");
         assert_eq!(actual.executed_test_ids, executed, "{schedule:?}");
         assert_eq!(actual.killing_test_ids, killing, "{schedule:?}");
@@ -361,37 +481,44 @@ fn score_is_exact_and_excluded_statuses_do_not_count() {
     }
 }
 
-/// A one-test plan whose single oracle slot folds to `status`.
+/// A plan over the one-slot manifest `t1` whose outcome folds to `status`.
 fn plan_for(status: MutantStatus, character: char) -> MutantPlan {
-    let (outcome, preclassified) = match status {
-        Killed => (Distinguish, None),
-        Survived => (Agree, None),
-        Timeout => (OracleOutcome::Timeout, None),
-        Unknown => (OracleOutcome::Unknown, None),
-        Error => (OracleOutcome::Error, None),
-        Invalid => (Skipped, Some(Invalid)),
+    let outcome = match status {
+        Killed => Distinguish,
+        Survived => Agree,
+        Timeout => OracleOutcome::Timeout,
+        Unknown => OracleOutcome::Unknown,
+        Error => OracleOutcome::Error,
+        Invalid => {
+            return MutantPlan {
+                mutant_id: digest(character),
+                tests: Vec::new(),
+                mutant_failure: Some(MutantScopeFailure::Rejected),
+            };
+        }
     };
     MutantPlan {
         mutant_id: digest(character),
-        tests: one_test(vec![outcome]),
-        preclassified,
-        failure: None,
+        ..plan(one_test(&[outcome]))
     }
 }
 
 /// Campaign-level fold over the current API: baseline admission first, then
 /// one report per mutant plan, then the score over the derived statuses.
 /// `mutants` is only called after admission, so a rejected baseline does no
-/// mutant work.
+/// mutant work. Every plan is checked against the one-slot manifest `t1`
+/// unless `mutants` returns another manifest.
 fn run_campaign(
     admission: BaselineAdmission,
     schedule: ScheduleMode,
-    mutants: impl FnOnce() -> Vec<MutantPlan>,
+    mutants: impl FnOnce() -> (Vec<MutantPlan>, Option<Vec<ManifestTest>>),
 ) -> Result<(Vec<MutantReport>, Score), CampaignFailureKind> {
     validate_baseline(admission).map_err(|failure| failure.kind())?;
-    let reports = mutants()
+    let (plans, declared) = mutants();
+    let declared = declared.unwrap_or_else(|| manifest(&[("t1", 1)]));
+    let reports = plans
         .iter()
-        .map(|plan| report(plan, schedule))
+        .map(|plan| report(plan, &declared, schedule))
         .collect::<Vec<_>>();
     let statuses = reports.iter().map(|item| item.status).collect::<Vec<_>>();
     Ok((reports, score(&statuses)))
@@ -440,11 +567,12 @@ fn baseline_admission_gates_mutants_and_score() {
     // default-score-exclusions. The duplicate and no-change entries of the
     // source row are candidate dispositions that never reach a `MutantPlan`.
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        [Killed, Survived, Invalid, Timeout, Unknown, Error]
+        let plans = [Killed, Survived, Invalid, Timeout, Unknown, Error]
             .into_iter()
             .zip('a'..)
             .map(|(status, character)| plan_for(status, character))
-            .collect()
+            .collect();
+        (plans, None)
     })
     .expect("default-score-exclusions admits");
     assert_eq!(
@@ -463,7 +591,7 @@ fn baseline_admission_gates_mutants_and_score() {
 
     // coupled-patch-is-one-mutant: a two-edit patch is one plan and one entry.
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        vec![plan_for(Killed, 'a')]
+        (vec![plan_for(Killed, 'a')], None)
     })
     .expect("coupled-patch-is-one-mutant admits");
     assert_eq!(reports.len(), 1);
@@ -472,7 +600,7 @@ fn baseline_admission_gates_mutants_and_score() {
 
     // timeout-is-not-survived
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        vec![plan_for(Timeout, 'a')]
+        (vec![plan_for(Timeout, 'a')], None)
     })
     .expect("timeout-is-not-survived admits");
     assert_eq!(statuses(&reports), [Timeout]);
@@ -481,11 +609,12 @@ fn baseline_admission_gates_mutants_and_score() {
 
     // nonterminating-decimal-is-exact-rational
     let (_, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        vec![
+        let plans = vec![
             plan_for(Killed, 'a'),
             plan_for(Survived, 'b'),
             plan_for(Survived, 'c'),
-        ]
+        ];
+        (plans, None)
     })
     .expect("nonterminating-decimal-is-exact-rational admits");
     assert_eq!((counted.killed, counted.survived), (1, 2));
@@ -493,18 +622,13 @@ fn baseline_admission_gates_mutants_and_score() {
 
     // first-kill-and-full-agree (the schedule details are in C2).
     let manifest = || {
-        vec![MutantPlan {
-            mutant_id: digest('a'),
-            tests: [("t1", Agree), ("t2", Distinguish), ("t3", Distinguish)]
-                .into_iter()
-                .map(|(id, outcome)| TestPlan {
-                    test_id: id.to_owned(),
-                    oracle_outcomes: vec![outcome],
-                })
-                .collect(),
-            preclassified: None,
-            failure: None,
-        }]
+        let tests = [("t1", Agree), ("t2", Distinguish), ("t3", Distinguish)]
+            .into_iter()
+            .map(|(id, outcome)| compared(id, &[outcome]))
+            .collect();
+        let plan = plan(tests);
+        let declared = manifest_of(&plan);
+        (vec![plan], Some(declared))
     };
     let (first_kill, _) = run_campaign(
         BaselineAdmission::Accepted,
@@ -540,12 +664,7 @@ fn baseline_admission_gates_mutants_and_score() {
         .expect("sides compare");
         assert_eq!(compared, outcome, "{id}");
         let (reports, _) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-            vec![MutantPlan {
-                mutant_id: digest('a'),
-                tests: one_test(vec![compared]),
-                preclassified: None,
-                failure: None,
-            }]
+            (vec![plan(one_test(&[compared]))], None)
         })
         .expect("admitted");
         assert_eq!(statuses(&reports), [status], "{id}");
@@ -603,15 +722,8 @@ fn execution_pattern_kills_mutant_with_unchanged_final_result() {
             actual
         })
         .collect::<Vec<_>>();
-    let actual = report(
-        &MutantPlan {
-            mutant_id: digest('a'),
-            tests: one_test(outcomes),
-            preclassified: None,
-            failure: None,
-        },
-        ScheduleMode::Full,
-    );
+    let plan = plan(one_test(&outcomes));
+    let actual = report(&plan, &manifest_of(&plan), ScheduleMode::Full);
     assert_eq!(actual.status, Killed);
     assert_eq!(actual.killing_test_ids, ["t1"]);
     let counted = score(&[actual.status]);
@@ -666,6 +778,38 @@ fn terminal_comparison_truth_table_without_crash_pairs() {
     }
 }
 
+/// Rust-only: a failed side decides the comparison in the order error,
+/// timeout, unknown, whichever side failed and whatever the other side is.
+#[test]
+fn failed_sides_compare_error_then_timeout_then_unknown() {
+    use OracleOutcome as O;
+    use OracleSide::{Error as SError, Timeout as STimeout, Unknown as SUnknown};
+    #[rustfmt::skip]
+    let rows = [
+        ("mutant-timeout", normal(text("a")), STimeout, O::Timeout),
+        ("baseline-timeout", STimeout, normal(text("a")), O::Timeout),
+        ("timeout-against-crash", crash('a'), STimeout, O::Timeout),
+        ("timeout-over-unknown", SUnknown, STimeout, O::Timeout),
+        ("timeout-over-unknown-reversed", STimeout, SUnknown, O::Timeout),
+        ("error-over-timeout", STimeout, SError, O::Error),
+        ("error-over-timeout-reversed", SError, STimeout, O::Error),
+    ];
+    for (id, baseline, mutant, expected) in rows {
+        for policy in [
+            CrashPolicy::Reject,
+            CrashPolicy::CompareIdentity,
+            CrashPolicy::Distinguish,
+        ] {
+            assert_eq!(
+                compare_supplied(OracleKind::ExitStop, policy, &baseline, &mutant)
+                    .expect("a failed side always compares"),
+                expected,
+                "{id} under {policy:?}"
+            );
+        }
+    }
+}
+
 /// Every oracle kind keeps agree, distinguish and unknown apart, and an
 /// unknown oracle neither kills nor survives, so it is never scored.
 #[test]
@@ -694,12 +838,8 @@ fn every_oracle_kind_keeps_agree_distinguish_and_unknown_distinct() {
         }
     }
     let unknown = report(
-        &MutantPlan {
-            mutant_id: digest('a'),
-            tests: one_test(vec![OracleOutcome::Unknown]),
-            preclassified: None,
-            failure: None,
-        },
+        &plan(one_test(&[OracleOutcome::Unknown])),
+        &manifest(&[("t1", 1)]),
         ScheduleMode::Full,
     );
     assert_eq!(unknown.status, Unknown);
@@ -752,10 +892,9 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
             report(
                 &MutantPlan {
                     mutant_id: derive_mutant_id(&baseline, &candidate.patch_id),
-                    tests: one_test(vec![Distinguish]),
-                    preclassified: None,
-                    failure: None,
+                    ..plan(one_test(&[Distinguish]))
                 },
+                &manifest(&[("t1", 1)]),
                 ScheduleMode::Full,
             )
         })
