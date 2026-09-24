@@ -9,6 +9,7 @@ use syn::{
 
 use crate::attribute::{ClaimBinder, ExistsAttribute, parse_exists_attribute};
 use crate::attribute::{is_plain_path, path_spelling};
+use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, parse_readable_sort, parse_term_sort, take_requires_helper};
 use crate::term::push_record_field_anchors;
 use crate::{
@@ -520,7 +521,7 @@ impl StateContextAliasItem {
                 TokenRange::for_tokens(sort.sort())?,
             ));
         }
-        append_cells_provenance(&self.pattern, Side::Left, &mut output)?;
+        append_cells_provenance(&self.pattern, RuleSide::Left, &mut output)?;
         Ok(output)
     }
 
@@ -551,7 +552,7 @@ impl StateContextAliasItem {
             path: self.configuration_type.clone(),
             kind: StateRuleReferenceKind::Configuration,
         });
-        append_cells_candidates(&self.pattern, Side::Left, &self.bindings, &mut output)?;
+        append_cells_candidates(&self.pattern, RuleSide::Left, &self.bindings, &mut output)?;
         Ok(output)
     }
 }
@@ -715,8 +716,8 @@ impl StateRuleItem {
                 TokenRange::for_tokens(sort.sort())?,
             ));
         }
-        append_cells_provenance(&self.subject, Side::Left, &mut output)?;
-        append_cells_provenance(&self.result, Side::Right, &mut output)?;
+        append_cells_provenance(&self.subject, RuleSide::Left, &mut output)?;
+        append_cells_provenance(&self.result, RuleSide::Right, &mut output)?;
         if let Some(requires) = &self.requires {
             output.extend(requires.provenance()?);
         }
@@ -763,8 +764,8 @@ impl StateRuleItem {
                 kind: StateRuleReferenceKind::Configuration,
             },
         ]);
-        append_cells_candidates(&self.subject, Side::Left, &self.bindings, &mut output)?;
-        append_cells_candidates(&self.result, Side::Right, &self.bindings, &mut output)?;
+        append_cells_candidates(&self.subject, RuleSide::Left, &self.bindings, &mut output)?;
+        append_cells_candidates(&self.result, RuleSide::Right, &self.bindings, &mut output)?;
         Ok(output)
     }
 }
@@ -810,12 +811,6 @@ pub fn parse_state_context_alias_item_source(
     here: &str,
 ) -> Result<StateContextAliasItem, SyntaxError> {
     StateContextAliasItem::from_item(syn::parse_str(source)?, &syn::parse_str(here)?)
-}
-
-#[derive(Clone, Copy)]
-enum Side {
-    Left,
-    Right,
 }
 
 fn validate_signature(item: &ItemFn) -> Result<(), SyntaxError> {
@@ -1174,7 +1169,7 @@ fn validate_term_reuses(
 
 fn append_cells_provenance(
     cells: &CellsExpression,
-    side: Side,
+    side: RuleSide,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     let mut counters = RoleCounters::default();
@@ -1187,7 +1182,7 @@ fn append_cells_provenance(
 
 fn append_state_term_provenance(
     term: &StateTerm,
-    side: Side,
+    side: RuleSide,
     counters: &mut RoleCounters,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
@@ -1212,18 +1207,18 @@ fn append_state_term_provenance(
 
 fn append_term_provenance(
     term: &TermExpression,
-    side: Side,
+    side: RuleSide,
     counters: &mut RoleCounters,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role, literal_role, field_role) = match side {
-        Side::Left => (
+        RuleSide::Left => (
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
             ProvenanceRole::RuleLeftLiteral,
             ProvenanceRole::RuleLeftRecordFieldName,
         ),
-        Side::Right => (
+        RuleSide::Right => (
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
             ProvenanceRole::RuleRightLiteral,
@@ -1255,7 +1250,7 @@ fn append_term_provenance(
             field.range(),
         ));
     }
-    if matches!(side, Side::Left) {
+    if matches!(side, RuleSide::Left) {
         let mut wildcards = Vec::new();
         term.tree().wildcard_ranges_preorder(&mut wildcards);
         for range in wildcards {
@@ -1271,12 +1266,12 @@ fn append_term_provenance(
 
 fn append_remapped(
     anchors: Vec<ProvenanceAnchor>,
-    side: Side,
+    side: RuleSide,
     counters: &mut RoleCounters,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     for anchor in anchors {
-        let Some(role) = remapped_role(anchor.role(), side) else {
+        let Some(role) = anchor.role().on_rule_side(side) else {
             continue;
         };
         output.push(ProvenanceAnchor::new(
@@ -1288,48 +1283,17 @@ fn append_remapped(
     Ok(())
 }
 
-fn remapped_role(role: ProvenanceRole, side: Side) -> Option<ProvenanceRole> {
-    use ProvenanceRole as P;
-    Some(match (side, role) {
-        (Side::Left, P::CellsPayload) => P::RuleLeftCellsPayload,
-        (Side::Left, P::CellsField) => P::RuleLeftCellsField,
-        (Side::Left, P::CellsWrapper) => P::RuleLeftCellsWrapper,
-        (Side::Left, P::CellsRemainder) => P::RuleLeftCellsRemainder,
-        (Side::Left, P::KSequencePayload) => P::RuleLeftKSequencePayload,
-        (Side::Left, P::KSequenceItem) => P::RuleLeftKSequenceItem,
-        (Side::Left, P::KSequenceTail) => P::RuleLeftKSequenceTail,
-        (Side::Left, P::MapPayload) => P::RuleLeftMapPayload,
-        (Side::Left, P::MapKey) => P::RuleLeftMapKey,
-        (Side::Left, P::MapValue) => P::RuleLeftMapValue,
-        (Side::Left, P::MapRemainder) => P::RuleLeftMapRemainder,
-        (Side::Left, P::MapUpdateBase) => P::RuleLeftMapUpdateBase,
-        (Side::Right, P::CellsPayload) => P::RuleRightCellsPayload,
-        (Side::Right, P::CellsField) => P::RuleRightCellsField,
-        (Side::Right, P::CellsWrapper) => P::RuleRightCellsWrapper,
-        (Side::Right, P::CellsRemainder) => P::RuleRightCellsRemainder,
-        (Side::Right, P::KSequencePayload) => P::RuleRightKSequencePayload,
-        (Side::Right, P::KSequenceItem) => P::RuleRightKSequenceItem,
-        (Side::Right, P::KSequenceTail) => P::RuleRightKSequenceTail,
-        (Side::Right, P::MapPayload) => P::RuleRightMapPayload,
-        (Side::Right, P::MapKey) => P::RuleRightMapKey,
-        (Side::Right, P::MapValue) => P::RuleRightMapValue,
-        (Side::Right, P::MapRemainder) => P::RuleRightMapRemainder,
-        (Side::Right, P::MapUpdateBase) => P::RuleRightMapUpdateBase,
-        _ => return None,
-    })
-}
-
 fn append_cells_candidates(
     cells: &CellsExpression,
-    side: Side,
+    side: RuleSide,
     bindings: &[StateRuleBinding],
     output: &mut Vec<StateRuleReferenceCandidate>,
 ) -> Result<(), SyntaxError> {
     let mut counters = RoleCounters::default();
     for entry in cells.entries() {
         let wrapper_role = match side {
-            Side::Left => ProvenanceRole::RuleLeftCellsWrapper,
-            Side::Right => ProvenanceRole::RuleRightCellsWrapper,
+            RuleSide::Left => ProvenanceRole::RuleLeftCellsWrapper,
+            RuleSide::Right => ProvenanceRole::RuleRightCellsWrapper,
         };
         let ordinal = counters.next(wrapper_role, entry.wrapper().span())?;
         output.push(StateRuleReferenceCandidate {
@@ -1344,7 +1308,7 @@ fn append_cells_candidates(
 
 fn append_state_term_candidates(
     state: &StateTerm,
-    side: Side,
+    side: RuleSide,
     bindings: &[StateRuleBinding],
     counters: &mut RoleCounters,
     output: &mut Vec<StateRuleReferenceCandidate>,
@@ -1368,17 +1332,17 @@ fn append_state_term_candidates(
 
 fn append_term_candidates(
     term: &TermExpression,
-    side: Side,
+    side: RuleSide,
     bindings: &[StateRuleBinding],
     counters: &mut RoleCounters,
     output: &mut Vec<StateRuleReferenceCandidate>,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role) = match side {
-        Side::Left => (
+        RuleSide::Left => (
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
         ),
-        Side::Right => (
+        RuleSide::Right => (
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
         ),

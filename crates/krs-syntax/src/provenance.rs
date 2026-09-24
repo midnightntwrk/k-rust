@@ -1,4 +1,6 @@
 use krs_ir::ProvenanceKey;
+use proc_macro2::TokenStream;
+use quote::ToTokens;
 
 use crate::TokenRange;
 
@@ -497,6 +499,59 @@ impl ProvenanceRole {
     /// violated internal contract in the IR key type.
     pub fn key(self, ordinal: u32) -> Result<ProvenanceKey, krs_ir::HostProvenanceError> {
         ProvenanceKey::new(self.as_str(), ordinal)
+    }
+}
+
+impl ToTokens for ProvenanceRole {
+    /// Emits the role spelling as a string literal, the role argument of
+    /// `ProvenanceKey::new` in generated code.
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        self.as_str().to_tokens(tokens);
+    }
+}
+
+/// One side of a configuration rule or claim.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RuleSide {
+    /// The subject.
+    Left,
+    /// The result.
+    Right,
+}
+
+impl ProvenanceRole {
+    /// The role that a `cells!`, `k!`, or `map!` node with the standalone
+    /// role `self` takes on `side` of a configuration rule; `None` when
+    /// `self` is not a standalone state-macro role.
+    #[must_use]
+    pub const fn on_rule_side(self, side: RuleSide) -> Option<Self> {
+        Some(match (side, self) {
+            (RuleSide::Left, Self::CellsPayload) => Self::RuleLeftCellsPayload,
+            (RuleSide::Left, Self::CellsField) => Self::RuleLeftCellsField,
+            (RuleSide::Left, Self::CellsWrapper) => Self::RuleLeftCellsWrapper,
+            (RuleSide::Left, Self::CellsRemainder) => Self::RuleLeftCellsRemainder,
+            (RuleSide::Left, Self::KSequencePayload) => Self::RuleLeftKSequencePayload,
+            (RuleSide::Left, Self::KSequenceItem) => Self::RuleLeftKSequenceItem,
+            (RuleSide::Left, Self::KSequenceTail) => Self::RuleLeftKSequenceTail,
+            (RuleSide::Left, Self::MapPayload) => Self::RuleLeftMapPayload,
+            (RuleSide::Left, Self::MapKey) => Self::RuleLeftMapKey,
+            (RuleSide::Left, Self::MapValue) => Self::RuleLeftMapValue,
+            (RuleSide::Left, Self::MapRemainder) => Self::RuleLeftMapRemainder,
+            (RuleSide::Left, Self::MapUpdateBase) => Self::RuleLeftMapUpdateBase,
+            (RuleSide::Right, Self::CellsPayload) => Self::RuleRightCellsPayload,
+            (RuleSide::Right, Self::CellsField) => Self::RuleRightCellsField,
+            (RuleSide::Right, Self::CellsWrapper) => Self::RuleRightCellsWrapper,
+            (RuleSide::Right, Self::CellsRemainder) => Self::RuleRightCellsRemainder,
+            (RuleSide::Right, Self::KSequencePayload) => Self::RuleRightKSequencePayload,
+            (RuleSide::Right, Self::KSequenceItem) => Self::RuleRightKSequenceItem,
+            (RuleSide::Right, Self::KSequenceTail) => Self::RuleRightKSequenceTail,
+            (RuleSide::Right, Self::MapPayload) => Self::RuleRightMapPayload,
+            (RuleSide::Right, Self::MapKey) => Self::RuleRightMapKey,
+            (RuleSide::Right, Self::MapValue) => Self::RuleRightMapValue,
+            (RuleSide::Right, Self::MapRemainder) => Self::RuleRightMapRemainder,
+            (RuleSide::Right, Self::MapUpdateBase) => Self::RuleRightMapUpdateBase,
+            _ => return None,
+        })
     }
 }
 

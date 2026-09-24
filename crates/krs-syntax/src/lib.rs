@@ -74,7 +74,7 @@ pub use item::{
     parse_constructor_declaration, parse_constructor_declaration_source, parse_sort_declaration,
     parse_sort_declaration_source,
 };
-pub use provenance::{ProvenanceAnchor, ProvenanceRole};
+pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleSide};
 pub use range::TokenRange;
 pub use rule::{
     RuleBlock, RuleClause, RuleCondition, RuleExtra, RuleHeadResult, RuleImport, RuleItem,

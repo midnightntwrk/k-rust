@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use krs_syntax::{
     ClaimModality as SyntaxClaimModality, ConfigurationCellContent, FixedCellInitializer,
     GroupAssociativity as SyntaxGroupAssociativity, InitializerCellContent, KSequence,
-    KSequenceNotation, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole,
+    KSequenceNotation, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleSide,
     StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind, StateTerm,
     StrictnessAttribute, StrictnessKind as SyntaxStrictnessKind, StructuredFormatFragment,
     SyntaxTemplateItem, TermArguments, TermExpression, TermLiteral, TermTree, TokenRange,
@@ -527,6 +527,7 @@ fn expand_readable_membership(
     member: &Path,
     identity: &ReadableMembershipIdentity,
 ) -> syn::Result<TokenStream> {
+    let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let anchors = declaration
         .member_provenance(member)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -549,9 +550,20 @@ fn expand_readable_membership(
     let member_path = member;
     let super_spelling = spelling(declaration.supersort());
     let sub_spelling = spelling(member);
-    let supersort =
-        host_sort_reference(facade, "subsort_super_sort", 0, &super_key, &super_spelling);
-    let subsort = host_sort_reference(facade, "subsort_sub_sort", 0, &sub_key, &sub_spelling);
+    let supersort = host_sort_reference(
+        facade,
+        ProvenanceRole::SubsortSuperSort,
+        0,
+        &super_key,
+        &super_spelling,
+    );
+    let subsort = host_sort_reference(
+        facade,
+        ProvenanceRole::SubsortSubSort,
+        0,
+        &sub_key,
+        &sub_spelling,
+    );
 
     Ok(quote! {
         #[doc(hidden)]
@@ -576,7 +588,7 @@ fn expand_readable_membership(
                 declared_type: ::core::option::Option::None,
                 payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
                     #facade::HostGrammarDescriptor::Subsort {
-                        key: #facade::ProvenanceKey::new("subsort_declaration", 0)
+                        key: #facade::ProvenanceKey::new(#subsort_declaration_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         subsort: #subsort,
                         supersort: #supersort,
@@ -898,8 +910,13 @@ fn constructor_like(
         quote!(dyn #generated_sort)
     };
     let sort_spelling = spelling(&attribute.sort);
-    let sort_reference =
-        host_sort_reference(&facade, "constructor_sort", 0, &sort_key, &sort_spelling);
+    let sort_reference = host_sort_reference(
+        &facade,
+        ProvenanceRole::ConstructorSort,
+        0,
+        &sort_key,
+        &sort_spelling,
+    );
     let syntax = option_owned_string(attribute.syntax.as_ref().map(syn::LitStr::value));
 
     let mut field_key_functions = Vec::new();
@@ -1032,6 +1049,7 @@ pub(crate) fn configuration(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     let attribute = parse_configuration_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
@@ -1110,7 +1128,7 @@ pub(crate) fn configuration(
                     ::std::boxed::Box::new(#facade::HostFixedConfiguration {
                         root: #root,
                         declaration: #facade::HostConfigurationDeclaration {
-                            key: #facade::ProvenanceKey::new("configuration_declaration", 0)
+                            key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             fields: ::std::vec![#(#fields),*],
                         },
@@ -1134,6 +1152,7 @@ pub(crate) fn cell(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     krs_syntax::parse_cell_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
@@ -1190,7 +1209,7 @@ pub(crate) fn cell(
                 ),
                 payload: #facade::HostDescriptorPayload::Cell(::std::boxed::Box::new(
                     #facade::HostCellDeclaration {
-                        key: #facade::ProvenanceKey::new("configuration_declaration", 0)
+                        key: #facade::ProvenanceKey::new(#configuration_declaration_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         fields: ::std::vec![#(#fields),*],
                     }
@@ -1261,11 +1280,12 @@ fn configuration_root(
     facade: &Path,
     attribute: &krs_syntax::ConfigurationAttribute,
 ) -> TokenStream {
+    let configuration_root_role = ProvenanceRole::ConfigurationRoot;
     if let Some(root) = attribute.optional_root() {
         let value = root.value();
         quote! {
             #facade::DescriptorConfigurationRoot::Named {
-                key: #facade::ProvenanceKey::new("configuration_root", 0)
+                key: #facade::ProvenanceKey::new(#configuration_root_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 name: #value.to_owned(),
             }
@@ -1282,6 +1302,14 @@ fn configuration_fields(
     owner: &Ident,
     owner_key: &Ident,
 ) -> syn::Result<(Vec<TokenStream>, Vec<TokenStream>)> {
+    let configuration_cell_name_role = ProvenanceRole::ConfigurationCellName;
+    let configuration_cell_color_role = ProvenanceRole::ConfigurationCellColor;
+    let configuration_cell_multiplicity_role = ProvenanceRole::ConfigurationCellMultiplicity;
+    let configuration_cell_type_role = ProvenanceRole::ConfigurationCellType;
+    let configuration_cell_content_argument_role = ProvenanceRole::ConfigurationCellContentArgument;
+    let configuration_cell_wrapper_role = ProvenanceRole::ConfigurationCellWrapper;
+    let configuration_cell_content_role = ProvenanceRole::ConfigurationCellContent;
+    let configuration_field_role = ProvenanceRole::ConfigurationField;
     let mut helpers = Vec::new();
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
@@ -1303,7 +1331,7 @@ fn configuration_fields(
                 let value = name.value();
                 quote! {
                     ::core::option::Option::Some(#facade::DescriptorCellName {
-                        key: #facade::ProvenanceKey::new("configuration_cell_name", #ordinal)
+                        key: #facade::ProvenanceKey::new(#configuration_cell_name_role, #ordinal)
                             .expect("KRS parser roles are nonempty"),
                         value: #value.to_owned(),
                     })
@@ -1316,7 +1344,7 @@ fn configuration_fields(
                 let value = color.value();
                 quote! {
                     ::core::option::Option::Some(#facade::DescriptorCellColor {
-                        key: #facade::ProvenanceKey::new("configuration_cell_color", #ordinal)
+                        key: #facade::ProvenanceKey::new(#configuration_cell_color_role, #ordinal)
                             .expect("KRS parser roles are nonempty"),
                         value: #value.to_owned(),
                     })
@@ -1330,7 +1358,7 @@ fn configuration_fields(
                 quote! {
                     ::core::option::Option::Some(#facade::DescriptorCellMultiplicity {
                         key: #facade::ProvenanceKey::new(
-                            "configuration_cell_multiplicity", #ordinal,
+                            #configuration_cell_multiplicity_role, #ordinal,
                         ).expect("KRS parser roles are nonempty"),
                         value: #value.to_owned(),
                     })
@@ -1344,7 +1372,7 @@ fn configuration_fields(
                 quote! {
                     ::core::option::Option::Some(#facade::DescriptorCellType {
                         key: #facade::ProvenanceKey::new(
-                            "configuration_cell_type", #ordinal,
+                            #configuration_cell_type_role, #ordinal,
                         ).expect("KRS parser roles are nonempty"),
                         value: #value.to_owned(),
                     })
@@ -1394,7 +1422,7 @@ fn configuration_fields(
                     argument_references.push(quote! {
                         #facade::HostSortReference {
                             key: #facade::ProvenanceKey::new(
-                                "configuration_cell_content_argument", #ordinal,
+                                #configuration_cell_content_argument_role, #ordinal,
                             ).expect("KRS parser roles are nonempty"),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#owner::#key),
@@ -1406,12 +1434,12 @@ fn configuration_fields(
                 quote! {
                     #facade::ProtocolCellContent::Leaf {
                         wrapper_key: #facade::ProvenanceKey::new(
-                            "configuration_cell_wrapper", #ordinal,
+                            #configuration_cell_wrapper_role, #ordinal,
                         ).expect("KRS parser roles are nonempty"),
                         wrapper: #wrapper,
                         sort: #facade::HostSortReference {
                             key: #facade::ProvenanceKey::new(
-                                "configuration_cell_content", #ordinal,
+                                #configuration_cell_content_role, #ordinal,
                             ).expect("KRS parser roles are nonempty"),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#owner::#sort_key),
@@ -1437,7 +1465,7 @@ fn configuration_fields(
                     #facade::ProtocolCellContent::Nested {
                         declaration: #facade::HostCellDeclarationReference {
                             key: #facade::ProvenanceKey::new(
-                                "configuration_cell_content", #ordinal,
+                                #configuration_cell_content_role, #ordinal,
                             ).expect("KRS parser roles are nonempty"),
                             declaration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#owner::#nested_key),
@@ -1451,7 +1479,7 @@ fn configuration_fields(
         fields.push(quote! {
             #facade::HostCellField {
                 reference: #facade::HostCellReference {
-                    key: #facade::ProvenanceKey::new("configuration_field", #ordinal)
+                    key: #facade::ProvenanceKey::new(#configuration_field_role, #ordinal)
                         .expect("KRS parser roles are nonempty"),
                     cell: #facade::HostCellIdentity {
                         owner: #facade::HostTypeKey(#owner_key),
@@ -1476,6 +1504,13 @@ pub(crate) fn init(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let configuration_variable_main_role = ProvenanceRole::ConfigurationVariableMain;
+    let configuration_variable_role = ProvenanceRole::ConfigurationVariable;
+    let configuration_variable_name_role = ProvenanceRole::ConfigurationVariableName;
+    let configuration_variable_type_role = ProvenanceRole::ConfigurationVariableType;
+    let initializer_declaration_role = ProvenanceRole::InitializerDeclaration;
+    let initializer_result_type_role = ProvenanceRole::InitializerResultType;
+    let initializer_body_role = ProvenanceRole::InitializerBody;
     parse_init_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let initializer =
         parse_initializer_function(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -1516,7 +1551,7 @@ pub(crate) fn init(
         let external_name = variable.attribute().name().value();
         let main_key = if variable.attribute().is_main() {
             quote!(::core::option::Option::Some(
-                #facade::ProvenanceKey::new("configuration_variable_main", #ordinal)
+                #facade::ProvenanceKey::new(#configuration_variable_main_role, #ordinal)
                     .expect("KRS parser roles are nonempty")
             ))
         } else {
@@ -1525,16 +1560,16 @@ pub(crate) fn init(
         let authored = spelling(variable.sort());
         variables.push(quote! {
             #facade::HostConfigurationVariable {
-                binding_key: #facade::ProvenanceKey::new("configuration_variable", #ordinal)
+                binding_key: #facade::ProvenanceKey::new(#configuration_variable_role, #ordinal)
                     .expect("KRS parser roles are nonempty"),
                 binding: #binding.to_owned(),
                 external_name_key: #facade::ProvenanceKey::new(
-                    "configuration_variable_name", #ordinal,
+                    #configuration_variable_name_role, #ordinal,
                 ).expect("KRS parser roles are nonempty"),
                 external_name: #external_name.to_owned(),
                 sort: #facade::HostSortReference {
                     key: #facade::ProvenanceKey::new(
-                        "configuration_variable_type", #ordinal,
+                        #configuration_variable_type_role, #ordinal,
                     ).expect("KRS parser roles are nonempty"),
                     target: #facade::HostTypeReference {
                         key: #facade::HostTypeKey(Self::#sort_key),
@@ -1583,13 +1618,13 @@ pub(crate) fn init(
                 ::core::any::TypeId::of::<T>()
             }
             let initializer = #facade::HostConfigurationInitializer {
-                key: #facade::ProvenanceKey::new("initializer_declaration", 0)
+                key: #facade::ProvenanceKey::new(#initializer_declaration_role, 0)
                     .expect("KRS parser roles are nonempty"),
-                owner_key: #facade::ProvenanceKey::new("initializer_result_type", 0)
+                owner_key: #facade::ProvenanceKey::new(#initializer_result_type_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 owner: #facade::HostTypeKey(__krs_type_key::<Self>),
                 variables: ::std::vec![#(#variables),*],
-                body_key: #facade::ProvenanceKey::new("initializer_body", 0)
+                body_key: #facade::ProvenanceKey::new(#initializer_body_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 cells: ::std::vec![#(#cells),*],
             };
@@ -1723,6 +1758,10 @@ impl<'a> InitializerBuilder<'a> {
         cells: &[FixedCellInitializer],
         owner: &TokenStream,
     ) -> syn::Result<Vec<TokenStream>> {
+        let initializer_field_role = ProvenanceRole::InitializerField;
+        let initializer_cell_constructor_role = ProvenanceRole::InitializerCellConstructor;
+        let initializer_nested_constructor_role = ProvenanceRole::InitializerNestedConstructor;
+        let initializer_cell_role = ProvenanceRole::InitializerCell;
         let facade = self.facade;
         let mut output = Vec::new();
         for cell in cells {
@@ -1731,7 +1770,7 @@ impl<'a> InitializerBuilder<'a> {
             let marker = cell_marker_function(cell.name());
             let field = quote! {
                 #facade::HostCellReference {
-                    key: #facade::ProvenanceKey::new("initializer_field", #cell_ordinal)
+                    key: #facade::ProvenanceKey::new(#initializer_field_role, #cell_ordinal)
                         .expect("KRS parser roles are nonempty"),
                     cell: #facade::HostCellIdentity {
                         owner: #facade::HostTypeKey(__krs_type_key::<#owner>),
@@ -1761,7 +1800,7 @@ impl<'a> InitializerBuilder<'a> {
                     quote! {
                         #facade::ProtocolInitializerCellContent::Leaf {
                             constructor_key: #facade::ProvenanceKey::new(
-                                "initializer_cell_constructor", #constructor_ordinal,
+                                #initializer_cell_constructor_role, #constructor_ordinal,
                             ).expect("KRS parser roles are nonempty"),
                             wrapper: #wrapper,
                             value: #value,
@@ -1777,7 +1816,7 @@ impl<'a> InitializerBuilder<'a> {
                     let declaration = quote! {
                         #facade::HostCellDeclarationReference {
                             key: #facade::ProvenanceKey::new(
-                                "initializer_nested_constructor", #constructor_ordinal,
+                                #initializer_nested_constructor_role, #constructor_ordinal,
                             ).expect("KRS parser roles are nonempty"),
                             declaration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(__krs_type_key::<#path>),
@@ -1797,7 +1836,7 @@ impl<'a> InitializerBuilder<'a> {
             let facade = self.facade;
             output.push(quote! {
                 #facade::HostInitializerCell {
-                    key: #facade::ProvenanceKey::new("initializer_cell", #cell_ordinal)
+                    key: #facade::ProvenanceKey::new(#initializer_cell_role, #cell_ordinal)
                         .expect("KRS parser roles are nonempty"),
                     field: #field,
                     content: #content,
@@ -1829,13 +1868,13 @@ impl<'a> InitializerBuilder<'a> {
         let facade = self.facade;
         let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
-            option_key(facade, "k_sequence_payload", ordinal)
+            option_key(facade, ProvenanceRole::KSequencePayload, ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             let ordinal = take_counter(&mut self.counters.k_tail)?;
-            option_key(facade, "k_sequence_tail", ordinal)
+            option_key(facade, ProvenanceRole::KSequenceTail, ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
@@ -1843,7 +1882,7 @@ impl<'a> InitializerBuilder<'a> {
         let mut items = Vec::new();
         for item in sequence.items() {
             let ordinal = take_counter(&mut self.counters.k_item)?;
-            let structural = provenance_key(facade, "k_sequence_item", ordinal);
+            let structural = provenance_key(facade, ProvenanceRole::KSequenceItem, ordinal);
             let value = self.expand_term(item, Some(structural.clone()))?;
             items.push(quote! {
                 #facade::ProtocolKSequenceItem { key: #structural, value: #value }
@@ -1863,7 +1902,7 @@ impl<'a> InitializerBuilder<'a> {
         let facade = self.facade;
         let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
-            option_key(facade, "map_payload", ordinal)
+            option_key(facade, ProvenanceRole::MapPayload, ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
@@ -1876,8 +1915,8 @@ impl<'a> InitializerBuilder<'a> {
                 for item in items {
                     let key_ordinal = take_counter(&mut self.counters.map_key)?;
                     let value_ordinal = take_counter(&mut self.counters.map_value)?;
-                    let key_key = provenance_key(facade, "map_key", key_ordinal);
-                    let value_key = provenance_key(facade, "map_value", value_ordinal);
+                    let key_key = provenance_key(facade, ProvenanceRole::MapKey, key_ordinal);
+                    let value_key = provenance_key(facade, ProvenanceRole::MapValue, value_ordinal);
                     let key = self.expand_term(item.key(), Some(key_key.clone()))?;
                     let value = self.expand_term(item.value(), Some(value_key.clone()))?;
                     output.push(quote! {
@@ -1893,9 +1932,9 @@ impl<'a> InitializerBuilder<'a> {
                 let base_ordinal = take_counter(&mut self.counters.map_update_base)?;
                 let key_ordinal = take_counter(&mut self.counters.map_key)?;
                 let value_ordinal = take_counter(&mut self.counters.map_value)?;
-                let base_key = provenance_key(facade, "map_update_base", base_ordinal);
-                let key_key = provenance_key(facade, "map_key", key_ordinal);
-                let value_key = provenance_key(facade, "map_value", value_ordinal);
+                let base_key = provenance_key(facade, ProvenanceRole::MapUpdateBase, base_ordinal);
+                let key_key = provenance_key(facade, ProvenanceRole::MapKey, key_ordinal);
+                let value_key = provenance_key(facade, ProvenanceRole::MapValue, value_ordinal);
                 let base = self.expand_term(base, Some(base_key.clone()))?;
                 let key = self.expand_term(key, Some(key_key.clone()))?;
                 let value = self.expand_term(value, Some(value_key.clone()))?;
@@ -1917,7 +1956,7 @@ impl<'a> InitializerBuilder<'a> {
         structural_key: Option<TokenStream>,
     ) -> syn::Result<TokenStream> {
         let ordinal = take_counter(&mut self.counters.term)?;
-        let key = provenance_key(self.facade, "initializer_term", ordinal);
+        let key = provenance_key(self.facade, ProvenanceRole::InitializerTerm, ordinal);
         let structural = structural_key.unwrap_or_else(|| key.clone());
         let term = self.expand_term_tree(term.tree(), &structural)?;
         let facade = self.facade;
@@ -1933,7 +1972,7 @@ impl<'a> InitializerBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
-                let key = provenance_key(facade, "initializer_term_path", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::InitializerTermPath, ordinal);
                 let target = self.terms.application_target(application.head())?;
                 let TermArguments::Positional(values) = application.arguments() else {
                     return Err(syn::Error::new(
@@ -1964,7 +2003,7 @@ impl<'a> InitializerBuilder<'a> {
             }
             TermTree::Reference(path) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
-                let key = provenance_key(facade, "initializer_term_path", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::InitializerTermPath, ordinal);
                 let name = spelling(path);
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(quote!(#facade::HostTerm::Variable {
@@ -2003,7 +2042,7 @@ impl<'a> InitializerBuilder<'a> {
     }
 }
 
-fn option_key(facade: &Path, role: &str, ordinal: u32) -> TokenStream {
+fn option_key(facade: &Path, role: ProvenanceRole, ordinal: u32) -> TokenStream {
     let key = provenance_key(facade, role, ordinal);
     quote!(::core::option::Option::Some(#key))
 }
@@ -2054,13 +2093,14 @@ fn bytes_token_value(literal: &syn::LitByteStr) -> String {
 }
 
 fn rule_label_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> TokenStream {
+    let rule_label_role = ProvenanceRole::RuleLabel;
     attribute.label().map_or_else(
         || quote!(::core::option::Option::None),
         |label| {
             let name = label.value();
             quote! {
                 ::core::option::Option::Some(#facade::DescriptorRuleLabel {
-                    key: #facade::ProvenanceKey::new("rule_label", 0)
+                    key: #facade::ProvenanceKey::new(#rule_label_role, 0)
                         .expect("KRS parser roles are nonempty"),
                     name: #name.to_owned(),
                 })
@@ -2070,9 +2110,10 @@ fn rule_label_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> To
 }
 
 fn rule_owise_tokens(facade: &Path, attribute: &krs_syntax::RuleAttribute) -> TokenStream {
+    let rule_owise_role = ProvenanceRole::RuleOwise;
     if attribute.is_owise() {
         quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
-            key: #facade::ProvenanceKey::new("rule_owise", 0)
+            key: #facade::ProvenanceKey::new(#rule_owise_role, 0)
                 .expect("KRS parser roles are nonempty"),
             value: 200,
         }))
@@ -2190,6 +2231,12 @@ pub(crate) fn context_alias(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let rule_binding_type_role = ProvenanceRole::RuleBindingType;
+    let context_alias_declaration_role = ProvenanceRole::ContextAliasDeclaration;
+    let context_alias_name_role = ProvenanceRole::ContextAliasName;
+    let context_alias_here_role = ProvenanceRole::ContextAliasHere;
+    let rule_pattern_role = ProvenanceRole::RulePattern;
+    let rule_type_role = ProvenanceRole::RuleType;
     let attribute = parse_context_alias_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let alias = parse_state_context_alias_item(item, attribute.here())
@@ -2253,7 +2300,7 @@ pub(crate) fn context_alias(
                     })?;
                     quote!(#facade::ProtocolContextAliasBindingKind::Term {
                         sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new("rule_binding_type", #ordinal)
+                            key: #facade::ProvenanceKey::new(#rule_binding_type_role, #ordinal)
                                 .expect("KRS parser roles are nonempty"),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#key_fn),
@@ -2277,8 +2324,7 @@ pub(crate) fn context_alias(
             name: #binding_name.to_owned(), kind: #kind
         }));
     }
-    let mut builder =
-        StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleStateSide::Left);
+    let mut builder = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
     let pattern = builder.expand_cells(alias.pattern(), &configuration_type)?;
     key_functions.extend(builder.terms.key_functions);
     let mut wrapper_checks = Vec::new();
@@ -2329,14 +2375,14 @@ pub(crate) fn context_alias(
                 declared_type: ::core::option::Option::None,
                 payload: #facade::HostDescriptorPayload::ContextAlias(::std::boxed::Box::new(
                     #facade::HostContextAlias {
-                        declaration_key: #facade::ProvenanceKey::new("context_alias_declaration", 0).unwrap(),
-                        name_key: #facade::ProvenanceKey::new("context_alias_name", 0).unwrap(),
+                        declaration_key: #facade::ProvenanceKey::new(#context_alias_declaration_role, 0).unwrap(),
+                        name_key: #facade::ProvenanceKey::new(#context_alias_name_role, 0).unwrap(),
                         name: #alias_name.to_owned(),
-                        here_key: #facade::ProvenanceKey::new("context_alias_here", 0).unwrap(),
+                        here_key: #facade::ProvenanceKey::new(#context_alias_here_role, 0).unwrap(),
                         here: #here_name.to_owned(),
-                        pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0).unwrap(),
+                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0).unwrap(),
                         configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new("rule_type", 0).unwrap(),
+                            key: #facade::ProvenanceKey::new(#rule_type_role, 0).unwrap(),
                             configuration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#configuration_key),
                                 authored_path: #configuration_spelling.to_owned(),
@@ -2447,6 +2493,13 @@ fn expand_head_rule(
     enum_variant: Option<&Ident>,
     configuration_owned: bool,
 ) -> syn::Result<TokenStream> {
+    let rule_left_cells_field_role = ProvenanceRole::RuleLeftCellsField;
+    let rule_right_cells_field_role = ProvenanceRole::RuleRightCellsField;
+    let rule_requires_role = ProvenanceRole::RuleRequires;
+    let rule_label_role = ProvenanceRole::RuleLabel;
+    let rule_type_role = ProvenanceRole::RuleType;
+    let rule_pattern_role = ProvenanceRole::RulePattern;
+    let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
     let rule = clause.rule();
     let mut anchors = clause
@@ -2468,7 +2521,13 @@ fn expand_head_rule(
     let sort_path = call_site_path(rule.parameter().term_sort.sort())?;
     let sort_type = sort_type_tokens(&sort_path, rule.parameter().term_sort.is_dynamic());
     let sort_spelling = rule.parameter().term_sort.sort_spelling();
-    let head_sort = host_sort_reference(&facade, "rule_type", 0, &sort_key, &sort_spelling);
+    let head_sort = host_sort_reference(
+        &facade,
+        ProvenanceRole::RuleType,
+        0,
+        &sort_key,
+        &sort_spelling,
+    );
     let binding_idents = clause.bindings().to_vec();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
         .with_enum_import(enum_owner, enum_variant)
@@ -2492,7 +2551,7 @@ fn expand_head_rule(
                 have_extras.push(quote! {
                     #facade::ProtocolHeadRuleExtra::HaveMap {
                         cell: #facade::HostHeadRuleCellReference {
-                            key: #facade::ProvenanceKey::new("rule_left_cells_field", #ordinal).unwrap(),
+                            key: #facade::ProvenanceKey::new(#rule_left_cells_field_role, #ordinal).unwrap(),
                             name: #cell_name.to_owned(),
                         },
                         key: #key,
@@ -2546,7 +2605,7 @@ fn expand_head_rule(
                 update_extras.push(quote! {
                     #facade::ProtocolHeadRuleExtra::UpdateMap {
                         cell: #facade::HostHeadRuleCellReference {
-                            key: #facade::ProvenanceKey::new("rule_right_cells_field", #ordinal).unwrap(),
+                            key: #facade::ProvenanceKey::new(#rule_right_cells_field_role, #ordinal).unwrap(),
                             name: #cell_name.to_owned(),
                         },
                         base_binding: #base_binding.to_owned(),
@@ -2566,10 +2625,10 @@ fn expand_head_rule(
                 update_extras.push(quote! {
                     #facade::ProtocolHeadRuleExtra::RewriteCell {
                         cell: #facade::HostHeadRuleCellReference {
-                            key: #facade::ProvenanceKey::new("rule_left_cells_field", #left_ordinal).unwrap(),
+                            key: #facade::ProvenanceKey::new(#rule_left_cells_field_role, #left_ordinal).unwrap(),
                             name: #cell_name.to_owned(),
                         },
-                        result_key: #facade::ProvenanceKey::new("rule_right_cells_field", #right_ordinal).unwrap(),
+                        result_key: #facade::ProvenanceKey::new(#rule_right_cells_field_role, #right_ordinal).unwrap(),
                         before: #before,
                         after: #after,
                     }
@@ -2585,7 +2644,7 @@ fn expand_head_rule(
         let term = builder.expand(condition.term().tree(), TermSide::Requires)?;
         quote! {
             ::core::option::Option::Some(#facade::HostRuleCondition {
-                key: #facade::ProvenanceKey::new("rule_requires", 0).unwrap(),
+                key: #facade::ProvenanceKey::new(#rule_requires_role, 0).unwrap(),
                 term: #term,
             })
         }
@@ -2625,8 +2684,13 @@ fn expand_head_rule(
                     ::core::any::TypeId::of::<#path>()
                 }
             });
-            let reference =
-                host_sort_reference(&facade, "rule_binding_type", ordinal, &key_fn, &authored);
+            let reference = host_sort_reference(
+                &facade,
+                ProvenanceRole::RuleBindingType,
+                ordinal,
+                &key_fn,
+                &authored,
+            );
             quote!(::core::option::Option::Some(#reference))
         } else {
             quote!(::core::option::Option::None)
@@ -2646,7 +2710,7 @@ fn expand_head_rule(
             let name = rule.item().sig.ident.unraw().to_string().replace('_', "-");
             quote! {
                 ::core::option::Option::Some(#facade::DescriptorRuleLabel {
-                    key: #facade::ProvenanceKey::new("rule_label", 0)
+                    key: #facade::ProvenanceKey::new(#rule_label_role, 0)
                         .expect("KRS parser roles are nonempty"),
                     name: #name.to_owned(),
                 })
@@ -2673,7 +2737,7 @@ fn expand_head_rule(
         quote! {
             head_sort: ::core::option::Option::None,
             configuration: ::core::option::Option::Some(#facade::HostConfigurationReference {
-                key: #facade::ProvenanceKey::new("rule_type", 0).unwrap(),
+                key: #facade::ProvenanceKey::new(#rule_type_role, 0).unwrap(),
                 configuration: #facade::HostTypeReference {
                     key: #facade::HostTypeKey(#sort_key),
                     authored_path: #sort_spelling.to_owned(),
@@ -2720,8 +2784,8 @@ fn expand_head_rule(
                         sentence_kind: #facade::SentenceKind::Transition,
                         label: #label,
                         priority: #priority,
-                        pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0).unwrap(),
-                        result_key: #facade::ProvenanceKey::new("rule_result", 0).unwrap(),
+                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0).unwrap(),
+                        result_key: #facade::ProvenanceKey::new(#rule_result_role, 0).unwrap(),
                         #header
                         bindings: ::std::vec![#(#bindings),*],
                         subject: #subject,
@@ -2750,6 +2814,12 @@ fn expand_ordinary_rule(
     enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> syn::Result<TokenStream> {
+    let rule_requires_role = ProvenanceRole::RuleRequires;
+    let equation_priority_role = ProvenanceRole::EquationPriority;
+    let simplification_priority_role = ProvenanceRole::SimplificationPriority;
+    let simplification_marker_role = ProvenanceRole::SimplificationMarker;
+    let rule_pattern_role = ProvenanceRole::RulePattern;
+    let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
     let mut anchors = rule
         .full_provenance()
@@ -2847,14 +2917,14 @@ fn expand_ordinary_rule(
     }
     let parameter_reference = host_sort_reference(
         &facade,
-        "rule_type",
+        ProvenanceRole::RuleType,
         0,
         &parameter_key,
         &parameter_sort_spelling,
     );
     let result_reference = host_sort_reference(
         &facade,
-        "rule_result_type",
+        ProvenanceRole::RuleResultType,
         0,
         &result_key,
         &result_sort_spelling,
@@ -2870,7 +2940,7 @@ fn expand_ordinary_rule(
         let term = term_builder.expand(condition.term().tree(), TermSide::Requires)?;
         quote! {
             ::core::option::Option::Some(#facade::HostRuleCondition {
-                key: #facade::ProvenanceKey::new("rule_requires", 0)
+                key: #facade::ProvenanceKey::new(#rule_requires_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 term: #term,
             })
@@ -2887,7 +2957,7 @@ fn expand_ordinary_rule(
             |priority| {
                 let value = priority.value();
                 quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
-                    key: #facade::ProvenanceKey::new("equation_priority", 0)
+                    key: #facade::ProvenanceKey::new(#equation_priority_role, 0)
                         .expect("KRS parser roles are nonempty"),
                     value: #value,
                 }))
@@ -2902,7 +2972,7 @@ fn expand_ordinary_rule(
                 |value| {
                     quote!(::core::option::Option::Some(
                         #facade::DescriptorSimplificationPriority {
-                            key: #facade::ProvenanceKey::new("simplification_priority", 0)
+                            key: #facade::ProvenanceKey::new(#simplification_priority_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             value: #value,
                         }
@@ -2910,7 +2980,7 @@ fn expand_ordinary_rule(
                 },
             );
             quote!(::core::option::Option::Some(#facade::DescriptorSimplification {
-                key: #facade::ProvenanceKey::new("simplification_marker", 0)
+                key: #facade::ProvenanceKey::new(#simplification_marker_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 priority: #priority,
             }))
@@ -2971,9 +3041,9 @@ fn expand_ordinary_rule(
                 requires: #requires,
                 priority: #priority,
                 simplification: #simplification,
-                pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0)
+                pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0)
                     .expect("KRS parser roles are nonempty"),
-                result_key: #facade::ProvenanceKey::new("rule_result", 0)
+                result_key: #facade::ProvenanceKey::new(#rule_result_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 subject_sort: #parameter_reference,
                 result_sort: #result_reference,
@@ -3011,6 +3081,12 @@ fn configuration_rule(
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
 ) -> syn::Result<TokenStream> {
+    let rule_binding_type_role = ProvenanceRole::RuleBindingType;
+    let rule_requires_role = ProvenanceRole::RuleRequires;
+    let rule_pattern_role = ProvenanceRole::RulePattern;
+    let rule_type_role = ProvenanceRole::RuleType;
+    let rule_result_role = ProvenanceRole::RuleResult;
+    let rule_result_type_role = ProvenanceRole::RuleResultType;
     let rule = parse_state_rule_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
     let mut anchors = rule
@@ -3067,7 +3143,7 @@ fn configuration_rule(
                 quote! {
                     #facade::ProtocolRuleBindingKind::Term {
                         sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new("rule_binding_type", #ordinal)
+                            key: #facade::ProvenanceKey::new(#rule_binding_type_role, #ordinal)
                                 .expect("KRS parser roles are nonempty"),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#key_fn),
@@ -3087,15 +3163,14 @@ fn configuration_rule(
         };
         bindings.push(quote!(#facade::HostRuleBinding { name: #name.to_owned(), kind: #kind }));
     }
-    let mut left =
-        StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleStateSide::Left);
+    let mut left = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
     let subject = left.expand_cells(rule.subject(), &subject_type)?;
     let mut right = StateRuleBuilder::new(
         &facade,
         nonce ^ 0x8000_0000_0000_0000,
         &cfg,
         &binding_idents,
-        RuleStateSide::Right,
+        RuleSide::Right,
     );
     let result = right.expand_cells(rule.result(), &result_type)?;
     let mut condition_builder = TermBuilder::new(
@@ -3108,7 +3183,7 @@ fn configuration_rule(
         let term = condition_builder.expand(condition.term().tree(), TermSide::Requires)?;
         quote! {
             ::core::option::Option::Some(#facade::HostRuleCondition {
-                key: #facade::ProvenanceKey::new("rule_requires", 0)
+                key: #facade::ProvenanceKey::new(#rule_requires_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 term: #term,
             })
@@ -3192,20 +3267,20 @@ fn configuration_rule(
                         priority: #priority,
                         requires: #requires,
                         claim: ::core::option::Option::None,
-                        pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0)
+                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         subject_configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new("rule_type", 0)
+                            key: #facade::ProvenanceKey::new(#rule_type_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             configuration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#subject_key),
                                 authored_path: #subject_spelling.to_owned(),
                             },
                         },
-                        result_key: #facade::ProvenanceKey::new("rule_result", 0)
+                        result_key: #facade::ProvenanceKey::new(#rule_result_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         result_configuration: #facade::HostConfigurationReference {
-                            key: #facade::ProvenanceKey::new("rule_result_type", 0)
+                            key: #facade::ProvenanceKey::new(#rule_result_type_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             configuration: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#result_key),
@@ -3233,6 +3308,20 @@ fn configuration_claim(
     item: TokenStream,
     attribute: &krs_syntax::ClaimAttribute,
 ) -> syn::Result<TokenStream> {
+    let claim_universal_binder_role = ProvenanceRole::ClaimUniversalBinder;
+    let claim_binder_name_role = ProvenanceRole::ClaimBinderName;
+    let claim_existential_binder_role = ProvenanceRole::ClaimExistentialBinder;
+    let rule_requires_role = ProvenanceRole::RuleRequires;
+    let claim_ensures_role = ProvenanceRole::ClaimEnsures;
+    let claim_circularity_role = ProvenanceRole::ClaimCircularity;
+    let claim_or_bool_role = ProvenanceRole::ClaimOrBool;
+    let claim_label_role = ProvenanceRole::ClaimLabel;
+    let claim_declaration_role = ProvenanceRole::ClaimDeclaration;
+    let claim_modality_role = ProvenanceRole::ClaimModality;
+    let rule_pattern_role = ProvenanceRole::RulePattern;
+    let rule_type_role = ProvenanceRole::RuleType;
+    let rule_result_role = ProvenanceRole::RuleResult;
+    let rule_result_type_role = ProvenanceRole::RuleResultType;
     let claim = parse_state_claim_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let rule = claim.rule();
     let facade = env.facade_path()?;
@@ -3290,13 +3379,23 @@ fn configuration_claim(
                 let authored = sort.sort_spelling();
                 let ordinal = term_ordinal;
                 term_ordinal += 1;
-                let sort_ref =
-                    host_sort_reference(&facade, "rule_binding_type", ordinal, &key_fn, &authored);
-                let claim_sort_ref =
-                    host_sort_reference(&facade, "claim_binder_sort", ordinal, &key_fn, &authored);
+                let sort_ref = host_sort_reference(
+                    &facade,
+                    ProvenanceRole::RuleBindingType,
+                    ordinal,
+                    &key_fn,
+                    &authored,
+                );
+                let claim_sort_ref = host_sort_reference(
+                    &facade,
+                    ProvenanceRole::ClaimBinderSort,
+                    ordinal,
+                    &key_fn,
+                    &authored,
+                );
                 universal_metadata.push(quote!(#facade::HostClaimBinder {
-                    declaration_key: #facade::ProvenanceKey::new("claim_universal_binder", #ordinal).unwrap(),
-                    name_key: #facade::ProvenanceKey::new("claim_binder_name", #ordinal).unwrap(),
+                    declaration_key: #facade::ProvenanceKey::new(#claim_universal_binder_role, #ordinal).unwrap(),
+                    name_key: #facade::ProvenanceKey::new(#claim_binder_name_role, #ordinal).unwrap(),
                     name: #name.to_owned(), sort: #claim_sort_ref,
                 }));
                 quote!(#facade::ProtocolRuleBindingKind::Term { sort: #sort_ref })
@@ -3325,28 +3424,27 @@ fn configuration_claim(
         let name = binder.name().to_string();
         let sort_ref = host_sort_reference(
             &facade,
-            "claim_binder_sort",
+            ProvenanceRole::ClaimBinderSort,
             binder_ordinal,
             &key_fn,
             &authored,
         );
         existential_metadata.push(quote!(#facade::HostClaimBinder {
-            declaration_key: #facade::ProvenanceKey::new("claim_existential_binder", #ordinal).unwrap(),
-            name_key: #facade::ProvenanceKey::new("claim_binder_name", #binder_ordinal).unwrap(),
+            declaration_key: #facade::ProvenanceKey::new(#claim_existential_binder_role, #ordinal).unwrap(),
+            name_key: #facade::ProvenanceKey::new(#claim_binder_name_role, #binder_ordinal).unwrap(),
             name: #name.to_owned(), sort: #sort_ref,
         }));
     }
 
     let mut left =
-        StateRuleBuilder::new(&facade, nonce, &cfg, &universal_idents, RuleStateSide::Left)
-            .for_claim();
+        StateRuleBuilder::new(&facade, nonce, &cfg, &universal_idents, RuleSide::Left).for_claim();
     let subject = left.expand_cells(rule.subject(), &subject_type)?;
     let mut right = StateRuleBuilder::new(
         &facade,
         nonce ^ 0x8000_0000_0000_0000,
         &cfg,
         &all_idents,
-        RuleStateSide::Right,
+        RuleSide::Right,
     )
     .for_claim();
     right.counters.id_token = left.counters.id_token;
@@ -3366,7 +3464,7 @@ fn configuration_claim(
     condition_builder.or_bool_ordinal = right.counters.or_bool;
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand(condition.term().tree(), TermSide::Requires)?;
-        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new("rule_requires", 0).unwrap(), term: #term }))
+        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new(#rule_requires_role, 0).unwrap(), term: #term }))
     } else {
         quote!(::core::option::Option::None)
     };
@@ -3377,7 +3475,7 @@ fn configuration_claim(
     ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
     let ensures = if let Some(condition) = claim.ensures() {
         let term = ensures_builder.expand(condition.term().tree(), TermSide::Ensures)?;
-        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new("claim_ensures", 0).unwrap(), term: #term }))
+        quote!(::core::option::Option::Some(#facade::HostRuleCondition { key: #facade::ProvenanceKey::new(#claim_ensures_role, 0).unwrap(), term: #term }))
     } else {
         quote!(::core::option::Option::None)
     };
@@ -3402,7 +3500,7 @@ fn configuration_claim(
         SyntaxClaimModality::OnePath => quote!(#facade::ClaimModality::OnePath),
     };
     let circularity = if attribute.circularity() {
-        quote!(::core::option::Option::Some(#facade::ProvenanceKey::new("claim_circularity", 0).unwrap()))
+        quote!(::core::option::Option::Some(#facade::ProvenanceKey::new(#claim_circularity_role, 0).unwrap()))
     } else {
         quote!(::core::option::Option::None)
     };
@@ -3412,7 +3510,7 @@ fn configuration_claim(
         .count();
     let or_bool_keys = (0..or_bool_count).map(|index| {
         let index = u32::try_from(index).unwrap();
-        quote!(#facade::ProvenanceKey::new("claim_or_bool", #index).unwrap())
+        quote!(#facade::ProvenanceKey::new(#claim_or_bool_role, #index).unwrap())
     });
     let mut wrapper_checks = Vec::new();
     for candidate in rule
@@ -3444,38 +3542,20 @@ fn configuration_claim(
                 declared_type: None,
                 payload: #facade::HostDescriptorPayload::ConfigurationRule(Box::new(#facade::HostConfigurationRule {
                     sentence_kind: #facade::SentenceKind::Claim,
-                    label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new("claim_label", 0).unwrap(), name: #label_name.to_owned() }),
+                    label: Some(#facade::DescriptorRuleLabel { key: #facade::ProvenanceKey::new(#claim_label_role, 0).unwrap(), name: #label_name.to_owned() }),
                     priority: None,
                     requires: #requires,
-                    claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new("claim_declaration", 0).unwrap(), modality_key: #facade::ProvenanceKey::new("claim_modality", 0).unwrap(), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
-                    pattern_key: #facade::ProvenanceKey::new("rule_pattern", 0).unwrap(),
-                    subject_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new("rule_type", 0).unwrap(), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#subject_key), authored_path: #subject_spelling.to_owned() } },
-                    result_key: #facade::ProvenanceKey::new("rule_result", 0).unwrap(),
-                    result_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new("rule_result_type", 0).unwrap(), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#result_key), authored_path: #result_spelling.to_owned() } },
+                    claim: Some(#facade::HostClaim { declaration_key: #facade::ProvenanceKey::new(#claim_declaration_role, 0).unwrap(), modality_key: #facade::ProvenanceKey::new(#claim_modality_role, 0).unwrap(), modality: #modality, circularity_key: #circularity, universals: vec![#(#universal_metadata),*], existentials: vec![#(#existential_metadata),*], ensures: #ensures, or_bool_keys: vec![#(#or_bool_keys),*] }),
+                    pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0).unwrap(),
+                    subject_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_type_role, 0).unwrap(), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#subject_key), authored_path: #subject_spelling.to_owned() } },
+                    result_key: #facade::ProvenanceKey::new(#rule_result_role, 0).unwrap(),
+                    result_configuration: #facade::HostConfigurationReference { key: #facade::ProvenanceKey::new(#rule_result_type_role, 0).unwrap(), configuration: #facade::HostTypeReference { key: #facade::HostTypeKey(#result_key), authored_path: #result_spelling.to_owned() } },
                     bindings: vec![#(#bindings),*], subject: #subject, result: #result,
                 })), cfg: Default::default(), provenance: #provenance,
             }
         }
         #(#cfg)* #facade::__register_host_descriptor!(#factory);
     })
-}
-
-#[derive(Clone, Copy)]
-enum RuleStateSide {
-    Left,
-    Right,
-}
-
-impl RuleStateSide {
-    fn role(self, suffix: &str) -> String {
-        format!(
-            "rule_{}_{suffix}",
-            match self {
-                Self::Left => "left",
-                Self::Right => "right",
-            }
-        )
-    }
 }
 
 #[derive(Default)]
@@ -3505,7 +3585,7 @@ struct StateRuleCounters {
 struct StateRuleBuilder<'a> {
     facade: &'a Path,
     bindings: &'a [Ident],
-    side: RuleStateSide,
+    side: RuleSide,
     counters: StateRuleCounters,
     terms: TermBuilder<'a>,
     claim: bool,
@@ -3517,7 +3597,7 @@ impl<'a> StateRuleBuilder<'a> {
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
-        side: RuleStateSide,
+        side: RuleSide,
     ) -> Self {
         Self {
             facade,
@@ -3535,8 +3615,22 @@ impl<'a> StateRuleBuilder<'a> {
         self
     }
 
-    fn key(&self, suffix: &str, ordinal: u32) -> TokenStream {
-        provenance_key(self.facade, &self.side.role(suffix), ordinal)
+    /// This side's role of a standalone `cells!`, `k!`, or `map!` role.
+    fn side_role(&self, role: ProvenanceRole) -> ProvenanceRole {
+        role.on_rule_side(self.side)
+            .expect("state-rule keys name standalone state-macro roles")
+    }
+
+    fn key(&self, role: ProvenanceRole, ordinal: u32) -> TokenStream {
+        provenance_key(self.facade, self.side_role(role), ordinal)
+    }
+
+    fn term_key(&self, role: TermRole, ordinal: u32) -> TokenStream {
+        let side = match self.side {
+            RuleSide::Left => TermSide::Left,
+            RuleSide::Right => TermSide::Right,
+        };
+        provenance_key(self.facade, side.role(role), ordinal)
     }
 
     fn expand_cells(
@@ -3549,8 +3643,8 @@ impl<'a> StateRuleBuilder<'a> {
         for entry in cells.entries() {
             let field_ordinal = take_counter(&mut self.counters.field)?;
             let wrapper_ordinal = take_counter(&mut self.counters.wrapper)?;
-            let field_key = self.key("cells_field", field_ordinal);
-            let wrapper_key = self.key("cells_wrapper", wrapper_ordinal);
+            let field_key = self.key(ProvenanceRole::CellsField, field_ordinal);
+            let wrapper_key = self.key(ProvenanceRole::CellsWrapper, wrapper_ordinal);
             let marker = cell_marker_function(entry.name());
             let cell_owner = entry.owner().unwrap_or(owner);
             let computation = entry
@@ -3585,8 +3679,8 @@ impl<'a> StateRuleBuilder<'a> {
                 }
             });
         }
-        let remainder = self.expand_frame(cells.remainder(), "cells_remainder")?;
-        let payload = self.key("cells_payload", 0);
+        let remainder = self.expand_frame(cells.remainder(), ProvenanceRole::CellsRemainder)?;
+        let payload = self.key(ProvenanceRole::CellsPayload, 0);
         Ok(quote!(#facade::HostRuleCells {
             key: #payload, cells: ::std::vec![#(#output),*], remainder: #remainder,
         }))
@@ -3614,13 +3708,21 @@ impl<'a> StateRuleBuilder<'a> {
         let facade = self.facade;
         let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
-            option_key(facade, &self.side.role("k_sequence_payload"), ordinal)
+            option_key(
+                facade,
+                self.side_role(ProvenanceRole::KSequencePayload),
+                ordinal,
+            )
         } else {
             quote!(::core::option::Option::None)
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             let ordinal = take_counter(&mut self.counters.k_tail)?;
-            option_key(facade, &self.side.role("k_sequence_tail"), ordinal)
+            option_key(
+                facade,
+                self.side_role(ProvenanceRole::KSequenceTail),
+                ordinal,
+            )
         } else {
             quote!(::core::option::Option::None)
         };
@@ -3628,14 +3730,14 @@ impl<'a> StateRuleBuilder<'a> {
         let mut items = Vec::new();
         for item in sequence.items() {
             let ordinal = take_counter(&mut self.counters.k_item)?;
-            let key = self.key("k_sequence_item", ordinal);
+            let key = self.key(ProvenanceRole::KSequenceItem, ordinal);
             let value = self.expand_term(item.tree())?;
             items.push(quote!(#facade::ProtocolRuleKSequenceItem { key: #key, value: #value }));
         }
         let tail = if sequence.notation() == KSequenceNotation::DotK {
             quote!(#facade::ProtocolRuleFrame::Exact)
         } else {
-            self.expand_frame(sequence.tail(), "k_sequence_tail")?
+            self.expand_frame(sequence.tail(), ProvenanceRole::KSequenceTail)?
         };
         Ok(quote!(#facade::ProtocolRuleKSequence {
             payload_key: #payload_key, dot_k_key: #dot_k_key,
@@ -3647,7 +3749,7 @@ impl<'a> StateRuleBuilder<'a> {
         let facade = self.facade;
         let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
-            option_key(facade, &self.side.role("map_payload"), ordinal)
+            option_key(facade, self.side_role(ProvenanceRole::MapPayload), ordinal)
         } else {
             quote!(::core::option::Option::None)
         };
@@ -3660,15 +3762,15 @@ impl<'a> StateRuleBuilder<'a> {
                 for item in items {
                     let ko = take_counter(&mut self.counters.map_key)?;
                     let vo = take_counter(&mut self.counters.map_value)?;
-                    let key_key = self.key("map_key", ko);
-                    let value_key = self.key("map_value", vo);
+                    let key_key = self.key(ProvenanceRole::MapKey, ko);
+                    let value_key = self.key(ProvenanceRole::MapValue, vo);
                     let key = self.expand_term(item.key().tree())?;
                     let value = self.expand_term(item.value().tree())?;
                     values.push(quote!(#facade::ProtocolRuleMapItem {
                         key_key: #key_key, key: #key, value_key: #value_key, value: #value,
                     }));
                 }
-                let remainder = self.expand_frame(remainder, "map_remainder")?;
+                let remainder = self.expand_frame(remainder, ProvenanceRole::MapRemainder)?;
                 quote!(#facade::ProtocolRuleMapBody::Items {
                     items: ::std::vec![#(#values),*], remainder: #remainder,
                 })
@@ -3677,9 +3779,9 @@ impl<'a> StateRuleBuilder<'a> {
                 let bo = take_counter(&mut self.counters.map_update_base)?;
                 let ko = take_counter(&mut self.counters.map_key)?;
                 let vo = take_counter(&mut self.counters.map_value)?;
-                let base_key = self.key("map_update_base", bo);
-                let key_key = self.key("map_key", ko);
-                let value_key = self.key("map_value", vo);
+                let base_key = self.key(ProvenanceRole::MapUpdateBase, bo);
+                let key_key = self.key(ProvenanceRole::MapKey, ko);
+                let value_key = self.key(ProvenanceRole::MapValue, vo);
                 let base = self.expand_term(base.tree())?;
                 let key = self.expand_term(key.tree())?;
                 let value = self.expand_term(value.tree())?;
@@ -3695,25 +3797,26 @@ impl<'a> StateRuleBuilder<'a> {
     fn expand_frame(
         &mut self,
         frame: &StateMacroRemainder,
-        suffix: &str,
+        role: ProvenanceRole,
     ) -> syn::Result<TokenStream> {
         let facade = self.facade;
-        let counter = match suffix {
-            "cells_remainder" => &mut self.counters.remainder,
-            "k_sequence_tail" => &mut self.counters.k_tail,
-            "map_remainder" => &mut self.counters.map_remainder,
+        let side_role = self.side_role(role);
+        let counter = match role {
+            ProvenanceRole::CellsRemainder => &mut self.counters.remainder,
+            ProvenanceRole::KSequenceTail => &mut self.counters.k_tail,
+            ProvenanceRole::MapRemainder => &mut self.counters.map_remainder,
             _ => unreachable!(),
         };
         match frame {
             StateMacroRemainder::Exact => Ok(quote!(#facade::ProtocolRuleFrame::Exact)),
             StateMacroRemainder::Anonymous(_) => {
                 let ordinal = take_counter(counter)?;
-                let key = provenance_key(facade, &self.side.role(suffix), ordinal);
+                let key = provenance_key(facade, side_role, ordinal);
                 Ok(quote!(#facade::ProtocolRuleFrame::Anonymous { key: #key }))
             }
             StateMacroRemainder::Bind { binding, .. } => {
                 let ordinal = take_counter(counter)?;
-                let key = provenance_key(facade, &self.side.role(suffix), ordinal);
+                let key = provenance_key(facade, side_role, ordinal);
                 let binding = binding.to_string();
                 Ok(
                     quote!(#facade::ProtocolRuleFrame::Bind { key: #key, binding: #binding.to_owned() }),
@@ -3721,7 +3824,7 @@ impl<'a> StateRuleBuilder<'a> {
             }
             StateMacroRemainder::Reuse { binding, .. } => {
                 let ordinal = take_counter(counter)?;
-                let key = provenance_key(facade, &self.side.role(suffix), ordinal);
+                let key = provenance_key(facade, side_role, ordinal);
                 let binding = binding.to_string();
                 Ok(
                     quote!(#facade::ProtocolRuleFrame::Reuse { key: #key, binding: #binding.to_owned() }),
@@ -3736,7 +3839,7 @@ impl<'a> StateRuleBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.application)?;
-                let key = self.key("application_head", ordinal);
+                let key = self.term_key(TermRole::ApplicationHead, ordinal);
                 let target = self.terms.application_target(application.head())?;
                 let mut arguments = Vec::new();
                 match application.arguments() {
@@ -3751,7 +3854,7 @@ impl<'a> StateRuleBuilder<'a> {
                     TermArguments::Named(values) => {
                         for argument in values {
                             let ordinal = take_counter(&mut self.counters.record_field)?;
-                            let field_key = self.key("record_field_name", ordinal);
+                            let field_key = self.term_key(TermRole::RecordFieldName, ordinal);
                             let field = argument.name().to_string();
                             let value = self.expand_term(argument.value())?;
                             arguments.push(quote!(#facade::HostTermArgument::Named {
@@ -3771,7 +3874,7 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::Reference(path) => {
                 let ordinal = take_counter(&mut self.counters.reference)?;
-                let key = self.key("reference", ordinal);
+                let key = self.term_key(TermRole::Reference, ordinal);
                 let name = spelling(path);
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(quote!(#facade::HostTerm::Variable {
@@ -3788,19 +3891,19 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::Literal(literal) => {
                 let ordinal = take_counter(&mut self.counters.literal)?;
-                let key = self.key("literal", ordinal);
+                let key = self.term_key(TermRole::Literal, ordinal);
                 let literal = literal_tokens(facade, literal);
                 Ok(quote!(#facade::HostTerm::Literal { key: #key, literal: #literal }))
             }
             TermTree::Wildcard(_) => {
-                if matches!(self.side, RuleStateSide::Right) {
+                if matches!(self.side, RuleSide::Right) {
                     return Err(syn::Error::new(
                         Span::call_site(),
                         "rule results cannot contain wildcards",
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.wildcard)?;
-                let key = self.key("wildcard", ordinal);
+                let key = self.term_key(TermRole::Wildcard, ordinal);
                 Ok(quote!(#facade::HostTerm::Wildcard { key: #key }))
             }
             TermTree::IdToken { literal } => {
@@ -3811,7 +3914,7 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.id_token)?;
-                let key = provenance_key(facade, "claim_id_token", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimIdToken, ordinal);
                 let value = literal.value();
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Id, value: #value.to_owned() }),
@@ -3825,7 +3928,7 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.bytes_token)?;
-                let key = provenance_key(facade, "claim_bytes_token", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimBytesToken, ordinal);
                 let value = bytes_token_value(literal);
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Bytes, value: #value.to_owned() }),
@@ -3835,15 +3938,15 @@ impl<'a> StateRuleBuilder<'a> {
                 sort,
                 spelling: display_literal,
             } => {
-                if !self.claim || matches!(self.side, RuleStateSide::Right) {
+                if !self.claim || matches!(self.side, RuleSide::Right) {
                     return Err(syn::Error::new(
                         display_literal.span(),
                         "anonymous! is allowed only in claim subjects",
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.anonymous)?;
-                let key = provenance_key(facade, "claim_anonymous", ordinal);
-                let sort_key = provenance_key(facade, "claim_anonymous_sort", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimAnonymous, ordinal);
+                let sort_key = provenance_key(facade, ProvenanceRole::ClaimAnonymousSort, ordinal);
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -3867,7 +3970,7 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.or_bool)?;
-                let key = provenance_key(facade, "claim_or_bool", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimOrBool, ordinal);
                 let values = arguments
                     .iter()
                     .map(|argument| self.expand_term(argument))
@@ -3876,12 +3979,12 @@ impl<'a> StateRuleBuilder<'a> {
             }
             TermTree::Cell(cell) => {
                 let ordinal = take_counter(&mut self.counters.application)?;
-                let key = self.key("application_head", ordinal);
+                let key = self.term_key(TermRole::ApplicationHead, ordinal);
                 let declaration = self.terms.cell_declaration_target(cell.owner())?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
                     let ordinal = take_counter(&mut self.counters.record_field)?;
-                    let field_key = self.key("record_field_name", ordinal);
+                    let field_key = self.term_key(TermRole::RecordFieldName, ordinal);
                     let name = field.name().to_string();
                     let value = self.expand_term(field.value())?;
                     fields.push(quote!(#facade::HostCellTermField {
@@ -4017,31 +4120,43 @@ enum TermSide {
     Ensures,
 }
 
+/// A term-node role that a [`TermSide`] maps to its provenance role.
+#[derive(Clone, Copy)]
+enum TermRole {
+    Path,
+    ApplicationHead,
+    Reference,
+    Literal,
+    RecordFieldName,
+    Wildcard,
+}
+
 impl TermSide {
-    fn role(self, suffix: &str) -> &'static str {
-        match (self, suffix) {
-            (Self::Left, "path") => "rule_left_path",
-            (Self::Left, "application") => "rule_left_application_head",
-            (Self::Left, "reference") => "rule_left_reference",
-            (Self::Left, "literal") => "rule_left_literal",
-            (Self::Left, "field") => "rule_left_record_field_name",
-            (Self::Left, "wildcard") => "rule_left_wildcard",
-            (Self::Right, "path") => "rule_right_path",
-            (Self::Right, "application") => "rule_right_application_head",
-            (Self::Right, "reference") => "rule_right_reference",
-            (Self::Right, "literal" | "wildcard") => "rule_right_literal",
-            (Self::Right, "field") => "rule_right_record_field_name",
-            (Self::Requires, "path") => "rule_requires_path",
-            (Self::Requires, "application") => "rule_requires_application_head",
-            (Self::Requires, "reference") => "rule_requires_reference",
-            (Self::Requires, "literal" | "wildcard") => "rule_requires_literal",
-            (Self::Requires, "field") => "rule_requires_record_field_name",
-            (Self::Ensures, "path") => "claim_ensures_path",
-            (Self::Ensures, "application") => "claim_ensures_application_head",
-            (Self::Ensures, "reference") => "claim_ensures_reference",
-            (Self::Ensures, "literal" | "wildcard") => "claim_ensures_literal",
-            (Self::Ensures, "field") => "claim_ensures_record_field_name",
-            _ => unreachable!(),
+    fn role(self, role: TermRole) -> ProvenanceRole {
+        use ProvenanceRole as P;
+        use TermRole as T;
+        match (self, role) {
+            (Self::Left, T::Path) => P::RuleLeftPath,
+            (Self::Left, T::ApplicationHead) => P::RuleLeftApplicationHead,
+            (Self::Left, T::Reference) => P::RuleLeftReference,
+            (Self::Left, T::Literal) => P::RuleLeftLiteral,
+            (Self::Left, T::RecordFieldName) => P::RuleLeftRecordFieldName,
+            (Self::Left, T::Wildcard) => P::RuleLeftWildcard,
+            (Self::Right, T::Path) => P::RuleRightPath,
+            (Self::Right, T::ApplicationHead) => P::RuleRightApplicationHead,
+            (Self::Right, T::Reference) => P::RuleRightReference,
+            (Self::Right, T::Literal | T::Wildcard) => P::RuleRightLiteral,
+            (Self::Right, T::RecordFieldName) => P::RuleRightRecordFieldName,
+            (Self::Requires, T::Path) => P::RuleRequiresPath,
+            (Self::Requires, T::ApplicationHead) => P::RuleRequiresApplicationHead,
+            (Self::Requires, T::Reference) => P::RuleRequiresReference,
+            (Self::Requires, T::Literal | T::Wildcard) => P::RuleRequiresLiteral,
+            (Self::Requires, T::RecordFieldName) => P::RuleRequiresRecordFieldName,
+            (Self::Ensures, T::Path) => P::ClaimEnsuresPath,
+            (Self::Ensures, T::ApplicationHead) => P::ClaimEnsuresApplicationHead,
+            (Self::Ensures, T::Reference) => P::ClaimEnsuresReference,
+            (Self::Ensures, T::Literal | T::Wildcard) => P::ClaimEnsuresLiteral,
+            (Self::Ensures, T::RecordFieldName) => P::ClaimEnsuresRecordFieldName,
         }
     }
 }
@@ -4134,9 +4249,12 @@ impl<'a> TermBuilder<'a> {
             TermTree::Application(application) => {
                 let path_ordinal = take_counter(&mut self.counters.path)?;
                 let application_ordinal = take_counter(&mut self.counters.application)?;
-                let path_key = provenance_key(facade, side.role("path"), path_ordinal);
-                let reference_key =
-                    provenance_key(facade, side.role("application"), application_ordinal);
+                let path_key = provenance_key(facade, side.role(TermRole::Path), path_ordinal);
+                let reference_key = provenance_key(
+                    facade,
+                    side.role(TermRole::ApplicationHead),
+                    application_ordinal,
+                );
                 let target = if self.take_lexical_rule_head(application.head()) {
                     self.lexical_rule_application_target(
                         application.head(),
@@ -4160,8 +4278,11 @@ impl<'a> TermBuilder<'a> {
                     TermArguments::Named(values) => {
                         for argument in values {
                             let field_ordinal = take_counter(&mut self.counters.field)?;
-                            let field_key =
-                                provenance_key(facade, side.role("field"), field_ordinal);
+                            let field_key = provenance_key(
+                                facade,
+                                side.role(TermRole::RecordFieldName),
+                                field_ordinal,
+                            );
                             let field = argument.name().to_string();
                             let value = self.expand(argument.value(), side)?;
                             arguments.push(quote! {
@@ -4191,8 +4312,8 @@ impl<'a> TermBuilder<'a> {
                 let lexical_rule_head = self.take_lexical_rule_head(path);
                 let path_ordinal = take_counter(&mut self.counters.path)?;
                 let reference_ordinal = take_counter(&mut self.counters.reference)?;
-                let path_key = provenance_key(facade, side.role("path"), path_ordinal);
-                let key = provenance_key(facade, side.role("reference"), reference_ordinal);
+                let path_key = provenance_key(facade, side.role(TermRole::Path), path_ordinal);
+                let key = provenance_key(facade, side.role(TermRole::Reference), reference_ordinal);
                 if is_bound_ident_path(path, self.bindings) {
                     self.tooling_binding_references.push(path.clone());
                     let name = spelling(path);
@@ -4224,7 +4345,7 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::Literal(literal) => {
                 let ordinal = take_counter(&mut self.counters.literal)?;
-                let key = provenance_key(facade, side.role("literal"), ordinal);
+                let key = provenance_key(facade, side.role(TermRole::Literal), ordinal);
                 let literal = match literal {
                     TermLiteral::Integer(value) => {
                         let value = value.base10_digits().replace('_', "");
@@ -4245,7 +4366,7 @@ impl<'a> TermBuilder<'a> {
                     ));
                 }
                 let ordinal = take_counter(&mut self.counters.wildcard)?;
-                let key = provenance_key(facade, side.role("wildcard"), ordinal);
+                let key = provenance_key(facade, side.role(TermRole::Wildcard), ordinal);
                 Ok(quote!(#facade::HostTerm::Wildcard { key: #key }))
             }
             TermTree::IdToken { literal } => {
@@ -4257,7 +4378,7 @@ impl<'a> TermBuilder<'a> {
                 }
                 let ordinal = self.id_token_ordinal;
                 self.id_token_ordinal += 1;
-                let key = provenance_key(facade, "claim_id_token", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimIdToken, ordinal);
                 let value = literal.value();
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Id, value: #value.to_owned() }),
@@ -4272,7 +4393,7 @@ impl<'a> TermBuilder<'a> {
                 }
                 let ordinal = self.bytes_token_ordinal;
                 self.bytes_token_ordinal += 1;
-                let key = provenance_key(facade, "claim_bytes_token", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimBytesToken, ordinal);
                 let value = bytes_token_value(literal);
                 Ok(
                     quote!(#facade::HostTerm::BuiltinToken { key: #key, sort: #facade::BuiltinSort::Bytes, value: #value.to_owned() }),
@@ -4291,7 +4412,7 @@ impl<'a> TermBuilder<'a> {
                 }
                 let ordinal = self.or_bool_ordinal;
                 self.or_bool_ordinal += 1;
-                let key = provenance_key(facade, "claim_or_bool", ordinal);
+                let key = provenance_key(facade, ProvenanceRole::ClaimOrBool, ordinal);
                 let values = arguments
                     .iter()
                     .map(|argument| self.expand(argument, side))
@@ -4301,13 +4422,18 @@ impl<'a> TermBuilder<'a> {
             TermTree::Cell(cell) => {
                 let path_ordinal = take_counter(&mut self.counters.path)?;
                 let application_ordinal = take_counter(&mut self.counters.application)?;
-                let _path_key = provenance_key(facade, side.role("path"), path_ordinal);
-                let key = provenance_key(facade, side.role("application"), application_ordinal);
+                let _path_key = provenance_key(facade, side.role(TermRole::Path), path_ordinal);
+                let key = provenance_key(
+                    facade,
+                    side.role(TermRole::ApplicationHead),
+                    application_ordinal,
+                );
                 let declaration = self.cell_declaration_target(cell.owner())?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
                     let ordinal = take_counter(&mut self.counters.field)?;
-                    let field_key = provenance_key(facade, side.role("field"), ordinal);
+                    let field_key =
+                        provenance_key(facade, side.role(TermRole::RecordFieldName), ordinal);
                     let name = field.name().to_string();
                     let value = self.expand(field.value(), side)?;
                     fields.push(quote!(#facade::HostCellTermField {
@@ -4515,7 +4641,7 @@ fn take_counter(counter: &mut u32) -> syn::Result<u32> {
     Ok(value)
 }
 
-fn provenance_key(facade: &Path, role: &str, ordinal: u32) -> TokenStream {
+fn provenance_key(facade: &Path, role: ProvenanceRole, ordinal: u32) -> TokenStream {
     quote! {
         #facade::ProvenanceKey::new(#role, #ordinal)
             .expect("KRS parser roles are nonempty")
@@ -4524,7 +4650,7 @@ fn provenance_key(facade: &Path, role: &str, ordinal: u32) -> TokenStream {
 
 fn host_sort_reference(
     facade: &Path,
-    role: &str,
+    role: ProvenanceRole,
     ordinal: u32,
     key_function: &Ident,
     authored_path: &str,
@@ -4813,6 +4939,9 @@ pub(crate) fn token(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let token_lexical_precedence_role = ProvenanceRole::TokenLexicalPrecedence;
+    let token_declaration_role = ProvenanceRole::TokenDeclaration;
+    let token_regex_role = ProvenanceRole::TokenRegex;
     let attribute =
         parse_token_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let declaration =
@@ -4848,7 +4977,7 @@ pub(crate) fn token(
     let regex = attribute.regex().value();
     let lexical_precedence = if let Some(value) = attribute.lexical_precedence() {
         quote!(::core::option::Option::Some(#facade::DescriptorLexicalPrecedence {
-            key: #facade::ProvenanceKey::new("token_lexical_precedence", 0)
+            key: #facade::ProvenanceKey::new(#token_lexical_precedence_role, 0)
                 .expect("KRS parser roles are nonempty"),
             value: #value,
         }))
@@ -4856,7 +4985,8 @@ pub(crate) fn token(
         quote!(::core::option::Option::None)
     };
     let grammar_name = format!("__krs_grammar_token_{name}");
-    let token_reference = host_sort_reference(&facade, "token_declaration", 0, &key_fn, &name);
+    let token_reference =
+        host_sort_reference(&facade, ProvenanceRole::TokenDeclaration, 0, &key_fn, &name);
 
     Ok(quote! {
         #item
@@ -4904,14 +5034,14 @@ pub(crate) fn token(
                 declared_type: ::core::option::Option::None,
                 payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
                     #facade::HostGrammarDescriptor::Production(#facade::HostProduction {
-                        key: #facade::ProvenanceKey::new("token_declaration", 0)
+                        key: #facade::ProvenanceKey::new(#token_declaration_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         template_key: ::core::option::Option::None,
                         owner: #facade::HostProductionOwner::TokenSort {
                             sort: #token_reference,
                         },
                         result_sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new("token_declaration", 0)
+                            key: #facade::ProvenanceKey::new(#token_declaration_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             target: #facade::HostTypeReference {
                                 key: #facade::HostTypeKey(#key_fn),
@@ -4919,14 +5049,14 @@ pub(crate) fn token(
                             },
                         },
                         items: ::std::vec![#facade::HostProductionItem::RegexTerminal {
-                            key: #facade::ProvenanceKey::new("token_regex", 0)
+                            key: #facade::ProvenanceKey::new(#token_regex_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             precede_regex: ::core::option::Option::None,
                             regex: #regex.to_owned(),
                             follow_regex: ::core::option::Option::None,
                         }],
                         attributes: ::std::vec![#facade::HostProductionAttribute::Token {
-                            key: #facade::ProvenanceKey::new("token_regex", 0)
+                            key: #facade::ProvenanceKey::new(#token_regex_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             lexical_precedence: #lexical_precedence,
                         }],
@@ -4948,6 +5078,7 @@ pub(crate) fn constructors(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let attribute = parse_constructors_attribute(attributes)
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let item: ItemEnum = syn::parse2(item)?;
@@ -5051,11 +5182,16 @@ pub(crate) fn constructors(
     }
 
     let membership_name = format!("__krs_grammar_membership_{enum_name}");
-    let membership_subsort =
-        host_sort_reference(&facade, "subsort_sub_sort", 0, &enum_key, &enum_name);
+    let membership_subsort = host_sort_reference(
+        &facade,
+        ProvenanceRole::SubsortSubSort,
+        0,
+        &enum_key,
+        &enum_name,
+    );
     let membership_supersort = host_sort_reference(
         &facade,
-        "subsort_super_sort",
+        ProvenanceRole::SubsortSuperSort,
         0,
         &membership_key,
         &outer_spelling,
@@ -5116,7 +5252,7 @@ pub(crate) fn constructors(
                     declared_type: ::core::option::Option::None,
                     payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
                         #facade::HostGrammarDescriptor::Subsort {
-                            key: #facade::ProvenanceKey::new("subsort_declaration", 0)
+                            key: #facade::ProvenanceKey::new(#subsort_declaration_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                             subsort: #membership_subsort,
                             supersort: #membership_supersort,
@@ -5194,6 +5330,12 @@ fn expand_enum_family_grammar(
     cfg: &[Attribute],
     fallback: TokenRange,
 ) -> syn::Result<TokenStream> {
+    let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
+    let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
+    let precedence_chain_role = ProvenanceRole::PrecedenceChain;
+    let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
+    let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
+    let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
     if !declaration.is_open_family() {
         return Ok(TokenStream::new());
     }
@@ -5212,7 +5354,7 @@ fn expand_enum_family_grammar(
                 .map_err(|_| syn::Error::new(declaration.sort_name().span(), "too many groups"))?;
             groups.push(quote! {
                 #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new("precedence_group_reference", #ordinal)
+                    key: #facade::ProvenanceKey::new(#precedence_group_reference_role, #ordinal)
                         .expect("KRS parser roles are nonempty"),
                     group: #facade::ProductionGroupId::new(#group)
                         .expect("generated enum groups are valid identities"),
@@ -5221,10 +5363,10 @@ fn expand_enum_family_grammar(
         }
         let grammar = quote! {
             #facade::HostGrammarDescriptor::Precedence {
-                key: #facade::ProvenanceKey::new("precedence_declaration", 0)
+                key: #facade::ProvenanceKey::new(#precedence_declaration_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 chains: ::std::vec![#facade::DescriptorPrecedenceChain {
-                    key: #facade::ProvenanceKey::new("precedence_chain", 0)
+                    key: #facade::ProvenanceKey::new(#precedence_chain_role, 0)
                         .expect("KRS parser roles are nonempty"),
                     groups: ::std::vec![#(#groups),*],
                 }],
@@ -5271,12 +5413,12 @@ fn expand_enum_family_grammar(
                 .map_err(|_| syn::Error::new(group.range().first(), "too many groups"))?;
             sentences.push(quote! {
                 #facade::DescriptorAssociativitySentence {
-                    key: #facade::ProvenanceKey::new("associativity_sentence", #ordinal)
+                    key: #facade::ProvenanceKey::new(#associativity_sentence_role, #ordinal)
                         .expect("KRS parser roles are nonempty"),
                     associativity: #associativity,
                     groups: ::std::vec![#facade::DescriptorGroupReference {
                         key: #facade::ProvenanceKey::new(
-                            "associativity_group_reference",
+                            #associativity_group_reference_role,
                             #ordinal,
                         ).expect("KRS parser roles are nonempty"),
                         group: #facade::ProductionGroupId::new(#group_name)
@@ -5287,7 +5429,7 @@ fn expand_enum_family_grammar(
         }
         let grammar = quote! {
             #facade::HostGrammarDescriptor::Associativity {
-                key: #facade::ProvenanceKey::new("associativity_declaration", 0)
+                key: #facade::ProvenanceKey::new(#associativity_declaration_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 sentences: ::std::vec![#(#sentences),*],
             }
@@ -5319,6 +5461,9 @@ fn expand_enum_variant(
     index: usize,
     cfg: &[Attribute],
 ) -> syn::Result<TokenStream> {
+    let alias_production_role = ProvenanceRole::AliasProduction;
+    let constructor_syntax_role = ProvenanceRole::ConstructorSyntax;
+    let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
     let enum_name = declaration.sort_name().to_string();
     let variant_name = variant.name().to_string();
     let descriptor_factory = format_ident!("__krs_enum_constructor_{nonce:016x}_{index}");
@@ -5395,7 +5540,7 @@ fn expand_enum_variant(
             0,
             quote! {
                 #facade::HostProductionAttribute::Alias {
-                    key: #facade::ProvenanceKey::new("alias_production", 0)
+                    key: #facade::ProvenanceKey::new(#alias_production_role, 0)
                         .expect("KRS parser roles are nonempty"),
                 }
             },
@@ -5416,7 +5561,7 @@ fn expand_enum_variant(
     }
     let template_key = if variant.syntax().is_some() {
         quote!(::core::option::Option::Some(
-            #facade::ProvenanceKey::new("constructor_syntax", 0)
+            #facade::ProvenanceKey::new(#constructor_syntax_role, 0)
                 .expect("KRS parser roles are nonempty")
         ))
     } else {
@@ -5425,9 +5570,14 @@ fn expand_enum_variant(
     let owner_path = enum_name.clone();
     let application_path = format!("{enum_name}::{variant_name}");
     let result_spelling = spelling(variant.constructor_sort());
-    let result_sort =
-        host_sort_reference(facade, "constructor_sort", 0, result_key, &result_spelling);
-    let primary = provenance_key(facade, "constructor_declaration", 0);
+    let result_sort = host_sort_reference(
+        facade,
+        ProvenanceRole::ConstructorSort,
+        0,
+        result_key,
+        &result_spelling,
+    );
+    let primary = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
 
     Ok(quote! {
         #(#field_key_functions)*
@@ -5483,7 +5633,7 @@ fn expand_enum_variant(
                         template_key: #template_key,
                         owner: #facade::HostProductionOwner::Constructor {
                             constructor: #facade::HostApplicationReference {
-                                key: #facade::ProvenanceKey::new("constructor_declaration", 0)
+                                key: #facade::ProvenanceKey::new(#constructor_declaration_role, 0)
                                     .expect("KRS parser roles are nonempty"),
                                 target: #facade::HostApplicationTarget::EnumVariant(
                                     #facade::HostEnumVariantReference::new(
@@ -5518,13 +5668,15 @@ fn enum_variant_production_items(
     nonce: u64,
     variant_index: usize,
 ) -> syn::Result<Vec<TokenStream>> {
+    let constructor_field_declaration_role = ProvenanceRole::ConstructorFieldDeclaration;
     let mut items = Vec::new();
     if let Some(syntax) = variant.syntax() {
         let mut field_ordinal = 0_u32;
         for (item_index, item) in syntax.syntax_template().items().iter().enumerate() {
             let item_ordinal = u32::try_from(item_index)
                 .map_err(|_| syn::Error::new(variant.name().span(), "too many production items"))?;
-            let item_key = provenance_key(facade, "constructor_syntax_item", item_ordinal);
+            let item_key =
+                provenance_key(facade, ProvenanceRole::ConstructorSyntaxItem, item_ordinal);
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(quote! {
                     #facade::HostProductionItem::Terminal { key: #item_key, text: #text.to_owned() }
@@ -5545,16 +5697,19 @@ fn enum_variant_production_items(
                     let field = &variant.fields()[declaration_index];
                     let sort = host_sort_reference(
                         facade,
-                        "constructor_field_sort",
+                        ProvenanceRole::ConstructorFieldSort,
                         declaration_ordinal,
                         &sort_key,
                         &field.term_sort().sort_spelling(),
                     );
-                    let field_key =
-                        provenance_key(facade, "constructor_syntax_field_reference", field_ordinal);
+                    let field_key = provenance_key(
+                        facade,
+                        ProvenanceRole::ConstructorSyntaxFieldReference,
+                        field_ordinal,
+                    );
                     let declaration_key = provenance_key(
                         facade,
-                        "constructor_field_declaration",
+                        ProvenanceRole::ConstructorFieldDeclaration,
                         declaration_ordinal,
                     );
                     items.push(quote! {
@@ -5574,7 +5729,7 @@ fn enum_variant_production_items(
             }
         }
     } else {
-        let key = provenance_key(facade, "constructor_declaration", 0);
+        let key = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
         let terminal = variant.name().to_string();
         items.push(quote! {
             #facade::HostProductionItem::Terminal { key: #key, text: #terminal.to_owned() }
@@ -5582,12 +5737,13 @@ fn enum_variant_production_items(
         for (field_index, field) in variant.fields().iter().enumerate() {
             let ordinal = u32::try_from(field_index)
                 .map_err(|_| syn::Error::new(variant.name().span(), "too many fields"))?;
-            let field_key = provenance_key(facade, "constructor_field_declaration", ordinal);
+            let field_key =
+                provenance_key(facade, ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key =
                 format_ident!("__krs_enum_field_{nonce:016x}_{variant_index}_{field_index}");
             let sort = host_sort_reference(
                 facade,
-                "constructor_field_sort",
+                ProvenanceRole::ConstructorFieldSort,
                 ordinal,
                 &sort_key,
                 &field.term_sort().sort_spelling(),
@@ -5597,10 +5753,10 @@ fn enum_variant_production_items(
                 #facade::HostProductionItem::NonTerminal {
                     key: #field_key,
                     field_key: #facade::ProvenanceKey::new(
-                        "constructor_field_declaration", #ordinal,
+                        #constructor_field_declaration_role, #ordinal,
                     ).expect("KRS parser roles are nonempty"),
                     declaration_key: ::core::option::Option::Some(
-                        #facade::ProvenanceKey::new("constructor_field_declaration", #ordinal)
+                        #facade::ProvenanceKey::new(#constructor_field_declaration_role, #ordinal)
                             .expect("KRS parser roles are nonempty"),
                     ),
                     field: #facade::ProductionFieldId::new(#name)
@@ -5627,6 +5783,7 @@ pub(crate) fn subsort(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let reference = (!attributes.is_empty())
         .then(|| parse_subsort_attribute(attributes))
         .transpose()
@@ -5687,12 +5844,18 @@ pub(crate) fn subsort(
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let supersort = host_sort_reference(
         &facade,
-        "subsort_super_sort",
+        ProvenanceRole::SubsortSuperSort,
         0,
         &super_key,
         &super_spelling,
     );
-    let subsort = host_sort_reference(&facade, "subsort_sub_sort", 0, &sub_key, &sub_spelling);
+    let subsort = host_sort_reference(
+        &facade,
+        ProvenanceRole::SubsortSubSort,
+        0,
+        &sub_key,
+        &sub_spelling,
+    );
 
     let super_type = if reference.is_some() {
         quote!(#super_path)
@@ -5734,7 +5897,7 @@ pub(crate) fn subsort(
                 declared_type: ::core::option::Option::None,
                 payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
                     #facade::HostGrammarDescriptor::Subsort {
-                        key: #facade::ProvenanceKey::new("subsort_declaration", 0)
+                        key: #facade::ProvenanceKey::new(#subsort_declaration_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         subsort: #subsort,
                         supersort: #supersort,
@@ -5754,6 +5917,9 @@ pub(crate) fn precedence(
     env: &dyn MacroEnvironment,
     input: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
+    let precedence_chain_role = ProvenanceRole::PrecedenceChain;
+    let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
     let declaration =
         parse_precedence_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
@@ -5794,7 +5960,7 @@ pub(crate) fn precedence(
                 .ok_or_else(|| syn::Error::new(group.span(), "too many precedence groups"))?;
             groups.push(quote! {
                 #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new("precedence_group_reference", #ordinal)
+                    key: #facade::ProvenanceKey::new(#precedence_group_reference_role, #ordinal)
                         .expect("KRS parser roles are nonempty"),
                     group: #facade::ProductionGroupId::new(#name)
                         .expect("Rust identifiers are valid production groups"),
@@ -5803,7 +5969,7 @@ pub(crate) fn precedence(
         }
         chains.push(quote! {
             #facade::DescriptorPrecedenceChain {
-                key: #facade::ProvenanceKey::new("precedence_chain", #chain_ordinal)
+                key: #facade::ProvenanceKey::new(#precedence_chain_role, #chain_ordinal)
                     .expect("KRS parser roles are nonempty"),
                 groups: ::std::vec![#(#groups),*],
             }
@@ -5811,7 +5977,7 @@ pub(crate) fn precedence(
     }
     let grammar = quote! {
         #facade::HostGrammarDescriptor::Precedence {
-            key: #facade::ProvenanceKey::new("precedence_declaration", 0)
+            key: #facade::ProvenanceKey::new(#precedence_declaration_role, 0)
                 .expect("KRS parser roles are nonempty"),
             chains: ::std::vec![#(#chains),*],
         }
@@ -5831,6 +5997,9 @@ pub(crate) fn associativity(
     env: &dyn MacroEnvironment,
     input: TokenStream,
 ) -> syn::Result<TokenStream> {
+    let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
+    let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
+    let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
     let declaration =
         parse_associativity_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let facade = env.facade_path()?;
@@ -5878,7 +6047,7 @@ pub(crate) fn associativity(
                 .ok_or_else(|| syn::Error::new(group.span(), "too many associativity groups"))?;
             groups.push(quote! {
                 #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new("associativity_group_reference", #ordinal)
+                    key: #facade::ProvenanceKey::new(#associativity_group_reference_role, #ordinal)
                         .expect("KRS parser roles are nonempty"),
                     group: #facade::ProductionGroupId::new(#name)
                         .expect("Rust identifiers are valid production groups"),
@@ -5887,7 +6056,7 @@ pub(crate) fn associativity(
         }
         sentences.push(quote! {
             #facade::DescriptorAssociativitySentence {
-                key: #facade::ProvenanceKey::new("associativity_sentence", #sentence_ordinal)
+                key: #facade::ProvenanceKey::new(#associativity_sentence_role, #sentence_ordinal)
                     .expect("KRS parser roles are nonempty"),
                 associativity: #associativity,
                 groups: ::std::vec![#(#groups),*],
@@ -5896,7 +6065,7 @@ pub(crate) fn associativity(
     }
     let grammar = quote! {
         #facade::HostGrammarDescriptor::Associativity {
-            key: #facade::ProvenanceKey::new("associativity_declaration", 0)
+            key: #facade::ProvenanceKey::new(#associativity_declaration_role, 0)
                 .expect("KRS parser roles are nonempty"),
             sentences: ::std::vec![#(#sentences),*],
         }
@@ -5995,6 +6164,7 @@ fn expand_bracket_grammar_parts(
     index: usize,
     cfg: &[Attribute],
 ) -> syn::Result<TokenStream> {
+    let bracket_declaration_role = ProvenanceRole::BracketDeclaration;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
@@ -6002,7 +6172,8 @@ fn expand_bracket_grammar_parts(
     let provenance = host_provenance(env, facade, fallback, anchors)?;
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
-    let sort_reference = |role: &str| host_sort_reference(facade, role, 0, sort_key, sort_name);
+    let sort_reference =
+        |role: ProvenanceRole| host_sort_reference(facade, role, 0, sort_key, sort_name);
     let mut items = Vec::new();
     let mut value_ordinal = 0_u32;
     for (item_index, item) in bracket.template().items().iter().enumerate() {
@@ -6012,7 +6183,7 @@ fn expand_bracket_grammar_parts(
                 "too many bracket items",
             )
         })?;
-        let key = provenance_key(facade, "bracket_syntax_item", ordinal);
+        let key = provenance_key(facade, ProvenanceRole::BracketSyntaxItem, ordinal);
         match item {
             SyntaxTemplateItem::Terminal(text) => items.push(quote! {
                 #facade::HostProductionItem::Terminal {
@@ -6021,14 +6192,15 @@ fn expand_bracket_grammar_parts(
                 }
             }),
             SyntaxTemplateItem::Field(_) => {
-                let field_key = provenance_key(facade, "bracket_value_reference", value_ordinal);
+                let field_key =
+                    provenance_key(facade, ProvenanceRole::BracketValueReference, value_ordinal);
                 value_ordinal = value_ordinal.checked_add(1).ok_or_else(|| {
                     syn::Error::new(
                         bracket.template().literal().span(),
                         "too many bracket values",
                     )
                 })?;
-                let value_sort = sort_reference("sort_declaration");
+                let value_sort = sort_reference(ProvenanceRole::SortDeclaration);
                 items.push(quote! {
                     #facade::HostProductionItem::NonTerminal {
                         key: #key,
@@ -6042,8 +6214,8 @@ fn expand_bracket_grammar_parts(
             }
         }
     }
-    let owner_sort = sort_reference("sort_declaration");
-    let result_sort = sort_reference("sort_declaration");
+    let owner_sort = sort_reference(ProvenanceRole::SortDeclaration);
+    let result_sort = sort_reference(ProvenanceRole::SortDeclaration);
     let disambiguator = format!("bracket:{index}");
     Ok(quote! {
         #(#cfg)*
@@ -6059,14 +6231,14 @@ fn expand_bracket_grammar_parts(
                 declared_type: ::core::option::Option::None,
                 payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
                     #facade::HostGrammarDescriptor::Production(#facade::HostProduction {
-                        key: #facade::ProvenanceKey::new("bracket_declaration", 0)
+                        key: #facade::ProvenanceKey::new(#bracket_declaration_role, 0)
                             .expect("KRS parser roles are nonempty"),
                         template_key: ::core::option::Option::None,
                         owner: #facade::HostProductionOwner::BracketSort { sort: #owner_sort },
                         result_sort: #result_sort,
                         items: ::std::vec![#(#items),*],
                         attributes: ::std::vec![#facade::HostProductionAttribute::Bracket {
-                            key: #facade::ProvenanceKey::new("bracket_declaration", 0)
+                            key: #facade::ProvenanceKey::new(#bracket_declaration_role, 0)
                                 .expect("KRS parser roles are nonempty"),
                         }],
                     }),
@@ -6099,20 +6271,24 @@ fn constructor_grammar(
     hook: Option<&TokenStream>,
     alias: bool,
 ) -> syn::Result<TokenStream> {
+    let function_total_role = ProvenanceRole::FunctionTotal;
+    let function_hook_role = ProvenanceRole::FunctionHook;
+    let alias_production_role = ProvenanceRole::AliasProduction;
+    let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
     let name = declaration.name().to_string();
     let grammar_name = format!("__krs_grammar_{name}");
     let factory = format_ident!("__krs_constructor_grammar_{nonce:016x}");
     let result_sort_spelling = spelling(&attribute.sort);
     let result_sort = host_sort_reference(
         facade,
-        "constructor_sort",
+        ProvenanceRole::ConstructorSort,
         0,
         sort_key,
         &result_sort_spelling,
     );
     let template_key = attribute
         .syntax_template()
-        .map(|_| provenance_key(facade, "constructor_syntax", 0));
+        .map(|_| provenance_key(facade, ProvenanceRole::ConstructorSyntax, 0));
     let template_key = if let Some(key) = template_key {
         quote!(::core::option::Option::Some(#key))
     } else {
@@ -6147,9 +6323,9 @@ fn constructor_grammar(
     );
     if functional {
         let function_key = if total {
-            "function_declaration"
+            ProvenanceRole::FunctionDeclaration
         } else {
-            "function_partial"
+            ProvenanceRole::FunctionPartial
         };
         attributes.insert(
             0,
@@ -6165,7 +6341,7 @@ fn constructor_grammar(
                 1,
                 quote! {
                     #facade::HostProductionAttribute::Total {
-                        key: #facade::ProvenanceKey::new("function_total", 0)
+                        key: #facade::ProvenanceKey::new(#function_total_role, 0)
                             .expect("KRS parser roles are nonempty"),
                     }
                 },
@@ -6178,7 +6354,7 @@ fn constructor_grammar(
             position,
             quote! {
                 #facade::HostProductionAttribute::Hook {
-                    key: #facade::ProvenanceKey::new("function_hook", 0)
+                    key: #facade::ProvenanceKey::new(#function_hook_role, 0)
                         .expect("KRS parser roles are nonempty"),
                     operation: #operation,
                 }
@@ -6190,7 +6366,7 @@ fn constructor_grammar(
             0,
             quote! {
                 #facade::HostProductionAttribute::Alias {
-                    key: #facade::ProvenanceKey::new("alias_production", 0)
+                    key: #facade::ProvenanceKey::new(#alias_production_role, 0)
                         .expect("KRS parser roles are nonempty"),
                 }
             },
@@ -6199,7 +6375,7 @@ fn constructor_grammar(
     if let Some(strict_attribute) = strict_attribute {
         attributes.push(strict_attribute);
     }
-    let primary = provenance_key(facade, "constructor_declaration", 0);
+    let primary = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
 
     Ok(quote! {
         #strict_key_function
@@ -6226,7 +6402,7 @@ fn constructor_grammar(
                         template_key: #template_key,
                         owner: #facade::HostProductionOwner::Constructor {
                             constructor: #facade::HostApplicationReference {
-                                key: #facade::ProvenanceKey::new("constructor_declaration", 0)
+                                key: #facade::ProvenanceKey::new(#constructor_declaration_role, 0)
                                     .expect("KRS parser roles are nonempty"),
                                 target: #owner_target,
                             },
@@ -6259,7 +6435,8 @@ fn constructor_production_items(
         for (item_index, item) in template.items().iter().enumerate() {
             let item_ordinal = u32::try_from(item_index)
                 .map_err(|_| syn::Error::new(name.span(), "too many production items"))?;
-            let item_key = provenance_key(facade, "constructor_syntax_item", item_ordinal);
+            let item_key =
+                provenance_key(facade, ProvenanceRole::ConstructorSyntaxItem, item_ordinal);
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(quote! {
                     #facade::HostProductionItem::Terminal {
@@ -6282,16 +6459,19 @@ fn constructor_production_items(
                     let sort_spelling = field.term_sort().sort_spelling();
                     let sort = host_sort_reference(
                         facade,
-                        "constructor_field_sort",
+                        ProvenanceRole::ConstructorFieldSort,
                         declaration_ordinal,
                         &sort_key,
                         &sort_spelling,
                     );
-                    let field_key =
-                        provenance_key(facade, "constructor_syntax_field_reference", field_ordinal);
+                    let field_key = provenance_key(
+                        facade,
+                        ProvenanceRole::ConstructorSyntaxFieldReference,
+                        field_ordinal,
+                    );
                     let declaration_key = provenance_key(
                         facade,
-                        "constructor_field_declaration",
+                        ProvenanceRole::ConstructorFieldDeclaration,
                         declaration_ordinal,
                     );
                     items.push(quote! {
@@ -6311,7 +6491,7 @@ fn constructor_production_items(
             }
         }
     } else {
-        let declaration_key = provenance_key(facade, "constructor_declaration", 0);
+        let declaration_key = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
         let terminal = name.to_string();
         items.push(quote! {
             #facade::HostProductionItem::Terminal {
@@ -6322,12 +6502,12 @@ fn constructor_production_items(
         for (index, field) in fields.iter().enumerate() {
             let ordinal = u32::try_from(index)
                 .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
-            let key = provenance_key(facade, "constructor_field_declaration", ordinal);
+            let key = provenance_key(facade, ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key = format_ident!("__krs_constructor_field_{nonce:016x}_{index}");
             let sort_spelling = field.term_sort().sort_spelling();
             let sort = host_sort_reference(
                 facade,
-                "constructor_field_sort",
+                ProvenanceRole::ConstructorFieldSort,
                 ordinal,
                 &sort_key,
                 &sort_spelling,
@@ -6336,15 +6516,8 @@ fn constructor_production_items(
             items.push(quote! {
                 #facade::HostProductionItem::NonTerminal {
                     key: #key,
-                    field_key: #facade::ProvenanceKey::new(
-                        "constructor_field_declaration",
-                        #ordinal,
-                    )
-                    .expect("KRS parser roles are nonempty"),
-                    declaration_key: ::core::option::Option::Some(
-                        #facade::ProvenanceKey::new("constructor_field_declaration", #ordinal)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
+                    field_key: #key,
+                    declaration_key: ::core::option::Option::Some(#key),
                     field: #facade::ProductionFieldId::new(#field_name)
                         .expect("Rust field identifiers are valid production fields"),
                     sort: ::std::boxed::Box::new(#sort),
@@ -6361,12 +6534,16 @@ fn constructor_metadata_tokens(
     avoid: bool,
     format: Option<&krs_syntax::StructuredFormat>,
 ) -> syn::Result<Vec<TokenStream>> {
+    let constructor_group_role = ProvenanceRole::ConstructorGroup;
+    let constructor_avoid_role = ProvenanceRole::ConstructorAvoid;
+    let constructor_format_fragment_role = ProvenanceRole::ConstructorFormatFragment;
+    let constructor_format_role = ProvenanceRole::ConstructorFormat;
     let mut attributes = Vec::new();
     if let Some(group) = group {
         attributes.push(quote! {
             #facade::HostProductionAttribute::Group {
                 reference: #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new("constructor_group", 0)
+                    key: #facade::ProvenanceKey::new(#constructor_group_role, 0)
                         .expect("KRS parser roles are nonempty"),
                     group: #facade::ProductionGroupId::new(#group)
                         .expect("checked production groups are valid identities"),
@@ -6377,7 +6554,7 @@ fn constructor_metadata_tokens(
     if avoid {
         attributes.push(quote! {
             #facade::HostProductionAttribute::Avoid {
-                key: #facade::ProvenanceKey::new("constructor_avoid", 0)
+                key: #facade::ProvenanceKey::new(#constructor_avoid_role, 0)
                     .expect("KRS parser roles are nonempty"),
             }
         });
@@ -6408,7 +6585,7 @@ fn constructor_metadata_tokens(
             fragments.push(quote! {
                 #facade::DescriptorFormatFragment {
                     key: #facade::ProvenanceKey::new(
-                        "constructor_format_fragment",
+                        #constructor_format_fragment_role,
                         #ordinal,
                     )
                     .expect("KRS parser roles are nonempty"),
@@ -6418,7 +6595,7 @@ fn constructor_metadata_tokens(
         }
         attributes.push(quote! {
             #facade::HostProductionAttribute::Format {
-                key: #facade::ProvenanceKey::new("constructor_format", 0)
+                key: #facade::ProvenanceKey::new(#constructor_format_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 fragments: ::std::vec![#(#fragments),*],
             }
@@ -6431,6 +6608,7 @@ fn production_documentation_tokens(
     facade: &Path,
     documentation: &[krs_syntax::ProductionDocumentation],
 ) -> syn::Result<Vec<TokenStream>> {
+    let constructor_documentation_role = ProvenanceRole::ConstructorDocumentation;
     documentation
         .iter()
         .enumerate()
@@ -6441,7 +6619,7 @@ fn production_documentation_tokens(
             let text = documentation.text();
             Ok(quote! {
                 #facade::HostProductionAttribute::Documentation {
-                    key: #facade::ProvenanceKey::new("constructor_documentation", #ordinal)
+                    key: #facade::ProvenanceKey::new(#constructor_documentation_role, #ordinal)
                         .expect("KRS parser roles are nonempty"),
                     text: #text.to_owned(),
                 }
@@ -6457,6 +6635,9 @@ fn strictness_tokens<'a>(
     nonce: u64,
     cfg: &[Attribute],
 ) -> syn::Result<(TokenStream, Option<TokenStream>)> {
+    let strictness_context_alias_reference_role = ProvenanceRole::StrictnessContextAliasReference;
+    let strictness_field_reference_role = ProvenanceRole::StrictnessFieldReference;
+    let strictness_declaration_role = ProvenanceRole::StrictnessDeclaration;
     let Some(strictness) = strictness else {
         return Ok((TokenStream::new(), None));
     };
@@ -6467,7 +6648,13 @@ fn strictness_tokens<'a>(
     let key_fn = format_ident!("__krs_strictness_result_{nonce:016x}");
     let path = call_site_path(strictness.result_sort())?;
     let spelling = spelling(strictness.result_sort());
-    let result_sort = host_sort_reference(facade, "strictness_result_sort", 0, &key_fn, &spelling);
+    let result_sort = host_sort_reference(
+        facade,
+        ProvenanceRole::StrictnessResultSort,
+        0,
+        &key_fn,
+        &spelling,
+    );
     let result_type = if strictness.has_readable_result() {
         quote!(#path)
     } else {
@@ -6495,7 +6682,7 @@ fn strictness_tokens<'a>(
             }
             let name = alias.to_string();
             Ok(quote!(::core::option::Option::Some(#facade::HostContextAliasReference {
-                key: #facade::ProvenanceKey::new("strictness_context_alias_reference", 0)
+                key: #facade::ProvenanceKey::new(#strictness_context_alias_reference_role, 0)
                     .expect("KRS parser roles are nonempty"),
                 alias: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
@@ -6517,7 +6704,7 @@ fn strictness_tokens<'a>(
             .map_err(|_| syn::Error::new(field.span(), "too many strictness fields"))?;
         selected.push(quote! {
             #facade::DescriptorFieldReference {
-                key: #facade::ProvenanceKey::new("strictness_field_reference", #ordinal)
+                key: #facade::ProvenanceKey::new(#strictness_field_reference_role, #ordinal)
                     .expect("KRS parser roles are nonempty"),
                 field: #facade::ProductionFieldId::new(#name)
                     .expect("Rust field identifiers are valid production fields"),
@@ -6526,7 +6713,7 @@ fn strictness_tokens<'a>(
     }
     let attribute = quote! {
         #facade::HostProductionAttribute::Strictness {
-            key: #facade::ProvenanceKey::new("strictness_declaration", 0)
+            key: #facade::ProvenanceKey::new(#strictness_declaration_role, 0)
                 .expect("KRS parser roles are nonempty"),
             kind: #kind,
             using: #using,
