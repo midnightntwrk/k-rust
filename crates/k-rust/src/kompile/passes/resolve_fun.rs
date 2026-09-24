@@ -566,20 +566,26 @@ fn collect_rhs_variables(
     position: Position,
     visitor: &mut impl FnMut(ClosureVariable),
 ) {
-    match term.unannotated() {
+    let term = term.unannotated();
+    // A unary semantic cast sets the context sort for its argument. It is tested before the
+    // `match` because binding the cast's sort text in a match guard needs `if let` guards, which
+    // the declared minimum Rust version does not have. Only `Apply` arms could also take such a
+    // term, and the cast was already tested before every one of them, so behaviour is unchanged.
+    if let Term::Apply { label, arguments } = term
+        && let Some(GeneratedLabel::SemanticCast { sort_text }) = label.generated()
+        && arguments.len() == 1
+    {
+        // The cast's sort text is kept as a sort name, as before this vocabulary existed.
+        let sort = Sort::new(sort_text);
+        collect_rhs_variables(&arguments[0], Some(&sort), position, visitor);
+        return;
+    }
+    match term {
         Term::Variable { name, sort } if position.reports(name) => visitor(ClosureVariable {
             name: name.clone(),
             sort: context.cloned().or_else(|| sort.clone()),
         }),
         Term::Variable { .. } => {}
-        Term::Apply { label, arguments }
-            if let Some(GeneratedLabel::SemanticCast { sort_text }) = label.generated()
-                && arguments.len() == 1 =>
-        {
-            // The cast's sort text is kept as a sort name, as before this vocabulary existed.
-            let sort = Sort::new(sort_text);
-            collect_rhs_variables(&arguments[0], Some(&sort), position, visitor);
-        }
         Term::Rewrite { left, right } => {
             collect_rhs_variables(left, context, position.left(), visitor);
             collect_rhs_variables(right, context, position.right(), visitor);
