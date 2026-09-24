@@ -291,6 +291,133 @@ fn attributes_resolve_under_the_renamed_facade_only() {
 }
 
 #[test]
+fn variant_helpers_require_a_facade_path() {
+    for (name, helper) in [
+        ("foreign_variant_helper", "#[other::syntax(\"value\")]"),
+        ("imported_variant_helper", "#[syntax(\"value\")]"),
+    ] {
+        let source = format!(
+            "#[k::sort]\npub trait Expr {{}}\nuse k::syntax;\n#[k::constructors]\npub enum Values {{\n    {helper}\n    Value,\n}}\n"
+        );
+        let package = TestPackage::new(name, &source);
+        let error = collect_host_descriptors(
+            [package.context("ORG-HELPERS")],
+            [package.sort("Expr", expr_type, vec![])],
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), CollectionErrorKind::UnresolvedAttribute);
+        assert!(
+            error.detail().contains("write `#[k::syntax]` instead"),
+            "{}",
+            error.detail()
+        );
+    }
+}
+
+#[test]
+fn nested_attribute_positions_reject_foreign_entry_names() {
+    for (name, item) in [
+        ("trait_member", "trait Host { #[other::rule] fn apply(); }"),
+        (
+            "impl_member",
+            "struct Host; impl Host { #[other::rule] fn apply() {} }",
+        ),
+        ("field", "struct Host { #[other::cell] value: u8 }"),
+        ("type_alias", "#[other::sort] type Alias = u8;"),
+        ("module", "#[other::sort] mod inner {}"),
+        ("parameter", "fn host(#[other::config_var] value: u8) {}"),
+    ] {
+        let source = format!("#[k::sort]\npub trait Expr {{}}\n{item}\n");
+        let package = TestPackage::new(name, &source);
+        let error = collect_host_descriptors(
+            [package.context("ORG-NESTED-ATTRS")],
+            [package.sort("Expr", expr_type, vec![])],
+        )
+        .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            CollectionErrorKind::UnresolvedAttribute,
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn item_macros_require_a_facade_path() {
+    for (name, invocation) in [
+        ("foreign_rules", "foreign::rules! {}"),
+        ("imported_rules", "use k::rules; rules! {}"),
+    ] {
+        let source = format!("#[k::sort]\npub trait Expr {{}}\n{invocation}\n");
+        let package = TestPackage::new(name, &source);
+        let error = collect_host_descriptors(
+            [package.context("ORG-MACROS")],
+            [package.sort("Expr", expr_type, vec![])],
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), CollectionErrorKind::UnresolvedAttribute);
+        assert!(
+            error.detail().contains("write `k::rules!` instead"),
+            "{}",
+            error.detail()
+        );
+    }
+}
+
+#[test]
+fn item_macros_resolve_raw_and_renamed_facade_paths() {
+    for (name, facade, invocation) in [
+        (
+            "raw_facade",
+            "k",
+            "r#k::rules! { for Expr; use Op::*; eval: Neg { value } => value; }",
+        ),
+        (
+            "renamed_rules",
+            "lang",
+            "lang::rules! { for Expr; use Op::*; eval: Neg { value } => value; }",
+        ),
+        (
+            "module_alias",
+            "k",
+            "mod inner { use k as lang; lang::sorts! { Value; } }",
+        ),
+    ] {
+        let source = format!("#[{facade}::sort]\npub trait Expr {{}}\n{invocation}\n");
+        let package = TestPackage::with_facade(name, "", facade, &source);
+        let bundle = collect_host_descriptors(
+            [package.context("ORG-MACRO-PATHS")],
+            [package.sort("Expr", expr_type, vec![])],
+        )
+        .unwrap();
+        assert_eq!(bundle.descriptors.len(), 1);
+    }
+}
+
+#[test]
+fn symbol_diagnostics_use_the_resolved_facade_name() {
+    let package = TestPackage::with_facade(
+        "renamed_symbol",
+        "",
+        "lang",
+        "#[lang::symbol(\"x\")]\npub trait Expr {}\n",
+    );
+    let error = collect_host_descriptors(
+        [package.context("ORG-SYMBOL")],
+        [package.sort("Expr", expr_type, vec![])],
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), CollectionErrorKind::SourceSyntax);
+    assert!(
+        error
+            .detail()
+            .contains("#[lang::symbol] requires exactly one #[lang::sort]"),
+        "{}",
+        error.detail()
+    );
+}
+
+#[test]
 fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
     let package = TestPackage::new("negative", "#[k::sort]\npub trait Expr {}\n");
 
@@ -532,7 +659,7 @@ k::rules! {
             r"#[k::sort]
 pub trait Expr {}
 fn fixture() {
-    let _ = cells! { k: KCell(value /*krs-f7-block*/, ..tail), ..state };
+    let _ = k::cells! { k: KCell(value /*krs-f7-block*/, ..tail), ..state };
 }
 ",
             "cells!",
@@ -542,7 +669,7 @@ fn fixture() {
             r"#[k::sort]
 pub trait Expr {}
 fn fixture() {
-    let _ = map! { name /*krs-f7-block*/ -> value, rest @ .. };
+    let _ = k::map! { name /*krs-f7-block*/ -> value, rest @ .. };
 }
 ",
             "map!",
@@ -581,12 +708,12 @@ k::rules! {
     eval: Neg { value } => value;
 }
 fn fixture() {
-    let _ = cells! {
+    let _ = k::cells! {
         k: KCell(value, // preserve the continuation
             ..tail),
         ..state
     };
-    let _ = map! {
+    let _ = k::map! {
         name -> value, // preserve the remainder
         rest @ ..
     };

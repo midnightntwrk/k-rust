@@ -467,7 +467,12 @@ fn krs_facade_reexports_every_entry_point_under_its_own_name() {
             continue;
         }
         let syn::UseTree::Group(group) = &*path.tree else {
-            panic!("krs re-exports krs_macros through one group");
+            assert!(
+                matches!(&*path.tree, syn::UseTree::Name(name) if name.ident == "__framework_sorts")
+                    && matches!(item.vis, syn::Visibility::Inherited),
+                "the framework sorts import must remain private"
+            );
+            continue;
         };
         for tree in &group.items {
             let syn::UseTree::Name(name) = tree else {

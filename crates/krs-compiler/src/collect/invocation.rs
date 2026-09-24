@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use krs_ir::{HostDescriptorPayload, ProvenanceKey, RustVisibility, StableItemId};
-use krs_syntax::surface::AttributeMacro;
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
     InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
@@ -672,12 +672,7 @@ pub(super) fn collect_invocations(
                 }
             }
             Item::Macro(item_macro)
-                if item_macro
-                    .mac
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|segment| segment.ident == "rules") =>
+                if resolver.resolve_macro(&item_macro.mac.path) == Some(FunctionMacro::Rules) =>
             {
                 let block =
                     parse_rule_block(item_macro.mac.tokens.clone()).map_err(source_syntax)?;
@@ -725,12 +720,10 @@ pub(super) fn collect_invocations(
                 }
             }
             Item::Macro(item_macro)
-                if item_macro
-                    .mac
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|segment| segment.ident == "sorts") =>
+                if matches!(
+                    resolver.resolve_macro(&item_macro.mac.path),
+                    Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
+                ) =>
             {
                 let declaration = parse_sorts_declaration(item_macro.mac.tokens.clone())
                     .map_err(source_syntax)?;
@@ -771,12 +764,8 @@ pub(super) fn collect_invocations(
                 }
             }
             Item::Macro(item_macro)
-                if item_macro
-                    .mac
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|segment| segment.ident == "precedence") =>
+                if resolver.resolve_macro(&item_macro.mac.path)
+                    == Some(FunctionMacro::Precedence) =>
             {
                 let declaration = parse_precedence_declaration(item_macro.mac.tokens.clone())
                     .map_err(source_syntax)?;
@@ -788,12 +777,8 @@ pub(super) fn collect_invocations(
                 )?);
             }
             Item::Macro(item_macro)
-                if item_macro
-                    .mac
-                    .path
-                    .segments
-                    .last()
-                    .is_some_and(|segment| segment.ident == "associativity") =>
+                if resolver.resolve_macro(&item_macro.mac.path)
+                    == Some(FunctionMacro::Associativity) =>
             {
                 let declaration = parse_associativity_declaration(item_macro.mac.tokens.clone())
                     .map_err(source_syntax)?;
@@ -1000,6 +985,17 @@ pub(super) fn declaration_metadata(
         .filter(|(_, attribute)| resolver.invokes(attribute, AttributeMacro::Symbol))
         .collect::<Vec<_>>();
     let target_name = target.name();
+    let symbol_spelling = symbols.first().map_or_else(
+        || "#[k::symbol]".to_owned(),
+        |(_, attribute)| format!("#[{}]", path_spelling(attribute.path())),
+    );
+    let target_spelling = symbols
+        .first()
+        .and_then(|(_, attribute)| attribute.path().segments.first())
+        .map_or_else(
+            || format!("#[k::{target_name}]"),
+            |alias| format!("#[{}::{target_name}]", alias.ident),
+        );
     let symbol = match symbols.as_slice() {
         [] => None,
         [(symbol_index, symbol)] => {
@@ -1013,7 +1009,7 @@ pub(super) fn declaration_metadata(
                 return Err(CollectionError::new(
                     CollectionErrorKind::SourceSyntax,
                     format!(
-                        "#[k::symbol] requires exactly one #[k::{target_name}] target on its declaration"
+                        "{symbol_spelling} requires exactly one {target_spelling} target on its declaration"
                     ),
                 ));
             };
@@ -1021,7 +1017,7 @@ pub(super) fn declaration_metadata(
                 return Err(CollectionError::new(
                     CollectionErrorKind::SourceSyntax,
                     format!(
-                        "#[k::symbol] must immediately precede #[k::{target_name}] so attribute order is unambiguous"
+                        "{symbol_spelling} must immediately precede {target_spelling} so attribute order is unambiguous"
                     ),
                 ));
             }
@@ -1030,7 +1026,7 @@ pub(super) fn declaration_metadata(
         _ => {
             return Err(CollectionError::new(
                 CollectionErrorKind::SourceSyntax,
-                "a declaration may carry only one #[k::symbol] attribute",
+                format!("a declaration may carry only one {symbol_spelling} attribute"),
             ));
         }
     };
@@ -1072,4 +1068,38 @@ pub(super) fn source_syntax_at(
         },
     );
     CollectionError::new(CollectionErrorKind::SourceSyntax, detail)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+    use crate::facade::FacadeAliases;
+
+    #[test]
+    fn framework_catalogue_entry_collects_the_two_readable_sorts() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        let source: syn::File = syn::parse_quote! {
+            use krs_macros::__framework_sorts;
+            crate::__framework_sorts! {
+                KItem;
+                KResult: KItem;
+            }
+        };
+        let mut invocations = Vec::new();
+        collect_invocations(&source.items, &resolver, &mut invocations).unwrap();
+        assert_eq!(
+            invocations
+                .iter()
+                .map(|invocation| (invocation.primary.role(), invocation.item_name.as_str()))
+                .collect::<Vec<_>>(),
+            [
+                ("sort_declaration", "KItem"),
+                ("sort_declaration", "KResult")
+            ],
+        );
+    }
 }

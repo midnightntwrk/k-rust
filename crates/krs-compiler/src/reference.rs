@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
+use std::path::Path;
 
 use krs_ir::{
     BuiltinOperation, BuiltinSort, DescriptorApplicationRef, DescriptorHeadRule, DescriptorPayload,
@@ -10,10 +11,14 @@ use krs_ir::{
     ProtocolHeadRuleExtra, ProtocolHeadRuleResult, SemanticRule, SemanticSortRef, SemanticTheory,
     SetOperation, StableItemId,
 };
+use krs_syntax::surface::FunctionMacro;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
+
+use crate::CollectionError;
+use crate::facade::{AttributeResolver, FacadeAliases};
 
 /// Expands the readable constructs in one Rust module to the deterministic
 /// layer-2 reference surface.
@@ -32,12 +37,16 @@ use syn::spanned::Spanned;
 #[allow(clippy::too_many_lines)] // The source-order traversal keeps projected items deterministic.
 pub fn expand_reference_source(
     source: &str,
+    facade_manifest: &Path,
     package: &PackageId,
     module_path: &[String],
     bundle: &krs_ir::DescriptorBundle,
     semantic: &SemanticTheory,
 ) -> Result<String, ReferenceExpansionError> {
     let mut file = syn::parse_file(source).map_err(ReferenceExpansionError::RustSyntax)?;
+    let facade =
+        FacadeAliases::from_manifest(facade_manifest).map_err(ReferenceExpansionError::Facade)?;
+    let resolver = AttributeResolver::new(&facade, "reference source").scoped(&file.items);
     let semantic_rules = semantic
         .modules()
         .iter()
@@ -69,23 +78,14 @@ pub fn expand_reference_source(
             items.extend(trailing_enum_grammar);
             continue;
         };
-        if invocation
-            .mac
-            .path
-            .segments
-            .last()
-            .is_some_and(|segment| segment.ident == "sorts")
-        {
+        if matches!(
+            resolver.resolve_macro(&invocation.mac.path),
+            Some(FunctionMacro::Sorts | FunctionMacro::FrameworkSorts)
+        ) {
             items.extend(materialize_readable_sorts(invocation)?);
             continue;
         }
-        if invocation
-            .mac
-            .path
-            .segments
-            .last()
-            .is_none_or(|segment| segment.ident != "rules")
-        {
+        if resolver.resolve_macro(&invocation.mac.path) != Some(FunctionMacro::Rules) {
             items.push(item);
             items.extend(trailing_enum_grammar);
             continue;
@@ -1383,6 +1383,8 @@ fn rust_ident(value: &str) -> Ident {
 pub enum ReferenceExpansionError {
     /// The selected source is not a Rust module.
     RustSyntax(syn::Error),
+    /// The selected package's facade aliases could not be read.
+    Facade(CollectionError),
     /// One readable KRS island is malformed.
     KrsSyntax(krs_syntax::SyntaxError),
     /// Generated Rust unexpectedly failed to parse.
@@ -1486,6 +1488,7 @@ impl fmt::Display for ReferenceExpansionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::RustSyntax(error) => write!(formatter, "invalid Rust source: {error}"),
+            Self::Facade(error) => write!(formatter, "cannot resolve KRS facade: {error}"),
             Self::KrsSyntax(error) => write!(formatter, "invalid readable KRS source: {error}"),
             Self::GeneratedRust(error) => write!(formatter, "invalid generated Rust: {error}"),
             Self::DuplicateRule(name) => write!(formatter, "readable rule `{name}` occurs twice"),
@@ -1579,6 +1582,7 @@ impl Error for ReferenceExpansionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::RustSyntax(error) | Self::GeneratedRust(error) => Some(error),
+            Self::Facade(error) => Some(error),
             Self::KrsSyntax(error) => Some(error),
             Self::DuplicateRule(_)
             | Self::RuleCoverage { .. }

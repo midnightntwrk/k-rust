@@ -379,6 +379,7 @@ fn expand(
     })?;
     let expanded = expand_reference_source(
         source,
+        &root.manifest_path,
         &package,
         module_path,
         &prepared.bundle,

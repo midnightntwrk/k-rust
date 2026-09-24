@@ -3,40 +3,54 @@
 use krs_syntax::{
     parse_cells_expression_source_with_trivia, parse_cells_pattern_source_with_trivia,
     parse_map_expression_source_with_trivia, parse_map_pattern_source_with_trivia,
-    parse_rule_block_source_with_trivia,
+    parse_rule_block_source_with_trivia, surface::FunctionMacro,
 };
 use syn::visit::Visit;
 
 use super::invocation::source_syntax_at;
 use super::provenance::{coordinate_overflow, position_to_byte};
+use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
 
-struct DslTriviaVisitor<'source> {
+struct DslTriviaVisitor<'source, 'file> {
     source: &'source str,
+    resolver: AttributeResolver<'file>,
     error: Option<CollectionError>,
 }
 
-impl<'ast> Visit<'ast> for DslTriviaVisitor<'_> {
+impl<'ast> Visit<'ast> for DslTriviaVisitor<'_, '_> {
+    fn visit_file(&mut self, file: &'ast syn::File) {
+        self.resolver = self.resolver.scoped(&file.items);
+        syn::visit::visit_file(self, file);
+    }
+
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        let parent = self.resolver.clone();
+        if let Some((_, items)) = &module.content {
+            self.resolver = self.resolver.scoped(items);
+        }
+        syn::visit::visit_item_mod(self, module);
+        self.resolver = parent;
+    }
+
     fn visit_macro(&mut self, invocation: &'ast syn::Macro) {
         if self.error.is_some() {
             return;
         }
-        let Some(name) = invocation
-            .path
-            .segments
-            .last()
-            .map(|segment| &segment.ident)
-        else {
-            return;
-        };
-        let result = match name.to_string().as_str() {
-            "rules" => macro_body_source(self.source, invocation).and_then(|body| {
-                parse_rule_block_source_with_trivia(body.source)
-                    .map(|_| ())
-                    .map_err(|error| source_syntax_at(error, body.byte_offset))
-            }),
-            "cells" => macro_body_source(self.source, invocation).and_then(validate_cells_trivia),
-            "map" => macro_body_source(self.source, invocation).and_then(validate_map_trivia),
+        let result = match self.resolver.resolve_macro(&invocation.path) {
+            Some(FunctionMacro::Rules) => {
+                macro_body_source(self.source, invocation).and_then(|body| {
+                    parse_rule_block_source_with_trivia(body.source)
+                        .map(|_| ())
+                        .map_err(|error| source_syntax_at(error, body.byte_offset))
+                })
+            }
+            Some(FunctionMacro::Cells) => {
+                macro_body_source(self.source, invocation).and_then(validate_cells_trivia)
+            }
+            Some(FunctionMacro::Map) => {
+                macro_body_source(self.source, invocation).and_then(validate_map_trivia)
+            }
             _ => Ok(()),
         };
         if let Err(error) = result {
@@ -47,9 +61,14 @@ impl<'ast> Visit<'ast> for DslTriviaVisitor<'_> {
     }
 }
 
-pub(super) fn validate_dsl_trivia(syntax: &syn::File, source: &str) -> Result<(), CollectionError> {
+pub(super) fn validate_dsl_trivia(
+    syntax: &syn::File,
+    source: &str,
+    resolver: &AttributeResolver<'_>,
+) -> Result<(), CollectionError> {
     let mut visitor = DslTriviaVisitor {
         source,
+        resolver: resolver.clone(),
         error: None,
     };
     visitor.visit_file(syntax);

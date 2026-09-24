@@ -1290,10 +1290,25 @@ fn readable_expansion_is_complete_deterministic_reference_rust() {
         .map(|descriptor| descriptor.id.package().clone())
         .expect("the readable route has head rules");
     let source = include_str!("imp.rs");
-    let expanded = expand_reference_source(source, &package, &["imp".into()], &bundle, &semantic)
-        .expect("readable IMP projects to reference Rust");
-    let repeated = expand_reference_source(source, &package, &["imp".into()], &bundle, &semantic)
-        .expect("repeated readable IMP projection succeeds");
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let expanded = expand_reference_source(
+        source,
+        &manifest,
+        &package,
+        &["imp".into()],
+        &bundle,
+        &semantic,
+    )
+    .expect("readable IMP projects to reference Rust");
+    let repeated = expand_reference_source(
+        source,
+        &manifest,
+        &package,
+        &["imp".into()],
+        &bundle,
+        &semantic,
+    )
+    .expect("repeated readable IMP projection succeeds");
     assert_eq!(
         expanded, repeated,
         "reference projection is not deterministic"

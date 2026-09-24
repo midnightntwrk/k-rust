@@ -60,13 +60,11 @@ pub(super) fn load_source_document(
             format!("cannot parse authored Rust source `{display_hint}`: {error}"),
         )
     })?;
-    validate_dsl_trivia(&syntax, &text)?;
+    let resolver = AttributeResolver::new(&context.facade, display_hint);
+    resolver.check_items(&syntax.items)?;
+    validate_dsl_trivia(&syntax, &text, &resolver)?;
     let mut invocations = Vec::new();
-    collect_invocations(
-        &syntax.items,
-        &AttributeResolver::new(&context.facade, display_hint),
-        &mut invocations,
-    )?;
+    collect_invocations(&syntax.items, &resolver, &mut invocations)?;
     Ok(SourceDocument {
         text,
         file,

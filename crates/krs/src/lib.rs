@@ -115,12 +115,9 @@ where
 // Framework identities are ordinary readable sorts, requested lazily by a
 // definition whose sort graph names either one. The invocation also emits
 // `FRAMEWORK_FACTORIES` for explicit registration. Collection reparses this
-// file and recognizes readable sort blocks by the final path segment `sorts`,
-// so the framework variant is invoked under that name.
-mod framework {
-    pub(crate) use krs_macros::__framework_sorts as sorts;
-}
-framework::sorts! {
+// file and resolves this block through the crate facade name.
+use krs_macros::__framework_sorts;
+crate::__framework_sorts! {
     KItem;
     KResult: KItem;
 }

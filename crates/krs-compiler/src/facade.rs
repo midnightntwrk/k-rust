@@ -19,8 +19,10 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use krs_syntax::surface::{self, AttributeMacro, Entry};
+use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use syn::ext::IdentExt;
+use syn::spanned::Spanned;
+use syn::visit::Visit;
 use syn::{Attribute, UseTree};
 use toml_edit::{Document, Item, TableLike};
 
@@ -86,19 +88,23 @@ impl FacadeAliases {
             .find_map(|alias| surface::resolve(path, alias))
     }
 
-    /// The replacement spelling for an attribute that names `entry` without
-    /// resolving: `#[<alias>::<entry>]` under each facade name in scope.
-    fn suggest(&self, entry: AttributeMacro) -> String {
-        let entry = entry.name();
+    /// The replacement spelling for an unresolved entry under each facade
+    /// name in scope.
+    fn suggest(&self, entry: &str, macro_invocation: bool) -> String {
+        let (open, close) = if macro_invocation {
+            ("", "!")
+        } else {
+            ("#[", "]")
+        };
         if self.aliases.is_empty() {
             return format!(
-                "no name binds the `krs` facade here; add a dependency on the `krs` package (for example `k = {{ package = \"krs\", ... }}`) and write `#[k::{entry}]`"
+                "no name binds the `krs` facade here; add a dependency on the `krs` package (for example `k = {{ package = \"krs\", ... }}`) and write `{open}k::{entry}{close}`"
             );
         }
         let spellings = self
             .aliases
             .iter()
-            .map(|alias| format!("`#[{alias}::{entry}]`"))
+            .map(|alias| format!("`{open}{alias}::{entry}{close}`"))
             .collect::<Vec<_>>()
             .join(" or ");
         format!("write {spellings} instead")
@@ -219,15 +225,46 @@ impl<'a> AttributeResolver<'a> {
         self.facade.resolve(attribute.path()) == Some(Entry::Attribute(entry))
     }
 
+    pub(crate) fn resolve_macro(&self, path: &syn::Path) -> Option<FunctionMacro> {
+        match self.facade.resolve(path) {
+            Some(Entry::Function(entry)) => Some(entry),
+            _ => None,
+        }
+    }
+
+    /// Checks every authored attribute and item-level macro in a module,
+    /// including members, variants, fields, and nested inline modules.
+    pub(crate) fn check_items(&self, items: &[syn::Item]) -> Result<(), CollectionError> {
+        let scoped = self.scoped(items);
+        for item in items {
+            if let syn::Item::Mod(module) = item {
+                scoped.check(&module.attrs)?;
+                if let Some((_, nested)) = &module.content {
+                    scoped.check_items(nested)?;
+                }
+                continue;
+            }
+            let mut visitor = EntryVisitor {
+                resolver: &scoped,
+                error: None,
+            };
+            visitor.visit_item(item);
+            if let Some(error) = visitor.error {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
     /// Rejects an attribute whose last path segment names an attribute entry
     /// point but whose path does not resolve to a KRS entry point, such as
     /// `#[other::rule]` or an imported `#[rule]`.
     pub(crate) fn check(&self, attributes: &[Attribute]) -> Result<(), CollectionError> {
         for attribute in attributes {
-            let Some(entry) = surface::last_segment_entry(attribute.path()) else {
+            let Some(entry) = named_attribute_entry(attribute.path()) else {
                 continue;
             };
-            if self.facade.resolve(attribute.path()).is_some() {
+            if self.resolves_attribute(attribute.path(), &entry) {
                 continue;
             }
             let start = attribute.pound_token.span.start();
@@ -239,12 +276,82 @@ impl<'a> AttributeResolver<'a> {
                     self.display_file,
                     start.line,
                     start.column + 1,
-                    entry.name(),
-                    self.facade.suggest(entry),
+                    entry,
+                    self.facade.suggest(&entry, false),
                 ),
             ));
         }
         Ok(())
+    }
+
+    fn resolves_attribute(&self, path: &syn::Path, name: &str) -> bool {
+        self.facade.aliases.iter().any(|alias| {
+            surface::facade_member(path, alias).as_deref() == Some(name)
+                && (self.facade.resolve(path).is_some() || is_helper(name))
+        })
+    }
+
+    fn check_macro(&self, invocation: &syn::Macro) -> Result<(), CollectionError> {
+        let Some(segment) = invocation.path.segments.last() else {
+            return Ok(());
+        };
+        let name = segment.ident.unraw().to_string();
+        let Some(entry) = FunctionMacro::from_name(&name) else {
+            return Ok(());
+        };
+        if entry.name().starts_with("__") || self.resolve_macro(&invocation.path) == Some(entry) {
+            return Ok(());
+        }
+        let start = invocation.path.span().start();
+        Err(CollectionError::new(
+            CollectionErrorKind::UnresolvedAttribute,
+            format!(
+                "macro `{}` at `{}`:{}:{} is named like the KRS entry point `{}` but does not invoke it; KRS macros are written only under a name that binds the `krs` facade, so {}",
+                attribute_spelling(&invocation.path),
+                self.display_file,
+                start.line,
+                start.column + 1,
+                name,
+                self.facade.suggest(&name, true),
+            ),
+        ))
+    }
+}
+
+fn is_helper(name: &str) -> bool {
+    [
+        surface::ENUM_HELPERS,
+        surface::VARIANT_HELPERS,
+        surface::FIELD_HELPERS,
+        surface::PARAMETER_HELPERS,
+    ]
+    .into_iter()
+    .flatten()
+    .any(|helper| *helper == name)
+}
+
+fn named_attribute_entry(path: &syn::Path) -> Option<String> {
+    let name = path.segments.last()?.ident.unraw().to_string();
+    (AttributeMacro::from_name(&name).is_some() || is_helper(&name)).then_some(name)
+}
+
+struct EntryVisitor<'resolver, 'file> {
+    resolver: &'resolver AttributeResolver<'file>,
+    error: Option<CollectionError>,
+}
+
+impl<'ast> Visit<'ast> for EntryVisitor<'_, '_> {
+    fn visit_attribute(&mut self, attribute: &'ast Attribute) {
+        if self.error.is_none() {
+            self.error = self.resolver.check(std::slice::from_ref(attribute)).err();
+        }
+    }
+
+    fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+        if self.error.is_none() {
+            self.error = self.resolver.check_macro(&item.mac).err();
+        }
+        syn::visit::visit_item_macro(self, item);
     }
 }
 
