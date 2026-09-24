@@ -207,7 +207,7 @@ impl SyntaxRelations {
 enum SyntaxDeclaration<'a> {
     /// Under the production's own label: priority and associativity groups name that label, so the declaration carries the `priorities`, `left`, and `right` it is related by.
     UnderLabel(&'a SyntaxRelations),
-    /// Under the `bracketLabel` of an unlabelled bracket: no priority or associativity group can name it, so the declaration carries no relations.
+    /// Under the `bracketLabel` of an unlabelled bracket: the declaration carries no `priorities`, `left`, or `right`.
     UnderBracketLabel,
 }
 
