@@ -53,79 +53,12 @@ impl OpenSortAnalysis {
 /// Rejects duplicate declaration IDs, absent/wrongly-kinded sort references,
 /// and direct or indirect subsort cycles. Rules do not participate in this
 /// deliberately small analysis.
-#[allow(clippy::too_many_lines)]
 pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis, AnalysisError> {
-    let mut kinds = BTreeMap::new();
-    for descriptor in &bundle.descriptors {
-        if kinds
-            .insert(descriptor.id.clone(), descriptor.id.item_kind())
-            .is_some()
-        {
-            return Err(AnalysisError::new(
-                AnalysisErrorKind::DuplicateItemId,
-                format!("duplicate stable item `{}`", display_item(&descriptor.id)),
-            ));
-        }
-    }
-
-    let mut direct_parents: BTreeMap<StableItemId, Vec<StableItemId>> = BTreeMap::new();
-    let mut constructors = Vec::new();
-    for descriptor in &bundle.descriptors {
-        match &descriptor.payload {
-            DescriptorPayload::Sort(sort) => {
-                require_kind(&descriptor.id, ItemKind::Sort, &kinds)?;
-                let mut parents = sort.parents.clone();
-                parents.sort();
-                parents.dedup();
-                for parent in &parents {
-                    require_kind(parent, ItemKind::Sort, &kinds)?;
-                }
-                direct_parents
-                    .entry(descriptor.id.clone())
-                    .or_default()
-                    .extend(parents);
-            }
-            DescriptorPayload::Constructor(constructor) => {
-                require_kind(&descriptor.id, ItemKind::Constructor, &kinds)?;
-                if let DescriptorSortRef::Declared(sort) = &constructor.sort {
-                    require_kind(sort, ItemKind::Sort, &kinds)?;
-                    constructors.push((descriptor.id.clone(), sort.clone()));
-                }
-            }
-            DescriptorPayload::StructuredRule(_)
-            | DescriptorPayload::FixedConfiguration(_)
-            | DescriptorPayload::Cell(_)
-            | DescriptorPayload::ConfigurationRule(_)
-            | DescriptorPayload::HeadRule(_)
-            | DescriptorPayload::ContextAlias(_) => {}
-            DescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
-                GrammarDescriptor::Production(production) => {
-                    if let DescriptorProductionOwner::Constructor { constructor } =
-                        &production.owner
-                        && let DescriptorApplicationRef::Declared(id) = &constructor.application
-                        && let DescriptorSortRef::Declared(sort) = &production.result_sort.sort
-                    {
-                        constructors.push((id.clone(), sort.clone()));
-                    }
-                }
-                GrammarDescriptor::Subsort {
-                    subsort, supersort, ..
-                } => {
-                    if let (
-                        DescriptorSortRef::Declared(subsort),
-                        DescriptorSortRef::Declared(supersort),
-                    ) = (&subsort.sort, &supersort.sort)
-                    {
-                        direct_parents
-                            .entry(subsort.clone())
-                            .or_default()
-                            .push(supersort.clone());
-                    }
-                }
-                GrammarDescriptor::Precedence { .. } | GrammarDescriptor::Associativity { .. } => {}
-            },
-        }
-    }
+    let kinds = descriptor_kinds(bundle)?;
+    let OpenSortEdges {
+        mut direct_parents,
+        mut constructors,
+    } = open_sort_edges(bundle, &kinds)?;
 
     for parents in direct_parents.values_mut() {
         parents.sort();
@@ -174,6 +107,100 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
         transitive_parents,
         member_sorts,
         constructors_by_sort,
+    })
+}
+
+/// Maps every descriptor identity to its item kind, rejecting duplicates.
+fn descriptor_kinds(
+    bundle: &DescriptorBundle,
+) -> Result<BTreeMap<StableItemId, ItemKind>, AnalysisError> {
+    let mut kinds = BTreeMap::new();
+    for descriptor in &bundle.descriptors {
+        if kinds
+            .insert(descriptor.id.clone(), descriptor.id.item_kind())
+            .is_some()
+        {
+            return Err(AnalysisError::new(
+                AnalysisErrorKind::DuplicateItemId,
+                format!("duplicate stable item `{}`", display_item(&descriptor.id)),
+            ));
+        }
+    }
+    Ok(kinds)
+}
+
+/// Direct subsort edges and `(constructor, declared sort)` memberships, before
+/// canonical ordering.
+struct OpenSortEdges {
+    direct_parents: BTreeMap<StableItemId, Vec<StableItemId>>,
+    constructors: Vec<(StableItemId, StableItemId)>,
+}
+
+fn open_sort_edges(
+    bundle: &DescriptorBundle,
+    kinds: &BTreeMap<StableItemId, ItemKind>,
+) -> Result<OpenSortEdges, AnalysisError> {
+    let mut direct_parents: BTreeMap<StableItemId, Vec<StableItemId>> = BTreeMap::new();
+    let mut constructors = Vec::new();
+    for descriptor in &bundle.descriptors {
+        match &descriptor.payload {
+            DescriptorPayload::Sort(sort) => {
+                require_kind(&descriptor.id, ItemKind::Sort, kinds)?;
+                let mut parents = sort.parents.clone();
+                parents.sort();
+                parents.dedup();
+                for parent in &parents {
+                    require_kind(parent, ItemKind::Sort, kinds)?;
+                }
+                direct_parents
+                    .entry(descriptor.id.clone())
+                    .or_default()
+                    .extend(parents);
+            }
+            DescriptorPayload::Constructor(constructor) => {
+                require_kind(&descriptor.id, ItemKind::Constructor, kinds)?;
+                if let DescriptorSortRef::Declared(sort) = &constructor.sort {
+                    require_kind(sort, ItemKind::Sort, kinds)?;
+                    constructors.push((descriptor.id.clone(), sort.clone()));
+                }
+            }
+            DescriptorPayload::StructuredRule(_)
+            | DescriptorPayload::FixedConfiguration(_)
+            | DescriptorPayload::Cell(_)
+            | DescriptorPayload::ConfigurationRule(_)
+            | DescriptorPayload::HeadRule(_)
+            | DescriptorPayload::ContextAlias(_) => {}
+            DescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
+                GrammarDescriptor::Production(production) => {
+                    if let DescriptorProductionOwner::Constructor { constructor } =
+                        &production.owner
+                        && let DescriptorApplicationRef::Declared(id) = &constructor.application
+                        && let DescriptorSortRef::Declared(sort) = &production.result_sort.sort
+                    {
+                        constructors.push((id.clone(), sort.clone()));
+                    }
+                }
+                GrammarDescriptor::Subsort {
+                    subsort, supersort, ..
+                } => {
+                    if let (
+                        DescriptorSortRef::Declared(subsort),
+                        DescriptorSortRef::Declared(supersort),
+                    ) = (&subsort.sort, &supersort.sort)
+                    {
+                        direct_parents
+                            .entry(subsort.clone())
+                            .or_default()
+                            .push(supersort.clone());
+                    }
+                }
+                GrammarDescriptor::Precedence { .. } | GrammarDescriptor::Associativity { .. } => {}
+            },
+        }
+    }
+    Ok(OpenSortEdges {
+        direct_parents,
+        constructors,
     })
 }
 

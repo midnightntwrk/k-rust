@@ -223,7 +223,6 @@ fn lower_initializer_cell(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_lines)]
 fn lower_initializer_state(
     descriptor: &Descriptor,
     state: &DescriptorInitializerStateTerm,
@@ -233,15 +232,18 @@ fn lower_initializer_state(
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
-    match state {
-        ProtocolInitializerStateTerm::Term(term) => lower_initializer_term(
+    let lower_term = |term: &DescriptorTerm, expected_sort: Option<&SemanticSortRef>| {
+        lower_initializer_term(
             descriptor,
-            &term.term,
-            Some(declared_sort),
+            term,
+            expected_sort,
             sort_parents,
             catalog,
             binding_sorts,
-        ),
+        )
+    };
+    match state {
+        ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::InvalidTerm {
@@ -252,16 +254,7 @@ fn lower_initializer_state(
             let items = sequence
                 .items
                 .iter()
-                .map(|item| {
-                    lower_initializer_term(
-                        descriptor,
-                        &item.value.term,
-                        None,
-                        sort_parents,
-                        catalog,
-                        binding_sorts,
-                    )
-                })
+                .map(|item| lower_term(&item.value.term, None))
                 .collect::<Result<Vec<_>, _>>()?;
             let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents)?;
             let key = sequence
@@ -288,22 +281,8 @@ fn lower_initializer_state(
                 ProtocolMapBody::Items { items } => {
                     let mut arguments = Vec::with_capacity(items.len() * 2);
                     for item in items {
-                        arguments.push(lower_initializer_term(
-                            descriptor,
-                            &item.key.term,
-                            None,
-                            sort_parents,
-                            catalog,
-                            binding_sorts,
-                        )?);
-                        arguments.push(lower_initializer_term(
-                            descriptor,
-                            &item.value.term,
-                            None,
-                            sort_parents,
-                            catalog,
-                            binding_sorts,
-                        )?);
+                        arguments.push(lower_term(&item.key.term, None)?);
+                        arguments.push(lower_term(&item.value.term, None)?);
                     }
                     (MapOperation::Item, arguments)
                 }
@@ -312,30 +291,9 @@ fn lower_initializer_state(
                 } => (
                     MapOperation::Update,
                     vec![
-                        lower_initializer_term(
-                            descriptor,
-                            &base.term,
-                            Some(&SemanticSortRef::map()),
-                            sort_parents,
-                            catalog,
-                            binding_sorts,
-                        )?,
-                        lower_initializer_term(
-                            descriptor,
-                            &key.term,
-                            None,
-                            sort_parents,
-                            catalog,
-                            binding_sorts,
-                        )?,
-                        lower_initializer_term(
-                            descriptor,
-                            &value.term,
-                            None,
-                            sort_parents,
-                            catalog,
-                            binding_sorts,
-                        )?,
+                        lower_term(&base.term, Some(&SemanticSortRef::map()))?,
+                        lower_term(&key.term, None)?,
+                        lower_term(&value.term, None)?,
                     ],
                 ),
             };

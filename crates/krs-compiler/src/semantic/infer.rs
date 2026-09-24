@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef,
-    DescriptorPayload, DescriptorTerm, DescriptorTermArgument, ItemKind, ListOperation,
-    MapOperation, ProductionFieldId, ProtocolCellContent, ProvenanceKey, SemanticId,
-    SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation, StableItemId,
+    DescriptorApplicationReference, DescriptorPayload, DescriptorTerm, DescriptorTermArgument,
+    ItemKind, ListOperation, MapOperation, ProductionFieldId, ProtocolCellContent, ProvenanceKey,
+    SemanticId, SemanticSortRef, SemanticTerm, SemanticVariable, SetOperation, StableItemId,
 };
 
 use super::catalog::{
@@ -31,7 +31,6 @@ pub(super) struct StructuredTermBuilder<'a> {
 }
 
 impl StructuredTermBuilder<'_> {
-    #[allow(clippy::too_many_lines)] // Exhaustive inference over the closed descriptor-term grammar.
     pub(super) fn infer(
         &mut self,
         term: &DescriptorTerm,
@@ -77,47 +76,7 @@ impl StructuredTermBuilder<'_> {
                 reference,
                 arguments,
                 ..
-            } => {
-                let signature = match &reference.application {
-                    DescriptorApplicationRef::Declared(id) => {
-                        self.catalog.get(id).cloned().ok_or_else(|| {
-                            self.invalid_term(format!(
-                                "declared application {id:?} has no grammar production"
-                            ))
-                        })?
-                    }
-                    DescriptorApplicationRef::Builtin(operation) => {
-                        builtin_production_signature(*operation)
-                    }
-                    DescriptorApplicationRef::Map(operation) => {
-                        self.infer_map_operation(*operation, arguments, expected_sort, subject)?;
-                        return Ok(());
-                    }
-                    DescriptorApplicationRef::List(operation) => {
-                        self.infer_list_operation(*operation, arguments, expected_sort, subject)?;
-                        return Ok(());
-                    }
-                    DescriptorApplicationRef::Set(operation) => {
-                        self.infer_set_operation(*operation, arguments, expected_sort, subject)?;
-                        return Ok(());
-                    }
-                };
-                if let Some(expected) = expected_sort
-                    && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
-                {
-                    return Err(self.invalid_term(format!(
-                        "application result sort {:?} is not admissible at sort {expected:?}",
-                        signature.result_sort
-                    )));
-                }
-                let ordered = order_structured_arguments(arguments, &signature.fields, subject)
-                    .map_err(|detail| self.invalid_term(detail))?;
-                for (argument, (_, sort)) in ordered.into_iter().zip(&signature.fields) {
-                    if let Some(argument) = argument {
-                        self.infer(argument, Some(sort), subject)?;
-                    }
-                }
-            }
+            } => self.infer_application(reference, arguments, expected_sort, subject)?,
             DescriptorTerm::BuiltinToken { sort, .. } => {
                 let sort = SemanticSortRef::Builtin(*sort);
                 if let Some(expected) = expected_sort
@@ -165,6 +124,55 @@ impl StructuredTermBuilder<'_> {
                     ));
                 }
                 self.infer_cell_fields(declaration, fields, subject)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn infer_application(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<(), DescriptorLoweringError> {
+        let signature = match &reference.application {
+            DescriptorApplicationRef::Declared(id) => {
+                self.catalog.get(id).cloned().ok_or_else(|| {
+                    self.invalid_term(format!(
+                        "declared application {id:?} has no grammar production"
+                    ))
+                })?
+            }
+            DescriptorApplicationRef::Builtin(operation) => {
+                builtin_production_signature(*operation)
+            }
+            DescriptorApplicationRef::Map(operation) => {
+                self.infer_map_operation(*operation, arguments, expected_sort, subject)?;
+                return Ok(());
+            }
+            DescriptorApplicationRef::List(operation) => {
+                self.infer_list_operation(*operation, arguments, expected_sort, subject)?;
+                return Ok(());
+            }
+            DescriptorApplicationRef::Set(operation) => {
+                self.infer_set_operation(*operation, arguments, expected_sort, subject)?;
+                return Ok(());
+            }
+        };
+        if let Some(expected) = expected_sort
+            && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
+        {
+            return Err(self.invalid_term(format!(
+                "application result sort {:?} is not admissible at sort {expected:?}",
+                signature.result_sort
+            )));
+        }
+        let ordered = order_structured_arguments(arguments, &signature.fields, subject)
+            .map_err(|detail| self.invalid_term(detail))?;
+        for (argument, (_, sort)) in ordered.into_iter().zip(&signature.fields) {
+            if let Some(argument) = argument {
+                self.infer(argument, Some(sort), subject)?;
             }
         }
         Ok(())
@@ -516,7 +524,6 @@ impl StructuredTermBuilder<'_> {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)] // Exhaustive lowering parallel to `infer` above.
     pub(super) fn lower(
         &mut self,
         term: &DescriptorTerm,
@@ -579,65 +586,7 @@ impl StructuredTermBuilder<'_> {
                 reference,
                 arguments,
                 ..
-            } => {
-                let (application, signature) = match &reference.application {
-                    DescriptorApplicationRef::Declared(id) => {
-                        let signature = self.catalog.get(id).cloned().ok_or_else(|| {
-                            self.invalid_term(format!(
-                                "declared application {id:?} has no grammar production"
-                            ))
-                        })?;
-                        (ApplicationRef::Declared(id.clone()), signature)
-                    }
-                    DescriptorApplicationRef::Builtin(operation) => (
-                        ApplicationRef::Builtin(*operation),
-                        builtin_production_signature(*operation),
-                    ),
-                    DescriptorApplicationRef::Map(operation) => {
-                        return self.lower_map_operation(
-                            reference,
-                            *operation,
-                            arguments,
-                            expected_sort,
-                            subject,
-                        );
-                    }
-                    DescriptorApplicationRef::List(operation) => {
-                        return self.lower_list_operation(
-                            reference,
-                            *operation,
-                            arguments,
-                            expected_sort,
-                            subject,
-                        );
-                    }
-                    DescriptorApplicationRef::Set(operation) => {
-                        return self.lower_set_operation(
-                            reference,
-                            *operation,
-                            arguments,
-                            expected_sort,
-                            subject,
-                        );
-                    }
-                };
-                let ordered = order_structured_arguments(arguments, &signature.fields, subject)
-                    .map_err(|detail| self.invalid_term(detail))?;
-                let lowered = ordered
-                    .into_iter()
-                    .zip(&signature.fields)
-                    .map(|(argument, (_, sort))| match argument {
-                        Some(argument) => self.lower(argument, Some(sort), subject),
-                        None => self.lower_record_rest_wildcard(sort),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(SemanticTerm::application(
-                    semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,
-                    signature.result_sort,
-                    application,
-                    lowered,
-                ))
-            }
+            } => self.lower_application(reference, arguments, expected_sort, subject),
             DescriptorTerm::BuiltinToken { key, sort, value } => SemanticTerm::token(
                 semantic_origin(self.descriptor, key.clone(), "claim-builtin-token")?,
                 SemanticSortRef::Builtin(*sort),
@@ -664,22 +613,7 @@ impl StructuredTermBuilder<'_> {
                 ))
             }
             DescriptorTerm::OrBool { key, arguments } => {
-                let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
-                let lowered = arguments
-                    .iter()
-                    .map(|argument| self.lower(argument, Some(&bool_sort), subject))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let mut iter = lowered.into_iter();
-                let mut value = iter.next().expect("validated nonempty");
-                for right in iter {
-                    value = SemanticTerm::application(
-                        semantic_origin(self.descriptor, key.clone(), "claim-or-bool")?,
-                        bool_sort.clone(),
-                        ApplicationRef::Builtin(BuiltinOperation::BoolOr),
-                        vec![value, right],
-                    );
-                }
-                Ok(value)
+                self.lower_or_bool(key, arguments, subject)
             }
             DescriptorTerm::Cell {
                 key,
@@ -687,6 +621,96 @@ impl StructuredTermBuilder<'_> {
                 fields,
             } => self.lower_cell_term(key, declaration, fields, subject),
         }
+    }
+
+    fn lower_application(
+        &mut self,
+        reference: &DescriptorApplicationReference,
+        arguments: &[DescriptorTermArgument],
+        expected_sort: Option<&SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let (application, signature) = match &reference.application {
+            DescriptorApplicationRef::Declared(id) => {
+                let signature = self.catalog.get(id).cloned().ok_or_else(|| {
+                    self.invalid_term(format!(
+                        "declared application {id:?} has no grammar production"
+                    ))
+                })?;
+                (ApplicationRef::Declared(id.clone()), signature)
+            }
+            DescriptorApplicationRef::Builtin(operation) => (
+                ApplicationRef::Builtin(*operation),
+                builtin_production_signature(*operation),
+            ),
+            DescriptorApplicationRef::Map(operation) => {
+                return self.lower_map_operation(
+                    reference,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
+            }
+            DescriptorApplicationRef::List(operation) => {
+                return self.lower_list_operation(
+                    reference,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
+            }
+            DescriptorApplicationRef::Set(operation) => {
+                return self.lower_set_operation(
+                    reference,
+                    *operation,
+                    arguments,
+                    expected_sort,
+                    subject,
+                );
+            }
+        };
+        let ordered = order_structured_arguments(arguments, &signature.fields, subject)
+            .map_err(|detail| self.invalid_term(detail))?;
+        let lowered = ordered
+            .into_iter()
+            .zip(&signature.fields)
+            .map(|(argument, (_, sort))| match argument {
+                Some(argument) => self.lower(argument, Some(sort), subject),
+                None => self.lower_record_rest_wildcard(sort),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SemanticTerm::application(
+            semantic_origin(self.descriptor, reference.key.clone(), "term-application")?,
+            signature.result_sort,
+            application,
+            lowered,
+        ))
+    }
+
+    fn lower_or_bool(
+        &mut self,
+        key: &ProvenanceKey,
+        arguments: &[DescriptorTerm],
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
+        let lowered = arguments
+            .iter()
+            .map(|argument| self.lower(argument, Some(&bool_sort), subject))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut iter = lowered.into_iter();
+        let mut value = iter.next().expect("validated nonempty");
+        for right in iter {
+            value = SemanticTerm::application(
+                semantic_origin(self.descriptor, key.clone(), "claim-or-bool")?,
+                bool_sort.clone(),
+                ApplicationRef::Builtin(BuiltinOperation::BoolOr),
+                vec![value, right],
+            );
+        }
+        Ok(value)
     }
 
     fn cell_k_item_sort(&self) -> Result<SemanticSortRef, DescriptorLoweringError> {
