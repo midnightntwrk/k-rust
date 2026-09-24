@@ -96,7 +96,8 @@ No RPC or host surface applies a denial-of-service depth cap; process memory lim
 
 The backend limits simplification per fixed-point lineage rather than counting whole-pattern passes as Booster's `--equation-max-iterations` does.
 Execution, search, and proof configuration simplification follow Booster's exhaustion outcome: they retain the partial term or the original unsimplified constraints, record a `SimplificationBudgetExhausted` diagnostic, and continue.
-The standalone term simplifier and nested side-condition evaluation retain typed `IterationLimit` errors.
+The standalone term simplifier retains typed `IterationLimit` errors.
+An equation's side conditions (its `requires`, the definedness obligations of its bindings, and its `ensures`) are decided in their unsimplified form when simplifying them exhausts the budget, which may leave the equation unapplied; that exhaustion is recorded as a `SimplificationBudgetExhausted` diagnostic over `Predicates` followed by a `RuleConditionUnsimplified { rule_id, limit }` diagnostic naming the rule, once per rule and limit in a request.
 The backend does not yet implement Booster's separate equation-loop detector, so a genuinely non-terminating equation set may produce a partial configuration with a diagnostic.
 
 ## Final search depth cuts

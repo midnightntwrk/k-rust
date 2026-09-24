@@ -685,6 +685,46 @@ fn simplify_rule_predicates(
     )
 }
 
+/// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
+/// them unsimplified when simplification fails.
+///
+/// The unsimplified predicates are the same condition, so deciding them instead is sound; it
+/// is only weaker, and may leave the condition undecided where the simplified form would have
+/// been decided. When the weakening comes from the iteration budget it is recorded, because
+/// otherwise an equation left unapplied for lack of budget is indistinguishable from one whose
+/// condition is open (`diagnostic::emit_rule_condition_budget_exhausted`).
+#[allow(clippy::too_many_arguments)]
+fn simplify_rule_predicates_or_keep(
+    definition: &BackendDefinition,
+    rule_id: &str,
+    anchor: &Term,
+    predicates: Vec<Predicate>,
+    known_predicates: &[Predicate],
+    options: SimplificationOptions,
+    active_conditions: &BTreeSet<(String, Term)>,
+    solver: &dyn SmtSolver,
+) -> Vec<Predicate> {
+    match simplify_rule_predicates(
+        definition,
+        (rule_id, anchor),
+        &predicates,
+        known_predicates,
+        options,
+        active_conditions,
+        solver,
+    ) {
+        Ok(simplified) => simplified,
+        Err(
+            SimplificationError::IterationLimit { limit, .. }
+            | SimplificationError::PredicateIterationLimit { limit, .. },
+        ) => {
+            diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
+            predicates
+        }
+        Err(_) => predicates,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConditionIndeterminacy {
     NoSolver,
@@ -719,16 +759,16 @@ fn evaluate_rule_condition(
     solver: &dyn SmtSolver,
 ) -> Result<RuleCondition, SimplificationError> {
     let predicates = if let Some(anchor) = anchor {
-        simplify_rule_predicates(
+        simplify_rule_predicates_or_keep(
             definition,
-            (rule_id, anchor),
-            &predicates,
+            rule_id,
+            anchor,
+            predicates,
             known_predicates,
             options,
             active_conditions,
             solver,
         )
-        .unwrap_or(predicates)
     } else {
         predicates
     };
@@ -2797,16 +2837,16 @@ fn decide_definedness(
         return Ok(DefinednessVerdict::Discharged);
     }
     let definedness = if let Some(anchor) = anchor {
-        simplify_rule_predicates(
+        simplify_rule_predicates_or_keep(
             definition,
-            (rule_id, anchor),
-            &definedness,
+            rule_id,
+            anchor,
+            definedness,
             known_predicates,
             options,
             active_conditions,
             solver,
         )
-        .unwrap_or(definedness)
     } else {
         definedness
     };
@@ -3083,16 +3123,16 @@ fn evaluate_ensures(
     solver: &dyn SmtSolver,
 ) -> Result<EnsuresVerdict, SimplificationError> {
     let ensures = substitute_predicates(ensures, substitution);
-    let ensures = simplify_rule_predicates(
+    let ensures = simplify_rule_predicates_or_keep(
         definition,
-        (&rule.attributes.unique_id, term),
-        &ensures,
+        &rule.attributes.unique_id,
+        term,
+        ensures,
         known_predicates,
         options,
         active_conditions,
         solver,
-    )
-    .unwrap_or(ensures);
+    );
     // An `ensures` is a conjunct of the result by definition, so every verdict the solver does
     // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
     // and an inconsistent path condition, which under the path condition alone says nothing
