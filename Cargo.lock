@@ -438,7 +438,6 @@ name = "kink-patch"
 version = "0.1.0"
 dependencies = [
  "k-rust",
- "kink-portable",
  "serde_json",
 ]
 

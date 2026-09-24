@@ -1,4 +1,4 @@
-//! Patch failure classes shared by the portable and the definition patch models.
+//! Patch failure classes.
 
 use std::fmt;
 
@@ -7,8 +7,6 @@ use std::fmt;
 pub enum PatchFailureKind {
     /// A target, content, module, or attribute precondition is stale.
     StalePrecondition,
-    /// An insertion does not agree with its destination module or anchor.
-    InvalidPosition,
     /// An edit would leave its target unchanged.
     NoChange,
     /// A typed path does not resolve in the immutable baseline.
@@ -22,12 +20,11 @@ pub enum PatchFailureKind {
 }
 
 impl PatchFailureKind {
-    /// Returns the frozen failure spelling.
+    /// Returns the failure spelling.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::StalePrecondition => "stale-precondition",
-            Self::InvalidPosition => "invalid-position",
             Self::NoChange => "no-change",
             Self::MalformedPath => "malformed-path",
             Self::DuplicateTarget => "duplicate-target",

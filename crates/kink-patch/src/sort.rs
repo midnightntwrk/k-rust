@@ -8,7 +8,7 @@
 //! undecidable sort is a rejection, and a rewrite must not widen its left
 //! sort, which rejects some rewrites between sibling sorts that K accepts.
 
-use super::{field_term, path_in};
+use crate::{field_term, path_in};
 use k_rust::definition::{
     DefinitionViews, LabelHead, PartialOrder, ProductionCatalog, ProductionSignature,
     ResolvedDefinition, Sentence,
@@ -17,13 +17,13 @@ use k_rust::kast::{Label, Sort, Term};
 use k_rust::names::BuiltinSort;
 
 /// Productions and subsorts visible in one module of the baseline.
-pub(super) struct Typing<'v, 'a> {
+pub(crate) struct Typing<'v, 'a> {
     catalog: &'v ProductionCatalog<'a>,
     subsorts: &'v PartialOrder<Sort>,
 }
 
 impl<'v, 'a> Typing<'v, 'a> {
-    pub(super) fn new(
+    pub(crate) fn new(
         resolved: &ResolvedDefinition,
         views: &'v DefinitionViews<'a>,
         module: &str,
@@ -44,7 +44,7 @@ impl<'v, 'a> Typing<'v, 'a> {
     /// body root or below a rewrite, sequence or as-pattern; `Bool` at a
     /// condition root; the declared argument sort below an application; the
     /// cast sort below a semantic cast.
-    pub(super) fn position_sort(&self, sentence: &Sentence, path: &[u32]) -> Result<Sort, String> {
+    pub(crate) fn position_sort(&self, sentence: &Sentence, path: &[u32]) -> Result<Sort, String> {
         let old = path_in(sentence, path).ok_or("path does not resolve")?;
         let Some((last, parent_path)) = path.split_last() else {
             return Err("empty path".to_owned());
@@ -76,7 +76,7 @@ impl<'v, 'a> Typing<'v, 'a> {
 
     /// Checks every term field of a rule-like sentence that differs from
     /// `old` (all fields when there is no `old`) at its field position.
-    pub(super) fn check_fields(
+    pub(crate) fn check_fields(
         &self,
         sentence: &Sentence,
         old: Option<&Sentence>,
@@ -100,7 +100,7 @@ impl<'v, 'a> Typing<'v, 'a> {
         Ok(())
     }
 
-    pub(super) fn check(&self, term: &Term, expected: &Sort) -> Result<(), String> {
+    pub(crate) fn check(&self, term: &Term, expected: &Sort) -> Result<(), String> {
         let sort = self.sort_of(term)?;
         if self.subsorts.less_than_eq(&sort, expected) {
             Ok(())

@@ -4,10 +4,9 @@ mod support;
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
 use k_rust::kast::{Sort, Term};
 use k_rust::outer::LoadedDefinition;
-use kink_patch::PatchFailureKind;
-use kink_patch::definition::{
-    Baseline, Edit, InsertPosition, Patch, PatchModelError, SentenceOrigin, SentenceRef, TermRef,
-    apply, term_at,
+use kink_patch::{
+    Baseline, Edit, InsertPosition, Patch, PatchFailureKind, PatchModelError, SentenceOrigin,
+    SentenceRef, TermRef, apply, term_at,
 };
 use serde_json::Value;
 use std::collections::BTreeSet;

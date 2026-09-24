@@ -1367,15 +1367,9 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    /// Reads a definition fixture. The memory and counter definitions are
-    /// shared with the kink-patch tests; the generated one is local.
+    /// Reads a definition fixture from `tests/data`.
     fn fixture(name: &str) -> SemanticJson {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let data = if name == "semantic-definition-generated.json" {
-            manifest.join("tests/data")
-        } else {
-            manifest.join("../kink-patch/tests/data")
-        };
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
         parse_json(&fs::read(data.join(name)).expect("fixture is present"))
             .expect("fixture is restricted JSON")
     }

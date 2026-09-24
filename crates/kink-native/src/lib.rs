@@ -7,6 +7,9 @@
 
 pub mod observation;
 pub mod search;
+mod validator;
+
+pub use validator::{IdentityError, MutantRejection, NativeValidator, ValidatedDefinition};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -14,13 +17,9 @@ use std::{
 };
 
 use k_rust::{
-    builtin,
     definition::{Definition, ProductionItem, Sentence, compute_subsorts},
     kast::{Label, Sort, Term},
-    kompile::{CompileOptions, CompiledKoreArtifacts, compile_loaded_definition},
-    outer::{LoadOptions, load_structured},
 };
-use kink_patch::StagedNativeInput;
 
 /// Native definition type accepted by k-rust.
 pub type NativeDefinition = Definition;
@@ -194,60 +193,6 @@ pub enum ProvenanceStatus {
     SidecarOnlyMissingBridge,
 }
 
-/// Opaque NR-02 native success output. Construction is possible only after the whole pipeline.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ValidatedNativeOutput {
-    definition: NativeDefinition,
-    index: NativeIndex,
-    artifacts: CompiledKoreArtifacts,
-    compile_options: CompileOptions,
-}
-
-impl ValidatedNativeOutput {
-    pub const fn definition(&self) -> &NativeDefinition {
-        &self.definition
-    }
-
-    pub const fn index(&self) -> &NativeIndex {
-        &self.index
-    }
-
-    pub const fn artifacts(&self) -> &CompiledKoreArtifacts {
-        &self.artifacts
-    }
-
-    /// Exact backend, KORE width, claims mode, and hook namespace profile used for lowering.
-    pub const fn compile_options(&self) -> &CompileOptions {
-        &self.compile_options
-    }
-
-    pub const fn provenance_status(&self) -> ProvenanceStatus {
-        ProvenanceStatus::SidecarOnlyMissingBridge
-    }
-}
-
-/// A native patch rejection supplied before resolution and lowering.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NativePatchRejection {
-    detail: String,
-}
-
-impl NativePatchRejection {
-    pub fn new(detail: impl Into<String>) -> Self {
-        Self {
-            detail: detail.into(),
-        }
-    }
-}
-
-impl fmt::Display for NativePatchRejection {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.detail.fmt(formatter)
-    }
-}
-
-impl std::error::Error for NativePatchRejection {}
-
 /// Typed fail-closed native integration failures. No variant contains staged native output.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeFailure {
@@ -288,7 +233,6 @@ pub enum NativeFailure {
         actual: usize,
     },
     InvalidSidecar(String),
-    PatchRejected(String),
     Preparation(String),
     Compilation {
         stage: &'static str,
@@ -362,9 +306,7 @@ impl fmt::Display for NativeFailure {
                 formatter,
                 "native label {label:?} used from {module:?} has arity {actual}, expected {expected}"
             ),
-            Self::InvalidSidecar(detail)
-            | Self::PatchRejected(detail)
-            | Self::Preparation(detail) => detail.fmt(formatter),
+            Self::InvalidSidecar(detail) | Self::Preparation(detail) => detail.fmt(formatter),
             Self::Compilation { stage, detail } => {
                 write!(
                     formatter,
@@ -376,71 +318,6 @@ impl fmt::Display for NativeFailure {
 }
 
 impl std::error::Error for NativeFailure {}
-
-/// An immutable native baseline ready to serve as an NR-02 validator closure.
-#[derive(Clone, Debug)]
-pub struct NativeValidator {
-    baseline: NativeDefinition,
-    sidecar: Vec<ProvenanceSidecarRecord>,
-    options: CompileOptions,
-}
-
-impl NativeValidator {
-    /// Capture an immutable KRS-adapted baseline.
-    pub fn bind(
-        definition: &NativeDefinition,
-        sidecar: Vec<ProvenanceSidecarRecord>,
-        options: CompileOptions,
-    ) -> NativeValidator {
-        Self {
-            baseline: definition.clone(),
-            sidecar,
-            options,
-        }
-    }
-
-    /// Clone, patch, inventory, index, resolve, check, lower, and publish one native output.
-    ///
-    /// The clone and every intermediate stay private. An error returns only [`NativeFailure`].
-    pub fn validate(
-        &self,
-        staged: StagedNativeInput<'_>,
-        patch: impl FnOnce(
-            &mut NativeDefinition,
-            StagedNativeInput<'_>,
-        ) -> Result<(), NativePatchRejection>,
-    ) -> Result<ValidatedNativeOutput, NativeFailure> {
-        let mut candidate = self.baseline.clone();
-        patch(&mut candidate, staged)
-            .map_err(|error| NativeFailure::PatchRejected(error.to_string()))?;
-        let index = index_definition_with_sidecar(&candidate, &self.sidecar)?;
-        let prelude = builtin::embedded("prelude.md").ok_or_else(|| {
-            NativeFailure::Preparation("k-rust prelude is unavailable".to_owned())
-        })?;
-        let load_options = LoadOptions {
-            implicit_sources: vec![prelude],
-            excluded_module_attributes: vec![
-                self.options.backend.excluded_module_attribute().to_owned(),
-            ],
-            ..LoadOptions::default()
-        };
-        let loaded = load_structured(candidate.clone(), &load_options)
-            .map_err(|error| NativeFailure::Preparation(error.to_string()))?;
-        let artifacts =
-            compile_loaded_definition(&loaded, self.options.clone()).map_err(|error| {
-                NativeFailure::Compilation {
-                    stage: error.stage,
-                    detail: error.message,
-                }
-            })?;
-        Ok(ValidatedNativeOutput {
-            definition: candidate,
-            index,
-            artifacts,
-            compile_options: self.options.clone(),
-        })
-    }
-}
 
 /// Build the closed semantic indexes for a native definition without granting provenance.
 pub fn index_definition(definition: &Definition) -> Result<NativeIndex, NativeFailure> {

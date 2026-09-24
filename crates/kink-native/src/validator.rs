@@ -1,0 +1,178 @@
+//! Mutant validation: kink-patch application followed by k-rust compilation.
+//!
+//! A mutant is compiled from the relinked loaded definition (`Mutant::to_loaded`),
+//! not re-loaded: a loaded definition cannot be fed back through `load_structured`.
+//! A KRS route that binds a pre-load definition with the embedded prelude waits
+//! for the Z3-free structured compile (KRS-owned `z3-free-structured-compile`):
+//! without Z3 the prelude does not load.
+
+use std::{collections::BTreeMap, fmt};
+
+use k_rust::{
+    definition::{AttributeKey, Definition, Sentence},
+    kompile::{CompileError, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition},
+    outer::LoadedDefinition,
+};
+use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
+
+use crate::NativeFailure;
+
+/// An immutable loaded baseline and the compile options every side uses.
+#[derive(Clone, Debug)]
+pub struct NativeValidator {
+    baseline: Baseline,
+    options: CompileOptions,
+}
+
+impl NativeValidator {
+    /// Captures `baseline`; its caller owns prelude policy.
+    pub const fn bind(baseline: Baseline, options: CompileOptions) -> Self {
+        Self { baseline, options }
+    }
+
+    pub const fn baseline(&self) -> &Baseline {
+        &self.baseline
+    }
+
+    /// Compiles the unpatched baseline.
+    pub fn compile_baseline(&self) -> Result<ValidatedDefinition, NativeFailure> {
+        let loaded = self.baseline.loaded();
+        let artifacts = self
+            .compile(loaded)
+            .map_err(|error| NativeFailure::Compilation {
+                stage: error.stage,
+                detail: error
+                    .diagnostics
+                    .iter()
+                    .fold(error.message, |detail, diagnostic| {
+                        format!("{detail}; {}", diagnostic.message)
+                    }),
+            })?;
+        Ok(ValidatedDefinition {
+            definition: loaded.definition.clone(),
+            artifacts,
+            options: self.options.clone(),
+            origins: None,
+        })
+    }
+
+    /// Applies `patch` to the baseline and compiles the mutant.
+    ///
+    /// Nothing escapes on failure: a rejection holds only diagnostics, and a
+    /// patched definition is published only inside a [`ValidatedDefinition`].
+    pub fn validate(&self, patch: &Patch) -> Result<ValidatedDefinition, MutantRejection> {
+        let mutant = apply(&self.baseline, patch).map_err(MutantRejection::Patch)?;
+        let loaded = mutant.to_loaded(&self.baseline);
+        let artifacts = self
+            .compile(&loaded)
+            .map_err(MutantRejection::Compilation)?;
+        Ok(ValidatedDefinition {
+            definition: loaded.definition,
+            artifacts,
+            options: self.options.clone(),
+            origins: Some(mutant.origins().clone()),
+        })
+    }
+
+    fn compile(&self, loaded: &LoadedDefinition) -> Result<CompiledKoreArtifacts, CompileError> {
+        compile_loaded_definition(loaded, self.options.clone())
+    }
+}
+
+/// Why a patch did not yield a compiled mutant. It carries no definition.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MutantRejection {
+    /// kink-patch rejected the patch; nothing was compiled.
+    Patch(PatchFailure),
+    /// k-rust rejected the patched definition; the error holds its stage
+    /// and diagnostics only.
+    Compilation(CompileError),
+}
+
+impl fmt::Display for MutantRejection {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Patch(failure) => write!(formatter, "patch rejected: {failure}"),
+            Self::Compilation(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for MutantRejection {}
+
+/// A compiled baseline or mutant. It is only built after compilation succeeded.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidatedDefinition {
+    definition: Definition,
+    artifacts: CompiledKoreArtifacts,
+    options: CompileOptions,
+    origins: Option<BTreeMap<SentenceRef, SentenceOrigin>>,
+}
+
+impl ValidatedDefinition {
+    /// The loaded source definition that was compiled.
+    pub const fn definition(&self) -> &Definition {
+        &self.definition
+    }
+
+    pub const fn artifacts(&self) -> &CompiledKoreArtifacts {
+        &self.artifacts
+    }
+
+    /// Exact backend, KORE width, claims mode, and hook namespace profile used for lowering.
+    pub const fn compile_options(&self) -> &CompileOptions {
+        &self.options
+    }
+
+    /// For a mutant, where each of its sentences came from; `None` for the baseline.
+    pub const fn origins(&self) -> Option<&BTreeMap<SentenceRef, SentenceOrigin>> {
+        self.origins.as_ref()
+    }
+
+    /// The `UNIQUE_ID` of the rule labelled `label` (module-qualified) in the
+    /// compiled execution definition.
+    ///
+    /// `UNIQUE_ID` is content-derived, so a mutated rule has a different one
+    /// on each compiled side; resolve it per side, never across sides.
+    pub fn rule_identity(&self, label: &str) -> Result<&str, IdentityError> {
+        let mut identities = self
+            .artifacts
+            .execution_definition
+            .modules
+            .iter()
+            .flat_map(|module| module.local_sentences.iter())
+            .filter(|sentence| {
+                matches!(***sentence, Sentence::Rule { .. })
+                    && sentence.attributes().string(AttributeKey::Label) == Some(label)
+            })
+            .map(|sentence| sentence.attributes().string(AttributeKey::UniqueId));
+        let first = identities
+            .next()
+            .ok_or(IdentityError::Missing)?
+            .ok_or(IdentityError::Missing)?;
+        if identities.any(|other| other != Some(first)) {
+            return Err(IdentityError::Ambiguous);
+        }
+        Ok(first)
+    }
+}
+
+/// Why a rule label does not resolve to one compiled identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IdentityError {
+    /// No compiled rule carries the label, or it has no `UNIQUE_ID`.
+    Missing,
+    /// Compiled rules with the label carry different `UNIQUE_ID`s.
+    Ambiguous,
+}
+
+impl fmt::Display for IdentityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Missing => "no compiled rule identity for the label",
+            Self::Ambiguous => "the label names several compiled rule identities",
+        })
+    }
+}
+
+impl std::error::Error for IdentityError {}

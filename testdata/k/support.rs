@@ -13,7 +13,7 @@ use k_rust::kompile::{
     compile_loaded_definition,
 };
 use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource};
-use kink_patch::definition::{Baseline, SentenceRef};
+use kink_patch::{Baseline, SentenceRef};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
