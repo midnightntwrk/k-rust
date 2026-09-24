@@ -119,6 +119,85 @@ local_workaround = "none"
 requested_action = "Parse host request text with the iterative decoder and add a malformed-deep-input regression."
 sources = ["k-rust-agent-requests.toml KRUST-COMPAT-001", "krs draft/upstream/k-rust.toml backend-deep-result"]
 
+[[request]]
+id = "execution-leaf-completeness"
+title = "Execution leaves have no typed halt reason and may be dropped or merged without a record"
+kind = "correctness"
+status = "open"
+status_basis = "test run at 985e0086 on 2026-09-24 (kink-native converging_branches_never_yield_pattern_no_match) plus static screen of k-rust-backend/src/rewrite/execute.rs and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-24"
+blocking = true
+needed_by = ["execution-pattern NoMatch on branching executions", "binding sets on branching executions", "state-set oracles without a trust assumption"]
+summary = """
+ExecutionLeaf.reason is a String (crates/k-rust/src/backend/mod.rs:150-153), so a caller classifies halts by spelling.
+select_got_stuck_over_depth_bound (k-rust-backend/src/rewrite/execute.rs:917-928) drops every DepthBound leaf once any leaf is stuck, trivial or vacuous, without a record, so a finite max_depth under an explore-all execution can hide unfinished branches.
+merge_equal_final_leaves (execute.rs:973-1003, applied by collect at :883-885 and at :197) keys leaves on term, constraints, effects and io only. Branch identity, trace and observation events are not in the key, so of two branches that converge on one final state only one branch's events survive.
+Nothing documents or tests that an unbounded explore-all execute returns every distinct final state.
+"""
+reproducer = """
+Definition with start => mid1, start => mid2, mid1 => done and mid2 => done, labelled left and right on the first step. An explore-all execute_observed from start that observes ND.right returns one stuck leaf whose events are [], although right fires on a real path (kink-native tests/bridge.rs converging_branches_never_yield_pattern_no_match, over testdata/k/nd.k).
+"""
+local_workaround = """
+kink-native's ExecutionAdapter runs with stop_at_branch first: a ground initial state that ends in exactly one stuck leaf, with no backend diagnostic and within the time budget, is a single-path witness and complete evidence.
+Otherwise it reruns explore-all without a depth bound. State-set oracles are then complete only under the assumption that every distinct final state is returned; an execution-pattern oracle reaches at most Match, NoMatch and binding sets are Unknown, and the collection stop is ExhaustionUnrecorded.
+kink-native every_halt_reason_string_maps_to_exactly_one_class fails when a halt spelling moves.
+"""
+requested_action = """
+Give ExecutionLeaf a typed halt reason.
+Document, and test, that an unbounded explore-all execute returns every distinct final state.
+Report DepthBound leaves dropped by select_got_stuck_over_depth_bound, as a count or as the leaves.
+When observation is enabled, include branch identity and observations in the merge key of merge_equal_final_leaves, or report the merged leaves with their traces.
+"""
+sources = ["k-in-k2 k-rust migration design, section 8 risk 3 and critique C1"]
+
+[[request]]
+id = "execution-diagnostics"
+title = "Execution and search responses do not carry the backend diagnostics of the run"
+kind = "missing-feature"
+status = "open"
+status_basis = "static screen of k-rust-backend/src/diagnostic.rs, simplify.rs and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-24"
+blocking = false
+needed_by = ["search-derived oracle slots that must tell budget exhaustion from a result"]
+summary = """
+Simplification-budget exhaustion, undecided conditions and predicates, and unevaluated hooks are emitted as BackendDiagnostic into a thread-local sink (k-rust-backend/src/diagnostic.rs:12-31, emitted at simplify.rs:271, :479, :755, :826, :2590).
+Only a caller that wraps the call in diagnostic::collect (diagnostic.rs:59-66) sees them; no production route does, and ExecutionResult (crates/k-rust/src/backend/mod.rs:141-147) and the search response have no diagnostics field.
+After budget exhaustion execution continues with a partially simplified term, so a leaf can look stuck when it is not.
+"""
+reproducer = "Execute a rule whose right side calls a function with the rule g(X) => g(g(X)), under max_simplification_iterations = 20; diagnostic::collect returns SimplificationBudgetExhausted { limit: 20, .. }, and the ExecutionResult alone does not show it."
+local_workaround = "kink-native wraps every execute call in diagnostic::collect and treats any diagnostic as an incomplete run: state-set slots and a pattern NoMatch become Unknown. The search adapter does not collect diagnostics yet."
+requested_action = "Return the run's diagnostics as a typed field on ExecutionResult and on the search response, so a caller on another thread or across the wire sees them (KRS KR-07, in review, adds the diagnostic kinds for equation conditions)."
+sources = ["k-in-k2 k-rust migration design, section 8 risk 4 and critique C3"]
+
+[[request]]
+id = "structured-term-sort-check"
+title = "Structured rule terms are not sort-checked by load_structured or compile_loaded_definition"
+kind = "correctness"
+status = "open"
+status_basis = "test run at 985e0086 on 2026-09-24 (kink-patch local_sort_check_rejects_what_k_rust_compiles, rows bool-token-in-nat-position and non-bool-requires)"
+blocking = false
+needed_by = ["mutant validity without a local sort check"]
+summary = """
+A rule term supplied as a KAST term, rather than parsed by the inner parser, is not sort-checked.
+A Bool token in a Nat position compiles with an injection between unrelated sorts, and a non-Bool requires clause compiles.
+"""
+reproducer = "Load counter.k, replace the term at path [0, 1, 0] of COUNTER.increment (the s(N) argument on the right side) with the Bool token true, or its requires clause with z, relink the loaded definition, and call compile_loaded_definition: it succeeds."
+local_workaround = "kink-patch sort.rs re-implements a conservative local sort check: an undecidable sort is a rejection, and a rewrite must not widen its left sort. The two rows above pin the upstream behaviour and fail once k-rust rejects the edits."
+requested_action = "Sort-check sentence terms that load_structured or compile_loaded_definition did not parse, or expose the inner parser's sort inference for a given term in a module."
+sources = ["k-in-k2 k-rust migration design, section 8 risk 2"]
+
+[[request]]
+id = "transition-id-ordering"
+title = "TransitionIdOutput derives PartialEq only"
+kind = "api"
+status = "open"
+status_basis = "static screen of crates/k-rust/src/backend/wire.rs at 985e0086 on 2026-09-24"
+blocking = false
+needed_by = ["ordered transition identities in execution patterns"]
+summary = "TransitionIdOutput (crates/k-rust/src/backend/wire.rs:139-144) derives Clone, Debug, Deserialize, PartialEq and Serialize, but not Eq, Ord or Hash, although both fields are Strings."
+reproducer = "Use TransitionIdOutput as a BTreeMap key."
+local_workaround = "kink-pattern TransitionKey copies its rule and target and derives Eq, Hash and Ord."
+requested_action = "Derive Eq, Ord and Hash on TransitionIdOutput and the other wire identity types."
+sources = ["k-in-k2 k-rust migration design, section 8 risk 7"]
+
 # ---------------------------------------------------------------- tracked by KRS
 
 [[krs_owned]]
@@ -126,6 +205,14 @@ sources = ["k-rust-agent-requests.toml KRUST-COMPAT-001", "krs draft/upstream/k-
 krs_id = "semantic-cast-projection-widening"
 former_id = "KRUST-COMPAT-002"
 note = "Reproduced open at 985e0086 on 2026-09-24: the rewrite's least upper bound (sort_injections.rs:366-379) is computed before semantic_projection (:531-548)."
+
+[[krs_owned]]
+krs_id = "z3-free-structured-compile"
+note = """
+K-in-K2 builds k-rust without z3-inference, and that build cannot load the embedded prelude.md (Z3InferenceRequired; k-rust tests/inner_rules.rs portable_build_rejects_the_standard_prelude).
+The test definitions load kast.md plus testdata/k/portable-prelude.k stand-ins, and kink-native cannot bind a pre-load KRS definition.
+Tracked in k-rust's untracked draft/krs-requests/tickets.toml as KR-09, KR-20, KR-21 and KR-22; delete portable-prelude.k once KR-22 lands.
+"""
 
 [[krs_owned]]
 krs_id = "simplification-budget-default"

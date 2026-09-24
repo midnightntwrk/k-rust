@@ -2,8 +2,8 @@
 //!
 //! k-rust does not sort-check already-parsed rule terms: an ill-sorted
 //! structured term compiles with an injection between unrelated sorts, and a
-//! non-`Bool` condition compiles (upstream request `structured-term-sort-check`,
-//! not yet in the ledger).
+//! non-`Bool` condition compiles (`upstream/k-rust.toml`
+//! `structured-term-sort-check`).
 //! Until that lands, this check is the only guard. It is conservative: an
 //! undecidable sort is a rejection, and a rewrite must not widen its left
 //! sort, which rejects some rewrites between sibling sorts that K accepts.
