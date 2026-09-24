@@ -7899,3 +7899,175 @@ fn kcompile_writes_no_counter_file_without_krust_counters() {
     assert_eq!(entries, ["base.k", "compiled", "definition.k"]);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// Prove each named claim of an inlined specification on its own and return the verdict word
+/// `krust kprove` reports for it (`proven`, `disproved`, `indeterminate`, ...), or `error` with
+/// the diagnostic when the prover rejects the claim.
+fn kprove_claim_verdicts(
+    definition: (&str, &str),
+    specification: (&str, &str),
+    main_module: &str,
+    definition_module: &str,
+    claims: &[&str],
+) -> Vec<(String, String)> {
+    let (root, _) = fixture();
+    fs::write(root.join(definition.0), definition.1).unwrap();
+    let specification_path = root.join(specification.0);
+    fs::write(&specification_path, specification.1).unwrap();
+    let verdicts = claims
+        .iter()
+        .map(|claim| {
+            let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .args([
+                    "kprove",
+                    specification_path.to_str().unwrap(),
+                    "--main-module",
+                    main_module,
+                    "--definition-module",
+                    definition_module,
+                    "--depth",
+                    "10",
+                    "--claim",
+                    claim,
+                ])
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let prefix = format!("claim {claim}: ");
+            let verdict = stdout
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .and_then(|rest| rest.split_whitespace().next())
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("error: {}", stderr.trim()));
+            assert_eq!(
+                output.status.success(),
+                verdict == "proven",
+                "{claim}: {stdout}\n{stderr}"
+            );
+            ((*claim).to_owned(), verdict)
+        })
+        .collect();
+    fs::remove_dir_all(root).unwrap();
+    verdicts
+}
+
+fn expected_verdicts(expected: &[(&str, &str)]) -> Vec<(String, String)> {
+    expected
+        .iter()
+        .map(|(claim, verdict)| ((*claim).to_owned(), (*verdict).to_owned()))
+        .collect()
+}
+
+const EXIST_PROBE: &str = r#"
+module EXIST-PROBE
+  imports INT
+  syntax State ::= "start" | st(Int, Int) | "done"
+  configuration <k> $PGM:State </k>
+  rule <k> start => st(!N:Int, 7) </k>
+endmodule
+"#;
+
+/// A claim that does not name the generated counter says nothing about it, so a path that
+/// instantiates a `!` variable (and so advances the counter) can prove it.
+#[test]
+fn kprove_claims_leave_the_generated_counter_to_the_path() {
+    let specification = r#"
+requires "exist-probe.k"
+
+module EXIST-SPEC
+  imports EXIST-PROBE
+
+  claim <k> start => st(?B:Int, ?A:Int) </k> ensures ?A ==Int 7 [label(ab)]
+  claim <k> start => st(?Z:Int, ?A:Int) </k> ensures ?A ==Int 7 [label(za)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> ensures ?A ==Int 8 [label(ab-false)]
+endmodule
+"#;
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("exist-probe.k", EXIST_PROBE),
+            ("exist-spec.k", specification),
+            "EXIST-SPEC",
+            "EXIST-PROBE",
+            &["ab", "za", "ab-false"],
+        ),
+        expected_verdicts(&[
+            ("ab", "proven"),
+            ("za", "proven"),
+            ("ab-false", "disproved")
+        ]),
+    );
+}
+
+/// A claim that names the generated counter states what it says about it.
+#[test]
+fn kprove_claims_naming_the_generated_counter_keep_their_statement() {
+    let specification = r#"
+requires "exist-probe.k"
+
+module EXIST-SPEC2
+  imports EXIST-PROBE
+
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => C </generatedCounter> ensures ?A ==Int 7 [label(same-counter)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => ?C2:Int </generatedCounter> ensures ?A ==Int 7 [label(exists-counter)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => C +Int 1 </generatedCounter> ensures ?A ==Int 7 [label(incremented-counter)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => C +Int 2 </generatedCounter> ensures ?A ==Int 7 [label(wrong-counter)]
+endmodule
+"#;
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("exist-probe.k", EXIST_PROBE),
+            ("exist-spec2.k", specification),
+            "EXIST-SPEC2",
+            "EXIST-PROBE",
+            &[
+                "same-counter",
+                "exists-counter",
+                "incremented-counter",
+                "wrong-counter"
+            ],
+        ),
+        expected_verdicts(&[
+            ("same-counter", "disproved"),
+            ("exists-counter", "proven"),
+            ("incremented-counter", "proven"),
+            ("wrong-counter", "disproved"),
+        ]),
+    );
+}
+
+/// Both ways of writing a claim across a rule that allocates a fresh value prove: naming the
+/// counter's advance, or leaving the counter out.
+#[test]
+fn kprove_fresh_value_claims_prove_with_and_without_the_counter() {
+    let definition = r#"
+module TEST
+  imports INT
+  syntax Pgm ::= "quux"
+  configuration <k> $PGM:Pgm </k> <c1> .K </c1> <c2> .K </c2>
+  rule <k> quux => .K </k> <c1> .K => !C:Int </c1> <c2> .K => !C:Int </c2>
+endmodule
+"#;
+    let specification = r#"
+requires "test.k"
+
+module FRESH-SPEC
+  imports TEST
+
+  claim <k> quux => .K </k> <c1> .K => ?C </c1> <c2> .K => ?C </c2>
+    <generatedCounter> GC => GC +Int 1 </generatedCounter> [label(explicit)]
+  claim <k> quux => .K </k> <c1> .K => ?C </c1> <c2> .K => ?C </c2> [label(implicit)]
+endmodule
+"#;
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("test.k", definition),
+            ("fresh-spec.k", specification),
+            "FRESH-SPEC",
+            "TEST",
+            &["explicit", "implicit"],
+        ),
+        expected_verdicts(&[("explicit", "proven"), ("implicit", "proven")]),
+    );
+}
