@@ -47,6 +47,40 @@ pub enum MutantStatus {
     Error,
 }
 
+/// Closed classification of the failure that ended a valid mutant's run.
+///
+/// Only the classes a mutant can reach after candidate generation are
+/// modelled; operator, patch, selection, report and baseline failures never
+/// produce a `MutantPlan`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MutantFailureKind {
+    /// Validation, lowering or backend compilation rejected the mutant.
+    Rejected,
+    /// Lowering or validation of the mutant does not terminate.
+    LoweringNontermination,
+    /// A declared time limit was reached during lowering or execution.
+    TimeLimit,
+    /// A declared depth, breadth, result or other resource bound was reached.
+    ResourceLimit,
+    /// The solver or matcher could not decide.
+    Indeterminate,
+    /// Backend, worker or other infrastructure failure.
+    Infrastructure,
+}
+
+impl MutantFailureKind {
+    /// Status of a mutant whose oracles neither distinguished nor all agreed.
+    #[must_use]
+    pub const fn status(self) -> MutantStatus {
+        match self {
+            Self::Rejected | Self::LoweringNontermination => MutantStatus::Invalid,
+            Self::TimeLimit => MutantStatus::Timeout,
+            Self::ResourceLimit | Self::Indeterminate => MutantStatus::Unknown,
+            Self::Infrastructure => MutantStatus::Error,
+        }
+    }
+}
+
 /// One manifest-ordered test and its declaration-slot outcomes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TestPlan {
@@ -65,6 +99,11 @@ pub struct MutantPlan {
     pub tests: Vec<TestPlan>,
     /// Validation-stage classification, if execution must not begin.
     pub preclassified: Option<MutantStatus>,
+    /// Classified failure of a valid mutant's run, if one occurred.
+    ///
+    /// It decides the status only when no selected oracle distinguished and
+    /// not every one agreed; a preclassification takes precedence over it.
+    pub failure: Option<MutantFailureKind>,
 }
 
 /// One scheduled mutant result.
@@ -83,6 +122,10 @@ pub struct MutantReport {
 }
 
 /// Derives a deterministic schedule result without creating suffix work.
+///
+/// Precedence: a validation preclassification, then any distinguishing oracle
+/// (killed), then complete agreement (survived), then the supplied failure
+/// kind, and only without one the folded inconclusive oracle outcomes.
 pub fn derive_mutant_report(
     plan: &MutantPlan,
     schedule: ScheduleMode,
@@ -150,14 +193,16 @@ pub fn derive_mutant_report(
     }
     let status = if !killing.is_empty() {
         MutantStatus::Killed
+    } else if !(seen_error || seen_timeout || seen_unknown) {
+        MutantStatus::Survived
+    } else if let Some(failure) = plan.failure {
+        failure.status()
     } else if seen_error {
         MutantStatus::Error
     } else if seen_timeout {
         MutantStatus::Timeout
-    } else if seen_unknown {
-        MutantStatus::Unknown
     } else {
-        MutantStatus::Survived
+        MutantStatus::Unknown
     };
     let skipped_test_ids = plan.tests[executed.len()..]
         .iter()

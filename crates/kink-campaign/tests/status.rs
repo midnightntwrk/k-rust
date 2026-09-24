@@ -9,9 +9,9 @@
 //! this file.
 
 use kink_campaign::{
-    BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantPlan, MutantReport, MutantStatus,
-    OracleKind, OracleOutcome, OracleSide, Rational, ScheduleMode, Score, TestPlan,
-    compare_supplied, derive_mutant_report, score, validate_baseline,
+    BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantFailureKind, MutantPlan,
+    MutantReport, MutantStatus, OracleKind, OracleOutcome, OracleSide, Rational, ScheduleMode,
+    Score, TestPlan, compare_supplied, derive_mutant_report, score, validate_baseline,
 };
 use kink_pattern::{
     CandidateGeneration, Completeness, PatchOrigin, SuppliedPatch, derive_mutant_id,
@@ -65,13 +65,31 @@ enum Validation {
     Error,
 }
 
-/// Builds the plan for one validation outcome and the Python row's oracle slots.
+/// The kind of an old failure-taxonomy classification reached by these rows.
+fn failure_kind(classification: &str) -> MutantFailureKind {
+    match classification {
+        "ill-sorted" => MutantFailureKind::Rejected,
+        "lowering-nontermination" => MutantFailureKind::LoweringNontermination,
+        "time-limit" => MutantFailureKind::TimeLimit,
+        "resource-limit" => MutantFailureKind::ResourceLimit,
+        "solver-unknown" => MutantFailureKind::Indeterminate,
+        "worker-lost" => MutantFailureKind::Infrastructure,
+        other => panic!("no failure kind for classification {other}"),
+    }
+}
+
+/// Builds the plan for one validation outcome and the Python row's oracle
+/// slots and failure classification.
 ///
 /// A mutant that failed validation is preclassified. For a valid mutant the
 /// Python rows mark the slot that was never evaluated after a failed mutant
 /// execution as `skipped`; Rust reserves `Skipped` for the scheduler and rejects
 /// it as input, so that slot is omitted.
-fn status_plan(validation: Validation, outcomes: &[OracleOutcome]) -> MutantPlan {
+fn status_plan(
+    validation: Validation,
+    outcomes: &[OracleOutcome],
+    failure: Option<&str>,
+) -> MutantPlan {
     let (preclassified, outcomes) = match validation {
         Validation::Valid => (
             None,
@@ -88,6 +106,7 @@ fn status_plan(validation: Validation, outcomes: &[OracleOutcome]) -> MutantPlan
         mutant_id: digest('a'),
         tests: one_test(outcomes),
         preclassified,
+        failure: failure.map(failure_kind),
     }
 }
 
@@ -126,6 +145,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
                 mutant_id: digest('a'),
                 tests: one_test(outcomes.to_vec()),
                 preclassified: None,
+                failure: None,
             };
             assert_eq!(
                 derive_mutant_report(&verbatim, ScheduleMode::Full)
@@ -136,7 +156,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
             );
         }
         for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
-            let actual = report(&status_plan(validation, outcomes), schedule).status;
+            let actual = report(&status_plan(validation, outcomes, failure), schedule).status;
             assert_eq!(actual, expected, "{id} ({failure:?}) under {schedule:?}");
             let counted = score(&[actual]);
             assert_eq!(counted.killed, u64::from(actual == Killed), "{id}");
@@ -154,7 +174,11 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
 /// be derived, and cannot be supplied as a preclassification either.
 #[test]
 fn killed_cannot_fail_validation() {
-    let plan = status_plan(Validation::Invalid, &[Distinguish, Agree]);
+    let plan = status_plan(
+        Validation::Invalid,
+        &[Distinguish, Agree],
+        Some("ill-sorted"),
+    );
     assert_eq!(report(&plan, ScheduleMode::Full).status, Invalid);
     for claimed in [Killed, Survived] {
         let forged = MutantPlan {
@@ -168,6 +192,86 @@ fn killed_cannot_fail_validation() {
             CampaignFailureKind::InvalidPreclassification,
             "{claimed:?}"
         );
+    }
+}
+
+/// C1 `statusContradictionCases` on failure classification: a valid mutant
+/// whose oracles neither distinguish nor all agree takes its status from the
+/// failure kind, not from the inconclusive oracle outcome.
+#[test]
+fn failure_kind_decides_status_over_inconclusive_outcomes() {
+    use OracleOutcome as O;
+    // (id, oracle slots, failure classification, contradicting status, status)
+    #[rustfmt::skip]
+    let rows: [(&str, &[OracleOutcome], &str, MutantStatus, MutantStatus); 3] = [
+        ("lowering-time-limit-cannot-be-unknown", &[O::Unknown, O::Skipped], "time-limit", Unknown, Timeout),
+        ("lowering-resource-limit-cannot-be-timeout", &[O::Timeout, O::Skipped], "resource-limit", Timeout, Unknown),
+        ("lowering-nontermination-cannot-be-timeout", &[O::Timeout, O::Skipped], "lowering-nontermination", Timeout, Invalid),
+    ];
+    for (id, outcomes, failure, contradicting, expected) in rows {
+        for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
+            let actual = report(
+                &status_plan(Validation::Valid, outcomes, Some(failure)),
+                schedule,
+            )
+            .status;
+            assert_eq!(actual, expected, "{id} under {schedule:?}");
+            assert_ne!(actual, contradicting, "{id} under {schedule:?}");
+        }
+    }
+}
+
+/// One row per `MutantFailureKind::status` arm: the failure kind decides an
+/// inconclusive valid mutant, but never overrides a kill, complete agreement
+/// or a validation preclassification.
+#[test]
+fn every_failure_kind_maps_to_one_status() {
+    use MutantFailureKind as F;
+    let rows = [
+        (F::Rejected, Invalid),
+        (F::LoweringNontermination, Invalid),
+        (F::TimeLimit, Timeout),
+        (F::ResourceLimit, Unknown),
+        (F::Indeterminate, Unknown),
+        (F::Infrastructure, Error),
+    ];
+    for (kind, expected) in rows {
+        assert_eq!(kind.status(), expected, "{kind:?}");
+        let plan = |outcomes: Vec<OracleOutcome>, preclassified| MutantPlan {
+            mutant_id: digest('a'),
+            tests: one_test(outcomes),
+            preclassified,
+            failure: Some(kind),
+        };
+        for inconclusive in [
+            OracleOutcome::Timeout,
+            OracleOutcome::Unknown,
+            OracleOutcome::Incomparable,
+            OracleOutcome::Error,
+        ] {
+            let actual = report(&plan(vec![Agree, inconclusive], None), ScheduleMode::Full);
+            assert_eq!(actual.status, expected, "{kind:?} with {inconclusive:?}");
+        }
+        let killed = report(
+            &plan(vec![OracleOutcome::Unknown, Distinguish], None),
+            ScheduleMode::Full,
+        );
+        assert_eq!(killed.status, Killed, "{kind:?}: a kill takes precedence");
+        let survived = report(&plan(vec![Agree, Agree], None), ScheduleMode::Full);
+        assert_eq!(
+            survived.status, Survived,
+            "{kind:?}: complete agreement takes precedence"
+        );
+        for preclassified in [Invalid, Error, Timeout, Unknown] {
+            let actual = report(
+                &plan(vec![OracleOutcome::Unknown], Some(preclassified)),
+                ScheduleMode::Full,
+            );
+            assert_eq!(
+                actual.status, preclassified,
+                "{kind:?}: validation takes precedence"
+            );
+        }
     }
 }
 
@@ -196,6 +300,7 @@ fn first_kill_and_full_schedules_agree_on_status() {
             })
             .collect(),
         preclassified: None,
+        failure: None,
     };
     let rows: [ScheduleRow; 2] = [
         (ScheduleMode::FirstKill, &["t1", "t2"], &["t2"], &["t3"]),
@@ -268,6 +373,7 @@ fn plan_for(status: MutantStatus, character: char) -> MutantPlan {
         mutant_id: digest(character),
         tests: one_test(vec![outcome]),
         preclassified,
+        failure: None,
     }
 }
 
@@ -395,6 +501,7 @@ fn baseline_admission_gates_mutants_and_score() {
                 })
                 .collect(),
             preclassified: None,
+            failure: None,
         }]
     };
     let (first_kill, _) = run_campaign(
@@ -435,6 +542,7 @@ fn baseline_admission_gates_mutants_and_score() {
                 mutant_id: digest('a'),
                 tests: one_test(vec![compared]),
                 preclassified: None,
+                failure: None,
             }]
         })
         .expect("admitted");
@@ -498,6 +606,7 @@ fn execution_pattern_kills_mutant_with_unchanged_final_result() {
             mutant_id: digest('a'),
             tests: one_test(outcomes),
             preclassified: None,
+            failure: None,
         },
         ScheduleMode::Full,
     );
@@ -587,6 +696,7 @@ fn every_oracle_kind_keeps_agree_distinguish_and_unknown_distinct() {
             mutant_id: digest('a'),
             tests: one_test(vec![OracleOutcome::Unknown]),
             preclassified: None,
+            failure: None,
         },
         ScheduleMode::Full,
     );
@@ -642,6 +752,7 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
                     mutant_id: derive_mutant_id(&baseline, &candidate.patch_id),
                     tests: one_test(vec![Distinguish]),
                     preclassified: None,
+                    failure: None,
                 },
                 ScheduleMode::Full,
             )
