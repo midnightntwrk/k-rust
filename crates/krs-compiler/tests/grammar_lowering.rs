@@ -407,7 +407,11 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let lowered = lower_semantic_theory(&theory).unwrap();
     let source = emit_k(&lowered).unwrap().source().to_owned();
     assert!(source.contains("  imports INT\n"));
-    assert!(source.contains("r\"[a-z]+\" [symbol(idToken), token, prec(2)]"));
+    assert!(source.contains("r\"[a-z]+\" [token, prec(2)]"));
+    assert!(
+        !source.contains("symbol(idToken)"),
+        "a token production denotes domain values and must not declare a constructor symbol"
+    );
     assert!(source.contains("group(krsgroup-"));
     assert!(source.contains("syntax priority krsgroup-"));
     assert!(source.contains("syntax left krsgroup-"));

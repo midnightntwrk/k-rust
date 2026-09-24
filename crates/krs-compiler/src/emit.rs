@@ -616,14 +616,30 @@ fn emit_production(
         }
         writer.record(item.origin().key(), start, writer.source.len())?;
     }
-    writer.push(" [symbol(");
-    writer.push(sentence.symbol().emitted_name());
-    writer.push(")");
+    // A token production denotes domain values of its sort, not a
+    // constructor, so it carries no symbol: K's Haskell backend rejects a
+    // constructor on a sort that has domain values. The native adapter omits
+    // the label for the same reason.
+    let is_token = sentence
+        .attributes()
+        .iter()
+        .any(|attribute| matches!(attribute, ProductionAttribute::Token { .. }));
+    writer.push(" [");
+    let mut first = true;
+    if !is_token {
+        writer.push("symbol(");
+        writer.push(sentence.symbol().emitted_name());
+        writer.push(")");
+        first = false;
+    }
     for attribute in sentence.attributes() {
         if matches!(attribute, ProductionAttribute::Documentation { .. }) {
             continue;
         }
-        writer.push(", ");
+        if !first {
+            writer.push(", ");
+        }
+        first = false;
         let start = writer.source.len();
         emit_production_attribute(attribute, sentence, context, writer)?;
         writer.record(attribute.origin().key(), start, writer.source.len())?;
