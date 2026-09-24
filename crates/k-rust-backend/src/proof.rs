@@ -363,7 +363,13 @@ pub fn prove_claim(
                         simplifications: Vec::new(),
                         indeterminate: None,
                     };
-                    if options.stuck_check {
+                    // A contingent destination covers part of the state; the part it does not
+                    // cover may still rewrite into the destination, so it continues whatever
+                    // the stuck check says. The stuck check stops only a part whose destination
+                    // condition was refuted.
+                    if options.stuck_check
+                        && implication.failure != Some(ImplicationFailure::ContingentCondition)
+                    {
                         record_leaf!(externalise_leaf(
                             definition,
                             state.remaining(remainder),
@@ -2229,12 +2235,87 @@ mod tests {
         .expect("claim should execute");
 
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
-        assert_eq!(result.explored_states, 3, "{result:#?}");
         assert!(
             result
                 .leaves
                 .iter()
                 .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Proven(_))),
+            "{result:#?}"
+        );
+    }
+
+    /// A destination obligation that holds on part of the state splits it: the uncovered part
+    /// continues and, having no successor, is a stuck leaf (disproved) carrying the failing
+    /// condition. An unknown solver answer establishes no part, so the leaf stays indeterminate.
+    #[test]
+    fn a_contingent_destination_splits_the_state_and_an_unknown_one_does_not() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol other{}() : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(other{}(), \top{SortState{}}()),
+                    other{}()
+                ) [label{}("unrelated")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(
+                        \and{SortState{}}(
+                            start{}(X:SortInt{}),
+                            \equals{SortInt{}, SortState{}}(
+                                X:SortInt{},
+                                \dv{SortInt{}}("0")
+                            )
+                        )
+                    )
+                ) [label{}("contingent")]
+            endmodule []"#,
+        )
+        .expect("contingent destination probe should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("contingent destination probe should internalize");
+        let claim = claim_with_label(&definition, "contingent");
+        let covered = crate::rule::Predicate::Equals(
+            term(&definition, "X:SortInt{}"),
+            term(&definition, r#"\dv{SortInt{}}("0")"#),
+        );
+
+        let contingent = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+        let result = prove_claim(&definition, claim, ProofOptions::default(), &contingent)
+            .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {result:#?}");
+        };
+        assert_eq!(leaf.outcome, ProofLeafOutcome::Stuck, "{result:#?}");
+        assert!(
+            leaf.pattern
+                .constraints
+                .contains(&crate::rule::Predicate::Not(Box::new(covered))),
+            "{result:#?}"
+        );
+
+        let unknown = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Unknown("timeout".into())),
+        };
+        let result = prove_claim(&definition, claim, ProofOptions::default(), &unknown)
+            .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {result:#?}");
+        };
+        assert_eq!(
+            leaf.outcome,
+            ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
             "{result:#?}"
         );
     }

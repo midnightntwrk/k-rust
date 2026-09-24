@@ -7910,6 +7910,29 @@ fn kprove_claim_verdicts(
     definition_module: &str,
     claims: &[&str],
 ) -> Vec<(String, String)> {
+    kprove_claim_leaves(
+        definition,
+        specification,
+        main_module,
+        definition_module,
+        claims,
+        &[],
+    )
+    .into_iter()
+    .map(|(claim, verdict, _)| (claim, verdict))
+    .collect()
+}
+
+/// Each claim's verdict word and the outcome word of each of its reported leaves
+/// (`Stuck`, `Vacuous`, ...), in output order.
+fn kprove_claim_leaves(
+    definition: (&str, &str),
+    specification: (&str, &str),
+    main_module: &str,
+    definition_module: &str,
+    claims: &[&str],
+    extra_args: &[&str],
+) -> Vec<(String, String, Vec<String>)> {
     let (root, _) = fixture();
     fs::write(root.join(definition.0), definition.1).unwrap();
     let specification_path = root.join(specification.0);
@@ -7930,10 +7953,17 @@ fn kprove_claim_verdicts(
                     "--claim",
                     claim,
                 ])
+                .args(extra_args)
                 .output()
                 .unwrap();
             let stdout = String::from_utf8(output.stdout).unwrap();
             let stderr = String::from_utf8_lossy(&output.stderr);
+            let leaves = stdout
+                .lines()
+                .filter_map(|line| line.strip_prefix("  "))
+                .filter_map(|line| line.split_once(" at depth "))
+                .map(|(outcome, _)| outcome.to_owned())
+                .collect::<Vec<_>>();
             let prefix = format!("claim {claim}: ");
             let verdict = stdout
                 .lines()
@@ -7949,11 +7979,27 @@ fn kprove_claim_verdicts(
                 verdict == "proven",
                 "{claim}: {stdout}\n{stderr}"
             );
-            ((*claim).to_owned(), verdict)
+            ((*claim).to_owned(), verdict, leaves)
         })
         .collect();
     fs::remove_dir_all(root).unwrap();
     verdicts
+}
+
+fn verdicts_of(leaves: &[(String, String, Vec<String>)]) -> Vec<(String, String)> {
+    leaves
+        .iter()
+        .map(|(claim, verdict, _)| (claim.clone(), verdict.clone()))
+        .collect()
+}
+
+/// A claim that ends `disproved` at exactly one leaf, which is stuck.
+fn stuck_leaf(claim: &str) -> (String, String, Vec<String>) {
+    (
+        claim.to_owned(),
+        "disproved".to_owned(),
+        vec!["Stuck".to_owned()],
+    )
 }
 
 fn expected_verdicts(expected: &[(&str, &str)]) -> Vec<(String, String)> {
@@ -8101,7 +8147,7 @@ module CELL-SPEC
   claim <k> start => done </k> [label(unreachable)]
 endmodule
 "#;
-    let verdicts = kprove_claim_verdicts(
+    let leaves = kprove_claim_leaves(
         ("cell-probe.k", CELL_PROBE),
         ("cell-spec.k", specification),
         "CELL-SPEC",
@@ -8113,12 +8159,14 @@ endmodule
             "constant",
             "unreachable",
         ],
+        &[],
     );
-    // The increment of an unmentioned cell falsifies the claim; the prover does not refute the
-    // frame equation outright, so it must only not prove it.
-    assert_ne!(verdicts[0].1, "proven", "{verdicts:?}");
+    // The increment of an unmentioned cell falsifies the claim. The frame equation holds on part
+    // of the reached state as far as the solver can tell (the two `<n>` values are opaque to it),
+    // so the part where it fails continues and ends as a stuck leaf (disproved).
+    assert_eq!(leaves[0], stuck_leaf("unmentioned"), "{leaves:?}");
     assert_eq!(
-        verdicts[1..],
+        verdicts_of(&leaves[1..]),
         expected_verdicts(&[
             ("incremented", "proven"),
             ("unchanged", "disproved"),
@@ -8154,7 +8202,7 @@ endmodule
 /// writes into its cell falsifies the claim whether or not the precondition constrains the variable.
 #[test]
 fn kprove_constrained_universal_claim_variables_are_checked() {
-    let verdicts = kprove_claim_verdicts(
+    let leaves = kprove_claim_leaves(
         ("cell-probe2.k", CELL_PROBE2),
         ("cell-spec2.k", CELL_SPEC2),
         "CELL-SPEC2",
@@ -8165,15 +8213,13 @@ fn kprove_constrained_universal_claim_variables_are_checked() {
             "constrained-set",
             "concrete-unchanged",
         ],
+        &[],
     );
-    // `X = 5` is not entailed for an unconstrained `X`, but it is satisfiable, so the prover finds
-    // no refutation of the whole state: the claim must be decided and not proven.
-    assert!(
-        !["proven", "error"].contains(&verdicts[0].1.as_str()),
-        "{verdicts:?}"
-    );
+    // `X = 5` holds on part of the reached state for an unconstrained `X`: that part is in the
+    // destination, and the part where `X` differs from 5 has no successor, a stuck leaf (disproved).
+    assert_eq!(leaves[0], stuck_leaf("free-unchanged"), "{leaves:?}");
     assert_eq!(
-        verdicts[1..],
+        verdicts_of(&leaves[1..]),
         expected_verdicts(&[
             ("constrained-unchanged", "disproved"),
             ("constrained-set", "proven"),
@@ -8207,7 +8253,7 @@ module CELL-SPEC3
   claim <k> middle => done </k> [label(copied-unmentioned)]
 endmodule
 "#;
-    let verdicts = kprove_claim_verdicts(
+    let leaves = kprove_claim_leaves(
         ("cell-probe3.k", definition),
         ("cell-spec3.k", specification),
         "CELL-SPEC3",
@@ -8218,14 +8264,62 @@ endmodule
             "copied-universal",
             "copied-unmentioned",
         ],
+        &[],
     );
     assert_eq!(
-        verdicts[..3],
+        verdicts_of(&leaves[..3]),
         expected_verdicts(&[
             ("read-only", "proven"),
             ("copied-exists", "proven"),
             ("copied-universal", "proven"),
         ]),
     );
-    assert_ne!(verdicts[3].1, "proven", "{verdicts:?}");
+    // Copying `<n>` into `<m>` changes the unmentioned `<m>` wherever the two differ; that part
+    // of the reached state has no successor, a stuck leaf (disproved).
+    assert_eq!(leaves[3], stuck_leaf("copied-unmentioned"), "{leaves:?}");
+}
+
+/// A destination that holds on part of a state closes that part; only the rest continues. The
+/// covered part of `covered-then-stuck` (`X = 0`, already in the destination) would reach a state
+/// outside it if it were rewritten further.
+#[test]
+fn kprove_a_contingent_destination_closes_the_covered_part() {
+    let definition = r#"
+module SPLIT-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= s(Int, Int)
+  configuration <k> $PGM:State </k>
+  rule <k> s(0, X) => s(1, 5) </k> requires X =/=Int 0
+  rule <k> s(0, X) => s(2, 5) </k> requires X ==Int 0
+endmodule
+"#;
+    let specification = r#"
+requires "split-probe.k"
+
+module SPLIT-SPEC
+  imports SPLIT-PROBE
+
+  claim <k> s(0, _X) => s(?P:Int, ?V:Int) </k> ensures ?P *Int ?P ==Int ?P andBool (1 -Int ?P) *Int ?V ==Int 0 [label(covered-then-stuck)]
+  claim <k> s(0, _X) => s(?P:Int, ?V:Int) </k> ensures ?P *Int ?P ==Int ?P andBool (1 -Int ?P) *Int (?V -Int 7) ==Int 0 [label(contingent-false)]
+endmodule
+"#;
+    for extra in [&[][..], &["--disable-stuck-check"][..]] {
+        let leaves = kprove_claim_leaves(
+            ("split-probe.k", definition),
+            ("split-spec.k", specification),
+            "SPLIT-SPEC",
+            "SPLIT-PROBE",
+            &["covered-then-stuck", "contingent-false"],
+            extra,
+        );
+        assert_eq!(
+            verdicts_of(&leaves),
+            expected_verdicts(&[
+                ("covered-then-stuck", "proven"),
+                ("contingent-false", "disproved"),
+            ]),
+            "{extra:?}: {leaves:?}"
+        );
+    }
 }
