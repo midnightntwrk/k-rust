@@ -304,7 +304,11 @@ The service uses newline-delimited JSON over a persistent raw TCP socket (not HT
 call `execute`, `simplify`, `implies`, `add-module`, and `get-model`; module additions remain visible
 to later requests and connections for the lifetime of the server. A standalone `cancel` request or
 notification cooperatively interrupts the active request on that connection with the reference
-`Request cancelled` error. The server binds to `127.0.0.1` by default; pass `--host 0.0.0.0` to
+`Request cancelled` error. A connection is one session: closing either direction of the socket,
+including a half-close of the client's sending side, ends it and cancels that connection's active
+and queued requests without answering them, so a client keeps its socket open until it has read
+every response it wants. A peer that vanishes without closing is detected through TCP keepalive
+within about 25 seconds of its last traffic. The server binds to `127.0.0.1` by default; pass `--host 0.0.0.0` to
 expose it on every interface or `--server-port 0` to request an ephemeral port.
 
 `execute` also honors `assume-state-defined` by treating partial subterms of the current
