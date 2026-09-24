@@ -71,6 +71,7 @@ use crate::{
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
+    timeout::interruption_requested,
     transition::ExecutionEvaluationContext,
 };
 
@@ -157,6 +158,10 @@ pub(crate) struct PatternSimplification {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SimplificationError {
     Cancelled,
+    /// The active step deadline passed during simplification. The step that armed the deadline
+    /// checks its timer after the simplification returns and reports its own timeout outcome;
+    /// this error only unwinds the simplifier to that check.
+    Interrupted,
     Builtin(BuiltinError),
     DisjunctiveResult {
         rule_id: String,
@@ -936,8 +941,8 @@ fn simplify_predicate_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
-    if cancellation_requested() {
-        return Err(SimplificationError::Cancelled);
+    if interruption_requested() {
+        return Err(interruption_error());
     }
     if assumptions.contains(predicate) {
         return Ok(Predicate::True);
@@ -1997,6 +2002,21 @@ pub(crate) fn normalize_predicate(predicate: Predicate) -> Predicate {
     }
 }
 
+/// The error that stops a fixed-point loop at a cooperative interruption point, when
+/// `interruption_requested` holds: cancellation of the request, or the deadline of the step that
+/// runs the simplification. Neither is bounded by the iteration budget, which counts rewrites of
+/// one lineage rather than time, so every round checks both. Kept out of line so the check adds
+/// nothing to the frames of the recursive loops.
+#[cold]
+#[inline(never)]
+fn interruption_error() -> SimplificationError {
+    if cancellation_requested() {
+        SimplificationError::Cancelled
+    } else {
+        SimplificationError::Interrupted
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn simplify_with_budget(
     definition: &BackendDefinition,
@@ -2019,8 +2039,8 @@ fn simplify_with_budget(
     // Invariant: `term` equals the input modulo `applied_rules` under `constraints`.
     loop {
         measure::bump(Counter::SimplifyRounds);
-        if cancellation_requested() {
-            return Err(SimplificationError::Cancelled);
+        if interruption_requested() {
+            return Err(interruption_error());
         }
         if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);

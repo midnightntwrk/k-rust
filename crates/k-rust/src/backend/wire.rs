@@ -288,6 +288,7 @@ pub enum SatisfiabilityOutput {
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 pub enum SearchFailureOutput {
     Cancelled,
+    Interrupted,
     SurvivingMacroOrAlias {
         symbol: String,
     },
@@ -784,6 +785,7 @@ fn simplification_failure_output(
 ) -> Result<SearchFailureOutput, BackendError> {
     Ok(match error {
         SimplificationError::Cancelled => SearchFailureOutput::Cancelled,
+        SimplificationError::Interrupted => SearchFailureOutput::Interrupted,
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
             error: builtin_failure_output(error),
         },

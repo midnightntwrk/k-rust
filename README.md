@@ -630,8 +630,12 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - LSP and `kserver` are outside the current CLI scope; Bison and Flex remain external system tools whose executable and shared-library artifacts are supported through the CLI interoperability contract.
 - Like the reference backend, AC unification remains conservative when more than one unmatched
   opaque Set or Map chunk remains after common chunks are cancelled.
-- Step deadlines cooperatively interrupt native hooks. Long-running Rust loops check the deadline
-  while working; one-shot third-party cryptographic operations are checked at hook boundaries.
+- Step deadlines cooperatively interrupt native hooks and every round of the simplifier's
+  fixed-point loops, so an equation loop is bounded by the deadline even when the iteration budget
+  is not; a deadline that passes while a step simplifies its state or result ends the step with the
+  `timeout` halt (proofs: a timed-out leaf), and one that passes while a halted leaf is normalised
+  for output leaves that leaf as it stands. Long-running Rust loops check the deadline while
+  working; one-shot third-party cryptographic operations are checked at hook boundaries.
 
 ## TODOs
 

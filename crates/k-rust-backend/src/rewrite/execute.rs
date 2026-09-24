@@ -601,6 +601,7 @@ impl<'a> Execution<'a> {
                     simplified.pattern
                 }
                 Err(error) => {
+                    let state = self.check_interrupted(state, step_timer)?;
                     return Err(state.leaf_with_pattern(
                         applied.pattern,
                         HaltReason::Simplification(error),
@@ -650,6 +651,7 @@ impl<'a> Execution<'a> {
                     simplified.pattern
                 }
                 Err(error) => {
+                    let next = self.check_interrupted(next, step_timer)?;
                     return Err(next.leaf(HaltReason::Simplification(error), &self.observation_log));
                 }
             };
@@ -696,6 +698,7 @@ impl<'a> Execution<'a> {
                     simplified.pattern
                 }
                 Err(error) => {
+                    let state = self.check_interrupted(state, step_timer)?;
                     return Err(state.leaf_with_pattern(
                         original,
                         HaltReason::Simplification(error),
@@ -753,6 +756,7 @@ impl<'a> Execution<'a> {
                 }
             }
             if let Some(error) = failed_branch {
+                let state = self.check_interrupted(state, step_timer)?;
                 return Err(state.leaf_with_pattern(
                     original,
                     HaltReason::Simplification(error),
@@ -777,6 +781,7 @@ impl<'a> Execution<'a> {
                         simplified.pattern
                     }
                     Err(error) => {
+                        let state = self.check_interrupted(state, step_timer)?;
                         return Err(state.leaf_with_pattern(
                             original,
                             HaltReason::Simplification(error),
@@ -1158,7 +1163,9 @@ pub(crate) fn simplify_result_pattern(
 /// A constraint set that simplifies to `\bottom` makes the leaf `Trivial`, as it does for a
 /// cut-point payload. When the simplification fails, an `Indeterminate` leaf keeps its pattern
 /// and its reason, which already names why the state could not progress; any other leaf
-/// reports the failure, as the cut-point and terminal payloads do.
+/// reports the failure, as the cut-point and terminal payloads do. The halt reason is decided
+/// before externalisation, which only normalises the pattern, so a step deadline that passes
+/// during it leaves the leaf as it stands with its unsimplified pattern.
 #[allow(clippy::too_many_arguments)]
 fn externalise_leaf(
     definition: &BackendDefinition,
@@ -1189,6 +1196,9 @@ fn externalise_leaf(
         Ok(simplified) => {
             state.effects.commit(simplified.effects);
             state.leaf_with_pattern(simplified.pattern, halt_reason, observation_log)
+        }
+        Err(SimplificationError::Interrupted) => {
+            state.leaf_with_pattern(pattern, halt_reason, observation_log)
         }
         Err(_) if matches!(halt_reason, HaltReason::Indeterminate(_)) => {
             state.leaf_with_pattern(pattern, halt_reason, observation_log)
