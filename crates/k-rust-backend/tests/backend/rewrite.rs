@@ -4740,6 +4740,211 @@ fn rule_requires_budget_exhaustion_is_not_a_simplification_error() {
     assert_not_iteration_limit(&leaf.halt_reason);
 }
 
+/// A ground `cons` chain, `size` as function equations, and a function `prepare` whose two
+/// equations carry `size(S) >=Int 1024` and `size(S) <Int 1024` in their `requires`; the rewrite
+/// rule `dispatch` exposes `prepare(S)` to the simplifier. Evaluating `size` over the chain is one
+/// lineage as long as the chain, so the budget decides whether either `requires` is decided.
+fn equation_requires_budget_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            sort SortStack{} []
+            symbol nil{}() : SortStack{} [constructor{}(), total{}()]
+            symbol cons{}(SortInt{}, SortStack{}) : SortStack{} [constructor{}(), total{}()]
+            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            hooked-symbol intGe{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.ge")]
+            hooked-symbol intLt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.lt")]
+            symbol size{}(SortStack{}) : SortInt{} [function{}(), total{}()]
+            symbol prepare{}(SortStack{}) : SortS{} [function{}()]
+            symbol stackState{}(SortStack{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortStack{}, R}(X0:SortStack{}, nil{}()), \top{R}())),
+                \equals{SortInt{}, R}(
+                    size{}(X0:SortStack{}),
+                    \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+                )
+            ) [label{}("size-nil")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortStack{}, R}(X0:SortStack{}, cons{}(H:SortInt{}, T:SortStack{})),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortInt{}, R}(
+                    size{}(X0:SortStack{}),
+                    \and{SortInt{}}(
+                        intAdd{}(\dv{SortInt{}}("1"), size{}(T:SortStack{})),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("size-cons")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        intGe{}(size{}(S:SortStack{}), \dv{SortInt{}}("1024")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \and{R}(\in{SortStack{}, R}(X0:SortStack{}, S:SortStack{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    prepare{}(X0:SortStack{}),
+                    \and{SortS{}}(\dv{SortS{}}("overflow"), \top{SortS{}}())
+                )
+            ) [label{}("prepare-overflow")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        intLt{}(size{}(S:SortStack{}), \dv{SortInt{}}("1024")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \and{R}(\in{SortStack{}, R}(X0:SortStack{}, S:SortStack{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    prepare{}(X0:SortStack{}),
+                    \and{SortS{}}(\dv{SortS{}}("ok"), \top{SortS{}}())
+                )
+            ) [label{}("prepare-ok")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(stackState{}(S:SortStack{}), \top{SortS{}}()),
+                prepare{}(S:SortStack{})
+            ) [label{}("dispatch")]
+            "#,
+    )
+}
+
+fn equation_requires_budget_subject(definition: &BackendDefinition, depth: usize) -> Pattern {
+    let mut stack = Term::application(definition.symbols["nil"].clone(), Vec::new(), Vec::new());
+    for index in 0..depth {
+        stack = Term::application(
+            definition.symbols["cons"].clone(),
+            Vec::new(),
+            vec![
+                Term::domain_value(Sort::simple("SortInt"), index.to_string()),
+                stack,
+            ],
+        );
+    }
+    Pattern {
+        term: Term::application(
+            definition.symbols["stackState"].clone(),
+            Vec::new(),
+            vec![stack],
+        ),
+        constraints: Vec::new(),
+    }
+}
+
+fn run_equation_requires_budget(
+    depth: usize,
+    max_simplification_iterations: usize,
+) -> (ExecutionResult, Vec<BackendDiagnostic>) {
+    // The chain is a deep constructor term; run on the 64 MiB stack the CLI and RPC workers use.
+    std::thread::Builder::new()
+        .name("equation-requires-budget".into())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || {
+            let definition = equation_requires_budget_definition();
+            let subject = equation_requires_budget_subject(&definition, depth);
+            diagnostic::collect(|| {
+                execute(
+                    &definition,
+                    subject,
+                    ExecutionOptions {
+                        max_simplification_iterations,
+                        ..ExecutionOptions::default()
+                    },
+                )
+            })
+        })
+        .expect("execution thread should start")
+        .join()
+        .expect("execution thread should complete")
+}
+
+fn assert_stuck_on_unevaluated_prepare(result: &ExecutionResult) {
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert!(
+        matches!(
+            leaf.pattern.term.kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "prepare"
+        ),
+        "expected prepare to stay unevaluated, found {:?}",
+        leaf.pattern.term
+    );
+}
+
+/// The diagnostics are exactly one budget exhaustion over `Predicates` for each `prepare`
+/// equation, each qualified by the equation it left unapplied; the repeated attempts on the same
+/// redex report the same fact once.
+fn assert_only_prepare_exhaustions(diagnostics: &[BackendDiagnostic], limit: usize) {
+    let exhaustion = BackendDiagnostic::SimplificationBudgetExhausted {
+        limit,
+        subject: BudgetSubject::Predicates,
+    };
+    let qualified = |rule_id: &str| {
+        [
+            exhaustion.clone(),
+            BackendDiagnostic::RuleConditionUnsimplified {
+                rule_id: rule_id.to_owned(),
+                limit,
+            },
+        ]
+    };
+    let overflow_first = [qualified("prepare-overflow"), qualified("prepare-ok")].concat();
+    let ok_first = [qualified("prepare-ok"), qualified("prepare-overflow")].concat();
+    assert!(
+        diagnostics == overflow_first.as_slice() || diagnostics == ok_first.as_slice(),
+        "diagnostics: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
+    let (result, diagnostics) = run_equation_requires_budget(64, 1);
+
+    assert_stuck_on_unevaluated_prepare(&result);
+    assert_only_prepare_exhaustions(&diagnostics, 1);
+}
+
+#[test]
+fn equation_requires_exhaustion_at_the_default_budget_is_diagnosed() {
+    // A 1,024-element chain needs more than the default lineage budget to evaluate `size`, so
+    // neither `requires` is decided and `prepare` stays unevaluated; the diagnostic is the only
+    // observable difference from a genuinely open condition.
+    let (result, diagnostics) =
+        run_equation_requires_budget(1_024, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+
+    assert_stuck_on_unevaluated_prepare(&result);
+    assert_only_prepare_exhaustions(&diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+}
+
+#[test]
+fn equation_requires_within_budget_emits_no_exhaustion() {
+    let (result, diagnostics) =
+        run_equation_requires_budget(64, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert!(
+        matches!(leaf.pattern.term.kind(), TermKind::DomainValue { value, .. } if value == "ok"),
+        "expected prepare to evaluate to ok, found {:?}",
+        leaf.pattern.term
+    );
+    assert_eq!(diagnostics, []);
+}
+
 #[test]
 fn terminal_rule_keeps_a_partial_result_after_budget_exhaustion() {
     let definition = definition(
