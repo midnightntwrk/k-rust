@@ -6585,6 +6585,104 @@ fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled() {
     assert_eq!(state.depth, 0);
 }
 
+/// `wrap(X) => "done" requires X == "expected"`: from `wrap(Y)` the rule's condition is a solver
+/// query, and when it is undecided the priority group's remainder is a second one.
+fn guarded_search_definition() -> BackendDefinition {
+    definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("expected"))
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("guarded")]
+            "#,
+    )
+}
+
+/// Search `wrap(Y)` with `solver` under `token`, which the solver cancels.
+fn search_guarded_under(
+    solver: &ScriptedSolver,
+    token: &CancellationToken,
+) -> k_rust_backend::search::SearchResult {
+    let definition = guarded_search_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, "wrap{}(Y:SortS{})"),
+        constraints: Vec::new(),
+    };
+    token.scope(|| {
+        k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            initial,
+            k_rust_backend::search::SearchOptions::default(),
+            solver,
+        )
+    })
+}
+
+#[test]
+fn search_reports_a_cancellation_observed_by_the_requires_check_as_cancelled() {
+    // The cancellation arrives while the solver decides the rule's condition, so the solver
+    // answers unknown; the condition is undecided only because the request was cancelled.
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        std::iter::empty(),
+        [Ok(Validity::Unknown("request cancelled".into()))],
+    )
+    .cancelling_at(0, token.clone());
+
+    let result = search_guarded_under(&solver, &token);
+
+    let transcript = solver.transcript.borrow().clone();
+    assert!(
+        matches!(
+            transcript.as_slice(),
+            [ScriptedQuery::CheckPredicates { .. }]
+        ),
+        "the condition query is the only solver call: {transcript:#?}"
+    );
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
+#[test]
+fn search_reports_a_cancellation_observed_by_the_remainder_check_as_cancelled() {
+    // The condition is undecided on its own merits, so the rule applies under it and the
+    // group's remainder `Y =/= "expected"` goes to the solver; the cancellation arrives during
+    // that satisfiability query, which therefore answers unknown.
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        [Ok(Satisfiability::Unknown("request cancelled".into()))],
+        [Ok(Validity::Indeterminate)],
+    )
+    .cancelling_at(1, token.clone());
+
+    let result = search_guarded_under(&solver, &token);
+
+    let transcript = solver.transcript.borrow().clone();
+    assert!(
+        matches!(
+            transcript.as_slice(),
+            [
+                ScriptedQuery::CheckPredicates { .. },
+                ScriptedQuery::IsSat { .. }
+            ]
+        ),
+        "the condition and remainder queries are the only solver calls: {transcript:#?}"
+    );
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
 #[test]
 fn execution_disables_console_capability_after_a_symbolic_transition() {
     let definition = console_io_definition(

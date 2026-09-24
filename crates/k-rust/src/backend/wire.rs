@@ -1193,6 +1193,81 @@ mod tests {
         assert_eq!(incomplete[0]["kind"], "cancelled", "{response:#}");
     }
 
+    /// Cancels the request during its first query and, as a solver interrupted by the
+    /// cancellation does, answers that query and every later one as unknown.
+    struct CancelledSolver(k_rust_backend::cancellation::CancellationToken);
+
+    impl k_rust_backend::smt::SmtSolver for CancelledSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[k_rust_backend::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            self.0.cancel();
+            Ok(Satisfiability::Unknown("request cancelled".into()))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[k_rust_backend::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[k_rust_backend::rule::Predicate],
+        ) -> Result<k_rust_backend::smt::Validity, SmtError> {
+            self.0.cancel();
+            Ok(k_rust_backend::smt::Validity::Unknown(
+                "request cancelled".into(),
+            ))
+        }
+    }
+
+    #[test]
+    fn search_reports_a_cancellation_observed_by_the_solver_as_cancelled_on_the_wire() {
+        // `wrap(Y)` meets the condition `Y == "expected"`; the solver deciding it is the first
+        // point that observes the cancellation, so the condition is undecided only because of it.
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        wrap{}(X:SortS{}),
+                        \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("expected"))
+                    ),
+                    \dv{SortS{}}("done")
+                ) [label{}("guarded")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_pattern(
+                &k_rust_kore::kore::parser::parse_pattern("wrap{}(Y:SortS{})").unwrap(),
+                &[],
+            )
+            .unwrap();
+        let token = k_rust_backend::cancellation::CancellationToken::new();
+        let solver = CancelledSolver(token.clone());
+
+        let result = token.scope(|| {
+            k_rust_backend::search::search_graph_with_solver(
+                &definition,
+                initial,
+                k_rust_backend::search::SearchOptions::default(),
+                &solver,
+            )
+        });
+        let response =
+            serde_json::to_value(search_response(result, BACKEND_SCHEMA_VERSION).unwrap()).unwrap();
+
+        assert_eq!(response["states"], serde_json::json!([]), "{response:#}");
+        let incomplete = response["incomplete"].as_array().unwrap();
+        assert_eq!(incomplete.len(), 1, "{response:#}");
+        assert_eq!(incomplete[0]["kind"], "cancelled", "{response:#}");
+    }
+
     #[test]
     fn a_deadline_interruption_is_not_a_published_search_failure() {
         let error =
