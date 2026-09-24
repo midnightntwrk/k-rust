@@ -1,0 +1,1 @@
+{ let _krs_typecheck_map_items = || { } ; :: k :: builtin :: Map :: __new () }

@@ -1,0 +1,1 @@
+:: core :: panic ! ("bytes! has no runtime value")

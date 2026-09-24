@@ -1,0 +1,374 @@
+pub struct Neg {
+    pub value: Term<dyn Expr>,
+}
+const _: ::core::marker::PhantomData<dyn Expr> = ::core::marker::PhantomData;
+#[doc(hidden)]
+fn __krs_constructor_type_1bd4e99d7edfdcae() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Neg>()
+}
+#[doc(hidden)]
+fn __krs_constructor_sort_1bd4e99d7edfdcae() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<dyn Expr>()
+}
+#[doc(hidden)]
+fn __krs_constructor_field_1bd4e99d7edfdcae_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<dyn Expr>()
+}
+impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for Neg {
+    fn __krs_rule_application(authored_path: &str) -> ::k::HostApplicationTarget {
+        ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
+            key: ::k::HostTypeKey(__krs_constructor_type_1bd4e99d7edfdcae),
+            authored_path: authored_path.to_owned(),
+        })
+    }
+}
+#[doc(hidden)]
+fn __krs_constructor_descriptor_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
+    ::k::HostDescriptor {
+        protocol_version: ::k::ProtocolVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "Neg",
+                ::k::ItemKind::Constructor,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_constructor_type_1bd4e99d7edfdcae),
+            ),
+        ),
+        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
+            sort: ::k::HostSortReference {
+                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
+                    .expect("KRS parser roles are nonempty"),
+                target: ::k::HostTypeReference {
+                    key: ::k::HostTypeKey(__krs_constructor_sort_1bd4e99d7edfdcae),
+                    authored_path: "Expr".to_owned(),
+                },
+            },
+            syntax: ::core::option::Option::Some("-{value}".to_owned()),
+            fields: ::std::vec![
+                ::k::HostConstructorFieldDescriptor { name : "value".to_owned(), sort :
+                ::k::HostTypeReference { key :
+                ::k::HostTypeKey(__krs_constructor_field_1bd4e99d7edfdcae_0),
+                authored_path : "Expr".to_owned(), }, }
+            ],
+        }),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::HostProvenance::new(
+                ::k::HostSourceAnchor::new(
+                        "src/lib.rs".to_owned(),
+                        ::k::HostSourcePosition::new(2u32, 1u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::HostSourcePosition::new(2u32, 87u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::AnchorPrecision::Exact,
+                    )
+                    .expect("KRS emits ordered, non-absolute display anchors"),
+                ::std::vec![
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 25u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 29u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_syntax",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 40u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 50u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_declaration",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(4u32, 12u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(4u32, 15u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(5u32, 25u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(5u32, 29u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),)
+                ],
+            )
+            .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
+    }
+}
+::k::__register_host_descriptor!(__krs_constructor_descriptor_1bd4e99d7edfdcae);
+#[doc(hidden)]
+fn __krs_strictness_result_1bd4e99d7edfdcae() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<dyn KResult>()
+}
+#[doc(hidden)]
+fn __krs_constructor_grammar_1bd4e99d7edfdcae() -> ::k::HostDescriptor {
+    ::k::HostDescriptor {
+        protocol_version: ::k::ProtocolVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_Neg",
+                ::k::ItemKind::Grammar,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid grammar identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::HostDescriptorPayload::Grammar(
+            ::std::boxed::Box::new(
+                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
+                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
+                        .expect("KRS parser roles are nonempty"),
+                    template_key: ::core::option::Option::Some(
+                        ::k::ProvenanceKey::new("constructor_syntax", 0u32)
+                            .expect("KRS parser roles are nonempty"),
+                    ),
+                    owner: ::k::HostProductionOwner::Constructor {
+                        constructor: ::k::HostApplicationReference {
+                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
+                                .expect("KRS parser roles are nonempty"),
+                            target: ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
+                                key: ::k::HostTypeKey(
+                                    __krs_constructor_type_1bd4e99d7edfdcae,
+                                ),
+                                authored_path: "Neg".to_owned(),
+                            }),
+                        },
+                    },
+                    result_sort: ::k::HostSortReference {
+                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
+                            .expect("KRS parser roles are nonempty"),
+                        target: ::k::HostTypeReference {
+                            key: ::k::HostTypeKey(
+                                __krs_constructor_sort_1bd4e99d7edfdcae,
+                            ),
+                            authored_path: "Expr".to_owned(),
+                        },
+                    },
+                    items: ::std::vec![
+                        ::k::HostProductionItem::Terminal { key :
+                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
+                        .expect("KRS parser roles are nonempty"), text : "-".to_owned(),
+                        }, ::k::HostProductionItem::NonTerminal { key :
+                        ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
+                        .expect("KRS parser roles are nonempty"), field_key :
+                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
+                        0u32).expect("KRS parser roles are nonempty"), declaration_key :
+                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
+                        0u32).expect("KRS parser roles are nonempty")), field :
+                        ::k::ProductionFieldId::new("value")
+                        .expect("Rust field identifiers are valid production fields"),
+                        sort : ::std::boxed::Box::new(::k::HostSortReference { key :
+                        ::k::ProvenanceKey::new("constructor_field_sort", 0u32)
+                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::HostTypeReference { key :
+                        ::k::HostTypeKey(__krs_constructor_field_1bd4e99d7edfdcae_0),
+                        authored_path : "Expr".to_owned(), }, }), }
+                    ],
+                    attributes: ::std::vec![
+                        ::k::HostProductionAttribute::Group { reference :
+                        ::k::DescriptorGroupReference { key :
+                        ::k::ProvenanceKey::new("constructor_group", 0)
+                        .expect("KRS parser roles are nonempty"), group :
+                        ::k::ProductionGroupId::new("prefix")
+                        .expect("checked production groups are valid identities"), }, },
+                        ::k::HostProductionAttribute::Format { key :
+                        ::k::ProvenanceKey::new("constructor_format", 0)
+                        .expect("KRS parser roles are nonempty"), fragments :
+                        ::std::vec![::k::DescriptorFormatFragment { key :
+                        ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
+                        .expect("KRS parser roles are nonempty"), fragment :
+                        ::k::FormatFragment::Item(1u16), }, ::k::DescriptorFormatFragment
+                        { key : ::k::ProvenanceKey::new("constructor_format_fragment",
+                        1u32,).expect("KRS parser roles are nonempty"), fragment :
+                        ::k::FormatFragment::Item(2u16), }], },
+                        ::k::HostProductionAttribute::Strictness { key :
+                        ::k::ProvenanceKey::new("strictness_declaration", 0)
+                        .expect("KRS parser roles are nonempty"), kind :
+                        ::k::StrictnessKind::Strict, using :
+                        ::core::option::Option::None, fields :
+                        ::std::vec![::k::DescriptorFieldReference { key :
+                        ::k::ProvenanceKey::new("strictness_field_reference", 0u32)
+                        .expect("KRS parser roles are nonempty"), field :
+                        ::k::ProductionFieldId::new("value")
+                        .expect("Rust field identifiers are valid production fields"),
+                        }], result_sort : ::std::boxed::Box::new(::k::HostSortReference {
+                        key : ::k::ProvenanceKey::new("strictness_result_sort", 0u32)
+                        .expect("KRS parser roles are nonempty"), target :
+                        ::k::HostTypeReference { key :
+                        ::k::HostTypeKey(__krs_strictness_result_1bd4e99d7edfdcae),
+                        authored_path : "KResult".to_owned(), }, }), }
+                    ],
+                }),
+            ),
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::HostProvenance::new(
+                ::k::HostSourceAnchor::new(
+                        "src/lib.rs".to_owned(),
+                        ::k::HostSourcePosition::new(2u32, 1u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::HostSourcePosition::new(2u32, 87u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::AnchorPrecision::Exact,
+                    )
+                    .expect("KRS emits ordered, non-absolute display anchors"),
+                ::std::vec![
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 25u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 29u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_syntax",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 40u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 50u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_syntax_item",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 40u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 50u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_syntax_item",
+                    1u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 40u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 50u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_syntax_field_reference",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 40u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 50u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_group",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 60u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 68u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_format",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 79u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 85u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_format_fragment",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 79u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 85u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_format_fragment",
+                    1u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(2u32, 79u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 85u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_declaration",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(4u32, 12u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(4u32, 15u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(5u32, 25u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(5u32, 29u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_declaration",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(5u32, 9u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(5u32, 14u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("strictness_declaration",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 13u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 49u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("strictness_field_reference",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 25u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 30u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("strictness_result_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 42u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 49u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),)
+                ],
+            )
+            .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
+    }
+}
+::k::__register_host_descriptor!(__krs_constructor_grammar_1bd4e99d7edfdcae);

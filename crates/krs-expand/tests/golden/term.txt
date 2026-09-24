@@ -1,0 +1,1 @@
+{ let _krs_typecheck_named_term = || { let _ = StaticExpr :: M3dTwice (int :: add (value , 1)) ; } ; :: core :: panic ! ("`term!` has no runtime value in KRS") }

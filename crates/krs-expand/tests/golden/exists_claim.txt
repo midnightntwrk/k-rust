@@ -1,0 +1,1 @@
+error 1:0-1:0: `#[k::exists]` is a claim helper; place `#[k::claim(...)]` before it

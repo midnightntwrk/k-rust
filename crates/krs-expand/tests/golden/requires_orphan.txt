@@ -1,0 +1,1 @@
+error 1:0-1:0: `#[k::requires]` is a rule helper; place `#[k::rule]` before it

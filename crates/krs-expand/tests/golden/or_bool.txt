@@ -1,0 +1,1 @@
+:: core :: panic ! ("or_bool! has no runtime value")

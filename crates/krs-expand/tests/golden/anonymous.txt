@@ -1,0 +1,1 @@
+:: core :: panic ! ("anonymous! has no runtime value")

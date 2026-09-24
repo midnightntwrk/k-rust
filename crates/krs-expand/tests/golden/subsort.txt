@@ -1,0 +1,91 @@
+impl Value for Identifier {}
+#[doc(hidden)]
+fn __krs_subsort_super_ec843611dce35b9f() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<dyn Value>()
+}
+#[doc(hidden)]
+fn __krs_subsort_sub_ec843611dce35b9f() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<Identifier>()
+}
+#[doc(hidden)]
+fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
+    ::k::HostDescriptor {
+        protocol_version: ::k::ProtocolVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "__krs_grammar_subsort_ec843611dce35b9f",
+                ::k::ItemKind::Grammar,
+                "subsort",
+            )
+            .expect("Cargo and Rust macro context form a valid subsort identity"),
+        declared_type: ::core::option::Option::None,
+        payload: ::k::HostDescriptorPayload::Grammar(
+            ::std::boxed::Box::new(::k::HostGrammarDescriptor::Subsort {
+                key: ::k::ProvenanceKey::new("subsort_declaration", 0)
+                    .expect("KRS parser roles are nonempty"),
+                subsort: ::k::HostSortReference {
+                    key: ::k::ProvenanceKey::new("subsort_sub_sort", 0u32)
+                        .expect("KRS parser roles are nonempty"),
+                    target: ::k::HostTypeReference {
+                        key: ::k::HostTypeKey(__krs_subsort_sub_ec843611dce35b9f),
+                        authored_path: "Identifier".to_owned(),
+                    },
+                },
+                supersort: ::k::HostSortReference {
+                    key: ::k::ProvenanceKey::new("subsort_super_sort", 0u32)
+                        .expect("KRS parser roles are nonempty"),
+                    target: ::k::HostTypeReference {
+                        key: ::k::HostTypeKey(__krs_subsort_super_ec843611dce35b9f),
+                        authored_path: "Value".to_owned(),
+                    },
+                },
+            }),
+        ),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::HostProvenance::new(
+                ::k::HostSourceAnchor::new(
+                        "src/lib.rs".to_owned(),
+                        ::k::HostSourcePosition::new(2u32, 1u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::HostSourcePosition::new(2u32, 14u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::AnchorPrecision::Exact,
+                    )
+                    .expect("KRS emits ordered, non-absolute display anchors"),
+                ::std::vec![
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("subsort_declaration",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 1u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 29u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("subsort_super_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 6u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 11u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("subsort_sub_sort",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 16u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 26u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),)
+                ],
+            )
+            .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
+    }
+}
+::k::__register_host_descriptor!(__krs_subsort_descriptor_ec843611dce35b9f);

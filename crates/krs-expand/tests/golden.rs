@@ -1,0 +1,766 @@
+//! Golden expansions: the expanded token text of one small input per
+//! `krs-macros` entry point, and of the helper and error paths that each entry
+//! point dispatches to.
+//!
+//! Each case is one item of an authored file. Its first KRS attribute, or the
+//! item-level macro itself, is expanded once with a [`BrowserEnvironment`]
+//! whose call site is that invocation; nested invocations in the output are
+//! not expanded. The expected text is `tests/golden/<case>.txt`: the output
+//! printed by `prettyplease` when it is a sequence of items, otherwise its
+//! `TokenStream` spelling, or one line per diagnostic.
+//!
+//! Set `KRS_EXPAND_GOLDEN_RECORD=1` to rewrite the expected files after an
+//! intended output change.
+
+use std::fmt::Write as _;
+use std::path::PathBuf;
+
+use krs_expand::BrowserEnvironment;
+use krs_expand::sink::AuthoredFile;
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
+use proc_macro2::{Span, TokenStream};
+use quote::ToTokens;
+use syn::spanned::Spanned;
+
+const RECORD: &str = "KRS_EXPAND_GOLDEN_RECORD";
+
+/// (case name, authored source).
+const CASES: &[(&str, &str)] = &[
+    // Sort declarations.
+    (
+        "sort",
+        r"
+#[k::sort]
+pub trait Value: Expr + KResult {}
+",
+    ),
+    (
+        "sort_bracket",
+        r#"
+#[k::sort]
+#[k::bracket("({value})")]
+pub trait Expr: KItem {}
+"#,
+    ),
+    (
+        "sorts",
+        r"
+k::sorts! {
+    M2Obj: KResult;
+}
+",
+    ),
+    (
+        "sorts_readable",
+        r#"
+k::sorts! {
+    #[k::bracket("(", ")")]
+    ReadableExpr;
+    impl ReadableExpr for Id;
+
+    ReadableValue: ReadableExpr + k::KResult;
+    impl ReadableValue for Int, Bool;
+
+    DiamondTop;
+    DiamondLeft: DiamondTop;
+    DiamondRight: DiamondTop;
+    Diamond: DiamondLeft + DiamondRight;
+    impl Diamond for Int;
+}
+"#,
+    ),
+    (
+        "framework_sorts",
+        r"
+k::__framework_sorts! {
+    KItem;
+    KResult: KItem;
+}
+",
+    ),
+    (
+        "subsort",
+        r"
+#[k::subsort]
+impl Value for Identifier {}
+",
+    ),
+    (
+        "bracket_orphan",
+        r#"
+#[k::bracket("(", ")")]
+pub trait Expr {}
+"#,
+    ),
+    // Productions.
+    (
+        "symbol",
+        r#"
+#[k::symbol("api::Halt")]
+#[k::constructor(sort = Expr, syntax = "halt", group = "atoms")]
+pub struct Halt;
+"#,
+    ),
+    (
+        "constructor",
+        r#"
+#[k::constructor(
+    sort = Expr,
+    syntax = "{second} pair {first}",
+    group = "pair",
+    avoid = true,
+    format = "%1 %2 %3"
+)]
+#[k::seqstrict(sequence = [first, second], result = KResult)]
+pub struct Pair {
+    pub first: Term<dyn Expr>,
+    pub second: Term<dyn Expr>,
+}
+"#,
+    ),
+    (
+        "constructor_strict",
+        r#"
+#[k::constructor(sort = Expr, syntax = "-{value}", group = "prefix", format = "%1%2")]
+#[k::strict(sequence = [value], result = KResult)]
+pub struct Neg {
+    pub value: Term<dyn Expr>,
+}
+"#,
+    ),
+    (
+        "function",
+        r##"
+#[k::function(total, sort = k::builtin::int::Int, syntax = "#increment({value})")]
+pub struct Increment {
+    pub value: Term<k::builtin::int::Int>,
+}
+"##,
+    ),
+    (
+        "function_hook",
+        r#"
+#[k::function(
+    total,
+    sort = k::builtin::Bytes,
+    syntax = "Keccak256raw({value})",
+    hook = krypto::keccak256_raw,
+)]
+pub struct Keccak256Raw {
+    pub value: Term<k::builtin::Bytes>,
+}
+"#,
+    ),
+    (
+        "constructors",
+        r#"
+#[k::constructors(sort = M2Obj, result = KResult)]
+#[k::precedence((Foo, Bar))]
+pub enum Object {
+    #[k::syntax("foo")]
+    Foo(),
+    #[k::syntax("bar")]
+    Bar(),
+}
+"#,
+    ),
+    (
+        "constructors_helpers",
+        r#"
+#[k::constructors(sort = Expr, result = k::KResult)]
+#[k::precedence((M3dZero, M3dTwice, Block) > left (And))]
+pub enum StaticExpr {
+    #[k::syntax("m3dZero")]
+    #[k::alias]
+    M3dZero(),
+
+    #[k::syntax("m3dTwice({value})")]
+    #[k::seqstrict(using = m3d_eval)]
+    M3dTwice { value: Expr },
+
+    #[k::syntax("{lhs} && {rhs}")]
+    #[k::strict(lhs)]
+    And { lhs: Expr, rhs: Expr },
+
+    #[k::syntax("{{{body}}}")]
+    #[k::format("{{%i%n{body}%d%n}}")]
+    Block { body: Expr },
+}
+"#,
+    ),
+    (
+        "constructors_records",
+        r#"
+#[k::constructors(sort = Value)]
+pub enum Boolean {
+    #[k::syntax("true", group = "atoms")]
+    True,
+    #[k::syntax("false", group = "atoms")]
+    False,
+    #[k::syntax("tag {value}", group = "atoms", format = "%1%2")]
+    Tagged { value: Term<dyn Expr> },
+}
+"#,
+    ),
+    (
+        "token",
+        r#"
+#[k::token(regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2)]
+pub struct Identifier(pub String);
+"#,
+    ),
+    (
+        "strict_orphan",
+        r"
+#[k::strict(sequence = [value], result = KResult)]
+pub struct Neg {
+    pub value: Term<dyn Expr>,
+}
+",
+    ),
+    (
+        "seqstrict_orphan",
+        r"
+#[k::seqstrict(sequence = [first], result = KResult)]
+pub struct Pair {
+    pub first: Term<dyn Expr>,
+}
+",
+    ),
+    (
+        "precedence",
+        r"
+k::precedence! {
+    pair > atoms;
+}
+",
+    ),
+    (
+        "associativity",
+        r"
+k::associativity! {
+    left: pair;
+    non_associative: atoms;
+}
+",
+    ),
+    // Configuration and initializers.
+    (
+        "configuration",
+        r"
+#[k::configuration]
+pub struct Machine {
+    #[k::cell]
+    pub k: KSequence,
+}
+",
+    ),
+    (
+        "configuration_root",
+        r#"
+#[k::configuration(root = "machine")]
+pub struct Machine {
+    pub k: instrumented::KCell<k::builtin::KSequence>,
+    #[k::cell(name = "environment", color = "blue")]
+    pub env: k::configuration::Cell<
+        k::builtin::Map<k::builtin::Id, Term<dyn Value>>,
+    >,
+}
+"#,
+    ),
+    (
+        "configuration_nested",
+        r"
+#[k::configuration]
+pub struct NestedMachine {
+    pub k: k::configuration::KCell<k::builtin::KSequence>,
+    pub store: Store,
+}
+",
+    ),
+    (
+        "cell",
+        r"
+#[k::cell]
+pub struct Store {
+    pub env: k::configuration::Cell<
+        k::builtin::Map<k::builtin::Id, Term<dyn Value>>,
+    >,
+}
+",
+    ),
+    (
+        "init",
+        r"
+#[k::init]
+pub fn init() -> Self {
+    Self {
+        k: k::k![Object::Foo()],
+    }
+}
+",
+    ),
+    (
+        "init_config_vars",
+        r#"
+#[k::init]
+pub fn init(
+    #[k::config_var(name = "PGM", main)] pgm: ReadableStmt,
+    #[k::config_var(name = "ENV")] env: k::builtin::Map<k::builtin::Id, ReadableValue>,
+) -> Self {
+    Self {
+        k: k::configuration::KCell::new(k::k![pgm]),
+        store: Store {
+            env: k::configuration::Cell::new(env),
+        },
+    }
+}
+"#,
+    ),
+    // Rules, equations, and claims.
+    (
+        "rules",
+        r"
+k::rules! {
+    for M2Obj;
+    use Object::*;
+
+    foo_to_bar: Foo() => Bar();
+}
+",
+    ),
+    (
+        "rules_heads",
+        r#"
+k::rules! {
+    for Expr;
+
+    /// Evaluate integer negation after strictness has produced a value.
+    eval_neg:     Neg { value }           => int::sub(0, value);
+    #[k::rule(owise, label = "eval-not")]
+    eval_not:     Not { value }           => bool::not(value);
+    eval_bool_eq: Eq { lhs, rhs }         => bool::eq(lhs, rhs) where lhs: Bool, rhs: Bool;
+    and_false:    And { lhs: false, .. }  => false;
+}
+"#,
+    ),
+    (
+        "rules_configuration",
+        r"
+k::rules! {
+    for ReadableRuleMachine;
+    use StmtSyntax::Assign;
+
+    var: {
+        computation: [name, ..],
+        env: { name -> value, .. },
+    } => {
+        computation: [value, ..],
+    }
+    where name: Id;
+
+    assign: {
+        computation: [Assign(name, value), ..],
+        env: e,
+    } => {
+        computation: [..],
+        env: set(e, name, value),
+    }
+    where value: Value;
+}
+",
+    ),
+    (
+        "rule",
+        r"
+#[k::rule]
+fn m3d_twice(k::term![StaticExpr::M3dTwice(value)]: Term<Expr>) -> Term<Expr> {
+    int::add(value, value)
+}
+",
+    ),
+    (
+        "rule_cells",
+        r"
+#[k::rule]
+fn explicit_step(
+    s1: k::Term<Stmt>,
+    s2: k::Term<Stmt>,
+    k::cells! {
+        computation: KCell(StmtSyntax::Sequence(s1, s2), tail @ ..),
+        state @ ..
+    }: ReadableRuleMachine,
+) -> ReadableRuleMachine {
+    k::cells! {
+        computation: KCell(s1, s2, ..tail),
+        ..state
+    }
+}
+",
+    ),
+    (
+        "equation",
+        r"
+#[k::equation]
+fn m3d_total(k::term![M3dTotal(value)]: Term<Int>) -> Term<Int> {
+    int::add(value, 1)
+}
+",
+    ),
+    (
+        "requires_equation",
+        r"
+#[k::requires(int::le(0, value))]
+#[k::equation]
+fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int> {
+    value
+}
+",
+    ),
+    (
+        "equation_requires",
+        r"
+#[k::equation]
+#[k::requires(int::le(0, value))]
+fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int> {
+    value
+}
+",
+    ),
+    (
+        "requires_orphan",
+        r"
+#[k::requires(int::le(0, value))]
+#[k::rule]
+fn positive(k::term![Positive(value)]: Term<Int>) -> Term<Int> {
+    value
+}
+",
+    ),
+    (
+        "priority",
+        r"
+#[k::priority(40)]
+#[k::equation]
+fn m3d_priority_zero(k::term![M3dPriority(0)]: Term<Int>) -> Term<Int> {
+    111
+}
+",
+    ),
+    (
+        "simplification",
+        r"
+#[k::simplification]
+fn normalize_gt(k::term![int::gt(lhs, rhs)]: Term<Bool>) -> Term<Bool> {
+    int::lt(rhs, lhs)
+}
+",
+    ),
+    (
+        "alias",
+        r"
+#[k::alias]
+fn m3d_zero_alias(k::term![StaticExpr::M3dZero]: Term<Expr>) -> Term<Expr> {
+    0
+}
+",
+    ),
+    (
+        "alias_orphan",
+        r"
+#[k::alias]
+pub struct Zero;
+",
+    ),
+    (
+        "context_alias",
+        r"
+#[k::context_alias(name = m3d_eval, here = site)]
+fn m3d_eval(
+    k::cells! {
+        k: k::configuration::KCell(site, tail @ ..),
+        state @ ..
+    }: Machine,
+) {
+}
+",
+    ),
+    (
+        "claim",
+        r#"
+#[k::claim(all_paths, label = "branching")]
+#[k::exists(n: Int)]
+#[k::ensures(k::or_bool![int::eq(n, 5), int::eq(n, 6)])]
+fn branching(
+    k::cells! {
+        k: k::configuration::KCell(
+            StmtSyntax::Sequence(
+                StmtSyntax::Assign(k::id!("$n"), 7),
+                StmtSyntax::IfThenElse(
+                    k::anonymous!(Bool, "_B"),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 6)),
+                    StmtSyntax::Block(StmtSyntax::Assign(k::id!("$n"), 5)),
+                ),
+            ),
+            tail @ ..
+        ),
+        env: k::configuration::Cell(map![k::id!("$n") -> 0]),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    k::cells! {
+        k: k::configuration::KCell(..tail),
+        env: k::configuration::Cell(map![k::id!("$n") -> n]),
+        ..state
+    }
+}
+"#,
+    ),
+    (
+        "exists_claim",
+        r"
+#[k::exists(n: Int)]
+#[k::claim(one_path)]
+fn reaches(
+    k::cells! { k: k::configuration::KCell(Start(), tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    k::cells! { k: k::configuration::KCell(Done(n), ..tail), ..state }
+}
+",
+    ),
+    (
+        "ensures_orphan",
+        r"
+#[k::ensures(true)]
+fn orphan() {}
+",
+    ),
+    // Term islands.
+    (
+        "term",
+        r"
+k::term![StaticExpr::M3dTwice(int::add(value, 1))];
+",
+    ),
+    (
+        "k",
+        r"
+k::k![s, StmtSyntax::EmptyBlock()];
+",
+    ),
+    (
+        "map_items",
+        r#"
+k::map![k::id!("$x") -> 1, key -> value];
+"#,
+    ),
+    (
+        "map_empty",
+        r"
+k::map![.Map];
+",
+    ),
+    (
+        "cells",
+        r"
+k::cells! {
+    k: k::configuration::KCell(s1, s2, ..tail),
+    env: k::configuration::Cell(map![name -> value]),
+    ..state
+}
+",
+    ),
+    (
+        "fragment",
+        r"
+k::fragment![CallState { program: caller_program, pc: int::add(pc, 1) }];
+",
+    ),
+    ("id", "k::id!(\"$n\");"),
+    ("bytes", "k::bytes!(b\"\\x00A\");"),
+    ("anonymous", "k::anonymous!(Bool, \"_B\");"),
+    ("or_bool", "k::or_bool![int::eq(n, 5), int::eq(n, 6)];"),
+];
+
+/// The invocation of one case: the entry point, its call site, and its input.
+enum Invocation {
+    Attribute {
+        entry: AttributeMacro,
+        call_site: Span,
+        arguments: TokenStream,
+        item: TokenStream,
+    },
+    Function {
+        entry: FunctionMacro,
+        call_site: Span,
+        input: TokenStream,
+    },
+}
+
+/// The entry name of a `k::<entry>` path.
+fn facade_member(path: &syn::Path) -> Option<String> {
+    let [facade, entry] = [path.segments.first()?, path.segments.last()?];
+    (path.segments.len() == 2 && facade.ident == "k").then(|| entry.ident.to_string())
+}
+
+fn item_attributes(item: &mut syn::Item) -> &mut Vec<syn::Attribute> {
+    match item {
+        syn::Item::Enum(item) => &mut item.attrs,
+        syn::Item::Fn(item) => &mut item.attrs,
+        syn::Item::Impl(item) => &mut item.attrs,
+        syn::Item::Struct(item) => &mut item.attrs,
+        syn::Item::Trait(item) => &mut item.attrs,
+        other => panic!("unsupported golden item: {}", other.to_token_stream()),
+    }
+}
+
+fn invocation(tokens: TokenStream) -> Invocation {
+    let file: syn::File = syn::parse2(tokens).expect("a golden case parses as a file");
+    let [mut item] = <[syn::Item; 1]>::try_from(file.items).expect("one item per golden case");
+    if let syn::Item::Macro(item) = &item {
+        let name = facade_member(&item.mac.path).expect("a facade-qualified macro");
+        return Invocation::Function {
+            entry: FunctionMacro::from_name(&name).expect("a krs-macros entry point"),
+            call_site: item.mac.span(),
+            input: item.mac.tokens.clone(),
+        };
+    }
+    let attributes = item_attributes(&mut item);
+    let index = attributes
+        .iter()
+        .position(|attribute| {
+            facade_member(attribute.path())
+                .and_then(|name| AttributeMacro::from_name(&name))
+                .is_some()
+        })
+        .expect("a KRS attribute");
+    let attribute = attributes.remove(index);
+    let entry = facade_member(attribute.path())
+        .and_then(|name| AttributeMacro::from_name(&name))
+        .expect("a KRS attribute");
+    let arguments = match &attribute.meta {
+        syn::Meta::Path(_) => TokenStream::new(),
+        syn::Meta::List(list) => list.tokens.clone(),
+        syn::Meta::NameValue(_) => panic!("KRS attributes take no `=` value"),
+    };
+    Invocation::Attribute {
+        entry,
+        call_site: attribute.span(),
+        arguments,
+        item: item.to_token_stream(),
+    }
+}
+
+fn render(result: syn::Result<TokenStream>) -> String {
+    match result {
+        Ok(output) => {
+            if let Ok(file) = syn::parse2::<syn::File>(output.clone()) {
+                prettyplease::unparse(&file)
+            } else {
+                let mut text = output.to_string();
+                text.push('\n');
+                text
+            }
+        }
+        Err(error) => error.into_iter().fold(String::new(), |mut text, error| {
+            let (start, end) = (error.span().start(), error.span().end());
+            let _ = writeln!(
+                text,
+                "error {}:{}-{}:{}: {error}",
+                start.line, start.column, end.line, end.column
+            );
+            text
+        }),
+    }
+}
+
+fn expand(source: &str) -> String {
+    let (authored, tokens) = AuthoredFile::lex("src/lib.rs", source).expect("a golden case lexes");
+    let env = BrowserEnvironment::new(&authored, syn::parse_str("::k").unwrap());
+    let result = match invocation(tokens) {
+        Invocation::Attribute {
+            entry,
+            call_site,
+            arguments,
+            item,
+        } => {
+            env.set_call_site(call_site);
+            krs_expand::expand_attribute(entry, &env, arguments, item)
+        }
+        Invocation::Function {
+            entry,
+            call_site,
+            input,
+        } => {
+            env.set_call_site(call_site);
+            krs_expand::expand_function(entry, &env, input)
+        }
+    };
+    render(result)
+}
+
+fn golden_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden")
+}
+
+#[test]
+fn every_entry_point_has_a_golden_case() {
+    let covered = CASES
+        .iter()
+        .map(|(_, source)| {
+            let (_, tokens) = AuthoredFile::lex("src/lib.rs", source).unwrap();
+            match invocation(tokens) {
+                Invocation::Attribute { entry, .. } => entry.name(),
+                Invocation::Function { entry, .. } => entry.name(),
+            }
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let missing = AttributeMacro::ALL
+        .iter()
+        .map(|entry| entry.name())
+        .chain(FunctionMacro::ALL.iter().map(|entry| entry.name()))
+        .filter(|name| !covered.contains(name))
+        .collect::<Vec<_>>();
+    assert!(
+        missing.is_empty(),
+        "entry points without a golden case: {missing:?}"
+    );
+}
+
+/// Every case in one test, so the cases share one `proc_macro2` fallback
+/// source map in a fixed order.
+#[test]
+fn expansions_match_the_goldens() {
+    let record = std::env::var_os(RECORD).is_some();
+    let dir = golden_dir();
+    let mut mismatches = Vec::new();
+    for (name, source) in CASES {
+        let actual = expand(source);
+        let path = dir.join(format!("{name}.txt"));
+        if record {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(&path, &actual).unwrap();
+            continue;
+        }
+        let expected = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("{}: {error}; set {RECORD}=1", path.display()));
+        if actual != expected {
+            mismatches.push(*name);
+        }
+    }
+    let mut stale = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|file| {
+            !CASES
+                .iter()
+                .any(|(name, _)| file.strip_suffix(".txt") == Some(name))
+        })
+        .collect::<Vec<_>>();
+    stale.sort();
+    assert!(stale.is_empty(), "golden files without a case: {stale:?}");
+    assert!(
+        mismatches.is_empty(),
+        "expansions differ from tests/golden for {mismatches:?}; set {RECORD}=1 after an intended change"
+    );
+}

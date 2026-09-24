@@ -1,0 +1,75 @@
+::k::__request_framework_sorts!();
+#[doc = concat!("Membership marker generated for the `", "M2Obj", "` K sort.")]
+pub trait M2ObjSort: ::k::KResultSort {}
+#[doc = concat!("Symbolic term type generated for the `", "M2Obj", "` K sort.")]
+pub type M2Obj = ::k::Term<dyn M2ObjSort>;
+#[doc(hidden)]
+fn __krs_sort_type_c77a5ba7566c5a07() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<M2Obj>()
+}
+#[doc(hidden)]
+fn __krs_sort_parent_c77a5ba7566c5a07_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<KResult>()
+}
+#[doc(hidden)]
+fn __krs_sort_descriptor_c77a5ba7566c5a07() -> ::k::HostDescriptor {
+    ::k::HostDescriptor {
+        protocol_version: ::k::ProtocolVersion::CURRENT,
+        id: ::k::HostItemId::from_macro_context(
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION"),
+                env!("CARGO_MANIFEST_DIR"),
+                module_path!(),
+                "M2Obj",
+                ::k::ItemKind::Sort,
+                "",
+            )
+            .expect("Cargo and Rust macro context form a valid host identity"),
+        declared_type: ::core::option::Option::Some(
+            ::k::HostDeclarationIdentity::Nominal(
+                ::k::HostTypeKey(__krs_sort_type_c77a5ba7566c5a07),
+            ),
+        ),
+        payload: ::k::HostDescriptorPayload::Sort(::k::HostSortDescriptor {
+            parents: ::std::vec![
+                ::k::HostTypeReference { key :
+                ::k::HostTypeKey(__krs_sort_parent_c77a5ba7566c5a07_0), authored_path :
+                "KResult".to_owned(), }
+            ],
+        }),
+        cfg: ::core::default::Default::default(),
+        provenance: ::k::HostProvenance::new(
+                ::k::HostSourceAnchor::new(
+                        "src/lib.rs".to_owned(),
+                        ::k::HostSourcePosition::new(2u32, 1u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::HostSourcePosition::new(4u32, 2u32)
+                            .expect("stable proc-macro positions are one-based"),
+                        ::k::AnchorPrecision::Exact,
+                    )
+                    .expect("KRS emits ordered, non-absolute display anchors"),
+                ::std::vec![
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("sort_declaration",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 5u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 10u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),),
+                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("sort_parent",
+                    0u32).expect("KRS parser roles are nonempty"),
+                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
+                    ::k::HostSourcePosition::new(3u32, 12u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(3u32, 19u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::AnchorPrecision::Exact,)
+                    .expect("KRS emits ordered, non-absolute display anchors"),)
+                ],
+            )
+            .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
+    }
+}
+::k::__register_host_descriptor!(__krs_sort_descriptor_c77a5ba7566c5a07);

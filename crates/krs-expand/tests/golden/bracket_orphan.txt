@@ -1,0 +1,1 @@
+error 1:0-1:0: `#[k::bracket]` is a sort helper; place `#[k::sort]` before it
