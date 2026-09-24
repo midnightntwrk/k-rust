@@ -881,6 +881,75 @@ module_snapshot!(
     "MAIN"
 );
 
+module_snapshot!(
+    labelled_token_productions_contribute_only_top_to_no_junk,
+    r#"
+        module MAIN
+          syntax Str ::= r"[a-z]+" [token, symbol(strLit)]
+          syntax Str ::= r"[A-Z]+" [token, symbol(idLit)]
+          syntax Exp ::= "wrap(" Str ")" [symbol(wrap)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+module_snapshot!(
+    labelled_token_productions_contribute_only_top_to_no_junk_in_reverse_order,
+    r#"
+        module MAIN
+          syntax Str ::= r"[A-Z]+" [token, symbol(idLit)]
+          syntax Str ::= r"[a-z]+" [token, symbol(strLit)]
+          syntax Exp ::= "wrap(" Str ")" [symbol(wrap)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+/// The printed axioms of the semantic module whose top pattern is a disjunction over `sort`:
+/// the sort's no-junk axiom.
+fn no_junk_axioms_of(source: &str, sort: &str) -> Vec<String> {
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let printer = Printer::pretty(100);
+    let prefix = format!(r"axiom{{}} \or{{{sort}}}(");
+    modules
+        .semantics
+        .sentences
+        .iter()
+        .filter(|sentence| matches!(sentence, Sentence::Axiom { .. }))
+        .map(|sentence| printer.print_sentence(sentence))
+        .filter(|printed| printed.starts_with(&prefix))
+        .collect()
+}
+
+#[test]
+fn token_productions_contribute_only_top_to_no_junk_in_any_order() {
+    // Property: a token production parses to domain values, which no symbol generates, so no
+    // no-junk axiom lists a token production's symbol, and the axiom of a sort does not depend
+    // on the order of its token productions.
+    let lower_first = indoc! {r#"
+        module MAIN
+          syntax Str ::= r"[a-z]+" [token, symbol(strLit)]
+          syntax Str ::= r"[A-Z]+" [token, symbol(idLit)]
+          syntax Str ::= r"[0-9]+" [token]
+          syntax Exp ::= "wrap(" Str ")" [symbol(wrap)]
+        endmodule
+    "#};
+    let upper_first = indoc! {r#"
+        module MAIN
+          syntax Str ::= r"[0-9]+" [token]
+          syntax Str ::= r"[A-Z]+" [token, symbol(idLit)]
+          syntax Str ::= r"[a-z]+" [token, symbol(strLit)]
+          syntax Exp ::= "wrap(" Str ")" [symbol(wrap)]
+        endmodule
+    "#};
+    let expected = vec![
+        r"axiom{} \or{SortStr{}}(\top{SortStr{}}(), \bottom{SortStr{}}()) [constructor{}()]"
+            .to_owned(),
+    ];
+    assert_eq!(no_junk_axioms_of(lower_first, "SortStr{}"), expected);
+    assert_eq!(no_junk_axioms_of(upper_first, "SortStr{}"), expected);
+}
+
 #[test]
 fn rejects_non_binary_associative_productions() {
     let source = indoc! {r#"

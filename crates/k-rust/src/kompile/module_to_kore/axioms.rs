@@ -265,7 +265,7 @@ fn no_junk_axioms(
         let mut used_variable_names = BTreeSet::new();
         let mut variable_suffixes = BTreeMap::new();
         let mut has_token = false;
-        // Invariant: `alternatives` holds one pattern for every admitted production of `result_head` before this one, with at most one top pattern for token productions as tracked by `has_token`; this scan of `productions.productions()` runs once per sort, O(|sorts| * |productions|).
+        // Invariant: `alternatives` holds one pattern for every admitted labelled non-token production of `result_head` before this one, plus exactly one top pattern if any token production precedes it, as tracked by `has_token`; this scan of `productions.productions()` runs once per sort, O(|sorts| * |productions|).
         for (_, production) in productions.productions() {
             let Sentence::Production {
                 label,
@@ -285,11 +285,16 @@ fn no_junk_axioms(
             {
                 continue;
             }
-            if attributes.has(AttributeKey::Token) && !has_token {
-                alternatives.push(Pattern::Top {
-                    sort: result_sort.clone(),
-                });
-                has_token = true;
+            if attributes.has(AttributeKey::Token) {
+                // A token production parses to domain values of its sort, which no symbol
+                // generates, so `\top` is its complete alternative; its symbol is never a
+                // generator, whatever its label or its position among the sort's productions.
+                if !has_token {
+                    alternatives.push(Pattern::Top {
+                        sort: result_sort.clone(),
+                    });
+                    has_token = true;
+                }
             } else if label.is_some()
                 && let Some(production) = generated_production_for_sort(production, sort)
             {
