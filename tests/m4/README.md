@@ -148,3 +148,13 @@ python3 tests/m4/verify.py
 
 The final PASS summary prints the protocol/IR schema, K and `k-rust` pins,
 proof-bound policy, artifact hashes, and compatibility-policy version.
+
+`--artifacts-only` runs M4.1-M4.3 (preflight, the Rust checks, and the
+repeated emission, probe, and native builds with every emitted artifact
+compared to its pin) and stops with a PASS line that says the comparison
+layers M4.4-M4.8 were skipped. Those layers compare the emitted artifacts
+with the reference routes and cannot find anything new while every artifact is
+byte-identical to its pin, so the mode suits a change expected to leave the
+output unchanged. Any artifact difference fails and asks for the full gate; the
+mode cannot be combined with `--record` or `--audit-all`. The full run stays
+the default.

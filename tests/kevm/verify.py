@@ -301,9 +301,11 @@ def main() -> int:
         action="store_true",
         help="run the gate and rewrite the output pins it measured",
     )
+    semantics.add_artifacts_only_argument(parser)
     arguments = parser.parse_args()
+    semantics.reject_artifacts_only_conflicts(parser, arguments)
     try:
-        pins = Ledger(PORT.pins_path, record=arguments.record)
+        pins = Ledger(PORT.pins_path, record=arguments.record, artifacts_only=arguments.artifacts_only)
         corpus = load_toml(PORT.corpus_path)
         environment = semantics.preflight(PORT, pins, corpus)
         krs, compiler, runner = semantics.rust_gate(PORT, environment)
@@ -311,6 +313,10 @@ def main() -> int:
             workspace = Path(temporary)
             artifacts = semantics.artifact_gate(PORT, workspace, krs, pins, environment)
             definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
+            if arguments.artifacts_only:
+                semantics.native_definition(workspace, artifacts, compiler, pins, environment)
+                print(f"PASS readable KEVM operational slice: {semantics.artifacts_only_summary(PORT)}")
+                return 0
             if arguments.java_reference:
                 k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
                 executions, proofs = java_reference_gate(workspace, artifacts, k, pins, corpus)

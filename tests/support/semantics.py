@@ -6,10 +6,15 @@ the external checkout and the corpus, the ordinary Rust checks, repeated
 expansion and emission with their output pins, native k-rust compilation and
 execution, and the kompiled reference definition behind `--java-reference`.
 The port-specific behavior and proof comparisons stay in each verifier.
+
+`--artifacts-only` stops after the native definition: it checks every emitted
+artifact against its pin and skips the behavior and proof comparisons, which
+cannot find anything new while the artifacts are unchanged.
 """
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -84,6 +89,33 @@ class Port:
         variable = f"KRS_{self.key.upper()}_{role.upper()}_TARGET"
         default = scratch_root() / f"krs-{self.key}-gate-{role}-target"
         return Path(os.environ.get(variable, os.fspath(default)))
+
+
+def add_artifacts_only_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--artifacts-only",
+        action="store_true",
+        help=(
+            "stop after preflight, the Rust checks, and artifact determinism, with every "
+            "emitted artifact compared to its pin; skip the behavior and proof comparisons"
+        ),
+    )
+
+
+def reject_artifacts_only_conflicts(
+    parser: argparse.ArgumentParser, arguments: argparse.Namespace
+) -> None:
+    """`--artifacts-only` cannot record pins or run the Java reference layer it skips."""
+
+    if arguments.artifacts_only and (arguments.record or arguments.java_reference):
+        parser.error("--artifacts-only cannot be combined with --record or --java-reference")
+
+
+def artifacts_only_summary(port: Port) -> str:
+    return (
+        f"{port.descriptors} descriptors; emitted artifacts and native KORE match their pins; "
+        "behavior and proof comparison layers skipped (--artifacts-only)"
+    )
 
 
 def preflight(port: Port, pins: Ledger, corpus: Mapping[str, Any]) -> dict[str, str]:

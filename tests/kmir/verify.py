@@ -346,9 +346,11 @@ def main() -> int:
         action="store_true",
         help="run the gate and rewrite the output pins it measured",
     )
+    semantics.add_artifacts_only_argument(parser)
     arguments = parser.parse_args()
+    semantics.reject_artifacts_only_conflicts(parser, arguments)
     try:
-        pins = Ledger(PORT.pins_path, record=arguments.record)
+        pins = Ledger(PORT.pins_path, record=arguments.record, artifacts_only=arguments.artifacts_only)
         corpus = load_toml(PORT.corpus_path)
         environment = semantics.preflight(PORT, pins, corpus)
         with tempfile.TemporaryDirectory(prefix="krs-kmir-", dir=scratch_root()) as temporary:
@@ -357,6 +359,9 @@ def main() -> int:
             artifacts = semantics.artifact_gate(PORT, workspace, krs, pins, environment)
             definition_checks((artifacts / "definition.k").read_text(encoding="utf-8"))
             definition = semantics.native_definition(workspace, artifacts, compiler, pins, environment)
+            if arguments.artifacts_only:
+                print(f"PASS readable KMIR operational slice: {semantics.artifacts_only_summary(PORT)}")
+                return 0
             executions = semantics.native_behavior(PORT, runner, definition, pins, corpus, environment)
             proofs = 0
             if arguments.java_reference:

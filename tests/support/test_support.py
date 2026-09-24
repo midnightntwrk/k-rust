@@ -353,6 +353,19 @@ class LedgerTests(unittest.TestCase):
             ledger.finish("fixture")
             self.assertEqual(ledger.path.read_text(encoding="utf-8"), self.TOML)
 
+    def test_artifacts_only_mode_directs_a_difference_to_the_full_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pins.toml"
+            path.write_text(self.TOML, encoding="utf-8")
+            with self.assertRaisesRegex(GateError, "cannot be combined with --artifacts-only"):
+                pins.Ledger(path, record=True, artifacts_only=True)
+            ledger = pins.Ledger(path, artifacts_only=True)
+            ledger.expect("expansion_sha256", "old")
+            with self.assertRaisesRegex(GateError, "differs from its pin.*run the full gate"):
+                ledger.expect(("artifact_sha256", "definition.k"), "new-k")
+            with self.assertRaisesRegex(GateError, "has no pin missing; --artifacts-only.*full gate"):
+                ledger.expect("missing", "value")
+
     def test_record_mode_rewrites_only_observed_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             ledger = self.ledger(temporary, record=True)

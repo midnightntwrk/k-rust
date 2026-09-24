@@ -113,8 +113,10 @@ def main() -> int:
         action="store_true",
         help="run the gate and rewrite the output pins it measured",
     )
+    semantics.add_artifacts_only_argument(parser)
     arguments = parser.parse_args()
-    pins = Ledger(PORT.pins_path, record=arguments.record)
+    semantics.reject_artifacts_only_conflicts(parser, arguments)
+    pins = Ledger(PORT.pins_path, record=arguments.record, artifacts_only=arguments.artifacts_only)
     corpus = load_toml(PORT.corpus_path)
     environment = semantics.preflight(PORT, pins, corpus)
     with tempfile.TemporaryDirectory(prefix="krs-kwasm-gate-", dir=scratch_root()) as temporary:
@@ -122,6 +124,9 @@ def main() -> int:
         krs, compiler, runner = semantics.rust_gate(PORT, environment)
         artifacts = semantics.artifact_gate(PORT, workspace, krs, pins, environment)
         definition = semantics.native_definition(workspace, artifacts, compiler, pins, environment)
+        if arguments.artifacts_only:
+            print(f"PASS readable KWasm integer slice: {semantics.artifacts_only_summary(PORT)}")
+            return 0
         behavior_count = semantics.native_behavior(PORT, runner, definition, pins, corpus, environment)
         proof_count = 0
         if arguments.java_reference:

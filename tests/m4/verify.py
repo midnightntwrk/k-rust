@@ -349,6 +349,7 @@ class Context:
     actual_definition: Path | None = None
     reference_failure_definition: Path | None = None
     actual_failure_definition: Path | None = None
+    native_build: Path | None = None
     artifact_hashes: dict[str, str] = field(default_factory=dict)
 
 
@@ -614,6 +615,69 @@ def krs_base(krs: Path) -> list[str]:
     ]
 
 
+def native_artifacts(context: Context, env: Mapping[str, str]) -> None:
+    """Build the native definition twice and pin it, with the LLVM capability boundary."""
+
+    assert context.krs is not None
+    llvm_evidence: list[subprocess.CompletedProcess[str]] = []
+    for name in ("llvm-failure-a", "llvm-failure-b"):
+        output = context.workspace / name
+        process = run(
+            [
+                context.krs, "build", *krs_base(context.krs)[1:],
+                "--backend", "llvm", "--output", output,
+            ],
+            timeout=900,
+            environment=env,
+            check=False,
+        )
+        if process.returncode != 1 or output.exists():
+            raise GateError(
+                f"LLVM existential capability boundary differs: rc={process.returncode}, "
+                f"output_exists={output.exists()}"
+            )
+        llvm_evidence.append(process)
+    if (
+        llvm_evidence[0].stdout != llvm_evidence[1].stdout
+        or llvm_evidence[0].stderr != llvm_evidence[1].stderr
+    ):
+        raise GateError("repeated LLVM capability diagnostics differ byte-for-byte")
+    diagnostic_text = llvm_evidence[0].stdout + llvm_evidence[0].stderr
+    envelopes = []
+    for line in diagnostic_text.splitlines():
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise GateError(f"LLVM capability boundary emitted non-JSON: {line!r}") from error
+        if not isinstance(value, dict) or (
+            value.get("schema_version") != 1
+            or value.get("stage") != "backend-capability"
+            or value.get("code") != "UnsupportedExistentialVariable"
+            or value.get("severity") != "error"
+        ):
+            raise GateError("LLVM capability diagnostic lost its typed classification")
+        envelopes.append(value)
+    if len(envelopes) != 6:
+        raise GateError(f"expected six deduplicated LLVM diagnostics, found {len(envelopes)}")
+    context.pins.expect(("native_comparison", "llvm_failure_sha256"), sha256_text(diagnostic_text))
+
+    builds: list[Path] = []
+    for name in ("native-a", "native-b"):
+        output = context.workspace / name
+        run(
+            [context.krs, "build", *krs_base(context.krs)[1:], "--backend", "haskell", "--output", output],
+            timeout=900,
+            environment=env,
+        )
+        builds.append(output)
+    native_files = tuple(context.pins.get("native_artifact_sha256", {}).keys())
+    if not native_files:
+        raise GateError("native artifact set is absent from pins.json")
+    for name, digest in exact_directory(builds[0], builds[1], native_files).items():
+        context.pins.expect(("native_artifact_sha256", name), digest)
+    context.native_build = builds[0]
+
+
 def phase_artifacts(context: Context) -> str:
     if context.krs is None:
         raise GateError("artifact phase lacks the phase-2 KRS binary")
@@ -717,7 +781,12 @@ def phase_artifacts(context: Context) -> str:
         context.pins.expect(("artifact_sha256", name), digest)
     context.artifacts = probes[0]
     context.artifact_hashes = probe_hashes
-    return f"124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; six repeated CLI/API source artifacts; sha256={json_sha256(probe_hashes)}"
+    native_artifacts(context, env)
+    return (
+        "124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; "
+        "six repeated CLI/API source artifacts; repeated native build and LLVM capability boundary; "
+        f"sha256={json_sha256(probe_hashes)}"
+    )
 
 
 def compile_source_definitions(context: Context) -> None:
@@ -866,67 +935,12 @@ def phase_source_definition(context: Context) -> str:
 
 
 def phase_native(context: Context) -> str:
-    if context.krs is None or context.artifacts is None or context.actual_definition is None:
-        raise GateError("native phase lacks CLI, artifacts, or source definition")
+    if context.artifacts is None or context.actual_definition is None:
+        raise GateError("native phase lacks artifacts or source definition")
+    if context.native_build is None:
+        raise GateError("native phase lacks the phase-3 native build")
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
-    llvm_evidence: list[subprocess.CompletedProcess[str]] = []
-    for name in ("llvm-failure-a", "llvm-failure-b"):
-        output = context.workspace / name
-        process = run(
-            [
-                context.krs, "build", *krs_base(context.krs)[1:],
-                "--backend", "llvm", "--output", output,
-            ],
-            timeout=900,
-            environment=env,
-            check=False,
-        )
-        if process.returncode != 1 or output.exists():
-            raise GateError(
-                f"LLVM existential capability boundary differs: rc={process.returncode}, "
-                f"output_exists={output.exists()}"
-            )
-        llvm_evidence.append(process)
-    if (
-        llvm_evidence[0].stdout != llvm_evidence[1].stdout
-        or llvm_evidence[0].stderr != llvm_evidence[1].stderr
-    ):
-        raise GateError("repeated LLVM capability diagnostics differ byte-for-byte")
-    diagnostic_text = llvm_evidence[0].stdout + llvm_evidence[0].stderr
-    envelopes = []
-    for line in diagnostic_text.splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise GateError(f"LLVM capability boundary emitted non-JSON: {line!r}") from error
-        if not isinstance(value, dict) or (
-            value.get("schema_version") != 1
-            or value.get("stage") != "backend-capability"
-            or value.get("code") != "UnsupportedExistentialVariable"
-            or value.get("severity") != "error"
-        ):
-            raise GateError("LLVM capability diagnostic lost its typed classification")
-        envelopes.append(value)
-    if len(envelopes) != 6:
-        raise GateError(f"expected six deduplicated LLVM diagnostics, found {len(envelopes)}")
-    context.pins.expect(("native_comparison", "llvm_failure_sha256"), sha256_text(diagnostic_text))
-
-    builds: list[Path] = []
-    for name in ("native-a", "native-b"):
-        output = context.workspace / name
-        run(
-            [context.krs, "build", *krs_base(context.krs)[1:], "--backend", "haskell", "--output", output],
-            timeout=900,
-            environment=env,
-        )
-        builds.append(output)
-    native_files = tuple(context.pins.get("native_artifact_sha256", {}).keys())
-    if not native_files:
-        raise GateError("native artifact set is absent from pins.json")
-    for name, digest in exact_directory(builds[0], builds[1], native_files).items():
-        context.pins.expect(("native_artifact_sha256", name), digest)
-
-    native_kore = builds[0] / "definition.kore"
+    native_kore = context.native_build / "definition.kore"
     reference_kore = context.actual_definition / "definition.kore"
     comparator = [
         "cargo", "run", "--locked", "--quiet", "--manifest-path", NATIVE_MANIFEST,
@@ -1121,6 +1135,8 @@ PHASES: tuple[tuple[str, Callable[[Context], str]], ...] = (
     ("bounded-proofs", phase_proofs),
     ("compatibility-reproduction", phase_compatibility),
 )
+ARTIFACT_PHASES = 3
+"""Preflight, the Rust checks, and every emitted artifact; `--artifacts-only` stops here."""
 
 
 def main() -> int:
@@ -1141,14 +1157,25 @@ def main() -> int:
             )
         ),
     )
+    parser.add_argument(
+        "--artifacts-only",
+        action="store_true",
+        help=(
+            f"stop after M4.{ARTIFACT_PHASES}, with every emitted artifact compared to its pin; "
+            "skip the source, native KORE, behavior, proof, and compatibility comparisons"
+        ),
+    )
     arguments = parser.parse_args()
-    pins = Ledger(PINS_PATH, record=arguments.record)
+    if arguments.artifacts_only and (arguments.record or arguments.audit_all):
+        parser.error("--artifacts-only cannot be combined with --record or --audit-all")
+    pins = Ledger(PINS_PATH, record=arguments.record, artifacts_only=arguments.artifacts_only)
+    phases = PHASES[:ARTIFACT_PHASES] if arguments.artifacts_only else PHASES
     corpus = load_json(CORPUS_PATH)
     failures: list[tuple[str, str]] = []
     with tempfile.TemporaryDirectory(prefix="krs-m4-root-") as temporary:
         context = Context(pins, corpus, Path(temporary), arguments.target_dir.resolve())
         context.target.mkdir(parents=True, exist_ok=True)
-        for index, (name, function) in enumerate(PHASES, start=1):
+        for index, (name, function) in enumerate(phases, start=1):
             try:
                 detail = function(context)
             except Exception as error:
@@ -1164,6 +1191,12 @@ def main() -> int:
             for name, error in failures:
                 print(f"- {name}: {error}", file=sys.stderr)
         return 1
+    if arguments.artifacts_only:
+        print(
+            f"PASS M4 artifacts only: M4.1-M4.{ARTIFACT_PHASES} passed and every emitted artifact "
+            f"matches its pin; comparison layers M4.{ARTIFACT_PHASES + 1}-M4.{len(PHASES)} skipped"
+        )
+        return 0
     pins.finish("M4 complete IMP")
     summary = {
         "protocol": lock.descriptor_protocol(),
