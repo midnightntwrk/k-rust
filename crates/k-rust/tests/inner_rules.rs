@@ -792,6 +792,58 @@ fn preferred_reading_among_parameter_instantiations_agrees_under_checked_inferen
     );
 }
 
+/// `pick(pick(0))` over `pick1 [prefer]` (`{S} S ::= pick(S)`) and `pick2` (`{S1, S2} S1 ::=
+/// pick(S2)`): every reading shares the empty typing and the readings differ only in which
+/// parametric production each `pick` instantiates and at which sort. Resolving the group by
+/// `prefer` gives `pick1{Int}(pick1{Int}(0))`, while a preference over parameter instantiations
+/// (placing `pick2`'s free argument parameter at `K`) keeps `pick2{Int, K}(pick1{K}(0))`, a
+/// different term. The portable decision cannot tell which trees such a preference keeps, so it
+/// leaves the rule to Z3 rather than returning the `prefer` reading.
+#[test]
+fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "trigger" [symbol(trigger), function]
+          syntax {S} S ::= "pick" "(" S ")" [symbol(pick1), prefer]
+          syntax {S1, S2} S1 ::= "pick" "(" S2 ")" [symbol(pick2)]
+
+          rule trigger => pick(pick(0))
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source));
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let error = resolved.expect_err("the portable build does not choose within one typing");
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error, got {error:?}")
+        };
+        assert_eq!(
+            error.error,
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        );
+    }
+    #[cfg(feature = "z3-inference")]
+    {
+        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
+        assert!(body.contains("pick2{Int"), "{body}");
+        assert!(body.contains("pick1{K}"), "{body}");
+        assert!(!body.contains("pick1{Int}"), "{body}");
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn nested_preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "nested_preferred_reading_among_parameter_instantiations_is_left_to_z3",
+    );
+}
+
 #[test]
 fn incomparable_maximal_typings_are_reported_as_ambiguity() {
     let source = indoc! {r#"
