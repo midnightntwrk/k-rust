@@ -10,16 +10,6 @@
   },
   "scripts": {
     "test": "bun test test/unit",
-    "typecheck": "tsc --noEmit -p .",
-    "stage": "bun scripts/stage-assets.ts",
-    "build:site": "bun scripts/build-site.ts",
-    "pipeline": "bun test/run-pipeline.ts",
-    "verify": "bun test/verify.ts",
-    "summarize": "bun test/summarize.ts",
-    "controller": "bun test/run-controller.ts",
-    "parity:tour-minimal": "bun test/parity/tour-minimal.ts",
-    "parity:native-diagnostics": "bash test/parity/native-diagnostics.sh",
-    "parity:diagnostics": "bun test/parity/diagnostics.ts",
-    "cache": "bun test/cache/run.ts"
+    "typecheck": "bunx --package typescript@5.9.3 tsc --noEmit -p . && bunx --package typescript@5.9.3 tsc --noEmit -p ../../tests/browser-backend"
   }
 }

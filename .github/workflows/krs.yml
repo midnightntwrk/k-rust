@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/actions/**"
       - ".github/workflows/krs.yml"
+      - "browser/**"
       - "Cargo.lock"
       - "Cargo.toml"
       - "Krs.lock"
@@ -108,3 +109,26 @@ jobs:
 
       - name: Test the semantics workspace
         run: cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: starstream-fv/krs/browser/worker
+    steps:
+      - name: Check out KRS in its workspace layout
+        uses: actions/checkout@v4
+        with:
+          path: starstream-fv/krs
+
+      - name: Select Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Type-check the worker and the backend suite page
+        run: bun run typecheck
+
+      - name: Test the worker without a pack
+        run: bun run test
