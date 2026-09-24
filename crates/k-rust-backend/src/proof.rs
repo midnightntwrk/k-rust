@@ -211,6 +211,13 @@ pub fn prove_claim(
         kind: ProofStateKind::Rewritable,
     }]);
     let mut leaves = Vec::new();
+    // The claim's universals are fixed for the whole proof, including those that the path
+    // has overwritten and that no longer occur in the current state; only the destination's
+    // existentials may be quantified when a coverage condition is complemented.
+    let claim_universals = variables_of_claim(claim)
+        .difference(&claim.existentials)
+        .cloned()
+        .collect::<BTreeSet<_>>();
     let mut fresh_counter = 0;
     let mut explored_states = 0;
     let timeout_controller = StepTimeoutController::new(StepTimeoutOptions {
@@ -340,7 +347,11 @@ pub fn prove_claim(
                     let mut constraints = state.pattern.constraints.clone();
                     extend_unique(
                         &mut constraints,
-                        vec![complement_implication_condition(&state.pattern, condition)],
+                        vec![complement_implication_condition(
+                            &state.pattern,
+                            &claim_universals,
+                            condition,
+                        )],
                     );
                     let remainder = crate::rewrite::RemainderBranch {
                         pattern: Pattern {
@@ -1328,12 +1339,18 @@ fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule:
     }
 }
 
+/// The part of `pattern` that `condition` does not cover: `¬∃E. condition`, where `E` are the
+/// condition's variables that are neither in the state nor among the claim's `universals`.
+/// A universal stays free even when the current state no longer mentions it: it names the
+/// same value in every state of the proof, so quantifying it would turn "the initial value
+/// differs" into `⊥` and drop the uncovered part.
 fn complement_implication_condition(
     pattern: &Pattern,
+    universals: &BTreeSet<crate::term::Variable>,
     condition: ImplicationCondition,
 ) -> crate::rule::Predicate {
     let mut covered = conjoin_predicates(condition.predicates);
-    let state_variables = pattern
+    let in_scope = pattern
         .term
         .attributes()
         .variables
@@ -1345,10 +1362,11 @@ fn complement_implication_condition(
                 .iter()
                 .flat_map(crate::rule::Predicate::free_variables),
         )
+        .chain(universals.iter().cloned())
         .collect::<BTreeSet<_>>();
     let introduced = covered
         .free_variables()
-        .difference(&state_variables)
+        .difference(&in_scope)
         .cloned()
         .collect::<Vec<_>>();
     for variable in introduced.into_iter().rev() {
@@ -1573,6 +1591,7 @@ mod tests {
         assert_eq!(
             complement_implication_condition(
                 &pattern,
+                &BTreeSet::new(),
                 ImplicationCondition {
                     predicates: vec![crate::rule::Predicate::Or(vec![
                         first.clone(),
@@ -1586,6 +1605,45 @@ mod tests {
                 crate::rule::Predicate::Not(Box::new(first)),
                 crate::rule::Predicate::Not(Box::new(second)),
             ]),
+        );
+    }
+
+    /// A claim universal `X` that the path overwrote occurs only in the coverage condition
+    /// `X = a`. The uncovered part is the states where the initial `X` differs, `¬(X = a)`;
+    /// quantifying `X` would give `¬∃X. X = a`, which is `⊥` and loses that part.
+    #[test]
+    fn complement_keeps_a_claim_universal_absent_from_the_state_free() {
+        let definition = definition("", "");
+        let x = term(&definition, "X:SortS{}");
+        let crate::term::TermKind::Variable(universal) = x.kind() else {
+            unreachable!("X parses as a variable")
+        };
+        let covered = crate::rule::Predicate::Equals(x.clone(), term(&definition, "a{}()"));
+        let pattern = Pattern {
+            term: term(&definition, "b{}()"),
+            constraints: Vec::new(),
+        };
+        let condition = ImplicationCondition {
+            predicates: vec![covered.clone()],
+            substitution: Substitution::new(),
+            witnesses: Substitution::new(),
+        };
+
+        assert_eq!(
+            complement_implication_condition(
+                &pattern,
+                &BTreeSet::from([universal.clone()]),
+                condition.clone(),
+            ),
+            crate::rule::Predicate::Not(Box::new(covered.clone())),
+        );
+        // A destination existential is still quantified.
+        assert_eq!(
+            complement_implication_condition(&pattern, &BTreeSet::new(), condition),
+            crate::rule::Predicate::Not(Box::new(crate::rule::Predicate::Exists(
+                universal.clone(),
+                Box::new(covered),
+            ))),
         );
     }
 
