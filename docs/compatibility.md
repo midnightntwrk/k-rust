@@ -124,6 +124,10 @@ Execution retains an explicit `aborted` reason for incomplete indeterminate, sim
 [RPC tests](../crates/k-rust/src/rpc.rs) cover predicate-free models, batch cancellation, and error classification; [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc) preserve shipped-proxy responses.
 An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
 Backend error `data` is compared by class: code, message, and the `error` sentence; context lines are the port's own diagnostics (N28).
+An `implies` request is the statement `A -> \exists E. C` under the universal closure of the free variables of `A` and `C`, with `E` the consequent's leading existentials.
+A free variable of the consequent that the antecedent does not mention is therefore universal, not an error: the match binding `u := s` of any universal is an obligation `u = s` that the antecedent's condition must entail.
+The answer is `invalid` when the antecedent is satisfiable and the match constrains the variable, and `valid` when the antecedent is unsatisfiable or nothing constrains the variable.
+An antecedent existential that shares the consequent universal's name is a different variable and is renamed apart.
 
 ## Definition verification
 

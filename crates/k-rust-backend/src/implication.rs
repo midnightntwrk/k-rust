@@ -253,7 +253,6 @@ struct ImplicationCheckOptions {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImplicationError {
-    ConsequentFreeVariables(BTreeSet<Variable>),
     Subsorting(SortError),
     Simplification(SimplificationError),
 }
@@ -379,21 +378,6 @@ pub fn check_disjunctive_implication_with_existentials(
         .iter()
         .map(|consequent| freshen_existentials(antecedent, consequent, consequent_existentials))
         .collect::<Vec<_>>();
-    let antecedent_variables = free_variables(antecedent);
-    for (consequent, existentials) in &consequents {
-        let consequent_variables = free_variables(consequent)
-            .difference(existentials)
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let extra_variables = consequent_variables
-            .difference(&antecedent_variables)
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        if !extra_variables.is_empty() {
-            return Err(ImplicationError::ConsequentFreeVariables(extra_variables));
-        }
-    }
-
     if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
             solver.is_sat(&antecedent.constraints, &Substitution::new()),
@@ -602,22 +586,10 @@ fn check_implication_with_existentials_and_options_and_policy(
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
     let consequent = simplify_consequent(definition, antecedent, consequent, options, solver);
-    let antecedent_variables = free_variables(antecedent)
-        .difference(antecedent_existentials)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let consequent_variables = free_variables(&consequent)
-        .difference(&consequent_existentials)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let extra_variables = consequent_variables
-        .difference(&antecedent_variables)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    if !extra_variables.is_empty() {
-        return Err(ImplicationError::ConsequentFreeVariables(extra_variables));
-    }
-
+    // A free variable of the consequent that is not existential is universal over the whole
+    // implication, so an antecedent existential of the same name is a different variable.
+    let renamed = rename_existentials_apart(antecedent, antecedent_existentials, &consequent);
+    let antecedent = renamed.as_ref().unwrap_or(antecedent);
     if predicates_truth(&antecedent.constraints) == Truth::False
         || matches!(
             solver.is_sat(&antecedent.constraints, &Substitution::new()),
@@ -768,6 +740,51 @@ fn freshen_existentials(
         },
         fresh,
     )
+}
+
+/// Rename the existentials of `pattern` whose names occur free in `other`, or `None` when none
+/// does.
+fn rename_existentials_apart(
+    pattern: &Pattern,
+    existentials: &BTreeSet<Variable>,
+    other: &Pattern,
+) -> Option<Pattern> {
+    let other_names = free_variables(other)
+        .into_iter()
+        .map(|variable| variable.name)
+        .collect::<BTreeSet<_>>();
+    let clashing = existentials
+        .iter()
+        .filter(|variable| other_names.contains(&variable.name))
+        .collect::<Vec<_>>();
+    if clashing.is_empty() {
+        return None;
+    }
+    let mut names = free_variables(pattern)
+        .into_iter()
+        .map(|variable| variable.name)
+        .chain(other_names)
+        .collect::<BTreeSet<_>>();
+    let mut counter = 0;
+    let substitution = clashing
+        .into_iter()
+        .map(|original| {
+            let name = fresh_name(
+                &original.name,
+                FreshMarker::Exists,
+                &mut counter,
+                &mut names,
+            );
+            (
+                original.clone(),
+                crate::term::Term::variable(original.with_name(name)),
+            )
+        })
+        .collect::<Substitution>();
+    Some(Pattern {
+        term: substitute(&pattern.term, &substitution),
+        constraints: substitute_predicates(&pattern.constraints, &substitution),
+    })
 }
 
 fn discharge_consequent(
@@ -1844,17 +1861,75 @@ mod tests {
         assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
     }
 
+    /// A free variable that only the consequent mentions is universal over the implication: its
+    /// match binding is an obligation the antecedent must entail, like that of any universal.
+    #[cfg(feature = "z3")]
     #[test]
-    fn rejects_free_variables_introduced_by_the_consequent() {
+    fn decides_free_variables_introduced_by_the_consequent() {
         let definition = definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        let check = |antecedent: &Pattern, consequent: &Pattern| {
+            check_implication_with_existentials_complete(
+                &definition,
+                antecedent,
+                &BTreeSet::new(),
+                consequent,
+                &BTreeSet::new(),
+                &solver,
+            )
+            .expect("implication should be checked")
+        };
         let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
-        let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#);
 
-        assert!(matches!(
-            check_implication(&definition, &antecedent, &consequent, &NoSolver),
-            Err(ImplicationError::ConsequentFreeVariables(variables))
-                if variables.iter().any(|variable| variable.name.as_ref() == "Y")
-        ));
+        // Constrained by the match: `Y := 1` does not hold for every `Y`.
+        let constrained = pattern(&definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#);
+        let result = check(&antecedent, &constrained);
+        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+
+        // A vacuous antecedent implies anything.
+        let mut vacuous = antecedent.clone();
+        vacuous.constraints = vec![
+            Predicate::Equals(Term::variable(x.clone()), int(&definition, "0")),
+            Predicate::Equals(Term::variable(x.clone()), int(&definition, "1")),
+        ];
+        let result = check(&vacuous, &constrained);
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+
+        // Not constrained: `Y = 1 \/ Y =/= 1` holds for every `Y`.
+        let mut unconstrained = antecedent.clone();
+        unconstrained.constraints.clear();
+        let mut consequent = antecedent.clone();
+        let y_is_one = Predicate::Equals(Term::variable(y), int(&definition, "1"));
+        consequent.constraints = vec![Predicate::Or(vec![
+            y_is_one.clone(),
+            Predicate::Not(Box::new(y_is_one)),
+        ])];
+        let result = check(&unconstrained, &consequent);
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    /// An antecedent existential and a consequent universal of the same name are different
+    /// variables: `(\exists X. pair(X, 1)) -> pair(X, 1)` fails whenever the two differ.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn antecedent_existentials_do_not_capture_consequent_universals() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let pair = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+
+        let result = check_implication_with_existentials_complete(
+            &definition,
+            &pair,
+            &BTreeSet::from([x]),
+            &pair,
+            &BTreeSet::new(),
+            &solver,
+        )
+        .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
     }
 
     #[test]
