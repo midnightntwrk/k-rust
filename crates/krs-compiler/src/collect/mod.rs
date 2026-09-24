@@ -131,7 +131,6 @@ struct PendingDescriptor {
 /// Returns a typed error for invalid package selection, protocol/identity
 /// disagreement, unresolved or wrongly-kinded Rust references, or source
 /// provenance that cannot be reproduced exactly.
-#[allow(clippy::too_many_lines)]
 pub fn collect_host_descriptors(
     contexts: impl IntoIterator<Item = PackageContext>,
     descriptors: impl IntoIterator<Item = HostDescriptor>,
@@ -164,7 +163,6 @@ pub fn collect_host_descriptors_with_builtins(
     collect_host_descriptors_impl(contexts, descriptors, Some(builtins))
 }
 
-#[allow(clippy::too_many_lines)]
 fn collect_host_descriptors_impl(
     contexts: impl IntoIterator<Item = PackageContext>,
     descriptors: impl IntoIterator<Item = HostDescriptor>,
@@ -172,6 +170,16 @@ fn collect_host_descriptors_impl(
 ) -> Result<DescriptorBundle, CollectionError> {
     let descriptors = descriptors.into_iter().collect::<Vec<_>>();
     let mut contexts = contexts.into_iter().collect::<Vec<_>>();
+    select_framework_context(&mut contexts, &descriptors)?;
+    let (contexts, context_lookup) = prepare_contexts(contexts)?;
+    let pending = collect_pending_descriptors(descriptors, &contexts, &context_lookup)?;
+    resolve_pending_descriptors(pending, &contexts, builtins)
+}
+
+fn select_framework_context(
+    contexts: &mut Vec<PackageContext>,
+    descriptors: &[HostDescriptor],
+) -> Result<(), CollectionError> {
     if let Some(framework) = descriptors
         .iter()
         .find(|descriptor| is_framework_sort_descriptor(descriptor))
@@ -193,7 +201,14 @@ fn collect_host_descriptors_impl(
             )?);
         }
     }
-    let (contexts, context_lookup) = prepare_contexts(contexts)?;
+    Ok(())
+}
+
+fn collect_pending_descriptors(
+    descriptors: Vec<HostDescriptor>,
+    contexts: &[PreparedContext],
+    context_lookup: &ContextLookup,
+) -> Result<Vec<PendingDescriptor>, CollectionError> {
     let mut pending = Vec::new();
     let mut ids = BTreeSet::new();
 
@@ -246,7 +261,14 @@ fn collect_host_descriptors_impl(
             context_index,
         });
     }
+    Ok(pending)
+}
 
+fn resolve_pending_descriptors(
+    mut pending: Vec<PendingDescriptor>,
+    contexts: &[PreparedContext],
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<DescriptorBundle, CollectionError> {
     pending.sort_by(|left, right| left.id.cmp(&right.id));
     let context_aliases = pending
         .iter()
@@ -265,7 +287,7 @@ fn collect_host_descriptors_impl(
             &pending.host.payload,
             &pending.id,
             pending.context_index,
-            &contexts,
+            contexts,
             &mut source_cache,
         )?;
         let payload = resolve_payload(
