@@ -189,7 +189,6 @@ pub enum EffectOutput {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 pub enum BuiltinFailureOutput {
-    Interrupted,
     WrongArity {
         hook: String,
         expected: usize,
@@ -287,7 +286,6 @@ pub enum SatisfiabilityOutput {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 pub enum SearchFailureOutput {
-    Cancelled,
     SurvivingMacroOrAlias {
         symbol: String,
     },
@@ -624,9 +622,12 @@ fn path_witness_output(witness: PathWitness) -> Result<PathWitnessOutput, Backen
     })
 }
 
-fn builtin_failure_output(error: BuiltinError) -> BuiltinFailureOutput {
-    match error {
-        BuiltinError::Interrupted => BuiltinFailureOutput::Interrupted,
+/// Search publishes builtin failures only inside a simplification failure, and it reports a
+/// hook's interruption as its `cancelled` entry, so an interruption reaching here is an
+/// invariant breach rather than a published kind.
+fn builtin_failure_output(error: BuiltinError) -> Result<BuiltinFailureOutput, BackendError> {
+    Ok(match error {
+        BuiltinError::Interrupted => return Err(interruption_published_as_failure()),
         BuiltinError::WrongArity {
             hook,
             expected,
@@ -692,7 +693,20 @@ fn builtin_failure_output(error: BuiltinError) -> BuiltinFailureOutput {
             right_precision,
             right_exponent_bits,
         },
-    }
+    })
+}
+
+/// Search arms no step deadline, so request cancellation is its only interruption source, and it
+/// reports every interruption signal (the simplifier's `Cancelled` and `Interrupted`, and a
+/// hook's `Interrupted`) as the state's `cancelled` incomplete entry, never as a failure reason.
+/// An interruption signal inside a failure therefore means search produced an outcome its
+/// contract cannot produce.
+fn interruption_published_as_failure() -> BackendError {
+    BackendError(
+        "search reported an interruption as a failure, but search reports every interruption \
+         as a cancelled entry"
+            .into(),
+    )
 }
 
 fn translation_failure_output(
@@ -783,17 +797,11 @@ fn simplification_failure_output(
     result_sort: &Sort,
 ) -> Result<SearchFailureOutput, BackendError> {
     Ok(match error {
-        SimplificationError::Cancelled => SearchFailureOutput::Cancelled,
-        // Search arms no step deadline and classifies every interruption as its `cancelled`
-        // entry, so a deadline interruption here means a search produced a failure its contract
-        // cannot produce.
-        SimplificationError::Interrupted => {
-            return Err(BackendError(
-                "search reported a step-deadline interruption, but search arms no deadline".into(),
-            ));
+        SimplificationError::Cancelled | SimplificationError::Interrupted => {
+            return Err(interruption_published_as_failure());
         }
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
-            error: builtin_failure_output(error),
+            error: builtin_failure_output(error)?,
         },
         SimplificationError::DisjunctiveResult {
             rule_id,
@@ -1269,10 +1277,45 @@ mod tests {
     }
 
     #[test]
-    fn a_deadline_interruption_is_not_a_published_search_failure() {
-        let error =
-            simplification_failure_output(SimplificationError::Interrupted, &Sort::simple("SortS"))
-                .unwrap_err();
-        assert!(error.0.contains("arms no deadline"), "{error}");
+    fn no_interruption_signal_is_a_published_search_failure() {
+        let sort = Sort::simple("SortS");
+        for error in [
+            SimplificationError::Cancelled,
+            SimplificationError::Interrupted,
+            SimplificationError::Builtin(BuiltinError::Interrupted),
+        ] {
+            let described = format!("{error:?}");
+            let failure =
+                simplification_failure_output(error.clone(), &sort).expect_err(&described);
+            assert!(
+                failure.0.contains("as a cancelled entry"),
+                "{described}: {failure}"
+            );
+            let failure = indeterminate_failure_output(
+                IndeterminateReason::Simplification {
+                    rule_id: Some("rule".into()),
+                    error,
+                },
+                &sort,
+            )
+            .expect_err(&described);
+            assert!(
+                failure.0.contains("as a cancelled entry"),
+                "{described}: {failure}"
+            );
+        }
+    }
+
+    #[test]
+    fn interruption_kinds_are_not_search_failure_wire_kinds() {
+        for failure in [
+            serde_json::json!({ "kind": "cancelled" }),
+            serde_json::json!({ "kind": "builtin", "error": { "kind": "interrupted" } }),
+        ] {
+            assert!(
+                serde_json::from_value::<SearchFailureOutput>(failure.clone()).is_err(),
+                "{failure}"
+            );
+        }
     }
 }
