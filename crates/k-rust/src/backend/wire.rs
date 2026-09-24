@@ -288,7 +288,6 @@ pub enum SatisfiabilityOutput {
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 pub enum SearchFailureOutput {
     Cancelled,
-    Interrupted,
     SurvivingMacroOrAlias {
         symbol: String,
     },
@@ -785,7 +784,14 @@ fn simplification_failure_output(
 ) -> Result<SearchFailureOutput, BackendError> {
     Ok(match error {
         SimplificationError::Cancelled => SearchFailureOutput::Cancelled,
-        SimplificationError::Interrupted => SearchFailureOutput::Interrupted,
+        // Search arms no step deadline and classifies every interruption as its `cancelled`
+        // entry, so a deadline interruption here means a search produced a failure its contract
+        // cannot produce.
+        SimplificationError::Interrupted => {
+            return Err(BackendError(
+                "search reported a step-deadline interruption, but search arms no deadline".into(),
+            ));
+        }
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
             error: builtin_failure_output(error),
         },
@@ -1097,5 +1103,101 @@ mod tests {
             serde_json::from_value::<SearchFailureOutput>(value).unwrap(),
             failure
         );
+    }
+
+    /// Answers every condition query as undecided, cancelling the request while it answers.
+    struct CancellingSolver(k_rust_backend::cancellation::CancellationToken);
+
+    impl k_rust_backend::smt::SmtSolver for CancellingSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[k_rust_backend::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            self.0.cancel();
+            Ok(Satisfiability::Sat)
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[k_rust_backend::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[k_rust_backend::rule::Predicate],
+        ) -> Result<k_rust_backend::smt::Validity, SmtError> {
+            self.0.cancel();
+            Ok(k_rust_backend::smt::Validity::Indeterminate)
+        }
+    }
+
+    #[test]
+    fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled_on_the_wire() {
+        // Simplifying `checked(X)` asks the solver about `0 <Int X`; the solver cancels the
+        // request, and the enclosing `add` hook is the first point that observes it.
+        let syntax = k_rust_kore::kore::parser::parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol pair{}(SortInt{}, SortInt{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                symbol checked{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+                hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+                hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \equals{SortBool{}, R}(
+                            lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                            \dv{SortBool{}}("true")
+                        ),
+                        \and{R}(\in{SortInt{}, R}(X0:SortInt{}, X:SortInt{}), \top{R}())
+                    ),
+                    \equals{SortInt{}, R}(
+                        checked{}(X0:SortInt{}),
+                        \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                    )
+                ) [label{}("checked")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition =
+            k_rust_backend::definition::BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = definition
+            .internalize_pattern(
+                &k_rust_kore::kore::parser::parse_pattern(
+                    r#"pair{}(add{}(checked{}(X:SortInt{}), \dv{SortInt{}}("1")), \dv{SortInt{}}("0"))"#,
+                )
+                .unwrap(),
+                &[],
+            )
+            .unwrap();
+        let token = k_rust_backend::cancellation::CancellationToken::new();
+        let solver = CancellingSolver(token.clone());
+
+        let result = token.scope(|| {
+            k_rust_backend::search::search_graph_with_solver(
+                &definition,
+                initial,
+                k_rust_backend::search::SearchOptions::default(),
+                &solver,
+            )
+        });
+        let response =
+            serde_json::to_value(search_response(result, BACKEND_SCHEMA_VERSION).unwrap()).unwrap();
+
+        assert_eq!(response["states"], serde_json::json!([]), "{response:#}");
+        let incomplete = response["incomplete"].as_array().unwrap();
+        assert_eq!(incomplete.len(), 1, "{response:#}");
+        assert_eq!(incomplete[0]["kind"], "cancelled", "{response:#}");
+    }
+
+    #[test]
+    fn a_deadline_interruption_is_not_a_published_search_failure() {
+        let error =
+            simplification_failure_output(SimplificationError::Interrupted, &Sort::simple("SortS"))
+                .unwrap_err();
+        assert!(error.0.contains("arms no deadline"), "{error}");
     }
 }

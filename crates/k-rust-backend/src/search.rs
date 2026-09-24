@@ -74,7 +74,7 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
-    builtin::BuiltinEffect,
+    builtin::{BuiltinEffect, BuiltinError},
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
@@ -1797,9 +1797,19 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
     }
 }
 
+/// Classify a simplification failure that ends the exploration of `state`.
+///
+/// Search arms no step deadline, so request cancellation is its only interruption source. Every
+/// interruption signal the simplifier can raise therefore reports the cancellation: the
+/// fixed-point loops' `Cancelled` and `Interrupted`, and a native hook's `Interrupted`, which a
+/// hook returns when it observes the cancellation first.
 fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
     match error {
-        SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
+        SimplificationError::Cancelled
+        | SimplificationError::Interrupted
+        | SimplificationError::Builtin(BuiltinError::Interrupted) => {
+            IncompleteSearch::Cancelled(state)
+        }
         error => IncompleteSearch::Simplification { state, error },
     }
 }
@@ -2554,6 +2564,41 @@ mod tests {
             ),
             IncompleteSearch::Cancelled(state)
         );
+    }
+
+    #[test]
+    fn every_interruption_signal_is_classified_as_cancellation() {
+        let definition = definition();
+        let state = SearchState {
+            pattern: initial(&definition),
+            depth: 0,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+        };
+
+        for error in [
+            SimplificationError::Cancelled,
+            SimplificationError::Interrupted,
+            SimplificationError::Builtin(BuiltinError::Interrupted),
+        ] {
+            assert_eq!(
+                simplification_incomplete(state.clone(), error.clone()),
+                IncompleteSearch::Cancelled(state.clone()),
+                "{error:?}"
+            );
+            assert_eq!(
+                rewrite_incomplete(
+                    state.clone(),
+                    IndeterminateReason::Simplification {
+                        rule_id: Some("rule".into()),
+                        error: error.clone(),
+                    },
+                ),
+                IncompleteSearch::Cancelled(state.clone()),
+                "{error:?}"
+            );
+        }
     }
 
     fn initial(definition: &BackendDefinition) -> Pattern {

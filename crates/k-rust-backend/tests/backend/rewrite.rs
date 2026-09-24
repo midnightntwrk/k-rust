@@ -6507,6 +6507,84 @@ fn search_does_not_enable_console_hooks() {
     ));
 }
 
+/// `pair(add(checked(X), 1), 0)` with a symbolic `X`: simplifying `checked(X)` asks the solver
+/// whether `checked`'s condition `0 <Int X` holds, and the enclosing `add` is a native hook
+/// evaluated right after its argument in the same simplification round. A solver that cancels
+/// the request while answering that query therefore makes the hook, not a fixed-point round
+/// head, the first point that observes the cancellation.
+fn hook_observed_cancellation_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol pair{}(SortInt{}, SortInt{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol checked{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+            hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \and{R}(\in{SortInt{}, R}(X0:SortInt{}, X:SortInt{}), \top{R}())
+                ),
+                \equals{SortInt{}, R}(
+                    checked{}(X0:SortInt{}),
+                    \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                )
+            ) [label{}("checked")]
+            "#,
+    )
+}
+
+#[test]
+fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled() {
+    let definition = hook_observed_cancellation_definition();
+    let initial = definition
+        .internalize_pattern(
+            &parse_pattern(
+                r#"pair{}(add{}(checked{}(X:SortInt{}), \dv{SortInt{}}("1")), \dv{SortInt{}}("0"))"#,
+            )
+            .unwrap(),
+            &[],
+        )
+        .unwrap();
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Sat), 8),
+        std::iter::repeat_n(Ok(Validity::Indeterminate), 8),
+    )
+    .cancelling_at(0, token.clone());
+
+    let result = token.scope(|| {
+        k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            initial,
+            k_rust_backend::search::SearchOptions::default(),
+            &solver,
+        )
+    });
+
+    let transcript = solver.transcript.borrow().clone();
+    assert!(
+        matches!(
+            transcript.as_slice(),
+            [ScriptedQuery::CheckPredicates { .. }]
+        ),
+        "the condition query is the only solver call: {transcript:#?}"
+    );
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
 #[test]
 fn execution_disables_console_capability_after_a_symbolic_transition() {
     let definition = console_io_definition(
