@@ -103,7 +103,8 @@ pub(super) fn constructor_productions(
                 && !algebraic
                 && !is_macro
                 && !anywhere_labels.contains(label)
-                && !is_builtin_label(&label.name))
+                && !is_builtin_label(&label.name)
+                && !is_token_production(attributes))
             .then_some(id)
         })
         .collect()

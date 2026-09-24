@@ -727,6 +727,18 @@ module_snapshot!(
 );
 
 module_snapshot!(
+    a_labelled_token_production_is_neither_a_constructor_nor_in_no_confusion,
+    r#"
+        module MAIN
+          syntax Str ::= r"[a-z]+" [token, symbol(strLit)]
+          syntax Str ::= r"[A-Z]+" [token, symbol(idLit)]
+          syntax Exp ::= "wrap(" Str ")" [symbol(wrap)]
+        endmodule
+    "#,
+    "MAIN"
+);
+
+module_snapshot!(
     emits_one_path_and_all_path_reachability_claims,
     r#"
         module MAIN [all-path]

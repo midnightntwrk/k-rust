@@ -105,6 +105,88 @@ fn load_structured_compiles_an_authored_instrs_configuration() {
     }
 }
 
+#[test]
+fn a_labelled_token_production_is_not_a_constructor_and_the_definition_loads() {
+    // A `token` production's terms are domain values of its sort, so its symbol must not claim a
+    // term-algebra element distinct from them: no `constructor` attribute and no no-confusion
+    // axiom, whether or not the sort is hooked.
+    for hooked in [false, true] {
+        assert_compiles_on_both_backends(labelled_token_definition(hooked), |artifacts| {
+            let declaration = artifacts
+                .definition_kore
+                .lines()
+                .find(|line| line.contains("symbol LblstrLit{}()"))
+                .unwrap_or_else(|| {
+                    panic!("hooked={hooked}: the labelled token symbol is declared")
+                });
+            assert!(declaration.contains("token{}()"), "{declaration}");
+            assert!(!declaration.contains("constructor{}()"), "{declaration}");
+            // No-confusion axioms are the `\not` (distinct heads) and `\implies` (injectivity)
+            // axioms carrying the `constructor` marker.
+            for axiom in artifacts.definition_kore.split("axiom{").skip(1) {
+                let no_confusion = axiom.contains("constructor{}()")
+                    && (axiom.contains("\\not{") || axiom.contains("\\implies{"));
+                assert!(
+                    !(no_confusion && (axiom.contains("LblstrLit") || axiom.contains("LblidLit"))),
+                    "hooked={hooked}: a no-confusion axiom mentions a token symbol: axiom{{{axiom}"
+                );
+            }
+            let parsed = parse_definition(&artifacts.definition_kore).unwrap();
+            k_rust_backend::definition::BackendDefinition::internalize(&parsed, "MAIN")
+                .unwrap_or_else(|error| panic!("hooked={hooked}: backend load failed: {error}"));
+        });
+    }
+}
+
+fn labelled_token_definition(hooked: bool) -> Definition {
+    let mut local_sentences = Vec::new();
+    if hooked {
+        local_sentences.push(Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new("Str"),
+            attributes: Attributes::new(BTreeMap::from([("hook".into(), json!("STRING.String"))])),
+        });
+    }
+    // Two labelled token productions on one sort: were they constructors, their pair would get a
+    // no-confusion axiom.
+    for (label, regex) in [("strLit", "[a-z]+"), ("idLit", "[A-Z]+")] {
+        local_sentences.push(Sentence::Production {
+            label: Some(Label::new(label)),
+            parameters: Vec::new(),
+            sort: Sort::new("Str"),
+            items: vec![ProductionItem::regex(regex)],
+            attributes: Attributes::new(BTreeMap::from([("token".into(), json!(""))])),
+        });
+    }
+    local_sentences.push(Sentence::Production {
+        label: Some(Label::new("wrap")),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![
+            ProductionItem::Terminal("wrap(".into()),
+            ProductionItem::NonTerminal {
+                sort: Sort::new("Str"),
+                name: None,
+            },
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: Attributes::default(),
+    });
+    Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: local_sentences
+                .into_iter()
+                .map(std::sync::Arc::new)
+                .collect(),
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    }
+}
+
 fn assert_compiles_on_both_backends(
     definition: Definition,
     assert_artifacts: impl Fn(&k_rust::kompile::CompiledKoreArtifacts),
