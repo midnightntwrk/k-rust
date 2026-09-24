@@ -22,6 +22,7 @@
 //! accumulate fallback source-map state.
 //!
 //! [`export!`] declares the exports; the functions below are what they call.
+//! `crates/krs-wasm-abi/abi.mjs` is the host side of the same ABI for Node.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;

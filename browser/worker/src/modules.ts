@@ -1,4 +1,4 @@
-// JSON-over-linear-memory ABI of the krs-lesson-policy module and the
+// JSON-over-linear-memory ABI (crates/krs-wasm-abi) of the krs-lesson-policy module and the
 // krs-expand-wasm expander module: `<prefix>_alloc(len) -> ptr`, `<prefix>_<fn>(ptr, len) -> u64`
 // (response_len << 32 | response_ptr), `<prefix>_dealloc(ptr, len)`.
 // Both modules have no imports. Every call uses a fresh instance.

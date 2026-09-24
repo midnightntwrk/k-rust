@@ -1,5 +1,5 @@
-// Runs the krs-expand-wasm module through its ABI, with no dependencies and
-// no imports.
+// Runs the krs-expand-wasm module through its ABI (krs-wasm-abi/abi.mjs),
+// with no dependencies and no imports.
 //
 // usage: node run-wasm.mjs MODULE.wasm REQUEST.json [OUT.json] [REPEAT]
 //
@@ -12,6 +12,7 @@
 // is.
 import { readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
+import { callBytes, loadModule, parseResponse } from "../../krs-wasm-abi/abi.mjs";
 
 const [modulePath, requestPath, outPath, repeatText = "1"] = process.argv.slice(2);
 if (!modulePath || !requestPath) {
@@ -22,34 +23,14 @@ if (!(repeat >= 1)) {
   throw new Error(`REPEAT must be a positive integer, got ${repeatText}`);
 }
 
-const bytes = await readFile(modulePath);
-const compileStarted = performance.now();
-const module = await WebAssembly.compile(bytes);
-const compileMs = performance.now() - compileStarted;
-const imports = WebAssembly.Module.imports(module);
-if (imports.length !== 0) {
-  throw new Error(`module has imports: ${JSON.stringify(imports)}`);
-}
+const { bytes, module, exports: api, compileMs, instantiateMs } = await loadModule(modulePath);
 const exports = WebAssembly.Module.exports(module).map((entry) => `${entry.kind}:${entry.name}`);
-const instantiateStarted = performance.now();
-const instance = await WebAssembly.instantiate(module, {});
-const instantiateMs = performance.now() - instantiateStarted;
-const api = instance.exports;
 
 const request = await readFile(requestPath);
-const entry = "ranges" in JSON.parse(new TextDecoder().decode(request))
-  ? api.krs_expand_lookup
-  : api.krs_expand_run;
+const entry = "ranges" in JSON.parse(new TextDecoder().decode(request)) ? "lookup" : "run";
 const runOnce = () => {
   const started = performance.now();
-  const requestPtr = api.krs_expand_alloc(request.length);
-  new Uint8Array(api.memory.buffer, requestPtr, request.length).set(request);
-  const packed = entry(requestPtr, request.length);
-  const responsePtr = Number(packed & 0xffffffffn);
-  const responseLen = Number(packed >> 32n);
-  const response = new Uint8Array(api.memory.buffer, responsePtr, responseLen).slice();
-  api.krs_expand_dealloc(requestPtr, request.length);
-  api.krs_expand_dealloc(responsePtr, responseLen);
+  const response = callBytes(api, "krs_expand", entry, request);
   return { response, ms: performance.now() - started };
 };
 
@@ -66,10 +47,7 @@ for (let index = 0; index < repeat; index += 1) {
   }
 }
 
-const parsed = JSON.parse(new TextDecoder().decode(first));
-if (parsed.schema !== 1 || typeof parsed.ok !== "boolean" || !Array.isArray(parsed.diagnostics)) {
-  throw new Error("malformed response");
-}
+const parsed = parseResponse(first);
 if (outPath) {
   await writeFile(outPath, first);
 } else {
@@ -81,7 +59,7 @@ console.error(JSON.stringify({
   node: process.version,
   module_bytes: bytes.length,
   exports,
-  imports: imports.length,
+  imports: WebAssembly.Module.imports(module).length,
   compile_ms: compileMs,
   instantiate_ms: instantiateMs,
   first_run_ms: runs[0],
