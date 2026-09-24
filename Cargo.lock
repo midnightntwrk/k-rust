@@ -676,6 +676,7 @@ version = "0.1.0"
 dependencies = [
  "jsonschema",
  "kink-contracts",
+ "kink-pattern",
  "kink-portable",
  "serde_json",
 ]
