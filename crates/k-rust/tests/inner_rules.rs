@@ -599,6 +599,76 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
     assert!(body.contains("ite{Int}"), "{body}");
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn polymorphic_rhs_overload_branch_parameters_agree_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "polymorphic_rhs_keeps_overload_branch_parameters_independent",
+    );
+}
+
+/// The two well-sorted readings, `capGas … => ite{Gas}(…)` and `capInt … => ite{Int}(…)`, give
+/// every variable the same sort, so they are one maximal typing and differ only in the overload
+/// and in the instantiation of `ite`'s parameter. The typing does not choose between them and
+/// they lower to different terms, so the portable build leaves the rule to Z3 instead of
+/// reporting an ambiguity; the z3 build takes the `Int` reading.
+#[test]
+fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Gas ::= Int
+          syntax Gas ::= cap(Gas, Gas, Int, Int) [symbol(capGas), overload(cap), function, total]
+          syntax Int ::= cap(Int, Int, Int, Int) [symbol(capInt), overload(cap), function, total]
+          syntax {S} S ::= "ite" "(" Int "," S "," S ")" [symbol(ite), function, total]
+
+          rule cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED) => ite(GEXTRA, GCAP, GAVAIL)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source));
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let error = resolved.expect_err("the portable build does not choose within one typing");
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error, got {error:?}")
+        };
+        assert_eq!(
+            error.error,
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        );
+    }
+    #[cfg(feature = "z3-inference")]
+    {
+        let resolved = resolved.expect("the z3 build decides the rule");
+        let body = resolved
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } => Some(body.to_string()),
+                _ => None,
+            })
+            .expect("the rule should be resolved");
+        assert!(body.contains("capInt"), "{body}");
+        assert!(!body.contains("capGas"), "{body}");
+        assert!(body.contains("ite{Int}"), "{body}");
+        assert!(!body.contains("ite{Gas}"), "{body}");
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn one_maximal_typing_split_by_overload_and_parameter_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3",
+    );
+}
+
 #[test]
 fn incomparable_maximal_typings_are_reported_as_ambiguity() {
     let source = indoc! {r#"

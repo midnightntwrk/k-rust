@@ -1200,8 +1200,9 @@ impl Grammar {
         {
             return checked;
         }
-        let inferred = self.infer_packed_sorts(forest, start, is_anywhere)?;
-        self.lower_inferred(inferred, start)
+        self.infer_packed_sorts(forest, start, is_anywhere, |tree| {
+            self.lower_inferred(tree, start)
+        })
     }
 
     /// The post-inference passes that turn a sort-inferred tree into the parsed term.
@@ -2758,7 +2759,7 @@ mod chart_tests {
         reset_unpacked_nodes();
 
         let inferred = grammar
-            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false)
+            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false, Ok)
             .expect("Z3 retains the recursively well-sorted alternative");
 
         assert_eq!(inferred, baseline);
