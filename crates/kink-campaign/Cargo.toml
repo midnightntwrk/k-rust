@@ -9,5 +9,5 @@ version.workspace = true
 workspace = true
 
 [dependencies]
-kink-pattern = { path = "../kink-pattern" }
+kink-pattern.workspace = true
 kink-portable.workspace = true

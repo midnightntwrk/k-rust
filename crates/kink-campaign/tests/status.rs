@@ -1,12 +1,11 @@
 //! Mutant status, schedule, score and baseline-admission truth tables.
 //!
-//! The rows are transcribed from the backend-agnostic package vectors
+//! The rows are transcribed from the former vector files
 //! (`mutation-status-vectors.json`, the `campaignCases` and
 //! `oracleTerminalCases` of `mutation-vectors.json`, and
-//! `cross-feature-vectors.json`) so that they outlive the package. Row IDs are
-//! kept verbatim. Rows the current API cannot express, or on which Rust and the
-//! Python checker disagree, are left out and named in the commit that added
-//! this file.
+//! `cross-feature-vectors.json`), which no longer exist in the tree. Row IDs
+//! are kept verbatim. Rows the current API cannot express are left out and
+//! named in the commit that added this file.
 
 use kink_campaign::{
     BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantFailureKind, MutantPlan,
@@ -78,11 +77,11 @@ fn failure_kind(classification: &str) -> MutantFailureKind {
     }
 }
 
-/// Builds the plan for one validation outcome and the Python row's oracle
+/// Builds the plan for one validation outcome and the source row's oracle
 /// slots and failure classification.
 ///
 /// A mutant that failed validation is preclassified. For a valid mutant the
-/// Python rows mark the slot that was never evaluated after a failed mutant
+/// source rows mark the slot that was never evaluated after a failed mutant
 /// execution as `skipped`; Rust reserves `Skipped` for the scheduler and rejects
 /// it as input, so that slot is omitted.
 fn status_plan(
@@ -436,7 +435,7 @@ fn baseline_admission_gates_mutants_and_score() {
     }
 
     // default-score-exclusions. The duplicate and no-change entries of the
-    // Python row are candidate dispositions that never reach a `MutantPlan`.
+    // source row are candidate dispositions that never reach a `MutantPlan`.
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
         [Killed, Survived, Invalid, Timeout, Unknown, Error]
             .into_iter()

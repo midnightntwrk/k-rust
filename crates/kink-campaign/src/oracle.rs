@@ -3,7 +3,7 @@ use kink_pattern::Completeness;
 use kink_portable::{Digest, SemanticJson};
 use std::fmt;
 
-/// The six BAG-12 oracle kinds.
+/// The oracle kinds `compare_supplied` can compare.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OracleKind {
     /// Exit/stop class and declared object-program exit code.
@@ -108,9 +108,9 @@ pub fn compare_supplied(
 
 fn validate_normalized_value(kind: OracleKind, value: &SemanticJson) -> Result<(), OracleFailure> {
     let Some(fields) = value.as_object() else {
-        // Reduced scripted values are retained only for the nonportable unit
-        // seam. Portable operand ingress is schema-exact and always supplies
-        // the structured kind-specific object validated below.
+        // Only object values are checked against the kind-specific shape
+        // below. Any non-object value skips kind validation and is compared
+        // as supplied.
         return Ok(());
     };
     let valid = match kind {

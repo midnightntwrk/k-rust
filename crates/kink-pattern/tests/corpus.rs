@@ -1,6 +1,6 @@
-//! Corpus fold truth table (P9), ported from `corpus-vectors.json` and the
-//! BAG-16 corpus fold. Rows use Rust's explicit-exhaustion rule: absence is
-//! reported only when the caller supplies an empty-search decision.
+//! Corpus fold truth table (P9), ported from the former `corpus-vectors.json`.
+//! Rows use Rust's explicit-exhaustion rule: absence is reported only when the
+//! caller supplies an empty-search decision.
 
 use kink_pattern::{
     ArtifactRef, CorpusComponent, CorpusSkip, PatternFailureKind, PatternOutcome, aggregate_corpus,
