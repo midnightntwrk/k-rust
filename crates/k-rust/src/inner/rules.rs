@@ -670,10 +670,23 @@ fn rule_grammar(
     add_rule_cells(&mut grammar, &visible)?;
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(&mut grammar, &Sort::new("Bag"))?;
+    // The sorts that have a `#Rule` scaffolding sort (`K` from add_rule_k_syntax); every argument
+    // position of one of them admits a rewrite or `#as` pattern of that sort.
+    #[cfg(not(feature = "z3-inference"))]
+    let mut rule_sorts = [Sort::new("K"), Sort::new("Bag")]
+        .into_iter()
+        .map(|sort| {
+            let rule = rule_sort(&sort);
+            (sort, rule)
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
 
     for sort in concrete_sorts {
         #[cfg(not(feature = "z3-inference"))]
-        add_rule_sort(&mut grammar, &sort)?;
+        {
+            add_rule_sort(&mut grammar, &sort)?;
+            rule_sorts.insert(sort.clone(), rule_sort(&sort));
+        }
         if sort.name != BuiltinSort::Bool.k_name() {
             if !has_generated_top_sort && !explicit_top_sorts.contains(&sort) {
                 add_subsort(&mut grammar, "KItem", sort.clone())?;
@@ -685,6 +698,8 @@ fn rule_grammar(
         }
     }
     add_synonym_casts(&mut grammar, &visible)?;
+    #[cfg(not(feature = "z3-inference"))]
+    grammar.admit_rewrites_in_argument_positions(&rule_sorts);
 
     Ok(grammar)
 }

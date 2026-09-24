@@ -92,12 +92,15 @@ impl PredictionAnalysis {
             .flatten()
             .map(|index| {
                 let production = &grammar.productions[*index];
+                // Prediction follows the recognizer's item sort ids, which can name a wider
+                // parse sort than the declared item sort (`Production::item_sort_ids`).
                 let items = production
                     .items
                     .iter()
-                    .map(|item| match item {
-                        Item::NonTerminal(sort) => {
-                            Symbol::NonTerminal(grammar.sort_id(sort).expect("grammar sort exists"))
+                    .zip(&production.item_sort_ids)
+                    .map(|(item, sort_id)| match item {
+                        Item::NonTerminal(_) => {
+                            Symbol::NonTerminal(sort_id.expect("nonterminal item has a sort id"))
                         }
                         _ => Symbol::Lexical(grammar.scanner.lexeme_id(item)),
                     })
