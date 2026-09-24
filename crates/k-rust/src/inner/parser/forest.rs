@@ -171,7 +171,6 @@ impl PackedTerm {
         })
     }
 
-    #[cfg_attr(not(feature = "z3-inference"), allow(dead_code))]
     pub(super) fn instantiated_production(
         production: usize,
         parameters: Vec<Sort>,
@@ -213,6 +212,36 @@ impl PackedTerm {
             fingerprint: fingerprint.finish(),
             node: PackedNode::Ambiguity(alternatives),
         })
+    }
+
+    /// The packed form of an owned tree, sharing nothing.
+    pub(super) fn from_parsed(term: &ParsedTerm) -> Rc<Self> {
+        match term {
+            ParsedTerm::Term(leaf) => Self::leaf(leaf.clone()),
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            } => Self::production(
+                *production,
+                children.iter().map(Self::from_parsed).collect(),
+                metadata.clone(),
+            ),
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => Self::instantiated_production(
+                *production,
+                parameters.clone(),
+                children.iter().map(Self::from_parsed).collect(),
+                metadata.clone(),
+            ),
+            ParsedTerm::Ambiguity(alternatives) => {
+                Self::ambiguity(alternatives.iter().map(Self::from_parsed).collect())
+            }
+        }
     }
 
     pub(super) fn unpack(&self) -> ParsedTerm {

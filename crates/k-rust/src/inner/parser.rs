@@ -1195,8 +1195,19 @@ impl Grammar {
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
         let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
-        let inferred = self.infer_packed_sorts(forest, start, is_anywhere)?;
-        self.lower_inferred(inferred, start)
+        // Checked mode compares the engines on an ambiguous forest by what each lowers to.
+        #[cfg(feature = "z3-inference")]
+        if inference::checked_inference_requested()
+            && let Some(checked) =
+                self.checked_ambiguous_parse(&forest, start, is_anywhere, |tree| {
+                    self.lower_inferred(tree, start)
+                })
+        {
+            return checked;
+        }
+        self.infer_packed_sorts(forest, start, is_anywhere, |tree| {
+            self.lower_inferred(tree, start)
+        })
     }
 
     /// The post-inference passes that turn a sort-inferred tree into the parsed term.
@@ -1788,18 +1799,9 @@ mod chart_tests {
             ])
             .unwrap();
             let baseline = unfiltered(&grammar, "Start", "x");
-            #[cfg(feature = "z3-inference")]
             assert!(matches!(
                 &baseline,
                 Err(ParseError::Ambiguous { parses: 2, .. })
-            ));
-            #[cfg(not(feature = "z3-inference"))]
-            assert!(matches!(
-                &baseline,
-                Err(ParseError::Z3InferenceRequired {
-                    ambiguity: true,
-                    ..
-                })
             ));
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
@@ -2124,7 +2126,6 @@ mod chart_tests {
     }
 
     fn assert_incremental_ambiguity(result: Result<Term, ParseError>) {
-        #[cfg(feature = "z3-inference")]
         {
             let ParseError::Ambiguous {
                 parses,
@@ -2151,14 +2152,6 @@ mod chart_tests {
                 ]),
             );
         }
-        #[cfg(not(feature = "z3-inference"))]
-        assert_eq!(
-            result,
-            Err(ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            })
-        );
     }
 
     #[test]
@@ -2771,7 +2764,7 @@ mod chart_tests {
         reset_unpacked_nodes();
 
         let inferred = grammar
-            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false)
+            .infer_packed_sorts(Rc::clone(&shared), &Sort::new("Good"), false, Ok)
             .expect("Z3 retains the recursively well-sorted alternative");
 
         assert_eq!(inferred, baseline);

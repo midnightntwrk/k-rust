@@ -62,32 +62,6 @@ fn wasm_empty_function_overloaded_lists() -> Definition {
     )
 }
 
-#[cfg(not(feature = "z3-inference"))]
-fn assert_ambiguous_program_requires_z3(definition: &Definition, start_sort: &str, source: &str) {
-    let error = parse_program(
-        definition,
-        "MAIN",
-        &Sort::new(start_sort),
-        source,
-        SourceId(0),
-    )
-    .expect_err("an ambiguous program should require Z3 inference");
-    assert!(
-        matches!(
-            error,
-            ProgramError::Parse(ref error)
-                if matches!(
-                    *error.error,
-                    ParseError::Z3InferenceRequired {
-                        ambiguity: true,
-                        parametric_sorts: false,
-                    }
-                )
-        ),
-        "{error:?}"
-    );
-}
-
 #[test]
 fn parsed_production_ids_belong_to_the_resolved_definition_catalog() {
     let definition = lowered(
@@ -331,7 +305,6 @@ fn reference_singleton_nelist_at_kitem_is_a_reported_ambiguity() {
         .parse(&Sort::new("KItem"), "a")
         .expect_err("the bare Id and singleton Ids parses must remain ambiguous");
 
-    #[cfg(feature = "z3-inference")]
     match *error.error {
         ParseError::Ambiguous {
             ref alternatives, ..
@@ -357,17 +330,6 @@ fn reference_singleton_nelist_at_kitem_is_a_reported_ambiguity() {
         }
         ref other => panic!("expected the reference ambiguity, got {other:?}"),
     }
-    #[cfg(not(feature = "z3-inference"))]
-    assert!(
-        matches!(
-            *error.error,
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        ),
-        "{error:?}"
-    );
 }
 
 #[test]
@@ -385,23 +347,11 @@ fn reference_punctuation_token_argument_parses_as_kitem() {
     let parsed = ProgramParser::new(&definition, "MAIN")
         .unwrap()
         .parse(&Sort::new("Foo"), "foo(%abc)");
-    #[cfg(feature = "z3-inference")]
     assert_eq!(
         parsed
             .expect("the preferred punctuation token should inhabit KItem")
             .to_string(),
         r#"foo(#token("%abc","Aa"))"#
-    );
-    #[cfg(not(feature = "z3-inference"))]
-    assert!(
-        matches!(
-            parsed.as_ref().unwrap_err().error.as_ref(),
-            ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            }
-        ),
-        "{parsed:?}"
     );
 }
 
@@ -866,9 +816,6 @@ fn parses_wasm_shaped_adjacent_overloaded_user_lists() {
 #[test]
 fn preserves_outer_list_terminator_after_an_empty_inner_overloaded_list() {
     let definition = wasm_empty_function_overloaded_lists();
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguous_program_requires_z3(&definition, "Module", "(module (func))");
-    #[cfg(feature = "z3-inference")]
     {
         let rendered = parse_program(
             &definition,
@@ -894,13 +841,9 @@ fn preserves_outer_list_terminator_after_an_empty_inner_overloaded_list() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
     let definition = wasm_shaped_overloaded_lists();
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguous_program_requires_z3(&definition, "Stmts", "i32.const 1");
-    #[cfg(feature = "z3-inference")]
     {
         let rendered = parse_program(
             &definition,
@@ -918,13 +861,9 @@ fn reconstructs_a_root_sort_singleton_as_its_most_specific_list() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn parses_an_empty_program_at_a_root_list_sort() {
     let definition = wasm_shaped_overloaded_lists();
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguous_program_requires_z3(&definition, "Stmts", "");
-    #[cfg(feature = "z3-inference")]
     {
         let rendered = parse_program(&definition, "MAIN", &Sort::new("Stmts"), "", SourceId(0))
             .expect("the empty list should parse at a root list sort")

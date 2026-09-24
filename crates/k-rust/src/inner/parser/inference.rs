@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "parser.inference.portable"
 //! name = "portable sort inference by bound propagation"
-//! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts"]
-//! variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case"
+//! sites = ["Grammar::infer_sorts_portable", "Grammar::infer_packed_sorts", "Grammar::infer_sorts", "Grammar::infer_ambiguous_sorts_portable"]
+//! variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
 //! counters = ["ParserPortableInferences"]
 //! falls_back_to = ["parser.inference.z3"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
@@ -14,23 +14,32 @@
 //! bound = "O(V x E)"
 //!
 //! [[cost]]
+//! mode = "ambiguous monomorphic forest"
+//! bound = "O(T x V x E) for the per-tree inferences plus O(T^2 x V) order checks for the maximality filter"
+//!
+//! [[cost]]
 //! mode = "variable realization"
 //! bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations per inference"
 //! ```
 //!
-//! Portable bound-propagation sort inference for unambiguous, monomorphic trees.
+//! Portable bound-propagation sort inference for monomorphic trees and forests.
 //!
 //! Constraint propagation saturates a finite sort-bound graph, worst-case O(V * E).
-//! Ambiguous or parametric forests dispatch to Z3; checked mode runs both engines as oracles.
-//! `Counter::ParserPortableInferences` counts portable inference attempts.
+//! An ambiguous monomorphic forest with at most `PORTABLE_AMBIGUITY_TREE_LIMIT` complete trees
+//! is decided by typing each tree and keeping the trees whose typing no other tree's typing
+//! strictly exceeds (`Grammar::infer_ambiguous_sorts_portable`). Parametric forests, larger
+//! forests, trees without a greatest typing and trees of one typing that instantiate formal
+//! parameters differently and stay ambiguous after lowering dispatch to Z3; checked mode runs both engines as
+//! oracles, comparing inferred trees on unambiguous forests and lowered terms on ambiguous
+//! ones. `Counter::ParserPortableInferences` counts portable inference attempts, one per tree.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::definition::{PartialOrder, ProductionItem};
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
 use crate::names::BuiltinSort;
 
 use super::{
@@ -56,36 +65,274 @@ enum VariableId {
     Anonymous(usize),
 }
 
+/// The largest number of complete trees for which the portable engine decides an ambiguous
+/// monomorphic forest (`Grammar::infer_ambiguous_sorts_portable`).
+///
+/// The count is the product of the alternative counts along the forest, so it grows
+/// exponentially in the number of independent ambiguity nodes, and the decision costs one
+/// portable inference per tree. Z3 encodes the same forest once with its subtrees shared, so a
+/// larger forest stays at the `ParseError::Z3InferenceRequired` boundary instead of making the
+/// portable build pay an exponential expansion. 64 trees are six independent binary
+/// ambiguities, ten times the six trees of the largest ambiguous forest in the embedded prelude.
+const PORTABLE_AMBIGUITY_TREE_LIMIT: usize = 64;
+
+/// Why the portable engine did not type one tree.
+enum PortableError {
+    /// The tree's sort constraints have no solution: the tree is ill-sorted.
+    Unsatisfiable(ParseError),
+    /// The constraints have solutions but no greatest one, so the engine does not choose.
+    Incomparable(ParseError),
+    /// The tree or the grammar is not a well-formed inference problem.
+    Malformed(ParseError),
+}
+
+impl PortableError {
+    fn into_parse_error(self) -> ParseError {
+        match self {
+            Self::Unsatisfiable(error) | Self::Incomparable(error) | Self::Malformed(error) => {
+                error
+            }
+        }
+    }
+}
+
+/// A variable of a rule as it is identified across the alternative trees of one forest: a named
+/// variable by its name, an anonymous one by its source occurrence.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum TypingVariable {
+    Named(String),
+    Anonymous(TermSpan),
+}
+
+/// One tree typed by the portable engine, with the sorts it realized for the tree's variables.
+struct TypedTree {
+    term: ParsedTerm,
+    typing: BTreeMap<TypingVariable, Sort>,
+    /// An anonymous variable without a source span has no identity across trees.
+    unidentified_variable: bool,
+}
+
+/// The kept trees of one maximal typing, factored into one term.
+struct TypingGroup {
+    term: Rc<PackedTerm>,
+    /// Two of the trees instantiate the formal sort parameters of their productions
+    /// differently (`parameter_instantiations`).
+    parameters_differ: bool,
+}
+
 struct Solver<'a> {
     order: &'a PartialOrder<Sort>,
     bounds: Vec<Bounds>,
     variables: BTreeMap<VariableId, usize>,
+    typing_variables: BTreeMap<VariableId, Option<TypingVariable>>,
     parameters: Vec<(String, Vec<usize>)>,
     constraint_cache: BTreeSet<(SortRef, SortRef)>,
     next_anonymous: usize,
 }
 
 impl Grammar {
-    pub(super) fn infer_packed_sorts(
+    /// Infer the sorts of a packed forest and lower the result with `lower`.
+    ///
+    /// The portable decision of an ambiguous forest depends on how its kept trees lower
+    /// (`Grammar::infer_ambiguous_sorts_portable`), so inference and lowering are one step here.
+    pub(super) fn infer_packed_sorts<T>(
         &self,
         term: Rc<PackedTerm>,
         top_sort: &Sort,
         explicitly_anywhere: bool,
-    ) -> Result<ParsedTerm, ParseError> {
+        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
         if !self.packed_sort_inference_supported(&term) {
+            // Z3 stays the engine for ambiguous forests in the z3 build; checked mode compares
+            // the portable decision with it on lowered terms (`Grammar::checked_ambiguous_parse`).
             #[cfg(feature = "z3-inference")]
-            return self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere);
+            return lower(self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere)?);
             #[cfg(not(feature = "z3-inference"))]
-            {
-                let (ambiguity, parametric_sorts) = self.packed_z3_reasons(&term);
-                return Err(ParseError::Z3InferenceRequired {
-                    ambiguity,
-                    parametric_sorts,
-                });
-            }
+            return self.infer_ambiguous_sorts_portable(
+                &term,
+                top_sort,
+                explicitly_anywhere,
+                lower,
+            );
         }
         let unpacked = term.unpack();
-        self.infer_sorts(unpacked, top_sort, explicitly_anywhere)
+        lower(self.infer_sorts(unpacked, top_sort, explicitly_anywhere)?)
+    }
+
+    /// Checked mode on an ambiguous forest in the z3 build: `None` unless the forest is outside
+    /// the unambiguous portable path and the portable decision decides it; otherwise both
+    /// engines' results are lowered by `lower` and compared. The caller runs it only under
+    /// `KRUST_TYPE_INFERENCE_MODE=checked` (`checked_inference_requested`).
+    ///
+    /// Two inferred trees that differ only in a bracket production or in the instantiation of a
+    /// formal sort parameter lower to one term, and the lowered term is what the rule means, so
+    /// the comparison is on lowered terms, including their compiler metadata
+    /// (`Term::identical`), or on both being errors. Z3's lowered result is returned, so
+    /// checked mode does not change the z3 build's output.
+    #[cfg(feature = "z3-inference")]
+    pub(super) fn checked_ambiguous_parse(
+        &self,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+        lower: impl Fn(ParsedTerm) -> Result<Term, ParseError>,
+    ) -> Option<Result<Term, ParseError>> {
+        if self.packed_sort_inference_supported(term) {
+            return None;
+        }
+        let portable =
+            self.infer_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere, &lower);
+        if matches!(portable, Err(ParseError::Z3InferenceRequired { .. })) {
+            return None;
+        }
+        let z3 = self.infer_packed_sorts_z3(Rc::clone(term), top_sort, explicitly_anywhere);
+        Some(checked_lowered_result(portable, z3.and_then(&lower)))
+    }
+
+    /// Decide an ambiguous monomorphic forest without Z3 and lower the decision with `lower`.
+    ///
+    /// Each alternative `A` is a complete tree with a set `Sat(A)` of well-sorted variable
+    /// typings. The forest's candidates are the pairs `(A, M)` with `M` maximal in the union of
+    /// all `Sat(A)` and `M` in `Sat(A)`. The portable engine returns for one tree the greatest
+    /// element `T_A` of `Sat(A)`, and it rejects a tree only when `Sat(A)` is empty; when
+    /// `Sat(A)` has no greatest element it reports incomparable candidates instead of choosing.
+    /// Since the sort order is finite, every element of `Sat(A)` is at most `T_A`, so every
+    /// maximal `M` is some `T_A`, and `T_A` is maximal exactly when no `T_B` strictly exceeds
+    /// it. If `T_A` is also in `Sat(C)`, then `T_A <= T_C`, and maximality forces `T_A = T_C`.
+    /// The candidates are therefore exactly the well-sorted trees whose typing no other
+    /// tree's typing strictly exceeds, each with its own typing. A variable that does not occur
+    /// in a tree is unconstrained there, so it takes the top sort `K` that the engine gives
+    /// every unconstrained variable. Both the kept trees and a unique tree then go through the
+    /// same post-inference passes as any other inference result.
+    ///
+    /// The argument fixes the candidate set over variable typings; a tree's solution also
+    /// includes the sorts at which its parametric productions instantiate their formal
+    /// parameters, and maximality does not order those. Trees that share one maximal typing
+    /// and one set of parameter instantiations have the same solution, so nothing in their sort
+    /// constraints separates them: when the post-inference passes (`lower`) leave them
+    /// ambiguous, the rule itself is ambiguous and `ParseError::Ambiguous` is the answer. When
+    /// the trees of one typing instantiate parameters differently, choosing among them needs a
+    /// preference over parameter instantiations that this decision does not model, so if that
+    /// group alone does not lower to one term the forest is left to Z3 with
+    /// `ParseError::Z3InferenceRequired`. An ambiguity between different maximal typings stays
+    /// `ParseError::Ambiguous`.
+    ///
+    /// The decision is exact only under those premises, so it also returns
+    /// `ParseError::Z3InferenceRequired` instead of deciding when a tree is parametric, when a
+    /// tree's typing has incomparable candidates, when an anonymous variable has no source span
+    /// to identify it across trees, and when the forest has more than
+    /// `PORTABLE_AMBIGUITY_TREE_LIMIT` complete trees. When no tree is well-sorted, the first
+    /// tree's rejection is returned.
+    pub(super) fn infer_ambiguous_sorts_portable<T>(
+        &self,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+        lower: impl Fn(ParsedTerm) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        let (ambiguity, parametric_sorts) = self.packed_z3_reasons(term);
+        let required = || ParseError::Z3InferenceRequired {
+            ambiguity,
+            parametric_sorts,
+        };
+        if parametric_sorts || packed_tree_count(term) > PORTABLE_AMBIGUITY_TREE_LIMIT {
+            return Err(required());
+        }
+        let groups = self.maximal_typing_groups(term, top_sort, explicitly_anywhere, required)?;
+        let joined = |groups: Vec<Rc<PackedTerm>>| {
+            self.factor_pre_inference_packed_ambiguities(PackedTerm::ambiguity(
+                groups.into_iter().collect(),
+            ))
+            .unpack()
+        };
+        let undecided =
+            |result: &Result<T, ParseError>| matches!(result, Err(ParseError::Ambiguous { .. }));
+        if let [group] = groups.as_slice() {
+            let result = lower(joined(vec![Rc::clone(&group.term)]));
+            return if group.parameters_differ && undecided(&result) {
+                Err(required())
+            } else {
+                result
+            };
+        }
+        for group in groups.iter().filter(|group| group.parameters_differ) {
+            if undecided(&lower(joined(vec![Rc::clone(&group.term)]))) {
+                return Err(required());
+            }
+        }
+        lower(joined(groups.into_iter().map(|group| group.term).collect()))
+    }
+
+    /// The well-sorted trees of an ambiguous monomorphic forest that no other tree's typing
+    /// strictly exceeds, one factored group per maximal typing
+    /// (`Grammar::infer_ambiguous_sorts_portable` gives the argument).
+    fn maximal_typing_groups(
+        &self,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+        required: impl Fn() -> ParseError,
+    ) -> Result<Vec<TypingGroup>, ParseError> {
+        let mut typed = Vec::new();
+        let mut first_rejection = None;
+        for tree in expand_packed_trees(term) {
+            match self.infer_typed_sorts_portable(tree, top_sort, explicitly_anywhere) {
+                Ok(tree) => typed.push(tree),
+                Err(PortableError::Unsatisfiable(error)) => {
+                    first_rejection.get_or_insert(error);
+                }
+                Err(PortableError::Incomparable(_)) => return Err(required()),
+                Err(PortableError::Malformed(error)) => return Err(error),
+            }
+        }
+        if typed.is_empty() {
+            return Err(first_rejection.expect("an ambiguous forest has at least one tree"));
+        }
+        if typed.len() > 1 && typed.iter().any(|tree| tree.unidentified_variable) {
+            return Err(required());
+        }
+        let order = self.sort_order().map_err(PortableError::into_parse_error)?;
+        let top = Sort::new("K");
+        let kept = typed
+            .iter()
+            .filter(|tree| {
+                !typed
+                    .iter()
+                    .any(|other| strictly_exceeds(&order, &top, &other.typing, &tree.typing))
+            })
+            .collect::<Vec<_>>();
+        // A kept tree's typing, with every variable it lacks at the top sort, is the one maximal
+        // typing the tree is well-sorted under, so the kept trees fall into one group per
+        // maximal typing. Within a group the trees differ only where the forest had ambiguity
+        // nodes, and they are factored back into that shape: the post-inference passes resolve
+        // overloads, terminators and `prefer`/`avoid` per ambiguity node, so the same trees
+        // listed as one flat ambiguity can lower differently. The groups are then alternatives
+        // of one ambiguity, factored as the pre-inference forest was.
+        let variables = kept
+            .iter()
+            .flat_map(|tree| tree.typing.keys())
+            .collect::<BTreeSet<_>>();
+        let mut groups = BTreeMap::<Vec<&Sort>, BTreeSet<ParsedTerm>>::new();
+        for tree in kept {
+            let typing = variables
+                .iter()
+                .map(|variable| tree.typing.get(*variable).unwrap_or(&top))
+                .collect();
+            groups.entry(typing).or_default().insert(tree.term.clone());
+        }
+        Ok(groups
+            .into_values()
+            .map(|trees| {
+                let instantiations = trees
+                    .iter()
+                    .map(parameter_instantiations)
+                    .collect::<BTreeSet<_>>();
+                TypingGroup {
+                    parameters_differ: instantiations.len() > 1,
+                    term: PackedTerm::from_parsed(&factor_trees(trees)),
+                }
+            })
+            .collect())
     }
 
     fn packed_sort_inference_supported(&self, term: &Rc<PackedTerm>) -> bool {
@@ -125,7 +372,6 @@ impl Grammar {
         supported(self, term, &mut HashSet::new())
     }
 
-    #[cfg(not(feature = "z3-inference"))]
     fn packed_z3_reasons(&self, term: &Rc<PackedTerm>) -> (bool, bool) {
         fn reasons(
             grammar: &Grammar,
@@ -205,19 +451,22 @@ impl Grammar {
         top_sort: &Sort,
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
+        self.infer_typed_sorts_portable(term, top_sort, explicitly_anywhere)
+            .map(|typed| typed.term)
+            .map_err(PortableError::into_parse_error)
+    }
+
+    /// Infer the sorts of one unambiguous tree and also return the variable typing the solver
+    /// realized for it.
+    fn infer_typed_sorts_portable(
+        &self,
+        term: ParsedTerm,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+    ) -> Result<TypedTree, PortableError> {
         let _span = measure::algorithm_span(Algorithm::ParserInferencePortable);
         measure::bump(Counter::ParserPortableInferences);
-        let order = PartialOrder::new(self.subsort_relations.iter().cloned()).map_err(|cycle| {
-            inference_error(format!(
-                "cannot infer sorts with a circular subsort relation: {}",
-                cycle
-                    .path
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(" < ")
-            ))
-        })?;
+        let order = self.sort_order()?;
         let anywhere = explicitly_anywhere || self.lhs_is_function_or_macro(&term);
         let anywhere_top = anywhere
             .then(|| self.top_rewrite_node(&term))
@@ -232,15 +481,46 @@ impl Grammar {
         }
         let variable_sorts = solver.realize_variables()?;
         let parameter_sorts = solver.realize_parameters()?;
+        let mut typing = BTreeMap::new();
+        let mut unidentified_variable = false;
+        for (id, sort) in &variable_sorts {
+            match &solver.typing_variables[id] {
+                Some(variable) => {
+                    typing.insert(variable.clone(), sort.clone());
+                }
+                None => unidentified_variable = true,
+            }
+        }
         let mut next_anonymous = 0;
-        self.insert_inferred_casts(
+        let term = self
+            .insert_inferred_casts(
+                term,
+                &variable_sorts,
+                &parameter_sorts,
+                None,
+                &mut next_anonymous,
+                "root",
+            )
+            .map_err(PortableError::Malformed)?;
+        Ok(TypedTree {
             term,
-            &variable_sorts,
-            &parameter_sorts,
-            None,
-            &mut next_anonymous,
-            "root",
-        )
+            typing,
+            unidentified_variable,
+        })
+    }
+
+    fn sort_order(&self) -> Result<PartialOrder<Sort>, PortableError> {
+        PartialOrder::new(self.subsort_relations.iter().cloned()).map_err(|cycle| {
+            PortableError::Malformed(inference_error(format!(
+                "cannot infer sorts with a circular subsort relation: {}",
+                cycle
+                    .path
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" < ")
+            )))
+        })
     }
 
     fn sort_inference_supported(&self, term: &ParsedTerm) -> bool {
@@ -472,6 +752,7 @@ impl<'a> Solver<'a> {
             order,
             bounds: Vec::new(),
             variables: BTreeMap::new(),
+            typing_variables: BTreeMap::new(),
             parameters: Vec::new(),
             constraint_cache: BTreeSet::new(),
             next_anonymous: 0,
@@ -484,17 +765,17 @@ impl<'a> Solver<'a> {
         term: &ParsedTerm,
         anywhere_top: Option<*const ParsedTerm>,
         path: &str,
-    ) -> Result<SortRef, ParseError> {
+    ) -> Result<SortRef, PortableError> {
         match term {
-            ParsedTerm::Ambiguity(_) => Err(inference_error(
+            ParsedTerm::Ambiguity(_) => Err(PortableError::Malformed(inference_error(
                 "portable sort inference does not support ambiguous parse forests",
-            )),
+            ))),
             ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
-                (Some(name), _) => self.variable(name),
+                (Some(name), _) => self.variable(name, term),
                 (None, Term::Token { sort, .. }) => Ok(SortRef::Concrete(sort.clone())),
-                (None, _) => Err(inference_error(
+                (None, _) => Err(PortableError::Malformed(inference_error(
                     "unexpected lowered KAST node in the concrete parse forest",
-                )),
+                ))),
             },
             ParsedTerm::Production {
                 production,
@@ -576,12 +857,12 @@ impl<'a> Solver<'a> {
                     })
                     .collect::<Vec<_>>();
                 if expected.len() != child_sorts.len() {
-                    return Err(inference_error(format!(
+                    return Err(PortableError::Malformed(inference_error(format!(
                         "production {:?} has {} nonterminals but its parse node has {} children",
                         production.parse_label,
                         expected.len(),
                         child_sorts.len()
-                    )));
+                    ))));
                 }
                 let anywhere_lhs_sort = (anywhere_top.is_some_and(|top| std::ptr::eq(term, top))
                     && production
@@ -674,13 +955,21 @@ impl<'a> Solver<'a> {
         }
     }
 
-    fn variable(&mut self, name: &str) -> Result<SortRef, ParseError> {
+    fn variable(&mut self, name: &str, term: &Term) -> Result<SortRef, PortableError> {
         let id = variable_id(name, &mut self.next_anonymous);
         let variable = if let Some(variable) = self.variables.get(&id) {
             *variable
         } else {
             let variable = self.bounds.len();
             self.bounds.push(Bounds::default());
+            let typing_variable = match &id {
+                VariableId::Named(name) => Some(TypingVariable::Named(name.clone())),
+                VariableId::Anonymous(_) => term
+                    .metadata()
+                    .and_then(|metadata| metadata.span)
+                    .map(TypingVariable::Anonymous),
+            };
+            self.typing_variables.insert(id.clone(), typing_variable);
             self.variables.insert(id, variable);
             self.constrain(
                 SortRef::Variable(variable),
@@ -706,7 +995,7 @@ impl<'a> Solver<'a> {
             .any(|(_, slots)| slots.contains(variable))
     }
 
-    fn constrain(&mut self, lesser: SortRef, greater: SortRef) -> Result<(), ParseError> {
+    fn constrain(&mut self, lesser: SortRef, greater: SortRef) -> Result<(), PortableError> {
         // Invariant: `constraint_cache` contains every propagated bound; recursive propagation
         // only adds finite lower or upper bounds.
         if lesser == greater
@@ -745,15 +1034,15 @@ impl<'a> Solver<'a> {
                 if self.order.less_than_eq(&lesser, &greater) {
                     Ok(())
                 } else {
-                    Err(inference_error(format!(
+                    Err(PortableError::Unsatisfiable(inference_error(format!(
                         "unexpected sort {lesser}; expected a subsort of {greater}"
-                    )))
+                    ))))
                 }
             }
         }
     }
 
-    fn realize_variables(&self) -> Result<BTreeMap<VariableId, Sort>, ParseError> {
+    fn realize_variables(&self) -> Result<BTreeMap<VariableId, Sort>, PortableError> {
         self.variables
             .iter()
             .map(|(id, variable)| {
@@ -763,7 +1052,7 @@ impl<'a> Solver<'a> {
             .collect()
     }
 
-    fn realize_parameters(&self) -> Result<BTreeMap<String, Vec<Sort>>, ParseError> {
+    fn realize_parameters(&self) -> Result<BTreeMap<String, Vec<Sort>>, PortableError> {
         self.parameters
             .iter()
             .map(|(path, slots)| {
@@ -776,7 +1065,7 @@ impl<'a> Solver<'a> {
             .collect()
     }
 
-    fn realize_variable(&self, variable: usize) -> Result<Sort, ParseError> {
+    fn realize_variable(&self, variable: usize) -> Result<Sort, PortableError> {
         if self.bounds[variable].lower.is_empty() && self.bounds[variable].upper.is_empty() {
             return Ok(Sort::new("K"));
         }
@@ -810,13 +1099,13 @@ impl<'a> Solver<'a> {
         if candidates.len() == 1 {
             Ok(candidates.into_iter().next().expect("one candidate"))
         } else if candidates.is_empty() {
-            Err(inference_error(format!(
+            Err(PortableError::Unsatisfiable(inference_error(format!(
                 "variable has incompatible sort bounds: lower {lower:?}, upper {upper:?}"
-            )))
+            ))))
         } else {
-            Err(inference_error(format!(
+            Err(PortableError::Incomparable(inference_error(format!(
                 "variable sort has incomparable candidates {candidates:?} from bounds {upper:?}"
-            )))
+            ))))
         }
     }
 
@@ -907,7 +1196,7 @@ fn is_real_ground_sort(sort: &Sort) -> bool {
 }
 
 #[cfg(feature = "z3-inference")]
-fn checked_inference_requested() -> bool {
+pub(super) fn checked_inference_requested() -> bool {
     std::env::var("KRUST_TYPE_INFERENCE_MODE").as_deref() == Ok("checked")
 }
 
@@ -929,6 +1218,292 @@ fn checked_inference_result(
             "portable and Z3 sort inference disagree: portable rejected with {portable}; Z3 accepted {z3:?}"
         ))),
     }
+}
+
+/// The lowered-term comparison of `Grammar::checked_ambiguous_parse`; returns Z3's result.
+#[cfg(feature = "z3-inference")]
+fn checked_lowered_result(
+    portable: Result<Term, ParseError>,
+    z3: Result<Term, ParseError>,
+) -> Result<Term, ParseError> {
+    match (portable, z3) {
+        (Ok(portable), Ok(z3)) if portable.identical(&z3) => Ok(z3),
+        (Err(_), Err(z3)) => Err(z3),
+        (Ok(portable), Ok(z3)) => Err(inference_error(format!(
+            "portable and Z3 sort inference lowered an ambiguous parse to different terms: \
+             portable {portable:?}; Z3 {z3:?}"
+        ))),
+        (Ok(portable), Err(z3)) => Err(inference_error(format!(
+            "portable and Z3 sort inference disagree on an ambiguous parse: portable lowered to \
+             {portable:?}; Z3 rejected with {z3}"
+        ))),
+        (Err(portable), Ok(z3)) => Err(inference_error(format!(
+            "portable and Z3 sort inference disagree on an ambiguous parse: portable rejected \
+             with {portable}; Z3 lowered to {z3:?}"
+        ))),
+    }
+}
+
+/// The number of complete trees of a packed forest, saturating at `usize::MAX`. Shared nodes
+/// are counted once each, so the count costs time linear in the forest's distinct nodes.
+fn packed_tree_count(term: &Rc<PackedTerm>) -> usize {
+    fn count(term: &Rc<PackedTerm>, memo: &mut HashMap<*const PackedTerm, usize>) -> usize {
+        if let Some(count) = memo.get(&Rc::as_ptr(term)) {
+            return *count;
+        }
+        let result = match &term.node {
+            PackedNode::Term(_) => 1,
+            PackedNode::Ambiguity(alternatives) => {
+                alternatives.iter().fold(0usize, |total, alternative| {
+                    total.saturating_add(count(alternative, memo))
+                })
+            }
+            PackedNode::Production { children, .. }
+            | PackedNode::InstantiatedProduction { children, .. } => {
+                children.iter().fold(1usize, |total, child| {
+                    total.saturating_mul(count(child, memo))
+                })
+            }
+        };
+        memo.insert(Rc::as_ptr(term), result);
+        result
+    }
+    count(term, &mut HashMap::new())
+}
+
+/// The complete trees of a packed forest. The caller bounds their number with
+/// `packed_tree_count`.
+fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
+    fn expand(
+        term: &Rc<PackedTerm>,
+        memo: &mut HashMap<*const PackedTerm, Rc<Vec<ParsedTerm>>>,
+    ) -> Rc<Vec<ParsedTerm>> {
+        if let Some(trees) = memo.get(&Rc::as_ptr(term)) {
+            return Rc::clone(trees);
+        }
+        let trees = match &term.node {
+            PackedNode::Term(leaf) => vec![ParsedTerm::Term(leaf.clone())],
+            PackedNode::Ambiguity(alternatives) => alternatives
+                .iter()
+                .flat_map(|alternative| expand(alternative, memo).as_ref().clone())
+                .collect(),
+            PackedNode::Production {
+                production,
+                children,
+                metadata,
+            } => child_combinations(children.iter().map(|child| expand(child, memo)).collect())
+                .into_iter()
+                .map(|children| ParsedTerm::Production {
+                    production: *production,
+                    children,
+                    metadata: metadata.clone(),
+                })
+                .collect(),
+            PackedNode::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => child_combinations(children.iter().map(|child| expand(child, memo)).collect())
+                .into_iter()
+                .map(|children| ParsedTerm::InstantiatedProduction {
+                    production: *production,
+                    parameters: parameters.clone(),
+                    children,
+                    metadata: metadata.clone(),
+                })
+                .collect(),
+        };
+        let trees = Rc::new(trees);
+        memo.insert(Rc::as_ptr(term), Rc::clone(&trees));
+        trees
+    }
+    expand(term, &mut HashMap::new()).as_ref().clone()
+}
+
+/// The formal-parameter instantiations of one inferred tree: each parametric production it
+/// uses with the sorts its parameters were instantiated at, in a canonical order.
+fn parameter_instantiations(term: &ParsedTerm) -> Vec<(usize, &[Sort])> {
+    fn collect<'t>(term: &'t ParsedTerm, into: &mut Vec<(usize, &'t [Sort])>) {
+        match term {
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                ..
+            } => {
+                into.push((*production, parameters));
+                children.iter().for_each(|child| collect(child, into));
+            }
+            ParsedTerm::Production { children, .. } => {
+                children.iter().for_each(|child| collect(child, into));
+            }
+            ParsedTerm::Ambiguity(alternatives) => {
+                alternatives.iter().for_each(|child| collect(child, into));
+            }
+            ParsedTerm::Term(_) => {}
+        }
+    }
+    let mut instantiations = Vec::new();
+    collect(term, &mut instantiations);
+    instantiations.sort_unstable();
+    instantiations
+}
+
+/// One term whose complete trees are exactly `trees`, with each ambiguity as deep as the trees
+/// allow: trees that share a node differ below it only in its children, and when they are
+/// every combination of the children's variants the node is kept once over factored children.
+fn factor_trees(trees: BTreeSet<ParsedTerm>) -> ParsedTerm {
+    /// A node without its children: two trees with equal headers differ only in children.
+    #[derive(Eq, Ord, PartialEq, PartialOrd)]
+    enum Header<'t> {
+        Leaf(&'t ParsedTerm),
+        Node {
+            production: usize,
+            parameters: Option<&'t [Sort]>,
+            metadata: &'t super::TermMetadata,
+            arity: usize,
+        },
+    }
+    fn header(term: &ParsedTerm) -> Header<'_> {
+        match term {
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata,
+            } => Header::Node {
+                production: *production,
+                parameters: None,
+                metadata,
+                arity: children.len(),
+            },
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                metadata,
+            } => Header::Node {
+                production: *production,
+                parameters: Some(parameters),
+                metadata,
+                arity: children.len(),
+            },
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => Header::Leaf(term),
+        }
+    }
+    fn children(term: &ParsedTerm) -> &[ParsedTerm] {
+        match term {
+            ParsedTerm::Production { children, .. }
+            | ParsedTerm::InstantiatedProduction { children, .. } => children,
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => &[],
+        }
+    }
+
+    if trees.len() == 1 {
+        return trees.into_iter().next().expect("length was one");
+    }
+    let mut by_header = BTreeMap::<Header<'_>, Vec<&ParsedTerm>>::new();
+    for tree in &trees {
+        by_header.entry(header(tree)).or_default().push(tree);
+    }
+    let mut alternatives = BTreeSet::new();
+    for (header, group) in by_header {
+        let Header::Node { arity, .. } = header else {
+            alternatives.extend(group.into_iter().cloned());
+            continue;
+        };
+        let variants = (0..arity)
+            .map(|index| {
+                group
+                    .iter()
+                    .map(|tree| children(tree)[index].clone())
+                    .collect::<BTreeSet<_>>()
+            })
+            .collect::<Vec<_>>();
+        let combinations = variants
+            .iter()
+            .try_fold(1usize, |total, variants| total.checked_mul(variants.len()));
+        if group.len() == 1 || combinations != Some(group.len()) {
+            alternatives.extend(group.into_iter().cloned());
+            continue;
+        }
+        let factored = variants.into_iter().map(factor_trees).collect();
+        alternatives.insert(match group[0].clone() {
+            ParsedTerm::Production {
+                production,
+                metadata,
+                ..
+            } => ParsedTerm::Production {
+                production,
+                children: factored,
+                metadata,
+            },
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                metadata,
+                ..
+            } => ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children: factored,
+                metadata,
+            },
+            ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => {
+                unreachable!("only production headers have children")
+            }
+        });
+    }
+    if alternatives.len() == 1 {
+        alternatives.pop_first().expect("length was one")
+    } else {
+        ParsedTerm::Ambiguity(alternatives)
+    }
+}
+
+/// Every choice of one tree per child position, in order.
+fn child_combinations(children: Vec<Rc<Vec<ParsedTerm>>>) -> Vec<Vec<ParsedTerm>> {
+    let mut combinations = vec![Vec::with_capacity(children.len())];
+    for options in children {
+        combinations = combinations
+            .into_iter()
+            .flat_map(|prefix| {
+                options.iter().map(move |option| {
+                    let mut combination = prefix.clone();
+                    combination.push(option.clone());
+                    combination
+                })
+            })
+            .collect();
+    }
+    combinations
+}
+
+/// Whether the typing `greater` strictly exceeds `lesser`: every variable of either typing has a
+/// sort in `lesser` at most its sort in `greater`, and some variable's sorts differ. A variable
+/// absent from a typing does not occur in that tree, so it is unconstrained there and takes the
+/// top sort `top`.
+fn strictly_exceeds(
+    order: &PartialOrder<Sort>,
+    top: &Sort,
+    greater: &BTreeMap<TypingVariable, Sort>,
+    lesser: &BTreeMap<TypingVariable, Sort>,
+) -> bool {
+    let sort = |typing: &'_ BTreeMap<TypingVariable, Sort>, variable| {
+        typing.get(variable).unwrap_or(top).clone()
+    };
+    let variables = greater.keys().chain(lesser.keys()).collect::<BTreeSet<_>>();
+    let mut distinct = false;
+    for variable in variables {
+        let (lesser, greater) = (sort(lesser, variable), sort(greater, variable));
+        if lesser != greater {
+            if !order.less_than_eq(&lesser, &greater) {
+                return false;
+            }
+            distinct = true;
+        }
+    }
+    distinct
 }
 
 fn production_arity(production: &Production) -> usize {
@@ -1236,6 +1811,187 @@ mod tests {
             checked_inference_result(Ok(x), Err(inference_error("Z3 rejection"))),
             Err(ParseError::SortInference { ref message })
                 if message.contains("portable accepted") && message.contains("Z3 rejected")
+        ));
+    }
+
+    /// `Item ::= Big` (`big`) and `Item ::= Small` (`small`) with `Small < Big`,
+    /// `Good ::= Item ... Item` with `arity` items, and the semantic casts that record an
+    /// inferred variable sort.
+    fn independent_ambiguity_grammar(arity: usize) -> (Grammar, usize, usize, usize) {
+        let mut grammar = Grammar::default();
+        let add = |grammar: &mut Grammar, result: &str, items, label: &str| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            index
+        };
+        let big = add(&mut grammar, "Item", vec![nonterminal("Big")], "big");
+        let small = add(&mut grammar, "Item", vec![nonterminal("Small")], "small");
+        let sequence = add(
+            &mut grammar,
+            "Good",
+            (0..arity).map(|_| nonterminal("Item")).collect(),
+            "sequence",
+        );
+        for sort in ["Big", "Small"] {
+            add(
+                &mut grammar,
+                sort,
+                vec![nonterminal("K")],
+                &format!("#SemanticCastTo{sort}"),
+            );
+        }
+        grammar.subsort_relations.extend([
+            (Sort::new("Small"), Sort::new("Big")),
+            (Sort::new("Big"), Sort::new("K")),
+            (Sort::new("Item"), Sort::new("K")),
+            (Sort::new("Good"), Sort::new("K")),
+        ]);
+        (grammar, big, small, sequence)
+    }
+
+    /// A forest of `arity` independent binary ambiguities, `2^arity` complete trees: item `i`
+    /// is `big(Yi)` or `small(Yi)`.
+    fn independent_ambiguities(arity: usize) -> (Grammar, Rc<PackedTerm>) {
+        let (grammar, big, small, sequence) = independent_ambiguity_grammar(arity);
+        let items = (0..arity)
+            .map(|index| {
+                let variable = || PackedTerm::leaf(Term::variable(format!("Y{index}")));
+                PackedTerm::ambiguity(BTreeSet::from([
+                    packed_production(big, vec![variable()]),
+                    packed_production(small, vec![variable()]),
+                ]))
+            })
+            .collect();
+        (grammar, packed_production(sequence, items))
+    }
+
+    #[test]
+    fn independent_ambiguities_are_decided_up_to_the_tree_limit_and_deferred_above_it() {
+        // The largest family within the limit has `PORTABLE_AMBIGUITY_TREE_LIMIT.ilog2()`
+        // independent binary ambiguities; one more doubles the tree count past it.
+        let within = PORTABLE_AMBIGUITY_TREE_LIMIT.ilog2() as usize;
+        let top = Sort::new("Good");
+
+        let (grammar, forest) = independent_ambiguities(within);
+        assert!(!grammar.packed_sort_inference_supported(&forest));
+        let decided = grammar
+            .infer_ambiguous_sorts_portable(&forest, &top, false, Ok)
+            .expect("the all-`big` tree's typing strictly exceeds every other tree's");
+        assert_eq!(
+            Grammar::ambiguity_count(&decided),
+            1,
+            "one tree survives: {decided:?}"
+        );
+
+        let (grammar, forest) = independent_ambiguities(within + 1);
+        assert_eq!(
+            grammar.infer_ambiguous_sorts_portable(&forest, &top, false, Ok),
+            Err(ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            })
+        );
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_accepts_trees_that_differ_only_in_a_bracket() {
+        // `(s)` read through the `Big` bracket or through the `Small` bracket: two well-sorted
+        // trees with one (empty) typing that lower to the one term `s`.
+        let mut grammar = Grammar::default();
+        let add = |grammar: &mut Grammar, result: &str, items, label: &str| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            index
+        };
+        let constant = add(
+            &mut grammar,
+            "Small",
+            vec![ProductionItem::Terminal("s".into())],
+            "s",
+        );
+        let bracket = |sort: &str| {
+            vec![
+                ProductionItem::Terminal("(".into()),
+                nonterminal(sort),
+                ProductionItem::Terminal(")".into()),
+            ]
+        };
+        let big_bracket = add(&mut grammar, "Big", bracket("Big"), "bracketBig");
+        let small_bracket = add(&mut grammar, "Small", bracket("Small"), "bracketSmall");
+        grammar.productions[big_bracket].bracket = true;
+        grammar.productions[small_bracket].bracket = true;
+        grammar.subsort_relations.extend([
+            (Sort::new("Small"), Sort::new("Big")),
+            (Sort::new("Big"), Sort::new("K")),
+        ]);
+        let forest = PackedTerm::ambiguity(BTreeSet::from([
+            packed_production(big_bracket, vec![packed_production(constant, vec![])]),
+            packed_production(small_bracket, vec![packed_production(constant, vec![])]),
+        ]));
+        let top = Sort::new("Big");
+
+        let portable = grammar
+            .infer_ambiguous_sorts_portable(&forest, &top, false, Ok)
+            .expect("both bracket readings are well-sorted");
+        assert_eq!(Grammar::ambiguity_count(&portable), 2, "{portable:?}");
+        let checked = grammar
+            .checked_ambiguous_parse(&forest, &top, false, |tree| {
+                grammar.lower_inferred(tree, &top)
+            })
+            .expect("the portable engine decides the forest");
+        assert_eq!(checked, Ok(Term::apply("s", Vec::new())));
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_on_ambiguous_forests_compares_lowered_terms_and_returns_z3s() {
+        let s = || Term::apply("s", Vec::new());
+        let annotated = || {
+            s().with_metadata(TermMetadata {
+                sort: Some(Sort::new("Small")),
+                ..TermMetadata::default()
+            })
+        };
+
+        assert_eq!(checked_lowered_result(Ok(s()), Ok(s())), Ok(s()));
+        assert!(matches!(
+            checked_lowered_result(
+                Err(inference_error("portable rejection")),
+                Err(inference_error("Z3 rejection")),
+            ),
+            Err(ParseError::SortInference { ref message }) if message == "Z3 rejection"
+        ));
+        assert!(matches!(
+            checked_lowered_result(Ok(s()), Ok(annotated())),
+            Err(ParseError::SortInference { ref message })
+                if message.contains("lowered an ambiguous parse to different terms")
+        ));
+        assert!(matches!(
+            checked_lowered_result(Ok(s()), Err(inference_error("Z3 rejection"))),
+            Err(ParseError::SortInference { ref message })
+                if message.contains("portable lowered") && message.contains("Z3 rejected")
+        ));
+        assert!(matches!(
+            checked_lowered_result(Err(inference_error("portable rejection")), Ok(s())),
+            Err(ParseError::SortInference { ref message })
+                if message.contains("portable rejected") && message.contains("Z3 lowered")
         ));
     }
 }

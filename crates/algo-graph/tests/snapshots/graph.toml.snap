@@ -5926,7 +5926,7 @@ id = "parser.inference.portable"
 provenance = "declared"
 area = "parser"
 name = "portable sort inference by bound propagation"
-variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case"
+variable = "V = sort-bound vertices; E = bound edges; q = simple bound-edge paths from one variable, exponential in V in the worst case; T = complete trees of an ambiguous forest, at most PORTABLE_AMBIGUITY_TREE_LIMIT"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferencePortable"
@@ -5951,9 +5951,18 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::infer_sorts"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::infer_ambiguous_sorts_portable"
+
 [[node.cost]]
 mode = "one tree"
 bound = "O(V x E)"
+
+[[node.cost]]
+mode = "ambiguous monomorphic forest"
+bound = "O(T x V x E) for the per-tree inferences plus O(T^2 x V) order checks for the maximality filter"
 
 [[node.cost]]
 mode = "variable realization"
