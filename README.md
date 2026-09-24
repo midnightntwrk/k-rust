@@ -24,7 +24,7 @@ Requests this project makes of k-rust and KRS are recorded in the ledgers under 
 Every commit must pass:
 
 ```sh
-cargo fmt --all
+cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```

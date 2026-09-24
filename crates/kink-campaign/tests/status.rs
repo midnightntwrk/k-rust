@@ -5,7 +5,10 @@
 //! `oracleTerminalCases` of `mutation-vectors.json`, and
 //! `cross-feature-vectors.json`), which no longer exist in the tree. Row IDs
 //! are kept verbatim. Rows the current API cannot express are left out and
-//! named in the commit that added this file.
+//! named in the commit that added this file. The four crash-versus-crash
+//! `oracleTerminalCases` rows are also left out: the former Python checker
+//! and `compare_supplied` disagree on them until crashes are compared by
+//! their terminal terms.
 
 use kink_campaign::{
     BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantFailureKind, MutantPlan,
