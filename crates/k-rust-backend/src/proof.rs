@@ -2320,6 +2320,85 @@ mod tests {
         );
     }
 
+    /// A disjunctive destination whose consequents together cover only part of the state splits
+    /// it the same way. The part where `X = 0` is already at the second consequent and closes; the
+    /// rest takes the `X =/= 0` rule to `b()`. Rewriting the whole state instead would send the
+    /// `X = 0` part to the stuck `c()`, although the claim holds.
+    #[test]
+    #[cfg(feature = "z3")]
+    fn a_contingent_disjunctive_destination_closes_the_covered_part() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol b{}() : SortState{} [constructor{}()]
+                symbol c{}() : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        start{}(X:SortInt{}),
+                        \not{SortState{}}(
+                            \equals{SortInt{}, SortState{}}(
+                                X:SortInt{},
+                                \dv{SortInt{}}("0")
+                            )
+                        )
+                    ),
+                    b{}()
+                ) [label{}("nonzero")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        start{}(X:SortInt{}),
+                        \equals{SortInt{}, SortState{}}(
+                            X:SortInt{},
+                            \dv{SortInt{}}("0")
+                        )
+                    ),
+                    c{}()
+                ) [label{}("zero")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(
+                        \or{SortState{}}(
+                            b{}(),
+                            \and{SortState{}}(
+                                start{}(X:SortInt{}),
+                                \equals{SortInt{}, SortState{}}(
+                                    X:SortInt{},
+                                    \dv{SortInt{}}("0")
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("disjunctive-contingent")]
+            endmodule []"#,
+        )
+        .expect("disjunctive contingent destination probe should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("disjunctive contingent destination probe should internalize");
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+
+        let result = prove_claim(
+            &definition,
+            claim_with_label(&definition, "disjunctive-contingent"),
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+
+        assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Proven(_))),
+            "{result:#?}"
+        );
+    }
+
     const NON_TERMINATING_SIMPLIFIER: &str = r#"
         symbol expand{}(SortS{}) : SortS{} [function{}()]
         axiom{R} \implies{R}(
