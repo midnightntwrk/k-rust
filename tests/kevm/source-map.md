@@ -159,7 +159,7 @@ The canonical and native adapters emit the exact `KRYPTO.bn128valid` and `KRYPTO
 Descriptor protocol 31 and Definition IR schema 23 add the declared-sort `krypto::bn128_mul` identity.
 The hook boundary enforces `G1Point * Int -> G1Point`, and both adapters emit the exact `KRYPTO.bn128mul` hook name.
 
-Descriptor protocol 32 and Definition IR schema 24 add the declared-sort `krypto::bn128_g2_valid` identity and the builtin-List `krypto::bn128_ate` identity.
+The declared-sort `krypto::bn128_g2_valid` identity and builtin-List `krypto::bn128_ate` identity support the pairing precompile.
 The hook boundary enforces `G2Point -> Bool` and `List * List -> Bool`, and both adapters emit the exact `KRYPTO.bn128g2valid` and `KRYPTO.bn128ate` hook names.
 
 Deferred corpus shapes include the remaining Bytes operations, `%Int`, rule-table guards, broader nested/multiplicity configurations, bags, map operations beyond the selected surface, additional cell collections, heating/cooling attributes beyond the current contract, non-fallback priorities used for summary override, and KEVM's full symbolic claim language.
@@ -168,7 +168,9 @@ A later slice may extend KRS only when one of those shapes is selected as accept
 ## Acceptance contract
 
 The checked-in development gate must establish deterministic collection and expansion, formatting, warnings-denied Clippy, focused rust-analyzer probes, emitted-K compilation under K 7.1.337, and K-Rust behavior for the selected normal and exceptional paths.
-The pinned Java/K behavior and proof gate remains available only as the explicit `--java-reference` milestone or final authority check.
+The Java/K behavior and proof gate remains available through explicit `--java-reference` validation.
+That route must compare each supported Java outcome with the native outcome for the same corpus id and report a case-level mismatch.
+The native behavior digest remains pinned; Java behavior is established by this case-level agreement.
 Pins may be updated only after reviewing emitted K and structured behavior; re-record them by running the gate with `--record` (add `--java-reference` to re-record the kompiled reference digest) and review the pin diff.
 `python3 tests/kevm/verify.py --artifacts-only` stops after the emitted-artifact and native KORE pins and skips the behavior and proof comparisons; it passes only when every artifact is byte-identical to its pin (see `semantics/README.md`).
 
@@ -178,17 +180,12 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 
 ## Qualification result
 
-The refreshed development gate passes at descriptor protocol 32 and Definition IR schema 24:
-
-```text
-PASS readable KEVM operational slice: 1104 descriptors; 240 K-Rust executions; 8 Java reference proofs deferred to --java-reference; protocol 35; K 7.1.337
-```
+The development gate executes the full corpus through K-Rust and defers Java reference behavior and proofs to `--java-reference`.
 
 The behavior matrix additionally covers present and absent accounts, EIP-161 account emptiness across code, nonce, and balance, warm and cold account access, byte-exact external code copying and hashing, log memory extraction and zero padding, ordered topics, SHA3 empty and expanded-memory hashing, successful/reverted/exceptional warm-account nonempty-code `STATICCALL`, child access-list rollback, revert returndata copying, ECREC/SHA-256/RIPEMD-160/identity/MODEXP/ECADD/ECMUL/ECPAIRING-precompile success and forwarded-gas failure, invalid-signature ECREC success with empty returndata, MODEXP modulus-zero and zero-output-width results, the 200-gas EIP-2565 floor, an above-floor long-exponent vector, ECADD infinity and invalid-point behavior, ECMUL generator-times-two and zero-scalar infinity behavior, ECPAIRING empty-product identity, non-identity generator product, malformed length, invalid G1/G2 points, post-charge mutation, atomic out-of-gas behavior, static rejection, all selected stack-underflow partitions, and self-balance lookup.
 The structured K-Rust behavior SHA-256 is `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
-The native K-Rust `definition.kore` SHA-256 is `2556ffc8c15b4c341be3e0a9b08b35015eae266617c742813db7bd142d19b3e1`.
 Clean k-rust main still rejects already-complete nested configuration cells, so the KRS adapter presents those IR terms through the frontend's equivalent closed parser shape.
-This compatibility encoding changes the native KORE bytes while retaining the pinned 240-case behavior SHA-256.
+This compatibility encoding preserves the pinned behavior digest.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
 The K-Rust backend executes all 240 cases through persistent worker processes.
@@ -197,7 +194,7 @@ Two K-Rust defects surfaced during this qualification and are fixed at the pinne
 The eight Java/K proofs are deliberately deferred during ordinary development and must run at a signed milestone or final validation point.
 The `--java-reference` route kompiles the claim-free definition with `--hook-namespaces KRYPTO`, because the Java frontend otherwise drops the KRYPTO hooks, and passes every configuration variable except `$PGM` to `krun` as the same KORE value the K-Rust route builds.
 The pinned Haskell backend cannot concretely execute 22 corpus cases: it implements no `KRYPTO.sha256raw`, `KRYPTO.ripemd160raw`, `KRYPTO.bn128valid`, or `KRYPTO.bn128ate` hook, its `KRYPTO.keccak256raw` result is rejected by `BYTES.length`, and its `KRYPTO.ecdsaRecover` fails an internal assertion on an invalid signature.
-`HASKELL_BACKEND_GAPS` in `tests/kevm/verify.py` names those cases with their reasons; the Java route skips them and pins `java_behavior_sha256` over the other 218, while the K-Rust route still executes all 240.
+`HASKELL_BACKEND_GAPS` in `tests/kevm/verify.py` names those cases with their reasons; the Java route skips them and compares every other outcome against the corresponding native outcome, while the K-Rust route still executes all 240.
 This result preserves the removed program, storage, and output adapters and models balance, code, and storage through the repeated upstream account shape.
 The remaining opcode families and stateful EVM surfaces remain explicit future evidence, not implicit claims.
 Full repeated-account collection snapshots for mutable nested calls remain uncovered together with the other calls, creation, account lifecycle beyond the selected emptiness boundary, transactions, schedules, cryptographic hooks outside the selected precompile surface, and symbolic surfaces.
