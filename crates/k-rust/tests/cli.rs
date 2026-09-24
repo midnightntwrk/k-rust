@@ -8323,3 +8323,30 @@ endmodule
         );
     }
 }
+
+/// A claim universal that the path overwrote still names its initial value, so the part of the
+/// reached state where the destination fails on it is a stuck leaf (disproved), whether or not
+/// vacuous leaves are accepted.
+#[test]
+fn kprove_an_overwritten_universal_keeps_the_uncovered_part() {
+    let specification = r#"
+requires "cell-probe2.k"
+
+module REM-SPEC
+  imports CELL-PROBE2
+
+  claim <k> start => middle </k> <n> X => X +Int 1 </n> [label(free-remainder)]
+endmodule
+"#;
+    for extra in [&[][..], &["--allow-vacuous"][..]] {
+        let leaves = kprove_claim_leaves(
+            ("cell-probe2.k", CELL_PROBE2),
+            ("rem-spec.k", specification),
+            "REM-SPEC",
+            "CELL-PROBE2",
+            &["free-remainder"],
+            extra,
+        );
+        assert_eq!(leaves, [stuck_leaf("free-remainder")], "{extra:?}");
+    }
+}
