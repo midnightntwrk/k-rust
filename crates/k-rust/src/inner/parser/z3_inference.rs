@@ -987,13 +987,6 @@ impl<'a> Encoding<'a> {
                         .as_ref()
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
-                        // A semantic cast applied directly to a variable is a declaration of
-                        // that variable's exact sort. The reference inferencer emits equality
-                        // for this shape, while semantic casts around compound terms remain
-                        // ordinary subsort constraints.
-                        CastContext::Semantic if matches!(child, ParsedTerm::Term(term) if inferred_variable_name(term).is_some()) => {
-                            CastContext::Strict
-                        }
                         CastContext::None if function_child_sort.is_some() => CastContext::None,
                         CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
@@ -1152,9 +1145,6 @@ impl<'a> Encoding<'a> {
                         .as_ref()
                         .is_some_and(|origin| origin.parameters.contains(child_sort));
                     let child_context = match cast_context_for(descriptor) {
-                        CastContext::Semantic if matches!(&child.node, PackedNode::Term(term) if inferred_variable_name(term).is_some()) => {
-                            CastContext::Strict
-                        }
                         CastContext::None if function_lhs.is_some() => CastContext::None,
                         CastContext::None if !formal_child && !is_real_ground_sort(child_sort) => {
                             CastContext::Parser
@@ -4379,18 +4369,19 @@ mod tests {
         assert!(!base.covers(&term_sorts));
     }
 
-    #[test]
-    fn semantic_cast_directly_on_variable_is_strict() {
+    /// `pair(X:Big, foo(X))` with `foo(Small)`, where the cast production (index 0) is `cast`.
+    fn cast_variable_used_at_small(cast: Label) -> (Grammar, ParsedTerm) {
         let mut grammar = Grammar::default();
         grammar
             .add(
                 Sort::new("Big"),
                 vec![nonterminal("KItem")],
-                Some(Label::new("#SemanticCastToBig")),
+                Some(cast),
                 false,
                 false,
             )
             .unwrap();
+        // The production that records the inferred sort of a variable at Small.
         grammar
             .add(
                 Sort::new("Small"),
@@ -4441,9 +4432,36 @@ mod tests {
             ],
             metadata: Default::default(),
         };
+        (grammar, term)
+    }
+
+    #[test]
+    fn semantic_cast_directly_on_variable_is_an_upper_bound() {
+        // `X:Big` requires sort(X) <= Big; `foo(X)` requires sort(X) <= Small, so X is Small.
+        let (grammar, term) = cast_variable_used_at_small(Label::new("#SemanticCastToBig"));
+        let inferred = grammar
+            .infer_sorts_z3(term, &Sort::new("K"), false)
+            .expect("X at Small satisfies the Big bound and the Small use");
+        // The occurrence without a cast records the inferred sort through the Small cast.
+        let ParsedTerm::Production { children, .. } = &inferred else {
+            panic!("unexpected inference result: {inferred:?}");
+        };
+        assert!(
+            matches!(
+                &children[1],
+                ParsedTerm::Production { children, .. }
+                    if matches!(&children[0], ParsedTerm::Production { production: 1, .. })
+            ),
+            "X should be recorded at Small: {inferred:?}"
+        );
+    }
+
+    #[test]
+    fn strict_cast_directly_on_variable_is_exact() {
+        let (grammar, term) = cast_variable_used_at_small(Label::new("#SyntacticCast"));
         let error = grammar
             .infer_sorts_z3(term, &Sort::new("K"), false)
-            .expect_err("Big cast and Small use of X must conflict");
+            .expect_err("X::Big and the Small use of X must conflict");
         assert!(
             error.to_string().contains("Unexpected sort")
                 || error.to_string().contains("no well-sorted parse")

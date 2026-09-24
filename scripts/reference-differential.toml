@@ -554,24 +554,6 @@ pairings = ["haskell/rust"]
 comparisons = ["semantic-kore"]
 
 [[compile]]
-name = "semcast3"
-requires = ["reference-toolchain"]
-constructs = ["sort-inference", "ambiguity", "strict-semantic-cast"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast3/test.k"
-main-module = "TEST"
-pairings = ["haskell/rust"]
-expect = "reject"
-
-[[compile]]
-name = "semcast4"
-requires = ["reference-toolchain"]
-constructs = ["sort-inference", "ambiguity", "strict-semantic-cast"]
-source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast4/test.k"
-main-module = "TEST"
-pairings = ["haskell/rust"]
-expect = "reject"
-
-[[compile]]
 name = "anywhere2"
 requires = ["reference-toolchain"]
 constructs = ["sort-inference", "nested-rewrite", "anywhere"]
@@ -1411,6 +1393,22 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/mini-spec.k"
 disposition = "alternative-oracle"
 local_gate = "K_KOMPILE=/path/to/pinned/bin/kompile scripts/reference-proof-differential.sh mini-proof"
 reason = "The pinned prover emits a concrete generatedCounter cell containing a fresh Int variable, while k-rust reports an unconstrained generatedCounter cell variable; both identify the same stuck k cell, but exact KORE comparison would pin backend-internal framing. Verdicts are compared per claim instead."
+
+[[excluded]]
+name = "semcast3"
+section = "compile"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast3/test.k"
+disposition = "local-gate"
+local_gate = "cargo test -p k-rust --no-default-features --features z3-inference --test inner_rules semcast3_and_semcast4_take_their_one_well_sorted_reading -- --exact"
+reason = "docs/compatibility.md#variable-sort-annotations: Rust gives `X:Big` the manual's upper-bound meaning, under which `a(X)` has one well-sorted reading (aS, with X at Small); the pinned frontend rejects the rule."
+
+[[excluded]]
+name = "semcast4"
+section = "compile"
+source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast4/test.k"
+disposition = "local-gate"
+local_gate = "cargo test -p k-rust --no-default-features --features z3-inference --test inner_rules semcast3_and_semcast4_take_their_one_well_sorted_reading -- --exact"
+reason = "docs/compatibility.md#variable-sort-annotations: Rust gives `X:Big` the manual's upper-bound meaning, under which `a(X)` has one well-sorted reading (aS, with X at Small); the pinned frontend rejects the rule."
 
 [[proof]]
 name = "imp"
