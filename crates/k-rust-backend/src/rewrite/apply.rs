@@ -85,6 +85,18 @@ pub(super) struct RuleApplication {
     pub(super) remainder: Predicate,
 }
 
+impl RuleApplication {
+    /// The sub-case of the subject this application covers, the complement of `remainder`
+    /// (the inverse of `remainder_of`).
+    pub(super) fn applicability(&self) -> Predicate {
+        match &self.remainder {
+            Predicate::False => Predicate::True,
+            Predicate::Not(applicability) => (**applicability).clone(),
+            remainder => Predicate::Not(Box::new(remainder.clone())),
+        }
+    }
+}
+
 fn remainder_of(applicability: &Predicate) -> Predicate {
     if *applicability == Predicate::True {
         Predicate::False

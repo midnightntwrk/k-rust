@@ -29,10 +29,14 @@ use std::{
     collections::{BTreeSet, VecDeque},
     error::Error,
     fmt,
+    sync::Arc,
     time::Duration,
 };
 
-use k_rust_kore::measure::{self, Algorithm, Counter};
+use k_rust_kore::{
+    measure::{self, Algorithm, Counter},
+    names::{BuiltinSort, WellKnownSymbol},
+};
 
 use crate::{
     claim::{ReachabilityClaim, ReachabilityMode},
@@ -50,8 +54,8 @@ use crate::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
         collection_unification_definedness, conjunctively_contains_alpha_equivalent,
         predicates_truth, quantify_introduced_variables, recover_indeterminate_match,
-        rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
-        substitute_predicates,
+        rewrite_step_sequential_tracking_dropped, rewrite_step_sequential_with_options,
+        rewrite_step_with_options, simplify_leaf_pattern, substitute_predicates,
     },
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -571,24 +575,41 @@ pub fn prove_claim(
             }
         }
 
-        let rewritten = match claim.mode {
-            ReachabilityMode::OnePath => rewrite_step_sequential_with_options(
+        let simplification =
+            SimplificationOptions::keep_partial(options.max_simplification_iterations);
+        let (rewritten, dropped) = match claim.mode {
+            // Once the trace may have dropped a successor, no later step can make it certifiable
+            // again, so the step no longer asks.
+            ReachabilityMode::OnePath if state.alternative_discarded => (
+                rewrite_step_sequential_with_options(
+                    definition,
+                    &state.pattern,
+                    &mut fresh_counter,
+                    simplification,
+                    solver,
+                ),
+                true,
+            ),
+            ReachabilityMode::OnePath => rewrite_step_sequential_tracking_dropped(
                 definition,
                 &state.pattern,
                 &mut fresh_counter,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                simplification,
                 solver,
             ),
-            ReachabilityMode::AllPath => rewrite_step_with_options(
-                definition,
-                &state.pattern,
-                &mut fresh_counter,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+            ReachabilityMode::AllPath => (
+                rewrite_step_with_options(
+                    definition,
+                    &state.pattern,
+                    &mut fresh_counter,
+                    simplification,
+                    solver,
+                ),
+                false,
             ),
         };
         finish_if_timed_out!();
-        if claim.mode == ReachabilityMode::OnePath
+        if dropped
             && matches!(
                 rewritten,
                 RewriteResult::Finished(_) | RewriteResult::Branch { .. }
@@ -817,7 +838,12 @@ enum StuckEvidence {
 ///   search stopped without rewriting it is stepped once here, and certified only if that step
 ///   is stuck.
 /// - (b) The trace follows every path: an all-path claim, or a one-path trace on which no step
-///   may have dropped an applicable alternative (`ProofState::alternative_discarded`).
+///   may have dropped a successor (`ProofState::alternative_discarded`). Every configuration on
+///   such a trace has exactly the successors the search kept, so the path to the leaf is the
+///   only path from its start, and a one-path claim fails there as an all-path claim would.
+///
+/// (a) and (d) may instead hold of one instance of the leaf, `empty_computation_instance`: the
+/// refutation needs one configuration, and an instance's configurations are the leaf's.
 /// - (c) No circularity or trusted claim on the trace (`TraceKind::Claim`): a claim step
 ///   summarises paths without following them.
 /// - (d) The leaf is non-empty outside the destination: its term contains no function
@@ -841,19 +867,63 @@ fn stuck_leaf(
 ) -> ProofLeaf {
     let path_certifiable = state.path_certifiable();
     let mut leaf = externalise_leaf(definition, state, ProofLeafOutcome::Stuck, options, solver);
+    let refutes = |instance: &Pattern, evidence: StuckEvidence| {
+        leaf_is_nonempty(definition, instance, solver)
+            && (evidence == StuckEvidence::StepStuck
+                || has_no_successor(definition, instance, mode, fresh_counter, options, solver))
+    };
     leaf.certified = leaf.outcome == ProofLeafOutcome::Stuck
         && path_certifiable
-        && leaf_is_nonempty(definition, &leaf.pattern, solver)
-        && (evidence == StuckEvidence::StepStuck
-            || has_no_successor(
-                definition,
-                &leaf.pattern,
-                mode,
-                fresh_counter,
-                options,
-                solver,
-            ));
+        && (refutes(&leaf.pattern, evidence)
+            || empty_computation_instance(definition, &leaf.pattern)
+                .is_some_and(|instance| refutes(&instance, StuckEvidence::StepNotRun)));
     leaf
+}
+
+/// The instance of `pattern` that binds every variable of sort `K` to the empty computation
+/// `.K`, or `None` when `pattern` has no such variable (or the definition no `.K`).
+///
+/// Conditions (a) and (d) of [`stuck_leaf`] ask for one configuration of the leaf, not all of
+/// them. A leaf whose `<k>` cell ends in the frame variable of a claim written with `...` has
+/// successors, since the frame may hold more code, yet its configurations with nothing left to
+/// run may have none. The instance is a subset of the leaf and is reached along the same trace
+/// from the matching instance of the left-hand side, so (a) and (d) established on it certify the
+/// leaf. The choice of `.K` is a witness, not an assumption: when the instance still rewrites,
+/// is empty, or is not decided exactly, the leaf is not certified by it.
+fn empty_computation_instance(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+) -> Option<Pattern> {
+    let computations = pattern
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(
+            pattern
+                .constraints
+                .iter()
+                .flat_map(crate::rule::Predicate::free_variables),
+        )
+        .filter(|variable| variable.sort.is_builtin(BuiltinSort::K))
+        .collect::<BTreeSet<_>>();
+    if computations.is_empty() {
+        return None;
+    }
+    let dotk = definition.symbols.get(WellKnownSymbol::DotK.as_str())?;
+    if !dotk.sort_variables.is_empty() || !dotk.argument_sorts.is_empty() {
+        return None;
+    }
+    let empty = Term::application(Arc::clone(dotk), Vec::new(), Vec::new());
+    let substitution = computations
+        .into_iter()
+        .map(|variable| (variable, empty.clone()))
+        .collect::<Substitution>();
+    Some(Pattern {
+        term: substitute(&pattern.term, &substitution),
+        constraints: substitute_predicates(&pattern.constraints, &substitution),
+    })
 }
 
 /// Condition (d) of [`stuck_leaf`].
@@ -921,9 +991,9 @@ struct ProofState {
     depth: u64,
     trace: Vec<TraceEntry>,
     kind: ProofStateKind,
-    /// A one-path step on this trace may have followed one applicable rule and dropped
-    /// another. The sequential rewriter does not report whether it did, so every one-path
-    /// rewrite step sets this.
+    /// A one-path step on this trace may have dropped a successor of a configuration it covered:
+    /// an overlapping rule of equal priority, a second collection match, or a rule whose
+    /// right-hand side stands for several successors (`rewrite_step_sequential_tracking_dropped`).
     alternative_discarded: bool,
     /// Some state on this trace was not shown outside the destination: its implication check
     /// was skipped (below the minimum depth) or undecided. Part of its configurations may then
@@ -4055,10 +4125,12 @@ mod tests {
         assert_eq!(checked.status, ProofStatus::Failed);
         assert_eq!(checked.explored_states, 1);
         assert_eq!(checked.leaves[0].depth, 0);
-        // `b` is reached by a one-path step, which may have dropped an alternative.
-        assert_eq!(unchecked.status, ProofStatus::Failed);
+        // `a` has the one successor `b`, which has none and is outside the empty destination:
+        // the only path from `a` never reaches it, so the one-path claim is refuted.
+        assert_eq!(unchecked.status, ProofStatus::Disproved);
         assert_eq!(unchecked.explored_states, 2);
         assert_eq!(unchecked.leaves[0].depth, 1);
+        assert!(unchecked.leaves[0].certified);
     }
 
     #[test]
@@ -4461,12 +4533,10 @@ mod tests {
             )
             .expect("claim should execute");
 
-            // Over the integers the uncovered `X` outside {0, 1, 2} is a certified refutation
-            // of the all-path claim; a one-path trace may have dropped an alternative.
-            let expected = match mode {
-                ReachabilityMode::OnePath => ProofStatus::Failed,
-                ReachabilityMode::AllPath => ProofStatus::Disproved,
-            };
+            // Over the integers the uncovered `X` outside {0, 1, 2} is a certified refutation in
+            // both modes: `init(3)` has the one successor `start(3)`, which has none, so no path
+            // reaches `done`. The one-path trace follows a step on which one rule applies.
+            let expected = ProofStatus::Disproved;
             assert_eq!(result.status, expected, "{result:#?}");
             assert!(
                 result.leaves.iter().any(|leaf| {

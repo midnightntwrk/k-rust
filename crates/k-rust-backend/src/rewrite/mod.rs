@@ -642,6 +642,40 @@ pub(crate) fn rewrite_step_sequential_with_options(
     )
 }
 
+/// The sequential step of [`rewrite_step_sequential_with_options`], and whether it may have
+/// dropped a successor of some configuration of `pattern` (`step::SequentialDeterminism`).
+/// When it did not, every configuration of `pattern` has exactly the successors the result
+/// keeps, as in the all-path step.
+pub(crate) fn rewrite_step_sequential_tracking_dropped(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    fresh_counter: &mut u64,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> (RewriteResult, bool) {
+    if let Some(symbol) = pattern.macro_or_alias_symbol() {
+        let result = RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+        };
+        return (result, true);
+    }
+    if predicates_truth(&pattern.constraints) == Truth::False {
+        return (RewriteResult::Vacuous(pattern.clone()), true);
+    }
+    let mut determinism = step::SequentialDeterminism::default();
+    let result = rewrite_step_any(
+        definition,
+        pattern,
+        fresh_counter,
+        simplification_options,
+        solver,
+        None,
+        Some(&mut determinism),
+    );
+    (result, determinism.dropped)
+}
+
 pub(crate) fn rewrite_step_with_mode(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -700,6 +734,7 @@ fn rewrite_step_with_optional_execution(
             simplification_options,
             solver,
             io,
+            None,
         ),
     }
 }

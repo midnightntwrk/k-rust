@@ -380,12 +380,17 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
 
 - `proven`: every leaf reached the destination.
 - `disproved`: the claim is false. Some leaf is a certified stuck leaf, printed
-  `Stuck (certified)`: it has no successor, it was reached on an all-path trace (or a one-path
-  trace that dropped no applicable rule, which today means one with no rewrite step) without a
-  circularity or trusted claim, every destination check on the way was decided, and it is non-empty
-  outside the destination. Non-emptiness requires a leaf term built from constructors and values
-  only, and constraints that hold syntactically or are satisfiable by an SMT query over `Int` and
-  `Bool` variables that abstracts no subterm.
+  `Stuck (certified)`: it was reached on an all-path trace (or a one-path trace on which every
+  step kept every successor of every configuration it covered) without a circularity or trusted
+  claim, every destination check on the way was decided, and it has a configuration outside the
+  destination with no successor. That configuration is shown either for the whole leaf or for its
+  instance that binds every `K` variable, such as the frame of a claim written with `...`, to `.K`.
+  Non-emptiness requires a term built from constructors and values only, and constraints that
+  hold syntactically or are satisfiable by an SMT query over `Int` and `Bool` variables that
+  abstracts no subterm. A one-path step keeps every successor when its applicable rules of equal
+  priority have pairwise disjoint conditions (refuted syntactically or by an `Unsat` answer), each
+  follows one collection match, and each rewrites to one term over its left-hand side's variables
+  (no `?X` and no disjunction).
 - `failed`: the proof stopped at a leaf outside the destination that it did not continue (an
   uncertified stuck leaf, such as a stuck-check stop or a leaf whose non-emptiness rests on an
   abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`Trivial`, `Vacuous`).
