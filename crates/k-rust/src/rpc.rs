@@ -34,8 +34,8 @@ use k_rust_backend::{
     },
     matching::SortGraph,
     rewrite::{
-        AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
-        TraceKind, substitute_predicates,
+        AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason,
+        IndeterminateReason, Pattern, TraceKind, substitute_predicates,
     },
     rule::Predicate,
     session::SessionError,
@@ -553,6 +553,11 @@ impl RpcService {
                     HaltReason::Simplification(
                         error @ SimplificationError::UnsupportedHook { term, .. },
                     ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
+                    HaltReason::Simplification(error @ SimplificationError::StackExhausted)
+                    | HaltReason::Indeterminate(IndeterminateReason::Simplification {
+                        error: error @ SimplificationError::StackExhausted,
+                        ..
+                    }) => return Err(stack_exhausted_fault(error)),
                     HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => {
                         ("aborted", None, None)
                     }
@@ -917,9 +922,18 @@ impl RpcService {
     }
 }
 
+/// The request ran out of the native stack of the thread serving it. The error ends this request
+/// only: the thread unwound to the request's entry, so the connection keeps serving.
+fn stack_exhausted_fault(error: &SimplificationError) -> RpcFault {
+    RpcFault::runtime(error.to_string(), None)
+}
+
 fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcFault {
     if let SimplificationError::UnsupportedHook { term, .. } = &error {
         return RpcFault::runtime(error.to_string(), Some(term));
+    }
+    if let SimplificationError::StackExhausted = &error {
+        return stack_exhausted_fault(&error);
     }
     let SimplificationError::SmtPredicate { predicate, error } = error else {
         return RpcFault::aborted(error.to_string());
@@ -4442,6 +4456,95 @@ mod tests {
         assert_eq!(boolean["result"]["state"]["term"]["tag"], "DV");
         assert_eq!(boolean["result"]["state"]["term"]["value"], "true");
         assert_eq!(logical["result"]["state"]["term"]["tag"], "Top");
+    }
+
+    fn divergent_recursion_service() -> RpcService {
+        RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add")]
+                  symbol down{}(SortInt{}) : SortInt{} [function{}()]
+                  axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, N:SortInt{}), \top{R}())),
+                    \equals{SortInt{}, R}(
+                      down{}(X0:SortInt{}),
+                      \and{SortInt{}}(
+                        intAdd{}(
+                          \dv{SortInt{}}("1"),
+                          down{}(intAdd{}(N:SortInt{}, \dv{SortInt{}}("1")))
+                        ),
+                        \top{SortInt{}}()
+                      )
+                    )
+                  ) [label{}("down")]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ))
+    }
+
+    #[test]
+    fn stack_exhaustion_is_an_error_response_and_the_connection_keeps_serving() {
+        // `down(N) = 1 +Int down(N +Int 1)` never reaches a value, and `simplify` runs without
+        // an iteration bound, so only the connection thread's stack ends the request.
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = Arc::new(Mutex::new(divergent_recursion_service()));
+        let server_service = Arc::clone(&service);
+        let worker = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve_connection(stream, server_service).unwrap();
+        });
+
+        let state = |source: &str| encode_kore(&parse_pattern(source).unwrap()).unwrap();
+        let mut client = TcpStream::connect(address).unwrap();
+        let messages = [
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "simplify",
+                "params": { "state": state(r#"down{}(\dv{SortInt{}}("0"))"#) },
+            }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "simplify",
+                "params": {
+                    "state": state(r#"intAdd{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#)
+                },
+            }),
+        ];
+        for message in messages {
+            writeln!(client, "{message}").unwrap();
+        }
+        client.shutdown(Shutdown::Write).unwrap();
+        let mut responses = String::new();
+        client.read_to_string(&mut responses).unwrap();
+        worker.join().unwrap();
+
+        let responses = responses
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(responses.len(), 2, "{responses:#?}");
+        assert_eq!(responses[0]["id"], 1);
+        assert_eq!(responses[0]["error"]["code"], -32002, "{:#}", responses[0]);
+        assert_eq!(
+            responses[0]["error"]["data"]["error"],
+            SimplificationError::StackExhausted.to_string(),
+            "{:#}",
+            responses[0]
+        );
+        assert_eq!(responses[1]["id"], 2);
+        assert_eq!(
+            responses[1]["result"]["state"]["term"]["value"], "3",
+            "{:#}",
+            responses[1]
+        );
     }
 
     #[test]

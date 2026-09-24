@@ -22,6 +22,12 @@ sha3.workspace = true
 substrate-bn.workspace = true
 z3 = { workspace = true, optional = true }
 
+# The simplifier's stack guard reads the current thread's real stack bounds. On wasm32 the
+# engine's call-stack limit is invisible to the module, so the guard is absent there and the
+# wasm build carries no C build step.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+stacker.workspace = true
+
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true

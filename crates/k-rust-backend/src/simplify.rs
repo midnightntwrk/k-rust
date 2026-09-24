@@ -162,6 +162,10 @@ pub enum SimplificationError {
     /// checks its timer after the simplification returns and reports its own timeout outcome;
     /// this error only unwinds the simplifier to that check.
     Interrupted,
+    /// The native stack of the current thread came within `STACK_RED_ZONE` bytes of its end.
+    /// Simplification recursion is bounded by the host thread's stack, not by a depth count, and
+    /// running out of it is reported instead of overflowing, which would abort the process.
+    StackExhausted,
     Builtin(BuiltinError),
     DisjunctiveResult {
         rule_id: String,
@@ -204,8 +208,23 @@ impl fmt::Display for SimplificationError {
                 formatter,
                 "unsupported hook '{hook}' on constructor-like arguments: {reason}"
             ),
+            Self::StackExhausted => formatter
+                .write_str("simplification exhausted the native stack of the current thread"),
             _ => write!(formatter, "{self:?}"),
         }
+    }
+}
+
+impl SimplificationError {
+    /// Whether the error reports that a resource of the request ran out (cancellation, the step
+    /// deadline, or the thread's stack) rather than a fact about the simplified input or a bound
+    /// the simplifier chose. An unsimplified value is no substitute for the result of such an
+    /// error: deciding with it turns the lack of a resource into a verdict.
+    pub fn is_resource_exhaustion(&self) -> bool {
+        matches!(
+            self,
+            Self::Cancelled | Self::Interrupted | Self::StackExhausted
+        )
     }
 }
 
@@ -691,13 +710,19 @@ fn simplify_rule_predicates(
 }
 
 /// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
-/// them unsimplified when simplification fails.
+/// them unsimplified when simplification fails for a reason other than an exhausted resource.
 ///
 /// The unsimplified predicates are the same condition, so deciding them instead is sound; it
 /// is only weaker, and may leave the condition undecided where the simplified form would have
 /// been decided. When the weakening comes from the iteration budget it is recorded, because
 /// otherwise an equation left unapplied for lack of budget is indistinguishable from one whose
 /// condition is open (`diagnostic::emit_rule_condition_budget_exhausted`).
+///
+/// A resource error (`SimplificationError::is_resource_exhaustion`) is returned instead. The
+/// budget is a bound the simplifier chose, and a weaker condition is a fit answer to it; a
+/// cancelled request, a passed deadline, or an exhausted stack says nothing about the
+/// condition, and deciding the unsimplified predicates would leave the equation blocked and
+/// report a silent `Stuck` one level up, a wrong answer in place of the error.
 #[allow(clippy::too_many_arguments)]
 fn simplify_rule_predicates_or_keep(
     definition: &BackendDefinition,
@@ -708,7 +733,7 @@ fn simplify_rule_predicates_or_keep(
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
-) -> Vec<Predicate> {
+) -> Result<Vec<Predicate>, SimplificationError> {
     match simplify_rule_predicates(
         definition,
         (rule_id, anchor),
@@ -718,15 +743,16 @@ fn simplify_rule_predicates_or_keep(
         active_conditions,
         solver,
     ) {
-        Ok(simplified) => simplified,
+        Ok(simplified) => Ok(simplified),
         Err(
             SimplificationError::IterationLimit { limit, .. }
             | SimplificationError::PredicateIterationLimit { limit, .. },
         ) => {
             diagnostic::emit_rule_condition_budget_exhausted(rule_id, limit);
-            predicates
+            Ok(predicates)
         }
-        Err(_) => predicates,
+        Err(error) if error.is_resource_exhaustion() => Err(error),
+        Err(_) => Ok(predicates),
     }
 }
 
@@ -773,7 +799,7 @@ fn evaluate_rule_condition(
             options,
             active_conditions,
             solver,
-        )
+        )?
     } else {
         predicates
     };
@@ -943,6 +969,9 @@ fn simplify_predicate_with_budget(
 ) -> Result<Predicate, SimplificationError> {
     if interruption_requested() {
         return Err(interruption_error());
+    }
+    if stack_exhausted() {
+        return Err(stack_exhausted_error());
     }
     if assumptions.contains(predicate) {
         return Ok(Predicate::True);
@@ -2017,6 +2046,49 @@ fn interruption_error() -> SimplificationError {
     }
 }
 
+/// Bytes of native stack that must remain when the simplifier enters a round of
+/// `simplify_with_budget` or a call of `simplify_predicate_with_budget`, the points at which it
+/// checks the stack.
+///
+/// The zone must hold the deepest stretch of the same thread between two checks: the frames of
+/// one level of simplifier recursion (about 2.5 KiB in release builds and 16 KiB in debug builds,
+/// measured on ground function recursion), plus the matching, builtin hooks, and SMT solver call
+/// that run on the thread between two checks. In a debug build a whole simplification of a
+/// conditional equation whose condition Z3 decides takes 62 KiB of stack from its entry, and the
+/// Z3 call on such a condition alone takes 23 KiB (both measured by stack painting); the zone is
+/// twice the whole simplification.
+/// The zone is also a floor below which a thread simplifies nothing, so it stays well under the
+/// smallest thread stacks embedders commonly run (512 KiB, the macOS default for secondary
+/// threads).
+#[cfg(not(target_family = "wasm"))]
+const STACK_RED_ZONE: usize = 128 * 1024;
+
+/// Whether the current thread has less than `STACK_RED_ZONE` bytes of stack left.
+///
+/// The resource is bytes of this thread's stack, and only the OS knows its bounds, which
+/// `stacker` reads for every native thread whoever created it. A thread whose bounds cannot be
+/// read, and every wasm32 build, where the engine's call-stack limit is invisible to the module,
+/// is unguarded: an unknown remaining stack never counts as exhausted.
+#[inline]
+fn stack_exhausted() -> bool {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        stacker::remaining_stack().is_some_and(|remaining| remaining < STACK_RED_ZONE)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        false
+    }
+}
+
+/// The error that stops the simplifier when `stack_exhausted` holds. Kept out of line, as
+/// `interruption_error` is, so the check adds nothing to the frames of the recursive loops.
+#[cold]
+#[inline(never)]
+fn stack_exhausted_error() -> SimplificationError {
+    SimplificationError::StackExhausted
+}
+
 #[allow(clippy::too_many_arguments)]
 fn simplify_with_budget(
     definition: &BackendDefinition,
@@ -2041,6 +2113,9 @@ fn simplify_with_budget(
         measure::bump(Counter::SimplifyRounds);
         if interruption_requested() {
             return Err(interruption_error());
+        }
+        if stack_exhausted() {
+            return Err(stack_exhausted_error());
         }
         if term.attributes().evaluated && !assumptions.path_condition.can_change(&term) {
             measure::bump(Counter::SimplifyNodesSkippedEvaluated);
@@ -2866,7 +2941,7 @@ fn decide_definedness(
             options,
             active_conditions,
             solver,
-        )
+        )?
     } else {
         definedness
     };
@@ -3152,7 +3227,7 @@ fn evaluate_ensures(
         options,
         active_conditions,
         solver,
-    );
+    )?;
     // An `ensures` is a conjunct of the result by definition, so every verdict the solver does
     // not reach carries it: an open implication, no solver, a query the encoding cannot pose,
     // and an inconsistent path condition, which under the path condition alone says nothing
