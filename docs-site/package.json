@@ -8,7 +8,7 @@
     "dev": "bun run build:lesson-worker && vocs dev",
     "check": "python3 scripts/sync-concepts.py && python3 scripts/sync-port-coverage.py --check && python3 scripts/sync-compatibility.py --check && python3 scripts/check-search.py && python3 ../docs-plan/check.py && python3 ../docs-plan/check-pages.py && python3 ../tests/tour-imp/sync.py && node --test scripts/rust-twoslash.test.mjs scripts/concept-gloss.test.mjs && node scripts/sync-snippets.mjs && python3 ../tests/tour-minimal/verify.py && python3 ../tests/tour-imp/verify.py && python3 ../tests/tour-composition/verify.py && python3 ../tests/tour-negatives/verify.py && python3 ../tests/tour-proof-evidence/verify.py && cargo check --locked --manifest-path ../tests/m4/rust-definition/Cargo.toml --lib && cargo check --locked --offline --manifest-path ../crates/krs-macros/tests/fixtures/positive/Cargo.toml && cargo check --locked --offline --manifest-path ../semantics/Cargo.toml -p krs-kevm-semantics",
     "check:types": "tsc --noEmit",
-    "build:lesson-worker": "bun build ../browser/worker/src/worker.ts --target=browser --format=esm --minify --outfile=public/browser-lesson/worker.js",
+    "build:lesson-worker": "bun install --cwd ../browser/worker --frozen-lockfile && bun build ../browser/worker/src/worker.ts --target=browser --format=esm --minify --outfile=public/browser-lesson/worker.js",
     "check:twoslash": "node scripts/check-rust-twoslash.mjs",
     "build": "bun run check && bun run check:types && node scripts/check-rust-twoslash.mjs --if-enabled && bun run build:lesson-worker && vocs build",
     "preview": "vocs preview",
