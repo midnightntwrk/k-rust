@@ -7105,6 +7105,287 @@ fn search_does_not_enable_console_hooks() {
     ));
 }
 
+/// `pair(add(checked(X), 1), 0)` with a symbolic `X`: simplifying `checked(X)` asks the solver
+/// whether `checked`'s condition `0 <Int X` holds, and the enclosing `add` is a native hook
+/// evaluated right after its argument in the same simplification round. A solver that cancels
+/// the request while answering that query therefore makes the hook, not a fixed-point round
+/// head, the first point that observes the cancellation.
+fn hook_observed_cancellation_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            symbol pair{}(SortInt{}, SortInt{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol checked{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+            hooked-symbol add{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        lt{}(\dv{SortInt{}}("0"), X:SortInt{}),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \and{R}(\in{SortInt{}, R}(X0:SortInt{}, X:SortInt{}), \top{R}())
+                ),
+                \equals{SortInt{}, R}(
+                    checked{}(X0:SortInt{}),
+                    \and{SortInt{}}(X:SortInt{}, \top{SortInt{}}())
+                )
+            ) [label{}("checked")]
+            "#,
+    )
+}
+
+#[test]
+fn search_reports_a_cancellation_observed_by_a_hook_as_cancelled() {
+    let definition = hook_observed_cancellation_definition();
+    let initial = definition
+        .internalize_pattern(
+            &parse_pattern(
+                r#"pair{}(add{}(checked{}(X:SortInt{}), \dv{SortInt{}}("1")), \dv{SortInt{}}("0"))"#,
+            )
+            .unwrap(),
+            &[],
+        )
+        .unwrap();
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Sat), 8),
+        std::iter::repeat_n(Ok(Validity::Indeterminate), 8),
+    )
+    .cancelling_at(0, token.clone());
+
+    let result = token.scope(|| {
+        k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            initial,
+            k_rust_backend::search::SearchOptions::default(),
+            &solver,
+        )
+    });
+
+    let transcript = solver.transcript.borrow().clone();
+    assert!(
+        matches!(
+            transcript.as_slice(),
+            [ScriptedQuery::CheckPredicates { .. }]
+        ),
+        "the condition query is the only solver call: {transcript:#?}"
+    );
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
+/// `wrap(X) => "done" requires X == "expected"`: from `wrap(Y)` the rule's condition is a solver
+/// query, and when it is undecided the priority group's remainder is a second one.
+fn guarded_search_definition() -> BackendDefinition {
+    definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("expected"))
+                ),
+                \dv{SortS{}}("done")
+            ) [label{}("guarded")]
+            "#,
+    )
+}
+
+/// Search `wrap(Y)` with `solver` under `token`, which the solver cancels.
+fn search_guarded_under(
+    solver: &ScriptedSolver,
+    token: &CancellationToken,
+) -> k_rust_backend::search::SearchResult {
+    let definition = guarded_search_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, "wrap{}(Y:SortS{})"),
+        constraints: Vec::new(),
+    };
+    token.scope(|| {
+        k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            initial,
+            k_rust_backend::search::SearchOptions::default(),
+            solver,
+        )
+    })
+}
+
+#[test]
+fn search_reports_a_cancellation_observed_by_the_requires_check_as_cancelled() {
+    // The cancellation arrives while the solver decides the rule's condition, so the solver
+    // answers unknown; the condition is undecided only because the request was cancelled.
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        std::iter::empty(),
+        [Ok(Validity::Unknown("request cancelled".into()))],
+    )
+    .cancelling_at(0, token.clone());
+
+    let result = search_guarded_under(&solver, &token);
+
+    let transcript = solver.transcript.borrow().clone();
+    assert!(
+        matches!(
+            transcript.as_slice(),
+            [ScriptedQuery::CheckPredicates { .. }]
+        ),
+        "the condition query is the only solver call: {transcript:#?}"
+    );
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
+#[test]
+fn search_reports_a_cancellation_observed_by_the_remainder_check_as_cancelled() {
+    // The condition is undecided on its own merits, so the rule applies under it and the
+    // group's remainder `Y =/= "expected"` goes to the solver; the cancellation arrives during
+    // that satisfiability query, which therefore answers unknown.
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        [Ok(Satisfiability::Unknown("request cancelled".into()))],
+        [Ok(Validity::Indeterminate)],
+    )
+    .cancelling_at(1, token.clone());
+
+    let result = search_guarded_under(&solver, &token);
+
+    let transcript = solver.transcript.borrow().clone();
+    assert!(
+        matches!(
+            transcript.as_slice(),
+            [
+                ScriptedQuery::CheckPredicates { .. },
+                ScriptedQuery::IsSat { .. }
+            ]
+        ),
+        "the condition and remainder queries are the only solver calls: {transcript:#?}"
+    );
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
+/// `wrap(Y)` under `0 <Int X` and `X <Int 0`: `wrap` has no rewrite rule, so the state is final,
+/// but its constraints are contradictory, so it is no reachable state. The solver refutes them
+/// only while the reported copy of the final state is simplified.
+fn contradictory_final_state_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+            "#,
+    )
+}
+
+fn contradictory_final_state(definition: &BackendDefinition) -> Pattern {
+    let lt = |left: &str, right: &str| {
+        Predicate::Equals(
+            internal_term(definition, &format!("lt{{}}({left}, {right})")),
+            internal_term(definition, r#"\dv{SortBool{}}("true")"#),
+        )
+    };
+    Pattern {
+        term: internal_term(definition, "wrap{}(Y:SortS{})"),
+        constraints: vec![
+            lt(r#"\dv{SortInt{}}("0")"#, "X:SortInt{}"),
+            lt("X:SortInt{}", r#"\dv{SortInt{}}("0")"#),
+        ],
+    }
+}
+
+/// A solver whose every answer is unknown, as a cancelled solver answers, and which cancels
+/// `token` while answering its first query.
+fn solver_cancelling_at_first_query(token: &CancellationToken) -> ScriptedSolver {
+    ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Unknown("request cancelled".into())), 16),
+        std::iter::repeat_n(Ok(Validity::Unknown("request cancelled".into())), 16),
+    )
+    .cancelling_at(0, token.clone())
+}
+
+#[test]
+fn search_does_not_publish_a_final_state_whose_externalisation_observed_a_cancellation() {
+    let definition = contradictory_final_state_definition();
+
+    // Control: a solver that refutes the constraints leaves no final state, and the search is
+    // complete.
+    let refuting = ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Unsat), 16),
+        std::iter::repeat_n(Ok(Validity::Invalid), 16),
+    );
+    let control = k_rust_backend::search::search_graph_with_solver(
+        &definition,
+        contradictory_final_state(&definition),
+        k_rust_backend::search::SearchOptions::default(),
+        &refuting,
+    );
+    assert!(control.states.is_empty(), "{control:#?}");
+    assert!(control.incomplete.is_empty(), "{control:#?}");
+
+    // The cancellation arrives during the first query that could refute the constraints, so the
+    // constraints are kept rather than refuted: the state is not known to be reachable and the
+    // search did not finish deciding it.
+    let token = CancellationToken::new();
+    let solver = solver_cancelling_at_first_query(&token);
+    let result = token.scope(|| {
+        k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            contradictory_final_state(&definition),
+            k_rust_backend::search::SearchOptions::default(),
+            &solver,
+        )
+    });
+
+    assert!(token.is_cancelled());
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
+#[test]
+fn path_search_does_not_publish_a_final_witness_whose_externalisation_observed_a_cancellation() {
+    let definition = contradictory_final_state_definition();
+    let token = CancellationToken::new();
+    let solver = solver_cancelling_at_first_query(&token);
+    let result = token.scope(|| {
+        k_rust_backend::search::search_paths_with_solver(
+            &definition,
+            contradictory_final_state(&definition),
+            k_rust_backend::search::SearchOptions::default(),
+            &solver,
+        )
+    });
+
+    assert!(token.is_cancelled());
+    assert!(result.witnesses.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
 #[test]
 fn execution_disables_console_capability_after_a_symbolic_transition() {
     let definition = console_io_definition(

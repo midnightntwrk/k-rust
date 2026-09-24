@@ -74,7 +74,8 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
-    builtin::BuiltinEffect,
+    builtin::{BuiltinEffect, BuiltinError},
+    cancellation::cancellation_requested,
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
@@ -678,6 +679,15 @@ fn search_graph_collecting(
                 reason,
             },
         };
+        // See `step_observed_cancellation`.
+        if step_observed_cancellation() {
+            incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
+                state,
+                observation_head,
+                &observation_log,
+            )));
+            continue;
+        }
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 if options.search_type != SearchType::Final {
@@ -836,6 +846,13 @@ fn materialize_search_state(
 /// only the reported copy is simplified. `None` is a result whose constraints simplify to
 /// `\bottom`: an empty state is no result, as it is none at the loop head. A failed
 /// simplification reports the unsimplified state in `incomplete` instead of a result.
+///
+/// A simplification that returns while the request is cancelled is not a result either. The
+/// simplifier keeps a constraint whose validity the solver leaves unknown, and once the request
+/// is cancelled every solver query answers unknown, so a constraint that refutes the state may
+/// have been kept only because of the cancellation. Publishing that copy would report a state
+/// that is not known to be reachable as part of a complete answer; the state's exploration is
+/// reported as cancelled instead.
 #[allow(clippy::too_many_arguments)]
 fn externalise_result(
     definition: &BackendDefinition,
@@ -862,6 +879,15 @@ fn externalise_result(
     ) {
         Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             record_effects(effects, simplified.effects, observe);
+            None
+        }
+        Ok(simplified) if cancellation_requested() => {
+            record_effects(effects, simplified.effects, observe);
+            incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
+                state,
+                observation,
+                observation_log,
+            )));
             None
         }
         Ok(simplified) => {
@@ -1229,6 +1255,13 @@ fn search_paths_collecting(
                 reason,
             },
         };
+        // See `step_observed_cancellation`.
+        if step_observed_cancellation() {
+            incomplete.push(IncompleteSearch::Cancelled(
+                path.materialize_state(&observation_log),
+            ));
+            continue;
+        }
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
@@ -1593,26 +1626,8 @@ fn search_pattern_using(
         ) {
             Ok(Some(found)) => found,
             Ok(None) => return false,
-            Err(PatternMatchError::Indeterminate {
-                substitution,
-                remainder,
-            }) => {
-                match_incomplete.push(IncompleteSearch::Match {
-                    state: state.clone(),
-                    substitution,
-                    remainder,
-                });
-                return false;
-            }
-            Err(PatternMatchError::Simplification(error)) => {
-                match_incomplete.push(simplification_incomplete(state.clone(), error));
-                return false;
-            }
-            Err(PatternMatchError::Smt(error)) => {
-                match_incomplete.push(IncompleteSearch::Smt {
-                    state: state.clone(),
-                    error,
-                });
+            Err(error) => {
+                match_incomplete.push(pattern_match_incomplete(state.clone(), error));
                 return false;
             }
         };
@@ -1736,29 +1751,11 @@ fn search_pattern_paths_using(
         ) {
             Ok(Some(found)) => found,
             Ok(None) => return false,
-            Err(PatternMatchError::Indeterminate {
-                substitution,
-                remainder,
-            }) => {
-                match_incomplete.push(IncompleteSearch::Match {
-                    state: witness_search_state(witness.clone()),
-                    substitution,
-                    remainder,
-                });
-                return false;
-            }
-            Err(PatternMatchError::Simplification(error)) => {
-                match_incomplete.push(simplification_incomplete(
+            Err(error) => {
+                match_incomplete.push(pattern_match_incomplete(
                     witness_search_state(witness.clone()),
                     error,
                 ));
-                return false;
-            }
-            Err(PatternMatchError::Smt(error)) => {
-                match_incomplete.push(IncompleteSearch::Smt {
-                    state: witness_search_state(witness.clone()),
-                    error,
-                });
                 return false;
             }
         };
@@ -1797,9 +1794,33 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
     }
 }
 
+/// Whether the request was cancelled by the time a state's rewrite step returned.
+///
+/// A step whose solver queries answered unknown because of the cancellation may have kept an
+/// equation's or rule's outcome undecided without recording an incomplete entry (the simplifier
+/// keeps an undecided constraint and an undecided equation leaves its subject unevaluated), so
+/// neither its successors nor a `Stuck` verdict can be trusted as complete. Search arms no step
+/// deadline, so the cancellation is its only interruption source, and the state's exploration
+/// is reported as cancelled.
+fn step_observed_cancellation() -> bool {
+    cancellation_requested()
+}
+
+/// Classify a simplification failure that ends the exploration of `state`.
+///
+/// Search arms no step deadline, so request cancellation is its only interruption source. Every
+/// interruption signal the simplifier can raise therefore reports the cancellation: the
+/// fixed-point loops' `Cancelled` and `Interrupted`, and a native hook's `Interrupted`, which a
+/// hook returns when it observes the cancellation first. Any other failure recorded once the
+/// request is cancelled is reported as the cancellation too (see [`rewrite_incomplete`]).
 fn simplification_incomplete(state: SearchState, error: SimplificationError) -> IncompleteSearch {
     match error {
-        SimplificationError::Cancelled => IncompleteSearch::Cancelled(state),
+        SimplificationError::Cancelled
+        | SimplificationError::Interrupted
+        | SimplificationError::Builtin(BuiltinError::Interrupted) => {
+            IncompleteSearch::Cancelled(state)
+        }
+        _ if cancellation_requested() => IncompleteSearch::Cancelled(state),
         error => IncompleteSearch::Simplification { state, error },
     }
 }
@@ -1830,12 +1851,42 @@ fn retain_pattern_match(
     max_results.is_some_and(|bound| matches.len() >= bound)
 }
 
+/// Classify a rewrite step that ends the exploration of `state` without a successor.
+///
+/// Once the request is cancelled, every solver query answers unknown, so a condition,
+/// narrowing or remainder check posed after the cancellation ends as an SMT or remainder
+/// indeterminacy that the cancellation caused rather than the configuration. The state's
+/// exploration ended because the request was cancelled, and search has no other interruption
+/// source (it arms no step deadline), so any entry recorded while the cancellation is set is
+/// reported as `Cancelled`.
 fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
     match reason {
         IndeterminateReason::Simplification { error, .. } => {
             simplification_incomplete(state, error)
         }
+        _ if cancellation_requested() => IncompleteSearch::Cancelled(state),
         reason => IncompleteSearch::Indeterminate { state, reason },
+    }
+}
+
+/// Classify a target-pattern check that could not decide whether `state` matches.
+///
+/// As in [`rewrite_incomplete`], a solver query posed after the request is cancelled answers
+/// unknown because of the cancellation, so an undecided check recorded while the cancellation is
+/// set reports the cancellation.
+fn pattern_match_incomplete(state: SearchState, error: PatternMatchError) -> IncompleteSearch {
+    match error {
+        PatternMatchError::Simplification(error) => simplification_incomplete(state, error),
+        _ if cancellation_requested() => IncompleteSearch::Cancelled(state),
+        PatternMatchError::Indeterminate {
+            substitution,
+            remainder,
+        } => IncompleteSearch::Match {
+            state,
+            substitution,
+            remainder,
+        },
+        PatternMatchError::Smt(error) => IncompleteSearch::Smt { state, error },
     }
 }
 
@@ -2554,6 +2605,107 @@ mod tests {
             ),
             IncompleteSearch::Cancelled(state)
         );
+    }
+
+    #[test]
+    fn every_interruption_signal_is_classified_as_cancellation() {
+        let definition = definition();
+        let state = SearchState {
+            pattern: initial(&definition),
+            depth: 0,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+        };
+
+        for error in [
+            SimplificationError::Cancelled,
+            SimplificationError::Interrupted,
+            SimplificationError::Builtin(BuiltinError::Interrupted),
+        ] {
+            assert_eq!(
+                simplification_incomplete(state.clone(), error.clone()),
+                IncompleteSearch::Cancelled(state.clone()),
+                "{error:?}"
+            );
+            assert_eq!(
+                rewrite_incomplete(
+                    state.clone(),
+                    IndeterminateReason::Simplification {
+                        rule_id: Some("rule".into()),
+                        error: error.clone(),
+                    },
+                ),
+                IncompleteSearch::Cancelled(state.clone()),
+                "{error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_entry_recorded_after_cancellation_is_classified_as_cancellation() {
+        let definition = definition();
+        let state = SearchState {
+            pattern: initial(&definition),
+            depth: 0,
+            trace: Vec::new(),
+            branch: Vec::new(),
+            observations: Vec::new(),
+        };
+        let unknown = || SmtError::Unknown("request cancelled".into());
+        let smt = || IndeterminateReason::Smt {
+            rule_id: "rule".into(),
+            error: unknown(),
+        };
+        let remainder = || IndeterminateReason::Remainder {
+            rule_ids: vec!["rule".into()],
+            predicates: Vec::new(),
+            satisfiability: Ok(Satisfiability::Unknown("request cancelled".into())),
+        };
+        let pattern_smt = || PatternMatchError::Smt(unknown());
+        let pattern_match = || PatternMatchError::Indeterminate {
+            substitution: Substitution::new(),
+            remainder: Vec::new(),
+        };
+
+        // Without a cancellation the reasons are reported as they are.
+        assert!(matches!(
+            rewrite_incomplete(state.clone(), smt()),
+            IncompleteSearch::Indeterminate { .. }
+        ));
+        assert!(matches!(
+            pattern_match_incomplete(state.clone(), pattern_smt()),
+            IncompleteSearch::Smt { .. }
+        ));
+
+        let token = crate::cancellation::CancellationToken::new();
+        token.cancel();
+        token.scope(|| {
+            for reason in [smt(), remainder()] {
+                assert_eq!(
+                    rewrite_incomplete(state.clone(), reason.clone()),
+                    IncompleteSearch::Cancelled(state.clone()),
+                    "{reason:?}"
+                );
+            }
+            for error in [pattern_smt(), pattern_match()] {
+                assert_eq!(
+                    pattern_match_incomplete(state.clone(), error.clone()),
+                    IncompleteSearch::Cancelled(state.clone()),
+                    "{error:?}"
+                );
+            }
+            assert_eq!(
+                simplification_incomplete(
+                    state.clone(),
+                    SimplificationError::SmtPredicate {
+                        predicate: Box::new(Predicate::True),
+                        error: unknown(),
+                    },
+                ),
+                IncompleteSearch::Cancelled(state.clone())
+            );
+        });
     }
 
     fn initial(definition: &BackendDefinition) -> Pattern {
