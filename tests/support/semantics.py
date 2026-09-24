@@ -43,6 +43,8 @@ class Port:
     """The pinned Runtime Verification checkout the port is qualified against."""
     descriptors: int
     clippy_allow: tuple[str, ...] = ()
+    hook_namespaces: tuple[str, ...] = ()
+    """Hook namespaces the Java frontend must keep; it drops hooks outside its defaults."""
 
     @property
     def here(self) -> Path:
@@ -290,6 +292,7 @@ def reference_definition(
         [
             kompile, semantics, "--backend", "haskell", "--main-module", port.module,
             "--syntax-module", port.module, "--emit-json", "--output-definition", definition,
+            *(["--hook-namespaces", " ".join(port.hook_namespaces)] if port.hook_namespaces else []),
         ],
         timeout=900,
     )

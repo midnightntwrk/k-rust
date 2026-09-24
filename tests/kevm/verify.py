@@ -18,6 +18,7 @@ from support.lock import descriptor_protocol, k_version  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool, scratch_root  # noqa: E402
+from kevm import native  # noqa: E402
 
 
 PORT = semantics.Port(
@@ -26,8 +27,46 @@ PORT = semantics.Port(
     checkout=ROOT.parent / "inspirations/runtimeverification/evm-semantics",
     descriptors=1104,
     clippy_allow=("clippy::too_many_arguments",),
+    hook_namespaces=("KRYPTO",),
 )
 CLAIM_COUNT = 8
+
+# Cases the pinned Haskell backend (kore-exec 0.1.155, K 7.1.337) cannot execute
+# concretely. The K-Rust route still executes them; the Java reference route
+# skips them and pins its behavior digest over the remaining cases.
+_NO_HOOK = "the Haskell backend implements no {} hook"
+_KECCAK = "the Haskell backend's KRYPTO.keccak256raw result is rejected by BYTES.length"
+HASKELL_BACKEND_GAPS: Mapping[str, str] = {
+    "sha3-empty": _KECCAK,
+    "sha3-abc-with-expansion": _KECCAK,
+    "extcodehash-code-nonempty-cold": _KECCAK,
+    "extcodehash-nonce-nonempty-warm": _KECCAK,
+    "extcodehash-balance-nonempty-cold": _KECCAK,
+    "staticcall-ecrec-precompile-success": _KECCAK,
+    "staticcall-ecrec-precompile-invalid-signature": (
+        "the Haskell backend's KRYPTO.ecdsaRecover fails an internal assertion"
+    ),
+    "staticcall-sha256-precompile-success": _NO_HOOK.format("KRYPTO.sha256raw"),
+    "staticcall-ripemd160-precompile-success": _NO_HOOK.format("KRYPTO.ripemd160raw"),
+    **{
+        f"staticcall-{case}": _NO_HOOK.format("KRYPTO.bn128valid")
+        for case in (
+            "ecadd-precompile-success",
+            "ecadd-precompile-empty-input-infinity",
+            "ecadd-precompile-invalid-point",
+            "ecadd-precompile-out-of-gas",
+            "ecmul-precompile-generator-times-two",
+            "ecmul-precompile-zero-scalar-infinity",
+            "ecmul-precompile-invalid-point",
+            "ecmul-precompile-out-of-gas",
+            "ecpairing-precompile-generator-is-not-identity",
+            "ecpairing-precompile-invalid-g1",
+            "ecpairing-precompile-invalid-g2",
+            "ecpairing-precompile-out-of-gas",
+        )
+    },
+    "staticcall-ecpairing-precompile-empty-input": _NO_HOOK.format("KRYPTO.bn128ate"),
+}
 
 
 def definition_checks(readable: str) -> None:
@@ -62,46 +101,6 @@ def observed_cell(result: str, name: str) -> str:
     if match is None:
         raise GateError(f"native output omitted <{name}>: {result}")
     return normalize_term(match.group(1))
-
-
-def block_hashes_term(values: Any) -> str:
-    if not isinstance(values, list) or not all(isinstance(value, str) for value in values):
-        raise GateError(f"block_hashes is not a list of concrete Int strings: {values}")
-    if not values:
-        return ".List"
-    return " ".join(f"ListItem({value})" for value in values)
-
-
-def int_map_term(values: Any) -> str:
-    if not isinstance(values, dict) or not all(isinstance(key, str) for key in values):
-        raise GateError(f"storage Map is not a string-keyed table: {values}")
-    if not values:
-        return ".Map"
-    return " ".join(f"{key} |-> {values[key]}" for key in sorted(values, key=int))
-
-
-def accessed_storage_term(values: Any) -> str:
-    if not isinstance(values, dict) or not all(isinstance(key, str) for key in values):
-        raise GateError(f"accessed_storage is not a string-keyed table: {values}")
-    if not values:
-        return ".Map"
-    entries = []
-    for key in sorted(values, key=int):
-        slots = values[key]
-        if not isinstance(slots, list):
-            raise GateError(f"accessed_storage[{key}] is not an array: {slots}")
-        value = ".Set" if not slots else " ".join(
-            f"SetItem({slot})" for slot in sorted((str(slot) for slot in slots), key=int)
-        )
-        entries.append(f"{key} |-> ({value})")
-    return " ".join(entries)
-
-
-def int_set_term(values: Any) -> str:
-    if not isinstance(values, list):
-        raise GateError(f"concrete Set is not an array: {values}")
-    items = [f"SetItem({value})" for value in sorted((str(value) for value in values), key=int)]
-    return ".Set" if not items else " ".join(items)
 
 
 def logs_term(values: Any) -> str:
@@ -143,11 +142,18 @@ def observed_accessed_storage(result: str) -> str:
     value = observed_cell(result, "accessedStorage")
     if value == ".Map":
         return value
-    entries = []
-    for key, body in re.findall(r"(-?\d+)\s*\|->\s*\((.*?)\)(?=\s+-?\d+\s*\|->|$)", value):
-        slots = sorted(re.findall(r"SetItem\((-?\d+)\)", body), key=int)
-        entries.append(f"{key}:[{','.join(slots)}]")
-    return ",".join(entries)
+    # The pretty printer parenthesizes a Set value only when it has more than
+    # one element, so split on the keys instead of on parentheses.
+    parts = re.split(r"(?<![\w(])(-?\d+)\s*\|->", value)
+    if parts[0].strip():
+        raise GateError(f"unexpected <accessedStorage> rendering: {value}")
+    entries = {
+        key: sorted(re.findall(r"SetItem\((-?\d+)\)", body), key=int)
+        for key, body in zip(parts[1::2], parts[2::2])
+    }
+    return ",".join(
+        f"{key}:[{','.join(entries[key])}]" for key in sorted(entries, key=int)
+    )
 
 
 def rendered_int_map(values: Any) -> str:
@@ -181,49 +187,31 @@ def java_reference_gate(
     if not isinstance(behavior, list) or not behavior:
         raise GateError("behavior corpus is empty")
     outcomes: list[dict[str, str]] = []
+    identifiers = {str(case.get("id")) for case in behavior}
+    if not identifiers.issuperset(HASKELL_BACKEND_GAPS):
+        missing = sorted(set(HASKELL_BACKEND_GAPS) - identifiers)
+        raise GateError(f"Haskell backend gaps name absent corpus cases: {missing}")
     for case in behavior:
+        if str(case["id"]) in HASKELL_BACKEND_GAPS:
+            continue
         empty_bytes = 'b""'
-        context = [
-            f"-cADDRESS={case.get('address', '0')}",
-            f"-cACCOUNTID={case.get('account_id', case.get('address', '0'))}",
-            f"-cBALANCE={case.get('balance', '0')}",
-            f"-cCODE={case.get('code', empty_bytes)}",
-            f"-cNONCE={case.get('nonce', '0')}",
-            f"-cORIGIN={case.get('origin', '0')}",
-            f"-cCALLER={case.get('caller', '0')}",
-            f"-cCALLVALUE={case.get('call_value', '0')}",
-            f"-cCALLDATA={case.get('call_data', empty_bytes)}",
-            f"-cGASPRICE={case.get('gas_price', '0')}",
-            f"-cRETURNDATA={case.get('return_data', empty_bytes)}",
-            f"-cLOCALMEM={case.get('local_mem', empty_bytes)}",
-            f"-cMEMORYUSED={case.get('memory_used', '0')}",
-            f"-cSTORAGE={int_map_term(case.get('storage', {}))}",
-            f"-cORIGSTORAGE={int_map_term(case.get('original_storage', case.get('storage', {})))}",
-            f"-cACCESSEDSTORAGE={accessed_storage_term(case.get('accessed_storage', {}))}",
-            f"-cACCESSEDACCOUNTS={int_set_term(case.get('accessed_accounts', []))}",
-            f"-cLOGS={logs_term(case.get('logs', []))}",
-            f"-cREFUND={case.get('refund', '0')}",
-            f"-cSTATIC={str(case.get('static', False)).lower()}",
-            f"-cBLOCKHASHES={block_hashes_term(case.get('block_hashes', []))}",
-            f"-cCOINBASE={case.get('coinbase', '0')}",
-            f"-cTIMESTAMP={case.get('timestamp', '0')}",
-            f"-cNUMBER={case.get('number', '0')}",
-            f"-cPREVRANDAO={case.get('prev_randao', '0')}",
-            f"-cGASLIMIT={case.get('gas_limit', '0')}",
-            f"-cCHAINID={case.get('chain_id', '0')}",
-            f"-cBASEFEE={case.get('base_fee', '0')}",
-        ]
+        # Every variable except $PGM, which the configuration declares at sort
+        # K, is passed as the KORE value the native route builds. Both routes
+        # then start from the same configuration, and krun spawns no kparse JVM
+        # per variable (kparse also exhausts an 8 GiB heap on the 256-entry
+        # block-hash List).
+        variables = [entry for entry in native.configuration(case) if entry[0] != "PGM"]
         result = run(
             [
-                k["krun"], "--definition", definition,
-                "-cPGM=run", f"-cPROGRAM={case['program']}", f"-cSTACK={case['stack']}",
-                f"-cPC={case['pc']}", f"-cGAS={case['gas']}", "-cSTATUS=.StatusCode",
-                *context, "--output", "pretty",
+                k["krun"], "--definition", definition, "-cPGM=run",
+                *(f"-c{name}={value}" for name, _, value in variables),
+                *(f"-p{name}=cat" for name, _, _ in variables),
+                "--output", "pretty",
             ],
             timeout=120,
         ).stdout
-        expected_k = "SLOAD" if case.get("expected_stuck_operation") == "storageLoad" else ".K"
-        if observed_cell(result, "k") != expected_k:
+        expected_k = "SLOAD~>.K" if case.get("expected_stuck_operation") == "storageLoad" else ".K"
+        if observed_cell(result, "k").replace(" ", "") != expected_k:
             raise GateError(f"{case['id']} did not halt: {result}")
         observed = {
             "id": str(case["id"]),
@@ -295,7 +283,7 @@ def java_reference_gate(
         if observed != expected:
             raise GateError(f"{case['id']} differs: expected={expected}, actual={observed}")
         outcomes.append(observed)
-    pins.expect("behavior_sha256", json_sha256(outcomes))
+    pins.expect("java_behavior_sha256", json_sha256(outcomes))
 
     semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])
     return len(outcomes), CLAIM_COUNT
@@ -326,7 +314,11 @@ def main() -> int:
             if arguments.java_reference:
                 k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
                 executions, proofs = java_reference_gate(workspace, artifacts, k, pins, corpus)
-                qualification = f"{executions} Java reference executions; {proofs} Java reference proofs"
+                qualification = (
+                    f"{executions} Java reference executions "
+                    f"({len(HASKELL_BACKEND_GAPS)} Haskell backend gaps skipped); "
+                    f"{proofs} Java reference proofs"
+                )
             else:
                 definition = semantics.native_definition(
                     workspace, artifacts, compiler, pins, environment

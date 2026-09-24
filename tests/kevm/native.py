@@ -140,83 +140,88 @@ def map_entry(name: str, sort: str, value: str) -> str:
     )
 
 
-def initial_pattern(case: Mapping[str, Any]) -> str:
+def configuration(case: Mapping[str, Any]) -> tuple[tuple[str, str, str], ...]:
+    """Return each configuration variable of `case` as (name, sort, KORE value)."""
+
     call_data = kore_bytes(str(case.get("call_data", 'b""')))
     return_data = kore_bytes(str(case.get("return_data", 'b""')))
     local_mem = kore_bytes(str(case.get("local_mem", 'b""')))
-    entries = (
-        map_entry("PGM", "Command", "Lblrun{}()"),
-        map_entry("PROGRAM", "Bytes", f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case['program']))})"),
-        map_entry(
+    return (
+        ("PGM", "Command", "Lblrun{}()"),
+        ("PROGRAM", "Bytes", f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case['program']))})"),
+        (
             "JUMPDESTS",
             "Bytes",
             f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case.get('jump_dests', 'b\"\"')))})",
         ),
-        map_entry("ADDRESS", "Int", kore_int(str(case.get("address", "0")))),
-        map_entry("ACCOUNTID", "Int", kore_int(str(case.get("account_id", case.get("address", "0"))))),
-        map_entry("BALANCE", "Int", kore_int(str(case.get("balance", "0")))),
-        map_entry(
+        ("ADDRESS", "Int", kore_int(str(case.get("address", "0")))),
+        ("ACCOUNTID", "Int", kore_int(str(case.get("account_id", case.get("address", "0"))))),
+        ("BALANCE", "Int", kore_int(str(case.get("balance", "0")))),
+        (
             "CODE",
             "Bytes",
             f"\\dv{{SortBytes{{}}}}({kore_bytes(str(case.get('code', 'b\"\"')))})",
         ),
-        map_entry("NONCE", "Int", kore_int(str(case.get("nonce", "0")))),
-        map_entry("ORIGIN", "Int", kore_int(str(case.get("origin", "0")))),
-        map_entry("CALLER", "Int", kore_int(str(case.get("caller", "0")))),
-        map_entry("CALLVALUE", "Int", kore_int(str(case.get("call_value", "0")))),
-        map_entry(
+        ("NONCE", "Int", kore_int(str(case.get("nonce", "0")))),
+        ("ORIGIN", "Int", kore_int(str(case.get("origin", "0")))),
+        ("CALLER", "Int", kore_int(str(case.get("caller", "0")))),
+        ("CALLVALUE", "Int", kore_int(str(case.get("call_value", "0")))),
+        (
             "CALLDATA",
             "Bytes",
             f"\\dv{{SortBytes{{}}}}({call_data})",
         ),
-        map_entry("GASPRICE", "Int", kore_int(str(case.get("gas_price", "0")))),
-        map_entry(
+        ("GASPRICE", "Int", kore_int(str(case.get("gas_price", "0")))),
+        (
             "RETURNDATA",
             "Bytes",
             f"\\dv{{SortBytes{{}}}}({return_data})",
         ),
-        map_entry(
+        (
             "LOCALMEM",
             "Bytes",
             f"\\dv{{SortBytes{{}}}}({local_mem})",
         ),
-        map_entry("MEMORYUSED", "Int", kore_int(str(case.get("memory_used", "0")))),
-        map_entry("CALLGAS", "Int", kore_int(str(case.get("call_gas", "0")))),
-        map_entry("CALLDEPTH", "Int", kore_int(str(case.get("call_depth", "0")))),
-        map_entry(
+        ("MEMORYUSED", "Int", kore_int(str(case.get("memory_used", "0")))),
+        ("CALLGAS", "Int", kore_int(str(case.get("call_gas", "0")))),
+        ("CALLDEPTH", "Int", kore_int(str(case.get("call_depth", "0")))),
+        (
             "CODEADDRESS",
             "Int",
             kore_int(str(case.get("code_address", case.get("address", "0")))),
         ),
-        map_entry("CALLSTACK", "List", kore_list(case.get("call_stack", []))),
-        map_entry("INTERIMSTATES", "List", kore_list(case.get("interim_states", []))),
-        map_entry("TOUCHEDACCOUNTS", "Set", kore_set(case.get("touched_accounts", []))),
-        map_entry("STORAGE", "Map", kore_int_map(case.get("storage", {}))),
-        map_entry("ORIGSTORAGE", "Map", kore_int_map(case.get("original_storage", case.get("storage", {})))),
-        map_entry("ACCESSEDSTORAGE", "Map", kore_accessed_storage(case.get("accessed_storage", {}))),
-        map_entry("ACCESSEDACCOUNTS", "Set", kore_set(case.get("accessed_accounts", []))),
-        map_entry("LOGS", "List", kore_logs(case.get("logs", []))),
-        map_entry("REFUND", "Int", kore_int(str(case.get("refund", "0")))),
-        map_entry("SELFDESTRUCT", "Set", kore_set(case.get("self_destruct", []))),
-        map_entry("CREATEDACCOUNTS", "Set", kore_set(case.get("created_accounts", []))),
-        map_entry("STATIC", "Bool", kore_bool(case.get("static", False))),
-        map_entry("BLOCKHASHES", "List", kore_list(case.get("block_hashes", []))),
-        map_entry("COINBASE", "Int", kore_int(str(case.get("coinbase", "0")))),
-        map_entry("TIMESTAMP", "Int", kore_int(str(case.get("timestamp", "0")))),
-        map_entry("NUMBER", "Int", kore_int(str(case.get("number", "0")))),
-        map_entry("PREVRANDAO", "Int", kore_int(str(case.get("prev_randao", "0")))),
-        map_entry("GASLIMIT", "Int", kore_int(str(case.get("gas_limit", "0")))),
-        map_entry("CHAINID", "Int", kore_int(str(case.get("chain_id", "0")))),
-        map_entry("BASEFEE", "Int", kore_int(str(case.get("base_fee", "0")))),
-        map_entry("STACK", "WordStack", kore_stack(str(case["stack"]))),
-        map_entry("PC", "Int", kore_int(str(case["pc"]))),
-        map_entry("GAS", "Int", kore_int(str(case["gas"]))),
-        map_entry("STATUS", "StatusCode", "Lblrunning{}()"),
+        ("CALLSTACK", "List", kore_list(case.get("call_stack", []))),
+        ("INTERIMSTATES", "List", kore_list(case.get("interim_states", []))),
+        ("TOUCHEDACCOUNTS", "Set", kore_set(case.get("touched_accounts", []))),
+        ("STORAGE", "Map", kore_int_map(case.get("storage", {}))),
+        ("ORIGSTORAGE", "Map", kore_int_map(case.get("original_storage", case.get("storage", {})))),
+        ("ACCESSEDSTORAGE", "Map", kore_accessed_storage(case.get("accessed_storage", {}))),
+        ("ACCESSEDACCOUNTS", "Set", kore_set(case.get("accessed_accounts", []))),
+        ("LOGS", "List", kore_logs(case.get("logs", []))),
+        ("REFUND", "Int", kore_int(str(case.get("refund", "0")))),
+        ("SELFDESTRUCT", "Set", kore_set(case.get("self_destruct", []))),
+        ("CREATEDACCOUNTS", "Set", kore_set(case.get("created_accounts", []))),
+        ("STATIC", "Bool", kore_bool(case.get("static", False))),
+        ("BLOCKHASHES", "List", kore_list(case.get("block_hashes", []))),
+        ("COINBASE", "Int", kore_int(str(case.get("coinbase", "0")))),
+        ("TIMESTAMP", "Int", kore_int(str(case.get("timestamp", "0")))),
+        ("NUMBER", "Int", kore_int(str(case.get("number", "0")))),
+        ("PREVRANDAO", "Int", kore_int(str(case.get("prev_randao", "0")))),
+        ("GASLIMIT", "Int", kore_int(str(case.get("gas_limit", "0")))),
+        ("CHAINID", "Int", kore_int(str(case.get("chain_id", "0")))),
+        ("BASEFEE", "Int", kore_int(str(case.get("base_fee", "0")))),
+        ("STACK", "WordStack", kore_stack(str(case["stack"]))),
+        ("PC", "Int", kore_int(str(case["pc"]))),
+        ("GAS", "Int", kore_int(str(case["gas"]))),
+        ("STATUS", "StatusCode", "Lblrunning{}()"),
     )
-    configuration = "Lbl'Stop'Map{}()"
-    for entry in entries:
-        configuration = f"Lbl'Unds'Map'Unds'{{}}({configuration},{entry})"
-    return f"LblinitGeneratedTopCell{{}}({configuration})"
+
+
+def initial_pattern(case: Mapping[str, Any]) -> str:
+    pattern = "Lbl'Stop'Map{}()"
+    for name, sort, value in configuration(case):
+        pattern = f"Lbl'Unds'Map'Unds'{{}}({pattern},{map_entry(name, sort, value)})"
+    return f"LblinitGeneratedTopCell{{}}({pattern})"
 
 
 def applications(value: Any, name: str) -> list[Mapping[str, Any]]:

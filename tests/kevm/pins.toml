@@ -2,8 +2,9 @@ schema = 1
 corpus_sha256 = "5286834dc6b9321769721128bfb14612711306a9339f7600e5a755c26a3fc21c"
 expansion_sha256 = "377442d78dc5ba1bc8bada6f89c6bd6beeee75cc36d839844e0862dbca62d0ec"
 behavior_sha256 = "7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673"
-definition_kore_sha256 = "27c2e3e57cf8d5fc60c78daf9ed10a810ce73f2b4baac8c0da7d7df083627de3"
+definition_kore_sha256 = "629f95c05f10d4ad4ee2a445579e61710617f8a1596dc142bb6919d4039d6a3f"
 native_definition_kore_sha256 = "11966e310e6928415ba6cc331a48f4acce32daf831981c931ba31905ece01aea"
+java_behavior_sha256 = "ab35a71dee8705d30c205e9f72a18c25854d1e5082d87fccdaab7b2e63fe202c"
 
 [kevm]
 version = "7.1.337"
