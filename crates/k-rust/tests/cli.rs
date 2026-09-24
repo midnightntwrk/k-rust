@@ -7902,7 +7902,7 @@ fn kcompile_writes_no_counter_file_without_krust_counters() {
 
 /// Prove each named claim of an inlined specification on its own and return the verdict word
 /// `krust kprove` reports for it (`proven`, `disproved`, `indeterminate`, ...), or `error` with
-/// the diagnostic when the prover rejects the claim.
+/// its diagnostic on standard error when the prover rejects the claim.
 fn kprove_claim_verdicts(
     definition: (&str, &str),
     specification: (&str, &str),
@@ -7940,7 +7940,10 @@ fn kprove_claim_verdicts(
                 .find_map(|line| line.strip_prefix(&prefix))
                 .and_then(|rest| rest.split_whitespace().next())
                 .map(str::to_owned)
-                .unwrap_or_else(|| format!("error: {}", stderr.trim()));
+                .unwrap_or_else(|| {
+                    eprintln!("{claim}: {}", stderr.trim());
+                    "error".to_owned()
+                });
             assert_eq!(
                 output.status.success(),
                 verdict == "proven",
@@ -8070,4 +8073,153 @@ endmodule
         ),
         expected_verdicts(&[("explicit", "proven"), ("implicit", "proven")]),
     );
+}
+
+const CELL_PROBE: &str = r#"
+module CELL-PROBE
+  imports INT
+  syntax State ::= "start" | "middle" | "done"
+  configuration <k> $PGM:State </k> <n> 0 </n>
+  rule <k> start => middle </k> <n> X => X +Int 1 </n>
+endmodule
+"#;
+
+/// A universal variable of a claim, including the frame variable of a cell the claim leaves out,
+/// denotes the same value in the reached state as in the initial one.
+#[test]
+fn kprove_universal_claim_variables_keep_their_initial_value() {
+    let specification = r#"
+requires "cell-probe.k"
+
+module CELL-SPEC
+  imports CELL-PROBE
+
+  claim <k> start => middle </k> [label(unmentioned)]
+  claim <k> start => middle </k> <n> X => X +Int 1 </n> [label(incremented)]
+  claim <k> start => middle </k> <n> X => X </n> [label(unchanged)]
+  claim <k> start => middle </k> <n> 3 </n> [label(constant)]
+  claim <k> start => done </k> [label(unreachable)]
+endmodule
+"#;
+    let verdicts = kprove_claim_verdicts(
+        ("cell-probe.k", CELL_PROBE),
+        ("cell-spec.k", specification),
+        "CELL-SPEC",
+        "CELL-PROBE",
+        &[
+            "unmentioned",
+            "incremented",
+            "unchanged",
+            "constant",
+            "unreachable",
+        ],
+    );
+    // The increment of an unmentioned cell falsifies the claim; the prover does not refute the
+    // frame equation outright, so it must only not prove it.
+    assert_ne!(verdicts[0].1, "proven", "{verdicts:?}");
+    assert_eq!(
+        verdicts[1..],
+        expected_verdicts(&[
+            ("incremented", "proven"),
+            ("unchanged", "disproved"),
+            ("constant", "disproved"),
+            ("unreachable", "disproved"),
+        ]),
+    );
+}
+
+const CELL_PROBE2: &str = r#"
+module CELL-PROBE2
+  imports INT
+  syntax State ::= "start" | "middle"
+  configuration <k> $PGM:State </k> <n> 0 </n>
+  rule <k> start => middle </k> <n> _ => 5 </n>
+endmodule
+"#;
+
+const CELL_SPEC2: &str = r#"
+requires "cell-probe2.k"
+
+module CELL-SPEC2
+  imports CELL-PROBE2
+
+  claim <k> start => middle </k> <n> X => X </n> [label(free-unchanged)]
+  claim <k> start => middle </k> <n> X => X </n> requires X ==Int 0 [label(constrained-unchanged)]
+  claim <k> start => middle </k> <n> X => 5 </n> requires X ==Int 0 [label(constrained-set)]
+  claim <k> start => middle </k> <n> 0 => 0 </n> [label(concrete-unchanged)]
+endmodule
+"#;
+
+/// A universal variable constrained by the claim's precondition cannot take the value the path
+/// writes into its cell.
+#[test]
+fn kprove_constrained_universal_claim_variables_are_checked() {
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("cell-probe2.k", CELL_PROBE2),
+            ("cell-spec2.k", CELL_SPEC2),
+            "CELL-SPEC2",
+            "CELL-PROBE2",
+            &[
+                "free-unchanged",
+                "constrained-unchanged",
+                "constrained-set",
+                "concrete-unchanged"
+            ],
+        ),
+        expected_verdicts(&[
+            ("free-unchanged", "error"),
+            ("constrained-unchanged", "disproved"),
+            ("constrained-set", "proven"),
+            ("concrete-unchanged", "disproved"),
+        ]),
+    );
+}
+
+/// A rule that only reads a cell the claim leaves out keeps the claim's frame; a rule that writes
+/// one does not.
+#[test]
+fn kprove_unmentioned_cells_read_by_the_path_keep_the_frame() {
+    let definition = r#"
+module CELL-PROBE3
+  imports INT
+  syntax State ::= "start" | "middle" | "done"
+  configuration <k> $PGM:State </k> <n> 0 </n> <m> 0 </m>
+  rule <k> start => middle </k> <n> _ </n>
+  rule <k> middle => done </k> <n> X </n> <m> _ => X </m>
+endmodule
+"#;
+    let specification = r#"
+requires "cell-probe3.k"
+
+module CELL-SPEC3
+  imports CELL-PROBE3
+
+  claim <k> start => middle </k> [label(read-only)]
+  claim <k> middle => done </k> <m> _ => ?M </m> [label(copied-exists)]
+  claim <k> middle => done </k> <n> X </n> <m> _ => X </m> [label(copied-universal)]
+  claim <k> middle => done </k> [label(copied-unmentioned)]
+endmodule
+"#;
+    let verdicts = kprove_claim_verdicts(
+        ("cell-probe3.k", definition),
+        ("cell-spec3.k", specification),
+        "CELL-SPEC3",
+        "CELL-PROBE3",
+        &[
+            "read-only",
+            "copied-exists",
+            "copied-universal",
+            "copied-unmentioned",
+        ],
+    );
+    assert_eq!(
+        verdicts[..3],
+        expected_verdicts(&[
+            ("read-only", "proven"),
+            ("copied-exists", "proven"),
+            ("copied-universal", "proven"),
+        ]),
+    );
+    assert_ne!(verdicts[3].1, "proven", "{verdicts:?}");
 }

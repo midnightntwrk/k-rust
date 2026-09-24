@@ -429,6 +429,7 @@ pub fn check_disjunctive_implication_with_existentials(
             matched = true;
             let obligations = implication_obligation_branches(
                 consequent,
+                existentials,
                 &substitution,
                 remainder,
                 &antecedent.constraints,
@@ -789,6 +790,7 @@ fn discharge_consequent(
     let had_match_remainder = !remainder.is_empty();
     let mut obligations = implication_obligation_branches(
         consequent.pattern,
+        consequent.existentials,
         &substitution,
         remainder,
         &antecedent.constraints,
@@ -1129,6 +1131,7 @@ fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bo
 
 fn implication_obligation_branches(
     consequent: &Pattern,
+    existentials: &BTreeSet<Variable>,
     substitution: &Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     known: &[Predicate],
@@ -1137,17 +1140,33 @@ fn implication_obligation_branches(
         .unwrap_or_else(|| vec![remainder]);
     branches
         .into_iter()
-        .map(|remainder| implication_obligations(consequent, substitution, remainder, known))
+        .map(|remainder| {
+            implication_obligations(consequent, existentials, substitution, remainder, known)
+        })
         .collect()
 }
 
 fn implication_obligations(
     consequent: &Pattern,
+    existentials: &BTreeSet<Variable>,
     substitution: &Substitution,
     remainder: Vec<(crate::term::Term, crate::term::Term)>,
     known: &[Predicate],
 ) -> Vec<Predicate> {
     let mut obligations = Vec::new();
+    // A universal consequent variable denotes the same value on both sides of the implication,
+    // so a binding the match produced for it is an equation the antecedent must entail, not a
+    // witness the consequent may choose.
+    for (variable, value) in substitution.iter() {
+        if existentials.contains(variable) {
+            continue;
+        }
+        let predicate =
+            Predicate::Equals(crate::term::Term::variable(variable.clone()), value.clone());
+        if !obligations.contains(&predicate) {
+            obligations.push(predicate);
+        }
+    }
     for (left, right) in remainder {
         let predicate = remainder_obligation(
             &substitute(&left, substitution),
@@ -1566,14 +1585,14 @@ mod tests {
     }
 
     #[test]
-    fn returns_the_condition_found_by_implication_matching() {
+    fn a_universal_binding_entailed_by_the_antecedent_is_valid() {
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let antecedent = Pattern {
             term: term(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#),
             constraints: vec![Predicate::Equals(
                 Term::variable(x.clone()),
-                Term::variable(x.clone()),
+                int(&definition, "1"),
             )],
         };
         let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
@@ -1582,6 +1601,82 @@ mod tests {
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
             Ok(valid(Substitution::from([(x, int(&definition, "1"))])))
         );
+    }
+
+    /// `pair(X, 1) ∧ X = 2 ⇒ pair(X, X)` fails for the only value the antecedent allows: the match
+    /// binding `X := 1` of the universal `X` is an equation the antecedent must entail.
+    #[test]
+    fn a_universal_binding_refuted_by_the_antecedent_is_invalid() {
+        let definition = definition();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let antecedent = Pattern {
+            term: term(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#),
+            constraints: vec![Predicate::Equals(
+                Term::variable(x.clone()),
+                int(&definition, "2"),
+            )],
+        };
+        let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
+
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+        assert_eq!(
+            result.failure,
+            Some(ImplicationFailure::ConsequentCondition)
+        );
+        let condition = result.condition.expect("the binding is retained");
+        assert_eq!(
+            condition.substitution.get(&x),
+            Some(&int(&definition, "1")),
+            "{condition:#?}"
+        );
+    }
+
+    /// `pair(Y, 1) ⇒ pair(X, 1)` with `X` free in the antecedent's condition binds the universal
+    /// `X` to the antecedent variable `Y`, which holds only where the antecedent states `X = Y`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_universal_bound_to_another_antecedent_variable_needs_their_equality() {
+        let definition = definition();
+        let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
+        let y = crate::term::Variable::new("Y", Sort::simple("SortInt"));
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let antecedent = |condition: Predicate| Pattern {
+            term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
+            constraints: vec![condition],
+        };
+        let unrelated = antecedent(Predicate::Equals(
+            Term::variable(x.clone()),
+            Term::variable(x.clone()),
+        ));
+        let equal = antecedent(Predicate::Equals(Term::variable(x), Term::variable(y)));
+
+        // `X = Y` is satisfiable and so is its negation: the obligation is not entailed. The
+        // default check leaves a counterexample undecided; the complete check refutes with it.
+        let result = check_implication(&definition, &unrelated, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(
+            result.status,
+            ImplicationStatus::Indeterminate,
+            "{result:#?}"
+        );
+        let result = check_implication_with_existentials_complete(
+            &definition,
+            &unrelated,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::new(),
+            &solver,
+        )
+        .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+
+        let result = check_implication(&definition, &equal, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
     }
 
     #[test]
@@ -1666,6 +1761,7 @@ mod tests {
 
         let obligations = implication_obligations(
             &consequent,
+            &BTreeSet::new(),
             &Substitution::new(),
             vec![(
                 subject.clone(),

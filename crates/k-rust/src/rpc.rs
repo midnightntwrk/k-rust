@@ -2656,6 +2656,55 @@ mod tests {
         );
     }
 
+    fn boxed_integer_implication(antecedent: &str, consequent: &str) -> Value {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[]
+                module TEST
+                  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                  sort SortK{} []
+                  symbol box{}(SortInt{}) : SortK{} [constructor{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ));
+        let antecedent = encode_kore(&parse_pattern(antecedent).unwrap()).unwrap();
+        let consequent = encode_kore(&parse_pattern(consequent).unwrap()).unwrap();
+        request(
+            &mut service,
+            1,
+            "implies",
+            json!({ "antecedent": antecedent, "consequent": consequent }),
+        )
+    }
+
+    /// A free variable of the consequent that the antecedent shares denotes the same value on both
+    /// sides, so matching `box(X)` against `box(0)` yields the equation `X = 0`, which the
+    /// antecedent must entail.
+    #[test]
+    fn implication_checks_the_binding_of_a_shared_universal_variable() {
+        let antecedent = |value: &str| {
+            format!(
+                r#"\and{{SortK{{}}}}(
+                    box{{}}(\dv{{SortInt{{}}}}("0")),
+                    \equals{{SortInt{{}}, SortK{{}}}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{value}"))
+                )"#
+            )
+        };
+        let consequent = "box{}(X:SortInt{})";
+
+        let refuted = boxed_integer_implication(&antecedent("1"), consequent);
+        assert_eq!(refuted["result"]["status"], "invalid", "{refuted:#}");
+        let substitution = &refuted["result"]["condition"]["substitution"]["term"];
+        assert_eq!(substitution["tag"], "Equals", "{refuted:#}");
+        assert_eq!(substitution["first"]["name"], "X", "{refuted:#}");
+        assert_eq!(substitution["second"]["value"], "0", "{refuted:#}");
+
+        let entailed = boxed_integer_implication(&antecedent("0"), consequent);
+        assert_eq!(entailed["result"]["status"], "valid", "{entailed:#}");
+    }
+
     #[test]
     fn implication_orients_configuration_substitutions_from_variable_to_value() {
         let response = implication_response("X:SortK{}", "value{}()");
