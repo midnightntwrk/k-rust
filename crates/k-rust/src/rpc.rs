@@ -55,6 +55,36 @@ const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
 const REQUEST_PENDING: u8 = 0;
 const REQUEST_CANCELLED: u8 = 1;
 const REQUEST_COMPLETED: u8 = 2;
+/// A connection's session ends when its reader stops (end of stream or a read error); its
+/// requests are then cancelled. A peer that vanishes without closing (crash, lost network)
+/// produces neither until the operating system gives up on it, so accepted sockets carry two
+/// bounds on how long the OS keeps a silent peer:
+/// - TCP keepalive, which only probes a connection with nothing in flight: after
+///   `KEEPALIVE_IDLE` without traffic the OS sends a probe every `KEEPALIVE_INTERVAL`, and after
+///   `KEEPALIVE_RETRIES` unanswered probes the pending read fails, at most
+///   `KEEPALIVE_IDLE + KEEPALIVE_RETRIES * KEEPALIVE_INTERVAL` = 25 s after the peer's last segment.
+/// - `TCP_USER_TIMEOUT` = `UNACKNOWLEDGED_DATA_TIMEOUT` (Linux and Android), which covers the case
+///   keepalive skips: while response bytes sent to the peer stay unacknowledged the OS retransmits
+///   instead of probing, and the connection fails once data has stayed unacknowledged for 25 s,
+///   rather than when retransmission gives up (about 15 minutes with the Linux default
+///   `tcp_retries2`). It also fails a live client whose receive window has stayed full for 25 s,
+///   i.e. one that stopped reading a response larger than the socket buffers.
+///
+/// The two timers do not overlap: `TCP_USER_TIMEOUT` counts from the first transmission of the
+/// oldest unacknowledged segment, and keepalive stops probing once data is in flight. On those
+/// systems a silent vanished peer is therefore detected about 25 s after the later of its last
+/// segment and the first transmission of a response segment it has not acknowledged. Such a
+/// response can only be sent before keepalive has failed the connection, so the worst case is
+/// under 50 s after the peer falls silent (a response sent 20 s after it: about 45 s). Elsewhere
+/// the in-flight case waits for the OS retransmission limit.
+/// A live idle client costs one empty segment each way per `KEEPALIVE_IDLE`.
+const KEEPALIVE_IDLE: Duration = Duration::from_secs(10);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
+const KEEPALIVE_RETRIES: u32 = 3;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const UNACKNOWLEDGED_DATA_TIMEOUT: Duration = Duration::from_secs(
+    KEEPALIVE_IDLE.as_secs() + KEEPALIVE_RETRIES as u64 * KEEPALIVE_INTERVAL.as_secs(),
+);
 
 struct RequestControl {
     token: CancellationToken,
@@ -86,6 +116,10 @@ impl RequestControl {
         }
         self.token.cancel();
         true
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.state.load(Ordering::Acquire) == REQUEST_CANCELLED
     }
 
     fn complete(&self) -> bool {
@@ -1676,10 +1710,14 @@ pub(super) fn serve(backend: Backend, address: impl ToSocketAddrs) -> Result<(),
     Ok(())
 }
 
+/// Serves one connection until its client stops sending. Closing either direction of the
+/// connection ends the session: nothing more can be requested, so every active and queued
+/// request of the connection is cancelled and none of them is answered.
 fn serve_connection(
     stream: TcpStream,
     service: Arc<Mutex<RpcService>>,
 ) -> Result<(), Box<dyn Error>> {
+    enable_keepalive(&stream)?;
     let mut reader = stream.try_clone()?;
     let writer = Arc::new(Mutex::new(BufWriter::new(stream)));
     let controls = Arc::new(Mutex::new(VecDeque::<Arc<RequestControl>>::new()));
@@ -1691,12 +1729,26 @@ fn serve_connection(
         .stack_size(CONNECTION_STACK_SIZE)
         .spawn(move || -> io::Result<()> {
             for (line, control) in receiver {
-                let response = control.token.scope(|| {
-                    service
-                        .lock()
-                        .map_err(|_| io::Error::other("KORE JSON-RPC session lock was poisoned"))
-                        .map(|mut service| service.handle_line(&line))
-                })?;
+                // A request cancelled before it runs (its session ended while it was queued, or
+                // while this worker waited for another connection's request) is not run.
+                let response = if control.is_cancelled() {
+                    None
+                } else {
+                    control.token.scope(|| {
+                        service
+                            .lock()
+                            .map_err(|_| {
+                                io::Error::other("KORE JSON-RPC session lock was poisoned")
+                            })
+                            .map(|mut service| {
+                                if control.is_cancelled() {
+                                    None
+                                } else {
+                                    service.handle_line(&line)
+                                }
+                            })
+                    })?
+                };
                 if control.complete()
                     && let Some(response) = response
                 {
@@ -1712,13 +1764,13 @@ fn serve_connection(
         })?;
 
     let mut buffer = Vec::new();
-    let mut read_error = None;
+    let mut connection_error = None;
     loop {
         let message = match read_json_message(&mut reader, &mut buffer) {
             Ok(Some(message)) => message,
             Ok(None) => break,
             Err(error) => {
-                read_error = Some(error);
+                connection_error = Some(error);
                 break;
             }
         };
@@ -1731,8 +1783,10 @@ fn serve_connection(
             if let Some(active) = active
                 && active.cancel()
                 && let Some(response) = &active.cancellation_response
+                && let Err(error) = write_response(&writer, response)
             {
-                write_response(&writer, response)?;
+                connection_error = Some(error);
+                break;
             }
             continue;
         }
@@ -1745,13 +1799,34 @@ fn serve_connection(
             break;
         }
     }
+    // The session is over: no request of this connection may outlive it, and the worker must
+    // not hold the shared service for requests nobody can ask about any more.
+    for control in controls
+        .lock()
+        .map_err(|_| io::Error::other("KORE JSON-RPC request queue was poisoned"))?
+        .iter()
+    {
+        control.cancel();
+    }
     drop(sender);
     worker
         .join()
         .map_err(|_| io::Error::other("KORE JSON-RPC worker panicked"))??;
-    if let Some(error) = read_error {
+    if let Some(error) = connection_error {
         return Err(error.into());
     }
+    Ok(())
+}
+
+fn enable_keepalive(stream: &TcpStream) -> io::Result<()> {
+    let keepalive = socket2::TcpKeepalive::new()
+        .with_time(KEEPALIVE_IDLE)
+        .with_interval(KEEPALIVE_INTERVAL)
+        .with_retries(KEEPALIVE_RETRIES);
+    let socket = socket2::SockRef::from(stream);
+    socket.set_tcp_keepalive(&keepalive)?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    socket.set_tcp_user_timeout(Some(UNACKNOWLEDGED_DATA_TIMEOUT))?;
     Ok(())
 }
 
@@ -4572,22 +4647,182 @@ mod tests {
         for message in messages {
             writeln!(client, "{message}").unwrap();
         }
+        // Closing the sending side ends the session, so the answers are read first.
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let mut responses = Vec::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            responses.push(serde_json::from_str::<Value>(&line).unwrap());
+        }
         client.shutdown(Shutdown::Write).unwrap();
-        let mut responses = String::new();
-        client.read_to_string(&mut responses).unwrap();
+        let mut rest = String::new();
+        reader.read_to_string(&mut rest).unwrap();
         worker.join().unwrap();
 
-        let responses = responses
-            .lines()
-            .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            responses.len(),
-            2,
-            "a standalone cancel must not receive a response even when it has an id"
+        assert!(
+            rest.is_empty(),
+            "a standalone cancel must not receive a response even when it has an id: {rest}"
         );
         assert_eq!(responses[0]["error"]["code"], -32601);
         assert_eq!(responses[1]["result"]["satisfiable"], "Sat");
+    }
+
+    /// A hang detector, not a timing assertion: a wedged server fails the test instead of
+    /// blocking the suite.
+    const WATCHDOG: Duration = Duration::from_secs(60);
+
+    fn looping_service() -> RpcService {
+        let definition = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    wrap{}(X:SortS{})
+                ) [label{}("loop"), UNIQUE'Unds'ID{}("loop")]
+            endmodule []"#,
+        )
+        .unwrap();
+        RpcService::new(BackendSession::new(definition, "MAIN"))
+    }
+
+    fn divergent_execute() -> Value {
+        let state =
+            encode_kore(&parse_pattern(r#"wrap{}(\dv{SortS{}}("zero"))"#).unwrap()).unwrap();
+        json!({
+            "jsonrpc": "2.0",
+            "id": "divergent",
+            "method": "execute",
+            "params": { "state": state },
+        })
+    }
+
+    /// Accepts `connections` connections on one shared service, each served on its own thread;
+    /// every server thread reports its result on the returned channel.
+    fn spawn_server(
+        service: RpcService,
+        connections: usize,
+    ) -> (std::net::SocketAddr, mpsc::Receiver<Result<(), String>>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let service = Arc::new(Mutex::new(service));
+        let (done, finished) = mpsc::channel();
+        thread::spawn(move || {
+            for _ in 0..connections {
+                let (stream, _) = listener.accept().unwrap();
+                let service = Arc::clone(&service);
+                let done = done.clone();
+                thread::spawn(move || {
+                    let result = serve_connection(stream, service).map_err(|e| e.to_string());
+                    let _ = done.send(result);
+                });
+            }
+        });
+        (address, finished)
+    }
+
+    /// A second connection on the same service is answered, which needs the service lock the
+    /// first connection's divergent request held.
+    fn assert_second_connection_is_served(address: std::net::SocketAddr) {
+        let mut client = TcpStream::connect(address).unwrap();
+        client.set_read_timeout(Some(WATCHDOG)).unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "missing" })
+        )
+        .unwrap();
+        let mut line = String::new();
+        BufReader::new(client.try_clone().unwrap())
+            .read_line(&mut line)
+            .expect("the second connection must be served once the first one has ended");
+        let response: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["id"], 9);
+        assert_eq!(response["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn closing_a_connection_cancels_its_divergent_request() {
+        let (address, finished) = spawn_server(looping_service(), 2);
+
+        let mut client = TcpStream::connect(address).unwrap();
+        writeln!(client, "{}", divergent_execute()).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        drop(client);
+
+        finished
+            .recv_timeout(WATCHDOG)
+            .expect("the closed connection's session must end")
+            .unwrap();
+        assert_second_connection_is_served(address);
+    }
+
+    #[test]
+    fn half_closing_a_connection_cancels_its_divergent_request() {
+        let (address, finished) = spawn_server(looping_service(), 2);
+
+        let mut client = TcpStream::connect(address).unwrap();
+        client.set_read_timeout(Some(WATCHDOG)).unwrap();
+        writeln!(client, "{}", divergent_execute()).unwrap();
+        thread::sleep(Duration::from_millis(50));
+        client.shutdown(Shutdown::Write).unwrap();
+
+        let mut answer = String::new();
+        client
+            .read_to_string(&mut answer)
+            .expect("the server must close the connection after its session ends");
+        assert!(
+            answer.is_empty(),
+            "a request cancelled by the end of its session is not answered: {answer}"
+        );
+        finished
+            .recv_timeout(WATCHDOG)
+            .expect("the half-closed connection's session must end")
+            .unwrap();
+        assert_second_connection_is_served(address);
+    }
+
+    #[test]
+    fn accepted_connections_carry_tcp_keepalive_and_user_timeout() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let client = TcpStream::connect(address).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        // A duplicate descriptor of the served socket, to read its options back.
+        let served = stream.try_clone().unwrap();
+        let server = thread::spawn(move || {
+            serve_connection(stream, Arc::new(Mutex::new(service()))).unwrap();
+        });
+
+        let mut client = client;
+        client.set_read_timeout(Some(WATCHDOG)).unwrap();
+        writeln!(
+            client,
+            "{}",
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "missing" })
+        )
+        .unwrap();
+        let mut line = String::new();
+        BufReader::new(client.try_clone().unwrap())
+            .read_line(&mut line)
+            .unwrap();
+
+        let socket = socket2::SockRef::from(&served);
+        assert!(socket.keepalive().unwrap());
+        assert_eq!(socket.tcp_keepalive_time().unwrap(), KEEPALIVE_IDLE);
+        assert_eq!(socket.tcp_keepalive_interval().unwrap(), KEEPALIVE_INTERVAL);
+        assert_eq!(socket.tcp_keepalive_retries().unwrap(), KEEPALIVE_RETRIES);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        assert_eq!(
+            socket.tcp_user_timeout().unwrap(),
+            Some(UNACKNOWLEDGED_DATA_TIMEOUT)
+        );
+
+        drop(client);
+        server.join().unwrap();
     }
 
     #[test]

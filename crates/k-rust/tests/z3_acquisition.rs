@@ -27,6 +27,7 @@ fn z3_acquisition_is_feature_selectable() {
         "cli",
         &[
             "dep:clap",
+            "dep:socket2",
             "dep:tracing-chrome",
             "dep:tracing-subscriber",
             "mpfr-folding",

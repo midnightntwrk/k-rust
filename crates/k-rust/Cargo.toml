@@ -31,6 +31,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 sha3.workspace = true
+socket2 = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-chrome = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
@@ -52,6 +53,7 @@ toml.workspace = true
 default = ["cli", "z3-inference-gh-release"]
 cli = [
   "dep:clap",
+  "dep:socket2",
   "dep:tracing-chrome",
   "dep:tracing-subscriber",
   "mpfr-folding",
