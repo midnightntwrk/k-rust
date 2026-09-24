@@ -1,5 +1,5 @@
-# Version 1 only: version 2 admits `rustfmt::skip` and variant `#[default]` (see non-krs-proc-macro-v2).
-versions = [1]
+# `rustfmt::skip` and the variant `#[default]` are accepted; the external derive is not.
+
 [[diagnostic]]
 code = "krs::policy::non-krs-proc-macro"
 start = 16
@@ -20,12 +20,6 @@ text = "no_mangle"
 
 [[diagnostic]]
 code = "krs::policy::non-krs-proc-macro"
-start = 102
-end = 115
-text = "rustfmt::skip"
-
-[[diagnostic]]
-code = "krs::policy::non-krs-proc-macro"
 start = 163
 end = 174
 text = "lazy_static"
@@ -41,9 +35,3 @@ code = "krs::policy::non-krs-proc-macro"
 start = 218
 end = 227
 text = "k::syntax"
-
-[[diagnostic]]
-code = "krs::policy::non-krs-proc-macro"
-start = 300
-end = 307
-text = "default"

@@ -25,7 +25,6 @@ export const STAGES: readonly Stage[] = [
 
 /** The lesson manifest's `[policy]` table (LessonPolicy, schema 1). */
 export interface LessonPolicy {
-  version: number;
   editable_files: string[];
   facade_alias: string;
 }

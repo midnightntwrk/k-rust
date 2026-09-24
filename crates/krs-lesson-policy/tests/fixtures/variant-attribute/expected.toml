@@ -1,4 +1,4 @@
-# Rejected in every version: version 2 accepts a bare `#[default]` on an enum variant only.
+# Rejected: the policy accepts a bare `#[default]` on an enum variant only.
 
 [[diagnostic]]
 code = "krs::policy::non-krs-proc-macro"

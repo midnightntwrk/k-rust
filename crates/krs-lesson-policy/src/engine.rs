@@ -1,13 +1,12 @@
-//! The syntactic checker shared by every policy version.
+//! The syntactic checker of the lesson policy.
 //!
-//! Each version module (`v1`, `v2`) owns its normative rule text and its
-//! tables and passes them to [`check`] as a [`RuleSet`]. A rule a version
-//! does not have is switched off in its [`RuleSet`], so the checker's
-//! behaviour under a published version never changes when a later version
-//! adds a rule.
+//! The normative rules and the lesson allowlists are in [`crate::rules`];
+//! entry points, helpers, and inert attributes come from
+//! [`krs_syntax::surface`], and every KRS path is resolved by its resolver.
 
 use std::ops::Range;
 
+use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use syn::ext::IdentExt;
 use syn::parse::Parser;
@@ -16,44 +15,17 @@ use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{
     Attribute, FnArg, ForeignItem, Ident, ImplItem, Item, ItemEnum, ItemExternCrate, ItemMacro,
-    ItemMod, ItemStruct, ItemUse, Macro, Meta, Path, TraitItem, UseTree, Variant,
+    ItemMod, ItemStruct, ItemUse, Macro, Meta, Path, PathSegment, TraitItem, UseTree, Variant,
 };
 
-use crate::v1::{
-    CFG, ENV, EXTERN_CRATE, INCLUDE, KRS_IMPORT, KRS_ITEM_SCOPE, MACRO_DEFINITION,
-    NON_KRS_PROC_MACRO, OUT_OF_LINE_MODULE, PARSE, PATH_ATTRIBUTE, RESERVED_FACADE_ITEM,
+use crate::rules::{
+    ATTRIBUTE_ORDER, BUILTIN_DERIVES, CFG, DERIVE_CRATES, ENV, EXTERN_CRATE, INCLUDE,
+    INERT_ATTRIBUTES, KRS_IMPORT, KRS_ITEM_SCOPE, MACRO_DEFINITION, NON_KRS_PROC_MACRO,
+    ORDER_SENSITIVE_ATTRIBUTES, OUT_OF_LINE_MODULE, PARSE, PATH_ATTRIBUTE, RESERVED_FACADE_ITEM,
+    RESERVED_NAME, RESERVED_NAME_PREFIX, STANDARD_MACRO_CRATES, STANDARD_MACROS, TOOL_ATTRIBUTES,
+    VARIANT_ATTRIBUTES,
 };
-use crate::v2::{ATTRIBUTE_ORDER, RESERVED_NAME};
 use crate::{LessonPolicy, PolicyDiagnostic};
-
-/// The tables and rule switches of one policy version.
-pub(crate) struct RuleSet {
-    /// The version number, quoted in messages.
-    pub(crate) version: u32,
-    pub(crate) attribute_entries: &'static [&'static str],
-    pub(crate) function_entries: &'static [&'static str],
-    pub(crate) enum_helpers: &'static [&'static str],
-    pub(crate) variant_helpers: &'static [&'static str],
-    pub(crate) field_helpers: &'static [&'static str],
-    pub(crate) parameter_helpers: &'static [&'static str],
-    pub(crate) inert_attributes: &'static [&'static str],
-    /// Two-segment tool attributes accepted without arguments anywhere.
-    pub(crate) tool_attributes: &'static [(&'static str, &'static str)],
-    /// Single-segment attributes accepted without arguments on enum
-    /// variants only.
-    pub(crate) variant_attributes: &'static [&'static str],
-    pub(crate) builtin_derives: &'static [(&'static str, &'static str)],
-    pub(crate) derive_crates: &'static [&'static str],
-    pub(crate) standard_macros: &'static [&'static str],
-    pub(crate) standard_macro_crates: &'static [&'static str],
-    /// Accepted attributes that rustc expands before a KRS attribute that
-    /// follows them on the same item; empty disables
-    /// `krs::policy::attribute-order`.
-    pub(crate) order_sensitive_attributes: &'static [&'static str],
-    /// Lowercase prefix of the generated-name namespace; `None` disables
-    /// `krs::policy::reserved-name`.
-    pub(crate) reserved_name_prefix: Option<&'static str>,
-}
 
 const INCLUDE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
 const ENV_MACROS: &[&str] = &["env", "option_env"];
@@ -67,12 +39,11 @@ const KEYWORDS: &[&str] = &[
     "macro", "override", "priv", "typeof", "unsized", "virtual",
 ];
 
-/// Checks one authored file under `rules`.
+/// Checks one authored file.
 pub(crate) fn check(
     source: &str,
     display_file: &str,
     policy: &LessonPolicy,
-    rules: &'static RuleSet,
 ) -> Vec<PolicyDiagnostic> {
     let bom = if source.starts_with('\u{feff}') { 3 } else { 0 };
     let parsed = syn::parse_file(source);
@@ -84,7 +55,6 @@ pub(crate) fn check(
         offset,
         file: display_file,
         policy,
-        rules,
         diagnostics: Vec::new(),
         contexts: Vec::new(),
         module_path: Vec::new(),
@@ -183,7 +153,7 @@ enum Position {
 }
 
 enum MacroClass {
-    Krs,
+    Krs(FunctionMacro),
     Standard,
     Include,
     Env,
@@ -197,7 +167,6 @@ struct Checker<'a, 'ast> {
     offset: usize,
     file: &'a str,
     policy: &'a LessonPolicy,
-    rules: &'static RuleSet,
     diagnostics: Vec<PolicyDiagnostic>,
     contexts: Vec<AttributeContext<'ast>>,
     /// Inline modules between the file root and the current node.
@@ -235,17 +204,16 @@ impl<'ast> Checker<'_, 'ast> {
 
     /// `Some(name)` when `path` is exactly `<alias>::<name>`.
     fn facade_member(&self, path: &Path) -> Option<String> {
-        if path.leading_colon.is_some()
-            || path.segments.len() != 2
-            || path
-                .segments
-                .iter()
-                .any(|segment| !segment.arguments.is_none())
-            || path.segments[0].ident != self.alias()
-        {
-            return None;
+        surface::facade_member(path, self.alias())
+    }
+
+    /// The KRS attribute entry that `attribute` invokes, when its path is
+    /// exactly `<alias>::<entry>` and the entry is not reserved.
+    fn krs_attribute(&self, attribute: &Attribute) -> Option<AttributeMacro> {
+        match surface::resolve(attribute.path(), self.alias()) {
+            Some(Entry::Attribute(entry)) if !entry.is_reserved() => Some(entry),
+            _ => None,
         }
-        Some(path.segments[1].ident.unraw().to_string())
     }
 
     fn names_reserved_facade_item(&self, segments: &[String]) -> bool {
@@ -255,16 +223,11 @@ impl<'ast> Checker<'_, 'ast> {
                 .any(|segment| segment.starts_with("__"))
     }
 
-    fn has_facade_attribute(&self, attrs: &[Attribute], names: &[&str]) -> bool {
+    fn has_krs_attribute(&self, attrs: &[Attribute], entries: &[AttributeMacro]) -> bool {
         attrs.iter().any(|attribute| {
-            self.facade_member(attribute.path())
-                .is_some_and(|name| names.contains(&name.as_str()))
+            self.krs_attribute(attribute)
+                .is_some_and(|entry| entries.contains(&entry))
         })
-    }
-
-    fn is_krs_attribute_invocation(&self, attribute: &Attribute) -> bool {
-        self.facade_member(attribute.path())
-            .is_some_and(|name| self.rules.attribute_entries.contains(&name.as_str()))
     }
 
     /// Records a KRS invocation and rejects it outside the crate root's
@@ -324,10 +287,7 @@ impl<'ast> Checker<'_, 'ast> {
         match name {
             "cfg" | "cfg_attr" => self.report(
                 CFG,
-                format!(
-                    "`#[{name}]` is not accepted in lesson source (policy version {})",
-                    self.rules.version
-                ),
+                format!("`#[{name}]` is not accepted in lesson source"),
                 attribute_range,
             ),
             "path" => self.report(
@@ -336,8 +296,8 @@ impl<'ast> Checker<'_, 'ast> {
                 attribute_range,
             ),
             "derive" => self.check_derive(attribute, path_range),
-            name if self.rules.inert_attributes.contains(&name) => {}
-            name if self.rules.variant_attributes.contains(&name) => {
+            name if INERT_ATTRIBUTES.contains(&name) => {}
+            name if VARIANT_ATTRIBUTES.contains(&name) => {
                 let on_variant = matches!(position, Position::Tree { variant: true, .. });
                 if !on_variant || !matches!(attribute.meta, Meta::Path(_)) {
                     self.report(
@@ -347,7 +307,7 @@ impl<'ast> Checker<'_, 'ast> {
                     );
                 }
             }
-            name if self.rules.attribute_entries.contains(&name) => {
+            name if is_krs_entry_name(name) => {
                 let alias = self.alias().to_owned();
                 self.report(
                     KRS_IMPORT,
@@ -384,7 +344,7 @@ impl<'ast> Checker<'_, 'ast> {
                 );
                 return false;
             }
-            let entry = self.rules.attribute_entries.contains(&name.as_str());
+            let entry = AttributeMacro::from_name(&name).is_some();
             let accepted = match position {
                 Position::Tree {
                     entries, helpers, ..
@@ -399,10 +359,10 @@ impl<'ast> Checker<'_, 'ast> {
                 Position::TokenBody => {
                     entry
                         || [
-                            self.rules.enum_helpers,
-                            self.rules.variant_helpers,
-                            self.rules.field_helpers,
-                            self.rules.parameter_helpers,
+                            surface::ENUM_HELPERS,
+                            surface::VARIANT_HELPERS,
+                            surface::FIELD_HELPERS,
+                            surface::PARAMETER_HELPERS,
                         ]
                         .iter()
                         .any(|helpers| helpers.contains(&name.as_str()))
@@ -426,7 +386,7 @@ impl<'ast> Checker<'_, 'ast> {
                 "hidden facade items cannot be named in lesson source".to_owned(),
                 path_range,
             );
-        } else if self.is_tool_attribute(attribute) {
+        } else if Self::is_tool_attribute(attribute) {
             // Accepted: a tool attribute without arguments has no expansion
             // effect and nothing to scan.
         } else {
@@ -454,7 +414,7 @@ impl<'ast> Checker<'_, 'ast> {
             return;
         };
         for path in &paths {
-            if !self.is_builtin_derive(path) {
+            if !Self::is_builtin_derive(path) {
                 let (leading, segments) = path_segments(path);
                 let range = self.range(path.span());
                 self.report(
@@ -469,7 +429,8 @@ impl<'ast> Checker<'_, 'ast> {
         }
     }
 
-    fn classify_macro(&self, leading: bool, segments: &[String]) -> MacroClass {
+    fn classify_macro(&self, path: &Path) -> MacroClass {
+        let (leading, segments) = path_segments(path);
         let Some(last) = segments.last() else {
             return MacroClass::Other;
         };
@@ -479,26 +440,23 @@ impl<'ast> Checker<'_, 'ast> {
         if ENV_MACROS.contains(&last.as_str()) {
             return MacroClass::Env;
         }
-        if self.names_reserved_facade_item(segments) {
+        if self.names_reserved_facade_item(&segments) {
             return MacroClass::Reserved;
         }
-        match (leading, segments) {
+        if let Some(Entry::Function(entry)) = surface::resolve(path, self.alias()) {
+            return MacroClass::Krs(entry);
+        }
+        match (leading, segments.as_slice()) {
             (false, [name]) if name == "macro_rules" => MacroClass::Definition,
-            (false, [name]) if self.rules.function_entries.contains(&name.as_str()) => {
+            (false, [name])
+                if FunctionMacro::from_name(name).is_some_and(|entry| !entry.is_reserved()) =>
+            {
                 MacroClass::Unprefixed
             }
-            (false, [name]) if self.rules.standard_macros.contains(&name.as_str()) => {
-                MacroClass::Standard
-            }
-            (false, [alias, name])
-                if alias == self.alias()
-                    && self.rules.function_entries.contains(&name.as_str()) =>
-            {
-                MacroClass::Krs
-            }
+            (false, [name]) if STANDARD_MACROS.contains(&name.as_str()) => MacroClass::Standard,
             (_, [krate, name])
-                if self.rules.standard_macro_crates.contains(&krate.as_str())
-                    && self.rules.standard_macros.contains(&name.as_str()) =>
+                if STANDARD_MACRO_CRATES.contains(&krate.as_str())
+                    && STANDARD_MACROS.contains(&name.as_str()) =>
             {
                 MacroClass::Standard
             }
@@ -509,18 +467,18 @@ impl<'ast> Checker<'_, 'ast> {
     /// Checks one macro invocation and scans its tokens when it is accepted.
     fn check_macro(
         &mut self,
-        leading: bool,
-        segments: &[String],
+        path: &Path,
         path_range: Range<usize>,
         close: Span,
         tokens: &TokenStream,
     ) {
         let whole = path_range.start..self.range(close).end;
-        let shown = display_path(leading, segments);
+        let (leading, segments) = path_segments(path);
+        let shown = display_path(leading, &segments);
         let item_position = std::mem::take(&mut self.item_position);
-        match self.classify_macro(leading, segments) {
-            MacroClass::Krs => {
-                self.krs_invocation(&segments[1], whole, item_position);
+        match self.classify_macro(path) {
+            MacroClass::Krs(entry) => {
+                self.krs_invocation(entry.name(), whole, item_position);
                 self.krs_depth += 1;
                 self.scan_tokens(tokens);
                 self.krs_depth -= 1;
@@ -588,7 +546,7 @@ impl<'ast> Checker<'_, 'ast> {
     }
 
     fn check_module_name(&mut self, ident: &syn::Ident) {
-        if ident == self.alias() {
+        if ident.unraw() == self.alias() {
             let alias = self.alias().to_owned();
             let range = self.range(ident.span());
             self.report(
@@ -677,11 +635,7 @@ impl<'ast> Checker<'_, 'ast> {
             }
             return;
         }
-        if prefix.len() == 1
-            && under_facade
-            && (self.rules.attribute_entries.contains(&ident)
-                || self.rules.function_entries.contains(&ident))
-        {
+        if prefix.len() == 1 && under_facade && is_krs_entry_name(ident) {
             self.report(
                 KRS_IMPORT,
                 format!(
@@ -782,7 +736,7 @@ impl<'ast> Checker<'_, 'ast> {
         let [attribute] = attributes.as_slice() else {
             return None;
         };
-        if self.check_attribute(attribute, Position::TokenBody) || self.is_inert(attribute) {
+        if self.check_attribute(attribute, Position::TokenBody) || scans_arguments(attribute) {
             self.scan_tokens(&group.stream());
         }
         Some(group_index + 1)
@@ -795,10 +749,10 @@ impl<'ast> Checker<'_, 'ast> {
         if leading {
             cursor += 2;
         }
-        let mut segments = Vec::new();
+        let mut segments: Punctuated<PathSegment, syn::Token![::]> = Punctuated::new();
         let first = cursor;
         while let Some(TokenTree::Ident(ident)) = tokens.get(cursor) {
-            segments.push(ident.unraw().to_string());
+            segments.push(PathSegment::from(ident.clone()));
             cursor += 1;
             if is_path_separator(tokens, cursor) {
                 cursor += 2;
@@ -809,28 +763,25 @@ impl<'ast> Checker<'_, 'ast> {
         if segments.is_empty() {
             return index + 1;
         }
-        let single_keyword =
-            !leading && segments.len() == 1 && KEYWORDS.contains(&segments[0].as_str());
+        let single_keyword = !leading
+            && segments.len() == 1
+            && KEYWORDS.contains(&segments[0].ident.unraw().to_string().as_str());
         if single_keyword || !is_punct(tokens.get(cursor), '!') {
             return cursor.max(index + 1);
         }
         let path_start = tokens[if leading { index } else { first }].span();
         let path_end = tokens[cursor - 1].span();
         let path_range = self.span_range(path_start, path_end);
+        let path = Path {
+            leading_colon: leading.then(|| syn::Token![::](path_start)),
+            segments,
+        };
         match tokens.get(cursor + 1) {
             Some(TokenTree::Group(group)) => {
-                self.check_macro(
-                    leading,
-                    &segments,
-                    path_range,
-                    group.span_close(),
-                    &group.stream(),
-                );
+                self.check_macro(&path, path_range, group.span_close(), &group.stream());
                 cursor + 2
             }
-            Some(TokenTree::Ident(_))
-                if !leading && segments.len() == 1 && segments[0] == "macro_rules" =>
-            {
+            Some(TokenTree::Ident(_)) if !leading && path.is_ident("macro_rules") => {
                 let end = match tokens.get(cursor + 2) {
                     Some(TokenTree::Group(group)) => (
                         cursor + 2 + usize::from(is_punct(tokens.get(cursor + 3), ';')),
@@ -880,7 +831,7 @@ impl<'ast> Checker<'_, 'ast> {
     ) {
         let krs = attrs
             .iter()
-            .any(|attribute| self.is_krs_attribute_invocation(attribute));
+            .any(|attribute| self.krs_attribute(attribute).is_some());
         self.check_attribute_order(attrs);
         let saved = std::mem::replace(&mut self.helpers, pending);
         self.push_context(attrs, true, helpers, helpers_from, false);
@@ -902,29 +853,19 @@ impl Checker<'_, '_> {
     /// first KRS attribute invocation of the same item: rustc expands it
     /// before the KRS attribute, which the path-C expander does not emulate.
     fn check_attribute_order(&mut self, attrs: &[Attribute]) {
-        if self.rules.order_sensitive_attributes.is_empty() {
-            return;
-        }
-        let Some(first_krs) = attrs
-            .iter()
-            .position(|attribute| self.is_krs_attribute_invocation(attribute))
-        else {
+        let Some((first_krs, krs)) = attrs.iter().enumerate().find_map(|(index, attribute)| {
+            self.krs_attribute(attribute)
+                .map(|entry| (index, entry.name()))
+        }) else {
             return;
         };
-        let krs = self
-            .facade_member(attrs[first_krs].path())
-            .unwrap_or_default();
         let alias = self.alias().to_owned();
         for attribute in &attrs[..first_krs] {
             let Some(ident) = attribute.path().get_ident() else {
                 continue;
             };
             let name = ident.unraw().to_string();
-            if self
-                .rules
-                .order_sensitive_attributes
-                .contains(&name.as_str())
-            {
+            if ORDER_SENSITIVE_ATTRIBUTES.contains(&name.as_str()) {
                 let range = self.range(attribute.span());
                 self.report(
                     ATTRIBUTE_ORDER,
@@ -948,9 +889,7 @@ impl Checker<'_, '_> {
     /// Rejects `name`, bound at `range`, when it is in the reserved
     /// generated-name namespace.
     fn check_reserved_binding(&mut self, name: &str, range: Range<usize>) {
-        let Some(prefix) = self.rules.reserved_name_prefix else {
-            return;
-        };
+        let prefix = RESERVED_NAME_PREFIX;
         if name.to_ascii_lowercase().starts_with(prefix) {
             self.report(
                 RESERVED_NAME,
@@ -963,9 +902,9 @@ impl Checker<'_, '_> {
         }
     }
 
-    /// A bare two-segment attribute in `tool_attributes`, such as
+    /// A bare two-segment attribute in [`TOOL_ATTRIBUTES`], such as
     /// `#[rustfmt::skip]`.
-    fn is_tool_attribute(&self, attribute: &Attribute) -> bool {
+    fn is_tool_attribute(attribute: &Attribute) -> bool {
         let path = attribute.path();
         matches!(attribute.meta, Meta::Path(_))
             && path.leading_colon.is_none()
@@ -974,20 +913,12 @@ impl Checker<'_, '_> {
                 .segments
                 .iter()
                 .all(|segment| segment.arguments.is_none())
-            && self.rules.tool_attributes.iter().any(|(tool, name)| {
-                path.segments[0].ident == tool && path.segments[1].ident == name
+            && TOOL_ATTRIBUTES.iter().any(|(tool, name)| {
+                path.segments[0].ident.unraw() == tool && path.segments[1].ident.unraw() == name
             })
     }
 
-    fn is_inert(&self, attribute: &Attribute) -> bool {
-        attribute.path().get_ident().is_some_and(|ident| {
-            self.rules
-                .inert_attributes
-                .contains(&ident.to_string().as_str())
-        })
-    }
-
-    fn is_builtin_derive(&self, path: &Path) -> bool {
+    fn is_builtin_derive(path: &Path) -> bool {
         if path
             .segments
             .iter()
@@ -997,16 +928,10 @@ impl Checker<'_, '_> {
         }
         let (leading, segments) = path_segments(path);
         match segments.as_slice() {
-            [name] if !leading => self
-                .rules
-                .builtin_derives
-                .iter()
-                .any(|(derive, _)| derive == name),
+            [name] if !leading => BUILTIN_DERIVES.iter().any(|(derive, _)| derive == name),
             [krate, module, name] => {
-                self.rules.derive_crates.contains(&krate.as_str())
-                    && self
-                        .rules
-                        .builtin_derives
+                DERIVE_CRATES.contains(&krate.as_str())
+                    && BUILTIN_DERIVES
                         .iter()
                         .any(|(derive, home)| derive == name && home == module)
             }
@@ -1031,6 +956,20 @@ fn defined_name(item: &Item) -> Option<&Ident> {
         Item::Union(item) => Some(&item.ident),
         _ => None,
     }
+}
+
+/// Whether `name` is a KRS entry point that authored code may name.
+fn is_krs_entry_name(name: &str) -> bool {
+    Entry::from_name(name).is_some_and(|entry| !entry.is_reserved())
+}
+
+/// Whether an accepted attribute's arguments are checked as Rust: an inert
+/// attribute or `derive`.
+fn scans_arguments(attribute: &Attribute) -> bool {
+    attribute.path().get_ident().is_some_and(|ident| {
+        let name = ident.unraw().to_string();
+        name == "derive" || INERT_ATTRIBUTES.contains(&name.as_str())
+    })
 }
 
 fn path_segments(path: &Path) -> (bool, Vec<String>) {
@@ -1081,7 +1020,7 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
             }
             return;
         }
-        if self.is_inert(attribute) {
+        if scans_arguments(attribute) {
             visit::visit_attribute(self, attribute);
         }
     }
@@ -1098,16 +1037,15 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
         ) = match item {
             Item::Enum(ItemEnum { attrs, .. }) => {
                 let constructors = attrs.iter().position(|attribute| {
-                    self.facade_member(attribute.path())
-                        .is_some_and(|name| name == "constructors")
+                    self.krs_attribute(attribute) == Some(AttributeMacro::Constructors)
                 });
                 match constructors {
                     Some(index) => (
                         attrs,
-                        self.rules.enum_helpers,
+                        surface::ENUM_HELPERS,
                         index + 1,
                         PendingHelpers {
-                            variant: self.rules.variant_helpers,
+                            variant: surface::VARIANT_HELPERS,
                             ..PendingHelpers::default()
                         },
                     ),
@@ -1115,9 +1053,12 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
                 }
             }
             Item::Struct(ItemStruct { attrs, .. }) => {
-                let pending = if self.has_facade_attribute(attrs, &["configuration", "cell"]) {
+                let pending = if self.has_krs_attribute(
+                    attrs,
+                    &[AttributeMacro::Configuration, AttributeMacro::Cell],
+                ) {
                     PendingHelpers {
-                        field: self.rules.field_helpers,
+                        field: surface::FIELD_HELPERS,
                         ..PendingHelpers::default()
                     }
                 } else {
@@ -1126,9 +1067,9 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
                 (attrs, &[], 0, pending)
             }
             Item::Fn(function) => {
-                let pending = if self.has_facade_attribute(&function.attrs, &["init"]) {
+                let pending = if self.has_krs_attribute(&function.attrs, &[AttributeMacro::Init]) {
                     PendingHelpers {
-                        parameter: self.rules.parameter_helpers,
+                        parameter: surface::PARAMETER_HELPERS,
                         ..PendingHelpers::default()
                     }
                 } else {
@@ -1169,9 +1110,9 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
         let (attrs, pending): (&'ast [Attribute], PendingHelpers) = match item {
             ImplItem::Fn(function) => (
                 &function.attrs,
-                if self.has_facade_attribute(&function.attrs, &["init"]) {
+                if self.has_krs_attribute(&function.attrs, &[AttributeMacro::Init]) {
                     PendingHelpers {
-                        parameter: self.rules.parameter_helpers,
+                        parameter: surface::PARAMETER_HELPERS,
                         ..PendingHelpers::default()
                     }
                 } else {
@@ -1202,9 +1143,9 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
         let (attrs, pending): (&'ast [Attribute], PendingHelpers) = match item {
             TraitItem::Fn(function) => (
                 &function.attrs,
-                if self.has_facade_attribute(&function.attrs, &["init"]) {
+                if self.has_krs_attribute(&function.attrs, &[AttributeMacro::Init]) {
                     PendingHelpers {
-                        parameter: self.rules.parameter_helpers,
+                        parameter: surface::PARAMETER_HELPERS,
                         ..PendingHelpers::default()
                     }
                 } else {
@@ -1335,11 +1276,9 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
     }
 
     fn visit_macro(&mut self, mac: &'ast Macro) {
-        let (leading, segments) = path_segments(&mac.path);
         let path_range = self.range(mac.path.span());
         self.check_macro(
-            leading,
-            &segments,
+            &mac.path,
             path_range,
             mac.delimiter.span().close(),
             &mac.tokens,

@@ -39,7 +39,7 @@ const lesson: LessonManifest = {
   },
   facade: { alias: "k", path: "::k" },
   display_file: "src/lib.rs",
-  policy: { version: 1, editable_files: ["src/lib.rs"], facade_alias: "k" },
+  policy: { editable_files: ["src/lib.rs"], facade_alias: "k" },
   rustc_lint_flags: ["-D", "warnings"],
 };
 

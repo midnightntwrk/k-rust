@@ -1,6 +1,6 @@
 [package]
 name = "krs-lesson-policy"
-description = "Versioned syntactic pre-pass that bounds the editable surface of KRS browser lessons"
+description = "Syntactic pre-pass that bounds the editable surface of KRS browser lessons"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,6 +16,7 @@ default = ["abi"]
 abi = ["dep:krs-wasm-abi"]
 
 [dependencies]
+krs-syntax = { path = "../krs-syntax" }
 krs-wasm-abi = { path = "../krs-wasm-abi", optional = true }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 serde.workspace = true
@@ -23,7 +24,6 @@ serde_json.workspace = true
 syn = { version = "2.0.119", features = ["full", "parsing", "visit"] }
 
 [dev-dependencies]
-krs-syntax = { path = "../krs-syntax" }
 toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
 
 # The workspace table forbids `unsafe_code`; the Wasm exports that

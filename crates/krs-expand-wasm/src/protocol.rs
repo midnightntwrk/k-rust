@@ -22,7 +22,7 @@
 //!   "module_path": ["krs_tour_minimal"],
 //!   "facade": { "alias": "k", "path": "::k" },
 //!   "generated_file": "/work/expanded/tour-minimal/src/lib.rs",
-//!   "policy": { "version": 1, "editable_files": ["src/lib.rs"], "facade_alias": "k" }
+//!   "policy": { "editable_files": ["src/lib.rs"], "facade_alias": "k" }
 //! }
 //! ```
 //!
@@ -58,7 +58,7 @@
 //!   ],
 //!   "requests_framework": true,
 //!   "evidence": { "krs_expand_version": "0.1.0", "request_sha256": "…",
-//!                 "authored_sha256": "…", "text_sha256": "…", "policy_version": 1 }
+//!                 "authored_sha256": "…", "text_sha256": "…" }
 //! }
 //! ```
 //!
@@ -265,8 +265,6 @@ pub struct Evidence {
     pub authored_sha256: Option<String>,
     /// SHA-256 of `expanded.text`, when `ok`.
     pub text_sha256: Option<String>,
-    /// The policy version applied, when the request parsed.
-    pub policy_version: Option<u32>,
 }
 
 /// The JSON form of [`SourceMap`], plus the authored hash.
@@ -530,7 +528,6 @@ pub fn run(request_bytes: &[u8]) -> Response {
         request_sha256: sha256(request_bytes),
         authored_sha256: None,
         text_sha256: None,
-        policy_version: None,
     };
     let request = match serde_json::from_slice::<Request>(request_bytes) {
         Ok(request) => request,
@@ -548,7 +545,6 @@ pub fn run(request_bytes: &[u8]) -> Response {
         Ok(path) => path,
         Err(message) => return Response::failed(vec![Diagnostic::protocol(message)], evidence),
     };
-    evidence.policy_version = Some(request.policy.version);
 
     let files = BTreeMap::from([(
         request.file.display_file.clone(),
@@ -647,7 +643,6 @@ pub(crate) fn protocol_error_json(message: &str) -> Vec<u8> {
         request_sha256: sha256(&[]),
         authored_sha256: None,
         text_sha256: None,
-        policy_version: None,
     };
     let response = Response::failed(vec![Diagnostic::protocol(message.to_owned())], evidence);
     serde_json::to_vec(&response).expect("expansion responses always serialize")

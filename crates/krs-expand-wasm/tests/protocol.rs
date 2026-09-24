@@ -33,7 +33,7 @@ fn request(source: &str, mode: &Value) -> Value {
         "module_path": ["krs_tour_minimal"],
         "facade": { "alias": "k", "path": "::k" },
         "generated_file": "/work/expanded/tour-minimal/src/lib.rs",
-        "policy": { "version": 1, "editable_files": ["src/lib.rs"], "facade_alias": "k" },
+        "policy": { "editable_files": ["src/lib.rs"], "facade_alias": "k" },
     })
 }
 
@@ -190,28 +190,18 @@ fn policy_diagnostics_stop_before_expansion() {
         "krs::policy::non-krs-proc-macro"
     );
     assert_eq!(value["diagnostics"][0]["authored"], json!([9, 25]));
-    assert_eq!(value["evidence"]["policy_version"], 1);
 }
 
-/// Policy version 2 rejects, before expansion and at an authored range, the
-/// two inputs that version 1 lets through to a later failure: a derive before
-/// a KRS attribute (the expander's `krs::expand::attribute-order`) and an
-/// authored item named like the registration table (E0428 in the browser's
-/// generated table, although it compiles natively). tour-minimal expands identically under
-/// both versions.
+/// The policy rejects, before expansion and at an authored range, two
+/// inputs that would otherwise fail later: a derive before a KRS attribute
+/// (the expander's `krs::expand::attribute-order`) and an authored item named
+/// like the registration table (E0428 in the browser's generated table,
+/// although it compiles natively).
 #[test]
-fn policy_version_2_rejects_expander_mismatches_before_expansion() {
-    let with_version = |source: &str, version: u32| {
-        let mut request = request(source, &json!("whole-file"));
-        request["policy"]["version"] = json!(version);
-        run(&request).2
-    };
-    let (v1, v2) = (with_version(TOUR_MINIMAL, 1), with_version(TOUR_MINIMAL, 2));
-    assert_eq!(v2["ok"], true, "{v2}");
-    assert_eq!(v2["evidence"]["policy_version"], 2);
-    assert_eq!(v1["expanded"], v2["expanded"]);
-    assert_eq!(v1["source_map"], v2["source_map"]);
-    assert_eq!(v1["registrations"], v2["registrations"]);
+fn policy_rejects_expander_mismatches_before_expansion() {
+    let expand = |source: &str| run(&request(source, &json!("whole-file"))).2;
+    let tour = expand(TOUR_MINIMAL);
+    assert_eq!(tour["ok"], true, "{tour}");
 
     let derive_first = TOUR_MINIMAL.replacen(
         "#[k::configuration]",
@@ -219,30 +209,39 @@ fn policy_version_2_rejects_expander_mismatches_before_expansion() {
         1,
     );
     let derive_start = derive_first.find("#[derive(Clone)]").unwrap();
-    let v1 = with_version(&derive_first, 1);
-    assert_eq!(v1["ok"], false);
-    assert_eq!(v1["diagnostics"][0]["origin"], "expander");
-    assert_eq!(v1["diagnostics"][0]["code"], "krs::expand::attribute-order");
-    let v2 = with_version(&derive_first, 2);
-    assert_eq!(v2["ok"], false);
-    assert_eq!(v2["diagnostics"].as_array().unwrap().len(), 1, "{v2}");
-    assert_eq!(v2["diagnostics"][0]["origin"], "policy");
-    assert_eq!(v2["diagnostics"][0]["code"], "krs::policy::attribute-order");
+    let rejected = expand(&derive_first);
+    assert_eq!(rejected["ok"], false);
     assert_eq!(
-        v2["diagnostics"][0]["authored"],
+        rejected["diagnostics"].as_array().unwrap().len(),
+        1,
+        "{rejected}"
+    );
+    assert_eq!(rejected["diagnostics"][0]["origin"], "policy");
+    assert_eq!(
+        rejected["diagnostics"][0]["code"],
+        "krs::policy::attribute-order"
+    );
+    assert_eq!(
+        rejected["diagnostics"][0]["authored"],
         json!([derive_start, derive_start + "#[derive(Clone)]".len()])
     );
 
     let table_name = format!("{TOUR_MINIMAL}\npub static __KRS_REGISTRATIONS: u8 = 0;\n");
     let name_start = table_name.rfind("__KRS_REGISTRATIONS").unwrap();
-    assert_eq!(with_version(&table_name, 1)["ok"], true);
-    let v2 = with_version(&table_name, 2);
-    assert_eq!(v2["ok"], false);
-    assert_eq!(v2["diagnostics"].as_array().unwrap().len(), 1, "{v2}");
-    assert_eq!(v2["diagnostics"][0]["origin"], "policy");
-    assert_eq!(v2["diagnostics"][0]["code"], "krs::policy::reserved-name");
+    let rejected = expand(&table_name);
+    assert_eq!(rejected["ok"], false);
     assert_eq!(
-        v2["diagnostics"][0]["authored"],
+        rejected["diagnostics"].as_array().unwrap().len(),
+        1,
+        "{rejected}"
+    );
+    assert_eq!(rejected["diagnostics"][0]["origin"], "policy");
+    assert_eq!(
+        rejected["diagnostics"][0]["code"],
+        "krs::policy::reserved-name"
+    );
+    assert_eq!(
+        rejected["diagnostics"][0]["authored"],
         json!([name_start, name_start + "__KRS_REGISTRATIONS".len()])
     );
 }

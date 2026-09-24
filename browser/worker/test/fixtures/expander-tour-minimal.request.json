@@ -23,8 +23,7 @@
     "editable_files": [
       "src/lib.rs"
     ],
-    "facade_alias": "k",
-    "version": 1
+    "facade_alias": "k"
   },
   "schema": 1
 }

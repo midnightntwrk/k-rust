@@ -60,7 +60,7 @@ description = """One entry per role; each has `status` ("present", "absent", or 
 `assets` (asset ids). An unknown or absent value is encoded as a status plus an omitted value."""
 krs-target-dependencies = "target-rlib, sysroot-supplement, and proc-macro-metadata assets of the pack"
 krs-expander = "the krs-expand-wasm expander module (path C); `protocol` names its JSON protocol"
-lesson-policy = "the krs-lesson-policy module; `version` is the policy version every staged lesson.json selects"
+lesson-policy = "the krs-lesson-policy module"
 collector-template = "status in-worker-bundle: browser/worker/src/collector-template.ts is compiled into worker.js; `source_git_blob` identifies it"
 direct-rustc-arguments = "the [direct_rustc] tables of pack-manifest.toml and pack.json"
 runtime-wasm = "status absent until krs-lower-wasm and k-rust exist as Wasm modules; `reason` says why"

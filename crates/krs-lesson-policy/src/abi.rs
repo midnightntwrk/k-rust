@@ -27,7 +27,6 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_slice(&read(response, len).unwrap()).unwrap();
         assert_eq!(value["ok"], false);
-        assert_eq!(value["policy_version"], serde_json::Value::Null);
         assert_eq!(value["diagnostics"][0]["code"], "krs::policy::protocol");
         assert_eq!(
             value["diagnostics"][0]["message"],

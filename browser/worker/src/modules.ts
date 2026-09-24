@@ -33,7 +33,7 @@ async function callJson(module: WebAssembly.Module, prefix: string, fn: string, 
 
 export interface PolicyRequest {
   schema: 1;
-  policy: { version: number; editable_files: string[]; facade_alias: string };
+  policy: { editable_files: string[]; facade_alias: string };
   files: Record<string, string>;
 }
 
@@ -48,7 +48,6 @@ export interface PolicyDiagnosticJson {
 export interface PolicyResponse {
   schema: 1;
   ok: boolean;
-  policy_version: number | null;
   diagnostics: PolicyDiagnosticJson[];
 }
 
@@ -66,7 +65,7 @@ export interface ExpandRequest {
   module_path: string[];
   facade: { alias: string; path: string };
   generated_file: string;
-  policy: { version: number; editable_files: string[]; facade_alias: string };
+  policy: { editable_files: string[]; facade_alias: string };
 }
 
 export interface ExpandDiagnosticJson {

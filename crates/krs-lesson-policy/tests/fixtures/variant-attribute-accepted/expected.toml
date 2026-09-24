@@ -1,2 +1,1 @@
-versions = [2]
-# Accepted: no diagnostic under the listed versions.
+# Accepted: the policy reports no diagnostic.

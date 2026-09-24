@@ -5,7 +5,7 @@
 //! ```json
 //! {
 //!   "schema": 1,
-//!   "policy": { "version": 1, "editable_files": ["src/lib.rs"], "facade_alias": "k" },
+//!   "policy": { "editable_files": ["src/lib.rs"], "facade_alias": "k" },
 //!   "files": { "src/lib.rs": "<complete UTF-8 source>" }
 //! }
 //! ```
@@ -17,7 +17,6 @@
 //! {
 //!   "schema": 1,
 //!   "ok": false,
-//!   "policy_version": 1,
 //!   "diagnostics": [
 //!     { "code": "krs::policy::non-krs-proc-macro", "message": "…", "file": "src/lib.rs",
 //!       "authored": [9, 25], "class": "exact-authored" }
@@ -28,7 +27,7 @@
 //! `ok` is true exactly when `diagnostics` is empty. `authored` is a UTF-8
 //! byte range `[start, end)` or `null` for a request-level rejection. A
 //! request that is not valid JSON of this shape yields `ok = false` with one
-//! `krs::policy::protocol` diagnostic and `policy_version = null`.
+//! `krs::policy::protocol` diagnostic.
 
 use std::collections::BTreeMap;
 
@@ -61,8 +60,6 @@ pub struct Response {
     pub schema: u32,
     /// True exactly when `diagnostics` is empty.
     pub ok: bool,
-    /// The version that was applied, or `None` for a protocol error.
-    pub policy_version: Option<u32>,
     /// Every rejection, file by file in path order, each sorted by offset.
     pub diagnostics: Vec<PolicyDiagnostic>,
 }
@@ -80,7 +77,6 @@ pub fn run_json(request: &[u8]) -> Vec<u8> {
             Response {
                 schema: SCHEMA,
                 ok: diagnostics.is_empty(),
-                policy_version: Some(request.policy.version),
                 diagnostics,
             }
         }
@@ -97,7 +93,6 @@ pub(crate) fn protocol_error(message: String) -> Response {
     Response {
         schema: SCHEMA,
         ok: false,
-        policy_version: None,
         diagnostics: vec![PolicyDiagnostic::request_level(PROTOCOL_ERROR, message, "")],
     }
 }

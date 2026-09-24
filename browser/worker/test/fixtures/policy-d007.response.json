@@ -1,1 +1,1 @@
-{"schema":1,"ok":false,"policy_version":1,"diagnostics":[{"code":"krs::policy::non-krs-proc-macro","message":"derive `serde::Serialize` is not a built-in derive; lessons cannot run external procedural macros","file":"src/lib.rs","authored":[9,25],"class":"exact-authored"}]}
+{"schema":1,"ok":false,"diagnostics":[{"code":"krs::policy::non-krs-proc-macro","message":"derive `serde::Serialize` is not a built-in derive; lessons cannot run external procedural macros","file":"src/lib.rs","authored":[9,25],"class":"exact-authored"}]}

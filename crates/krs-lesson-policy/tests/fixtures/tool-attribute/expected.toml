@@ -1,4 +1,4 @@
-# Rejected in every version: only the bare `rustfmt::skip` path is a version 2 tool attribute.
+# Rejected: only the bare `rustfmt::skip` path is an accepted tool attribute.
 
 [[diagnostic]]
 code = "krs::policy::non-krs-proc-macro"
