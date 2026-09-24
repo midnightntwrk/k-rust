@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "representation": "portable-mutation-semantic-slice-v1",
-  "portableScope": "explicitly-declared-supported-surface-only",
-  "wholeKAdapterStatus": "not-proven",
-  "nativeAdapterStatus": "future-proof-required",
-  "parsedKRoundTripStatus": "future-proof-required",
-  "unsupportedForms": "reject"
-}
