@@ -460,3 +460,111 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
         assert_eq!(admitted.score.denominator, 0);
     });
 }
+
+/// Review P1 through the runner, over `undecided.k`: an occurrence on a path whose
+/// feasibility is undecided, or in a run that collected a backend diagnostic, is no witness,
+/// so the pattern side is `Unknown`. A mutant that makes `carry` (a carried `ensures`) or
+/// `slow` (a simplifier-budget diagnostic) apply is therefore not killed against the
+/// baseline's complete absence, and a baseline whose only occurrence is undecided (a carried
+/// `ensures`, a vacuous successor) is not admitted.
+#[test]
+fn undecided_occurrences_neither_kill_nor_pass_admission() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        // The vocabulary, test and observed rule of a pattern oracle over `label`'s event.
+        let declared = |label: &str, initial_state| {
+            let constructor = format!("rule:{label}");
+            let vocabulary = vocabulary(&[constructor.as_str()]);
+            let tests = [TestCase {
+                id: "t".to_owned(),
+                initial_state,
+                oracles: vec![occurs(&vocabulary, &constructor)],
+            }];
+            (vocabulary, tests, [rule_applied(label)])
+        };
+
+        // (id, mutated rule, initial program, simplifier iterations)
+        #[rustfmt::skip]
+        let mutants = [
+            ("carried-ensures-does-not-kill", "UNDECIDED.carry", "Lblcarry", 1000),
+            ("diagnosed-run-does-not-kill", "UNDECIDED.slow", "Lbldraining", 2),
+        ];
+        for (id, label, symbol, iterations) in mutants {
+            let (vocabulary, tests, observed) =
+                declared(label, support::initial_state(constant(symbol), "SortS"));
+            let run = run_campaign(
+                &Campaign {
+                    validator: &validator,
+                    module: "UNDECIDED",
+                    observed_rules: &observed,
+                    vocabulary: &vocabulary,
+                    classify: &normal,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        max_simplification_iterations: iterations,
+                        ..BUDGET
+                    },
+                },
+                &[replace(baseline, label, &[1], bool_token("true"))],
+                ScheduleMode::Full,
+            )
+            .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+            assert_eq!(
+                sides(&run.baseline[0]),
+                [OracleSide::Normal(OracleValue::Pattern(
+                    PatternValue::NoMatch
+                ))],
+                "{id}"
+            );
+            let [mutant] = run.mutants.as_slice() else {
+                panic!("{id}: one mutant");
+            };
+            let SideRun::Sides { sides, .. } = &mutant.evidence[0].run else {
+                panic!("{id}: the mutant ran");
+            };
+            assert_eq!(sides, &[OracleSide::Unknown], "{id}");
+            assert_eq!(mutant.report.status, MutantStatus::Unknown, "{id}");
+            assert!(mutant.report.killing_test_ids.is_empty(), "{id}");
+            assert_eq!(run.score.killed, 0, "{id}");
+        }
+
+        // (id, observed rule, initial state)
+        #[rustfmt::skip]
+        let baselines = [
+            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS")),
+            ("vacuous-baseline-is-refused", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS")),
+        ];
+        for (id, label, state) in baselines {
+            let (vocabulary, tests, observed) = declared(label, state);
+            let refused = run_campaign(
+                &Campaign {
+                    validator: &validator,
+                    module: "UNDECIDED",
+                    observed_rules: &observed,
+                    vocabulary: &vocabulary,
+                    classify: &normal,
+                    tests: &tests,
+                    budget: BUDGET,
+                },
+                &[],
+                ScheduleMode::Full,
+            )
+            .expect_err(id);
+            assert_eq!(
+                refused.kind(),
+                CampaignFailureKind::BaselineOracleFailed,
+                "{id}"
+            );
+        }
+    });
+}
+
+fn rule_applied(label: &str) -> ObservedRule {
+    ObservedRule {
+        label: label.to_owned(),
+        emit_rule_applied: true,
+        domain_events: Vec::new(),
+    }
+}

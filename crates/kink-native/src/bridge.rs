@@ -7,6 +7,13 @@
 //! incomplete items become limit or indeterminate stops and its collection stop is never
 //! `SearchExhausted`. Neither function can therefore yield evidence for `NoMatch` unless the
 //! execution is a single complete path.
+//!
+//! A path's events are evidence for `Match` only when its prefix is real
+//! (`PathStop::has_real_prefix`). Without a solver, a symbolic or constrained state may be
+//! infeasible: a stuck or limit-cut leaf whose state is not one ground term without a path
+//! condition is `SolverUnknown`, as are vacuous and trivial leaves. A run that collected a
+//! backend diagnostic may have kept an infeasible branch or dropped a condition, so every one
+//! of its paths is `BackendLimit`.
 
 use k_rust::backend::{EffectOutput, SearchTypeArg};
 use k_rust::kore::{
@@ -65,7 +72,8 @@ pub(crate) enum LeafPath {
 /// The stop of a leaf with halt class `halt`, before its state is read, or the contract
 /// violation it is. `None` is a stuck leaf: it is complete exactly when its state is a ground
 /// terminal term, and `SolverUnknown` otherwise, because the no-Z3 profile does not refute
-/// path conditions and a symbolic or constrained stuck leaf may be infeasible. Exhaustive over
+/// path conditions and a symbolic or constrained stuck leaf may be infeasible. A limit stop
+/// likewise holds only for a decided state (see `decided_stop`). Exhaustive over
 /// `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
     Ok(Some(match halt {
@@ -85,15 +93,26 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
     }))
 }
 
-/// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `terminal` is the
-/// leaf's terminal term when it has one (see `SplitState::terminal_term`).
+/// `stop`, or `SolverUnknown` when `stop` vouches for a real prefix but the state is not
+/// decided: a symbolic or constrained state may be infeasible without a solver.
+pub(crate) const fn decided_stop(stop: PathStop, decided: bool) -> PathStop {
+    if stop.has_real_prefix() && !decided {
+        PathStop::SolverUnknown
+    } else {
+        stop
+    }
+}
+
+/// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `decided` is the
+/// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck leaf that is
+/// its terminal term.
 pub(crate) fn leaf_path(
     halt: HaltClass,
-    terminal: Option<Pattern>,
+    decided: Option<Pattern>,
     classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Result<LeafPath, BridgeFailure> {
-    Ok(match (halt_stop(halt)?, terminal) {
-        (Some(stop), _) => LeafPath::Incomplete(stop),
+    Ok(match (halt_stop(halt)?, decided) {
+        (Some(stop), decided) => LeafPath::Incomplete(decided_stop(stop, decided.is_some())),
         (None, Some(term)) => LeafPath::Complete(ExecutionTerminal {
             kind: classify(&term),
             state: term,
@@ -139,9 +158,9 @@ fn split_state(
 }
 
 impl SplitState {
-    /// The terminal term: exactly one term conjunct, no predicate other than `\top`, and no
-    /// free variable. Anything else is not complete terminal evidence.
-    fn terminal_term(&self) -> Option<Pattern> {
+    /// The decided state: exactly one term conjunct, no predicate, and no free variable.
+    /// Anything else is neither complete terminal evidence nor a real prefix.
+    fn decided_term(&self) -> Option<Pattern> {
         match (self.terms.as_slice(), self.predicates.is_empty()) {
             ([term], true) if term.free_variables().is_empty() => Some(term.clone()),
             _ => None,
@@ -277,15 +296,18 @@ const fn collection_stop(stop: PathStop) -> CollectionStop {
 /// same stop is one path; two different branches with one key are a failure.
 struct PathSet<'a> {
     context: &'a BridgeContext<'a>,
+    /// The run collected a backend diagnostic: every leaf is `BackendLimit`.
+    diagnosed: bool,
     entries: Vec<(String, AdaptedBranch, PathInput)>,
     /// Incomplete stops of every item, including items that add no path.
     incomplete: Vec<PathStop>,
 }
 
 impl<'a> PathSet<'a> {
-    const fn new(context: &'a BridgeContext<'a>) -> Self {
+    const fn new(context: &'a BridgeContext<'a>, diagnosed: bool) -> Self {
         Self {
             context,
+            diagnosed,
             entries: Vec::new(),
             incomplete: Vec::new(),
         }
@@ -293,7 +315,10 @@ impl<'a> PathSet<'a> {
 
     fn push(&mut self, branch: &AdaptedBranch, halt: HaltClass) -> Result<(), BridgeFailure> {
         let split = split_state(&branch.state, self.context.sorts)?;
-        let mapped = leaf_path(halt, split.terminal_term(), self.context.classify)?;
+        let mapped = match leaf_path(halt, split.decided_term(), self.context.classify)? {
+            _ if self.diagnosed => LeafPath::Incomplete(PathStop::BackendLimit),
+            mapped => mapped,
+        };
         let (complete, stop, execution_terminal) = match mapped {
             LeafPath::Complete(terminal) => {
                 let stop = match terminal.kind {
@@ -325,6 +350,7 @@ impl<'a> PathSet<'a> {
         stop: PathStop,
     ) -> Result<(), BridgeFailure> {
         let split = split_state(&branch.state, self.context.sorts)?;
+        let stop = decided_stop(stop, split.decided_term().is_some());
         self.incomplete.push(stop);
         self.insert(branch, false, stop, None, split.path_predicate())
     }
@@ -398,12 +424,9 @@ pub fn paths_from_execution(
     if execution.leaves.is_empty() {
         return Err(BridgeFailure::NoLeaves);
     }
-    let mut paths = PathSet::new(context);
+    let mut paths = PathSet::new(context, !execution.diagnostics.is_empty());
     for leaf in &execution.leaves {
         paths.push(&leaf.branch, leaf.halt)?;
-    }
-    if !execution.diagnostics.is_empty() {
-        paths.incomplete.push(PathStop::BackendLimit);
     }
     Ok(paths.finish(match execution.route {
         ExecutionRoute::SinglePath => CollectionStop::SearchExhausted,
@@ -435,7 +458,8 @@ pub fn paths_from_search(
     if search_type != SearchTypeArg::Final {
         return Err(BridgeFailure::UnsupportedQueryShape(search_type));
     }
-    let mut paths = PathSet::new(context);
+    // The search adapter does not collect backend diagnostics yet.
+    let mut paths = PathSet::new(context, false);
     for witness in search
         .outcome()
         .witnesses()
@@ -498,6 +522,8 @@ mod tests {
     const SYMBOLIC: &str = r"X:SortS{}";
     const CONSTRAINED: &str =
         r#"\and{SortS{}}(Lbla{}(), \equals{SortInt{}, SortS{}}(Y:SortInt{}, \dv{SortInt{}}("1")))"#;
+    /// The state k-rust reports for a leaf whose path condition became false.
+    const BOTTOM: &str = r"\and{SortS{}}(Lbla{}(), \bottom{SortS{}}())";
 
     fn kore(source: &str) -> Value {
         kore_json::to_value(&parse_pattern(source).expect("test KORE")).expect("KORE JSON")
@@ -522,16 +548,27 @@ mod tests {
         }
     }
 
+    /// A branch of one transition that emitted one `fired` event.
     fn branch(marker: usize, state: &str) -> AdaptedBranch {
+        let transition = TransitionIdOutput {
+            rule: format!("rule-{marker}"),
+            target: format!("target-{marker}"),
+        };
         AdaptedBranch {
-            identity: vec![TransitionIdOutput {
-                rule: format!("rule-{marker}"),
-                target: format!("target-{marker}"),
-            }],
+            identity: vec![transition.clone()],
             state: kore(state),
             depth: 1,
             trace: Vec::new(),
-            events: Vec::new(),
+            events: vec![NativeEvent::Domain(DomainEvent {
+                event_ordinal: 0,
+                transition_ordinal: 0,
+                emission_ordinal: 0,
+                constructor: "fired".to_owned(),
+                transition,
+                rule_label: "M.fired".to_owned(),
+                payload: Vec::new(),
+                provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
+            })],
             rollbacks: Vec::new(),
         }
     }
@@ -539,18 +576,33 @@ mod tests {
     /// Evaluates a plan whose only event never occurs: the outcome is `NoMatch` exactly
     /// when the bridged evidence is complete.
     fn absence(bridged: &BridgedPaths) -> PatternOutcome {
-        let vocabulary = EventVocabulary::new(vec![Constructor {
-            name: "never".to_owned(),
-            payload_sorts: Vec::new(),
-            origin_mode: OriginMode::EmittingSentence,
-        }])
+        occurrence(bridged, "never")
+    }
+
+    /// Evaluates a plan whose only event is the `fired` event of every [`branch`]: the
+    /// outcome is `Match` exactly when a path carrying it has a real prefix.
+    fn presence(bridged: &BridgedPaths) -> PatternOutcome {
+        occurrence(bridged, "fired")
+    }
+
+    fn occurrence(bridged: &BridgedPaths, constructor: &str) -> PatternOutcome {
+        let vocabulary = EventVocabulary::new(
+            ["never", "fired"]
+                .into_iter()
+                .map(|name| Constructor {
+                    name: name.to_owned(),
+                    payload_sorts: Vec::new(),
+                    origin_mode: OriginMode::EmittingSentence,
+                })
+                .collect(),
+        )
         .expect("vocabulary");
         let plan = PatternPlan::new(
             &vocabulary,
             Vec::new(),
             vec![PatternArm {
                 atoms: vec![Atom {
-                    constructor: "never".to_owned(),
+                    constructor: constructor.to_owned(),
                     payload: Vec::new(),
                 }],
                 relations: Vec::new(),
@@ -567,7 +619,7 @@ mod tests {
                 results: None,
             },
             vocabulary,
-            selected_rule_labels: Default::default(),
+            selected_rule_labels: ["M.fired".to_owned()].into_iter().collect(),
             symbol_sorts: sorts(),
         };
         evaluate(
@@ -594,14 +646,16 @@ mod tests {
         }
     }
 
-    /// The leaf mapping, one row per halt class; a stuck leaf also per terminal shape.
-    /// `None` is a contract violation.
+    /// The leaf mapping, one row per halt class; a stuck leaf also per terminal shape, and a
+    /// limit also over an undecided state. `None` is a contract violation. Every leaf carries
+    /// one event, which is a witness only on a real prefix (review P1): never on a vacuous,
+    /// trivial, symbolic or constrained leaf.
     #[test]
     fn execution_leaf_rows_map_to_paths() {
         use ExecutionTerminalKind::{Normal, SemanticCrash};
         // (halt, leaf state, expected complete terminal kind or incomplete stop)
         type Expected = Option<Result<ExecutionTerminalKind, PathStop>>;
-        let rows: [(HaltClass, &str, Expected); 16] = [
+        let rows: [(HaltClass, &str, Expected); 20] = [
             (H::Stuck, GROUND, Some(Ok(Normal))),
             (H::Stuck, CRASH, Some(Ok(SemanticCrash))),
             (H::Stuck, SYMBOLIC, Some(Err(P::SolverUnknown))),
@@ -612,12 +666,16 @@ mod tests {
             (H::CutPoint, GROUND, None),
             (H::TerminalRule, GROUND, None),
             (H::DepthBound, GROUND, Some(Err(P::DepthLimit))),
+            (H::DepthBound, CONSTRAINED, Some(Err(P::SolverUnknown))),
             (H::BreadthBound, GROUND, Some(Err(P::BranchLimit))),
+            (H::BreadthBound, SYMBOLIC, Some(Err(P::SolverUnknown))),
             (H::Indeterminate, GROUND, Some(Err(P::BackendLimit))),
             (H::UnsupportedHook, GROUND, Some(Err(P::BackendLimit))),
             (H::SimplificationError, GROUND, Some(Err(P::BackendLimit))),
             (H::Timeout, GROUND, Some(Err(P::TimeLimit))),
+            (H::Timeout, CONSTRAINED, Some(Err(P::SolverUnknown))),
             (H::Cancelled, GROUND, Some(Err(P::Error))),
+            (H::Vacuous, BOTTOM, Some(Err(P::SolverUnknown))),
         ];
         let covered = rows
             .iter()
@@ -660,22 +718,36 @@ mod tests {
                         "{id}"
                     );
                     assert_eq!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
+                    assert_eq!(presence(&bridged), PatternOutcome::Match, "{id}");
                 }
                 Err(stop) => {
                     assert!(!path.complete, "{id}");
                     assert_eq!(path.stop, stop, "{id}");
                     assert_eq!(bridged.collection.stop, collection_stop(stop), "{id}");
                     assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
+                    let real = matches!(stop, P::DepthLimit | P::BranchLimit | P::TimeLimit);
+                    assert_eq!(
+                        presence(&bridged),
+                        if real {
+                            PatternOutcome::Match
+                        } else {
+                            PatternOutcome::Unknown
+                        },
+                        "{id}"
+                    );
                 }
             }
         }
         // The path predicate keeps the constrained leaf's condition.
         let split = split_state(&kore(CONSTRAINED), &sorts).expect("split");
-        assert_eq!(split.terminal_term(), None);
+        assert_eq!(split.decided_term(), None);
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
     }
 
-    /// Complete evidence needs the single-path route, no diagnostic and no timeout.
+    /// Complete evidence needs the single-path route, no diagnostic and no timeout, and a
+    /// witness needs a real prefix: a diagnostic makes every path of its run `BackendLimit`,
+    /// so its events are no witness even on a stuck ground leaf (review P1), and the
+    /// collection says so even beside a less severe limit.
     #[test]
     fn execution_collection_rows_never_overclaim() {
         let sorts = sorts();
@@ -694,7 +766,7 @@ mod tests {
             limit: 1,
             subject: k_rust_backend::simplify::BudgetSubject::Term,
         };
-        // (id, execution, expected collection stop, paths)
+        // (id, execution, expected collection stop, paths, occurrence of every leaf's event)
         let rows = [
             (
                 "single-path-is-complete",
@@ -706,6 +778,7 @@ mod tests {
                 ),
                 CollectionStop::SearchExhausted,
                 1,
+                PatternOutcome::Match,
             ),
             (
                 "explore-all-records-no-exhaustion",
@@ -717,6 +790,7 @@ mod tests {
                 ),
                 CollectionStop::ExhaustionUnrecorded,
                 2,
+                PatternOutcome::Match,
             ),
             (
                 "explore-all-reports-its-least-severe-limit",
@@ -732,17 +806,31 @@ mod tests {
                 ),
                 CollectionStop::DepthLimit,
                 3,
+                PatternOutcome::Match,
             ),
             (
                 "a-diagnostic-makes-the-single-path-incomplete",
                 execution(
                     ExecutionRoute::SinglePath,
                     vec![leaf(0, H::Stuck)],
-                    vec![budget],
+                    vec![budget.clone()],
                     false,
                 ),
                 CollectionStop::BackendLimit,
                 1,
+                PatternOutcome::Unknown,
+            ),
+            (
+                "a-diagnostic-makes-every-explored-path-a-backend-limit",
+                execution(
+                    ExecutionRoute::ExploreAll,
+                    vec![leaf(0, H::Stuck), leaf(1, H::DepthBound)],
+                    vec![budget],
+                    false,
+                ),
+                CollectionStop::BackendLimit,
+                2,
+                PatternOutcome::Unknown,
             ),
             (
                 "a-timed-out-run-is-not-decoded",
@@ -754,13 +842,21 @@ mod tests {
                 ),
                 CollectionStop::TimeLimit,
                 0,
+                PatternOutcome::Unknown,
             ),
         ];
-        for (id, execution, stop, paths) in rows {
+        for (id, execution, stop, paths, occurrence) in rows {
             let bridged = paths_from_execution(&execution, &bridge_context(&sorts))
                 .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
             assert_eq!(bridged.collection.stop, stop, "{id}");
             assert_eq!(bridged.paths.len(), paths, "{id}");
+            assert_eq!(presence(&bridged), occurrence, "{id}");
+            if !execution.diagnostics.is_empty() {
+                for path in &bridged.paths {
+                    assert!(!path.complete && path.execution_terminal.is_none(), "{id}");
+                    assert_eq!(path.stop, P::BackendLimit, "{id}");
+                }
+            }
             assert_eq!(
                 absence(&bridged) == PatternOutcome::NoMatch,
                 stop == CollectionStop::SearchExhausted,
@@ -775,7 +871,7 @@ mod tests {
             Err(BridgeFailure::NoLeaves)
         );
         let mut effect = leaf(0, H::Stuck);
-        effect.branch.events.push(NativeEvent::Domain(DomainEvent {
+        effect.branch.events = vec![NativeEvent::Domain(DomainEvent {
             event_ordinal: 0,
             transition_ordinal: 0,
             emission_ordinal: 0,
@@ -786,7 +882,7 @@ mod tests {
                 message: "hello".to_owned(),
             })],
             provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
-        }));
+        })];
         assert_eq!(
             paths_from_execution(
                 &execution(ExecutionRoute::SinglePath, vec![effect], Vec::new(), false),
@@ -965,6 +1061,30 @@ mod tests {
                 vec![I::Smt {
                     state: search_state(1),
                     error: SmtFailureOutput::Unavailable,
+                }],
+                CollectionStop::SolverUnknown,
+                1,
+            ),
+            (
+                "constrained-frontier-is-undecided",
+                QueryShape::new(SearchTypeArg::Final, Some(1)),
+                vec![PathWitnessOutput {
+                    state: kore(CONSTRAINED),
+                    ..witness(0, 1)
+                }],
+                Vec::new(),
+                CollectionStop::SolverUnknown,
+                1,
+            ),
+            (
+                "constrained-depth-bound-is-undecided",
+                unbounded,
+                Vec::new(),
+                vec![I::DepthBound {
+                    state: SearchStateOutput {
+                        state: kore(CONSTRAINED),
+                        ..search_state(1)
+                    },
                 }],
                 CollectionStop::SolverUnknown,
                 1,

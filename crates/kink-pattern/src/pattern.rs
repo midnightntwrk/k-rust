@@ -520,6 +520,26 @@ impl PathStop {
     pub const fn is_complete(self) -> bool {
         matches!(self, Self::Terminal | Self::Stuck)
     }
+
+    /// Whether the events of a path with this stop happened: the path is complete, the
+    /// query stopped on it, or a known limit cut a prefix whose feasibility the producer
+    /// decided. On a `SolverUnknown`, `BackendLimit` or `Error` path that feasibility is
+    /// open, so `evaluate` counts a candidate there as indeterminate, never as a witness.
+    /// Exhaustive over `PathStop`.
+    #[must_use]
+    pub const fn has_real_prefix(self) -> bool {
+        match self {
+            Self::Terminal
+            | Self::Stuck
+            | Self::MatchFound
+            | Self::DepthLimit
+            | Self::TimeLimit
+            | Self::BranchLimit
+            | Self::ResultLimit
+            | Self::ResourceLimit => true,
+            Self::SolverUnknown | Self::BackendLimit | Self::Error => false,
+        }
+    }
 }
 
 /// Actual execution termination, kept distinct from the query-level match stop.
@@ -692,6 +712,10 @@ struct PendingWitness<'a> {
 }
 
 /// Evaluates a validated plan over supplied finite path-local traces.
+///
+/// A witness lies only on a path whose stop has a real prefix (`PathStop::has_real_prefix`);
+/// an occurrence on any other path is an indeterminate candidate, so it can leave the
+/// outcome `Unknown` but never make it `Match`.
 pub fn evaluate(
     context: &EvaluationContext,
     plan: &PatternPlan,
@@ -1097,6 +1121,11 @@ fn extend_occurrence(
                 }
                 SideConditionResult::True => {}
             }
+        }
+        if !context.path.stop.has_real_prefix() {
+            // The occurrence may lie on an infeasible path.
+            *context.indeterminate = true;
+            return;
         }
         context.pending.push(PendingWitness {
             path_order: context.path_order.clone(),

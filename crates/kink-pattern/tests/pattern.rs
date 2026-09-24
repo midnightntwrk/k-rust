@@ -455,6 +455,104 @@ fn every_execution_pattern_row_matches_its_denotation() {
     }
 }
 
+/// Review P1: an occurrence is a witness only on a path whose prefix is real. A complete
+/// path, the match-found path and a path cut by a known limit carry evidence; on a
+/// `SolverUnknown`, `BackendLimit` or `Error` path the occurrence may be infeasible, so it
+/// is an indeterminate candidate that leaves the outcome `Unknown`, caused by that stop.
+#[test]
+fn witnesses_count_only_on_paths_with_a_real_prefix() {
+    use PathStop::{
+        BackendLimit, BranchLimit, MatchFound, ResourceLimit, ResultLimit, Stuck, Terminal,
+        TimeLimit,
+    };
+    let table = side_table();
+    // (stop of the only path, which carries `wa la`, and the expected outcome)
+    #[rustfmt::skip]
+    let rows: [(PathStop, PatternOutcome); 11] = [
+        (Terminal, Match),
+        (Stuck, Match),
+        (MatchFound, Match),
+        (DepthLimit, Match),
+        (TimeLimit, Match),
+        (BranchLimit, Match),
+        (ResultLimit, Match),
+        (ResourceLimit, Match),
+        (SolverUnknown, Unknown),
+        (BackendLimit, Unknown),
+        (PathStop::Error, Unknown),
+    ];
+    for (stop, outcome) in rows {
+        let id = format!("witness-on-{stop:?}");
+        let search = if stop == MatchFound {
+            SearchPolicy::ExistentialFirst
+        } else {
+            SearchPolicy::Exhaustive
+        };
+        let spec = if stop.is_complete() {
+            PathSpec {
+                stop,
+                ..done("p0", &["wa", "la"])
+            }
+        } else {
+            stopped("p0", stop, &["wa", "la"])
+        };
+        let paths = vec![path(&spec, &id, 0)];
+        let result = evaluate(
+            &context(&id),
+            &plan("write-eventually-load"),
+            &paths,
+            &collection(&paths, search),
+            Some(&table),
+            EvaluationOptions {
+                search_policy: search,
+                ..exhaustive_options()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(result.outcome, outcome, "{id}");
+        assert_eq!(stop.has_real_prefix(), outcome == Match, "{id}");
+        if outcome == Match {
+            assert_eq!(result.witnesses.len(), 1, "{id}");
+            assert_eq!(result.witnesses[0].stop_reason, stop, "{id}");
+        } else {
+            assert!(result.witnesses.is_empty(), "{id}");
+            assert_eq!(result.failure, Some(stop), "{id}");
+        }
+    }
+
+    // Beside a complete absence the undecided occurrence is still no absence, and beside a
+    // cut prefix that matches only the cut prefix is a witness.
+    // (id, paths, outcome, witness path keys)
+    #[rustfmt::skip]
+    let rows: [(&str, &[PathSpec], PatternOutcome, &[&str]); 2] = [
+        ("undecided-occurrence-beside-complete-absence", &[stopped("undecided", SolverUnknown, &["wa", "la"]), done("absent", &["wa"])], Unknown, &[]),
+        ("cut-prefix-witness-beside-undecided-occurrence", &[stopped("undecided", BackendLimit, &["wa", "la"]), stopped("cut", DepthLimit, &["wa", "la"])], Match, &["cut"]),
+    ];
+    for (id, specs, outcome, keys) in rows {
+        let paths = paths(specs, id);
+        let result = evaluate(
+            &context(id),
+            &plan("write-eventually-load"),
+            &paths,
+            &collection(&paths, SearchPolicy::Exhaustive),
+            Some(&table),
+            exhaustive_options(),
+        )
+        .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(result.outcome, outcome, "{id}");
+        assert!(!result.complete_coverage, "{id}");
+        assert_eq!(
+            result
+                .witnesses
+                .iter()
+                .map(|witness| witness.path_key.as_deref().expect("keyed witness"))
+                .collect::<Vec<_>>(),
+            keys,
+            "{id}"
+        );
+    }
+}
+
 /// The plan adversaries that remain expressible once plans are typed values: an extension
 /// field, an unsupported mode or relation, and a stale plan or query identity are no
 /// longer representable.

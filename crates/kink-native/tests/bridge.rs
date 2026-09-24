@@ -21,8 +21,8 @@ use kink_native::{ManifestFailure, NativeValidator, ObservedRule, ValidatedDefin
 use kink_patch::{Edit, Patch, TermRef};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary,
-    ExecutionBounds, ExecutionTerminalKind, MatchMode, OriginMode, PatternArm, PatternOutcome,
-    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
+    ExecutionBounds, ExecutionTerminalKind, MatchMode, OriginMode, PathStop, PatternArm,
+    PatternOutcome, PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -471,4 +471,85 @@ fn deleted_observed_rule_is_omitted_from_the_mutant_manifest() {
         validator.observation_manifest(&baseline, &[rule_applied("COUNTER.nothing")]),
         Err(ManifestFailure::UnknownLabel("COUNTER.nothing".to_owned()))
     );
+}
+
+/// The side of `undecided.k` on which the rule `label` applies: its `requires false` is
+/// replaced with `true`.
+fn enabled(validator: &NativeValidator, label: &str) -> ValidatedDefinition {
+    let at = TermRef::new(support::rule(validator.baseline(), label), [1]);
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        expected: validator.baseline().term(&at).expect("requires").clone(),
+        at,
+        replacement: Term::Token {
+            token: "true".to_owned(),
+            sort: KastSort::new("Bool"),
+        },
+    }])
+    .expect("one edit");
+    validator
+        .validate(&patch)
+        .expect("the enabled side compiles")
+}
+
+/// Review P1 over live k-rust: each run applies its observed rule, so its one path carries
+/// that rule's event, but the path may be infeasible (a carried `ensures`, a vacuous
+/// successor) or the run collected a backend diagnostic. The event is no witness: the
+/// pattern is `Unknown`, never `Match`.
+#[test]
+fn undecided_live_occurrences_are_no_witness() {
+    let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
+    let baseline = validator.compile_baseline().expect("undecided.k compiles");
+    let slow = enabled(&validator, "UNDECIDED.slow");
+    let program = |symbol| kore_application(symbol, Vec::new(), Vec::new());
+    let tight = ExecutionBudget {
+        max_simplification_iterations: 2,
+        ..BUDGET
+    };
+    // (id, side, observed rule, initial state, budget, route, leaf halt, path stop)
+    #[rustfmt::skip]
+    let rows = [
+        ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, ExecutionRoute::SinglePath, HaltClass::Stuck, PathStop::SolverUnknown),
+        ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Vacuous, PathStop::SolverUnknown),
+        ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::BackendLimit),
+    ];
+    for (id, side, label, state, budget, route, halt, stop) in rows {
+        let constructor = format!("rule:{label}");
+        let vocabulary = vocabulary(&[(constructor.as_str(), &[])]);
+        let run = run(
+            &validator,
+            side,
+            "UNDECIDED",
+            &[rule_applied(label)],
+            &vocabulary,
+            &state,
+            budget,
+        );
+        assert_eq!(run.execution.route(), route, "{id}");
+        assert_eq!(
+            !run.execution.diagnostics().is_empty(),
+            stop == PathStop::BackendLimit,
+            "{id}"
+        );
+        let [leaf] = run.execution.leaves() else {
+            panic!("{id}: one leaf");
+        };
+        assert_eq!(leaf.halt, halt, "{id}");
+        let [path] = run.bridged.paths.as_slice() else {
+            panic!("{id}: one path");
+        };
+        assert_eq!(
+            path.events
+                .iter()
+                .map(|event| event.constructor.as_str())
+                .collect::<Vec<_>>(),
+            [constructor.as_str()],
+            "{id}: the rule applied"
+        );
+        assert!(!path.complete, "{id}");
+        assert_eq!(path.stop, stop, "{id}");
+        let result = outcome(&run, &single_atom(&vocabulary, &constructor, None));
+        assert_eq!(result.outcome, PatternOutcome::Unknown, "{id}");
+        assert!(result.witnesses.is_empty(), "{id}");
+        assert_eq!(result.failure, Some(stop), "{id}");
+    }
 }

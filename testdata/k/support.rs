@@ -131,6 +131,21 @@ pub fn initial_state(program: Pattern, sort: &str) -> Pattern {
     )
 }
 
+/// `initial_state(program, sort)` of `undecided.k` under the path condition
+/// `X = z /\ isZero(X) = false`, which is contradictory only once its substitution is
+/// applied: k-rust defers that vacuity past the first rewrite and then halts the successor
+/// as `vacuous`, keeping the rewrite's events.
+pub fn deferred_vacuous_state(program: Pattern, sort: &str) -> Pattern {
+    let condition = k_rust::kore::parser::parse_pattern(
+        r#"\and{SortGeneratedTopCell{}}(\equals{SortNat{}, SortGeneratedTopCell{}}(VarX:SortNat{}, Lblz{}()), \equals{SortBool{}, SortGeneratedTopCell{}}(\dv{SortBool{}}("false"), LblisZero{}(VarX:SortNat{})))"#,
+    )
+    .expect("the deferred condition parses");
+    Pattern::And {
+        sort: kore_sort("SortGeneratedTopCell"),
+        arguments: vec![initial_state(program, sort), condition],
+    }
+}
+
 /// One written rule, claim or context, without its position attributes.
 #[derive(Debug, PartialEq)]
 pub struct AuthoredRule {

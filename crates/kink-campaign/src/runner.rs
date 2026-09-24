@@ -15,7 +15,10 @@
 //!   crash among several terminals is `Unknown`.
 //! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`
 //!   evaluations and pattern failures are never values, and declared bindings need
-//!   complete exhaustive coverage.
+//!   complete exhaustive coverage. A `Match` needs witnesses on real prefixes only
+//!   (`PathStop::has_real_prefix`): the bridge makes a vacuous, trivial, symbolic or
+//!   constrained leaf `SolverUnknown` and every path of a run with a backend diagnostic
+//!   `BackendLimit`, and an occurrence there is no witness.
 //!
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing.
@@ -625,9 +628,10 @@ fn exit_code(term: &Pattern, cell: &str) -> Option<i64> {
 
 /// The side of a pattern oracle. Exhaustive over `PatternOutcome`.
 ///
-/// A pattern failure is `Error`, never a value that could distinguish. Declared bindings
-/// need complete coverage from an exhaustive evaluation; without it the side is
-/// `Unknown`, so a match with bindings never meets a match without them.
+/// A pattern failure is `Error`, never a value that could distinguish. A match needs at
+/// least one witness and every witness on a real prefix; otherwise the side is `Unknown`.
+/// Declared bindings need complete coverage from an exhaustive evaluation; without it the
+/// side is `Unknown`, so a match with bindings never meets a match without them.
 #[must_use]
 pub fn pattern_side(
     evaluation: &Result<Evaluation, PatternFailure>,
@@ -638,11 +642,18 @@ pub fn pattern_side(
     };
     let complete =
         evaluation.complete_coverage && evaluation.search_policy == SearchPolicy::Exhaustive;
+    let witnessed = !evaluation.witnesses.is_empty()
+        && evaluation
+            .witnesses
+            .iter()
+            .all(|witness| witness.stop_reason.has_real_prefix());
     let value = match evaluation.outcome {
         PatternOutcome::Error => return OracleSide::Error,
         PatternOutcome::Unknown => return OracleSide::Unknown,
-        // `evaluate` returns `NoMatch` only with complete coverage; this guards the value.
+        // `evaluate` returns `NoMatch` only with complete coverage, and `Match` only with
+        // witnesses on real prefixes; these guard the value.
         PatternOutcome::NoMatch if complete => PatternValue::NoMatch,
+        PatternOutcome::Match if !witnessed => return OracleSide::Unknown,
         PatternOutcome::Match if !with_bindings => PatternValue::Match { bindings: None },
         PatternOutcome::Match if complete => PatternValue::Match {
             bindings: Some(

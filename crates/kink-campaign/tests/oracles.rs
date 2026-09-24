@@ -460,15 +460,30 @@ fn e3_term_path_declarations_are_sorted_and_prefix_free() {
     }
 }
 
-/// E4: only a match or a complete no-match is an operand, and bindings only come from
-/// complete exhaustive coverage (critique C5).
+/// `result` with every witness moved onto a path that stopped at `stop`.
+fn witnessed_on(
+    stop: PathStop,
+    result: Result<Evaluation, PatternFailure>,
+) -> Result<Evaluation, PatternFailure> {
+    result.map(|mut evaluation| {
+        for witness in &mut evaluation.witnesses {
+            witness.stop_reason = stop;
+            witness.execution_stop_reason = path(0, false, stop, None).execution_stop;
+        }
+        evaluation
+    })
+}
+
+/// E4: only a match or a complete no-match is an operand, bindings only come from
+/// complete exhaustive coverage (critique C5), and a match only from witnesses on real
+/// prefixes (review P1).
 #[test]
 fn e4_operand_eligibility() {
     use PatternOutcome::{Error, Match, NoMatch, Unknown};
     use SearchPolicy::{Exhaustive, ExistentialFirst};
     let matched = |bindings| normal(OracleValue::Pattern(PatternValue::Match { bindings }));
     #[rustfmt::skip]
-    let rows: [(&str, Result<Evaluation, PatternFailure>, bool, OracleSide); 9] = [
+    let rows: [(&str, Result<Evaluation, PatternFailure>, bool, OracleSide); 14] = [
         ("unknown-evaluation-is-unknown", evaluation(Unknown, false, Exhaustive, &[]), false, OracleSide::Unknown),
         ("error-evaluation-is-error", evaluation(Error, false, Exhaustive, &[]), false, OracleSide::Error),
         ("pattern-failure-is-error", pattern_failure(), false, OracleSide::Error),
@@ -480,6 +495,12 @@ fn e4_operand_eligibility() {
         ("bindings-from-existential-first-are-unknown", evaluation(Match, true, ExistentialFirst, &[&[("A", "a")]]), true, OracleSide::Unknown),
         // `evaluate` never returns it; the side still refuses it.
         ("incomplete-no-match-is-unknown", evaluation(NoMatch, false, Exhaustive, &[]), false, OracleSide::Unknown),
+        ("match-on-a-depth-limited-prefix-is-a-match", witnessed_on(PathStop::DepthLimit, evaluation(Match, false, Exhaustive, &[&[]])), false, matched(None)),
+        // `evaluate` never returns these; the side still refuses them.
+        ("match-without-witness-is-unknown", evaluation(Match, false, Exhaustive, &[]), false, OracleSide::Unknown),
+        ("match-on-an-undecided-path-is-unknown", witnessed_on(PathStop::SolverUnknown, evaluation(Match, false, Exhaustive, &[&[]])), false, OracleSide::Unknown),
+        ("match-on-a-diagnosed-run-is-unknown", witnessed_on(PathStop::BackendLimit, evaluation(Match, false, Exhaustive, &[&[]])), false, OracleSide::Unknown),
+        ("bindings-on-an-errored-path-are-unknown", witnessed_on(PathStop::Error, complete(Match, &[&[("A", "a")]])), true, OracleSide::Unknown),
     ];
     for (id, evaluation, with_bindings, expected) in rows {
         assert_eq!(pattern_side(&evaluation, with_bindings), expected, "{id}");
