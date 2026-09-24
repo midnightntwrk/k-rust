@@ -63,6 +63,12 @@ pub enum ImplicationFailure {
     TermMismatch,
     PartialCoverage,
     ConsequentCondition,
+    /// The obligation holds on part of the antecedent and fails on a non-empty part: the
+    /// solver found both the obligation and its negation satisfiable under the antecedent.
+    /// The condition is the exact coverage condition, so the antecedent splits into a part
+    /// inside the consequent and a part outside it. Only the proof policy reports this; the
+    /// complete policy answers the same case as a refutation.
+    ContingentCondition,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -393,6 +399,7 @@ pub fn check_disjunctive_implication_with_existentials(
         let mut branches = Vec::new();
         let mut matched = false;
         let mut incomplete = false;
+        let mut contingent_coverage = None;
         for (consequent, existentials) in &consequents {
             let (substitution, remainder) = match match_terms_in_definition(
                 MatchMode::Implies,
@@ -510,6 +517,11 @@ pub fn check_disjunctive_implication_with_existentials(
                     {
                         return Ok(valid_with_witnesses(Substitution::new(), witnesses));
                     }
+                    // Every consequent was decided this round, so the combined obligation is
+                    // the exact coverage condition of the destination.
+                    if matches!(verdict, Ok(Validity::Indeterminate)) && !incomplete {
+                        contingent_coverage = Some(combined.clone());
+                    }
                     if matches!(
                         verdict,
                         Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_)
@@ -539,6 +551,11 @@ pub fn check_disjunctive_implication_with_existentials(
             if simplified != antecedent {
                 antecedent = simplified;
                 continue;
+            }
+            // At the antecedent fixed point, a combined obligation that holds on part of the
+            // antecedent and fails on a non-empty part splits it.
+            if let Some(combined) = contingent_coverage {
+                return Ok(contingent(combined));
             }
             return Ok(indeterminate());
         }
@@ -905,7 +922,12 @@ fn discharge_consequent(
         {
             counterexample_invalid_with_bindings(substitution, witnesses)
         }
-        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) => indeterminate(),
+        // The obligation holds on part of the antecedent and fails on a non-empty part, so the
+        // obligations themselves are the exact coverage condition.
+        Ok(Validity::Indeterminate) => {
+            contingent_with_bindings(substitution, witnesses, obligations)
+        }
+        Ok(Validity::Unknown(_)) | Err(_) => indeterminate(),
     })
 }
 
@@ -1413,6 +1435,23 @@ fn partial(
     }
 }
 
+/// The destination covers the antecedent exactly where `predicates` hold. No binding is
+/// extracted from them: every predicate stays part of the coverage condition.
+fn contingent_with_bindings(
+    substitution: Substitution,
+    witnesses: Substitution,
+    predicates: Vec<Predicate>,
+) -> ImplicationResult {
+    ImplicationResult {
+        failure: Some(ImplicationFailure::ContingentCondition),
+        ..partial(None, substitution, witnesses, predicates)
+    }
+}
+
+fn contingent(predicates: Vec<Predicate>) -> ImplicationResult {
+    contingent_with_bindings(Substitution::new(), Substitution::new(), predicates)
+}
+
 fn implication_binding<'a>(
     variable: &'a crate::term::Term,
     value: &'a crate::term::Term,
@@ -1669,16 +1708,32 @@ mod tests {
             Term::variable(x.clone()),
             Term::variable(x.clone()),
         ));
-        let equal = antecedent(Predicate::Equals(Term::variable(x), Term::variable(y)));
+        let equal = antecedent(Predicate::Equals(
+            Term::variable(x.clone()),
+            Term::variable(y.clone()),
+        ));
 
-        // `X = Y` is satisfiable and so is its negation: the obligation is not entailed. The
-        // default check leaves a counterexample undecided; the complete check refutes with it.
+        // `X = Y` is satisfiable and so is its negation: the obligation holds on part of the
+        // antecedent. The default check reports that part by its exact coverage condition, the
+        // obligation itself; the complete check refutes with it.
         let result = check_implication(&definition, &unrelated, &consequent, &solver)
             .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
         assert_eq!(
-            result.status,
-            ImplicationStatus::Indeterminate,
+            result.failure,
+            Some(ImplicationFailure::ContingentCondition),
             "{result:#?}"
+        );
+        let condition = result
+            .condition
+            .expect("a contingent result has a condition");
+        assert_eq!(
+            condition.predicates,
+            vec![Predicate::Equals(
+                Term::variable(x.clone()),
+                Term::variable(y.clone())
+            )],
+            "{condition:#?}"
         );
         let result = check_implication_with_existentials_complete(
             &definition,
@@ -2538,9 +2593,11 @@ mod tests {
             validity: Ok(Validity::Indeterminate),
         };
 
+        // Both the obligation and its negation are satisfiable: the default check splits the
+        // antecedent by the obligation, the complete check refutes the implication.
         assert_eq!(
             check_implication(&definition, &antecedent, &consequent, &counterexample),
-            Ok(indeterminate())
+            Ok(contingent(consequent.constraints.clone()))
         );
         assert_eq!(
             check_implication_with_existentials_complete(
@@ -2552,6 +2609,16 @@ mod tests {
                 &counterexample,
             ),
             Ok(counterexample_invalid(Substitution::new()))
+        );
+
+        // An unknown answer establishes neither part, so both checks stay undecided.
+        let unknown = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Unknown("timeout".into())),
+        };
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &unknown),
+            Ok(indeterminate())
         );
 
         let unavailable = FixedSolver {
