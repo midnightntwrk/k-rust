@@ -51,4 +51,23 @@ describe("lesson manifest builder", () => {
     expect(cargo["dev-dependencies"].k.optional).toBe(true);
     expect(cargo.target["cfg(unix)"].dependencies.k.optional).toBe(true);
   });
+
+  test("rejects local lints alongside workspace lints", () => {
+    const conflicting = `${member}\n[lints.rust]\nunsafe_code = "forbid"\n`;
+    expect(() => buildLessonManifest(conflicting, workspace)).toThrow(/lints\.workspace.*lints\.rust/);
+  });
+
+  test("rejects dependency keys that Cargo cannot inherit", () => {
+    const conflicting = member.replace('features = ["extra"]', 'features = ["extra"], version = "2", path = "../other"');
+    expect(() => buildLessonManifest(conflicting, workspace)).toThrow(/dependencies\.k\.version, dependencies\.k\.path/);
+  });
+
+  test("follows Cargo's default-features inheritance rule", () => {
+    const disabled = member.replace('features = ["extra"]', 'features = ["extra"], default-features = false');
+    expect(() => buildLessonManifest(disabled, workspace)).toThrow("dependencies.k.default-features = false");
+    const inheritedDisabled = workspace.replace('optional = true', 'optional = true, default-features = false');
+    const built = buildLessonManifest(disabled, inheritedDisabled);
+    const cargo = parse(built.cargoToml) as { dependencies: { k: { "default-features": boolean } } };
+    expect(cargo.dependencies.k["default-features"]).toBe(false);
+  });
 });

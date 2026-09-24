@@ -49,9 +49,19 @@ export function buildLessonManifest(packageText: string, workspaceText?: string)
           if (declaration === null || typeof declaration !== "object" || Array.isArray(declaration)) continue;
           const override = table(declaration, `${path}.${alias}`);
           if (override.workspace !== true) continue;
+          const allowed = new Set(["workspace", "features", "optional", "default-features"]);
+          const conflicting = Object.keys(override).filter((key) => !allowed.has(key));
+          if (conflicting.length > 0) throw new Error(`cannot override workspace dependency with ${conflicting.map((key) => `${path}.${alias}.${key}`).join(", ")}`);
           const inherited = workspace?.dependencies === undefined ? undefined : table(workspace.dependencies, "workspace.dependencies")[alias];
           if (inherited === undefined) throw new Error(`cannot resolve ${path}.${alias}.workspace`);
           const base = typeof inherited === "string" ? { version: inherited } : table(inherited, `workspace.dependencies.${alias}`);
+          if (override["default-features"] !== undefined) {
+            if (typeof override["default-features"] !== "boolean") throw new Error(`${path}.${alias}.default-features must be a boolean`);
+            if (override["default-features"] === false && base["default-features"] !== false) {
+              throw new Error(`${path}.${alias}.default-features = false cannot override workspace.dependencies.${alias}.default-features`);
+            }
+          }
+          if (override.optional !== undefined && typeof override.optional !== "boolean") throw new Error(`${path}.${alias}.optional must be a boolean`);
           const { workspace: _workspace, ...extra } = override;
           const merged = { ...base, ...extra };
           if (base.features !== undefined || extra.features !== undefined) {
@@ -73,9 +83,10 @@ export function buildLessonManifest(packageText: string, workspaceText?: string)
   if (manifest.lints !== undefined) {
     const lints = table(manifest.lints, "lints");
     if (lints.workspace === true) {
+      const conflicting = Object.keys(lints).filter((key) => key !== "workspace");
+      if (conflicting.length > 0) throw new Error(`lints.workspace cannot be combined with ${conflicting.map((key) => `lints.${key}`).join(", ")}`);
       if (workspace?.lints === undefined) throw new Error("cannot resolve lints.workspace");
-      const { workspace: _workspace, ...local } = lints;
-      manifest.lints = { ...table(workspace.lints, "workspace.lints"), ...local };
+      manifest.lints = table(workspace.lints, "workspace.lints");
       changed = true;
     }
   }
