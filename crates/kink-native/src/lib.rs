@@ -5,11 +5,16 @@
 //! term span, source-table entry, and generated origin. Consequently no type in this crate grants
 //! native provenance authority.
 
+pub mod bridge;
+pub mod execution;
 pub mod observation;
 pub mod search;
 mod validator;
 
-pub use validator::{IdentityError, MutantRejection, NativeValidator, ValidatedDefinition};
+pub use validator::{
+    IdentityError, ManifestFailure, MutantRejection, NativeValidator, ObservedRule,
+    ValidatedDefinition,
+};
 
 use std::{
     collections::{BTreeMap, BTreeSet},

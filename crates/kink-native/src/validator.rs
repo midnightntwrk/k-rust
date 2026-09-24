@@ -16,6 +16,9 @@ use k_rust::{
 use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
 
 use crate::NativeFailure;
+use crate::observation::{
+    DomainEventSpec, InstalledObservationManifest, ObservationFailure, RuleObservationSpec,
+};
 
 /// An immutable loaded baseline and the compile options every side uses.
 #[derive(Clone, Debug)]
@@ -74,9 +77,81 @@ impl NativeValidator {
         })
     }
 
+    /// Installs `rules` for one compiled side, resolving each label to that side's
+    /// `UNIQUE_ID`.
+    ///
+    /// A label must name an authored baseline sentence. On a mutant side, a label without
+    /// a compiled rule is left out of the manifest only when the patch deleted that
+    /// baseline sentence; any other unresolved label is a failure, so a mutant can never
+    /// escape observation by losing or changing its label.
+    pub fn observation_manifest(
+        &self,
+        side: &ValidatedDefinition,
+        rules: &[ObservedRule],
+    ) -> Result<InstalledObservationManifest, ManifestFailure> {
+        let mut specs = Vec::with_capacity(rules.len());
+        for rule in rules {
+            let at = self
+                .baseline
+                .authored_sentences()
+                .find(|(_, sentence)| {
+                    sentence.attributes().string(AttributeKey::Label) == Some(rule.label.as_str())
+                })
+                .map(|(at, _)| at)
+                .ok_or_else(|| ManifestFailure::UnknownLabel(rule.label.clone()))?;
+            let identity = match side.rule_identity(&rule.label) {
+                Ok(identity) => identity,
+                Err(IdentityError::Missing)
+                    if side.origins().is_some_and(|origins| {
+                        !origins
+                            .values()
+                            .any(|origin| *origin == SentenceOrigin::Baseline(at.clone()))
+                    }) =>
+                {
+                    continue;
+                }
+                Err(error) => {
+                    return Err(ManifestFailure::Identity {
+                        label: rule.label.clone(),
+                        error,
+                    });
+                }
+            };
+            specs.push(RuleObservationSpec {
+                label: rule.label.clone(),
+                backend_rule_identity: identity.to_owned(),
+                emit_rule_applied: rule.emit_rule_applied,
+                domain_events: rule.domain_events.clone(),
+            });
+        }
+        InstalledObservationManifest::install(specs).map_err(ManifestFailure::Installation)
+    }
+
     fn compile(&self, loaded: &LoadedDefinition) -> Result<CompiledKoreArtifacts, CompileError> {
         compile_loaded_definition(loaded, self.options.clone())
     }
+}
+
+/// One rule to observe, selected by its module-qualified label on every compiled side.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ObservedRule {
+    pub label: String,
+    pub emit_rule_applied: bool,
+    pub domain_events: Vec<DomainEventSpec>,
+}
+
+/// Why an observation manifest cannot be installed for a compiled side.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ManifestFailure {
+    /// No authored baseline sentence has the label: a declaration error.
+    UnknownLabel(String),
+    /// The label does not resolve to one compiled rule on this side, and the patch did
+    /// not delete its baseline sentence.
+    Identity {
+        label: String,
+        error: IdentityError,
+    },
+    Installation(ObservationFailure),
 }
 
 /// Why a patch did not yield a compiled mutant. It carries no definition.

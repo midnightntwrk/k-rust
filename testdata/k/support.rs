@@ -8,10 +8,12 @@
 use k_rust::builtin;
 use k_rust::definition::{AttributeKey, Definition, Sentence};
 use k_rust::kast::Term;
+use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kompile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
     compile_loaded_definition,
 };
+use k_rust::kore::ast::Pattern;
 use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource};
 use kink_patch::{Baseline, SentenceRef};
 use serde_json::Value;
@@ -96,6 +98,37 @@ pub fn rule(baseline: &Baseline, label: &str) -> SentenceRef {
 
 pub fn compile(loaded: &LoadedDefinition) -> Result<CompiledKoreArtifacts, CompileError> {
     compile_loaded_definition(loaded, CompileOptions::default())
+}
+
+/// The initial configuration `<generatedTop>(<k>(program ~> .K), <generatedCounter>(0))`
+/// of a definition whose only declared cell is `<k>`, for a `program` of KORE sort `sort`.
+/// Built by hand: k-rust's initializer needs `Map`, which the portable prelude lacks.
+pub fn initial_state(program: Pattern, sort: &str) -> Pattern {
+    let item = kore_application(
+        "inj",
+        vec![kore_sort(sort), kore_sort("SortKItem")],
+        vec![program],
+    );
+    let k = kore_application(
+        "kseq",
+        Vec::new(),
+        vec![item, kore_application("dotk", Vec::new(), Vec::new())],
+    );
+    kore_application(
+        "Lbl'-LT-'generatedTop'-GT-'",
+        Vec::new(),
+        vec![
+            kore_application("Lbl'-LT-'k'-GT-'", Vec::new(), vec![k]),
+            kore_application(
+                "Lbl'-LT-'generatedCounter'-GT-'",
+                Vec::new(),
+                vec![Pattern::DomainValue {
+                    sort: kore_sort("SortInt"),
+                    value: "0".into(),
+                }],
+            ),
+        ],
+    )
 }
 
 /// One written rule, claim or context, without its position attributes.

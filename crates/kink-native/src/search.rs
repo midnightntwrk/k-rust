@@ -6,8 +6,9 @@
 //! incomplete list is not evidence of exhaustion: a `Final` search whose result bound is filled
 //! by a depth-bounded frontier state reports no incomplete item at all. Therefore no adapter
 //! response may map to `kink_patch::Completeness::CompleteFinite` until upstream provides an
-//! exhaustion record. A bridge maps a response to `Incomplete` when its frontier or incomplete
-//! list is non-empty, and to `Unknown` otherwise.
+//! exhaustion record. The bridge (`crate::bridge::paths_from_search`) reads frontier and
+//! incomplete items as limit or indeterminate stops, and otherwise reports the collection stop
+//! `kink_pattern::CollectionStop::ExhaustionUnrecorded`, never `SearchExhausted`.
 
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendError, BindingOutput, BuiltinFailureOutput,
@@ -54,6 +55,14 @@ pub struct QueryShape {
 }
 
 impl QueryShape {
+    #[cfg(test)]
+    pub(crate) const fn new(search_type: SearchTypeArg, max_depth: Option<u64>) -> Self {
+        Self {
+            search_type,
+            max_depth,
+        }
+    }
+
     fn of_state(request: &SearchRequest) -> Self {
         Self {
             search_type: request.search_type,
@@ -485,7 +494,7 @@ fn adapt_state_response(
     })
 }
 
-fn adapt_path_response(
+pub(crate) fn adapt_path_response(
     manifest: &InstalledObservationManifest,
     query: QueryShape,
     response: PathSearchResponse,

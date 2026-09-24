@@ -430,7 +430,9 @@ name = "kink-native"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "k-rust-backend",
  "kink-patch",
+ "kink-pattern",
  "serde_json",
  "toml",
 ]

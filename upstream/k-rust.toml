@@ -10,6 +10,8 @@ updated = "2026-09-24"
 # Status is judged against this commit of the on-disk checkout that kink-native builds against.
 k_rust_commit = "985e0086f06e1ec05c2c533f26fb6f949c6b84fa"
 k_rust_version = "0.4.0"
+# kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
+k_rust_backend_version = "0.3.0"
 k_release = "7.1.337"
 checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
