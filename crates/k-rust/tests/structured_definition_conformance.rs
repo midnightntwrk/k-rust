@@ -238,7 +238,6 @@ fn a_semantic_downcast_equation_is_an_equation_of_its_function() {
     }
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn load_structured_semantic_downcast_equation_matches_the_source_projection_cast() {
     for (name, lookup, collection, key, source_rule) in [
@@ -400,7 +399,6 @@ fn labelled_token_definition(hooked: bool) -> Definition {
 }
 
 /// A bracket's `label` names its syntax-module symbol and the tag its priority and associativity groups use, so a structured bracket labelled `paren` without a `symbol` attribute is declared with the relations that name `paren`, as the source form `[bracket, symbol(paren)]` is.
-#[cfg(feature = "z3-inference")]
 #[test]
 fn structured_labelled_bracket_declares_its_syntax_relations() {
     let mut definition = structured_definition(false);
@@ -701,7 +699,6 @@ fn config_cell(name: &str, contents: Term) -> Term {
 // A bracket production only groups program text: the parsers erase it before a term exists, so
 // its label names the syntax-module symbol and the priority tag, never a semantic symbol.
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn structured_labelled_bracket_is_declared_only_in_the_syntax_module() {
     let loaded = load_structured(
@@ -803,7 +800,6 @@ fn loaded_source(source: &str) -> LoadedDefinition {
 }
 
 /// The production shape a structured client sends for a bracket: a label plus `bracket`.
-#[cfg(feature = "z3-inference")]
 fn labelled_bracket_structured_definition() -> Definition {
     let production = |label: Option<&str>, sort: &str, items, attributes: &[(&str, &str)]| {
         std::sync::Arc::new(Sentence::Production {

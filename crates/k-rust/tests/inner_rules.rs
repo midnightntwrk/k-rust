@@ -1464,11 +1464,10 @@ fn reference_three_sibling_rule_cells_associate_left() {
 
 // `P #as V` matches P and binds V to the matched subterm, so both of its sides are
 // left-hand-side patterns and a rewrite on either side has no before/after reading.
-// The z3 rule grammar composes `#as` and `=>` freely; rewrite placement is a property of the
-// whole rule, which the definition checks enforce, as they do for nested rewrites.
-// The portable rule grammar admits only a variable after `#as`, so there the shape is a rule
-// parse error ("unexpected token '(' following token '#as'"). These pin both rejections
-// through the public load path.
+// Both rule grammars compose `#as` and `=>` (the portable one decides the resulting ambiguous
+// monomorphic forest by sort inference); rewrite placement is a property of the whole rule,
+// which the definition checks enforce, as they do for nested rewrites. This pins the rejection
+// through the public load path in both builds.
 const REWRITE_ON_THE_VARIABLE_SIDE_OF_AS: &str = indoc! {r##"
     module MAIN
       syntax Foo ::= "a"
@@ -1490,7 +1489,6 @@ fn load_rewrite_on_the_variable_side_of_as()
     )
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn rewrite_on_the_variable_side_of_an_as_pattern_is_rejected_by_the_definition_checks() {
     let loaded = load_rewrite_on_the_variable_side_of_as()
@@ -1509,33 +1507,6 @@ fn rewrite_on_the_variable_side_of_an_as_pattern_is_rejected_by_the_definition_c
         placement,
         ["Rewrites are not allowed inside an #as pattern."],
         "{diagnostics:?}"
-    );
-}
-
-#[cfg(not(feature = "z3-inference"))]
-#[test]
-fn rewrite_on_the_variable_side_of_an_as_pattern_is_a_portable_rule_parse_error() {
-    let error = match load_rewrite_on_the_variable_side_of_as() {
-        Ok(_) => panic!("the portable rule grammar yields no sentence for a rewrite after #as"),
-        Err(error) => error,
-    };
-    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(ref parse)) = error else {
-        panic!("{error:?}");
-    };
-    assert_eq!(
-        parse.location.as_ref().map(|location| location.start_line),
-        Some(5),
-        "{error:?}"
-    );
-    // Today the portable grammar stops at the token after `#as`; a grammar that admits more
-    // than a variable there may instead defer the rule to z3 inference, which is also a
-    // rejection of the rule in this build.
-    assert!(
-        matches!(
-            parse.error,
-            ParseError::NoParse { .. } | ParseError::Z3InferenceRequired { .. }
-        ),
-        "{error:?}"
     );
 }
 
@@ -4249,9 +4220,10 @@ kitem_argument_rewrite_snapshot!(
 
 // A parenthesized rewrite at a `KItem` position has one derivation per bracket that reaches it
 // (the `Int` bracket under the `KItem ::= Int` subsort and the `KItem` bracket), which are
-// rewrites of different sorts; the portable build reports the Z3 boundary instead of choosing.
+// rewrites of different sorts. The forest is ambiguous but monomorphic, so sort inference
+// decides it in either build, and both builds give one rule.
 #[test]
-fn kitem_argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
+fn kitem_argument_rewrite_inside_a_bracket_is_decided_by_sort_inference() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -4259,10 +4231,15 @@ fn kitem_argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
           rule ListItem((0 => 1))
         endmodule
     "#};
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source);
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguity_requires_z3(source);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kitem_argument_rewrite_inside_a_bracket_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "kitem_argument_rewrite_inside_a_bracket_is_decided_by_sort_inference",
+    );
 }
 
 // A parenthesized rewrite has one derivation per bracket that reaches its position: here the
