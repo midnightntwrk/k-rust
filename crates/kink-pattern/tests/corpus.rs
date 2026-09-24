@@ -3,9 +3,9 @@
 //! caller supplies an empty-search decision.
 
 use kink_pattern::{
-    ArtifactRef, CorpusComponent, CorpusSkip, PatternFailureKind, PatternOutcome, aggregate_corpus,
+    CorpusComponent, CorpusSkip, EmptySearchDecision, PatternFailureKind, PatternOutcome,
+    aggregate_corpus,
 };
-use kink_portable::Digest;
 
 use CorpusComponent::{Evaluated, Skipped};
 use PatternOutcome::{Error, Match, NoMatch, Unknown};
@@ -197,22 +197,14 @@ const ROWS: &[Row] = &[
     },
 ];
 
-fn empty_search_decision() -> ArtifactRef {
-    ArtifactRef {
-        role: "empty-search-decision".to_owned(),
-        digest: Digest::parse(&"e".repeat(64)).expect("fixed digest"),
-    }
-}
-
 #[test]
 fn corpus_fold_matches_the_truth_table() {
-    let decision = empty_search_decision();
     for row in ROWS {
         let folded = aggregate_corpus(
             row.components,
             row.shared_setup_failed,
             row.early_stop_after_match,
-            row.exhausted.then_some(&decision),
+            row.exhausted.then_some(EmptySearchDecision),
         )
         .unwrap_or_else(|failure| panic!("{}: {failure}", row.id));
         assert_eq!(folded.outcome, row.outcome, "{}: outcome", row.id);
@@ -232,7 +224,6 @@ fn corpus_fold_matches_the_truth_table() {
 
 #[test]
 fn corpus_fold_rejects_unjustified_schedules() {
-    let decision = empty_search_decision();
     let rejected: &[(&str, &[CorpusComponent], bool, bool)] = &[
         ("empty corpus", &[], false, false),
         (
@@ -287,22 +278,9 @@ fn corpus_fold_rejects_unjustified_schedules() {
             components,
             *shared_setup_failed,
             *early_stop,
-            Some(&decision),
+            Some(EmptySearchDecision),
         )
         .expect_err(label);
         assert_eq!(failure.kind(), PatternFailureKind::InvalidCorpus, "{label}");
-    }
-    // A mislabelled exhaustion artifact is malformed input, even beside an unknown test.
-    let mislabelled = ArtifactRef {
-        role: "event-trace".to_owned(),
-        ..decision
-    };
-    for components in [
-        &[Evaluated(NoMatch)][..],
-        &[Evaluated(NoMatch), Evaluated(Unknown)],
-    ] {
-        let failure = aggregate_corpus(components, false, false, Some(&mislabelled))
-            .expect_err("mislabelled exhaustion");
-        assert_eq!(failure.kind(), PatternFailureKind::InvalidCorpus);
     }
 }

@@ -447,8 +447,7 @@ dependencies = [
 name = "kink-pattern"
 version = "0.1.0"
 dependencies = [
- "kink-portable",
- "serde_json",
+ "k-rust",
 ]
 
 [[package]]

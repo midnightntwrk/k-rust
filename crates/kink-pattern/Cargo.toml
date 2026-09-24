@@ -6,10 +6,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-kink-portable.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
+k-rust.workspace = true
 
 [lints]
 workspace = true
