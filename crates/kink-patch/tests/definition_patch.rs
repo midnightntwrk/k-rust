@@ -118,8 +118,9 @@ type Row = (
     Expect,
 );
 
-/// The portable patch-application rows over `memory.k` (M) and `counter.k`
-/// (C). A repeated ID is one portable row checked with several patches.
+/// The rows of the former `patch-application-vectors.json`, with their IDs
+/// kept, over `memory.k` (M) and `counter.k` (C). A repeated ID is one former
+/// row checked with several patches.
 const ROWS: &[Row] = &[
     (
         "atomic-distinct-sentence-replacements",
@@ -175,7 +176,7 @@ const ROWS: &[Row] = &[
         },
         Expect::Failure(PatchFailureKind::DuplicateTarget),
     ),
-    // The portable row expected locally-ill-formed because its replacement
+    // The former row expected locally-ill-formed because its replacement
     // was also ill-sorted; both replacements here are well-sorted, which
     // isolates the overlap.
     (
@@ -484,7 +485,7 @@ fn patch_rows_apply_or_fail_atomically() {
     let memory = support::load("memory.k");
     let counter = support::load("counter.k");
     let ids = ROWS.iter().map(|(id, ..)| *id).collect::<BTreeSet<_>>();
-    assert_eq!(ids.len(), 22, "every portable row is ported");
+    assert_eq!(ids.len(), 22, "every former vector row is ported");
     for (id, fixture, edits, expect) in ROWS {
         let baseline = if *fixture == "memory.k" {
             &memory

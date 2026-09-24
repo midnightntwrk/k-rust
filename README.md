@@ -9,11 +9,10 @@ The work is intended to be merged into k-rust together with KRS.
 
 | Crate | Purpose |
 |---|---|
-| [`kink-pattern`](crates/kink-pattern) | Execution pattern matching over traces. |
-| [`kink-patch`](crates/kink-patch) | Mutation sites, candidate selection and patch application. |
-| [`kink-native`](crates/kink-native) | Adapter over the k-rust backend. |
+| [`kink-pattern`](crates/kink-pattern) | Execution pattern plans evaluated over paths whose payloads are KORE patterns. |
+| [`kink-patch`](crates/kink-patch) | Patches over a loaded k-rust `Definition`, mutation sites and candidate selection. |
+| [`kink-native`](crates/kink-native) | Mutant validation, execution and search adapters over the k-rust backend, and the bridge to kink-pattern paths. |
 | [`kink-campaign`](crates/kink-campaign) | Campaign runner, typed oracle comparison, mutant classification and scoring. |
-| [`kink-portable`](crates/kink-portable) | Legacy portable K encoding, pending migration to k-rust types. |
 
 ## Upstream requests
 

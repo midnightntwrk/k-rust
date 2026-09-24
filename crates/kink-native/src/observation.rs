@@ -1,7 +1,7 @@
 //! Atomic exact-label observation installation and branch-local event adaptation.
 //!
 //! The adapter deliberately retains backend identities as sidecar evidence. A rule label or
-//! transition ID is not portable emitting-sentence provenance.
+//! transition ID is not emitting-sentence provenance.
 
 use std::collections::{BTreeMap, BTreeSet};
 

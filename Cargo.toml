@@ -4,7 +4,6 @@ members = [
   "crates/kink-native",
   "crates/kink-patch",
   "crates/kink-pattern",
-  "crates/kink-portable",
 ]
 resolver = "3"
 
@@ -20,8 +19,6 @@ k-rust-backend = { version = "=0.3.0", path = "../inspirations/midnightntwrk/k-r
 kink-native = { path = "crates/kink-native" }
 kink-patch = { path = "crates/kink-patch" }
 kink-pattern = { path = "crates/kink-pattern" }
-kink-portable = { path = "crates/kink-portable" }
-serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 
 [workspace.lints.rust]
