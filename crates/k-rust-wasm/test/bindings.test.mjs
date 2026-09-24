@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
@@ -188,18 +189,37 @@ test('reports the portable Z3 boundary for an ambiguous program', () => {
   )
 })
 
-test('rejects the native prelude with an actionable boundary error', () => {
-  assert.throws(
-    () =>
-      parseProgram({
-        definition: 'module MAIN\nendmodule',
-        moduleName: 'MAIN',
-        sort: 'K',
-        program: '.K',
-        includePrelude: true,
-      }),
-    /embedded prelude requires native Z3 inference/i,
+test('parses a program with the embedded prelude', () => {
+  const parsed = parseProgram({
+    definition: `
+      module MAIN
+        imports INT
+        syntax Exp ::= Int | Exp "+" Exp [symbol(plus)]
+      endmodule
+    `,
+    moduleName: 'MAIN',
+    sort: 'Exp',
+    program: '1 + 2',
+    includePrelude: true,
+  })
+  assert.equal(parsed.text, 'plus(#token("1","Int"),#token("2","Int"))')
+})
+
+test('compiles a definition importing the embedded prelude to the native definition.kore', () => {
+  // Shared with the Rust tests in src/lib.rs, which assert the same digests natively.
+  const fixture = JSON.parse(
+    readFileSync(new URL('./fixtures/prelude-int.json', import.meta.url), 'utf8'),
   )
+  for (const backend of ['rust', 'llvm']) {
+    const compiled = compileDefinition({
+      definition: fixture.definition,
+      moduleName: fixture.moduleName,
+      backend,
+      includePrelude: true,
+    })
+    const digest = createHash('sha256').update(compiled.definitionKore).digest('hex')
+    assert.equal(digest, fixture.definitionKoreSha256[backend], backend)
+  }
 })
 
 test('round-trips KAST and KORE through typed JSON', () => {

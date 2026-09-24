@@ -93,7 +93,10 @@ export interface ParseProgramOptions {
   /** Additional virtual files keyed by the names used in `requires`. */
   sources?: Readonly<Record<string, string>> | readonly Source[]
   markdownSelector?: string
-  /** The native prelude needs Z3 and cannot be loaded in WASM. Defaults to false. */
+  /**
+   * Load the embedded standard prelude before the definition, as the native build does; its
+   * builtin files also resolve for `requires`. Defaults to false.
+   */
   includePrelude?: boolean
 }
 
@@ -107,7 +110,10 @@ export interface CompileDefinitionOptions {
   /** Additional virtual files keyed by the names used in `requires`. */
   sources?: Readonly<Record<string, string>> | readonly Source[]
   markdownSelector?: string
-  /** The native prelude needs Z3 and cannot be loaded in WASM. Defaults to false. */
+  /**
+   * Load the embedded standard prelude before the definition, as the native build does; its
+   * builtin files also resolve for `requires`. Defaults to false.
+   */
   includePrelude?: boolean
   koreWidth?: number
 }
