@@ -1764,18 +1764,9 @@ mod chart_tests {
             ])
             .unwrap();
             let baseline = unfiltered(&grammar, "Start", "x");
-            #[cfg(feature = "z3-inference")]
             assert!(matches!(
                 &baseline,
                 Err(ParseError::Ambiguous { parses: 2, .. })
-            ));
-            #[cfg(not(feature = "z3-inference"))]
-            assert!(matches!(
-                &baseline,
-                Err(ParseError::Z3InferenceRequired {
-                    ambiguity: true,
-                    ..
-                })
             ));
             PARSE_ATTEMPTS.set(0);
             assert_eq!(grammar.parse(&Sort::new("Start"), "x"), baseline);
@@ -2100,7 +2091,6 @@ mod chart_tests {
     }
 
     fn assert_incremental_ambiguity(result: Result<Term, ParseError>) {
-        #[cfg(feature = "z3-inference")]
         {
             let ParseError::Ambiguous {
                 parses,
@@ -2127,14 +2117,6 @@ mod chart_tests {
                 ]),
             );
         }
-        #[cfg(not(feature = "z3-inference"))]
-        assert_eq!(
-            result,
-            Err(ParseError::Z3InferenceRequired {
-                ambiguity: true,
-                parametric_sorts: false,
-            })
-        );
     }
 
     #[test]

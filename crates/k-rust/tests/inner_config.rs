@@ -442,7 +442,6 @@ proptest! {
     }
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn configuration_brackets_preserve_sequence_order_and_scope() {
     for contents in ["(1 ~> 2)", "(1 ~> 2) ~> 3", "1 ~> (2 ~> 3)", "((1)) ~> 2"] {
@@ -466,14 +465,6 @@ fn configuration_brackets_preserve_sequence_order_and_scope() {
             resolve_configuration_bubbles(&definition(&format!("<k> {malformed} </k>"))).is_err()
         );
     }
-}
-
-#[cfg(not(feature = "z3-inference"))]
-#[test]
-fn portable_configuration_brackets_report_ambiguous_inference_boundary() {
-    let error = resolve_configuration_bubbles(&definition("<k> ((1)) ~> 2 </k>")).unwrap_err();
-    assert!(matches!(error, ConfigError::Parse { error, .. }
-        if matches!(*error, k_rust::inner::ParseError::Z3InferenceRequired { ambiguity: true, .. })));
 }
 
 #[test]

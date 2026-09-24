@@ -686,13 +686,6 @@ fn rejects_non_function_rewrite_siblings_that_remain_ambiguous() {
     "#};
     let error = resolve_rule_bubbles(&lowered(source))
         .expect_err("rewrite siblings must not silently select mapWriteRange");
-    #[cfg(not(feature = "z3-inference"))]
-    assert!(
-        matches!(&error, RuleError::Parse(error)
-            if matches!(error.error, ParseError::Z3InferenceRequired { ambiguity: true, .. })),
-        "{error:?}"
-    );
-    #[cfg(feature = "z3-inference")]
     {
         let rendered = error.to_string();
         assert!(rendered.starts_with("rules.k:8:8:"), "{rendered}");
@@ -746,13 +739,6 @@ endmodule
         );
         let error = resolve_rule_bubbles(&lowered(&source))
             .expect_err("unrelated result sorts must remain ambiguous");
-        #[cfg(not(feature = "z3-inference"))]
-        assert!(
-            matches!(&error, RuleError::Parse(error)
-                if matches!(error.error, ParseError::Z3InferenceRequired { ambiguity: true, .. })),
-            "{left}: {error:?}"
-        );
-        #[cfg(feature = "z3-inference")]
         assert!(
             matches!(
                 error,
@@ -1396,21 +1382,13 @@ fn preserves_genuine_ambiguity_until_disambiguation_is_ported() {
         endmodule
     "#});
     let error = resolve_rule_bubbles(&definition).unwrap_err();
-    #[cfg(feature = "z3-inference")]
-    let expected = matches!(
-        error,
-        RuleError::Parse(ref error) if matches!(error.error, ParseError::Ambiguous { .. })
+    assert!(
+        matches!(
+            error,
+            RuleError::Parse(ref error) if matches!(error.error, ParseError::Ambiguous { .. })
+        ),
+        "{error:?}"
     );
-    #[cfg(not(feature = "z3-inference"))]
-    let expected = matches!(
-        error,
-        RuleError::Parse(ref error)
-            if matches!(
-                error.error,
-                ParseError::Z3InferenceRequired { ambiguity: true, .. }
-            )
-    );
-    assert!(expected, "{error:?}");
 }
 
 #[test]
@@ -1671,37 +1649,16 @@ endmodule"#
     )
 }
 
-#[cfg(not(feature = "z3-inference"))]
-fn assert_ambiguity_requires_z3(source: &str) {
-    assert!(matches!(
-        resolve_rule_bubbles(&lowered(source)),
-        Err(RuleError::Parse(ref error))
-            if matches!(
-                error.error,
-                ParseError::Z3InferenceRequired {
-                    ambiguity: true,
-                    ..
-                }
-            )
-    ));
-}
-
 #[test]
 fn preferred_production_selects_its_ambiguity_branch() {
     let source = selector_source("prefer");
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source.as_str());
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguity_requires_z3(&source);
 }
 
 #[test]
 fn avoided_production_removes_its_ambiguity_branch() {
     let source = selector_source("avoid");
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source.as_str());
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguity_requires_z3(&source);
 }
 
 #[test]
@@ -1756,7 +1713,6 @@ fn parametric_origin_nodes_get_per_node_parameter_variables() {
     assert!(body.contains("same{B}"), "{body}");
 }
 
-#[cfg(feature = "z3-inference")]
 rule_snapshot!(
     z3_prunes_ill_typed_ambiguity_branches,
     r#"
@@ -1770,33 +1726,6 @@ rule_snapshot!(
         endmodule
     "#
 );
-
-#[cfg(not(feature = "z3-inference"))]
-#[test]
-fn portable_build_reports_ambiguity_that_requires_z3() {
-    let error = resolve_rule_bubbles(&lowered(indoc! {r#"
-        module MAIN
-          syntax A ::= "a" [symbol(a)]
-          syntax B ::= "b" [symbol(b)]
-          syntax Exp ::= "f(" A ")" [symbol(fa)]
-                       | "f(" B ")" [symbol(fb)]
-          syntax Pair ::= "pair(" Exp "," A ")" [symbol(pair)]
-          rule pair(f(X), X) => pair(f(a), a)
-        endmodule
-    "#}))
-    .unwrap_err();
-    assert!(matches!(
-        error,
-        RuleError::Parse(ref error)
-            if matches!(
-                error.error,
-                ParseError::Z3InferenceRequired {
-                    ambiguity: true,
-                    ..
-                }
-            )
-    ));
-}
 
 rule_snapshot!(
     resolves_syntax_priority,
@@ -2679,7 +2608,6 @@ rule_snapshot!(
     "#
 );
 
-#[cfg(feature = "z3-inference")]
 rule_snapshot!(
     z3_prunes_ill_typed_overloaded_generic_applications,
     r#"
@@ -2692,22 +2620,6 @@ rule_snapshot!(
         endmodule
     "#
 );
-
-#[cfg(not(feature = "z3-inference"))]
-#[test]
-fn portable_build_reports_overloaded_generic_application_inference_boundary() {
-    let source = indoc! {r#"
-        module MAIN
-          syntax A ::= "a" [symbol(a)]
-          syntax B ::= "b" [symbol(b)]
-          syntax A ::= "pa" A [symbol(pick)]
-          syntax B ::= "pb" B [symbol(pick)]
-          rule pick(a) => a
-        endmodule
-    "#};
-    // Pruning this ambiguity needs native inference even though only one typing survives.
-    assert_ambiguity_requires_z3(source);
-}
 
 #[test]
 fn reports_overloaded_terminators_without_a_unique_least_sort() {
@@ -2855,20 +2767,22 @@ fn resolves_an_element_of_an_overloaded_user_list() {
           rule #types2indices(_D DS, M) => #types2indices(DS, M) [owise]
         endmodule
     "##};
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source);
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguity_requires_z3(source);
 }
 
 #[cfg(not(feature = "z3-inference"))]
 #[test]
 fn portable_build_rejects_the_standard_prelude() {
+    // The ambiguous monomorphic forests of the prelude are decided portably; what still stops
+    // it is a rule the portable rule grammar does not parse, such as a rewrite in an argument
+    // position of STDIN-STREAM.
     let error = load_with_prelude("module MAIN endmodule", "test.k", "MAIN")
-        .expect_err("the standard prelude requires native Z3 inference");
+        .expect_err("the standard prelude does not load in the portable build");
     assert!(
-        matches!(&error, k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error))
-            if matches!(error.error, ParseError::Z3InferenceRequired { ambiguity: true, .. })),
+        matches!(
+            &error,
+            k_rust::outer::LoadError::RuleParsing(RuleError::Parse(_))
+        ),
         "{error:?}"
     );
 }
@@ -3617,9 +3531,18 @@ fn strict_cast_at_the_inner_terms_own_sort_selects_the_same_term() {
         ),
         // `#token(_,_)` and `#klabel(_)` have the synthetic bottom sort, which says nothing
         // about the term's sort; the cast is the only statement of it and is not contradicted.
-        (r#"f(#token("b","B")::B) => .K"#, r#"`f(_)_MAIN_KItem_A`(#token("b","B"))=>.K"#),
-        (r#"f({#token("b","B")}::A) => .K"#, r#"`f(_)_MAIN_KItem_A`(#token("b","B"))=>.K"#),
-        ("f({#klabel(`g(_)_MAIN_B_KItem`)}::A) => .K", r#"`f(_)_MAIN_KItem_A`(#WrappedKLabel(#token("`g(_)_MAIN_B_KItem`","KLabel")))=>.K"#),
+        (
+            r#"f(#token("b","B")::B) => .K"#,
+            r#"`f(_)_MAIN_KItem_A`(#token("b","B"))=>.K"#,
+        ),
+        (
+            r#"f({#token("b","B")}::A) => .K"#,
+            r#"`f(_)_MAIN_KItem_A`(#token("b","B"))=>.K"#,
+        ),
+        (
+            "f({#klabel(`g(_)_MAIN_B_KItem`)}::A) => .K",
+            r#"`f(_)_MAIN_KItem_A`(#WrappedKLabel(#token("`g(_)_MAIN_B_KItem`","KLabel")))=>.K"#,
+        ),
     ] {
         assert_eq!(
             strict_cast_rule_bodies(rule).unwrap(),
