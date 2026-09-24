@@ -55,6 +55,9 @@ pub enum CollectionErrorKind {
     ImpreciseAuthoredAnchor,
     /// The exact source no longer parses under the shared KRS parser.
     SourceSyntax,
+    /// An authored attribute is named like a KRS attribute entry point but
+    /// does not invoke it under the package's facade alias.
+    UnresolvedAttribute,
     /// A host anchor did not match the corresponding reparsed semantic node.
     StaleAnchor,
     /// More than one reparsed invocation matched a host descriptor.

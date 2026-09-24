@@ -8,6 +8,7 @@
 mod collect;
 mod emit;
 mod error;
+mod facade;
 mod lowering;
 mod overlap;
 mod reference;

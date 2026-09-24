@@ -66,7 +66,7 @@ fn main() {
     fs::create_dir_all(package_root.join("src")).expect("create isolated fixture");
     fs::write(
         package_root.join("Cargo.toml"),
-        "[package]\nname = \"diagnostic-anchor\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"diagnostic-anchor\"\nversion = \"0.0.0\"\n\n[dependencies]\nk = { package = \"krs\", path = \"krs\" }\n",
     )
     .expect("write manifest");
     fs::write(

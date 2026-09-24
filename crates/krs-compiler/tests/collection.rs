@@ -16,6 +16,7 @@ use krs_ir::{
     HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind,
     ProtocolVersion, RustVisibility, SentenceKind,
 };
+use krs_syntax::surface;
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, InitializerFunction, ProvenanceAnchor,
     ProvenanceRole, RuleItem, SortDeclaration, parse_configuration_attribute,
@@ -24,12 +25,9 @@ use krs_syntax::{
 use sha2::{Digest, Sha256};
 use syn::{ImplItem, Item, Meta};
 
-fn attribute_named(attribute: &syn::Attribute, name: &str) -> bool {
-    attribute
-        .path()
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == name)
+fn is_symbol_attribute(attribute: &syn::Attribute) -> bool {
+    surface::resolve(attribute.path(), "k")
+        == Some(surface::Entry::Attribute(surface::AttributeMacro::Symbol))
 }
 
 fn attribute_tokens(attribute: &syn::Attribute) -> proc_macro2::TokenStream {
@@ -261,6 +259,67 @@ fn changed_semantic_source_is_rejected_as_stale() {
     let error =
         collect_host_descriptors([package.context("ORG-CHANGED")], [descriptor]).unwrap_err();
     assert_eq!(error.kind(), CollectionErrorKind::StaleAnchor);
+}
+
+#[test]
+fn foreign_attributes_named_like_krs_entries_are_rejected() {
+    for (name, source) in [
+        (
+            "foreign_rule",
+            "#[k::sort]\npub trait Expr {}\n\n#[other::rule]\nfn rewrite() {}\n",
+        ),
+        (
+            "imported_sort",
+            "#[k::sort]\npub trait Expr {}\n\n#[sort]\npub trait Other {}\n",
+        ),
+    ] {
+        let package = TestPackage::new(name, source);
+        let error = collect_host_descriptors(
+            [package.context("ORG-FOREIGN")],
+            [package.sort("Expr", expr_type, vec![])],
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), CollectionErrorKind::UnresolvedAttribute);
+        assert!(
+            error.detail().contains("`src/lib.rs`:4:1")
+                && (error.detail().ends_with("write `#[k::rule]` instead")
+                    || error.detail().ends_with("write `#[k::sort]` instead")),
+            "{name}: {}",
+            error.detail()
+        );
+    }
+}
+
+#[test]
+fn attributes_resolve_under_the_renamed_facade_only() {
+    let source = "#[language_host::sort]\npub trait Expr {}\n";
+    let package = TestPackage::with_facade("renamed_facade", "", "language-host", source);
+    let bundle = collect_host_descriptors(
+        [package.context("ORG-RENAMED")],
+        [package.sort("Expr", expr_type, vec![])],
+    )
+    .unwrap();
+    assert_eq!(bundle.descriptors.len(), 1);
+
+    let package = TestPackage::with_facade(
+        "default_alias",
+        "",
+        "language-host",
+        "#[k::sort]\npub trait Expr {}\n",
+    );
+    let error = collect_host_descriptors(
+        [package.context("ORG-DEFAULT-ALIAS")],
+        [package.sort("Expr", expr_type, vec![])],
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), CollectionErrorKind::UnresolvedAttribute);
+    assert!(
+        error
+            .detail()
+            .contains("write `#[language_host::sort]` instead"),
+        "{}",
+        error.detail()
+    );
 }
 
 #[test]
@@ -538,10 +597,7 @@ fn multiple_distinct_in_package_source_candidates_are_rejected() {
 
 #[test]
 fn duplicate_reparsed_invocations_are_rejected_as_ambiguous() {
-    let package = TestPackage::new(
-        "ambiguous",
-        "#[k::sort]\n#[another::sort]\npub trait Expr {}\n",
-    );
+    let package = TestPackage::new("ambiguous", "#[k::sort]\n#[k::sort]\npub trait Expr {}\n");
     assert_kind(
         collect_host_descriptors(
             [package.context("ORG-AMBIGUOUS")],
@@ -1260,12 +1316,19 @@ impl TestPackage {
     }
 
     fn new_nested(name: &str, relative_root: &str, source: &str) -> Self {
+        Self::with_facade(name, relative_root, "k", source)
+    }
+
+    /// A package whose manifest names the `krs` facade `facade`.
+    fn with_facade(name: &str, relative_root: &str, facade: &str, source: &str) -> Self {
         let directory = TestDirectory::new(name);
         let package_root = directory.path.join(relative_root);
         fs::create_dir_all(package_root.join("src")).unwrap();
         fs::write(
             package_root.join("Cargo.toml"),
-            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n"),
+            format!(
+                "[package]\nname = \"{name}\"\nversion = \"0.1.0\"\n\n[dependencies]\n{facade} = {{ package = \"krs\", path = \"krs\" }}\n"
+            ),
         )
         .unwrap();
         fs::write(package_root.join("src/lib.rs"), source).unwrap();
@@ -1335,7 +1398,7 @@ impl TestPackage {
         let symbol = trait_item
             .attrs
             .iter()
-            .find(|attribute| attribute_named(attribute, "symbol"))
+            .find(|attribute| is_symbol_attribute(attribute))
             .map(|attribute| parse_symbol_attribute(attribute_tokens(attribute)).unwrap());
         let mut anchors = SortDeclaration::from_item(trait_item)
             .unwrap()
@@ -1391,7 +1454,7 @@ impl TestPackage {
         if let Some(symbol) = item
             .attrs
             .iter()
-            .find(|attribute| attribute_named(attribute, "symbol"))
+            .find(|attribute| is_symbol_attribute(attribute))
         {
             provenance.extend(
                 parse_symbol_attribute(attribute_tokens(symbol))

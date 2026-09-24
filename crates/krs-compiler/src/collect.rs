@@ -21,6 +21,7 @@ use krs_ir::{
     RuleParameterDescriptor, RustVisibility, Sha256Digest, SortDescriptor, SourceFileId,
     SourceRange, StableItemId, StructuredRuleDescriptor, TransformationOriginKind,
 };
+use krs_syntax::surface::AttributeMacro;
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
     InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
@@ -41,6 +42,7 @@ use sha2::{Digest, Sha256};
 use syn::visit::Visit;
 use syn::{Attribute, ImplItem, Item, Meta};
 
+use crate::facade::{AttributeResolver, FacadeAliases};
 use crate::{CollectionError, CollectionErrorKind};
 
 /// Cargo-owned identity and host source location for one selected semantics package.
@@ -132,6 +134,7 @@ struct PreparedContext {
     package: PackageId,
     crate_root: String,
     package_dir: PathBuf,
+    facade: FacadeAliases,
 }
 
 #[derive(Debug)]
@@ -471,6 +474,7 @@ fn prepare_contexts(
             package: context.package,
             crate_root: context.crate_root,
             package_dir: package_dir.to_owned(),
+            facade: FacadeAliases::from_manifest(&manifest)?,
         });
     }
     Ok((prepared, lookup))
@@ -2647,7 +2651,11 @@ fn load_source_document(
     })?;
     validate_dsl_trivia(&syntax, &text)?;
     let mut invocations = Vec::new();
-    collect_invocations(&syntax.items, &mut invocations)?;
+    collect_invocations(
+        &syntax.items,
+        &AttributeResolver::new(&context.facade, display_hint),
+        &mut invocations,
+    )?;
     Ok(SourceDocument {
         text,
         file,
@@ -2906,17 +2914,31 @@ fn normalized_relative_path(path: &Path) -> Result<String, CollectionError> {
 #[allow(clippy::too_many_lines)]
 fn collect_invocations(
     items: &[Item],
+    resolver: &AttributeResolver<'_>,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
+    let resolver = &resolver.scoped(items);
     for item in items {
+        if let Item::Trait(syn::ItemTrait { attrs, .. })
+        | Item::Struct(syn::ItemStruct { attrs, .. })
+        | Item::Enum(syn::ItemEnum { attrs, .. })
+        | Item::Fn(syn::ItemFn { attrs, .. })
+        | Item::Impl(syn::ItemImpl { attrs, .. }) = item
+        {
+            resolver.check(attrs)?;
+        }
         match item {
             Item::Trait(item_trait) => {
-                let (sort_visibility, sort_symbol) =
-                    declaration_metadata(&item_trait.vis, &item_trait.attrs, "sort")?;
+                let (sort_visibility, sort_symbol) = declaration_metadata(
+                    resolver,
+                    &item_trait.vis,
+                    &item_trait.attrs,
+                    AttributeMacro::Sort,
+                )?;
                 for attribute in item_trait
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "sort"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Sort))
                 {
                     let sort_attribute = parse_sort_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -2972,14 +2994,14 @@ fn collect_invocations(
                 for attribute in item_trait
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "bracket"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Bracket))
                 {
                     let bracket = parse_bracket_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
                     let sort_attribute = item_trait
                         .attrs
                         .iter()
-                        .find(|candidate| attribute_named(candidate, "sort"))
+                        .find(|candidate| resolver.invokes(candidate, AttributeMacro::Sort))
                         .map(|candidate| {
                             parse_sort_attribute(attribute_tokens(candidate)?)
                                 .map_err(source_syntax)
@@ -3016,12 +3038,16 @@ fn collect_invocations(
                 }
             }
             Item::Struct(item_struct) => {
-                let (constructor_visibility, constructor_symbol) =
-                    declaration_metadata(&item_struct.vis, &item_struct.attrs, "constructor")?;
+                let (constructor_visibility, constructor_symbol) = declaration_metadata(
+                    resolver,
+                    &item_struct.vis,
+                    &item_struct.attrs,
+                    AttributeMacro::Constructor,
+                )?;
                 for attribute in item_struct
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "function"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Function))
                 {
                     let parsed = parse_function_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3058,7 +3084,7 @@ fn collect_invocations(
                 for attribute in item_struct
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "constructor"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Constructor))
                 {
                     let parsed = parse_constructor_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3076,7 +3102,7 @@ fn collect_invocations(
                     for helper in item_struct
                         .attrs
                         .iter()
-                        .filter(|attribute| attribute_named(attribute, "alias"))
+                        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Alias))
                     {
                         parse_alias_attribute(attribute_tokens(helper)?).map_err(source_syntax)?;
                         let marker = helper
@@ -3093,7 +3119,7 @@ fn collect_invocations(
                     for helper in item_struct
                         .attrs
                         .iter()
-                        .filter(|attribute| attribute_named(attribute, "strict"))
+                        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Strict))
                     {
                         grammar_anchors.extend(
                             parse_strict_attribute(attribute_tokens(helper)?)
@@ -3105,7 +3131,7 @@ fn collect_invocations(
                     for helper in item_struct
                         .attrs
                         .iter()
-                        .filter(|attribute| attribute_named(attribute, "seqstrict"))
+                        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Seqstrict))
                     {
                         grammar_anchors.extend(
                             parse_seqstrict_attribute(attribute_tokens(helper)?)
@@ -3138,7 +3164,7 @@ fn collect_invocations(
                 for attribute in item_struct
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "token"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Token))
                 {
                     let token_attribute = parse_token_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3166,7 +3192,7 @@ fn collect_invocations(
                 for attribute in item_struct
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "configuration"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Configuration))
                 {
                     let parsed = parse_configuration_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3189,7 +3215,7 @@ fn collect_invocations(
                 for _attribute in item_struct
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "cell"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Cell))
                 {
                     let declaration = ConfigurationDeclaration::from_item(item_struct.clone())
                         .map_err(source_syntax)?;
@@ -3205,19 +3231,19 @@ fn collect_invocations(
                 if item_enum
                     .attrs
                     .iter()
-                    .any(|attribute| attribute_named(attribute, "constructors")) =>
+                    .any(|attribute| resolver.invokes(attribute, AttributeMacro::Constructors)) =>
             {
                 let invoking = item_enum
                     .attrs
                     .iter()
-                    .find(|attribute| attribute_named(attribute, "constructors"))
+                    .find(|attribute| resolver.invokes(attribute, AttributeMacro::Constructors))
                     .expect("the match guard found a constructors attribute");
                 let attribute = parse_constructors_attribute(attribute_tokens(invoking)?)
                     .map_err(source_syntax)?;
                 let mut reparsed = item_enum.clone();
                 reparsed
                     .attrs
-                    .retain(|attribute| !attribute_named(attribute, "constructors"));
+                    .retain(|attribute| !resolver.invokes(attribute, AttributeMacro::Constructors));
                 let declaration = EnumConstructorDeclaration::from_parts(&attribute, reparsed)
                     .map_err(source_syntax)?;
                 if !declaration.is_open_family() {
@@ -3275,7 +3301,7 @@ fn collect_invocations(
                 for attribute in item_fn
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "claim"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Claim))
                 {
                     let parsed = parse_claim_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3293,7 +3319,7 @@ fn collect_invocations(
                 for attribute in item_fn
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "context_alias"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::ContextAlias))
                 {
                     let parsed =
                         krs_syntax::parse_context_alias_attribute(attribute_tokens(attribute)?)
@@ -3317,7 +3343,7 @@ fn collect_invocations(
                 for attribute in item_fn
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "simplification"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Simplification))
                 {
                     let parsed = parse_simplification_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3361,7 +3387,7 @@ fn collect_invocations(
                 for attribute in item_fn
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "equation"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Equation))
                 {
                     parse_equation_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3385,7 +3411,7 @@ fn collect_invocations(
                     for priority in item_fn
                         .attrs
                         .iter()
-                        .filter(|attribute| attribute_named(attribute, "priority"))
+                        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Priority))
                     {
                         anchors.extend(
                             parse_priority_attribute(attribute_tokens(priority)?)
@@ -3411,7 +3437,7 @@ fn collect_invocations(
                 for attribute in item_fn
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "alias"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Alias))
                 {
                     parse_alias_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
                     let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
@@ -3453,7 +3479,7 @@ fn collect_invocations(
                 for attribute in item_fn
                     .attrs
                     .iter()
-                    .filter(|attr| attribute_named(attr, "rule"))
+                    .filter(|attr| resolver.invokes(attr, AttributeMacro::Rule))
                 {
                     let rule_attribute = parse_rule_attribute(attribute_tokens(attribute)?)
                         .map_err(source_syntax)?;
@@ -3505,12 +3531,12 @@ fn collect_invocations(
                 for attribute in item_impl
                     .attrs
                     .iter()
-                    .filter(|attribute| attribute_named(attribute, "subsort"))
+                    .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Subsort))
                 {
                     let mut reparsed_item = item_impl.clone();
                     reparsed_item
                         .attrs
-                        .retain(|candidate| !attribute_named(candidate, "subsort"));
+                        .retain(|candidate| !resolver.invokes(candidate, AttributeMacro::Subsort));
                     let declaration =
                         SubsortDeclaration::from_item(reparsed_item).map_err(source_syntax)?;
                     let tokens = attribute_tokens(attribute)?;
@@ -3549,17 +3575,18 @@ fn collect_invocations(
                     let ImplItem::Fn(method) = implementation_item else {
                         continue;
                     };
+                    resolver.check(&method.attrs)?;
                     for attribute in method
                         .attrs
                         .iter()
-                        .filter(|attribute| attribute_named(attribute, "init"))
+                        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Init))
                     {
                         parse_init_attribute(attribute_tokens(attribute)?)
                             .map_err(source_syntax)?;
                         let mut method = method.clone();
                         method
                             .attrs
-                            .retain(|attribute| !attribute_named(attribute, "init"));
+                            .retain(|attribute| !resolver.invokes(attribute, AttributeMacro::Init));
                         let initializer =
                             InitializerFunction::from_item(method).map_err(source_syntax)?;
                         let references = initializer
@@ -3733,7 +3760,7 @@ fn collect_invocations(
             }
             Item::Mod(module) => {
                 if let Some((_, nested)) = &module.content {
-                    collect_invocations(nested, output)?;
+                    collect_invocations(nested, resolver, output)?;
                 }
             }
             _ => {}
@@ -4024,18 +4051,11 @@ fn attribute_tokens(attribute: &Attribute) -> Result<TokenStream, CollectionErro
     }
 }
 
-fn attribute_named(attribute: &Attribute, name: &str) -> bool {
-    attribute
-        .path()
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == name)
-}
-
 fn declaration_metadata(
+    resolver: &AttributeResolver<'_>,
     visibility: &syn::Visibility,
     attributes: &[Attribute],
-    target_name: &str,
+    target: AttributeMacro,
 ) -> Result<(RustVisibility, Option<krs_syntax::SymbolAttribute>), CollectionError> {
     let visibility = match visibility {
         syn::Visibility::Inherited => RustVisibility::Inherited,
@@ -4053,15 +4073,16 @@ fn declaration_metadata(
     let symbols = attributes
         .iter()
         .enumerate()
-        .filter(|(_, attribute)| attribute_named(attribute, "symbol"))
+        .filter(|(_, attribute)| resolver.invokes(attribute, AttributeMacro::Symbol))
         .collect::<Vec<_>>();
+    let target_name = target.name();
     let symbol = match symbols.as_slice() {
         [] => None,
         [(symbol_index, symbol)] => {
             let targets = attributes
                 .iter()
                 .enumerate()
-                .filter(|(_, attribute)| attribute_named(attribute, target_name))
+                .filter(|(_, attribute)| resolver.invokes(attribute, target))
                 .map(|(index, _)| index)
                 .collect::<Vec<_>>();
             let [target_index] = targets.as_slice() else {

@@ -2,13 +2,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 extern crate language_host as k;
 
-use krs_macros::{cell, cells, constructor, map, rule, sort, term};
+use krs_macros::{cells, map, term};
 use language_host::configuration::{Cell, KCell};
 use language_host::{
     FormatFragment, HostApplicationIdentity, HostDescriptorPayload, HostGrammarDescriptor,
     HostProductionAttribute, HostProductionItem, HostProductionOwner, HostTerm, HostTermArgument,
     ItemKind, ProtocolInitializerStateTerm, ProtocolRuleBindingKind, ProtocolRuleStateTerm,
-    ProtocolVersion, Term, configuration, init,
+    ProtocolVersion, Term,
 };
 
 mod split_config;
@@ -413,24 +413,24 @@ mod instrumented {
     }
 }
 
-#[sort]
+#[language_host::sort]
 pub trait KItem {}
 
-#[sort]
+#[language_host::sort]
 #[language_host::bracket("({value})")]
 pub trait Expr: KItem {}
 
-#[sort]
+#[language_host::sort]
 pub trait KResult: KItem {}
 
-#[sort]
+#[language_host::sort]
 pub trait Value: Expr + KResult {}
 
 #[language_host::symbol("api::Halt")]
-#[constructor(sort = Expr, syntax = "halt", group = "atoms")]
+#[language_host::constructor(sort = Expr, syntax = "halt", group = "atoms")]
 pub struct Halt;
 
-#[constructor(
+#[language_host::constructor(
     sort = Expr,
     syntax = "{second} pair {first}",
     group = "pair",
@@ -443,12 +443,12 @@ pub struct Pair {
     pub second: Term<dyn Expr>,
 }
 
-#[constructor(sort = Expr, syntax = "wrap({value})")]
+#[language_host::constructor(sort = Expr, syntax = "wrap({value})")]
 pub struct Wrap {
     pub value: Term<dyn Expr>,
 }
 
-#[constructor(sort = Expr, syntax = "guarded({value})")]
+#[language_host::constructor(sort = Expr, syntax = "guarded({value})")]
 pub struct Guarded {
     pub value: Term<language_host::builtin::int::Int>,
 }
@@ -544,7 +544,7 @@ language_host::associativity! {
     non_associative: atoms;
 }
 
-#[configuration(root = "machine")]
+#[language_host::configuration(root = "machine")]
 pub struct Machine {
     pub k: instrumented::KCell<language_host::builtin::KSequence>,
     #[k::cell(name = "environment", color = "blue")]
@@ -554,7 +554,7 @@ pub struct Machine {
 }
 
 impl Machine {
-    #[init]
+    #[language_host::init]
     pub fn init() -> Self {
         Self {
             k: instrumented::KCell::new(k![Halt]),
@@ -563,21 +563,21 @@ impl Machine {
     }
 }
 
-#[cell]
+#[language_host::cell]
 pub struct Store {
     pub env: language_host::configuration::Cell<
         language_host::builtin::Map<language_host::builtin::Id, Term<dyn Value>>,
     >,
 }
 
-#[configuration]
+#[language_host::configuration]
 pub struct NestedMachine {
     pub k: language_host::configuration::KCell<language_host::builtin::KSequence>,
     pub store: Store,
 }
 
 impl NestedMachine {
-    #[init]
+    #[language_host::init]
     pub fn init() -> Self {
         Self {
             k: language_host::configuration::KCell::new(k![Halt]),
@@ -588,13 +588,13 @@ impl NestedMachine {
     }
 }
 
-#[configuration(root = "secondary")]
+#[language_host::configuration(root = "secondary")]
 pub struct Secondary {
     pub k: language_host::configuration::KCell<language_host::builtin::KSequence>,
 }
 
 impl Secondary {
-    #[init]
+    #[language_host::init]
     pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItem>) -> Self {
         Self {
             k: language_host::configuration::KCell::new(k![program]),
@@ -602,14 +602,14 @@ impl Secondary {
     }
 }
 
-#[configuration]
+#[language_host::configuration]
 pub struct TwoComputationMachine {
     pub first: language_host::configuration::KCell<language_host::builtin::KSequence>,
     pub second: language_host::configuration::KCell<language_host::builtin::KSequence>,
 }
 
 impl TwoComputationMachine {
-    #[init]
+    #[language_host::init]
     pub fn init() -> Self {
         Self {
             first: language_host::configuration::KCell::new(k![Halt]),
@@ -618,7 +618,7 @@ impl TwoComputationMachine {
     }
 }
 
-#[configuration]
+#[language_host::configuration]
 pub struct ExplicitEquivalentMachine {
     pub k: language_host::configuration::KCell<language_host::builtin::KSequence>,
     pub env: language_host::configuration::Cell<
@@ -630,7 +630,7 @@ pub struct ExplicitEquivalentMachine {
 }
 
 impl ExplicitEquivalentMachine {
-    #[init]
+    #[language_host::init]
     pub fn init(
         #[language_host::config_var(name = "PGM", main)] pgm: readable_sorts::ReadableStmt,
         #[language_host::config_var(name = "ENV")] env: language_host::builtin::Map<
@@ -667,7 +667,7 @@ impl ReadableEquivalentMachine {
     }
 }
 
-#[rule]
+#[language_host::rule]
 pub fn native_pair(Pair { first, second }: Term<dyn Expr>) -> Term<dyn Expr> {
     Pair {
         first: second,
@@ -675,12 +675,12 @@ pub fn native_pair(Pair { first, second }: Term<dyn Expr>) -> Term<dyn Expr> {
     }
 }
 
-#[rule]
+#[language_host::rule]
 pub fn macro_pair(term![Pair { first, second }]: Term<dyn Expr>) -> Term<dyn Expr> {
     term![Wrap { value: first }]
 }
 
-#[rule]
+#[language_host::rule]
 pub fn binder_gap(
     term![Pair {
         first: 日本,
@@ -693,17 +693,17 @@ pub fn binder_gap(
     }]
 }
 
-#[rule(label = "enum-false")]
+#[language_host::rule(label = "enum-false")]
 pub fn enum_alias(Truth::False: Term<Boolean>) -> Term<Boolean> {
     Truth::True
 }
 
-#[rule]
+#[language_host::rule]
 pub fn enum_record(Truth::Tagged { value }: Term<Boolean>) -> Term<Boolean> {
     Truth::Tagged { value }
 }
 
-#[rule]
+#[language_host::rule]
 pub fn subject_wildcard(
     Pair {
         first: _,
@@ -713,14 +713,14 @@ pub fn subject_wildcard(
     value
 }
 
-#[rule]
+#[language_host::rule]
 pub fn boolean_literal(
     false: Term<language_host::builtin::bool::Bool>,
 ) -> Term<language_host::builtin::bool::Bool> {
     true
 }
 
-#[rule]
+#[language_host::rule]
 pub fn builtin_application(
     term![Pair {
         first: lhs,
@@ -730,13 +730,13 @@ pub fn builtin_application(
     term![language_host::builtin::int::add(lhs, rhs)]
 }
 
-#[rule]
+#[language_host::rule]
 #[language_host::requires(language_host::builtin::int::gt(value, 0))]
 pub fn guarded_term(Guarded { value }: Term<dyn Expr>) -> Term<dyn Expr> {
     Halt
 }
 
-#[rule(label = "state-var")]
+#[language_host::rule(label = "state-var")]
 pub fn whole_state_var(
     x: Term<language_host::builtin::Id>,
     value: Term<dyn Value>,
@@ -752,7 +752,7 @@ pub fn whole_state_var(
     }
 }
 
-#[rule]
+#[language_host::rule]
 pub fn nested_state_var(
     x: Term<language_host::builtin::Id>,
     value: Term<dyn Value>,
@@ -768,7 +768,7 @@ pub fn nested_state_var(
     }
 }
 
-#[rule]
+#[language_host::rule]
 #[language_host::requires(language_host::builtin::int::gt(value, 0))]
 pub fn guarded_state(
     value: Term<language_host::builtin::int::Int>,
@@ -783,7 +783,7 @@ pub fn guarded_state(
     }
 }
 
-#[rule]
+#[language_host::rule]
 pub fn whole_state_wildcard(
     value: Term<dyn Expr>,
     krs_macros::cells! {
@@ -798,18 +798,18 @@ pub fn whole_state_wildcard(
 }
 
 pub mod nested {
-    use super::{Expr, Term, constructor, rule};
+    use super::{Expr, Term};
 
-    #[constructor(sort = Expr, syntax = "done")]
+    #[language_host::constructor(sort = Expr, syntax = "done")]
     pub struct Done;
 
-    #[constructor(sort = Expr)]
+    #[language_host::constructor(sort = Expr)]
     pub struct Keep {
         pub value: Term<dyn Expr>,
         pub marker: Term<dyn Expr>,
     }
 
-    #[rule]
+    #[language_host::rule]
     pub fn stay(Done: Term<dyn Expr>) -> Term<dyn Expr> {
         Done
     }

@@ -154,9 +154,41 @@ export function resolveFault(fault: FaultInjection | undefined): FaultInjection 
 }
 
 /**
+ * A diagnostic package's Cargo.toml as a self-contained lesson manifest: each
+ * dependency inherited with `NAME.workspace = true` is replaced by the
+ * workspace's `NAME = ...` entry, as `cargo package` normalizes a manifest.
+ * The browser VFS mounts only the lesson's own manifest, and the collector
+ * reads its dependencies to find the names that bind the `krs` facade.
+ * Other workspace-inherited fields stay verbatim.
+ */
+function selfContainedManifest(member: string): string {
+  const workspace = fixtureText("diagnostics/workspace.Cargo.toml");
+  const entries = new Map<string, string>();
+  let inDependencies = false;
+  for (const line of workspace.split("\n")) {
+    if (line.startsWith("[")) inDependencies = line.trim() === "[workspace.dependencies]";
+    const entry = inDependencies ? /^([A-Za-z0-9_-]+) = (.+)$/.exec(line) : null;
+    if (entry) entries.set(entry[1]!, entry[2]!);
+  }
+  let dependencySection = false;
+  return member
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("[")) dependencySection = /^\[(dev-|build-)?dependencies\]$/.test(line.trim());
+      const inherited = dependencySection ? /^([A-Za-z0-9_-]+)\.workspace = true$/.exec(line) : null;
+      if (!inherited) return line;
+      const entry = entries.get(inherited[1]!);
+      if (entry === undefined) throw new Error(`workspace dependency ${inherited[1]} is not declared`);
+      return `${inherited[1]} = ${entry}`;
+    })
+    .join("\n");
+}
+
+/**
  * Lesson manifests for the diagnostic packages, rendered as stage-assets.ts renders
- * tour-minimal's: the package Cargo.toml text verbatim (workspace-inherited
- * fields included), no [lints] (no lint flags), facade `k`.
+ * tour-minimal's: the package Cargo.toml text with workspace-inherited
+ * dependencies made explicit (selfContainedManifest), no [lints] (no lint
+ * flags), facade `k`.
  */
 export function lessonManifest(name: LessonName, tourMinimal: LessonManifest): LessonManifest {
   if (name === "tour-minimal") return tourMinimal;
@@ -167,7 +199,7 @@ export function lessonManifest(name: LessonName, tourMinimal: LessonManifest): L
     "diagnostic-overlap": { toml: "diagnostics/overlap.Cargo.toml", namespace: "DIAGNOSTIC-OVERLAP" },
   };
   const { toml, namespace } = files[name];
-  const cargoToml = fixtureText(toml);
+  const cargoToml = selfContainedManifest(fixtureText(toml));
   const cargo = Bun.TOML.parse(cargoToml) as { package: { name: string; metadata?: { krs?: { "k-namespace"?: string } } } };
   const cargoName = cargo.package.name;
   if (cargo.package.metadata?.krs?.["k-namespace"] && cargo.package.metadata.krs["k-namespace"] !== namespace) throw new Error(`${name} namespace`);

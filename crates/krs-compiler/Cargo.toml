@@ -16,6 +16,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
 syn = { version = "2.0.119", features = ["full", "parsing", "visit"] }
+toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
 
 [lints]
 workspace = true
