@@ -1050,6 +1050,7 @@ fn proof_status(status: ProofStatus) -> &'static str {
     match status {
         ProofStatus::Proven => "proven",
         ProofStatus::Disproved => "disproved",
+        ProofStatus::Failed => "failed",
         ProofStatus::Indeterminate => "indeterminate",
         ProofStatus::DepthBound => "depth-bound",
         ProofStatus::BreadthBound => "breadth-bound",
@@ -1815,10 +1816,11 @@ mod tests {
             })
             .expect("budget exhaustion should be represented as a proof result");
 
-        // Without SMT, an exhausted side condition remains indeterminate rather than
-        // producing the native solver's disproved verdict. Neither may establish the claim.
+        // Without SMT, an exhausted side condition remains indeterminate; with the native
+        // solver the leaf is stuck, but its constraint holds the unevaluated `chain0()`, so it
+        // fails the claim without certifying a refutation. Neither may establish the claim.
         assert!(
-            matches!(result.status.as_str(), "disproved" | "indeterminate"),
+            matches!(result.status.as_str(), "failed" | "indeterminate"),
             "{result:#?}"
         );
         assert!(
