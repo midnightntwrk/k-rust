@@ -419,8 +419,10 @@ dependencies = [
 name = "kink-campaign"
 version = "0.1.0"
 dependencies = [
- "kink-pattern",
+ "k-rust",
+ "kink-patch",
  "kink-portable",
+ "serde_json",
 ]
 
 [[package]]

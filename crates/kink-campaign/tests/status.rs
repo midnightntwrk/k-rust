@@ -10,14 +10,18 @@
 //! and `compare_supplied` disagree on them until crashes are compared by
 //! their terminal terms. Tables marked Rust-only have no source vector.
 
+#[path = "../../../testdata/k/support.rs"]
+mod support;
+
 use kink_campaign::{
     BaselineAdmission, CampaignFailureKind, CrashPolicy, ExecutionFailureKind, ManifestTest,
-    MutantPlan, MutantReport, MutantScopeFailure, MutantStatus, OracleKind, OracleOutcome,
-    OracleSide, Rational, ScheduleMode, Score, TestPlan, TestRun, compare_supplied,
+    MutantId, MutantPlan, MutantReport, MutantScopeFailure, MutantStatus, OracleKind,
+    OracleOutcome, OracleSide, Rational, ScheduleMode, Score, TestPlan, TestRun, compare_supplied,
     derive_mutant_report, score, validate_baseline,
 };
-use kink_pattern::{
-    CandidateGeneration, Completeness, PatchOrigin, SuppliedPatch, derive_mutant_id,
+use kink_patch::{
+    CandidateDisposition, Completeness, Edit, Patch, SelectionPolicy, SiteSelector, TermRef,
+    derive_sites, select,
 };
 use kink_portable::{Digest, SemanticJson};
 use std::collections::BTreeMap;
@@ -56,7 +60,7 @@ fn one_test(outcomes: &[OracleOutcome]) -> Vec<TestPlan> {
 /// A valid mutant's plan over `tests`.
 fn plan(tests: Vec<TestPlan>) -> MutantPlan {
     MutantPlan {
-        mutant_id: digest('a'),
+        mutant_id: MutantId(0),
         tests,
         mutant_failure: None,
     }
@@ -544,7 +548,7 @@ fn score_is_exact_and_excluded_statuses_do_not_count() {
 }
 
 /// A plan over the one-slot manifest `t1` whose outcome folds to `status`.
-fn plan_for(status: MutantStatus, character: char) -> MutantPlan {
+fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
     let outcome = match status {
         Killed => Distinguish,
         Survived => Agree,
@@ -553,14 +557,14 @@ fn plan_for(status: MutantStatus, character: char) -> MutantPlan {
         Error => OracleOutcome::Error,
         Invalid => {
             return MutantPlan {
-                mutant_id: digest(character),
+                mutant_id: MutantId(id),
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::Rejected),
             };
         }
     };
     MutantPlan {
-        mutant_id: digest(character),
+        mutant_id: MutantId(id),
         ..plan(one_test(&[outcome]))
     }
 }
@@ -631,8 +635,8 @@ fn baseline_admission_gates_mutants_and_score() {
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
         let plans = [Killed, Survived, Invalid, Timeout, Unknown, Error]
             .into_iter()
-            .zip('a'..)
-            .map(|(status, character)| plan_for(status, character))
+            .zip(0..)
+            .map(|(status, id)| plan_for(status, id))
             .collect();
         (plans, None)
     })
@@ -653,7 +657,7 @@ fn baseline_admission_gates_mutants_and_score() {
 
     // coupled-patch-is-one-mutant: a two-edit patch is one plan and one entry.
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        (vec![plan_for(Killed, 'a')], None)
+        (vec![plan_for(Killed, 0)], None)
     })
     .expect("coupled-patch-is-one-mutant admits");
     assert_eq!(reports.len(), 1);
@@ -662,7 +666,7 @@ fn baseline_admission_gates_mutants_and_score() {
 
     // timeout-is-not-survived
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        (vec![plan_for(Timeout, 'a')], None)
+        (vec![plan_for(Timeout, 0)], None)
     })
     .expect("timeout-is-not-survived admits");
     assert_eq!(statuses(&reports), [Timeout]);
@@ -672,9 +676,9 @@ fn baseline_admission_gates_mutants_and_score() {
     // nonterminating-decimal-is-exact-rational
     let (_, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
         let plans = vec![
-            plan_for(Killed, 'a'),
-            plan_for(Survived, 'b'),
-            plan_for(Survived, 'c'),
+            plan_for(Killed, 0),
+            plan_for(Survived, 1),
+            plan_for(Survived, 2),
         ];
         (plans, None)
     })
@@ -947,47 +951,47 @@ fn every_oracle_kind_keeps_agree_distinguish_and_unknown_distinct() {
 /// candidate is one mutant and one score entry.
 #[test]
 fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
-    let baseline = digest('b');
-    let origin = |character| PatchOrigin {
-        site_tuple: vec![digest(character)],
-        discovery_tuples: Vec::new(),
+    let memory = support::load("memory.k");
+    // The bodies of `write` and `load`.
+    let mut discovery = derive_sites(&memory, "body", &[SiteSelector::Root(0)]);
+    discovery.tuples.truncate(2);
+    let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
+    let origins = generation.selected_origins.clone();
+    assert_eq!(origins.len(), 2);
+    // Both origins build the patch that turns `write`'s right-hand side into
+    // its left-hand side.
+    let write = support::rule(&memory, "MEMORY.write");
+    let term = |path: &[u32]| {
+        memory
+            .term(&TermRef::new(write.clone(), path))
+            .expect("term")
+            .clone()
     };
-    let origins = vec![origin('1'), origin('2')];
-    let patch_id = digest('e');
-    let generation = CandidateGeneration {
-        candidates: Vec::new(),
-        selected_origins: origins.clone(),
-        completeness: Completeness::CompleteFinite,
-        failure: None,
-        scored: true,
-    }
-    .fold_patches(
-        "op",
-        1,
-        &baseline,
-        origins
-            .into_iter()
-            .map(|origin| SuppliedPatch {
-                patch_id: patch_id.clone(),
-                origin,
-                edit_receipts: Vec::new(),
-            })
-            .collect(),
-    )
-    .expect("equal patches fold");
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        at: TermRef::new(write.clone(), [0, 1]),
+        expected: term(&[0, 1]),
+        replacement: term(&[0, 0]),
+    }])
+    .expect("one edit");
+    let (generation, dispositions) = generation.fold(&memory, "rhs-to-lhs", |_| patch.clone());
     assert_eq!(generation.candidates.len(), 1);
     let candidate = &generation.candidates[0];
-    assert_eq!(candidate.origins.len(), 2);
+    assert_eq!(candidate.origins, origins);
+    assert_eq!(
+        dispositions,
+        [
+            CandidateDisposition::Mutant(0),
+            CandidateDisposition::Mutant(0)
+        ]
+    );
     let duplicates = generation.selected_origins.len() - generation.candidates.len();
     assert_eq!(duplicates, 1);
 
-    let reports = generation
-        .candidates
-        .iter()
-        .map(|candidate| {
+    let reports = (0..generation.candidates.len())
+        .map(|index| {
             report(
                 &MutantPlan {
-                    mutant_id: derive_mutant_id(&baseline, &candidate.patch_id),
+                    mutant_id: MutantId(index),
                     ..plan(one_test(&[Distinguish]))
                 },
                 &manifest(&[("t1", 1)]),
@@ -996,6 +1000,7 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
         })
         .collect::<Vec<_>>();
     assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].mutant_id, MutantId(0));
     let counted = score(&statuses(&reports));
     assert_eq!((counted.killed, counted.denominator), (1, 1));
 }

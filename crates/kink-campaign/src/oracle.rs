@@ -1,5 +1,5 @@
 use crate::OracleOutcome;
-use kink_pattern::Completeness;
+use kink_patch::Completeness;
 use kink_portable::{Digest, SemanticJson};
 use std::fmt;
 

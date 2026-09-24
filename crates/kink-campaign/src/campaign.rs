@@ -1,4 +1,3 @@
-use kink_portable::Digest;
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -142,11 +141,16 @@ pub struct ManifestTest {
     pub slot_count: usize,
 }
 
+/// A mutant's position among its campaign's candidates. One candidate, and
+/// so one patch, is one mutant, however many origins it folds.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct MutantId(pub usize);
+
 /// A mutation candidate ready for scheduling.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutantPlan {
-    /// Stable mutant identity.
-    pub mutant_id: Digest,
+    /// Mutant identity within its campaign.
+    pub mutant_id: MutantId,
     /// Every manifest test in manifest order, or none when a mutant-scope
     /// failure stopped the mutant before execution began. A mutant rejected,
     /// or whose lowering did not finish, never ran, so it must list none.
@@ -159,7 +163,7 @@ pub struct MutantPlan {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutantReport {
     /// Mutant identity.
-    pub mutant_id: Digest,
+    pub mutant_id: MutantId,
     /// Final closed classification.
     pub status: MutantStatus,
     /// Tests actually executed in manifest order.
@@ -306,7 +310,7 @@ pub fn derive_mutant_report(
         .map(|test| test.test_id.clone())
         .collect();
     Ok(MutantReport {
-        mutant_id: plan.mutant_id.clone(),
+        mutant_id: plan.mutant_id,
         status,
         executed_test_ids: executed,
         killing_test_ids: killing,

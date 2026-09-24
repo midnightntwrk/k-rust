@@ -1,19 +1,11 @@
-//! Finite pattern and supplied-binding candidate layer.
+//! Finite execution-pattern layer.
 //!
-//! This crate evaluates only normalized finite plans and folds discovery
-//! tuples already supplied by K. It deliberately contains no K parser,
-//! discovery implementation, solver, or native-conformance claim.
+//! This crate evaluates only normalized finite plans over supplied paths. It
+//! deliberately contains no K parser, solver, or native-conformance claim.
+//! Mutation sites and candidate selection live in kink-patch.
 
-mod candidate;
 mod pattern;
 
-pub use candidate::{
-    Candidate, CandidateFailure, CandidateFailureKind, CandidateGeneration, Completeness,
-    DiscoveryAuthority, DiscoveryEvidence, DiscoveryRegistry, DiscoveryTuple, EditOriginReceipt,
-    EditReceiptSource, PatchOrigin, PatchTemplateRole, ReceiptAuthority, SelectionPolicy, Site,
-    SuppliedPatch, ValidatedDiscoveryRegistry, canonical_binding_digest, derive_candidate_id,
-    derive_instance_id, derive_mutant_id, derive_site_id, select, validate_edit_receipts,
-};
 pub use pattern::{
     ArtifactRef, Atom, Binding, CollectionEvidence, CollectionStop, Constructor, CorpusComponent,
     CorpusDecision, CorpusSkip, Evaluation, EvaluationAuthority, EvaluationOptions, Event,

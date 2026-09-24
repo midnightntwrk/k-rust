@@ -5,7 +5,7 @@
 //! exhaustion record (`upstream/k-rust.toml` `search-completeness`), and an empty upstream
 //! incomplete list is not evidence of exhaustion: a `Final` search whose result bound is filled
 //! by a depth-bounded frontier state reports no incomplete item at all. Therefore no adapter
-//! response may map to `kink_pattern::Completeness::CompleteFinite` until upstream provides an
+//! response may map to `kink_patch::Completeness::CompleteFinite` until upstream provides an
 //! exhaustion record. A bridge maps a response to `Incomplete` when its frontier or incomplete
 //! list is non-empty, and to `Unknown` otherwise.
 

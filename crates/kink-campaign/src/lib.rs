@@ -9,7 +9,7 @@ mod oracle;
 
 pub use campaign::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, ExecutionFailureKind, ManifestTest,
-    MutantPlan, MutantReport, MutantScopeFailure, MutantStatus, OracleOutcome, Rational,
+    MutantId, MutantPlan, MutantReport, MutantScopeFailure, MutantStatus, OracleOutcome, Rational,
     ScheduleMode, Score, TestPlan, TestRun, derive_mutant_report, score, validate_baseline,
 };
 pub use oracle::{
