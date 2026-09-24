@@ -91,8 +91,8 @@ fn manifest(tests: &[(&str, usize)]) -> Vec<ManifestTest> {
         .collect()
 }
 
-/// The manifest a well-formed plan was built against; a failed test declares
-/// one slot.
+/// The manifest a well-formed plan was built against; a failed or skipped
+/// test declares one slot.
 fn manifest_of(plan: &MutantPlan) -> Vec<ManifestTest> {
     plan.tests
         .iter()
@@ -100,10 +100,25 @@ fn manifest_of(plan: &MutantPlan) -> Vec<ManifestTest> {
             test_id: test.test_id.clone(),
             slot_count: match &test.run {
                 TestRun::Compared(outcomes) => outcomes.len(),
-                TestRun::Failed(_) => 1,
+                TestRun::Failed(_) | TestRun::SkippedAfterKill => 1,
             },
         })
         .collect()
+}
+
+/// `plan` as the runner plans it under first-kill: every test after the first
+/// killing test is `SkippedAfterKill`.
+fn stopped_at_first_kill(plan: &MutantPlan) -> MutantPlan {
+    let first_kill = plan.tests.iter().position(
+        |test| matches!(&test.run, TestRun::Compared(outcomes) if outcomes.contains(&Distinguish)),
+    );
+    let mut stopped = plan.clone();
+    if let Some(first_kill) = first_kill {
+        for test in &mut stopped.tests[first_kill + 1..] {
+            test.run = TestRun::SkippedAfterKill;
+        }
+    }
+    stopped
 }
 
 fn report(plan: &MutantPlan, manifest: &[ManifestTest], schedule: ScheduleMode) -> MutantReport {
@@ -361,7 +376,7 @@ fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
     use Fold::{C, F};
     use OracleOutcome as O;
     #[rustfmt::skip]
-    let rows: [FoldRow; 17] = [
+    let rows: [FoldRow; 18] = [
         ("timeout-over-unknown", None, &[("t1", C(&[O::Timeout, O::Unknown]))], Timeout, &[], &["t1"]),
         ("error-over-unknown", None, &[("t1", C(&[O::Unknown, O::Error]))], Error, &[], &["t1"]),
         ("error-over-timeout", None, &[("t1", C(&[O::Timeout, O::Error]))], Error, &[], &["t1"]),
@@ -375,6 +390,7 @@ fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
         ("kill-after-incomparable", None, &[("t1", C(&[O::Incomparable])), ("t2", C(&[O::Distinguish])), ("t3", C(&[O::Agree]))], Killed, &["t2"], &["t1", "t2"]),
         ("failed-resource-limit-beside-timeout-slot", None, &[("t1", F(E::ResourceLimit)), ("t2", C(&[O::Timeout]))], Timeout, &[], &["t1", "t2"]),
         ("failed-time-limit-beside-error-slot", None, &[("t1", F(E::TimeLimit)), ("t2", C(&[O::Error]))], Error, &[], &["t1", "t2"]),
+        ("kill-before-failed-test", None, &[("t1", C(&[O::Distinguish])), ("t2", F(E::Infrastructure))], Killed, &["t1"], &["t1"]),
         ("failed-infrastructure-then-kill", None, &[("t1", F(E::Infrastructure)), ("t2", C(&[O::Distinguish]))], Killed, &["t2"], &["t1", "t2"]),
         ("every-test-failed", None, &[("t1", F(E::TimeLimit)), ("t2", F(E::Indeterminate))], Timeout, &[], &["t1", "t2"]),
         ("failed-test-beside-agreement", None, &[("t1", F(E::ResourceLimit)), ("t2", C(&[O::Agree]))], Unknown, &[], &["t1", "t2"]),
@@ -422,6 +438,115 @@ fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
             &all[first_kill_executed.len()..],
             "{id} under FirstKill"
         );
+        // Not running the tests after the first kill changes nothing under
+        // first-kill, and the skips are refused under full.
+        let stopped = stopped_at_first_kill(&plan);
+        assert_eq!(
+            report(&stopped, &declared, ScheduleMode::FirstKill),
+            first_kill,
+            "{id} stopped at the first kill"
+        );
+        if stopped != plan {
+            assert_eq!(
+                derive_mutant_report(&stopped, &declared, ScheduleMode::Full)
+                    .expect_err("full runs every test")
+                    .kind(),
+                CampaignFailureKind::FabricatedSkip,
+                "{id} stopped at the first kill under Full"
+            );
+        }
+    }
+}
+
+/// (id, mutant-scope failure, tests, manifest, rejection under first-kill,
+/// rejection under full)
+type SkipRow = (
+    &'static str,
+    Option<MutantScopeFailure>,
+    Vec<TestPlan>,
+    &'static [(&'static str, usize)],
+    Option<CampaignFailureKind>,
+    Option<CampaignFailureKind>,
+);
+
+/// Rust-only: a test planned as skipped after a kill is accepted only under
+/// first-kill, in a suffix after an executed killing test, and it is still a
+/// manifest entry. An accepted plan derives the report of the same plan with
+/// those tests executed, whatever they produced.
+#[test]
+fn tests_may_be_skipped_only_after_a_first_kill() {
+    use CampaignFailureKind::{FabricatedSkip, InvalidManifest};
+    use ExecutionFailureKind as E;
+    use MutantScopeFailure as S;
+    use OracleOutcome as O;
+    let skip = |id: &str| TestPlan {
+        test_id: id.to_owned(),
+        run: TestRun::SkippedAfterKill,
+    };
+    let failed = |id: &str, kind| TestPlan {
+        test_id: id.to_owned(),
+        run: TestRun::Failed(kind),
+    };
+    let kill = |id| compared(id, &[Distinguish]);
+    let agree = |id| compared(id, &[Agree]);
+    let t1_t2: &[(&str, usize)] = &[("t1", 1), ("t2", 1)];
+    let t1_t3: &[(&str, usize)] = &[("t1", 1), ("t2", 1), ("t3", 1)];
+    let fabricated = Some(FabricatedSkip);
+    let mismatched = Some(InvalidManifest);
+    #[rustfmt::skip]
+    let rows: [SkipRow; 13] = [
+        ("skipped-after-kill", None, vec![kill("t1"), skip("t2"), skip("t3")], t1_t3, None, fabricated),
+        ("skipped-after-kill-then-agreement", None, vec![kill("t1"), agree("t2"), skip("t3")], t1_t3, None, fabricated),
+        ("skipped-after-infrastructure-failure-and-kill", Some(S::Infrastructure), vec![kill("t1"), skip("t2")], t1_t2, None, fabricated),
+        ("skipped-before-kill", None, vec![skip("t1"), kill("t2")], t1_t2, fabricated, fabricated),
+        ("skipped-without-kill", None, vec![agree("t1"), skip("t2")], t1_t2, fabricated, fabricated),
+        ("skipped-after-inconclusive", None, vec![compared("t1", &[O::Timeout]), skip("t2")], t1_t2, fabricated, fabricated),
+        ("skipped-after-failed-test", None, vec![failed("t1", E::Infrastructure), skip("t2")], t1_t2, fabricated, fabricated),
+        ("every-test-skipped", None, vec![skip("t1"), skip("t2")], t1_t2, fabricated, fabricated),
+        ("executed-after-skipped", None, vec![kill("t1"), skip("t2"), agree("t3")], t1_t3, mismatched, fabricated),
+        ("missing-skipped-test", None, vec![kill("t1"), skip("t2")], t1_t3, mismatched, mismatched),
+        ("reordered-skipped-tests", None, vec![kill("t1"), skip("t3"), skip("t2")], t1_t3, mismatched, mismatched),
+        ("extra-skipped-test", None, vec![kill("t1"), skip("t2"), skip("t3")], t1_t2, mismatched, mismatched),
+        ("rejected-with-skipped-tests", Some(S::Rejected), vec![skip("t1"), skip("t2")], t1_t2, mismatched, mismatched),
+    ];
+    for (id, mutant_failure, tests, declared, first_kill, full) in rows {
+        let plan = MutantPlan {
+            mutant_failure,
+            ..plan(tests)
+        };
+        let declared = manifest(declared);
+        for (schedule, expected) in [
+            (ScheduleMode::FirstKill, first_kill),
+            (ScheduleMode::Full, full),
+        ] {
+            let derived = derive_mutant_report(&plan, &declared, schedule);
+            let Some(expected) = expected else {
+                let actual = derived.expect("the skips are accepted");
+                // The skipped tests executed, agreeing or failing.
+                for run in [
+                    TestRun::Compared(vec![Agree]),
+                    TestRun::Failed(E::Infrastructure),
+                ] {
+                    let mut executed = plan.clone();
+                    for test in &mut executed.tests {
+                        if test.run == TestRun::SkippedAfterKill {
+                            test.run = run.clone();
+                        }
+                    }
+                    assert_eq!(
+                        report(&executed, &declared, schedule),
+                        actual,
+                        "{id} executed as {run:?} under {schedule:?}"
+                    );
+                }
+                continue;
+            };
+            assert_eq!(
+                derived.expect_err("the plan is rejected").kind(),
+                expected,
+                "{id} under {schedule:?}"
+            );
+        }
     }
 }
 
@@ -515,6 +640,13 @@ fn first_kill_and_full_schedules_agree_on_status() {
         assert_eq!(actual.killing_test_ids, killing, "{schedule:?}");
         assert_eq!(actual.skipped_test_ids, skipped, "{schedule:?}");
     }
+    // First-kill need not run `t3`: the plan that skips it reports the same.
+    let stopped = stopped_at_first_kill(&plan);
+    assert_eq!(stopped.tests[2].run, TestRun::SkippedAfterKill);
+    assert_eq!(
+        report(&stopped, &manifest_of(&plan), ScheduleMode::FirstKill),
+        report(&plan, &manifest_of(&plan), ScheduleMode::FirstKill)
+    );
 }
 
 /// C3: the score is the exact reduced killed/(killed+survived), and every

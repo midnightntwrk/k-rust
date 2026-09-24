@@ -123,6 +123,17 @@ pub enum TestRun {
     Compared(Vec<OracleOutcome>),
     /// The run produced no operand, so no slot was compared.
     Failed(ExecutionFailureKind),
+    /// The test was deliberately not run, because an earlier test of the same
+    /// mutant killed it under `FirstKill`. It is valid only there, and only in
+    /// the suffix after that kill; it carries no evidence.
+    SkippedAfterKill,
+}
+
+impl TestRun {
+    /// Whether any slot distinguished the mutant, which kills it.
+    pub(crate) fn kills(&self) -> bool {
+        matches!(self, Self::Compared(outcomes) if outcomes.contains(&OracleOutcome::Distinguish))
+    }
 }
 
 /// One manifest-ordered test and what its mutant execution produced.
@@ -156,6 +167,9 @@ pub struct MutantPlan {
     /// Every manifest test in manifest order, or none when a mutant-scope
     /// failure stopped the mutant before execution began. A mutant rejected,
     /// or whose lowering did not finish, never ran, so it must list none.
+    /// Under `FirstKill`, the tests after the first killing test may end in a
+    /// suffix of `SkippedAfterKill` entries; they are still listed, so a
+    /// missing or reordered test is still refused.
     pub tests: Vec<TestPlan>,
     /// Failure invalidating every test's evidence; it decides the status.
     pub mutant_failure: Option<MutantScopeFailure>,
@@ -170,13 +184,16 @@ pub struct MutantReport {
     pub status: MutantStatus,
     /// Tests whose outcomes the status fold read, in manifest order: every
     /// test under `Full`, and the prefix through the first killing test under
-    /// `FirstKill`, or none when the plan lists no tests. It is not a record
-    /// of execution: the runner executes every test of a mutant it can run,
-    /// whatever the schedule.
+    /// `FirstKill`, or none when the plan lists no tests. The runner executes
+    /// exactly these tests of a mutant it can run: under `FirstKill` it stops
+    /// after the first killing test and plans the rest as `SkippedAfterKill`.
+    /// A supplied plan may instead carry executed tests after the kill, which
+    /// the fold does not read, so the report is the same either way.
     pub executed_test_ids: Vec<String>,
     /// Exact killing-test prefix or full list; empty unless `Killed`.
     pub killing_test_ids: Vec<String>,
-    /// The manifest suffix the fold did not read under first-kill.
+    /// The manifest suffix the fold did not read under first-kill, whether
+    /// its tests ran or were planned as `SkippedAfterKill`.
     pub skipped_test_ids: Vec<String>,
 }
 
@@ -237,7 +254,16 @@ pub(crate) fn check_manifest(manifest: &[ManifestTest]) -> Result<(), CampaignFa
 }
 
 /// Rejects a manifest, or a plan that does not match it, before any fold.
-fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), CampaignFailure> {
+///
+/// A `SkippedAfterKill` entry is accepted only under `FirstKill` and after an
+/// executed test that killed the mutant; anywhere else it is a
+/// `FabricatedSkip`. An executed test after a skipped one is refused as not
+/// matching the manifest, since the mutant stopped at the skip.
+fn check_plan(
+    plan: &MutantPlan,
+    manifest: &[ManifestTest],
+    schedule: ScheduleMode,
+) -> Result<(), CampaignFailure> {
     check_manifest(manifest)?;
     if let Some(failure) = plan.mutant_failure {
         if plan.tests.is_empty() {
@@ -254,25 +280,46 @@ fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), Campai
             "mutant tests differ from the selected-test manifest",
         ));
     }
+    let mut killed = false;
+    let mut skipping = false;
     for (test, declared) in plan.tests.iter().zip(manifest) {
         if test.test_id != declared.test_id {
             return Err(invalid_manifest(
                 "mutant tests differ from the selected-test manifest order",
             ));
         }
-        if let TestRun::Compared(outcomes) = &test.run {
-            if outcomes.len() != declared.slot_count {
-                return Err(invalid_manifest(
-                    "compared outcomes differ from the declared oracle slots",
-                ));
+        match &test.run {
+            TestRun::Compared(outcomes) => {
+                if outcomes.len() != declared.slot_count {
+                    return Err(invalid_manifest(
+                        "compared outcomes differ from the declared oracle slots",
+                    ));
+                }
+                if outcomes.contains(&OracleOutcome::Skipped) {
+                    return Err(CampaignFailure::new(
+                        CampaignFailureKind::FabricatedSkip,
+                        "input outcomes may not pre-mark a selected oracle as skipped",
+                    ));
+                }
             }
-            if outcomes.contains(&OracleOutcome::Skipped) {
-                return Err(CampaignFailure::new(
-                    CampaignFailureKind::FabricatedSkip,
-                    "input outcomes may not pre-mark a selected oracle as skipped",
-                ));
+            TestRun::Failed(_) => {}
+            TestRun::SkippedAfterKill => {
+                if schedule != ScheduleMode::FirstKill || !killed {
+                    return Err(CampaignFailure::new(
+                        CampaignFailureKind::FabricatedSkip,
+                        "a test may be skipped only after a kill under first-kill",
+                    ));
+                }
+                skipping = true;
+                continue;
             }
         }
+        if skipping {
+            return Err(invalid_manifest(
+                "a test skipped after a kill cannot be followed by an executed test",
+            ));
+        }
+        killed |= test.run.kills();
     }
     Ok(())
 }
@@ -282,16 +329,18 @@ fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), Campai
 /// The plan must list every manifest test in order with one outcome per
 /// declared slot, or no tests when a mutant-scope failure stopped the mutant
 /// before execution; only an `Infrastructure` failure may accompany executed
-/// tests. The status is one fold with a single precedence: a
-/// mutant-scope failure, then any distinguishing slot (killed), then error
-/// (including incomparable slots and failed infrastructure runs), timeout and
-/// unknown, and complete agreement (survived) only when nothing else was seen.
+/// tests. Under `FirstKill` the tests after the first kill may be planned as
+/// `SkippedAfterKill`; the fold never reads past that kill, so the report is
+/// the one the same plan with those tests executed derives. The status is one
+/// fold with a single precedence: a mutant-scope failure, then any
+/// distinguishing slot (killed), then error (including incomparable slots and
+/// failed infrastructure runs), timeout and unknown, and complete agreement (survived) only when nothing else was seen.
 pub fn derive_mutant_report(
     plan: &MutantPlan,
     manifest: &[ManifestTest],
     schedule: ScheduleMode,
 ) -> Result<MutantReport, CampaignFailure> {
-    check_plan(plan, manifest)?;
+    check_plan(plan, manifest, schedule)?;
 
     let mut executed = Vec::new();
     let mut killing = Vec::new();
@@ -300,14 +349,17 @@ pub fn derive_mutant_report(
         if schedule == ScheduleMode::FirstKill && !killing.is_empty() {
             break;
         }
-        executed.push(test.test_id.clone());
         let test_status = match &test.run {
             TestRun::Compared(outcomes) => outcomes
                 .iter()
                 .map(|outcome| slot_status(*outcome))
                 .fold(MutantStatus::Survived, fold),
             TestRun::Failed(kind) => kind.status(),
+            // `check_plan` admits a skip only after a kill, which has already
+            // ended the first-kill fold, and never under `Full`.
+            TestRun::SkippedAfterKill => break,
         };
+        executed.push(test.test_id.clone());
         if test_status == MutantStatus::Killed {
             killing.push(test.test_id.clone());
         }

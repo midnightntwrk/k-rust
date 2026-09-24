@@ -188,6 +188,7 @@ fn outcomes(tests: &[TestPlan]) -> Vec<(&str, Vec<OracleOutcome>)> {
         .map(|test| match &test.run {
             TestRun::Compared(outcomes) => (test.test_id.as_str(), outcomes.clone()),
             TestRun::Failed(kind) => panic!("{}: failed {kind:?}", test.test_id),
+            TestRun::SkippedAfterKill => panic!("{}: skipped", test.test_id),
         })
         .collect()
 }
@@ -360,7 +361,27 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         );
 
         // Under first-kill, the killing prefix is t1 for the increment mutant and t2 for
-        // the branch mutant, and every status is unchanged.
+        // the branch mutant, and every status is unchanged. The runner stops the increment
+        // mutant after t1, and the reports are the ones derived from running every test.
+        let stopped = run_campaign(
+            &campaign,
+            &generation(baseline, &mutants),
+            ScheduleMode::FirstKill,
+        )
+        .expect("admitted");
+        assert_eq!(stopped.baseline, run.baseline);
+        assert_eq!(stopped.score, run.score);
+        let increment = &stopped.mutants[1];
+        assert_eq!(increment.plan.tests[0], run.mutants[1].plan.tests[0]);
+        assert_eq!(increment.plan.tests[1].test_id, "t2");
+        assert_eq!(increment.plan.tests[1].run, TestRun::SkippedAfterKill);
+        assert_eq!(increment.evidence, run.mutants[1].evidence[..1]);
+        for (index, (stopped, full)) in stopped.mutants.iter().zip(&run.mutants).enumerate() {
+            if index != 1 {
+                assert_eq!(stopped.plan, full.plan, "{index}");
+                assert_eq!(stopped.evidence, full.evidence, "{index}");
+            }
+        }
         let manifest = tests
             .iter()
             .map(|test| kink_campaign::ManifestTest {
@@ -375,12 +396,15 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             (&["t1", "t2"], &["t2"]),
             (&["t1", "t2"], &[]),
         ];
-        for (mutant, (executed, killing)) in run.mutants.iter().zip(first_kill) {
+        for ((mutant, stopped), (executed, killing)) in
+            run.mutants.iter().zip(&stopped.mutants).zip(first_kill)
+        {
             let report = derive_mutant_report(&mutant.plan, &manifest, ScheduleMode::FirstKill)
                 .expect("report");
             assert_eq!(report.status, mutant.report.status);
             assert_eq!(report.executed_test_ids, executed);
             assert_eq!(report.killing_test_ids, killing);
+            assert_eq!(stopped.report, report);
         }
     });
 }

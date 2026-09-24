@@ -1,7 +1,8 @@
 //! Runs a campaign through kink-native and maps each run to typed oracle sides.
 //!
 //! The baseline and every mutant execute every test with one observed, time-bounded
-//! [`ExecutionAdapter`] run, read through the kink-native bridge. Each declared oracle
+//! [`ExecutionAdapter`] run (under `FirstKill`, a mutant only through its first killing
+//! test), read through the kink-native bridge. Each declared oracle
 //! turns the bridged paths into one [`OracleSide`]; each mapping is an exhaustive
 //! `match` that never turns incomplete evidence into a value:
 //!
@@ -177,8 +178,9 @@ pub struct TestEvidence {
     pub run: SideRun,
 }
 
-/// One mutant's plan, its report under the campaign's schedule, and its runs (none when
-/// a mutant-scope failure stopped it before execution).
+/// One mutant's plan, its report under the campaign's schedule, and its runs: one per
+/// executed test in manifest order, so none for a test planned as `SkippedAfterKill` and
+/// none at all when a mutant-scope failure stopped it before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutantRun {
     pub plan: MutantPlan,
@@ -214,9 +216,10 @@ pub struct CampaignRun {
 /// no score either, rather than a claim over zero mutants.
 ///
 /// The baseline must compile, and every one of its sides must be a value or a crash its
-/// declaration admits; otherwise no mutant is validated. Every test runs on every mutant
-/// even under `FirstKill`, because a `MutantPlan` lists every manifest test; the schedule
-/// only decides the report.
+/// declaration admits; otherwise no mutant is validated. Under `Full` every test runs on
+/// every mutant. Under `FirstKill` a mutant stops after its first killing test, and its
+/// plan lists each remaining test as `SkippedAfterKill`; its report and status are the
+/// ones the same schedule derives from running every test.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
     generation: &CandidateGeneration<'_>,
@@ -263,7 +266,7 @@ pub fn run_campaign(
     let mut runs = Vec::with_capacity(generation.candidates().len());
     for (index, candidate) in generation.candidates().iter().enumerate() {
         let (tests, mutant_failure, evidence) =
-            run_mutant(campaign, &candidate.patch, &baseline_evidence);
+            run_mutant(campaign, &candidate.patch, &baseline_evidence, schedule);
         let plan = MutantPlan {
             mutant_id: MutantId(index),
             tests,
@@ -314,11 +317,13 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     admission
 }
 
-/// A mutant's tests, its mutant-scope failure, and its runs.
+/// A mutant's tests, its mutant-scope failure, and its runs. Under `FirstKill` it stops
+/// after the first killing test and plans every later test as `SkippedAfterKill`.
 fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     baseline: &[TestEvidence],
+    schedule: ScheduleMode,
 ) -> (Vec<TestPlan>, Option<MutantScopeFailure>, Vec<TestEvidence>) {
     let side = match campaign.validator.validate(patch) {
         Ok(side) => side,
@@ -334,7 +339,15 @@ fn run_mutant(
     };
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
+    let mut killed = false;
     for (test, baseline) in campaign.tests.iter().zip(baseline) {
+        if killed {
+            tests.push(TestPlan {
+                test_id: test.id.clone(),
+                run: TestRun::SkippedAfterKill,
+            });
+            continue;
+        }
         let mutant = runtime.run(campaign, test);
         let run = match (&baseline.run, &mutant.run) {
             (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
@@ -357,6 +370,7 @@ fn run_mutant(
                 TestRun::Failed(ExecutionFailureKind::Infrastructure)
             }
         };
+        killed = schedule == ScheduleMode::FirstKill && run.kills();
         tests.push(TestPlan {
             test_id: test.id.clone(),
             run,
