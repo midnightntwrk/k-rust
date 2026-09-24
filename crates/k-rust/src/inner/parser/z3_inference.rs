@@ -2173,8 +2173,15 @@ impl<'a> Encoding<'a> {
                     .get(&key)
                     .ok_or_else(|| z3_error(format!("Z3 omitted a sort for variable {name}")))?;
                 self.check_sort(inferred, expected, cast_context)?;
-                if cast_context == CastContext::Semantic {
+                // A semantic cast bounds the variable from above; it records the variable's sort
+                // only when the model chose the bound itself. Otherwise the variable carries the
+                // model's sort under the cast, so every occurrence agrees on it.
+                if cast_context == CastContext::Semantic && inferred == expected {
                     Ok(Rc::clone(&term))
+                } else if cast_context == CastContext::Semantic
+                    && let Some(variable) = super::variable_with_inferred_sort(leaf, inferred)
+                {
+                    Ok(PackedTerm::leaf(variable))
                 } else {
                     self.wrap_with_packed_cast(Rc::clone(&term), inferred)
                 }
@@ -2458,8 +2465,15 @@ impl<'a> Encoding<'a> {
                     .get(&key)
                     .ok_or_else(|| z3_error(format!("Z3 omitted a sort for variable {name}")))?;
                 self.check_sort(inferred, expected, cast_context)?;
+                // As in the packed read-back: under a semantic cast the variable carries the
+                // model's sort itself unless the model chose the bound.
                 if cast_context == CastContext::Semantic {
-                    return Ok(term);
+                    if inferred == expected {
+                        return Ok(term);
+                    }
+                    if let Some(variable) = super::variable_with_inferred_sort(leaf, inferred) {
+                        return Ok(ParsedTerm::Term(variable));
+                    }
                 }
                 self.wrap_with_cast(term, inferred)
             }
@@ -4453,6 +4467,18 @@ mod tests {
                     if matches!(&children[0], ParsedTerm::Production { production: 1, .. })
             ),
             "X should be recorded at Small: {inferred:?}"
+        );
+        // The cast occurrence records it too, on X under the Big bound, so X has one sort.
+        assert!(
+            matches!(
+                &children[0],
+                ParsedTerm::Production { production: 0, children, .. }
+                    if matches!(
+                        children[0].leaf(),
+                        Some(Term::Variable { sort: Some(sort), .. }) if sort == &Sort::new("Small")
+                    )
+            ),
+            "X under the Big cast should be recorded at Small: {inferred:?}"
         );
     }
 

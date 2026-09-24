@@ -1006,6 +1006,77 @@ fn semcast3_and_semcast4_reading_agrees_under_checked_inference() {
     );
 }
 
+/// Resolves the one rule of `source` and returns its body after `resolve_semantic_casts`,
+/// asserting that every occurrence of `X` carries `Small`.
+fn assert_every_x_is_small_after_resolving_casts(name: &str, source: &str, occurrences: usize) {
+    let resolved = resolve_rule_bubbles(&lowered_module(source, "TEST"))
+        .unwrap_or_else(|error| panic!("{name}: X at Small is well-sorted: {error:?}"));
+    let sentence = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
+        .unwrap_or_else(|| panic!("{name}: the rule should be resolved"));
+    let Sentence::Rule { body, .. } =
+        k_rust::kompile::resolve_semantic_casts_in_sentence((**sentence).clone())
+    else {
+        unreachable!()
+    };
+    let resolved_body = format!("{:?}", body.unannotated());
+    let small_x = r#"Variable { name: "X", sort: Some(Sort { name: "Small", parameters: [] }) }"#;
+    assert_eq!(
+        resolved_body
+            .matches(r#"Variable { name: "X", sort: "#)
+            .count(),
+        occurrences,
+        "{name}: {resolved_body}"
+    );
+    assert_eq!(
+        resolved_body.matches(small_x).count(),
+        occurrences,
+        "{name}: every occurrence of X is at Small: {resolved_body}"
+    );
+}
+
+/// The cast occurrence `X:Big` comes after the occurrence that narrows X to Small, so the cast
+/// must itself record the inferred sort; the rule is unambiguous (portable engine).
+#[test]
+fn semantic_cast_after_the_narrowing_occurrence_keeps_the_inferred_sort() {
+    let source = include_str!("fixtures/reference/inner/semcast2/test.k").replace(
+        "rule bar(X:Big) => foo(X)",
+        "rule foo(X) ~> bar(X:Big) => .K",
+    );
+    assert_every_x_is_small_after_resolving_casts("foo(X) ~> bar(X:Big)", &source, 2);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn semantic_cast_after_the_narrowing_occurrence_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "semantic_cast_after_the_narrowing_occurrence_keeps_the_inferred_sort",
+    );
+}
+
+/// As above with the ambiguous `a(X)` (Z3 engine): only `aS` is well-sorted, with X at Small.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn semantic_cast_after_an_ambiguous_narrowing_occurrence_keeps_the_inferred_sort() {
+    let source = include_str!("fixtures/reference/inner/semcast3/test.k").replace(
+        "rule bar(X:Big) => foo(X) ~> a(X)",
+        "rule a(X) ~> bar(X:Big) => .K",
+    );
+    assert_every_x_is_small_after_resolving_casts("a(X) ~> bar(X:Big)", &source, 2);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn semantic_cast_after_an_ambiguous_narrowing_occurrence_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "semantic_cast_after_an_ambiguous_narrowing_occurrence_keeps_the_inferred_sort",
+    );
+}
+
 /// The strict cast is the exact annotation: `X::Big` gives X all of Big, so the occurrence in
 /// `foo(Small)` is a sort error.
 #[test]

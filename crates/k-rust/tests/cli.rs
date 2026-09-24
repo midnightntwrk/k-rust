@@ -54,6 +54,59 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
+/// Compiles `rule` over the semcast grammar and returns `definition.kore`.
+fn compiled_semcast_kore(rule: &str, checked: bool) -> String {
+    let (root, definition) = fixture();
+    let source = include_str!("fixtures/reference/inner/semcast3/test.k")
+        .replace("  rule bar(X:Big) => foo(X) ~> a(X)", rule);
+    fs::write(&definition, source).unwrap();
+    let compiled = root.join("compiled");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command
+        .args(["kcompile", definition.to_str().unwrap(), "-m", "TEST", "-o"])
+        .arg(&compiled);
+    if checked {
+        command.env("KRUST_TYPE_INFERENCE_MODE", "checked");
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "{rule}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let kore = fs::read_to_string(compiled.join("definition.kore")).unwrap();
+    fs::remove_dir_all(root).unwrap();
+    kore
+}
+
+/// A semantic cast `X:Big` placed after the occurrence that narrows X to Small compiles X at
+/// Small at every occurrence, injected upward into Big under `bar`, never downward.
+#[test]
+fn kcompile_keeps_the_inferred_sort_of_a_variable_under_a_later_semantic_cast() {
+    let mut rules = vec![("  rule foo(X) ~> bar(X:Big) => .K", false)];
+    #[cfg(feature = "z3-inference")]
+    rules.extend([
+        ("  rule foo(X) ~> bar(X:Big) => .K", true),
+        ("  rule a(X) ~> bar(X:Big) => .K", false),
+        ("  rule a(X) ~> bar(X:Big) => .K", true),
+    ]);
+    for (rule, checked) in rules {
+        let kore = compiled_semcast_kore(rule, checked);
+        assert!(
+            !kore.contains("inj{SortBig{}, SortSmall{}}"),
+            "{rule} (checked: {checked}) has a downward injection:\n{kore}"
+        );
+        assert!(
+            !kore.contains("VarX:SortBig{}"),
+            "{rule} (checked: {checked}) gives X the sort Big:\n{kore}"
+        );
+        assert!(
+            kore.contains("Lblbar{}(inj{SortSmall{}, SortBig{}}(VarX:SortSmall{}))"),
+            "{rule} (checked: {checked}):\n{kore}"
+        );
+    }
+}
+
 #[test]
 fn runnable_compiled_artifact_is_equivalent_and_validated() {
     let (root, definition) = fixture();
