@@ -319,24 +319,46 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
 
 /// A mutant's tests, its mutant-scope failure, and its runs. Under `FirstKill` it stops
 /// after the first killing test and plans every later test as `SkippedAfterKill`.
+///
+/// A mutant-scope failure overrides every test outcome, a kill included
+/// ([`derive_mutant_report`]). `FirstKill`'s early stop gives `Full`'s status only because no
+/// such failure can arise once a test has run: had a skipped test raised one, `Full` would
+/// report it where `FirstKill` reports the kill. This is structural: the failure comes only
+/// from preparing the mutant, before any test runs, and [`run_tests`] has no way to report
+/// one. A later mutant-scope failure must end the mutant's tests under both schedules alike,
+/// or make `FirstKill` run every test.
 fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
 ) -> (Vec<TestPlan>, Option<MutantScopeFailure>, Vec<TestEvidence>) {
-    let side = match campaign.validator.validate(patch) {
-        Ok(side) => side,
-        Err(rejection) => return (Vec::new(), Some((&rejection).into()), Vec::new()),
-    };
+    match prepare_mutant(campaign, patch) {
+        Err(failure) => (Vec::new(), Some(failure), Vec::new()),
+        Ok(mut runtime) => {
+            let (tests, evidence) = run_tests(campaign, &mut runtime, baseline, schedule);
+            (tests, None, evidence)
+        }
+    }
+}
+
+/// Validates and compiles the mutant side, or its mutant-scope failure.
+fn prepare_mutant(campaign: &Campaign<'_>, patch: &Patch) -> Result<Runtime, MutantScopeFailure> {
+    let side = campaign
+        .validator
+        .validate(patch)
+        .map_err(|rejection| MutantScopeFailure::from(&rejection))?;
     // The baseline resolved every label, so a failure here is the mutant side's.
-    let Ok(mut runtime) = Runtime::prepare(campaign, &side) else {
-        return (
-            Vec::new(),
-            Some(MutantScopeFailure::Infrastructure),
-            Vec::new(),
-        );
-    };
+    Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)
+}
+
+/// A prepared mutant's test plans and runs, in manifest order.
+fn run_tests(
+    campaign: &Campaign<'_>,
+    runtime: &mut Runtime,
+    baseline: &[TestEvidence],
+    schedule: ScheduleMode,
+) -> (Vec<TestPlan>, Vec<TestEvidence>) {
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
     let mut killed = false;
@@ -377,7 +399,7 @@ fn run_mutant(
         });
         evidence.push(mutant);
     }
-    (tests, None, evidence)
+    (tests, evidence)
 }
 
 /// Why a compiled side cannot run.
