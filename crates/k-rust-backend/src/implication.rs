@@ -869,12 +869,28 @@ fn discharge_consequent(
         Truth::True => {
             return Ok(valid_with_witnesses(substitution, obligations.witnesses));
         }
+        // The complete policy reports a refuted remainder obligation as a term mismatch. The proof
+        // policy grades a remainder obligation the simplifier refutes exactly as one the solver
+        // refutes below: as uncovered coverage whose complement is the whole antecedent.
+        Truth::False if had_match_remainder => {
+            return Ok(
+                if options.counterexamples == CounterexamplePolicy::RefuteImplication {
+                    invalid()
+                } else {
+                    partial(
+                        source.original_variable,
+                        substitution,
+                        obligations.witnesses,
+                        obligations.predicates,
+                    )
+                },
+            );
+        }
         Truth::False => {
-            return Ok(if had_match_remainder {
-                invalid()
-            } else {
-                condition_invalid_with_bindings(substitution, obligations.witnesses)
-            });
+            return Ok(condition_invalid_with_bindings(
+                substitution,
+                obligations.witnesses,
+            ));
         }
         Truth::Unknown => {}
     }
@@ -1899,7 +1915,7 @@ mod tests {
     }
 
     #[test]
-    fn term_mismatch_results_carry_no_condition() {
+    fn a_refuted_remainder_is_term_mismatch_only_under_the_complete_policy() {
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let value = int(&definition, "0");
@@ -1915,12 +1931,34 @@ mod tests {
             constraints: vec![Predicate::False],
         };
 
-        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
-            .expect("implication should be checked");
+        let result = check_implication_with_existentials_complete(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::new(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Invalid);
         assert_eq!(result.condition, None);
         assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
+
+        // The proof policy grades the simplifier-refuted remainder `0 = X` as uncovered coverage,
+        // like a solver-refuted one, so the stuck check applies to it.
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        assert_eq!(result.failure, Some(ImplicationFailure::PartialCoverage));
+        let condition = result
+            .condition
+            .expect("refuted coverage carries a condition");
+        assert!(
+            condition.predicates.contains(&Predicate::False),
+            "{condition:?}"
+        );
     }
 
     #[test]

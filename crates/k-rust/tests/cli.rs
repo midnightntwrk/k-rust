@@ -8381,6 +8381,71 @@ endmodule
     }
 }
 
+/// A remainder obligation (`0 = X` from `st(X)` against `st(0)`) that the simplifier refutes,
+/// because together with the destination constraint it is false (`0 = X` with `X >Int 5`, or
+/// `false`), is graded exactly as one the solver refutes: the stuck check stops the state at
+/// depth 0, and without it the rule rewrites the state onward. `solver-refuted` and `simplifier-refuted` are
+/// true; `solver-refuted-false` and `simplifier-refuted-false` are false (their destination
+/// constraint fails on every state).
+#[test]
+fn kprove_a_refuted_remainder_is_graded_alike_by_simplifier_and_solver() {
+    let definition = r#"
+module REMAINDER-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= st(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> st(X) => st(0) </k> requires X =/=Int 0
+endmodule
+"#;
+    let specification = r#"
+requires "remainder-probe.k"
+
+module REMAINDER-SPEC
+  imports REMAINDER-PROBE
+
+  claim <k> st(X) => st(0) </k> requires X >Int 5 [label(solver-refuted)]
+  claim <k> st(X) => st(0) </k> requires X >Int 5 ensures X >Int 5 [label(simplifier-refuted)]
+  claim <k> st(X) => st(0) </k> requires X >Int 5 ensures X <Int 5 [label(solver-refuted-false)]
+  claim <k> st(X) => st(0) </k> requires X >Int 5 ensures false [label(simplifier-refuted-false)]
+endmodule
+"#;
+    let claims = [
+        "solver-refuted",
+        "simplifier-refuted",
+        "solver-refuted-false",
+        "simplifier-refuted-false",
+    ];
+    let stuck = || ("disproved".to_owned(), vec!["Stuck".to_owned()]);
+    for (extra, expected) in [
+        (&[][..], [stuck(), stuck(), stuck(), stuck()]),
+        (
+            &["--disable-stuck-check"][..],
+            [
+                ("proven".to_owned(), Vec::new()),
+                ("proven".to_owned(), Vec::new()),
+                ("disproved".to_owned(), vec!["Vacuous".to_owned()]),
+                ("disproved".to_owned(), vec!["Vacuous".to_owned()]),
+            ],
+        ),
+    ] {
+        let leaves = kprove_claim_leaves(
+            ("remainder-probe.k", definition),
+            ("remainder-spec.k", specification),
+            "REMAINDER-SPEC",
+            "REMAINDER-PROBE",
+            &claims,
+            extra,
+        );
+        let expected = claims
+            .iter()
+            .zip(expected)
+            .map(|(claim, (verdict, outcomes))| ((*claim).to_owned(), verdict, outcomes))
+            .collect::<Vec<_>>();
+        assert_eq!(leaves, expected, "{extra:?}");
+    }
+}
+
 /// A claim universal that the path overwrote still names its initial value, so the part of the
 /// reached state where the destination fails on it is a stuck leaf (disproved), whether or not
 /// vacuous leaves are accepted.
