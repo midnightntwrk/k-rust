@@ -789,6 +789,11 @@ pub struct CollectionEvidence {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SearchPolicy {
     Exhaustive,
+    /// Collection may stop at the first path that satisfies the query. That path's
+    /// `QuerySatisfied`/`MatchFound` stop must come from evaluating this plan over the
+    /// path's trace; a producer that stops on anything else (a configuration pattern, a
+    /// result bound) must report the corresponding limit stop instead. `evaluate` rejects
+    /// witnesses off the match-found path and a determinate match-found path without one.
     ExistentialFirst,
 }
 
@@ -803,6 +808,10 @@ pub enum PatternOutcome {
 /// Exact query-level options for one portable evaluation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EvaluationOptions {
+    /// Without stable keys, paths are told apart only by their identity digest, so two
+    /// paths with identical traces are rejected rather than counted twice or coalesced.
+    /// Coalescing is unsound because equivalences and inequalities are not covered by the
+    /// identity digest: two paths with one identity can still evaluate differently.
     pub stable_path_keys: bool,
     pub search_policy: SearchPolicy,
     pub input_error: bool,
@@ -828,6 +837,8 @@ pub struct Evaluation {
     pub complete_coverage: bool,
     pub witnesses: Vec<Witness>,
     pub primary_witness: Option<usize>,
+    /// For `Unknown`, the least severe incomplete stop in `PathStop` order. Unlike
+    /// `CorpusDecision::cause`, this does not prefer an error over a limit.
     pub failure: Option<PathStop>,
     pub search_policy: SearchPolicy,
     pub bounds: ExecutionBounds,
@@ -890,7 +901,9 @@ pub fn evaluate(
         } else if path.path_key.is_some() {
             return Err(invalid_path("unkeyed mode cannot expose a path key"));
         } else if !unkeyed.insert(path.path_identity_digest.clone()) {
-            return Err(invalid_path("unkeyed path identities must be unique"));
+            return Err(invalid_path(
+                "unkeyed mode cannot distinguish paths with identical traces; supply stable path keys",
+            ));
         }
     }
     if path_ordinals != (0..paths.len()).collect() {
@@ -932,6 +945,21 @@ pub fn evaluate(
         .into_iter()
         .map(|item| item.witness)
         .collect::<Vec<_>>();
+    if search_policy == SearchPolicy::ExistentialFirst {
+        // `validate_collection` admits at most one match-found path; an indeterminate
+        // candidate on it is missing evidence, not a dishonest stop.
+        let stopped = paths.iter().any(|path| path.stop == PathStop::MatchFound);
+        if witnesses
+            .iter()
+            .any(|witness| witness.stop_reason != PathStop::MatchFound)
+            || (stopped && witnesses.is_empty() && !indeterminate)
+        {
+            return Err(PatternFailure::new(
+                PatternFailureKind::InvalidCollection,
+                "existential-first witnesses must lie exactly on the match-found path",
+            ));
+        }
+    }
     let complete_coverage = collection.stop == CollectionStop::SearchExhausted
         && collection.pending_work == 0
         && paths.iter().all(|path| path.complete)
@@ -1611,13 +1639,17 @@ pub struct CorpusDecision {
     pub outcome: PatternOutcome,
     pub complete_coverage: bool,
     pub matching_tests: Vec<usize>,
-    /// First unknown or error test when that test makes the corpus inconclusive.
+    /// First test-scoped error, else first unknown, that makes the corpus inconclusive.
+    /// Unlike `Evaluation::failure`, an error is never hidden behind an earlier unknown.
     pub cause: Option<usize>,
 }
 
 /// Folds per-test outcomes after checking that every skip is justified: a shared-setup
 /// failure skips every test, and early stop skips exactly the tests after the first match.
 /// Absence follows `aggregate_existential`, so it needs explicit exhaustion evidence.
+/// Corpus-scoped Error arises only from shared-setup failure; a test-scoped Error leaves
+/// the corpus Unknown and never overrides a Match, as a path-local error stop does in
+/// `evaluate`.
 pub fn aggregate_corpus(
     components: &[CorpusComponent],
     shared_setup_failed: bool,
@@ -1632,6 +1664,9 @@ pub fn aggregate_corpus(
     };
     if components.is_empty() {
         return invalid("corpus has no tests");
+    }
+    if exhaustion.is_some_and(|item| item.role != "empty-search-decision") {
+        return invalid("corpus exhaustion artifact has the wrong role");
     }
     let first_match = components
         .iter()
@@ -1654,15 +1689,13 @@ pub fn aggregate_corpus(
         }
     }
     let outcome = aggregate_existential(&outcomes, shared_setup_failed, exhaustion);
+    let first = |wanted| {
+        components
+            .iter()
+            .position(|item| *item == CorpusComponent::Evaluated(wanted))
+    };
     let cause = matches!(outcome, PatternOutcome::Unknown | PatternOutcome::Error)
-        .then(|| {
-            components.iter().position(|item| {
-                matches!(
-                    item,
-                    CorpusComponent::Evaluated(PatternOutcome::Unknown | PatternOutcome::Error)
-                )
-            })
-        })
+        .then(|| first(PatternOutcome::Error).or_else(|| first(PatternOutcome::Unknown)))
         .flatten();
     Ok(CorpusDecision {
         outcome,

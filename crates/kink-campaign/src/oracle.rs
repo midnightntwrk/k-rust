@@ -14,7 +14,9 @@ pub enum OracleKind {
     ConcreteOutput,
     /// Finite reachability truth.
     Reachability,
-    /// Execution-pattern outcome, optionally with complete bindings.
+    /// Execution-pattern outcome, optionally with complete bindings. A pattern failure
+    /// (`kink_pattern::evaluate` rejecting its input) on either side must be supplied as
+    /// `OracleSide::Error`, never as a value that could Distinguish.
     ExecutionPattern,
     /// Structured-predicate Bool.
     StructuredPredicate,

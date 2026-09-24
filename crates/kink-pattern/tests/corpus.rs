@@ -158,6 +158,43 @@ const ROWS: &[Row] = &[
         matching_tests: &[1],
         cause: None,
     },
+    // Only shared-setup failure is a corpus-scoped Error; test-scoped errors leave the
+    // corpus Unknown, as a path-local error stop leaves `evaluate` Unknown. The former
+    // BAG-16 fold ranked test errors first and reported Error here.
+    Row {
+        id: "all-local-errors-are-unknown",
+        components: &[Evaluated(Error), Evaluated(Error)],
+        shared_setup_failed: false,
+        early_stop_after_match: false,
+        exhausted: true,
+        outcome: Unknown,
+        complete_coverage: false,
+        matching_tests: &[],
+        cause: Some(0),
+    },
+    // An infrastructure error is the cause even behind an earlier unknown.
+    Row {
+        id: "local-error-outranks-earlier-unknown-as-cause",
+        components: &[Evaluated(Unknown), Evaluated(Error)],
+        shared_setup_failed: false,
+        early_stop_after_match: false,
+        exhausted: true,
+        outcome: Unknown,
+        complete_coverage: false,
+        matching_tests: &[],
+        cause: Some(1),
+    },
+    Row {
+        id: "local-error-does-not-override-match",
+        components: &[Evaluated(Error), Evaluated(Match)],
+        shared_setup_failed: false,
+        early_stop_after_match: false,
+        exhausted: true,
+        outcome: Match,
+        complete_coverage: false,
+        matching_tests: &[1],
+        cause: None,
+    },
 ];
 
 fn empty_search_decision() -> ArtifactRef {
@@ -254,5 +291,18 @@ fn corpus_fold_rejects_unjustified_schedules() {
         )
         .expect_err(label);
         assert_eq!(failure.kind(), PatternFailureKind::InvalidCorpus, "{label}");
+    }
+    // A mislabelled exhaustion artifact is malformed input, even beside an unknown test.
+    let mislabelled = ArtifactRef {
+        role: "event-trace".to_owned(),
+        ..decision
+    };
+    for components in [
+        &[Evaluated(NoMatch)][..],
+        &[Evaluated(NoMatch), Evaluated(Unknown)],
+    ] {
+        let failure = aggregate_corpus(components, false, false, Some(&mislabelled))
+            .expect_err("mislabelled exhaustion");
+        assert_eq!(failure.kind(), PatternFailureKind::InvalidCorpus);
     }
 }

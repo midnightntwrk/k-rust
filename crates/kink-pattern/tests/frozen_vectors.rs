@@ -2038,6 +2038,38 @@ fn inline_occurrence_and_adjacency_rows_report_every_witness() {
     }
 }
 
+// P8: unkeyed mode has no schedule-independent way to tell identical branches apart,
+// so it rejects them instead of reporting two occurrences (the former BAG-16 did) or
+// coalescing them (relations are not covered by the path identity digest).
+#[test]
+fn identical_unkeyed_branches_are_rejected() {
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let id = "identical-unkeyed-branches-are-rejected";
+    let branch = || LiteralPath {
+        key: None,
+        events: &["wa", "la"],
+        transitions: &[],
+    };
+    let paths = literal_paths(&data, id, &[branch(), branch()]);
+    let failure = evaluate(
+        &authority(id, &paths),
+        &frozen_plan(&data, "write-eventually-load"),
+        &paths,
+        &collection(&paths, SearchPolicy::Exhaustive),
+        None,
+        EvaluationOptions {
+            stable_path_keys: false,
+            ..exhaustive_options()
+        },
+    )
+    .expect_err(id);
+    assert_eq!(
+        failure.kind(),
+        kink_pattern::PatternFailureKind::InvalidPath,
+        "{id}: {failure}"
+    );
+}
+
 struct RejectionScenario {
     paths: Vec<PathInput>,
     collection: CollectionEvidence,
@@ -2075,6 +2107,28 @@ fn existential_match_without_match_stop(scenario: &mut RejectionScenario) {
     scenario.search_policy = SearchPolicy::ExistentialFirst;
 }
 
+fn existential_match_stop(scenario: &mut RejectionScenario) {
+    existential_match_without_match_stop(scenario);
+    scenario.collection.stop = CollectionStop::MatchFound;
+    scenario.collection.pending_work = 1;
+}
+
+/// Path 0 stays a complete matching path; its clone as path 1 carries the match stop.
+fn existential_match_stop_beside_matching_path(scenario: &mut RejectionScenario) {
+    let mut stopped = scenario.paths[0].clone();
+    stopped.path_ordinal = 1;
+    stopped.path_key = Some("p1".to_owned());
+    stopped.complete = false;
+    stopped.stop = PathStop::MatchFound;
+    stopped.execution_stop = ExecutionStop::QuerySatisfied;
+    stopped.execution_terminal = None;
+    refresh_path(&mut stopped);
+    scenario.paths.push(stopped);
+    scenario.search_policy = SearchPolicy::ExistentialFirst;
+    scenario.collection.stop = CollectionStop::MatchFound;
+    scenario.collection.pending_work = 1;
+}
+
 fn match_stop_under_exhaustive_policy(scenario: &mut RejectionScenario) {
     existential_match_without_match_stop(scenario);
     scenario.search_policy = SearchPolicy::Exhaustive;
@@ -2107,8 +2161,11 @@ fn inline_trace_honesty_and_relation_rows_reject_with_typed_kinds() {
         "inequalities": [["symbolicX", "symbolicY"]],
         "pathPredicate": "x-not-equals-y",
     });
+    let write_only = serde_json::json!({
+        "pathKey": "p0", "complete": true, "stopReason": "terminal", "eventRefs": ["wa"],
+    });
     type Mutation = fn(&mut RejectionScenario);
-    let rows: [(&str, &Value, Mutation, PatternFailureKind); 7] = [
+    let rows: [(&str, &Value, Mutation, PatternFailureKind); 10] = [
         // P2: a complete trace cannot carry a bounded stop.
         (
             "complete-trace-with-depth-limit-stop",
@@ -2140,6 +2197,26 @@ fn inline_trace_honesty_and_relation_rows_reject_with_typed_kinds() {
             "match-found-collection-under-exhaustive-policy",
             &write_load,
             match_stop_under_exhaustive_policy,
+            PatternFailureKind::InvalidCollection,
+        ),
+        // P2: an existential-first witness lies exactly on the match-found path, and a
+        // determinate match-found path has one: the stop must be the plan's own match.
+        (
+            "existential-first-exhausted-collection-retains-witness",
+            &write_load,
+            |scenario| scenario.search_policy = SearchPolicy::ExistentialFirst,
+            PatternFailureKind::InvalidCollection,
+        ),
+        (
+            "existential-first-witness-outside-match-stop",
+            &write_load,
+            existential_match_stop_beside_matching_path,
+            PatternFailureKind::InvalidCollection,
+        ),
+        (
+            "existential-first-match-stop-without-witness",
+            &write_only,
+            existential_match_stop,
             PatternFailureKind::InvalidCollection,
         ),
         (
@@ -2187,6 +2264,86 @@ fn inline_trace_honesty_and_relation_rows_reject_with_typed_kinds() {
         )
         .expect_err(id);
         assert_eq!(failure.kind(), expected, "{id}: {failure}");
+    }
+}
+
+/// One existential-first row over a single path, optionally turned into the match stop.
+struct ExistentialRow {
+    id: &'static str,
+    plan: &'static str,
+    events: &'static [&'static str],
+    predicate: &'static str,
+    match_stop: bool,
+    outcome: PatternOutcome,
+    complete_coverage: bool,
+}
+
+#[test]
+fn inline_existential_first_rows_keep_absence_and_missing_evidence() {
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let table = side_table(&data["sideConditionTable"]);
+    let rows = [
+        // Absence under exhaustion does not depend on the stop policy. Backed only by
+        // BAG-16: the v1 vectors hold no existential-first absence case.
+        ExistentialRow {
+            id: "existential-first-exhausted-absence-is-no-match",
+            plan: "write-eventually-load",
+            events: &["wa"],
+            predicate: "true",
+            match_stop: false,
+            outcome: PatternOutcome::NoMatch,
+            complete_coverage: true,
+        },
+        // A match stop whose only candidate has no side-condition row is missing
+        // evidence, not a dishonest stop; BAG-16 raised here instead.
+        ExistentialRow {
+            id: "existential-first-indeterminate-match-stop-is-unknown",
+            plan: "write-then-load-side-condition",
+            events: &["wa", "la"],
+            predicate: "false",
+            match_stop: true,
+            outcome: PatternOutcome::Unknown,
+            complete_coverage: false,
+        },
+    ];
+    for row in rows {
+        let plan = frozen_plan(&data, row.plan);
+        let mut path = path(
+            &serde_json::json!({
+                "pathKey": "p0", "complete": true, "stopReason": "terminal",
+                "eventRefs": row.events, "pathPredicate": row.predicate,
+            }),
+            &data,
+            row.id,
+            0,
+        );
+        if row.match_stop {
+            path.complete = false;
+            path.stop = PathStop::MatchFound;
+            path.execution_stop = ExecutionStop::QuerySatisfied;
+            path.execution_terminal = None;
+            refresh_path(&mut path);
+        }
+        let paths = vec![path];
+        let result = evaluate(
+            &authority(row.id, &paths),
+            &plan,
+            &paths,
+            &collection(&paths, SearchPolicy::ExistentialFirst),
+            Some(&table),
+            EvaluationOptions {
+                search_policy: SearchPolicy::ExistentialFirst,
+                ..exhaustive_options()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{}: {error}", row.id));
+        assert_eq!(result.outcome, row.outcome, "{}", row.id);
+        assert_eq!(
+            result.complete_coverage, row.complete_coverage,
+            "{}",
+            row.id
+        );
+        assert!(result.witnesses.is_empty(), "{}", row.id);
     }
 }
 
