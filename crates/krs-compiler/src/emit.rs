@@ -207,6 +207,7 @@ impl<'a> EmitContext<'a> {
             DefinitionSortRef::Builtin(BuiltinSort::Id) => Ok("Id"),
             DefinitionSortRef::Builtin(BuiltinSort::Map) => Ok("Map"),
             DefinitionSortRef::Builtin(BuiltinSort::Bytes) => Ok("Bytes"),
+            DefinitionSortRef::Builtin(BuiltinSort::String) => Ok("String"),
             DefinitionSortRef::Builtin(BuiltinSort::List) => Ok("List"),
             DefinitionSortRef::Builtin(BuiltinSort::Set) => Ok("Set"),
         }
@@ -514,6 +515,7 @@ fn builtin_import(
         BuiltinSort::Map => Some("MAP"),
         BuiltinSort::Id => Some("ID-SYNTAX"),
         BuiltinSort::Bytes => Some("BYTES"),
+        BuiltinSort::String => Some("STRING-SYNTAX"),
         BuiltinSort::List => Some("LIST"),
         BuiltinSort::Set => Some("SET"),
     }

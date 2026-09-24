@@ -1,13 +1,20 @@
 use std::error::Error;
 use std::fmt;
 
-use krs_ir::{IrIdentityError, ItemKind, SemanticValidationError, StableItemId};
+use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, StableItemId};
 
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorLoweringError {
     /// Two descriptors claim one stable identity.
     DuplicateItemId(Box<StableItemId>),
+    /// An authored sort would emit the name of a compiler builtin sort.
+    BuiltinSortNameCollision {
+        /// Offending authored sort.
+        id: Box<StableItemId>,
+        /// Compiler builtin sort to use.
+        builtin: BuiltinSort,
+    },
     /// Lowering requires exactly one selected configuration descriptor.
     ConfigurationCount(usize),
     /// A descriptor payload and stable item kind disagree.
@@ -68,6 +75,11 @@ impl fmt::Display for DescriptorLoweringError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateItemId(id) => write!(formatter, "duplicate stable descriptor {id:?}"),
+            Self::BuiltinSortNameCollision { id, builtin } => write!(
+                formatter,
+                "declared sort {id:?} has K name `{}`; use `k::builtin::{builtin:?}` instead",
+                builtin.k_name()
+            ),
             Self::ConfigurationCount(count) => write!(
                 formatter,
                 "descriptor bundle requires exactly one configuration, found {count}"

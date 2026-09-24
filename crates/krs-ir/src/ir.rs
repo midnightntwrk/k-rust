@@ -24,6 +24,8 @@ pub enum BuiltinSort {
     Id,
     /// Byte-string domain from pinned module `BYTES`.
     Bytes,
+    /// String token domain from pinned module `STRING-SYNTAX`.
+    String,
     /// Associative finite sequence domain from pinned module `LIST`.
     List,
     /// Associative, commutative finite set domain from pinned module `SET`.
@@ -32,16 +34,33 @@ pub enum BuiltinSort {
 
 impl BuiltinSort {
     /// Complete IR catalog in stable semantic order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::KSequence,
         Self::Int,
         Self::Bool,
         Self::Map,
         Self::Id,
         Self::Bytes,
+        Self::String,
         Self::List,
         Self::Set,
     ];
+
+    /// Name of this sort in K source.
+    #[must_use]
+    pub const fn k_name(self) -> &'static str {
+        match self {
+            Self::KSequence => "K",
+            Self::Int => "Int",
+            Self::Bool => "Bool",
+            Self::Map => "Map",
+            Self::Id => "Id",
+            Self::Bytes => "Bytes",
+            Self::String => "String",
+            Self::List => "List",
+            Self::Set => "Set",
+        }
+    }
 }
 
 /// Stable, path-free key used by source-map sidecars.

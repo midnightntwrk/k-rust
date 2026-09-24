@@ -1126,6 +1126,7 @@ type_keys! {
     map_key => i8,
     id_key => i16,
     bytes_key => i32,
+    string_key => (u8,),
     list_key => i64,
     set_key => i128,
     int_add_key => (u8, u8),
@@ -1175,6 +1176,7 @@ type_keys! {
     set_contains_key => (i32, u64),
 }
 
+#[allow(clippy::too_many_lines)] // Enumerates the complete builtin test registry.
 fn registry() -> HostBuiltinRegistry {
     let sorts = [
         (BuiltinSort::KSequence, k_sequence_key as fn() -> TypeId),
@@ -1183,6 +1185,7 @@ fn registry() -> HostBuiltinRegistry {
         (BuiltinSort::Map, map_key),
         (BuiltinSort::Id, id_key),
         (BuiltinSort::Bytes, bytes_key),
+        (BuiltinSort::String, string_key),
         (BuiltinSort::List, list_key),
         (BuiltinSort::Set, set_key),
     ]

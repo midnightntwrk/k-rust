@@ -1600,6 +1600,7 @@ mod tests {
     struct SortMap;
     struct SortId;
     struct SortBytes;
+    struct SortString;
     struct SortList;
     struct SortSet;
     struct Op0;
@@ -1660,6 +1661,7 @@ mod tests {
             HostTypeKey(marker_key::<SortMap>),
             HostTypeKey(marker_key::<SortId>),
             HostTypeKey(marker_key::<SortBytes>),
+            HostTypeKey(marker_key::<SortString>),
             HostTypeKey(marker_key::<SortList>),
             HostTypeKey(marker_key::<SortSet>),
         ];

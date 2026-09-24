@@ -560,6 +560,9 @@ pub mod builtin {
     pub use bool::Bool;
     /// Convenient root spelling of the builtin byte-string sort marker.
     pub use bytes::Bytes;
+    /// Marker for K's string token sort from `STRING-SYNTAX`.
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+    pub struct String;
     /// Convenient root spelling of the builtin integer sort marker.
     pub use int::Int;
 }
@@ -574,6 +577,8 @@ impl KItemSort for builtin::Bool {}
 impl KResultSort for builtin::Bool {}
 impl KItemSort for builtin::Bytes {}
 impl KResultSort for builtin::Bytes {}
+impl KItemSort for builtin::String {}
+impl KResultSort for builtin::String {}
 
 fn k_sequence_builtin_key() -> TypeId {
     TypeId::of::<builtin::KSequence>()
@@ -597,6 +602,10 @@ fn map_builtin_key() -> TypeId {
 
 fn bytes_builtin_key() -> TypeId {
     TypeId::of::<builtin::Bytes>()
+}
+
+fn string_builtin_key() -> TypeId {
+    TypeId::of::<builtin::String>()
 }
 
 fn list_builtin_key() -> TypeId {
@@ -712,6 +721,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (BuiltinSort::Map, map_builtin_key as fn() -> TypeId),
         (BuiltinSort::Id, id_builtin_key as fn() -> TypeId),
         (BuiltinSort::Bytes, bytes_builtin_key as fn() -> TypeId),
+        (BuiltinSort::String, string_builtin_key as fn() -> TypeId),
         (BuiltinSort::List, list_builtin_key as fn() -> TypeId),
         (BuiltinSort::Set, set_builtin_key as fn() -> TypeId),
     ]
@@ -1392,6 +1402,7 @@ mod tests {
             (TypeId::of::<builtin::Map>(), BuiltinSort::Map),
             (TypeId::of::<builtin::Id>(), BuiltinSort::Id),
             (TypeId::of::<builtin::Bytes>(), BuiltinSort::Bytes),
+            (TypeId::of::<builtin::String>(), BuiltinSort::String),
             (TypeId::of::<builtin::List>(), BuiltinSort::List),
             (TypeId::of::<builtin::Set>(), BuiltinSort::Set),
         ];

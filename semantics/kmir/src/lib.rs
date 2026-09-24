@@ -4,7 +4,7 @@
 //! `../../tests/kmir/source-map.md`.
 
 use k::KResult;
-use k::builtin::{Bool, Bytes, Int, KSequence, List, Map, bool, bytes, int, list, map};
+use k::builtin::{Bool, Bytes, Int, KSequence, List, Map, String, bool, bytes, int, list, map};
 #[allow(unused_imports)]
 use k::map;
 
@@ -120,9 +120,6 @@ pub enum MirMaybeTy {
     #[k::syntax("TyUnknown")]
     TyUnknown(),
 }
-
-#[k::token(regex = r#"\"[^\"]*\""#)]
-pub struct String(pub std::string::String);
 
 #[k::constructors(sort = IntTy, result = KResult)]
 #[k::precedence((Isize, I8, I16, I32, I64, I128))]

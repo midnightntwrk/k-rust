@@ -18,8 +18,8 @@ pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorPayload, ItemKind, ModuleId,
-    PackageId, SemanticTheory,
+    BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorPayload, ItemKind,
+    ModuleId, PackageId, SemanticTheory, StableItemId,
 };
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
@@ -101,6 +101,8 @@ pub fn lower_descriptor_bundle(
             });
     }
 
+    validate_builtin_sort_names(&descriptors, &declaration_metadata)?;
+
     let mut packages = BTreeMap::<PackageId, Vec<&Descriptor>>::new();
     for descriptor in descriptors {
         packages
@@ -136,6 +138,32 @@ pub fn lower_descriptor_bundle(
         });
     }
     Ok(SemanticTheory::new(modules)?)
+}
+
+fn validate_builtin_sort_names(
+    descriptors: &[&Descriptor],
+    metadata: &BTreeMap<StableItemId, DescriptorDeclaration>,
+) -> Result<(), DescriptorLoweringError> {
+    for descriptor in descriptors {
+        if !matches!(descriptor.payload, DescriptorPayload::Sort(_)) {
+            continue;
+        }
+        let declaration = &metadata[&descriptor.id];
+        let name = declaration.explicit_symbol.as_ref().map_or_else(
+            || descriptor.id.item_name(),
+            krs_ir::ExplicitSymbol::final_component,
+        );
+        if let Some(builtin) = BuiltinSort::ALL
+            .into_iter()
+            .find(|builtin| builtin.k_name() == name)
+        {
+            return Err(DescriptorLoweringError::BuiltinSortNameCollision {
+                id: Box::new(descriptor.id.clone()),
+                builtin,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn require_payload_kind(descriptor: &Descriptor) -> Result<(), DescriptorLoweringError> {

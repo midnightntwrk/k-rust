@@ -271,7 +271,8 @@ fn builtin_registry_requires_map_and_id() {
                 4 => HostTypeKey(marker::<4>),
                 5 => HostTypeKey(marker::<5>),
                 6 => HostTypeKey(marker::<6>),
-                _ => HostTypeKey(marker::<42>),
+                7 => HostTypeKey(marker::<42>),
+                _ => HostTypeKey(marker::<53>),
             },
         })
         .collect();

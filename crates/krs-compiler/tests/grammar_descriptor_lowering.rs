@@ -918,6 +918,48 @@ fn forge_non_map_update_base(bundle: &mut DescriptorBundle) {
 }
 
 #[test]
+fn declared_sort_names_cannot_collide_with_builtin_k_names() {
+    for builtin in BuiltinSort::ALL {
+        let (mut descriptors, _) = bundle();
+        let sort_id = id(builtin.k_name(), ItemKind::Sort);
+        descriptors.descriptors.push(declaration(
+            sort_id.clone(),
+            DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+            "sort_declaration",
+        ));
+        let error = lower_descriptor_bundle(&descriptors)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(&format!("use `k::builtin::{builtin:?}` instead")),
+            "{error}"
+        );
+    }
+
+    let (mut descriptors, _) = bundle();
+    let sort_id = id("Renamed", ItemKind::Sort);
+    descriptors.descriptors.push(declaration(
+        sort_id.clone(),
+        DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+        "sort_declaration",
+    ));
+    descriptors
+        .declarations
+        .push(krs_ir::DescriptorDeclaration::new(
+            sort_id,
+            krs_ir::RustVisibility::Public,
+            Some(krs_ir::ExplicitSymbol::new("domain::String").unwrap()),
+        ));
+    let error = lower_descriptor_bundle(&descriptors)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("use `k::builtin::String` instead"),
+        "{error}"
+    );
+}
+
+#[test]
 fn named_record_wildcard_bare_constructor_and_generated_bracket_lower() {
     let (bundle, bracket_id) = bundle();
     let semantic = lower_descriptor_bundle(&bundle).unwrap();

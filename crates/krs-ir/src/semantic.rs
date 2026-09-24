@@ -2045,6 +2045,7 @@ fn require_semantic_sort(
             | BuiltinSort::Map
             | BuiltinSort::Id
             | BuiltinSort::Bytes
+            | BuiltinSort::String
             | BuiltinSort::List
             | BuiltinSort::Set,
         ) => Ok(()),

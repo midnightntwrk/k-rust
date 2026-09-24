@@ -2120,6 +2120,7 @@ impl Adapter {
             DefinitionSortRef::Builtin(BuiltinSort::Map) => "Map",
             DefinitionSortRef::Builtin(BuiltinSort::Id) => "Id",
             DefinitionSortRef::Builtin(BuiltinSort::Bytes) => "Bytes",
+            DefinitionSortRef::Builtin(BuiltinSort::String) => "String",
             DefinitionSortRef::Builtin(BuiltinSort::List) => "List",
             DefinitionSortRef::Builtin(BuiltinSort::Set) => "Set",
         }))
@@ -2285,6 +2286,7 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
             BuiltinSort::Map => Some("MAP".to_owned()),
             BuiltinSort::Id => Some("ID-SYNTAX".to_owned()),
             BuiltinSort::Bytes => Some("BYTES".to_owned()),
+            BuiltinSort::String => Some("STRING-SYNTAX".to_owned()),
             BuiltinSort::List => Some("LIST".to_owned()),
             BuiltinSort::Set => Some("SET".to_owned()),
         })

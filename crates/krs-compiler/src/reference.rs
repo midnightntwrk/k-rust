@@ -1281,6 +1281,7 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
         BuiltinSort::Map => format_ident!("Map"),
         BuiltinSort::Id => format_ident!("Id"),
         BuiltinSort::Bytes => format_ident!("Bytes"),
+        BuiltinSort::String => format_ident!("String"),
         BuiltinSort::List => format_ident!("List"),
         BuiltinSort::Set => format_ident!("Set"),
     };

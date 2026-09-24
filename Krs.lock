@@ -1,7 +1,7 @@
 schema = 1
 
 [schemas]
-krs_ir = 36
+krs_ir = 37
 kast_json = 4
 
 [cargo]
@@ -25,7 +25,7 @@ kore_version = "0.4.0"
 tracked_kore_sha256 = "e8de6794ce13316e37fdae5dd4de91270418dc9fae5955e46d245e95ad79901b"
 
 [builtin_registry]
-sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "List", "Set"]
+sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "String", "List", "Set"]
 
 [solver]
 profile = "z3-inference"
