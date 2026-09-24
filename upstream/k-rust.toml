@@ -1,0 +1,213 @@
+# K-in-K2 requests to k-rust: the single ledger.
+# Vocabulary and field contract are in README.md beside this file.
+# Supersedes investigations/k-rust-target/{k-rust-agent-requests,upstream-issues,capability-matrix}.toml
+# and status-report.html; those files remain in git history.
+
+schema = 1
+updated = "2026-09-24"
+
+[reference_pin]
+# Status is judged against this commit of the on-disk checkout that kink-native builds against.
+k_rust_commit = "985e0086f06e1ec05c2c533f26fb6f949c6b84fa"
+k_rust_version = "0.4.0"
+k_release = "7.1.337"
+checkout = "../inspirations/midnightntwrk/k-rust"
+source = "crates/kink-native/Cargo.toml path dependency"
+
+[retired_pins]
+"5fc7a083c3bdfe07b485df271e0299924823d327" = "more-semantics head audited on 2026-08-29; the branch was never merged and its fixes were reimplemented on main."
+"c41caa8bede96e279e0b058577dce504e4144f65" = "Former kink-native pin through the shared k-rust-krs-main worktree; not on main after the 2026-09-08 history rewrite (patch-equivalent: dd6215d8)."
+
+# ---------------------------------------------------------------- open and partial
+
+[[request]]
+id = "search-completeness"
+title = "Search results do not state exhaustive completion and do not account for unvisited work"
+kind = "correctness"
+status = "partial"
+status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (cargo test -p k-rust-backend --lib search:: passes 60/60)"
+blocking = true
+needed_by = ["exhaustive absence", "complete pattern denotation", "finite not-reached", "NR-07"]
+summary = """
+Result-limit truncation is reported, a zero result limit is never reported as exhaustive, cancellation is distinct from failure, and a truncated sibling is not claimed absent.
+Exhaustion must still be inferred from an empty IncompleteSearch list (k-rust-backend/src/search.rs:150-173), so K-in-K2 must treat every empty result as unknown.
+"""
+reproducer = "Search a finite graph with no target; the result carries no positive exhaustion record. Search with max_results reached; ResultBound carries no frontier or unvisited-work count."
+local_workaround = "kink-native search adapter classifies every result as positive-bounded and never claims absence."
+requested_action = """
+Add an explicit exhausted/complete disposition.
+Retain the frontier, or an exact unvisited-work count, on ResultBound.
+Separate a timeout disposition from Cancelled (timeout.rs:24-40 folds the deadline into cancellation) and add a host-resource disposition.
+Report whether pattern-search matches are the complete denotation.
+Expose timeout and cancellation through SearchRequest (crates/k-rust/src/backend/wire.rs:54-63).
+"""
+sources = ["k-rust-agent-requests.toml KRUST-UP-003", "upstream-issues.toml KRUST-UP-003"]
+
+[[request]]
+id = "path-witness-identity"
+title = "Path witnesses are dropped at the result bound and their identity omits the source state and substitution"
+kind = "correctness"
+status = "partial"
+status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (diamond, equal-binding, determinism, cycle, and result-bound tests pass)"
+blocking = false
+needed_by = ["path-sensitive event occurrence", "counterexample receipts"]
+summary = """
+ResultModality::{StateSet, PathSet} and content-derived PathWitness identities are present, and converging paths are no longer collapsed.
+When the result bound is reached, ResultBound drops the retained paths (search.rs:1187-1204); witness identity omits the source state and the substitution; hand-written KORE rules without UNIQUE_ID fall back to "UNKNOWN" (rule.rs:1666-1670).
+"""
+reproducer = "Run a path search whose result bound truncates a diamond graph and inspect the returned witnesses and ResultBound."
+local_workaround = "none"
+requested_action = "Carry the truncated path frontier together with search-completeness, and include the source state and substitution in witness identity, or document why they are unnecessary."
+sources = ["k-rust-agent-requests.toml KRUST-UP-004 (path witnesses)"]
+
+[[request]]
+id = "nested-provenance-residual"
+title = "Context aliases are exported lossily without a typed diagnostic"
+kind = "correctness"
+status = "partial"
+status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (provenance lib tests 14/14 and provenance integration tests pass)"
+blocking = false
+needed_by = ["provenance-complete receipts"]
+summary = """
+crates/k-rust/src/provenance.rs provides logical source identities, absolute spans, 25 generating passes, origin records, and destination anchors.
+Sentence::ContextAlias is still exported as a lossy badsentence node without an error (definition/json.rs:1467), and the module decoder filters it silently (json.rs:1194).
+README.md:615-617 still lists nested-span mapping as a TODO; the legacy program parser has no nested spans (tests/inner_programs.rs:124).
+"""
+reproducer = "Export a definition containing a context alias through the lossless structured export."
+local_workaround = "none"
+requested_action = "Return a typed error when a context alias is exported, and either retire or scope the README.md:615-617 TODO."
+sources = ["k-rust-agent-requests.toml KRUST-UP-001", "upstream-issues.toml KRUST-UP-001"]
+
+[[request]]
+id = "claim-observation"
+title = "TransitionClass::Claim has no producer and observation invariance does not cover solver calls"
+kind = "missing-feature"
+status = "partial"
+status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (observation tests 17/17 and search:: 60/60 pass)"
+blocking = false
+needed_by = ["claim and proof observation, only if K-in-K2 observes proofs"]
+summary = """
+Committed, branch-local transition observation is present (k-rust-backend/src/transition.rs:44-95).
+Claim activity is never observed (transition.rs:438-447), no test asserts that enabling observation leaves solver calls unchanged, and the attribution contract for result-global effects is undocumented.
+"""
+reproducer = "Prove a claim with observation enabled; no TransitionClass::Claim observation is emitted."
+local_workaround = "none"
+requested_action = "Emit claim observations, assert solver-call invariance under observation, and document effect attribution when observation is disabled."
+sources = ["k-rust-agent-requests.toml KRUST-UP-002", "upstream-issues.toml KRUST-UP-002"]
+
+[[request]]
+id = "malformed-deep-json"
+title = "Malformed deeply nested KORE JSON can overflow the stack on the persistent host routes"
+kind = "bug"
+status = "partial"
+status_basis = "static screen of source at 985e0086 on 2026-09-24 plus a scratch serde_json probe that overflows an 8 MiB thread at depth 50,000"
+blocking = false
+needed_by = ["none while K-in-K2 calls k-rust in process"]
+summary = "Valid deep results decode through the iterative KORE JSON tree, but the napi, wasm, and RPC routes parse request text into serde_json::Value first (k-rust-napi/src/lib.rs:434-440, k-rust-wasm/src/lib.rs:461-475, rpc.rs:1468-1473)."
+reproducer = "Submit a 200,000-deep malformed KORE JSON request through the napi execute route."
+local_workaround = "none"
+requested_action = "Parse host request text with the iterative decoder and add a malformed-deep-input regression."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-001", "krs draft/upstream/k-rust.toml backend-deep-result"]
+
+# ---------------------------------------------------------------- tracked by KRS
+
+[[krs_owned]]
+# KRS carries the workaround and the request; K-in-K2 is affected only through KRS-compiled definitions.
+krs_id = "semantic-cast-projection-widening"
+former_id = "KRUST-COMPAT-002"
+note = "Reproduced open at 985e0086 on 2026-09-24: the rewrite's least upper bound (sort_injections.rs:366-379) is computed before semantic_projection (:531-548)."
+
+[[krs_owned]]
+krs_id = "simplification-budget-default"
+former_id = "KRUST-COMPAT-003"
+note = "Default budget is still 100 at 985e0086 (simplify.rs:78). K-in-K2 callers must set max_simplification_iterations explicitly."
+
+[[krs_owned]]
+krs_id = "token-production-constructor"
+note = "Affects K-in-K2 only through KRS-compiled definitions."
+
+[[krs_owned]]
+krs_id = "bracket-production-constructor"
+note = "Affects K-in-K2 only through KRS-compiled definitions."
+
+# ---------------------------------------------------------------- closed
+
+[[request]]
+id = "repeated-cell-initializer"
+title = "Concretize parameterized repeated-cell initializers"
+kind = "bug"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (kompile_passes preserves_repeated_cell_initializers_for_every_collection_shape)"
+fixed_in = "1ae84155"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-004"]
+
+[[request]]
+id = "krypto-hook-namespace"
+title = "Emit backend hook metadata for every implemented KRYPTO hook"
+kind = "bug"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (rust_backend_emits_its_extension_hooks_as_hooked_symbols; krun keccak256raw end to end)"
+fixed_in = "present at 985e0086"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-005"]
+
+[[request]]
+id = "structured-definition-loading"
+title = "Structured loading must not retain an unreachable default configuration"
+kind = "bug"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (structured_definition_conformance 4/4)"
+fixed_in = "present at 985e0086"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-006"]
+
+[[request]]
+id = "complete-nested-cells"
+title = "Accept already-complete fixed-arity nested cell applications"
+kind = "bug"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (preserves_already_complete_nested_cells, complete_cells_are_rejected_with_a_typed_error)"
+fixed_in = "present at 985e0086"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-007"]
+
+[[request]]
+id = "krypto-raw-hashes"
+title = "Implement KRYPTO.sha256raw and KRYPTO.ripemd160raw"
+kind = "missing-feature"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (21/21 krypto tests; krun on \"abc\" for both hooks)"
+fixed_in = "b056386c"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-008", "k-rust-agent-requests.toml KRUST-COMPAT-009"]
+
+[[request]]
+id = "krypto-ecdsa-invalid"
+title = "ecdsaRecover on invalid concrete input returns empty Bytes"
+kind = "bug"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (invalid_concrete_recoveries_return_empty_bytes; krun_executes_invalid_ecdsa_recovery_to_empty_bytes)"
+fixed_in = "4d1ff2e5"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-010"]
+
+[[request]]
+id = "krypto-bn128"
+title = "Implement the pinned Ethereum BN128 hook family"
+kind = "missing-feature"
+status = "fixed"
+status_basis = "test run at 985e0086 on 2026-09-24 (BN128 unit tests; krun_executes_bn128_fixture_to_pinned_kore_results)"
+fixed_in = "6314c39a"
+requested_action = "None."
+sources = ["k-rust-agent-requests.toml KRUST-COMPAT-011"]
+
+[[withdrawn]]
+id = "host-api-search-parity"
+former_id = "KRUST-UP-005"
+reason = "Conditional on a TypeScript/WASM orchestration boundary; K-in-K2 calls k-rust in process from Rust. napi and wasm expose search and observed search regardless."
+
+[[withdrawn]]
+id = "checked-lowering-proof"
+former_id = "KRUST-UP-004 (upstream-issues.toml)"
+reason = "Per-artifact translation validation of the k-rust frontend is not a realistic request and blocks no K-in-K2 goal. K-in-K2 trusts the k-rust checkout it builds against."
