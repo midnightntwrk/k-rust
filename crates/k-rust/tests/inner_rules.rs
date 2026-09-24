@@ -2009,7 +2009,6 @@ rule_snapshot!(
     "#
 );
 
-#[cfg(feature = "z3-inference")]
 rule_snapshot!(
     prefers_a_lifted_rewrite_over_a_nested_operator_interpretation,
     r#"
@@ -2333,7 +2332,6 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
-    #[cfg(feature = "z3-inference")]
     collapses_a_record_with_a_rewrite_in_a_field,
     r##"
         module MAIN
@@ -2426,7 +2424,6 @@ fn anywhere_rules_cannot_widen_the_rewrite_sort() {
     );
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn anywhere_attributes_do_not_constrain_nested_rewrites() {
     for attribute in ["anywhere", "simplification"] {
@@ -2654,7 +2651,6 @@ rule_snapshot!(
 );
 
 rule_snapshot!(
-    #[cfg(feature = "z3-inference")]
     parses_a_rewrite_followed_by_a_cast_word_stack_tail,
     r#"
         module MAIN
@@ -3554,4 +3550,196 @@ fn claims_parse_the_implicit_generated_counter_as_a_sibling_cell() {
             "genuinely nested rewrites remain rejected"
         );
     }
+}
+
+// Argument-position rewrites. Each snapshot is shared by the portable and the z3-inference
+// builds, so the two parses must resolve to the same rule sentence.
+macro_rules! argument_rewrite_snapshot {
+    ($name:ident, $rule:expr) => {
+        #[test]
+        fn $name() {
+            let source = format!(
+                indoc! {r#"
+                    module MAIN
+                      syntax Int ::= r"[0-9]+" [token]
+                      syntax Exp ::= Int | bar(Exp) [symbol(bar)]
+                      syntax KItem ::= foo(Int) [symbol(foo)]
+                      syntax List ::= ListItem(KItem) [symbol(ListItem)]
+                                    | List List [symbol(_List_)]
+                                    | ".List" [symbol(.List)]
+                      syntax KCell ::= "<k>" K "</k>" [cell]
+                      rule {}
+                    endmodule
+                "#},
+                $rule
+            );
+            assert_rule_resolution_snapshot!(source.as_str());
+        }
+    };
+}
+
+argument_rewrite_snapshot!(argument_rewrite_of_constants, "foo(0 => 1)");
+argument_rewrite_snapshot!(argument_rewrite_of_an_unsorted_variable, "foo(I => 0)");
+argument_rewrite_snapshot!(argument_rewrite_of_a_cast_variable, "foo(I:Int => 0)");
+argument_rewrite_snapshot!(argument_rewrite_inside_a_cell, "<k> foo(I:Int => 0) </k>");
+argument_rewrite_snapshot!(
+    argument_rewrite_inside_a_nested_application,
+    "ListItem(foo(I:Int => 0))"
+);
+argument_rewrite_snapshot!(argument_rewrite_at_a_supersort_position, "bar(X => 1)");
+
+// A parenthesized rewrite has one derivation per bracket that reaches its position: here the
+// `Int` bracket under `foo` and the `K` bracket under the `foo(...)` label application, which
+// are distinct rewrites (of sort `Int` and of sort `K`). Only sort inference can choose, so the
+// portable build reports the Z3 boundary instead of picking one.
+#[test]
+fn argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KItem ::= foo(Int) [symbol(foo)]
+          rule foo((I:Int => 0))
+        endmodule
+    "#};
+    #[cfg(feature = "z3-inference")]
+    assert_rule_resolution_snapshot!(source);
+    #[cfg(not(feature = "z3-inference"))]
+    assert_ambiguity_requires_z3(source);
+}
+
+#[test]
+fn argument_rewrite_does_not_lift_a_rewrite_into_a_rewrite_operand() {
+    // `(0 => 1) => 2` at an Int position has a derivation only through the bracket, and the
+    // rewrite check rejects the nested rewrite after parsing in either build.
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KItem ::= foo(Int) [symbol(foo)]
+          rule foo(0 => 1 => 2)
+        endmodule
+    "#};
+    // Without inference the operands of `S => S` are plain `S`, so the chain has no derivation;
+    // with inference the non-associative rewrite rejects it.
+    let error = resolve_rule_bubbles(&lowered(source)).unwrap_err();
+    #[cfg(not(feature = "z3-inference"))]
+    assert!(
+        matches!(error, RuleError::Parse(ref error) if matches!(error.error, ParseError::NoParse { .. })),
+        "{error:?}"
+    );
+    #[cfg(feature = "z3-inference")]
+    assert!(
+        matches!(error, RuleError::Parse(ref error)
+            if matches!(error.error, ParseError::Associativity { ref parent, ref child, .. }
+                if parent == "#KRewrite" && child == "#KRewrite")),
+        "{error:?}"
+    );
+    let nested = resolve_rule_bubbles(&lowered(&source.replace("0 => 1 => 2", "(0 => 1) => 2")))
+        .expect("a bracketed rewrite operand parses");
+    let diagnostics = k_rust::definition::check_rewrites(
+        &nested
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .map(|sentence| &**sentence)
+            .collect::<Vec<_>>(),
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message == "Rewrites are not allowed to be nested."),
+        "{diagnostics:?}"
+    );
+}
+
+/// The embedded prelude with every rule-like bubble removed except those of `kept` modules, so
+/// that their rules are parsed with the grammar of their full import closure while the rules
+/// of other prelude modules, some of which need Z3 sort inference, are not parsed at all.
+fn prelude_with_rules_only_in(kept: &[&str]) -> k_rust::definition::Definition {
+    let mut combined: Option<k_rust::outer::SourceFile> = None;
+    for name in ["prelude.md", "kast.md", "domains.md"] {
+        let text = k_rust::builtin::embedded(name).unwrap().text;
+        let code = k_rust::outer::extract_fenced_k_code(&text, "k").unwrap();
+        let file = k_rust::outer::parse(name, &code).unwrap();
+        match &mut combined {
+            Some(combined) => combined.modules.extend(file.modules),
+            None => combined = Some(file),
+        }
+    }
+    let mut combined = combined.unwrap();
+    combined.requires.clear();
+    let main = format!(
+        "module KEPT-RULES\n{}endmodule\n",
+        kept.iter()
+            .map(|module| format!("  imports {module}\n"))
+            .collect::<String>()
+    );
+    combined
+        .modules
+        .extend(k_rust::outer::parse("kept.k", &main).unwrap().modules);
+    let mut definition = k_rust::outer::lower(&combined, "KEPT-RULES").unwrap();
+    for module in &mut definition.modules {
+        if kept.contains(&module.name.as_str()) {
+            continue;
+        }
+        module.local_sentences.retain(|sentence| {
+            !matches!(&**sentence, Sentence::Bubble { sentence_type, .. } if sentence_type != "config")
+        });
+    }
+    definition
+}
+
+fn assert_stream_rules_snapshot(excluded: &str) {
+    const STREAMS: [&str; 2] = ["STDIN-STREAM", "STDOUT-STREAM"];
+    let loaded = k_rust::outer::load_structured(
+        prelude_with_rules_only_in(&STREAMS),
+        &LoadOptions {
+            excluded_module_attributes: vec![excluded.into()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("stream rules should parse with {excluded} excluded: {error}"));
+    let rules = STREAMS
+        .iter()
+        .flat_map(|name| {
+            loaded
+                .definition
+                .modules
+                .iter()
+                .find(|module| module.name == *name)
+                .unwrap()
+                .local_sentences
+                .iter()
+                .filter_map(|sentence| sentence_summary(sentence))
+        })
+        .collect::<Vec<_>>();
+    for name in STREAMS {
+        let module = loaded
+            .definition
+            .modules
+            .iter()
+            .find(|module| module.name == name)
+            .unwrap();
+        assert!(
+            !module
+                .local_sentences
+                .iter()
+                .any(|sentence| matches!(&**sentence, Sentence::Bubble { .. })),
+            "{name} retains an unparsed bubble"
+        );
+    }
+    insta::with_settings!({
+        description => format!("STDIN-STREAM and STDOUT-STREAM rules of the embedded prelude, {excluded} excluded"),
+        omit_expression => true,
+        prepend_module_to_snapshot => true,
+        snapshot_suffix => excluded,
+    }, {
+        insta::assert_debug_snapshot!("prelude_stream_rules", rules);
+    });
+}
+
+#[test]
+fn prelude_stream_rules_parse_with_argument_position_rewrites() {
+    assert_stream_rules_snapshot("concrete");
+    assert_stream_rules_snapshot("symbolic");
 }

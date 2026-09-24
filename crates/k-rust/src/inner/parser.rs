@@ -456,7 +456,12 @@ struct Production {
     result: Sort,
     result_id: usize,
     declared_items: Vec<ProductionItem>,
+    /// Compiled items; a nonterminal carries the sort the production declares for that child,
+    /// which is the sort semantic passes (inference, priorities, list completion) reason about.
     items: Vec<Item>,
+    /// The sort id the recognizer predicts at each nonterminal item. It is the id of the
+    /// declared item sort, except where `Grammar::admit_rewrites_in_argument_positions`
+    /// widened a position to the rule-scaffolding sort that also derives a rewrite of it.
     item_sort_ids: Vec<Option<usize>>,
     label: Option<Label>,
     token: bool,
