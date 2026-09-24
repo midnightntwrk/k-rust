@@ -55,9 +55,7 @@ pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
     StableItemId,
 };
-pub use ir::{
-    BuiltinSort, IrIdentityError, IrSchemaVersion, ModuleId, NodeOrigin, SemanticId, SourceMapKey,
-};
+pub use ir::{BuiltinSort, IrIdentityError, ModuleId, NodeOrigin, SemanticId, SourceMapKey};
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
     TransformationOriginKind,
@@ -132,78 +130,24 @@ pub use transport::rule::{
 
 use serde::{Deserialize, Serialize};
 
-/// Version of the collector-to-compiler descriptor protocol.
+/// The one version of every serialized KRS contract: descriptor bundles,
+/// Semantic IR, and Definition IR.
 ///
-/// This version changes when serialized meaning or canonical encoding changes;
-/// it is intentionally independent of the Cargo package version. Protocol v1
-/// was the pre-anchor M0 draft whose origin frames required a range at every
-/// transformation. Protocol v2 added honest metadata-only transformations but
-/// did not carry explicit parser-keyed rule targets. Protocol v3 represented a
-/// rule parameter with one synthetic binding and therefore could not preserve
-/// zero- or multi-binding patterns. No compatibility reader is provided for
-/// v1-v3. Protocol v4 preserved authored rule-binding preorder but discarded
-/// every materialized parser-keyed range except a descriptor's primary origin
-/// and had no configuration/initializer payload. No compatibility reader is
-/// provided for v1-v4. Protocol v5 added one combined configuration descriptor
-/// and a generic parser-keyed provenance table. Protocol v6 adds exact
-/// host-only builtin registration, typed declared/builtin references,
-/// structured after-the-fact grammar sentences, and structured rule terms.
-/// Protocol v7 adds Map/Id builtin registration, owner-qualified nominal cell
-/// declarations, complete fixed initializer forests, and simultaneous
-/// whole-configuration rules with collision-free side-specific provenance.
-/// Protocol v9 adds typed object-language Boolean conditions to ordinary and
-/// whole-configuration rules.
-/// Protocol v10 adds functional-production totality, explicit equation
-/// priority metadata, and reversible static alias production/clause metadata,
-/// and admits builtin result sorts on constructor declarations that are owned
-/// by structured grammar productions.
-/// Protocol v12 extends the closed builtin-operation catalog with exact
-/// object-language Boolean conjunction. Protocol v13 adds exact Rust
-/// declaration visibility and explicit stable-symbol metadata. Protocol v14
-/// carries literal constructor-production rustdoc into target emission.
-/// Protocol v15 adds alias-safe ordinary Map-operation application heads and
-/// retains complete registered map-update terms in readable head rules.
-/// Protocol v16 adds exact ordinary fixed-cell patterns and replacements to
-/// readable head-rule transport. Protocol v17 adds K's builtin `Bytes` sort,
-/// selected length and lookup operations, and exact byte-token transport.
-/// Protocol v18 adds K's builtin associative `List` sort and selected unit,
-/// item, concatenation, lookup, update, and size operations.
-/// Protocol v19 adds K's builtin Euclidean integer-modulus operation.
-/// Protocol v20 adds K's native modular-power, logarithm, shift, and bitwise
-/// integer operations. Protocol v21 adds empty Bytes. Protocol v22 adds byte
-/// update and right padding. Protocol v23 adds Map lookup/key membership and
-/// Set terms. Protocol v24 adds repeated cells and readable head conditions.
-/// Protocol v25 adds ordered fallback rules. Protocol v26 adds closed typed
-/// production hooks. Protocol v27 adds raw SHA-256 and protocol v28 adds raw
-/// RIPEMD-160 to the closed hook catalog. Protocol v29 adds ECDSA recovery and
-/// protocol v30 adds declared-sort BN128 validity and addition hooks, and
-/// protocol v31 adds declared-sort BN128 multiplication. Protocol v32 adds
-/// BN128 G2 validity and pairing-product hooks. Protocol v33 adds K's native
-/// contiguous List range and multi-element update operations. Protocol v34
-/// adds half-open Bytes substring extraction. Protocol v35 adds native List
-/// repetition through `LIST.make`.
-/// Semantic and Definition IR schema versioning remains independent.
+/// Readers accept exactly [`SchemaVersion::CURRENT`]; there is no reader for
+/// an older version. The value changes whenever a serialized shape or a closed
+/// catalog it carries (builtin operations, hooks, sorts) changes. It must equal
+/// `[schemas] krs_ir` in the repository's `Krs.lock`, which the gates read and a
+/// `krs-ir` test checks against this constant.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ProtocolVersion(pub u32);
+pub struct SchemaVersion(pub u32);
 
-impl ProtocolVersion {
-    /// The protocol emitted by this release.
-    /// Protocol v22 adds byte update and right-padding operations.
-    /// Protocol v26 adds closed typed production hooks.
-    /// Protocol v27 adds raw SHA-256 to the hook catalog.
-    /// Protocol v28 adds raw RIPEMD-160 to the hook catalog.
-    /// Protocol v29 adds ECDSA recovery to the hook catalog.
-    /// Protocol v30 adds declared-sort BN128 validity and addition hooks.
-    /// Protocol v31 adds declared-sort BN128 multiplication.
-    /// Protocol v32 adds BN128 G2 validity and pairing-product hooks.
-    /// Protocol v33 adds builtin List range and multi-element update operations.
-    /// Protocol v34 adds half-open Bytes substring extraction.
-    /// Protocol v35 adds native List repetition through `LIST.make`.
-    pub const CURRENT: Self = Self(35);
+impl SchemaVersion {
+    /// The only version this release reads and writes.
+    pub const CURRENT: Self = Self(36);
 }
 
-impl Default for ProtocolVersion {
+impl Default for SchemaVersion {
     fn default() -> Self {
         Self::CURRENT
     }

@@ -9,15 +9,15 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
     DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor,
-    GrammarTransportError, OriginStack, ProtocolVersion, ProvenanceKey, RustVisibility,
-    StableItemId, StateTransportError, StructuredRuleDescriptor,
+    GrammarTransportError, OriginStack, ProvenanceKey, RustVisibility, SchemaVersion, StableItemId,
+    StateTransportError, StructuredRuleDescriptor,
 };
 
 /// Deterministic, serializable output of one host collector execution.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct DescriptorBundle {
     /// Schema and canonical-encoding version.
-    protocol_version: ProtocolVersion,
+    protocol_version: SchemaVersion,
     /// Collected descriptors. Canonical serialization orders these by ID.
     pub descriptors: Vec<Descriptor>,
     /// Exact Rust API metadata for every collected descriptor.
@@ -27,7 +27,7 @@ pub struct DescriptorBundle {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DescriptorBundleWire {
-    protocol_version: ProtocolVersion,
+    protocol_version: SchemaVersion,
     descriptors: Vec<Descriptor>,
     declarations: Vec<DescriptorDeclaration>,
 }
@@ -38,11 +38,11 @@ impl<'de> Deserialize<'de> for DescriptorBundle {
         D: Deserializer<'de>,
     {
         let wire = DescriptorBundleWire::deserialize(deserializer)?;
-        if wire.protocol_version != ProtocolVersion::CURRENT {
+        if wire.protocol_version != SchemaVersion::CURRENT {
             return Err(serde::de::Error::custom(format_args!(
-                "unsupported descriptor protocol {}; expected {}",
+                "unsupported descriptor bundle schema {}; expected {}",
                 wire.protocol_version.0,
-                ProtocolVersion::CURRENT.0
+                SchemaVersion::CURRENT.0
             )));
         }
         for descriptor in &wire.descriptors {
@@ -76,7 +76,7 @@ impl DescriptorBundle {
             })
             .collect();
         Self {
-            protocol_version: ProtocolVersion::CURRENT,
+            protocol_version: SchemaVersion::CURRENT,
             descriptors,
             declarations,
         }
@@ -93,7 +93,7 @@ impl DescriptorBundle {
     ) -> Result<Self, DescriptorDeclarationError> {
         validate_declarations(&descriptors, &declarations)?;
         Ok(Self {
-            protocol_version: ProtocolVersion::CURRENT,
+            protocol_version: SchemaVersion::CURRENT,
             descriptors,
             declarations,
         })
@@ -107,7 +107,7 @@ impl DescriptorBundle {
 
     /// Returns the serialized collector protocol version.
     #[must_use]
-    pub const fn protocol_version(&self) -> ProtocolVersion {
+    pub const fn protocol_version(&self) -> SchemaVersion {
         self.protocol_version
     }
 

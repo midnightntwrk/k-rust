@@ -42,7 +42,7 @@ revision = "string: the KRS commit the release was assembled from"
 crates_tree = "string: git tree id of crates/ at that commit; must equal the pack's and the modules' crates tree"
 pack_producer_revision = "string: pack-manifest.toml producer.krs_revision (may differ from revision when crates/ did not change)"
 krs_lock_k_rust_commit = "string: Krs.lock [k_rust].commit"
-descriptor_protocol_version = "integer: DescriptorBundle protocol of the oracle (krs-ir ProtocolVersion::CURRENT)"
+descriptor_protocol_version = "integer: DescriptorBundle schema of the oracle (krs-ir SchemaVersion::CURRENT, Krs.lock [schemas] krs_ir)"
 
 [release.oracle]
 description = "The tour-minimal native oracle for this crates/ tree (regenerate-oracle.sh oracle.toml)."

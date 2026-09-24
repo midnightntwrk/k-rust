@@ -10,7 +10,7 @@ fn __krs_sort_parent_a30ee37fad75f5f2_0() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_sort_descriptor_a30ee37fad75f5f2() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -72,7 +72,7 @@ fn __krs_sort_descriptor_a30ee37fad75f5f2() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

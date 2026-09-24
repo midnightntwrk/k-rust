@@ -10,7 +10,7 @@ fn __krs_subsort_sub_ec843611dce35b9f() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

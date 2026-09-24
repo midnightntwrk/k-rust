@@ -336,7 +336,7 @@ fn expand_head_rule(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
                     module_path!(), #name, #facade::ItemKind::Rule, "",

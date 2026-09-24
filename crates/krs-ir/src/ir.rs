@@ -7,55 +7,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::OriginStack;
 
-/// Version of the semantic and Definition IR schemas.
-///
-/// This is deliberately independent of [`crate::ProtocolVersion`]. Changing
-/// collector transport does not change lowering meaning, and changing lowering
-/// meaning does not require adding a descriptor protocol variant. Schema v1
-/// was the single-cell model: declared-only production/variable sorts, unclassified
-/// syntax strings, and declared-only applications. Schema v2 added typed
-/// builtin sorts and applications plus classified object grammar. Schema v3
-/// adds structured fixed configurations, cell-framed rewrites, K-sequence
-/// matching, and typed Map terms. No compatibility reader reinterprets older
-/// data as newer meaning. Schema v4 adds typed rule conditions. Schema v5 adds
-/// functional-production totality, explicit equation priorities, and
-/// reversible static alias productions and clauses.
-/// Schema v6 adds context aliases, simplification, and claims. Schema v7 extends
-/// the closed builtin-operation catalog with object-language Boolean
-/// conjunction. Schema v8 carries exact Rust declaration visibility and
-/// explicit stable-symbol identity on semantic sorts and productions. Schema
-/// v9 carries constructor-production documentation through Semantic and
-/// Definition IR for canonical K source emission. Schema v10 adds K's builtin
-/// `Bytes` sort and its selected operation identities. Schema v11 adds K's
-/// builtin associative `List` sort and selected operations. Schema v12 adds
-/// K's builtin Euclidean integer-modulus operation. Schema v13 adds K's native
-/// modular-power, logarithm, shift, and bitwise integer operations. Schema v14
-/// adds the empty-Bytes identity. Schema v15 adds byte update and right-padding
-/// operations. Schema v16 adds typed Map lookup/key-membership and builtin Set
-/// terms. Schema v17 adds repeated-cell metadata, readable rule conditions,
-/// and ordered fallbacks. Schema v18 adds closed typed production hooks.
-/// Schema v19 adds raw SHA-256 and schema v20 adds raw RIPEMD-160 to the closed
-/// hook catalog. Schema v21 adds ECDSA recovery. Schema v22 adds declared-sort
-/// BN128 validity and addition hooks. Schema v23 adds declared-sort BN128
-/// multiplication. Schema v24 adds BN128 G2 validity and pairing-product
-/// hooks. Schema v25 adds builtin List range and multi-element update operations.
-/// Schema v26 adds half-open Bytes substring extraction.
-/// Schema v27 adds native List repetition through `LIST.make`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct IrSchemaVersion(pub u32);
-
-impl IrSchemaVersion {
-    /// Schema written by this release.
-    pub const CURRENT: Self = Self(27);
-}
-
-impl Default for IrSchemaVersion {
-    fn default() -> Self {
-        Self::CURRENT
-    }
-}
-
 /// Frontend-neutral identities for K sorts supplied by the K language rather
 /// than declared as generated KRS symbols.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]

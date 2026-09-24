@@ -25,7 +25,7 @@ fn __krs_head_rule_refinement_5791209628653036_0() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_5791209628653036() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -294,7 +294,7 @@ fn __krs_rule_application_93feca0579a6c320_1() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_head_rule_descriptor_93feca0579a6c320() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

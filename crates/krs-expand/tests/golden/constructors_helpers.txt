@@ -121,7 +121,7 @@ impl ::k::__KrsRuleApplication<3110547038768958146u64> for StaticExpr {
 #[doc(hidden)]
 fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -245,7 +245,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -423,7 +423,7 @@ fn __krs_strictness_result_db9955e42d8845e3() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -651,7 +651,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -978,7 +978,7 @@ fn __krs_strictness_result_b80f07fa4737c6b2() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_enum_constructor_9a3492b649a1c632_2() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -1218,7 +1218,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_2() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_enum_grammar_9a3492b649a1c632_2() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -1549,7 +1549,7 @@ fn __krs_enum_field_9a3492b649a1c632_3_0() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_enum_constructor_9a3492b649a1c632_3() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -1768,7 +1768,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_3() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_enum_grammar_9a3492b649a1c632_3() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -2061,7 +2061,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_3() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_enum_precedence_9a3492b649a1c632() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -2151,7 +2151,7 @@ fn __krs_enum_precedence_9a3492b649a1c632() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_enum_associativity_9a3492b649a1c632() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

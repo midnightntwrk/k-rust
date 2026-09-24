@@ -1,8 +1,7 @@
 schema = 1
 
 [schemas]
-descriptor_protocol = 35
-definition_ir = 27
+krs_ir = 36
 kast_json = 4
 
 [cargo]

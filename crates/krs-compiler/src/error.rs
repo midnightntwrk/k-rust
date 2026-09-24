@@ -13,8 +13,8 @@ pub enum CollectionErrorKind {
     DuplicatePackageContext,
     /// More than one package claimed the same immutable K namespace.
     DuplicateKNamespace,
-    /// A descriptor used a protocol other than the current protocol.
-    UnsupportedProtocol,
+    /// A descriptor carried a schema version other than the current one.
+    UnsupportedSchemaVersion,
     /// The compiler-provided builtin marker catalog was incomplete or ambiguous.
     InvalidBuiltinRegistry,
     /// No selected Cargo package matched a descriptor's host lookup key.

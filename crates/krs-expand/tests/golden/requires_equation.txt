@@ -112,7 +112,7 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
         },
     };
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

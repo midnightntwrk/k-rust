@@ -6,7 +6,7 @@ fn __krs_token_type_71a45e755f9d1649() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_token_sort_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -55,7 +55,7 @@ fn __krs_token_sort_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_token_grammar_descriptor_71a45e755f9d1649() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

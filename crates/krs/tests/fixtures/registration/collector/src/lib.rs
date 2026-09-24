@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use k::{
     AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostProvenance,
-    HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, PackageId, ProtocolVersion,
+    HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, PackageId, SchemaVersion,
     ProvenanceKey, StableItemId,
 };
 
@@ -47,7 +47,7 @@ fn descriptor(module: &[&str], item: &str) -> HostDescriptor {
     .expect("valid provenance");
 
     HostDescriptor {
-        protocol_version: ProtocolVersion::CURRENT,
+        protocol_version: SchemaVersion::CURRENT,
         id: StableItemId::new(
             PackageId::new("ORG-COLLECTOR", "registration-collector", "0.0.0", "workspace")
                 .expect("valid package"),

@@ -400,7 +400,7 @@ class LockTests(unittest.TestCase):
         self.assertRegex(lock.k_version(), r"^\d+\.\d+\.\d+$")
         self.assertRegex(lock.msrv(), r"^\d+\.\d+\.\d+$")
         self.assertRegex(lock.z3_version(), r"^\d+\.\d+\.\d+$")
-        lock.verify_schema_constants()
+        self.assertGreater(lock.krs_ir_schema(), 0)
 
     def test_stable_rustc_at_or_above_the_msrv(self) -> None:
         with mock.patch.object(lock, "msrv", return_value="1.88.0"):

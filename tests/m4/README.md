@@ -146,7 +146,7 @@ PYTHONDONTWRITEBYTECODE=1 \
 python3 tests/m4/verify.py
 ```
 
-The final PASS summary prints the protocol/IR schema, K and `k-rust` pins,
+The final PASS summary prints the KRS schema version, K and `k-rust` pins,
 proof-bound policy, artifact hashes, and compatibility-policy version.
 
 `--artifacts-only` runs M4.1-M4.3 (preflight, the Rust checks, and the

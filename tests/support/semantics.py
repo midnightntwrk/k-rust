@@ -27,7 +27,7 @@ from support import ROOT, GateError
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split_claims
-from support.lock import msrv, verify_schema_constants
+from support.lock import msrv
 from support.pins import Ledger
 from support.process import run
 from support.tools import rust_analyzer, scratch_root, z3_environment
@@ -135,7 +135,6 @@ def preflight(port: Port, pins: Ledger, corpus: Mapping[str, Any]) -> dict[str, 
     release = (port.checkout / "deps/k_release").read_text(encoding="utf-8").strip()
     if release != checkout_pin.get("version"):
         raise GateError(f"{port.label} K release differs: {release}")
-    verify_schema_constants()
 
     expected_external = pins.table("external_sha256")
     evidence = corpus.get("source_evidence")

@@ -3,8 +3,8 @@
 use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
     DefinitionSortRef, DefinitionTerm, FixedCell, FixedConfiguration, FixedInitializerCell,
-    IrSchemaVersion, ItemKind, LabelId, LabelIdentity, ModuleId, NodeOrigin, OriginStack,
-    PackageId, ProductionItem, ProductionSentence, RuleSentence, SemanticId, SemanticModule,
+    ItemKind, LabelId, LabelIdentity, ModuleId, NodeOrigin, OriginStack, PackageId, ProductionItem,
+    ProductionSentence, RuleSentence, SchemaVersion, SemanticId, SemanticModule,
     SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
     SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, Sha256Digest, SourceFileId,
     SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
@@ -347,18 +347,14 @@ fn definition_foo_bar_matches_golden_and_set_reordering() {
 }
 
 #[test]
-fn schema_version_is_not_the_collector_protocol() {
+fn semantic_and_definition_ir_carry_the_one_schema_version() {
     assert_eq!(
         semantic_theory(false, None).schema_version(),
-        IrSchemaVersion::CURRENT
+        SchemaVersion::CURRENT
     );
     assert_eq!(
         definition_ir(false, None).schema_version(),
-        IrSchemaVersion::CURRENT
-    );
-    assert_ne!(
-        IrSchemaVersion::CURRENT.0,
-        krs_ir::ProtocolVersion::CURRENT.0
+        SchemaVersion::CURRENT
     );
 }
 

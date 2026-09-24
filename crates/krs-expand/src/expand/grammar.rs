@@ -199,7 +199,7 @@ pub(super) fn grammar_macro_descriptor(
         fn #factory() -> #facade::HostDescriptor {
             #owner_check
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #name,

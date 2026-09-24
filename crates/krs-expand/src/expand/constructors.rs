@@ -408,7 +408,7 @@ fn constructor_like(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION"),
@@ -644,7 +644,7 @@ pub(crate) fn token(
         #[doc(hidden)]
         fn #sort_factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #name,
@@ -668,7 +668,7 @@ pub(crate) fn token(
         #[doc(hidden)]
         fn #grammar_factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,
@@ -846,7 +846,7 @@ fn constructor_grammar(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION"),

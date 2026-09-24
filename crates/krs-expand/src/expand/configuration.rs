@@ -79,7 +79,7 @@ pub(crate) fn configuration(
         fn #factory() -> #facade::HostDescriptor {
             let (initializer, initializer_provenance) = #declared::__krs_initializer_payload();
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION"),
@@ -169,7 +169,7 @@ pub(crate) fn cell(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #name,

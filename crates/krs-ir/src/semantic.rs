@@ -16,8 +16,8 @@ use crate::{
     FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationPattern,
     FixedConfigurationRewrite, FixedInitializerCell, FixedInitializerContent, FormatFragment,
     GrammarProductionItem, GrammarProductionItemKind, GroupAssociativitySentence, HookOperation,
-    IrSchemaVersion, ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId,
+    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, SchemaVersion, SemanticId,
     SentenceKind, SetOperation, SourceMapKey, StableItemId,
 };
 
@@ -94,14 +94,14 @@ impl SemanticSortRef {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SemanticTheory {
-    schema_version: IrSchemaVersion,
+    schema_version: SchemaVersion,
     modules: Vec<SemanticModule>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SemanticTheoryWire {
-    schema_version: IrSchemaVersion,
+    schema_version: SchemaVersion,
     modules: Vec<SemanticModule>,
 }
 
@@ -111,11 +111,11 @@ impl<'de> Deserialize<'de> for SemanticTheory {
         D: Deserializer<'de>,
     {
         let wire = SemanticTheoryWire::deserialize(deserializer)?;
-        if wire.schema_version != IrSchemaVersion::CURRENT {
+        if wire.schema_version != SchemaVersion::CURRENT {
             return Err(serde::de::Error::custom(format_args!(
-                "unsupported semantic IR schema {}; expected {}",
+                "unsupported Semantic IR schema {}; expected {}",
                 wire.schema_version.0,
-                IrSchemaVersion::CURRENT.0
+                SchemaVersion::CURRENT.0
             )));
         }
         Self::new(wire.modules).map_err(serde::de::Error::custom)
@@ -130,7 +130,7 @@ impl SemanticTheory {
     /// Returns [`SemanticValidationError`] for any invalid graph invariant.
     pub fn new(modules: Vec<SemanticModule>) -> Result<Self, SemanticValidationError> {
         let theory = Self {
-            schema_version: IrSchemaVersion::CURRENT,
+            schema_version: SchemaVersion::CURRENT,
             modules,
         };
         theory.validate()?;
@@ -139,7 +139,7 @@ impl SemanticTheory {
 
     /// Returns the IR schema version.
     #[must_use]
-    pub const fn schema_version(&self) -> IrSchemaVersion {
+    pub const fn schema_version(&self) -> SchemaVersion {
         self.schema_version
     }
 

@@ -52,29 +52,14 @@ def z3_version() -> str:
     return str(value("solver", "version"))
 
 
-def descriptor_protocol() -> int:
-    return int(value("schemas", "descriptor_protocol"))
+def krs_ir_schema() -> int:
+    """The one schema version of descriptor bundles, Semantic IR, and Definition IR.
 
-
-def definition_ir() -> int:
-    return int(value("schemas", "definition_ir"))
-
-
-def verify_schema_constants() -> None:
-    """Require the KRS schema constants to equal the `Krs.lock` schema pins.
-
-    The protocol and IR constants are KRS source, but they name the wire
-    formats every pinned output is written in, so they must agree with the
-    lock rather than drift from it silently.
+    A `krs-ir` unit test requires `SchemaVersion::CURRENT` to equal this pin,
+    so gates read it here rather than from Rust source.
     """
 
-    for relative, expected, name in (
-        ("crates/krs-ir/src/lib.rs", descriptor_protocol(), "descriptor protocol"),
-        ("crates/krs-ir/src/ir.rs", definition_ir(), "Definition IR schema"),
-    ):
-        source = (ROOT / relative).read_text(encoding="utf-8")
-        if f"pub const CURRENT: Self = Self({expected});" not in source:
-            raise GateError(f"{name} in {relative} differs from Krs.lock ({expected})")
+    return int(value("schemas", "krs_ir"))
 
 
 _RUSTC_VERSION = re.compile(r"^rustc (\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)? ")

@@ -328,7 +328,10 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(forward, reverse);
-    assert!(forward.contains("\"protocol_version\": 35"));
+    assert!(forward.contains(&format!(
+        "\"protocol_version\": {}",
+        krs_ir::SchemaVersion::CURRENT.0
+    )));
     assert!(forward.contains("\"attribute_kind\": \"documentation\""));
     assert!(forward.contains("Adds two values."));
     assert!(forward.contains("\"structured_rule\""));
@@ -336,7 +339,7 @@ fn expression_grammar_and_rule_round_trip_deterministically() {
     assert!(!forward.contains("TypeId"));
     assert!(!forward.contains("_+Int_"));
     let decoded: DescriptorBundle = serde_json::from_str(&forward).unwrap();
-    assert_eq!(decoded.protocol_version().0, 35);
+    assert_eq!(decoded.protocol_version(), krs_ir::SchemaVersion::CURRENT);
 }
 
 #[test]
@@ -1598,12 +1601,16 @@ fn standalone_variant_aliases_and_mismatched_owner_paths_are_rejected() {
 }
 
 #[test]
-fn protocol_five_is_rejected_without_compatibility_guessing() {
+fn an_older_schema_is_rejected_without_compatibility_guessing() {
     let error = serde_json::from_str::<DescriptorBundle>(
         r#"{"protocol_version":5,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 35"));
+    assert!(
+        error
+            .to_string()
+            .contains(&format!("expected {}", krs_ir::SchemaVersion::CURRENT.0))
+    );
 }
 
 fn first_object_with_key_mut<'a>(

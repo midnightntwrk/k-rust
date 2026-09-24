@@ -36,7 +36,7 @@ pub use krs_ir::{
     HostListOperationRegistration, HostMapOperationRegistration, HostPackageKey, HostProvenance,
     HostProvenanceError, HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor,
     HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation,
-    ProtocolVersion, ProvenanceKey, SentenceKind, SetOperation,
+    ProvenanceKey, SchemaVersion, SentenceKind, SetOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,
@@ -1260,7 +1260,7 @@ mod tests {
         .expect("valid provenance");
 
         HostDescriptor {
-            protocol_version: ProtocolVersion::CURRENT,
+            protocol_version: SchemaVersion::CURRENT,
             id: HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

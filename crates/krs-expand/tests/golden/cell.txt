@@ -23,7 +23,7 @@ fn __krs_cell_type_221054d221a44a51() -> ::core::any::TypeId {
 #[doc(hidden)]
 fn __krs_cell_descriptor_221054d221a44a51() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

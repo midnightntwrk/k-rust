@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     GrammarTransportError, HostCellDeclaration, HostConfigurationRule, HostContextAlias,
     HostDeclarationIdentity, HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule,
-    HostStructuredRuleDescriptor, ItemKind, ProtocolVersion, SentenceKind, StateTransportError,
+    HostStructuredRuleDescriptor, ItemKind, SchemaVersion, SentenceKind, StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -626,7 +626,7 @@ pub struct HostTypeReference {
 #[derive(Clone, Debug)]
 pub struct HostDescriptor {
     /// Protocol expected by the producing macro.
-    pub protocol_version: ProtocolVersion,
+    pub protocol_version: SchemaVersion,
     /// Host-only lookup identity awaiting Cargo/K namespace materialization.
     pub id: HostItemId,
     /// Exact build-local identity, if this item declares a Rust-backed item.

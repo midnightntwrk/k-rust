@@ -15,8 +15,8 @@ use krs_ir::{
     HostSortReference, HostSourceAnchor, HostStructuredRuleDescriptor, HostTerm, HostTermArgument,
     HostTypeReference, ItemKind, OriginFrame, OriginStack, PackageId, ProtocolCellContent,
     ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
-    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProtocolVersion, ProvenanceKey,
-    RangedOriginKind, RustVisibility, Sha256Digest, SortDescriptor, SourceFileId, SourceRange,
+    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, RangedOriginKind,
+    RustVisibility, SchemaVersion, Sha256Digest, SortDescriptor, SourceFileId, SourceRange,
     StableItemId, StructuredRuleDescriptor, TransformationOriginKind,
 };
 use krs_syntax::surface::AttributeMacro;
@@ -260,13 +260,13 @@ fn collect_host_descriptors_impl(
     let mut ids = BTreeSet::new();
 
     for host in descriptors {
-        if host.protocol_version != ProtocolVersion::CURRENT {
+        if host.protocol_version != SchemaVersion::CURRENT {
             return Err(CollectionError::new(
-                CollectionErrorKind::UnsupportedProtocol,
+                CollectionErrorKind::UnsupportedSchemaVersion,
                 format!(
-                    "descriptor protocol {} is unsupported; expected {}",
+                    "descriptor schema {} is unsupported; expected {}",
                     host.protocol_version.0,
-                    ProtocolVersion::CURRENT.0
+                    SchemaVersion::CURRENT.0
                 ),
             ));
         }

@@ -449,7 +449,7 @@ fn expand_ordinary_rule(
                 result: #result,
             };
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION"),

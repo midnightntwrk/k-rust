@@ -7,7 +7,7 @@ use krs_compiler::{PackageContext, collect_host_descriptors};
 use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostDeclarationIdentity, HostDescriptor,
     HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance, HostSortDescriptor,
-    HostSourceAnchor, HostSourcePosition, HostTypeKey, ItemKind, ProtocolVersion, ProvenanceKey,
+    HostSourceAnchor, HostSourcePosition, HostTypeKey, ItemKind, SchemaVersion, ProvenanceKey,
 };
 
 struct ExprType;
@@ -36,7 +36,7 @@ fn descriptor(package_root: &Path, display_file: &str) -> HostDescriptor {
     let provenance = HostProvenance::new(anchor(display_file, 1, 1, 11), vec![authored])
         .expect("fixture provenance is complete");
     HostDescriptor {
-        protocol_version: ProtocolVersion::CURRENT,
+        protocol_version: SchemaVersion::CURRENT,
         id: HostItemId::new(
             HostPackageKey::new("diagnostic-anchor", "0.0.0", package_root)
                 .expect("fixture package key"),

@@ -25,7 +25,7 @@ impl<const __KRS_SELECTOR: u64> ::k::__KrsRuleApplication<__KRS_SELECTOR> for In
 #[doc(hidden)]
 fn __krs_constructor_descriptor_aa8f1cadbdde283d() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),
@@ -115,7 +115,7 @@ fn __krs_constructor_descriptor_aa8f1cadbdde283d() -> ::k::HostDescriptor {
 #[doc(hidden)]
 fn __krs_constructor_grammar_aa8f1cadbdde283d() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
-        protocol_version: ::k::ProtocolVersion::CURRENT,
+        protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
                 env!("CARGO_PKG_NAME"),
                 env!("CARGO_PKG_VERSION"),

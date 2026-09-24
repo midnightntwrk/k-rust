@@ -159,7 +159,7 @@ pub(crate) fn sort(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION"),
@@ -439,7 +439,7 @@ fn expand_readable_sort(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"),
                     env!("CARGO_PKG_VERSION"),
@@ -525,7 +525,7 @@ fn expand_readable_membership(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,
@@ -752,7 +752,7 @@ pub(crate) fn subsort(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,
@@ -880,7 +880,7 @@ fn expand_bracket_grammar_parts(
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,

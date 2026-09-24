@@ -14,8 +14,8 @@ use crate::ir::validated_id;
 use crate::{
     ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GrammarProductionItem,
     GrammarProductionItemKind, GroupAssociativitySentence, HookOperation, IrIdentityError,
-    IrSchemaVersion, ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin,
-    PrecedenceRelation, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId,
+    ItemKind, ListOperation, MapOperation, ModuleId, NodeOrigin, PrecedenceRelation,
+    ProductionAttribute, ProductionFieldId, ProductionGroupId, SchemaVersion, SemanticId,
     SentenceKind, SetOperation, SourceMapKey, StableItemId,
 };
 use crate::{
@@ -268,7 +268,7 @@ impl LabelIdentity {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct DefinitionIr {
-    schema_version: IrSchemaVersion,
+    schema_version: SchemaVersion,
     main_module: ModuleId,
     modules: Vec<DefinitionModule>,
 }
@@ -276,7 +276,7 @@ pub struct DefinitionIr {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DefinitionIrWire {
-    schema_version: IrSchemaVersion,
+    schema_version: SchemaVersion,
     main_module: ModuleId,
     modules: Vec<DefinitionModule>,
 }
@@ -287,11 +287,11 @@ impl<'de> Deserialize<'de> for DefinitionIr {
         D: Deserializer<'de>,
     {
         let wire = DefinitionIrWire::deserialize(deserializer)?;
-        if wire.schema_version != IrSchemaVersion::CURRENT {
+        if wire.schema_version != SchemaVersion::CURRENT {
             return Err(serde::de::Error::custom(format_args!(
                 "unsupported Definition IR schema {}; expected {}",
                 wire.schema_version.0,
-                IrSchemaVersion::CURRENT.0
+                SchemaVersion::CURRENT.0
             )));
         }
         Self::new(wire.main_module, wire.modules).map_err(serde::de::Error::custom)
@@ -310,7 +310,7 @@ impl DefinitionIr {
         modules: Vec<DefinitionModule>,
     ) -> Result<Self, DefinitionValidationError> {
         let definition = Self {
-            schema_version: IrSchemaVersion::CURRENT,
+            schema_version: SchemaVersion::CURRENT,
             main_module,
             modules,
         };
@@ -319,7 +319,7 @@ impl DefinitionIr {
     }
     /// Returns the independent IR schema version.
     #[must_use]
-    pub const fn schema_version(&self) -> IrSchemaVersion {
+    pub const fn schema_version(&self) -> SchemaVersion {
         self.schema_version
     }
     /// Returns the selected main module.

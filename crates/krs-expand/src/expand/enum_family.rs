@@ -170,7 +170,7 @@ pub(crate) fn constructors(
             #[doc(hidden)]
             fn #sort_factory() -> #facade::HostDescriptor {
                 #facade::HostDescriptor {
-                    protocol_version: #facade::ProtocolVersion::CURRENT,
+                    protocol_version: #facade::SchemaVersion::CURRENT,
                     id: #facade::HostItemId::from_macro_context(
                         env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                         env!("CARGO_MANIFEST_DIR"), module_path!(), #enum_name,
@@ -194,7 +194,7 @@ pub(crate) fn constructors(
             #[doc(hidden)]
             fn #membership_factory() -> #facade::HostDescriptor {
                 #facade::HostDescriptor {
-                    protocol_version: #facade::ProtocolVersion::CURRENT,
+                    protocol_version: #facade::SchemaVersion::CURRENT,
                     id: #facade::HostItemId::from_macro_context(
                         env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                         env!("CARGO_MANIFEST_DIR"), module_path!(), #membership_name,
@@ -538,7 +538,7 @@ fn expand_enum_variant(
         #[doc(hidden)]
         fn #descriptor_factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #variant_name,
@@ -571,7 +571,7 @@ fn expand_enum_variant(
         #[doc(hidden)]
         fn #grammar_factory() -> #facade::HostDescriptor {
             #facade::HostDescriptor {
-                protocol_version: #facade::ProtocolVersion::CURRENT,
+                protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
                     env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"),
                     env!("CARGO_MANIFEST_DIR"), module_path!(), #grammar_name,

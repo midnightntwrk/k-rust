@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, semantics  # noqa: E402
 from support.hashing import json_sha256  # noqa: E402
 from support.kdefinition import parse_kore_pattern  # noqa: E402
-from support.lock import descriptor_protocol, k_version  # noqa: E402
+from support.lock import k_version, krs_ir_schema  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool, scratch_root  # noqa: E402
@@ -379,7 +379,7 @@ def main() -> int:
         )
         print(
             f"PASS readable KMIR operational slice: {PORT.descriptors} descriptors; "
-            f"{executions} K-Rust executions; {proof_status}; protocol {descriptor_protocol()}"
+            f"{executions} K-Rust executions; {proof_status}; KRS schema {krs_ir_schema()}"
         )
         return 0
     except (GateError, OSError) as error:

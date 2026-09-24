@@ -697,7 +697,10 @@ fn configuration_rule_round_trips_with_exact_side_specific_provenance() {
         payload: DescriptorPayload::ConfigurationRule(Box::new(rule)),
     }]);
     let json = bundle.to_canonical_json().unwrap();
-    assert!(json.contains("\"protocol_version\": 35"));
+    assert!(json.contains(&format!(
+        "\"protocol_version\": {}",
+        krs_ir::SchemaVersion::CURRENT.0
+    )));
     assert!(json.contains("\"configuration_rule\""));
     let decoded: DescriptorBundle = serde_json::from_str(&json).unwrap();
     assert_eq!(decoded, bundle);
@@ -1156,10 +1159,14 @@ fn simultaneous_k_and_map_update_is_structured() {
 }
 
 #[test]
-fn protocol_seven_is_rejected_after_v9_cutover() {
+fn a_superseded_schema_is_rejected() {
     let error = serde_json::from_str::<DescriptorBundle>(
         r#"{"protocol_version":7,"descriptors":[],"declarations":[]}"#,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("expected 35"));
+    assert!(
+        error
+            .to_string()
+            .contains(&format!("expected {}", krs_ir::SchemaVersion::CURRENT.0))
+    );
 }

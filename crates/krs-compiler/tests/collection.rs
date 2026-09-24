@@ -11,7 +11,7 @@ use krs_ir::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
     HostDescriptor, HostDescriptorPayload, HostItemId, HostPackageKey, HostProvenance,
     HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey, HostTypeReference,
-    ItemKind, ProtocolVersion, RustVisibility,
+    ItemKind, RustVisibility, SchemaVersion,
 };
 use krs_syntax::surface;
 use krs_syntax::{
@@ -295,10 +295,10 @@ fn rejects_protocol_root_duplicate_id_and_duplicate_type() {
     let package = TestPackage::new("negative", "#[k::sort]\npub trait Expr {}\n");
 
     let mut old = package.sort("Expr", expr_type, vec![]);
-    old.protocol_version = ProtocolVersion(2);
+    old.protocol_version = SchemaVersion(2);
     assert_kind(
         collect_host_descriptors([package.context("ORG-NEG")], [old]),
-        CollectionErrorKind::UnsupportedProtocol,
+        CollectionErrorKind::UnsupportedSchemaVersion,
     );
 
     let mut wrong_root = package.sort("Expr", expr_type, vec![]);
@@ -801,7 +801,7 @@ impl TestPackage {
             vec![module]
         };
         HostDescriptor {
-            protocol_version: ProtocolVersion::CURRENT,
+            protocol_version: SchemaVersion::CURRENT,
             id: self.item_id(name, ItemKind::Sort, &module_path),
             declared_type: Some(krs_ir::HostDeclarationIdentity::Nominal(HostTypeKey(
                 declared,
@@ -863,7 +863,7 @@ impl TestPackage {
             syn::Fields::Unnamed(_) | syn::Fields::Unit => Vec::new(),
         };
         HostDescriptor {
-            protocol_version: ProtocolVersion::CURRENT,
+            protocol_version: SchemaVersion::CURRENT,
             id: self.item_id(name, ItemKind::Constructor, &[]),
             declared_type: Some(krs_ir::HostDeclarationIdentity::Nominal(HostTypeKey(
                 declared,

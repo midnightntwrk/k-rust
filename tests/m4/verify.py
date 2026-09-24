@@ -419,7 +419,6 @@ def phase_preflight(context: Context) -> str:
         manifest = load_toml(checkouts["k_rust"] / "crates" / crate / "Cargo.toml")
         if table(manifest.get("package"), f"{crate} package").get("version") != lock.value("k_rust", key):
             raise GateError(f"{crate} version differs from Krs.lock [k_rust] {key}")
-    lock.verify_schema_constants()
 
     tools = (
         "cargo", "rustc", "rustfmt", "clippy-driver", "rust-analyzer", "git",
@@ -459,8 +458,8 @@ def phase_preflight(context: Context) -> str:
     native_rust = run(["rustc", "+stable", "--version"], timeout=30).stdout.strip()
     lock.require_stable_at_least_msrv(native_rust)
     return (
-        f"external checkouts and files, corpus, tools, protocol {lock.descriptor_protocol()}, "
-        f"IR schema {lock.definition_ir()}, MSRV {lock.msrv()}, and {native_rust}"
+        f"external checkouts and files, corpus, tools, KRS schema {lock.krs_ir_schema()}, "
+        f"MSRV {lock.msrv()}, and {native_rust}"
     )
 
 
@@ -1199,8 +1198,7 @@ def main() -> int:
         return 0
     pins.finish("M4 complete IMP")
     summary = {
-        "protocol": lock.descriptor_protocol(),
-        "ir_schema": lock.definition_ir(),
+        "krs_schema": lock.krs_ir_schema(),
         "k": {"version": lock.k_version(), "commit": lock.k_commit()},
         "k_rust": {
             "version": lock.value("k_rust", "version"),

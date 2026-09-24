@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use k::{
     AnchorPrecision, HostAuthoredAnchor, HostDescriptor, HostDescriptorPayload, HostProvenance,
-    HostItemId, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, ProtocolVersion,
+    HostItemId, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, ItemKind, SchemaVersion,
     ProvenanceKey,
 };
 
@@ -42,7 +42,7 @@ fn descriptor(rust_module_path: &str, item: &str) -> HostDescriptor {
     .expect("valid provenance");
 
     HostDescriptor {
-        protocol_version: ProtocolVersion::CURRENT,
+        protocol_version: SchemaVersion::CURRENT,
         id: HostItemId::from_macro_context(
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),

@@ -8,7 +8,7 @@ use language_host::{
     FormatFragment, HostApplicationIdentity, HostDescriptorPayload, HostGrammarDescriptor,
     HostProductionAttribute, HostProductionItem, HostProductionOwner, HostTerm, HostTermArgument,
     ItemKind, ProtocolInitializerStateTerm, ProtocolRuleBindingKind, ProtocolRuleStateTerm,
-    ProtocolVersion, Term,
+    SchemaVersion, Term,
 };
 
 mod split_config;
@@ -869,11 +869,10 @@ fn main() {
         8
     );
     assert_eq!(kind_count(&descriptors, ItemKind::Cell), 1);
-    assert_eq!(ProtocolVersion::CURRENT, ProtocolVersion(35));
     assert!(
         descriptors
             .iter()
-            .all(|descriptor| descriptor.protocol_version == ProtocolVersion::CURRENT)
+            .all(|descriptor| descriptor.protocol_version == SchemaVersion::CURRENT)
     );
     assert!(descriptors.iter().all(|descriptor| {
         descriptor

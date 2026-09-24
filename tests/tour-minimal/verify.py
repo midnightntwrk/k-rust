@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
-from support.lock import msrv  # noqa: E402
+from support.lock import krs_ir_schema, msrv  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
 
@@ -122,8 +122,8 @@ def verify_artifacts(directory: Path) -> dict[str, bytes]:
 
     bundle = load_json(artifacts, "descriptor-bundle.json")
     descriptors = bundle.get("descriptors")
-    if bundle.get("protocol_version") != 35 or not isinstance(descriptors, list):
-        raise GateError("descriptor bundle is not the expected protocol-v35 document")
+    if bundle.get("protocol_version") != krs_ir_schema() or not isinstance(descriptors, list):
+        raise GateError(f"descriptor bundle is not a KRS schema {krs_ir_schema()} document")
     counts = Counter(
         descriptor.get("id", {}).get("item_kind") for descriptor in descriptors
     )
