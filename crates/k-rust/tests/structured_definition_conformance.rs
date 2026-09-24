@@ -245,3 +245,255 @@ fn config_cell(name: &str, contents: Term) -> Term {
         ],
     )
 }
+
+// A bracket production only groups program text: the parsers erase it before a term exists, so
+// its label names the syntax-module symbol and the priority tag, never a semantic symbol.
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn structured_labelled_bracket_is_declared_only_in_the_syntax_module() {
+    let loaded = load_structured(
+        labelled_bracket_structured_definition(),
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("load_structured rejected the definition: {error}"));
+    assert_labelled_bracket_is_syntax_only(&loaded);
+}
+
+#[test]
+fn source_labelled_bracket_is_declared_only_in_the_syntax_module() {
+    assert_labelled_bracket_is_syntax_only(&loaded_source(LABELLED_BRACKET_SOURCE));
+}
+
+#[test]
+fn labelled_bracket_stays_out_of_the_backend_constructor_domain() {
+    use k_rust_backend::{
+        definition::BackendDefinition,
+        rule::Predicate,
+        simplify::{SimplificationOptions, simplify_predicates_with_solver},
+        smt::NoSolver,
+        term::{Sort as BackendSort, Term as BackendTerm, Variable},
+    };
+
+    let artifacts = compile_loaded_definition(
+        &loaded_source(LABELLED_BRACKET_SOURCE),
+        CompileOptions::default(),
+    )
+    .expect("the definition should compile");
+    // The named field generates no projection through the bracket either.
+    assert!(
+        !artifacts.definition_kore.contains("Lblshade"),
+        "definition.kore mentions the bracket symbol:\n{}",
+        artifacts.definition_kore
+    );
+    let syntax = parse_definition(&artifacts.definition_kore).expect("definition.kore parses");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition.kore internalizes");
+    let color = BackendTerm::variable(Variable::new("X", BackendSort::simple("SortColor")));
+    let excluded = |name: &str| {
+        let constructor = definition
+            .internalize_term(
+                &k_rust::kore::parser::parse_pattern(&format!("Lbl{name}{{}}()")).unwrap(),
+                &[],
+            )
+            .unwrap();
+        Predicate::Not(Box::new(Predicate::Equals(color.clone(), constructor)))
+    };
+
+    // `red` and `blue` are every term of `Color`; the bracket `shade` adds none.
+    let simplified = simplify_predicates_with_solver(
+        &definition,
+        &[excluded("red"), excluded("blue")],
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the exclusions should simplify");
+    assert_eq!(simplified, vec![Predicate::False]);
+    let simplified = simplify_predicates_with_solver(
+        &definition,
+        &[excluded("red")],
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the exclusion should simplify");
+    assert_ne!(simplified, vec![Predicate::False]);
+}
+
+const LABELLED_BRACKET_SOURCE: &str = r#"
+module MAIN
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Exp ::= Int
+               | "(" Exp ")" [bracket, symbol(paren)]
+               > Exp "*" Exp [symbol(mul), left]
+               > Exp "+" Exp [symbol(plus), left]
+  syntax Color ::= "red" [symbol(red)]
+                 | "blue" [symbol(blue)]
+                 | "[" inner: Color "]" [bracket, symbol(shade)]
+endmodule
+"#;
+
+fn loaded_source(source: &str) -> LoadedDefinition {
+    let parsed = k_rust::outer::parse("labelled-bracket.k", source).expect("source parses");
+    let definition = k_rust::outer::lower(&parsed, "MAIN").expect("source lowers");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    LoadedDefinition {
+        files: Vec::new(),
+        source_table: Default::default(),
+        definition,
+        resolved,
+        diagnostics: Vec::new(),
+    }
+}
+
+/// The production shape a structured client sends for a bracket: a label plus `bracket`.
+#[cfg(feature = "z3-inference")]
+fn labelled_bracket_structured_definition() -> Definition {
+    let production = |label: Option<&str>, sort: &str, items, attributes: &[(&str, &str)]| {
+        std::sync::Arc::new(Sentence::Production {
+            label: label.map(Label::new),
+            parameters: Vec::new(),
+            sort: Sort::new(sort),
+            items,
+            attributes: Attributes::new(
+                attributes
+                    .iter()
+                    .map(|(key, value)| ((*key).to_owned(), json!(value)))
+                    .collect(),
+            ),
+        })
+    };
+    let exp = || ProductionItem::NonTerminal {
+        sort: Sort::new("Exp"),
+        name: None,
+    };
+    let terminal = |text: &str| ProductionItem::Terminal(text.into());
+    Definition {
+        main_module: "MAIN".into(),
+        modules: vec![FlatModule {
+            name: "MAIN".into(),
+            imports: Vec::new(),
+            local_sentences: vec![
+                production(
+                    None,
+                    "Int",
+                    vec![ProductionItem::regex("[0-9]+")],
+                    &[("token", "")],
+                ),
+                production(
+                    None,
+                    "Exp",
+                    vec![ProductionItem::NonTerminal {
+                        sort: Sort::new("Int"),
+                        name: None,
+                    }],
+                    &[],
+                ),
+                production(
+                    Some("paren"),
+                    "Exp",
+                    vec![terminal("("), exp(), terminal(")")],
+                    &[("bracket", ""), ("format", "%1%2%3")],
+                ),
+                production(
+                    Some("plus"),
+                    "Exp",
+                    vec![exp(), terminal("+"), exp()],
+                    &[("left", "")],
+                ),
+                production(
+                    Some("mul"),
+                    "Exp",
+                    vec![exp(), terminal("*"), exp()],
+                    &[("left", "")],
+                ),
+                std::sync::Arc::new(Sentence::SyntaxPriority {
+                    priorities: vec![vec!["mul".into()], vec!["plus".into()]],
+                    attributes: Attributes::default(),
+                }),
+            ],
+            attributes: Attributes::default(),
+        }],
+        attributes: Attributes::default(),
+    }
+}
+
+fn assert_labelled_bracket_is_syntax_only(loaded: &LoadedDefinition) {
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let artifacts = compile_loaded_definition(
+            loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected the definition: {error:#?}"));
+
+        // No declaration and no axiom of the semantic module mentions the bracket.
+        assert!(
+            !artifacts.definition_kore.contains("Lblparen"),
+            "{backend}: definition.kore mentions the bracket symbol:\n{}",
+            artifacts.definition_kore
+        );
+        assert!(
+            artifacts.definition_kore.contains("symbol Lblmul{}"),
+            "{backend}: definition.kore lost a real constructor"
+        );
+
+        let syntax = parse_definition(&artifacts.syntax_definition_kore)
+            .expect("syntaxDefinition.kore parses");
+        let declarations = syntax
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                k_rust::kore::ast::Sentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } if symbol.name == "Lblparen" => Some(attributes),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let [attributes] = declarations.as_slice() else {
+            panic!("{backend}: syntaxDefinition.kore declares the bracket {declarations:?}");
+        };
+        let names = attributes
+            .0
+            .iter()
+            .filter_map(|attribute| match attribute {
+                k_rust::kore::ast::Pattern::Application { symbol, .. } => {
+                    Some(symbol.name.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for retained in ["bracket", "format", "terminals"] {
+            assert!(
+                names.contains(&retained),
+                "{backend}: the syntax-module bracket lost `{retained}`: {names:?}"
+            );
+        }
+    }
+
+    let token = |value: &str| Term::Token {
+        token: value.into(),
+        sort: Sort::new("Int"),
+    };
+    let parsed = k_rust::inner::ProgramParser::new(&loaded.definition, "MAIN")
+        .expect("program parser")
+        .parse(&Sort::new("Exp"), "(1 + 2) * 3")
+        .expect("the program parses");
+    assert_eq!(
+        parsed,
+        Term::apply(
+            "mul",
+            vec![
+                Term::apply("plus", vec![token("1"), token("2")]),
+                token("3")
+            ]
+        )
+    );
+}

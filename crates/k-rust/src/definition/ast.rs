@@ -409,6 +409,11 @@ pub enum Sentence {
         attributes: Attributes,
     },
     Production {
+        /// The symbol a term built by this production applies.
+        ///
+        /// On a `bracket` production the label names only the syntax-module symbol and the
+        /// priority and associativity tag: the parsers erase a bracket before a term exists, so a
+        /// bracket's label is never a term symbol and is never declared in `definition.kore`.
         label: Option<Label>,
         parameters: Vec<Sort>,
         sort: Sort,

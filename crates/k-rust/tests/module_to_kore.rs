@@ -305,6 +305,20 @@ fn omits_syntax_relations_only_from_unlabeled_brackets() {
             "labeled bracket omitted `{relation}` attribute"
         );
     }
+
+    // A bracket's label names only its syntax-module symbol: no term contains a bracket.
+    let group = encode_kore_label(&Label::new("group"));
+    assert!(
+        !declarations
+            .semantics
+            .sentences
+            .iter()
+            .any(|sentence| matches!(
+                sentence,
+                Sentence::SymbolDeclaration { symbol, .. } if symbol == &group
+            )),
+        "labeled bracket was declared in the semantic module"
+    );
 }
 
 #[test]

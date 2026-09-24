@@ -38,7 +38,7 @@ pub(super) fn generated_axioms(
             syntax.push(axiom);
             continue;
         }
-        if is_builtin_production(production) {
+        if is_builtin_production(production) || is_bracket_production(production) {
             continue;
         }
         semantics.extend(algebraic_axioms(id, production, subsorts)?);
@@ -93,6 +93,9 @@ pub(super) fn constructor_productions(
             else {
                 return None;
             };
+            if is_bracket_production(production) {
+                return None;
+            }
             let algebraic =
                 attributes.has_any(&[AttributeKey::Assoc, AttributeKey::Comm, AttributeKey::Idem]);
             let is_macro = attributes.has_any(&AttributeKey::MACRO_LIKE);
@@ -277,6 +280,7 @@ fn no_junk_axioms(
                 || is_subsort_production(production)
                 || is_builtin_production(production)
                 || is_macro_production(production)
+                || is_bracket_production(production)
             {
                 continue;
             }
