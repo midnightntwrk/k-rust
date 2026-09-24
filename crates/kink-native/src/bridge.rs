@@ -364,7 +364,11 @@ impl<'a> PathSet<'a> {
         stop: PathStop,
     ) -> Result<(), BridgeFailure> {
         let split = split_state(&branch.state, self.context.sorts)?;
-        let stop = decided_stop(stop, split.decided_term().is_some());
+        let stop = if self.diagnosed {
+            PathStop::BackendLimit
+        } else {
+            decided_stop(stop, split.decided_term().is_some())
+        };
         self.incomplete.push(stop);
         self.insert(branch, false, stop, None, split.path_predicate())
     }
@@ -411,11 +415,15 @@ impl<'a> PathSet<'a> {
                 CollectionStop::ExhaustionUnrecorded
             }
         };
-        let stop = self
-            .incomplete
-            .iter()
-            .min()
-            .map_or(otherwise, |stop| collection_stop(*stop));
+        // A diagnostic taints the whole response, so a less severe stop must not hide it.
+        let stop = if self.diagnosed {
+            CollectionStop::BackendLimit
+        } else {
+            self.incomplete
+                .iter()
+                .min()
+                .map_or(otherwise, |stop| collection_stop(*stop))
+        };
         BridgedPaths {
             paths: self.entries.into_iter().map(|(.., path)| path).collect(),
             route,
@@ -1168,7 +1176,7 @@ mod tests {
         #[rustfmt::skip]
         let diagnosed = [
             ("undiagnosed-witness", Vec::new(), P::Terminal, CollectionStop::ExhaustionUnrecorded),
-            ("diagnosed-witness", vec![budget], P::BackendLimit, CollectionStop::BackendLimit),
+            ("diagnosed-witness", vec![budget.clone()], P::BackendLimit, CollectionStop::BackendLimit),
         ];
         for (id, diagnostics, stop, collection) in diagnosed {
             let adapted =
@@ -1181,6 +1189,39 @@ mod tests {
             assert_eq!(path.complete, stop == P::Terminal, "{id}");
             assert_eq!(path.stop, stop, "{id}");
             assert_eq!(bridged.collection.stop, collection, "{id}");
+        }
+        // A diagnosed response also taints its frontier and incomplete states, and a less
+        // severe stop (or none at all) must not hide the diagnostic in the collection.
+        // (id, query, witnesses, incomplete items, path count)
+        type DiagnosedRow = (
+            &'static str,
+            QueryShape,
+            Vec<PathWitnessOutput>,
+            Vec<I>,
+            usize,
+        );
+        #[rustfmt::skip]
+        let diagnosed_incomplete: [DiagnosedRow; 3] = [
+            ("diagnosed-frontier", QueryShape::new(SearchTypeArg::Final, Some(1)), vec![witness(0, 1)], Vec::new(), 1),
+            ("diagnosed-depth-bound", unbounded, Vec::new(), vec![I::DepthBound { state: search_state(1) }], 1),
+            ("diagnosed-result-bound", unbounded, Vec::new(), vec![I::ResultBound], 0),
+        ];
+        for (id, query, witnesses, incomplete, count) in diagnosed_incomplete {
+            let adapted =
+                search(query, witnesses, incomplete).with_diagnostics(vec![budget.clone()]);
+            let bridged = paths_from_search(&adapted, &bridge_context(&sorts))
+                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
+            assert_eq!(bridged.paths.len(), count, "{id}");
+            for path in &bridged.paths {
+                assert!(!path.complete, "{id}");
+                assert_eq!(path.stop, P::BackendLimit, "{id}");
+            }
+            assert_eq!(
+                bridged.collection.stop,
+                CollectionStop::BackendLimit,
+                "{id}"
+            );
+            assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
         }
     }
 
