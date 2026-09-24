@@ -7,17 +7,16 @@ corpus paths; it does not copy their inputs or import their verifiers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from concurrent.futures import ThreadPoolExecutor
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
 import tempfile
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from support import GateError
 from support.hashing import canonical_json, json_sha256
+from support.parallel import settle_all, worker_count
 from support.process import compact, run
 from support.tools import executable
 
@@ -352,164 +351,193 @@ def compare_behavior(
     actual: Route,
     plan: BehaviorPlan,
 ) -> BehaviorSummary:
-    """Run the complete checked corpus against both source definitions."""
+    """Run the complete checked corpus against both source definitions.
 
-    evidence: dict[str, Any] = {"parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}}
-    depth_count = 0
-    try:
-        worker_limit = int(os.environ.get("KRS_M4_ORACLE_WORKERS", "4"))
-    except ValueError as error:
-        raise GateError("KRS_M4_ORACLE_WORKERS must be an integer") from error
-    if not 1 <= worker_limit <= 8:
-        raise GateError("KRS_M4_ORACLE_WORKERS must be between 1 and 8")
+    Every frontend and backend invocation of the plan is independent of every
+    other case, so all of them run in one pool bounded by
+    ``KRS_M4_ORACLE_WORKERS``. The comparison then walks the plan serially in
+    manifest order, so the evidence and the first reported difference do not
+    depend on scheduling.
+    """
 
-    def parallel(function, values):
-        values = list(values)
-        with ThreadPoolExecutor(max_workers=min(worker_limit, len(values))) as executor:
-            return list(executor.map(function, values))
+    worker_limit = worker_count("KRS_M4_ORACLE_WORKERS", 4)
+    timeout = plan.timeout_seconds
+    sides = ((reference, "reference"), (actual, "actual"))
 
     with tempfile.TemporaryDirectory(prefix="krs-m4-behavior-") as temporary:
         workspace = Path(temporary)
-        for case in plan.parse_cases:
-            left = _parse(kast, reference, case.reference_module, case.sort, case.path, plan.timeout_seconds)
-            right = _parse(kast, actual, case.actual_module, case.sort, case.path, plan.timeout_seconds)
-            left_term = _normalized_output(left, reference.term_policy, f"reference parse {case.name}")
-            right_term = _normalized_output(right, actual.term_policy, f"actual parse {case.name}")
-            if left_term != right_term:
-                raise GateError(f"parse tree differs for {case.name}")
+        jobs: list[Callable[[], Any]] = []
 
-            unparsed_left = _unparse(kast, reference, case.reference_module, case.sort, case.path, plan.timeout_seconds)
-            unparsed_right = _unparse(kast, actual, case.actual_module, case.sort, case.path, plan.timeout_seconds)
-            if unparsed_left.returncode != 0 or unparsed_right.returncode != 0:
-                raise GateError(f"unparse failed for {case.name}")
-            pair = (unparsed_left.stdout.strip(), unparsed_right.stdout.strip())
-            if pair[0] != pair[1] and pair != case.allowed_unparse_pair:
-                raise GateError(f"unparse output differs for {case.name}: {pair!r}")
+        def job(call: Callable[[], Any]) -> int:
+            jobs.append(call)
+            return len(jobs) - 1
 
-            # Each frontend's output must reparse to its own original term,
-            # except for an explicitly frozen parser/unparser mismatch.
-            reparsed: list[Any] = []
-            for index, (route, module, output) in enumerate(
-                (
-                    (reference, case.reference_module, unparsed_left.stdout),
-                    (actual, case.actual_module, unparsed_right.stdout),
-                )
-            ):
-                path = workspace / f"{index}-{case.name}"
-                path.write_text(output, encoding="utf-8")
-                process = _parse(kast, route, module, case.sort, path, plan.timeout_seconds)
-                reparsed.append(_normalized_output(process, route.term_policy, f"reparse {case.name}"))
-            if case.allowed_unparse_pair is None and reparsed != [left_term, right_term]:
-                raise GateError(f"parse/unparse/parse changed {case.name}")
-            evidence["parse"][case.name] = {"term": left_term, "unparse": pair}
+        def parse_chain(case: ParseCase) -> dict[str, Any]:
+            # Each frontend's unparse output is reparsed by that same frontend;
+            # the reparse depends only on this case's own unparse.
+            modules = (case.reference_module, case.actual_module)
+            parsed = [
+                _parse(kast, route, module, case.sort, case.path, timeout)
+                for (route, _), module in zip(sides, modules)
+            ]
+            unparsed = [
+                _unparse(kast, route, module, case.sort, case.path, timeout)
+                for (route, _), module in zip(sides, modules)
+            ]
+            reparsed = None
+            if all(process.returncode == 0 for process in unparsed):
+                reparsed = []
+                for index, ((route, _), module, process) in enumerate(
+                    zip(sides, modules, unparsed)
+                ):
+                    path = workspace / f"{index}-{case.name}"
+                    path.write_text(process.stdout, encoding="utf-8")
+                    reparsed.append(_parse(kast, route, module, case.sort, path, timeout))
+            return {"parsed": parsed, "unparsed": unparsed, "reparsed": reparsed}
 
+        parse_jobs = [job(lambda case=case: parse_chain(case)) for case in plan.parse_cases]
+
+        execution_jobs = []
         for case in plan.execution_cases:
             execution_path = case.path
             if case.input_text is not None:
                 execution_path = workspace / f"execution-{case.name}.imp"
                 execution_path.write_text(case.input_text, encoding="utf-8")
-            if case.run_to_completion:
-                def complete(job):
-                    route, side = job
-                    process = _execute(
-                        krun,
-                        route,
-                        execution_path,
-                        case.configurations,
-                        plan.timeout_seconds,
-                    )
-                    return _normalized_output(
-                        process, route.term_policy, f"{side} execution {case.name}"
-                    )
-                full = parallel(complete, ((reference, "reference"), (actual, "actual")))
-                if full[0] != full[1]:
-                    raise GateError(f"final state differs for {case.name}")
-                evidence["execution"][case.name] = {"term": full[0]}
 
-            def bounded(job):
-                route, depth = job
-                process = _execute(
-                    krun, route, execution_path, case.configurations,
-                    plan.timeout_seconds, depth=depth,
-                )
-                return _normalized_output(process, route.term_policy, f"{case.name}@{depth}")
+            def execute(route: Route, path: Path = execution_path, case: ExecutionCase = case, **options: Any):
+                return lambda: _execute(krun, route, path, case.configurations, timeout, **options)
 
-            depth_jobs = [
-                (route, depth) for depth in case.depths for route in (reference, actual)
+            execution_jobs.append({
+                "full": [job(execute(route)) for route, _ in sides]
+                if case.run_to_completion else None,
+                "depths": [
+                    [job(execute(route, depth=depth)) for route, _ in sides]
+                    for depth in case.depths
+                ],
+                "searches": [
+                    [job(execute(route, depth=depth, search=True)) for route, _ in sides]
+                    for depth in case.search_depths
+                ],
+            })
+
+        rejection_jobs = [
+            [
+                job(lambda route=route, module=module, case=case: _parse(
+                    kast, route, module, case.sort, case.path, timeout
+                ))
+                for route, module in ((reference, case.reference_module), (actual, case.actual_module))
             ]
-            bounded_states = parallel(bounded, depth_jobs) if depth_jobs else []
-            for index, depth in enumerate(case.depths):
-                states = bounded_states[index * 2:index * 2 + 2]
-                if states[0] != states[1]:
-                    raise GateError(f"depth state differs for {case.name}@{depth}")
-                evidence["execution"][f"{case.name}@{depth:03d}"] = states[0]
-                depth_count += 1
+            for case in plan.rejection_cases
+        ]
 
-            def search(job):
-                route, depth = job
-                process = _execute(
-                    krun, route, execution_path, case.configurations,
-                    plan.timeout_seconds, depth=depth, search=True,
-                )
-                normalized = _normalized_output(
-                    process, route.term_policy, f"search {case.name}@{depth}"
-                )
-                return _search_set(normalized)
-
-            search_jobs = [
-                (route, depth)
-                for depth in case.search_depths
-                for route in (reference, actual)
-            ]
-            search_states = parallel(search, search_jobs) if search_jobs else []
-            for index, depth in enumerate(case.search_depths):
-                searches = search_states[index * 2:index * 2 + 2]
-                if searches[0] != searches[1]:
-                    raise GateError(f"search set differs for {case.name}@{depth}")
-                evidence["search"][f"{case.name}@{depth:03d}"] = searches[0]
-
-        for case in plan.rejection_cases:
-            observed = []
-            for route, module in (
-                (reference, case.reference_module),
-                (actual, case.actual_module),
-            ):
-                process = _parse(kast, route, module, case.sort, case.path, plan.timeout_seconds)
-                if process.returncode == 0:
-                    raise GateError(f"rejected input parsed successfully: {case.name}")
-                observed.append((_diagnostic_class(process.stderr), _diagnostic_range(process.stderr)))
-            expected = (case.expected_class, case.expected_range)
-            if observed != [expected, expected]:
-                raise GateError(f"rejection differs for {case.name}: {observed}")
-            evidence["rejection"][case.name] = expected
-
-        for case in plan.failure_cases:
-            observed = []
-            for route, side in ((reference, "reference"), (actual, "actual")):
-                process = _execute(
+        failure_jobs = [
+            [
+                job(lambda route=route, case=case: _execute(
                     krun,
                     Route(route.failure_definition or route.definition, route.term_policy),
                     case.path,
                     case.configurations,
-                    plan.timeout_seconds,
+                    timeout,
                     kill_after=8,
                     unlimited_address_space=True,
+                ))
+                for route, _ in sides
+            ]
+            for case in plan.failure_cases
+        ]
+
+        results = settle_all(jobs, worker_limit)
+
+    evidence: dict[str, Any] = {"parse": {}, "execution": {}, "search": {}, "rejection": {}, "failure": {}}
+    depth_count = 0
+
+    for case, index in zip(plan.parse_cases, parse_jobs):
+        chain = results[index].get()
+        left, right = chain["parsed"]
+        left_term = _normalized_output(left, reference.term_policy, f"reference parse {case.name}")
+        right_term = _normalized_output(right, actual.term_policy, f"actual parse {case.name}")
+        if left_term != right_term:
+            raise GateError(f"parse tree differs for {case.name}")
+
+        unparsed_left, unparsed_right = chain["unparsed"]
+        if unparsed_left.returncode != 0 or unparsed_right.returncode != 0:
+            raise GateError(f"unparse failed for {case.name}")
+        pair = (unparsed_left.stdout.strip(), unparsed_right.stdout.strip())
+        if pair[0] != pair[1] and pair != case.allowed_unparse_pair:
+            raise GateError(f"unparse output differs for {case.name}: {pair!r}")
+
+        # Each frontend's output must reparse to its own original term,
+        # except for an explicitly frozen parser/unparser mismatch.
+        reparsed = [
+            _normalized_output(process, route.term_policy, f"reparse {case.name}")
+            for (route, _), process in zip(sides, chain["reparsed"])
+        ]
+        if case.allowed_unparse_pair is None and reparsed != [left_term, right_term]:
+            raise GateError(f"parse/unparse/parse changed {case.name}")
+        evidence["parse"][case.name] = {"term": left_term, "unparse": pair}
+
+    for case, indices in zip(plan.execution_cases, execution_jobs):
+        if indices["full"] is not None:
+            full = [
+                _normalized_output(results[index].get(), route.term_policy, f"{side} execution {case.name}")
+                for (route, side), index in zip(sides, indices["full"])
+            ]
+            if full[0] != full[1]:
+                raise GateError(f"final state differs for {case.name}")
+            evidence["execution"][case.name] = {"term": full[0]}
+
+        for depth, pair_indices in zip(case.depths, indices["depths"]):
+            states = [
+                _normalized_output(results[index].get(), route.term_policy, f"{case.name}@{depth}")
+                for (route, _), index in zip(sides, pair_indices)
+            ]
+            if states[0] != states[1]:
+                raise GateError(f"depth state differs for {case.name}@{depth}")
+            evidence["execution"][f"{case.name}@{depth:03d}"] = states[0]
+            depth_count += 1
+
+        for depth, pair_indices in zip(case.search_depths, indices["searches"]):
+            searches = [
+                _search_set(_normalized_output(
+                    results[index].get(), route.term_policy, f"search {case.name}@{depth}"
+                ))
+                for (route, _), index in zip(sides, pair_indices)
+            ]
+            if searches[0] != searches[1]:
+                raise GateError(f"search set differs for {case.name}@{depth}")
+            evidence["search"][f"{case.name}@{depth:03d}"] = searches[0]
+
+    for case, indices in zip(plan.rejection_cases, rejection_jobs):
+        observed = []
+        for index in indices:
+            process = results[index].get()
+            if process.returncode == 0:
+                raise GateError(f"rejected input parsed successfully: {case.name}")
+            observed.append((_diagnostic_class(process.stderr), _diagnostic_range(process.stderr)))
+        expected = (case.expected_class, case.expected_range)
+        if observed != [expected, expected]:
+            raise GateError(f"rejection differs for {case.name}: {observed}")
+        evidence["rejection"][case.name] = expected
+
+    for case, indices in zip(plan.failure_cases, failure_jobs):
+        observed = []
+        for (_, side), index in zip(sides, indices):
+            process = results[index].get()
+            if process.returncode == 0:
+                raise GateError(
+                    f"{side} failure input completed successfully: {case.name}"
                 )
-                if process.returncode == 0:
-                    raise GateError(
-                        f"{side} failure input completed successfully: {case.name}"
-                    )
-                if case.expected_fragment not in process.stderr:
-                    raise GateError(
-                        f"failure diagnostic fragment differs for {case.name}: {compact(process)}"
-                    )
-                observed.append(_diagnostic_class(process.stderr))
-            if observed != [case.expected_class, case.expected_class]:
-                raise GateError(f"failure class differs for {case.name}: {observed}")
-            evidence["failure"][case.name] = {
-                "class": case.expected_class,
-                "fragment": case.expected_fragment,
-            }
+            if case.expected_fragment not in process.stderr:
+                raise GateError(
+                    f"failure diagnostic fragment differs for {case.name}: {compact(process)}"
+                )
+            observed.append(_diagnostic_class(process.stderr))
+        if observed != [case.expected_class, case.expected_class]:
+            raise GateError(f"failure class differs for {case.name}: {observed}")
+        evidence["failure"][case.name] = {
+            "class": case.expected_class,
+            "fragment": case.expected_fragment,
+        }
 
     return BehaviorSummary(
         parse_count=len(plan.parse_cases),

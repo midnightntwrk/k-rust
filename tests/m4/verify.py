@@ -33,6 +33,7 @@ from support.hashing import (  # noqa: E402
     tracked_tree_sha256,
 )
 from support.kdefinition import split_claims  # noqa: E402
+from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import executable, z3_environment  # noqa: E402
@@ -1090,9 +1091,19 @@ def phase_compatibility(context: Context) -> str:
         [context.tools["python"], HERE / "compatibility/diagnostics/backend-capability/probe.py", "--krs", context.krs],
         [context.tools["python"], HERE / "compatibility/diagnostics/probe.py"],
     ]
-    reports = []
-    for command in commands:
-        reports.append(run(command, timeout=900, environment=env).stdout.strip())
+    # Each probe owns its Cargo target and scratch directories, except that the
+    # aggregate audit (last) re-runs the backend-capability probe (sixth) in
+    # the same target, so those two run in sequence. Reports keep this order.
+    groups = [[command] for command in commands[:5]] + [commands[5:]]
+
+    def run_group(group: list[list[Any]]) -> list[str]:
+        return [run(command, timeout=900, environment=env).stdout.strip() for command in group]
+
+    outcomes = settle_all(
+        [lambda group=group: run_group(group) for group in groups],
+        worker_count("KRS_M4_ORACLE_WORKERS", 4),
+    )
+    reports = [report for outcome in outcomes for report in outcome.get()]
     digest = sha256_text("\n".join(reports))
     if table(context.pins.get("compatibility"), "pins.compatibility").get("policy_version") != 1:
         raise GateError("compatibility policy version differs from 1")

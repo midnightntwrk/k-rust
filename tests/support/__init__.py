@@ -10,6 +10,8 @@ The modules are:
 
 - `support.process`: subprocess execution with captured output and process-group
   cleanup;
+- `support.parallel`: bounded, order-preserving concurrency for independent
+  commands;
 - `support.hashing`: file, text, canonical-JSON, tracked-tree, and artifact
   directory digests;
 - `support.pins`: ledger loading, input and output pins, and `--record`;

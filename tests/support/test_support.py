@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
-from support import checkouts, hashing, kdefinition, lock, lsp, pins, process, tools  # noqa: E402
+from support import checkouts, hashing, kdefinition, lock, lsp, parallel, pins, process, tools  # noqa: E402
 
 
 def write_executable(path: Path, body: str) -> Path:
@@ -73,6 +73,44 @@ class ProcessTests(unittest.TestCase):
         output = process.compact(completed, limit=20)
         self.assertTrue(output.startswith("aaaaa\n…\n"))
         self.assertTrue(output.endswith("TAIL"))
+
+
+class ParallelTests(unittest.TestCase):
+    def test_worker_count_bounds(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(parallel.worker_count("KRS_SUPPORT_WORKERS", 3), 3)
+        for raw, expected in (("1", 1), ("32", 32)):
+            with mock.patch.dict(os.environ, {"KRS_SUPPORT_WORKERS": raw}):
+                self.assertEqual(parallel.worker_count("KRS_SUPPORT_WORKERS", 3), expected)
+        for raw in ("0", "33", "many"):
+            with mock.patch.dict(os.environ, {"KRS_SUPPORT_WORKERS": raw}):
+                with self.assertRaisesRegex(GateError, "KRS_SUPPORT_WORKERS must be"):
+                    parallel.worker_count("KRS_SUPPORT_WORKERS", 3)
+
+    def test_ordered_map_keeps_input_order(self) -> None:
+        def slow_first(value: int) -> int:
+            time.sleep(0.01 * (5 - value))
+            return value * value
+
+        for workers in (1, 4):
+            self.assertEqual(parallel.ordered_map(slow_first, range(5), workers), [0, 1, 4, 9, 16])
+
+    def test_earliest_failure_in_input_order_is_reported(self) -> None:
+        def fail(value: int) -> int:
+            # The later failure finishes first when calls run concurrently.
+            time.sleep(0.05 if value == 1 else 0)
+            if value in (1, 3):
+                raise GateError(f"failed {value}")
+            return value
+
+        for workers in (1, 4):
+            with self.assertRaisesRegex(GateError, "failed 1"):
+                parallel.ordered_map(fail, range(5), workers)
+            outcomes = parallel.settle_all([lambda value=value: fail(value) for value in range(5)], workers)
+            self.assertEqual([outcome.error is None for outcome in outcomes], [True, False, True, False, True])
+            self.assertEqual(outcomes[2].get(), 2)
+            with self.assertRaisesRegex(GateError, "failed 3"):
+                outcomes[3].get()
 
 
 class HashingTests(unittest.TestCase):

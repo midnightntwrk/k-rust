@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import copy
+import json
+import os
 from pathlib import Path
+import subprocess
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -404,6 +408,69 @@ class BehaviorTests(unittest.TestCase):
     def test_unrelated_ambiguous_diagnostic_still_fails_closed(self) -> None:
         with self.assertRaisesRegex(GateError, "ambiguous class"):
             behavior._diagnostic_class("scanner error followed by unexpected token")
+
+    def _fake_behavior(self, workers: int, differing: frozenset[str] = frozenset()) -> str:
+        """Run a small plan over fake tools whose latency reverses plan order."""
+
+        policy = behavior.TermPolicy(
+            identity_labels=frozenset({"#Or", "state"}), identity_sorts=frozenset({"Id", "Int"})
+        )
+        reference = behavior.Route(Path("reference"), policy)
+        actual = behavior.Route(Path("actual"), policy)
+        calls = iter(range(1000, 0, -1))
+
+        def completed(term: object, returncode: int = 0, stderr: str = ""):
+            time.sleep(next(calls) / 200000)
+            envelope = json.dumps({"format": "KAST", "version": 4, "term": term})
+            return subprocess.CompletedProcess([], returncode, envelope, stderr)
+
+        def fake_parse(_kast, route, _module, _sort, path, _timeout):
+            if path.name.startswith("reject"):
+                return subprocess.CompletedProcess(
+                    [], 1, "", "Parse error: unexpected token Location(1,2,1,3)"
+                )
+            name = path.name.split("-", 1)[-1] if path.parent.name.startswith("krs-m4") else path.name
+            side = "actual" if route is actual and name in differing else "same"
+            return completed(apply("state", [token(name, "Id"), token(side, "Id")]))
+
+        def fake_unparse(_kast, _route, _module, _sort, path, _timeout):
+            return subprocess.CompletedProcess([], 0, path.name, "")
+
+        def fake_execute(_krun, _route, path, _configurations, _timeout, *, depth=None, search=False, **_options):
+            if path.name.startswith("fail"):
+                return subprocess.CompletedProcess([], 134, "", "[hook_INT_tdiv]: Division by zero")
+            state = apply("state", [token(path.name, "Id"), token(str(depth), "Int")])
+            return completed(apply("#Or", [state, state]) if search else state)
+
+        plan = behavior.BehaviorPlan(
+            parse_cases=tuple(
+                behavior.ParseCase(name, Path(name), "Stmt", "REF", "ACT")
+                for name in ("a.imp", "b.imp", "c.imp")
+            ),
+            execution_cases=tuple(
+                behavior.ExecutionCase(name, Path(name), depths=(0, 1, 2), search_depths=(2,))
+                for name in ("x.imp", "y.imp")
+            ),
+            rejection_cases=(
+                behavior.RejectionCase("reject.imp", Path("reject.imp"), "Stmt", "REF", "ACT", "parser", (1, 2, 1, 3)),
+            ),
+            failure_cases=(
+                behavior.FailureCase("fail.imp", Path("fail.imp"), expected_fragment="Division by zero"),
+            ),
+        )
+        with patch.multiple(behavior, _parse=fake_parse, _unparse=fake_unparse, _execute=fake_execute), \
+                patch.dict(os.environ, {"KRS_M4_ORACLE_WORKERS": str(workers)}):
+            summary = behavior.compare_behavior(kast="kast", krun="krun", reference=reference, actual=actual, plan=plan)
+        self.assertEqual(summary.depth_state_count, 6)
+        return summary.evidence_sha256
+
+    def test_parallel_evidence_equals_serial_evidence(self) -> None:
+        self.assertEqual(self._fake_behavior(1), self._fake_behavior(8))
+
+    def test_parallel_run_reports_the_first_difference_in_plan_order(self) -> None:
+        for workers in (1, 8):
+            with self.assertRaisesRegex(GateError, "parse tree differs for b.imp"):
+                self._fake_behavior(workers, frozenset({"b.imp", "c.imp"}))
 
 
 def claim_spec(claim_label: str) -> dict[str, object]:

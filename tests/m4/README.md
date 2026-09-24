@@ -41,9 +41,13 @@ layer:
 10. stable-name, diagnostic-boundary, clean-reproduction, and final
     byte-for-byte compatibility checks.
 
-Behavior is parallelizable inside a layer, but layers are serial. A timeout,
-unknown KAST/KORE node, missing artifact, ambient pin mismatch, native/source
-fallback, or unclassified difference fails the gate.
+Layers are serial. Inside the behavior, proof, and compatibility layers every
+independent case runs concurrently, bounded by `KRS_M4_ORACLE_WORKERS`
+(default 4, at most 32); the results are then checked serially in corpus and
+pin order, so the evidence digests and the first reported difference do not
+depend on the worker count. A timeout, unknown KAST/KORE node, missing
+artifact, ambient pin mismatch, native/source fallback, or unclassified
+difference fails the gate.
 
 ## Directory ownership
 
@@ -109,6 +113,22 @@ Use a filesystem with sufficient build space. Generated Cargo targets,
 kompiled directories, and proof workspaces are disposable and are never
 checked in.
 
+On a host without a memory envelope, run the oracle in parallel and leave
+Cargo, the test harness, and the JVM their default parallelism:
+
+```bash
+TMPDIR=/tmp \
+KRS_M4_ORACLE_WORKERS=16 \
+K_OPTS='-Xmx4096m -Xss2m' \
+PYTHONDONTWRITEBYTECODE=1 \
+python3 tests/m4/verify.py
+```
+
+Each worker runs one `kast`, `krun`, `kprove`, or `kore-exec` process at a
+time, so the worker count bounds the number of concurrent JVMs and should be
+sized to the memory available, not only to the core count.
+
+A memory-bounded environment uses the single-worker recipe below.
 The LLVM runtime reserves a sparse 2 TiB virtual region for its semispace allocator.
 This reservation does not consume 2 TiB of resident memory, but a hard `RLIMIT_AS` prevents the interpreter from starting.
 For a memory-bounded run, set only the soft address-space limit and leave its hard limit unlimited.

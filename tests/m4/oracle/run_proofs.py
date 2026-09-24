@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from m3d import normalize as normalizer  # noqa: E402
@@ -19,6 +19,7 @@ from support import ROOT, GateError  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import split_claims  # noqa: E402
+from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import load_json  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_executable, k_tool  # noqa: E402
@@ -140,7 +141,7 @@ def proof_policy(pins: Mapping[str, Any], side: str, cases: Sequence[Mapping[str
 
 
 def compile_definitions(
-    *, workspace: Path, kompile: str, expected_labels: Sequence[str]
+    *, workspace: Path, kompile: str, expected_labels: Sequence[str], workers: int
 ) -> tuple[Path, Path, Path]:
     artifacts = workspace / "artifacts"
     run(
@@ -160,21 +161,22 @@ def compile_definitions(
     )
     actual_definition = workspace / "actual-kompiled"
     reference_definition = workspace / "reference-kompiled"
-    run(
+    commands = (
         [
             kompile, actual_source, "--backend", "haskell", "--main-module", ACTUAL_MODULE,
             "--syntax-module", ACTUAL_MODULE, "--emit-json", "--output-definition", actual_definition,
         ],
-        timeout=WATCHDOG_SECONDS,
-    )
-    run(
         [
             kompile, REFERENCE_SOURCE, "-I", IMP_DEFINITION, "--backend", "haskell",
             "--main-module", REFERENCE_MODULE, "--syntax-module", REFERENCE_SYNTAX_MODULE,
             "--emit-json", "--output-definition", reference_definition,
         ],
-        timeout=WATCHDOG_SECONDS,
     )
+    for outcome in settle_all(
+        [lambda command=command: run(command, timeout=WATCHDOG_SECONDS) for command in commands],
+        workers,
+    ):
+        outcome.get()
     for definition in (actual_definition, reference_definition):
         for name in ("definition.kore", "parsed.json", "compiled.json"):
             if not definition.joinpath(name).is_file():
@@ -463,31 +465,65 @@ def main() -> int:
     kprove = k_tool("kprove", arguments.k_version)
     kore_exec = k_executable("kore-exec")
 
+    workers = worker_count("KRS_M4_ORACLE_WORKERS", 4)
     cases = source_cases(pins, proofs)
     labels = pins["claim_labels"]
     reference_definition, actual_definition, actual_spec = compile_definitions(
-        workspace=workspace, kompile=kompile, expected_labels=labels
+        workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers
     )
     reference_policy = proof_policy(pins, "reference", cases, proofs)
     actual_policy = proof_policy(pins, "actual", cases, proofs)
 
     support = build_support(workspace)
+    native_definition, native_specs = build_native(workspace, support, labels)
+    for directory in ("reference-json", "actual-json"):
+        (workspace / directory).mkdir()
+
+    # Every proof invocation below depends only on the compiled definitions,
+    # so all of them run in one pool. The checks then walk the cases in pin
+    # order, so the first reported difference does not depend on scheduling.
+    jobs: list[Callable[[], Any]] = []
+
+    def job(call: Callable[[], Any]) -> int:
+        jobs.append(call)
+        return len(jobs) - 1
+
+    case_jobs = []
     for case in cases:
         reference_json = workspace / "reference-json" / f"{case['name']}.json"
         actual_json = workspace / "actual-json" / f"{case['name']}.json"
-        reference_json.parent.mkdir(exist_ok=True)
-        actual_json.parent.mkdir(exist_ok=True)
-        reference_process, reference_result, reference_claim = invoke_source(
-            kprove=kprove, definition=reference_definition, spec=case["source_spec"],
-            module=case["source_module"], claim=case["source_claim"], bounds=case["bounds"],
-            spec_json=reference_json,
-            includes=(IMP_DEFINITION, ADJUNCT_SPEC.parent, REFERENCE_SOURCE.parent),
-        )
-        actual_process, actual_result, actual_claim = invoke_source(
-            kprove=kprove, definition=actual_definition, spec=actual_spec,
-            module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
-            spec_json=actual_json, includes=(workspace, IMP_DEFINITION),
-        )
+        case_jobs.append({
+            "reference": job(lambda case=case, spec_json=reference_json: invoke_source(
+                kprove=kprove, definition=reference_definition, spec=case["source_spec"],
+                module=case["source_module"], claim=case["source_claim"], bounds=case["bounds"],
+                spec_json=spec_json,
+                includes=(IMP_DEFINITION, ADJUNCT_SPEC.parent, REFERENCE_SOURCE.parent),
+            )),
+            "actual": job(lambda case=case, spec_json=actual_json: invoke_source(
+                kprove=kprove, definition=actual_definition, spec=actual_spec,
+                module=ACTUAL_SPEC_MODULE, claim=case["actual_claim"], bounds=case["bounds"],
+                spec_json=spec_json, includes=(workspace, IMP_DEFINITION),
+            )),
+            "dry_run": job(lambda case=case: dry_run_spec(
+                kprove=kprove, definition=reference_definition, case=case,
+                workspace=workspace, support=support,
+            )),
+            "native": job(lambda case=case: native_proof(
+                kore_exec=kore_exec, support=support, definition=native_definition,
+                specs=native_specs, case=case, workspace=workspace,
+            )),
+            # The source KORE residual is compared only for an incomplete
+            # proof, and a native status that differs from the pin fails first.
+            "source_kore": job(lambda case=case: actual_source_kore_result(
+                kprove=kprove, definition=actual_definition, spec=actual_spec,
+                case=case, workspace=workspace,
+            )) if case["pin"]["status"] == "incomplete" else None,
+        })
+    results = settle_all(jobs, workers)
+
+    for case, indices in zip(cases, case_jobs):
+        reference_process, reference_result, reference_claim = results[indices["reference"]].get()
+        actual_process, actual_result, actual_claim = results[indices["actual"]].get()
         try:
             reference_evidence = proofs.evidence_from_values(
                 case=proofs.ProofCase(
@@ -533,18 +569,11 @@ def main() -> int:
             raise GateError(
                 f"reference proof pin differs for {case['name']}: observed={canonical_json(observed_pin)}"
             )
-        dry_run_spec(
-            kprove=kprove, definition=reference_definition, case=case,
-            workspace=workspace, support=support,
-        )
+        results[indices["dry_run"]].get()
 
-    native_definition, native_specs = build_native(workspace, support, labels)
     native_statuses: dict[str, str] = {}
-    for case in cases:
-        status, native_result = native_proof(
-            kore_exec=kore_exec, support=support, definition=native_definition,
-            specs=native_specs, case=case, workspace=workspace,
-        )
+    for case, indices in zip(cases, case_jobs):
+        status, native_result = results[indices["native"]].get()
         if status != case["pin"]["status"]:
             raise GateError(
                 f"native proof status differs for {case['name']}: "
@@ -552,10 +581,7 @@ def main() -> int:
             )
         native_statuses[case["name"]] = status
         if status == "incomplete":
-            source_result = actual_source_kore_result(
-                kprove=kprove, definition=actual_definition, spec=actual_spec,
-                case=case, workspace=workspace,
-            )
+            source_result = results[indices["source_kore"]].get()
             run([support, "compare-patterns", source_result, native_result], timeout=120)
     if set(native_statuses) != {case["name"] for case in cases}:
         raise GateError("native proof coverage is incomplete")
