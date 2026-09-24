@@ -13,7 +13,7 @@ The Rust grammar identifier `seq_stmt` denotes the oracle's `seq-stmt` group;
 KRS grammar-group authoring is intentionally identifier-shaped and the
 emitter owns the concrete K group label.
 
-The configuration rules deliberately use the frozen protocol-v7 signature:
+The configuration rules deliberately use the configuration-rule signature:
 term bindings are ordinary typed parameters in subject first-occurrence order,
 followed by one final `k::cells!` parameter. K-sequence, map, and whole-machine
 frames remain structural bindings. The Rust function names `step`, `var`, and

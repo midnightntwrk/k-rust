@@ -21,7 +21,7 @@ use krs_ir::{
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-V6", "v6", "0.1.0", "workspace").unwrap()
+    PackageId::new("KRS-GRAMMAR", "grammar", "0.1.0", "workspace").unwrap()
 }
 
 fn id(name: &str, kind: ItemKind) -> StableItemId {
@@ -1297,7 +1297,7 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
 }
 
 #[test]
-fn malformed_or_orphaned_v6_provenance_is_rejected_before_semantics() {
+fn malformed_or_orphaned_grammar_provenance_is_rejected_before_semantics() {
     let (mut bundle, _) = bundle();
     let descriptor = bundle
         .descriptors

@@ -91,15 +91,6 @@ impl BuiltinSort {
         Self::List,
         Self::Set,
     ];
-
-    /// Sort catalog frozen into descriptor protocol v6.
-    ///
-    /// Map and Id enter IR schema v3 without changing the already-frozen
-    /// collector transport.
-    pub const PROTOCOL_V6: [Self; 3] = [Self::KSequence, Self::Int, Self::Bool];
-
-    /// Complete sort catalog required by descriptor protocol v7.
-    pub(crate) const PROTOCOL_V7: [Self; 8] = Self::ALL;
 }
 
 /// Stable, path-free key used by source-map sidecars.

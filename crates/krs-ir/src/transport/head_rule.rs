@@ -6,8 +6,8 @@ use std::collections::BTreeSet;
 use crate::{
     DescriptorCellReference, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorRulePriority,
     DescriptorSortReference, DescriptorTerm, HostConfigurationReference, HostRuleCondition,
-    HostSortReference, HostTerm, ItemKind, ProtocolV7ShapeError, ProvenanceKey, SentenceKind,
-    StableItemId,
+    HostSortReference, HostTerm, ItemKind, ProvenanceKey, SentenceKind, StableItemId,
+    StateTransportError,
 };
 
 /// One readable binding with an optional explicit `where name: Sort` refinement.
@@ -176,14 +176,14 @@ fn sentence_item_kind(kind: SentenceKind) -> ItemKind {
 fn validate_owise_priority(
     kind: SentenceKind,
     priority: Option<&DescriptorRulePriority>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if let Some(priority) = priority
         && (kind != SentenceKind::Transition
             || priority.key.role() != "rule_owise"
             || priority.key.ordinal() != 0
             || priority.value != 200)
     {
-        return Err(ProtocolV7ShapeError::InvalidTerm(
+        return Err(StateTransportError::InvalidTerm(
             "head-rule ordered fallback priority",
         ));
     }
@@ -193,13 +193,13 @@ fn validate_owise_priority(
 fn validate_bindings<S, I, T>(
     bindings: &[ProtocolHeadRuleBinding<S>],
     extras: &[ProtocolHeadRuleExtra<I, T>],
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     let names = bindings
         .iter()
         .map(|binding| binding.name.as_str())
         .collect::<BTreeSet<_>>();
     if names.len() != bindings.len() || names.iter().any(|name| name.is_empty()) {
-        return Err(ProtocolV7ShapeError::DuplicateValue("head-rule bindings"));
+        return Err(StateTransportError::DuplicateValue("head-rule bindings"));
     }
     for extra in extras {
         let introduced = match extra {
@@ -208,7 +208,7 @@ fn validate_bindings<S, I, T>(
             ProtocolHeadRuleExtra::RewriteCell { .. } => continue,
         };
         if !names.contains(introduced.as_str()) {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "head-rule extra references an undeclared binding",
             ));
         }
@@ -221,12 +221,12 @@ impl HostHeadRule {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for a wrong relational item kind,
+    /// Returns [`StateTransportError`] for a wrong relational item kind,
     /// malformed structural key, undeclared binding, or duplicate extra cell.
-    pub fn validate(&self, item_kind: ItemKind) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate(&self, item_kind: ItemKind) -> Result<(), StateTransportError> {
         let expected = sentence_item_kind(self.sentence_kind);
         if item_kind != expected {
-            return Err(ProtocolV7ShapeError::ItemKind {
+            return Err(StateTransportError::ItemKind {
                 field: "head-anchored rule descriptor",
                 expected: "sentence-matching relational item",
                 actual: item_kind,
@@ -238,7 +238,7 @@ impl HostHeadRule {
             || self.result_key.role() != "rule_result"
             || self.result_key.ordinal() != 0
         {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "head-rule structural provenance key",
             ));
         }
@@ -254,7 +254,7 @@ impl HostHeadRule {
                     && configuration.key.ordinal() == 0
                     && !cell.is_empty() => {}
             _ => {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "head-rule header ownership",
                 ));
             }
@@ -263,7 +263,7 @@ impl HostHeadRule {
         if let Some(requires) = &self.requires
             && (requires.key.role() != "rule_requires" || requires.key.ordinal() != 0)
         {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "head-rule requires provenance key",
             ));
         }
@@ -272,7 +272,7 @@ impl HostHeadRule {
             let cell = match extra {
                 ProtocolHeadRuleExtra::HaveMap { cell, .. } => {
                     if cell.key.role() != "rule_left_cells_field" {
-                        return Err(ProtocolV7ShapeError::InvalidTerm(
+                        return Err(StateTransportError::InvalidTerm(
                             "map read cell provenance key",
                         ));
                     }
@@ -280,7 +280,7 @@ impl HostHeadRule {
                 }
                 ProtocolHeadRuleExtra::UpdateMap { cell, .. } => {
                     if cell.key.role() != "rule_right_cells_field" {
-                        return Err(ProtocolV7ShapeError::InvalidTerm(
+                        return Err(StateTransportError::InvalidTerm(
                             "map update cell provenance key",
                         ));
                     }
@@ -292,7 +292,7 @@ impl HostHeadRule {
                     if cell.key.role() != "rule_left_cells_field"
                         || result_key.role() != "rule_right_cells_field"
                     {
-                        return Err(ProtocolV7ShapeError::InvalidTerm(
+                        return Err(StateTransportError::InvalidTerm(
                             "ordinary cell rewrite provenance key",
                         ));
                     }
@@ -300,9 +300,7 @@ impl HostHeadRule {
                 }
             };
             if cell.name.is_empty() || !cells.insert(cell.name.as_str()) {
-                return Err(ProtocolV7ShapeError::DuplicateValue(
-                    "head-rule extra cells",
-                ));
+                return Err(StateTransportError::DuplicateValue("head-rule extra cells"));
             }
         }
         Ok(())
@@ -314,13 +312,13 @@ impl DescriptorHeadRule {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for a wrong relational item kind,
+    /// Returns [`StateTransportError`] for a wrong relational item kind,
     /// invalid configuration ownership, undeclared binding, duplicate cell,
     /// or an extra that selects the computation cell.
-    pub fn validate(&self, item_kind: ItemKind) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate(&self, item_kind: ItemKind) -> Result<(), StateTransportError> {
         let expected = sentence_item_kind(self.sentence_kind);
         if item_kind != expected {
-            return Err(ProtocolV7ShapeError::ItemKind {
+            return Err(StateTransportError::ItemKind {
                 field: "head-anchored rule descriptor",
                 expected: "sentence-matching relational item",
                 actual: item_kind,
@@ -328,20 +326,20 @@ impl DescriptorHeadRule {
         }
         validate_owise_priority(self.sentence_kind, self.priority.as_ref())?;
         if self.configuration.item_kind() != ItemKind::Configuration {
-            return Err(ProtocolV7ShapeError::ItemKind {
+            return Err(StateTransportError::ItemKind {
                 field: "head-rule configuration",
                 expected: "Configuration",
                 actual: self.configuration.item_kind(),
             });
         }
         if self.computation_cell.cell.owner != self.configuration {
-            return Err(ProtocolV7ShapeError::CellOwnerMismatch);
+            return Err(StateTransportError::CellOwnerMismatch);
         }
         validate_bindings(&self.bindings, &self.extras)?;
         if let Some(requires) = &self.requires
             && (requires.key.role() != "rule_requires" || requires.key.ordinal() != 0)
         {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "head-rule requires provenance key",
             ));
         }
@@ -355,10 +353,10 @@ impl DescriptorHeadRule {
             if cell.cell.owner != self.configuration
                 && cell.cell.owner.item_kind() != ItemKind::Cell
             {
-                return Err(ProtocolV7ShapeError::CellOwnerMismatch);
+                return Err(StateTransportError::CellOwnerMismatch);
             }
             if cell.cell == self.computation_cell.cell || !cells.insert(cell.cell.clone()) {
-                return Err(ProtocolV7ShapeError::DuplicateValue(
+                return Err(StateTransportError::DuplicateValue(
                     "head-rule selected cells",
                 ));
             }

@@ -1,4 +1,4 @@
-//! Collector protocol-v6 contracts for typed object grammar and rule terms.
+//! Collector transport for typed object grammar and structured rule terms.
 //!
 //! These are transport types, not semantic IR. Nested nodes carry parser-owned
 //! [`ProvenanceKey`] values which the compiler resolves through the enclosing
@@ -473,7 +473,7 @@ impl HostBuiltinRegistry {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
             }
         }
-        for sort in BuiltinSort::PROTOCOL_V7 {
+        for sort in BuiltinSort::ALL {
             if !sort_ids.contains(&sort) {
                 return Err(HostBuiltinRegistryError::MissingSort(sort));
             }
@@ -695,7 +695,7 @@ pub struct DescriptorLexicalPrecedence {
     pub value: u32,
 }
 
-/// Ordered grammar item in a protocol-v6 production.
+/// Ordered grammar item in a structured production.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(tag = "item_kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DescriptorProductionItem {
@@ -1205,7 +1205,7 @@ pub enum DescriptorTerm {
     Variable {
         /// Exact bare-reference provenance.
         key: ProvenanceKey,
-        /// Compact protocol-v5 named-path provenance retained for source-map
+        /// Compact named-path provenance retained for source-map
         /// continuity.
         path_key: ProvenanceKey,
         /// Bound Rust identifier.
@@ -1217,7 +1217,7 @@ pub enum DescriptorTerm {
         head_class: DescriptorApplicationHeadClass,
         /// Typed application head and provenance.
         reference: DescriptorApplicationReference,
-        /// Compact protocol-v5 named-path provenance retained for source-map
+        /// Compact named-path provenance retained for source-map
         /// continuity.
         path_key: ProvenanceKey,
         /// Positional or named arguments. One application may not mix forms.
@@ -1278,7 +1278,7 @@ pub enum HostTerm {
     Variable {
         /// Exact bare-reference provenance.
         key: ProvenanceKey,
-        /// Compact protocol-v5 named-path provenance.
+        /// Compact named-path provenance.
         path_key: ProvenanceKey,
         /// Bound Rust identifier.
         name: String,
@@ -1289,7 +1289,7 @@ pub enum HostTerm {
         head_class: DescriptorApplicationHeadClass,
         /// Build-local application head and provenance.
         reference: HostApplicationReference,
-        /// Compact protocol-v5 named-path provenance.
+        /// Compact named-path provenance.
         path_key: ProvenanceKey,
         /// Positional or named arguments. One application may not mix forms.
         arguments: Vec<HostTermArgument>,
@@ -1410,7 +1410,7 @@ impl DescriptorRuleLabel {
     }
 }
 
-/// Structured protocol-v6 relational sentence.
+/// Structured relational sentence.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StructuredRuleDescriptor {
@@ -1473,9 +1473,9 @@ pub struct HostStructuredRuleDescriptor {
     pub result: HostTerm,
 }
 
-/// Typed local protocol-v6 shape error.
+/// Typed local grammar transport error.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProtocolV6ShapeError {
+pub enum GrammarTransportError {
     /// A required textual value was blank.
     EmptyText(&'static str),
     /// A declared sort reference used the wrong stable namespace.
@@ -1519,7 +1519,7 @@ pub enum ProtocolV6ShapeError {
     InvalidTerm(&'static str),
 }
 
-impl fmt::Display for ProtocolV6ShapeError {
+impl fmt::Display for GrammarTransportError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyText(field) | Self::EmptyCollection(field) => {
@@ -1570,20 +1570,20 @@ impl fmt::Display for ProtocolV6ShapeError {
     }
 }
 
-impl Error for ProtocolV6ShapeError {}
+impl Error for GrammarTransportError {}
 
 impl DescriptorSortRef {
     /// Checks the stable namespace of a declared sort.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError::SortReferenceKind`] when a declared
+    /// Returns [`GrammarTransportError::SortReferenceKind`] when a declared
     /// target is not a sort identity.
-    pub fn validate(&self) -> Result<(), ProtocolV6ShapeError> {
+    pub fn validate(&self) -> Result<(), GrammarTransportError> {
         if let Self::Declared(id) = self
             && id.item_kind() != ItemKind::Sort
         {
-            return Err(ProtocolV6ShapeError::SortReferenceKind(id.item_kind()));
+            return Err(GrammarTransportError::SortReferenceKind(id.item_kind()));
         }
         Ok(())
     }
@@ -1594,34 +1594,34 @@ impl DescriptorApplicationRef {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError::ApplicationReferenceKind`] when a
+    /// Returns [`GrammarTransportError::ApplicationReferenceKind`] when a
     /// declared target is not a constructor identity.
-    pub fn validate(&self) -> Result<(), ProtocolV6ShapeError> {
+    pub fn validate(&self) -> Result<(), GrammarTransportError> {
         if let Self::Declared(id) = self
             && id.item_kind() != ItemKind::Constructor
         {
-            return Err(ProtocolV6ShapeError::ApplicationReferenceKind(
+            return Err(GrammarTransportError::ApplicationReferenceKind(
                 id.item_kind(),
             ));
         }
         if let Self::Map(operation) = self
             && !MapOperation::TERM_APPLICATIONS.contains(operation)
         {
-            return Err(ProtocolV6ShapeError::InvalidApplication(
+            return Err(GrammarTransportError::InvalidApplication(
                 "structural-only Map operation used as an application head",
             ));
         }
         if let Self::List(operation) = self
             && !ListOperation::TERM_APPLICATIONS.contains(operation)
         {
-            return Err(ProtocolV6ShapeError::InvalidApplication(
+            return Err(GrammarTransportError::InvalidApplication(
                 "structural-only List operation used as an application head",
             ));
         }
         if let Self::Set(operation) = self
             && !SetOperation::TERM_APPLICATIONS.contains(operation)
         {
-            return Err(ProtocolV6ShapeError::InvalidApplication(
+            return Err(GrammarTransportError::InvalidApplication(
                 "structural-only Set operation used as an application head",
             ));
         }
@@ -1630,7 +1630,7 @@ impl DescriptorApplicationRef {
 }
 
 impl DescriptorLiteral {
-    fn validate(&self) -> Result<(), ProtocolV6ShapeError> {
+    fn validate(&self) -> Result<(), GrammarTransportError> {
         match self {
             Self::Int(value)
                 if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) =>
@@ -1638,7 +1638,7 @@ impl DescriptorLiteral {
                 Ok(())
             }
             Self::Bool(_) => Ok(()),
-            Self::Int(_) => Err(ProtocolV6ShapeError::InvalidLiteral),
+            Self::Int(_) => Err(GrammarTransportError::InvalidLiteral),
         }
     }
 }
@@ -1647,12 +1647,12 @@ fn validate_map_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
     arguments: &[DescriptorTermArgument],
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     let DescriptorApplicationRef::Map(operation) = application else {
         return Ok(());
     };
     if head_class != DescriptorApplicationHeadClass::Applied {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "a Map operation must be an applied term head",
         ));
     }
@@ -1662,7 +1662,7 @@ fn validate_map_application_shape(
         MapOperation::Empty | MapOperation::Item => unreachable!("validated application catalog"),
     };
     if arguments.len() != expected {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "Map operation has invalid arity",
         ));
     }
@@ -1670,7 +1670,7 @@ fn validate_map_application_shape(
         .iter()
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "Map operations accept positional arguments only",
         ));
     }
@@ -1681,12 +1681,12 @@ fn validate_set_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
     arguments: &[DescriptorTermArgument],
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     let DescriptorApplicationRef::Set(operation) = application else {
         return Ok(());
     };
     if head_class != DescriptorApplicationHeadClass::Applied {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "a Set operation must be an applied term head",
         ));
     }
@@ -1696,7 +1696,7 @@ fn validate_set_application_shape(
         SetOperation::Concat | SetOperation::Contains => 2,
     };
     if arguments.len() != expected {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "Set operation has invalid arity",
         ));
     }
@@ -1704,7 +1704,7 @@ fn validate_set_application_shape(
         .iter()
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "Set operations accept positional arguments only",
         ));
     }
@@ -1715,12 +1715,12 @@ fn validate_list_application_shape(
     head_class: DescriptorApplicationHeadClass,
     application: &DescriptorApplicationRef,
     arguments: &[DescriptorTermArgument],
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     let DescriptorApplicationRef::List(operation) = application else {
         return Ok(());
     };
     if head_class != DescriptorApplicationHeadClass::Applied {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "a List operation must be an applied term head",
         ));
     }
@@ -1731,7 +1731,7 @@ fn validate_list_application_shape(
         ListOperation::Update | ListOperation::Range | ListOperation::UpdateAll => 3,
     };
     if arguments.len() != expected {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "List operation has invalid arity",
         ));
     }
@@ -1739,7 +1739,7 @@ fn validate_list_application_shape(
         .iter()
         .any(|argument| !matches!(argument, DescriptorTermArgument::Positional { .. }))
     {
-        return Err(ProtocolV6ShapeError::InvalidApplication(
+        return Err(GrammarTransportError::InvalidApplication(
             "List operations accept positional arguments only",
         ));
     }
@@ -1751,7 +1751,7 @@ impl DescriptorTerm {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError`] for an invalid reference/literal, an
+    /// Returns [`GrammarTransportError`] for an invalid reference/literal, an
     /// unbound name, or a missing parser-keyed origin.
     pub fn validate(
         &self,
@@ -1759,7 +1759,7 @@ impl DescriptorTerm {
         bindings: &BTreeSet<String>,
         seen_variables: &mut BTreeSet<String>,
         allow_wildcards: bool,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         match self {
             Self::Variable {
                 key,
@@ -1769,7 +1769,7 @@ impl DescriptorTerm {
                 require_key(key, provenance)?;
                 require_key(path_key, provenance)?;
                 if name.trim().is_empty() || !bindings.contains(name) {
-                    return Err(ProtocolV6ShapeError::InvalidBinding(name.clone()));
+                    return Err(GrammarTransportError::InvalidBinding(name.clone()));
                 }
                 seen_variables.insert(name.clone());
             }
@@ -1785,7 +1785,7 @@ impl DescriptorTerm {
                 if *head_class == DescriptorApplicationHeadClass::BareReference
                     && !arguments.is_empty()
                 {
-                    return Err(ProtocolV6ShapeError::InvalidApplication(
+                    return Err(GrammarTransportError::InvalidApplication(
                         "a bare-reference constructor must have no arguments",
                     ));
                 }
@@ -1809,7 +1809,7 @@ impl DescriptorTerm {
                         DescriptorTermArgument::Named { key, field, value } if named => {
                             require_key(key, provenance)?;
                             if !fields.insert(field.clone()) {
-                                return Err(ProtocolV6ShapeError::InvalidApplication(
+                                return Err(GrammarTransportError::InvalidApplication(
                                     "named field occurs more than once",
                                 ));
                             }
@@ -1822,7 +1822,7 @@ impl DescriptorTerm {
                         }
                         DescriptorTermArgument::Positional { .. }
                         | DescriptorTermArgument::Named { .. } => {
-                            return Err(ProtocolV6ShapeError::InvalidApplication(
+                            return Err(GrammarTransportError::InvalidApplication(
                                 "positional and named arguments are mixed",
                             ));
                         }
@@ -1836,19 +1836,19 @@ impl DescriptorTerm {
             Self::Wildcard { key } => {
                 require_key(key, provenance)?;
                 if !allow_wildcards {
-                    return Err(ProtocolV6ShapeError::InvalidTerm(
+                    return Err(GrammarTransportError::InvalidTerm(
                         "wildcards are allowed only in rule subjects",
                     ));
                 }
             }
             Self::BuiltinToken { .. } | Self::Anonymous { .. } | Self::OrBool { .. } => {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
+                return Err(GrammarTransportError::InvalidTerm(
                     "claim-only term used outside a whole-configuration claim",
                 ));
             }
             Self::Cell { .. } => {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
-                    "complete cell terms require protocol v7 configuration rules",
+                return Err(GrammarTransportError::InvalidTerm(
+                    "complete cell terms require configuration rules",
                 ));
             }
         }
@@ -1861,13 +1861,13 @@ impl StructuredRuleDescriptor {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError`] for wrong ownership, typed references,
+    /// Returns [`GrammarTransportError`] for wrong ownership, typed references,
     /// bindings, terms, literals, or missing provenance.
     pub fn validate(
         &self,
         descriptor_kind: ItemKind,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         let expected = match self.sentence_kind {
             SentenceKind::Transition => ItemKind::Rule,
             SentenceKind::Equation => ItemKind::Equation,
@@ -1876,7 +1876,7 @@ impl StructuredRuleDescriptor {
             SentenceKind::Claim => ItemKind::Claim,
         };
         if descriptor_kind != expected {
-            return Err(ProtocolV6ShapeError::DescriptorItemKind {
+            return Err(GrammarTransportError::DescriptorItemKind {
                 expected,
                 actual: descriptor_kind,
             });
@@ -1884,7 +1884,7 @@ impl StructuredRuleDescriptor {
         if let Some(label) = &self.label {
             require_key(&label.key, provenance)?;
             if !label.is_valid() {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
+                return Err(GrammarTransportError::InvalidTerm(
                     "invalid explicit rule label",
                 ));
             }
@@ -1892,7 +1892,7 @@ impl StructuredRuleDescriptor {
         if let Some(requires) = &self.requires {
             require_key(&requires.key, provenance)?;
             if self.sentence_kind == SentenceKind::Alias {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
+                return Err(GrammarTransportError::InvalidTerm(
                     "static alias clauses cannot carry requires conditions",
                 ));
             }
@@ -1905,7 +1905,7 @@ impl StructuredRuleDescriptor {
                 && priority.key.role() == "rule_owise"
                 && priority.value == 200;
             if !(valid_equation || valid_owise) {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
+                return Err(GrammarTransportError::InvalidTerm(
                     "priority must be an equation priority or transition ordered fallback",
                 ));
             }
@@ -1913,7 +1913,7 @@ impl StructuredRuleDescriptor {
         if let Some(simplification) = &self.simplification {
             require_key(&simplification.key, provenance)?;
             if self.sentence_kind != SentenceKind::Simplification {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
+                return Err(GrammarTransportError::InvalidTerm(
                     "simplification metadata is supported only on simplifications",
                 ));
             }
@@ -1921,7 +1921,7 @@ impl StructuredRuleDescriptor {
                 require_key(&priority.key, provenance)?;
             }
         } else if self.sentence_kind == SentenceKind::Simplification {
-            return Err(ProtocolV6ShapeError::InvalidTerm(
+            return Err(GrammarTransportError::InvalidTerm(
                 "simplification sentence lacks simplification metadata",
             ));
         }
@@ -1938,7 +1938,7 @@ impl StructuredRuleDescriptor {
                 .iter()
                 .any(|binding| binding.trim().is_empty())
         {
-            return Err(ProtocolV6ShapeError::DuplicateValue("rule bindings"));
+            return Err(GrammarTransportError::DuplicateValue("rule bindings"));
         }
         let mut subject_variables = BTreeSet::new();
         self.subject
@@ -1949,7 +1949,7 @@ impl StructuredRuleDescriptor {
                 .next()
                 .cloned()
                 .unwrap_or_default();
-            return Err(ProtocolV6ShapeError::InvalidBinding(missing));
+            return Err(GrammarTransportError::InvalidBinding(missing));
         }
         let mut result_variables = BTreeSet::new();
         self.result
@@ -1988,15 +1988,15 @@ impl GrammarDescriptor {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError`] for wrong ownership, malformed
+    /// Returns [`GrammarTransportError`] for wrong ownership, malformed
     /// productions/relations, typed references, or missing provenance.
     pub fn validate(
         &self,
         descriptor_kind: ItemKind,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         if descriptor_kind != ItemKind::Grammar {
-            return Err(ProtocolV6ShapeError::DescriptorItemKind {
+            return Err(GrammarTransportError::DescriptorItemKind {
                 expected: ItemKind::Grammar,
                 actual: descriptor_kind,
             });
@@ -2015,13 +2015,13 @@ impl GrammarDescriptor {
             Self::Precedence { key, chains } => {
                 require_key(key, provenance)?;
                 if chains.is_empty() {
-                    return Err(ProtocolV6ShapeError::EmptyCollection("precedence chains"));
+                    return Err(GrammarTransportError::EmptyCollection("precedence chains"));
                 }
                 for chain in chains {
                     require_key(&chain.key, provenance)?;
                     validate_group_references(&chain.groups, provenance, "precedence groups")?;
                     if chain.groups.len() < 2 {
-                        return Err(ProtocolV6ShapeError::InvalidProduction(
+                        return Err(GrammarTransportError::InvalidProduction(
                             "precedence chain requires at least two groups",
                         ));
                     }
@@ -2031,7 +2031,7 @@ impl GrammarDescriptor {
             Self::Associativity { key, sentences } => {
                 require_key(key, provenance)?;
                 if sentences.is_empty() {
-                    return Err(ProtocolV6ShapeError::EmptyCollection(
+                    return Err(GrammarTransportError::EmptyCollection(
                         "associativity sentences",
                     ));
                 }
@@ -2054,7 +2054,7 @@ impl DescriptorProduction {
     fn validate(
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         require_key(&self.key, provenance)?;
         if let Some(template_key) = &self.template_key {
             require_key(template_key, provenance)?;
@@ -2068,7 +2068,7 @@ impl DescriptorProduction {
             | DescriptorProductionOwner::BracketSort { sort } => {
                 validate_sort_reference(sort, provenance)?;
                 if !matches!(sort.sort, DescriptorSortRef::Declared(_)) {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "token and bracket owners must be authored sorts",
                     ));
                 }
@@ -2076,14 +2076,14 @@ impl DescriptorProduction {
         }
         validate_sort_reference(&self.result_sort, provenance)?;
         if self.items.is_empty() {
-            return Err(ProtocolV6ShapeError::EmptyCollection("production items"));
+            return Err(GrammarTransportError::EmptyCollection("production items"));
         }
         for item in &self.items {
             match item {
                 DescriptorProductionItem::Terminal { key, text } => {
                     require_key(key, provenance)?;
                     if text.is_empty() {
-                        return Err(ProtocolV6ShapeError::EmptyText("terminal"));
+                        return Err(GrammarTransportError::EmptyText("terminal"));
                     }
                 }
                 DescriptorProductionItem::NonTerminal {
@@ -2111,7 +2111,7 @@ impl DescriptorProduction {
                         || precede_regex.as_deref() == Some("")
                         || follow_regex.as_deref() == Some("")
                     {
-                        return Err(ProtocolV6ShapeError::EmptyText("production regex"));
+                        return Err(GrammarTransportError::EmptyText("production regex"));
                     }
                 }
             }
@@ -2164,7 +2164,7 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Format { key, fragments } => {
                     require_key(key, provenance)?;
                     if fragments.is_empty() {
-                        return Err(ProtocolV6ShapeError::EmptyCollection("format fragments"));
+                        return Err(GrammarTransportError::EmptyCollection("format fragments"));
                     }
                     for fragment in fragments {
                         require_key(&fragment.key, provenance)?;
@@ -2179,13 +2179,13 @@ impl DescriptorProduction {
                 } => {
                     require_key(key, provenance)?;
                     if fields.is_empty() {
-                        return Err(ProtocolV6ShapeError::EmptyCollection("strictness fields"));
+                        return Err(GrammarTransportError::EmptyCollection("strictness fields"));
                     }
                     let mut names = BTreeSet::new();
                     for field in fields {
                         require_key(&field.key, provenance)?;
                         if !names.insert(field.field.clone()) {
-                            return Err(ProtocolV6ShapeError::DuplicateValue("strictness fields"));
+                            return Err(GrammarTransportError::DuplicateValue("strictness fields"));
                         }
                     }
                     validate_sort_reference(result_sort, provenance)?;
@@ -2193,25 +2193,25 @@ impl DescriptorProduction {
                 }
             };
             if !families.insert(family) {
-                return Err(ProtocolV6ShapeError::DuplicateValue(
+                return Err(GrammarTransportError::DuplicateValue(
                     "production attribute families",
                 ));
             }
         }
         if families.contains("total") && !families.contains("function") {
-            return Err(ProtocolV6ShapeError::InvalidProduction(
+            return Err(GrammarTransportError::InvalidProduction(
                 "total metadata requires function metadata",
             ));
         }
         if families.contains("hook")
             && !(families.contains("function") && families.contains("total"))
         {
-            return Err(ProtocolV6ShapeError::InvalidProduction(
+            return Err(GrammarTransportError::InvalidProduction(
                 "hook metadata requires a total function production",
             ));
         }
         if families.contains("alias") && families.contains("function") {
-            return Err(ProtocolV6ShapeError::InvalidProduction(
+            return Err(GrammarTransportError::InvalidProduction(
                 "alias metadata cannot be combined with function metadata",
             ));
         }
@@ -2225,7 +2225,7 @@ impl DescriptorProduction {
         match &self.owner {
             DescriptorProductionOwner::TokenSort { .. } => {
                 if regex_count != 1 || !has_token {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "token owner requires one regex item and token metadata",
                     ));
                 }
@@ -2237,12 +2237,12 @@ impl DescriptorProduction {
                     },
                 ] = self.items.as_slice()
                 else {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "token production must contain exactly one regex item",
                     ));
                 };
                 if precede_regex.is_some() || follow_regex.is_some() {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "nominal token regex cannot carry precede/follow guards",
                     ));
                 }
@@ -2257,19 +2257,19 @@ impl DescriptorProduction {
                         .count()
                         != 1
                 {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "bracket owner requires bracket metadata and one nonterminal",
                     ));
                 }
                 if self.result_sort.sort != sort.sort {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "bracket owner and result sorts must be identical",
                     ));
                 }
                 for item in &self.items {
                     match item {
                         DescriptorProductionItem::RegexTerminal { .. } => {
-                            return Err(ProtocolV6ShapeError::InvalidProduction(
+                            return Err(GrammarTransportError::InvalidProduction(
                                 "bracket production cannot contain regex items",
                             ));
                         }
@@ -2280,17 +2280,17 @@ impl DescriptorProduction {
                             ..
                         } => {
                             if field.as_str() != "value" {
-                                return Err(ProtocolV6ShapeError::InvalidProduction(
+                                return Err(GrammarTransportError::InvalidProduction(
                                     "bracket nonterminal field must be `value`",
                                 ));
                             }
                             if declaration_key.is_some() {
-                                return Err(ProtocolV6ShapeError::InvalidProduction(
+                                return Err(GrammarTransportError::InvalidProduction(
                                     "bracket nonterminal cannot claim a constructor field",
                                 ));
                             }
                             if value_sort.sort != sort.sort {
-                                return Err(ProtocolV6ShapeError::InvalidProduction(
+                                return Err(GrammarTransportError::InvalidProduction(
                                     "bracket owner, result, and value sorts must be identical",
                                 ));
                             }
@@ -2301,14 +2301,14 @@ impl DescriptorProduction {
                 Ok(())
             }
             DescriptorProductionOwner::Constructor { .. } if has_token || has_bracket => {
-                Err(ProtocolV6ShapeError::InvalidProduction(
+                Err(GrammarTransportError::InvalidProduction(
                     "constructor owner cannot carry token or bracket metadata",
                 ))
             }
             DescriptorProductionOwner::Constructor { .. }
                 if families.contains("format") && self.template_key.is_none() =>
             {
-                Err(ProtocolV6ShapeError::InvalidProduction(
+                Err(GrammarTransportError::InvalidProduction(
                     "format metadata requires explicit constructor syntax",
                 ))
             }
@@ -2320,7 +2320,7 @@ impl DescriptorProduction {
 impl GrammarDescriptor {
     pub(crate) fn expected_provenance_keys(
         &self,
-    ) -> Result<BTreeSet<ProvenanceKey>, ProtocolV6ShapeError> {
+    ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
         let mut keys = BTreeSet::new();
         match self {
             Self::Production(production) => production.collect_expected_keys(&mut keys)?,
@@ -2385,7 +2385,7 @@ impl DescriptorProduction {
     fn collect_expected_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         match &self.owner {
             DescriptorProductionOwner::Constructor { constructor } => {
                 insert_exact(keys, &self.key, "constructor_declaration", 0)?;
@@ -2402,13 +2402,13 @@ impl DescriptorProduction {
                 insert_exact(keys, &sort.key, "token_declaration", 0)?;
                 insert_exact(keys, &self.result_sort.key, "token_declaration", 0)?;
                 if self.template_key.is_some() {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "token production cannot have a syntax-template key",
                     ));
                 }
                 let [DescriptorProductionItem::RegexTerminal { key, .. }] = self.items.as_slice()
                 else {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "token production must contain exactly one regex item",
                     ));
                 };
@@ -2420,7 +2420,7 @@ impl DescriptorProduction {
                     },
                 ] = self.attributes.as_slice()
                 else {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "token production must contain only token metadata",
                     ));
                 };
@@ -2435,7 +2435,7 @@ impl DescriptorProduction {
                 insert_exact(keys, &sort.key, "sort_declaration", 0)?;
                 insert_exact(keys, &self.result_sort.key, "sort_declaration", 0)?;
                 if self.template_key.is_some() {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "bracket production cannot have a constructor-template key",
                     ));
                 }
@@ -2459,7 +2459,7 @@ impl DescriptorProduction {
                             ..
                         } => {
                             if declaration_key.is_some() {
-                                return Err(ProtocolV6ShapeError::InvalidProduction(
+                                return Err(GrammarTransportError::InvalidProduction(
                                     "bracket nonterminal cannot claim a constructor field",
                                 ));
                             }
@@ -2482,7 +2482,7 @@ impl DescriptorProduction {
                 }
                 let [DescriptorProductionAttribute::Bracket { key }] = self.attributes.as_slice()
                 else {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "bracket production must contain only bracket metadata",
                     ));
                 };
@@ -2494,7 +2494,7 @@ impl DescriptorProduction {
     fn collect_constructor_item_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         let explicit = self.template_key.is_some();
         let mut occurrence_ordinal = 0_u32;
         let mut declaration_ordinals = BTreeSet::new();
@@ -2520,13 +2520,13 @@ impl DescriptorProduction {
                     ..
                 } => {
                     let Some(declaration_key) = declaration_key else {
-                        return Err(ProtocolV6ShapeError::InvalidProduction(
+                        return Err(GrammarTransportError::InvalidProduction(
                             "constructor nonterminal lacks its field declaration key",
                         ));
                     };
                     let declaration_ordinal = declaration_key.ordinal();
                     if !declaration_ordinals.insert(declaration_ordinal) {
-                        return Err(ProtocolV6ShapeError::InvalidProduction(
+                        return Err(GrammarTransportError::InvalidProduction(
                             "constructor field declaration ordinals must be unique",
                         ));
                     }
@@ -2576,14 +2576,14 @@ impl DescriptorProduction {
                     occurrence_ordinal = increment(occurrence_ordinal)?;
                 }
                 DescriptorProductionItem::RegexTerminal { .. } => {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "constructor production cannot contain a regex item",
                     ));
                 }
             }
         }
         if declaration_ordinals != (0..occurrence_ordinal).collect::<BTreeSet<_>>() {
-            return Err(ProtocolV6ShapeError::InvalidProduction(
+            return Err(GrammarTransportError::InvalidProduction(
                 "constructor field declaration ordinals must form a dense permutation",
             ));
         }
@@ -2593,7 +2593,7 @@ impl DescriptorProduction {
     fn collect_constructor_attribute_keys(
         &self,
         keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         let mut documentation_ordinal = 0_u32;
         for attribute in &self.attributes {
             match attribute {
@@ -2662,7 +2662,7 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::Token { .. }
                 | DescriptorProductionAttribute::Bracket { .. } => {
-                    return Err(ProtocolV6ShapeError::InvalidProduction(
+                    return Err(GrammarTransportError::InvalidProduction(
                         "constructor has token or bracket metadata",
                     ));
                 }
@@ -2679,7 +2679,7 @@ impl StructuredRuleDescriptor {
 
     pub(crate) fn expected_provenance_keys(
         &self,
-    ) -> Result<BTreeSet<ProvenanceKey>, ProtocolV6ShapeError> {
+    ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
         let mut keys = BTreeSet::new();
         insert_canonical(&mut keys, "rule_declaration", 0);
         if self.sentence_kind == SentenceKind::Alias {
@@ -2804,7 +2804,7 @@ impl DescriptorTerm {
         keys: &mut BTreeSet<ProvenanceKey>,
         side: TermSide,
         counters: &mut TermKeyCounters,
-    ) -> Result<(), ProtocolV6ShapeError> {
+    ) -> Result<(), GrammarTransportError> {
         match self {
             Self::Variable { key, path_key, .. } => {
                 insert_exact(keys, path_key, side.path_role(), counters.path)?;
@@ -2864,7 +2864,7 @@ impl DescriptorTerm {
             }
             Self::Wildcard { key } => {
                 let Some(role) = side.wildcard_role() else {
-                    return Err(ProtocolV6ShapeError::InvalidTerm(
+                    return Err(GrammarTransportError::InvalidTerm(
                         "wildcards are allowed only in rule subjects",
                     ));
                 };
@@ -2872,13 +2872,13 @@ impl DescriptorTerm {
                 counters.wildcard = increment(counters.wildcard)?;
             }
             Self::BuiltinToken { .. } | Self::Anonymous { .. } | Self::OrBool { .. } => {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
+                return Err(GrammarTransportError::InvalidTerm(
                     "claim-only term used outside a whole-configuration claim",
                 ));
             }
             Self::Cell { .. } => {
-                return Err(ProtocolV6ShapeError::InvalidTerm(
-                    "complete cell terms require protocol v7 configuration rules",
+                return Err(GrammarTransportError::InvalidTerm(
+                    "complete cell terms require configuration rules",
                 ));
             }
         }
@@ -2891,10 +2891,10 @@ fn insert_exact(
     actual: &ProvenanceKey,
     role: &'static str,
     ordinal: u32,
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     let expected = canonical_key(role, ordinal);
     if actual != &expected {
-        return Err(ProtocolV6ShapeError::UnexpectedProvenance {
+        return Err(GrammarTransportError::UnexpectedProvenance {
             expected,
             actual: actual.clone(),
         });
@@ -2911,15 +2911,15 @@ fn canonical_key(role: &'static str, ordinal: u32) -> ProvenanceKey {
     ProvenanceKey::new(role, ordinal).expect("protocol-owned role is nonempty and path-free")
 }
 
-fn checked_index(index: usize) -> Result<u32, ProtocolV6ShapeError> {
+fn checked_index(index: usize) -> Result<u32, GrammarTransportError> {
     u32::try_from(index)
-        .map_err(|_| ProtocolV6ShapeError::InvalidProduction("provenance ordinal exceeds u32"))
+        .map_err(|_| GrammarTransportError::InvalidProduction("provenance ordinal exceeds u32"))
 }
 
-fn increment(value: u32) -> Result<u32, ProtocolV6ShapeError> {
+fn increment(value: u32) -> Result<u32, GrammarTransportError> {
     value
         .checked_add(1)
-        .ok_or(ProtocolV6ShapeError::InvalidProduction(
+        .ok_or(GrammarTransportError::InvalidProduction(
             "provenance ordinal exceeds u32",
         ))
 }
@@ -2927,7 +2927,7 @@ fn increment(value: u32) -> Result<u32, ProtocolV6ShapeError> {
 fn validate_sort_reference(
     reference: &DescriptorSortReference,
     provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     require_key(&reference.key, provenance)?;
     reference.sort.validate()
 }
@@ -2936,15 +2936,15 @@ fn validate_group_references(
     references: &[DescriptorGroupReference],
     provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
     field: &'static str,
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     if references.is_empty() {
-        return Err(ProtocolV6ShapeError::EmptyCollection(field));
+        return Err(GrammarTransportError::EmptyCollection(field));
     }
     let mut groups = BTreeSet::new();
     for reference in references {
         require_key(&reference.key, provenance)?;
         if !groups.insert(reference.group.clone()) {
-            return Err(ProtocolV6ShapeError::DuplicateValue(field));
+            return Err(GrammarTransportError::DuplicateValue(field));
         }
     }
     Ok(())
@@ -2953,10 +2953,10 @@ fn validate_group_references(
 fn require_key(
     key: &ProvenanceKey,
     provenance: impl Fn(&ProvenanceKey) -> bool,
-) -> Result<(), ProtocolV6ShapeError> {
+) -> Result<(), GrammarTransportError> {
     if provenance(key) {
         Ok(())
     } else {
-        Err(ProtocolV6ShapeError::MissingProvenance(key.clone()))
+        Err(GrammarTransportError::MissingProvenance(key.clone()))
     }
 }

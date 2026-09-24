@@ -9,8 +9,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
     DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor,
-    OriginStack, ProtocolV6ShapeError, ProtocolV7ShapeError, ProtocolVersion, ProvenanceKey,
-    RustVisibility, StableItemId, StructuredRuleDescriptor,
+    GrammarTransportError, OriginStack, ProtocolVersion, ProvenanceKey, RustVisibility,
+    StableItemId, StateTransportError, StructuredRuleDescriptor,
 };
 
 /// Deterministic, serializable output of one host collector execution.
@@ -47,10 +47,10 @@ impl<'de> Deserialize<'de> for DescriptorBundle {
         }
         for descriptor in &wire.descriptors {
             descriptor
-                .validate_v6_contract()
+                .validate_grammar_contract()
                 .map_err(serde::de::Error::custom)?;
             descriptor
-                .validate_v7_contract()
+                .validate_state_contract()
                 .map_err(serde::de::Error::custom)?;
         }
         validate_declarations(&wire.descriptors, &wire.declarations)
@@ -292,13 +292,13 @@ impl Descriptor {
         self.provenance.primary_origin()
     }
 
-    /// Validates typed grammar or structured-rule protocol-v6 extensions.
+    /// Validates typed grammar or structured-rule payloads.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError`] for invalid ownership, shape,
+    /// Returns [`GrammarTransportError`] for invalid ownership, shape,
     /// references, or parser keys absent from this descriptor's provenance.
-    pub fn validate_v6_contract(&self) -> Result<(), ProtocolV6ShapeError> {
+    pub fn validate_grammar_contract(&self) -> Result<(), GrammarTransportError> {
         let contains = |key: &ProvenanceKey| self.provenance.origin_for(key).is_some();
         let (expected, expected_primary) = match &self.payload {
             DescriptorPayload::Grammar(grammar) => {
@@ -334,18 +334,18 @@ impl Descriptor {
             .map(|origin| origin.key.clone())
             .collect::<BTreeSet<_>>();
         if let Some(missing) = expected.difference(&actual).next() {
-            return Err(ProtocolV6ShapeError::MissingProvenance(missing.clone()));
+            return Err(GrammarTransportError::MissingProvenance(missing.clone()));
         }
         if let Some(unexpected) = actual.difference(&expected).next() {
-            return Err(ProtocolV6ShapeError::ExtraProvenance(unexpected.clone()));
+            return Err(GrammarTransportError::ExtraProvenance(unexpected.clone()));
         }
         let Some(expected_primary) = expected_primary else {
-            return Err(ProtocolV6ShapeError::EmptyCollection(
-                "required v6 primary provenance key",
+            return Err(GrammarTransportError::EmptyCollection(
+                "required grammar primary provenance key",
             ));
         };
         if self.provenance.primary_key() != &expected_primary {
-            return Err(ProtocolV6ShapeError::UnexpectedProvenance {
+            return Err(GrammarTransportError::UnexpectedProvenance {
                 expected: expected_primary,
                 actual: self.provenance.primary_key().clone(),
             });
@@ -353,14 +353,14 @@ impl Descriptor {
         Ok(())
     }
 
-    /// Validates protocol-v7 fixed configurations, nominal cells, and
+    /// Validates fixed configurations, nominal cells, and
     /// simultaneous configuration rules against exact closed provenance.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for wrong ownership, invalid typed
+    /// Returns [`StateTransportError`] for wrong ownership, invalid typed
     /// state, frame/binding errors, or missing/extra parser keys.
-    pub fn validate_v7_contract(&self) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate_state_contract(&self) -> Result<(), StateTransportError> {
         let actual = self
             .provenance
             .origins()
@@ -576,11 +576,11 @@ pub enum DescriptorPayload {
     Grammar(Box<GrammarDescriptor>),
     /// Fully structured relational sentence using typed term references.
     StructuredRule(Box<StructuredRuleDescriptor>),
-    /// Protocol-v7 complete fixed configuration and initializer.
+    /// Complete fixed configuration and initializer.
     FixedConfiguration(Box<DescriptorFixedConfiguration>),
-    /// Protocol-v7 nominal nested fixed-cell declaration.
+    /// Nominal nested fixed-cell declaration.
     Cell(Box<DescriptorCellDeclaration>),
-    /// Protocol-v7 simultaneous whole-configuration rule.
+    /// Simultaneous whole-configuration rule.
     ConfigurationRule(Box<DescriptorConfigurationRule>),
     /// Collector-completed bare-sort computation-head rule.
     HeadRule(Box<crate::DescriptorHeadRule>),

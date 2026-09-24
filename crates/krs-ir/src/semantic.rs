@@ -1024,7 +1024,7 @@ impl SemanticRuleLabel {
         name: impl Into<String>,
     ) -> Result<Self, SemanticValidationError> {
         let name = name.into();
-        if !crate::protocol_v6::valid_rule_label_name(&name) {
+        if !crate::transport::grammar::valid_rule_label_name(&name) {
             return Err(SemanticValidationError::InvalidRuleLabel(name));
         }
         Ok(Self { origin, name })

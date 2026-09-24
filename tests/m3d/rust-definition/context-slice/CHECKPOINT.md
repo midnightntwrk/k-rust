@@ -22,7 +22,7 @@ Run the focused Rust gates with:
 
 ```bash
 CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-syntax --test fixed_state
-CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-ir --test protocol_v7 --test fixed_state_ir
+CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-ir --test transport_configuration --test fixed_state_ir
 CARGO_TARGET_DIR=/dev/shm/krs-m3d-target cargo test --locked -p krs-compiler --test fixed_state_lowering
 ```
 

@@ -1,19 +1,9 @@
-//! Staged collector protocol-v7 contracts for fixed configurations.
+//! Collector transport for fixed configurations.
 //!
-//! This module freezes the non-rule half of protocol v7: nominal nested-cell
-//! declarations, complete fixed configurations, paired initializers, and the
-//! structured K-sequence/map terms used by initializers. Configuration-rule
-//! transport is deliberately absent until the syntax crate can assign unique
-//! descriptor-wide keys while traversing both sides of a whole rule.
-//!
-//! Together with the whole-rule transport in the nested `rule` module, these
-//! contracts comprise the current collector protocol v7.
-
-#[path = "protocol_v7_rule.rs"]
-mod rule;
-
-pub use rule::*;
-
+//! Nominal nested-cell declarations, complete fixed configurations, paired
+//! initializers, and the structured K-sequence/map terms used by
+//! initializers. Whole-configuration rules, claims, and context aliases are
+//! in [`crate::transport::rule`].
 use std::any::TypeId;
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -22,10 +12,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::host::{HostTypeKey, HostTypeReference};
-use crate::protocol_v6::{
+use crate::transport::grammar::{
     DescriptorApplicationHeadClass, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
-    DescriptorTermArgument, HostBuiltinRegistry, HostBuiltinRegistryError, HostSortReference,
-    HostTerm, HostTermArgument,
+    DescriptorTermArgument, HostSortReference, HostTerm, HostTermArgument,
 };
 use crate::{BuiltinSort, ItemKind, ProvenanceKey, StableItemId};
 
@@ -473,7 +462,7 @@ pub type DescriptorConfigurationInitializer = ProtocolConfigurationInitializer<
 pub type HostConfigurationInitializer =
     ProtocolConfigurationInitializer<HostTypeKey, HostConfigurationVariable, HostInitializerCell>;
 
-/// Complete stable non-rule configuration payload for protocol v7.
+/// Complete stable non-rule configuration payload.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DescriptorFixedConfiguration {
@@ -496,9 +485,9 @@ pub struct HostFixedConfiguration {
     pub initializer: HostConfigurationInitializer,
 }
 
-/// Typed local protocol-v7 configuration error.
+/// Typed local configuration transport error.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ProtocolV7ShapeError {
+pub enum StateTransportError {
     /// A required textual value was blank or path-shaped.
     InvalidText(&'static str),
     /// A collection required by the fixed grammar was empty.
@@ -539,7 +528,7 @@ pub enum ProtocolV7ShapeError {
     ExtraProvenance(ProvenanceKey),
 }
 
-impl fmt::Display for ProtocolV7ShapeError {
+impl fmt::Display for StateTransportError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidText(field) => write!(formatter, "invalid {field}"),
@@ -589,40 +578,25 @@ impl fmt::Display for ProtocolV7ShapeError {
     }
 }
 
-impl Error for ProtocolV7ShapeError {}
-
-impl HostBuiltinRegistry {
-    /// Validates the complete protocol-v7 builtin catalog.
-    ///
-    /// Unlike the frozen v6 validator, this requires `Map` and `Id` sort
-    /// markers in addition to `KSequence`, `Int`, and `Bool`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HostBuiltinRegistryError`] for missing/duplicate semantic
-    /// identities or a Rust marker `TypeId` reused for two meanings.
-    pub fn validate_v7(&self) -> Result<(), HostBuiltinRegistryError> {
-        self.validate()
-    }
-}
+impl Error for StateTransportError {}
 
 impl DescriptorCellIdentity {
     /// Validates the stable owner namespace and Rust field component.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for a non-configuration/cell owner or
+    /// Returns [`StateTransportError`] for a non-configuration/cell owner or
     /// an invalid stable Rust field name.
-    pub fn validate(&self) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate(&self) -> Result<(), StateTransportError> {
         require_cell_owner_kind(&self.owner, "cell identity owner")?;
         validate_rust_field(&self.field)
     }
 }
 
 impl DescriptorCellDeclarationReference {
-    fn validate(&self) -> Result<(), ProtocolV7ShapeError> {
+    fn validate(&self) -> Result<(), StateTransportError> {
         if self.declaration.item_kind() != ItemKind::Cell {
-            return Err(ProtocolV7ShapeError::ItemKind {
+            return Err(StateTransportError::ItemKind {
                 field: "nested cell declaration",
                 expected: "Cell",
                 actual: self.declaration.item_kind(),
@@ -639,9 +613,9 @@ impl ProtocolCellDeclaration<DescriptorCellField> {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for invalid ownership, duplicates,
+    /// Returns [`StateTransportError`] for invalid ownership, duplicates,
     /// typed references, metadata, or parser roles/ordinals.
-    pub fn validate(&self, owner: &StableItemId) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate(&self, owner: &StableItemId) -> Result<(), StateTransportError> {
         let mut ignored = BTreeSet::new();
         validate_descriptor_declaration(self, owner, &mut ignored)
     }
@@ -654,7 +628,7 @@ impl ProtocolCellDeclaration<DescriptorCellField> {
     pub fn expected_provenance_keys(
         &self,
         owner: &StableItemId,
-    ) -> Result<BTreeSet<ProvenanceKey>, ProtocolV7ShapeError> {
+    ) -> Result<BTreeSet<ProvenanceKey>, StateTransportError> {
         let mut keys = BTreeSet::new();
         validate_descriptor_declaration(self, owner, &mut keys)?;
         Ok(keys)
@@ -671,7 +645,7 @@ impl ProtocolCellDeclaration<DescriptorCellField> {
         owner: &StableItemId,
         primary: &ProvenanceKey,
         actual: &BTreeSet<ProvenanceKey>,
-    ) -> Result<(), ProtocolV7ShapeError> {
+    ) -> Result<(), StateTransportError> {
         let expected = self.expected_provenance_keys(owner)?;
         validate_complete_set(primary, actual, &expected)
     }
@@ -682,9 +656,9 @@ impl ProtocolCellDeclaration<HostCellField> {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for mismatched identities, duplicate
+    /// Returns [`StateTransportError`] for mismatched identities, duplicate
     /// fields/names, malformed metadata, or wrong parser roles/ordinals.
-    pub fn validate_host(&self, owner: HostTypeKey) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate_host(&self, owner: HostTypeKey) -> Result<(), StateTransportError> {
         let mut keys = BTreeSet::new();
         validate_host_declaration(self, owner, &mut keys)
     }
@@ -695,9 +669,9 @@ impl DescriptorFixedConfiguration {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for wrong ownership, declaration/tree
+    /// Returns [`StateTransportError`] for wrong ownership, declaration/tree
     /// disagreement, invalid terms/variables, or inexact parser keys.
-    pub fn validate(&self, owner: &StableItemId) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate(&self, owner: &StableItemId) -> Result<(), StateTransportError> {
         let mut ignored = BTreeSet::new();
         self.validate_into(owner, &mut ignored)
     }
@@ -710,7 +684,7 @@ impl DescriptorFixedConfiguration {
     pub fn expected_provenance_keys(
         &self,
         owner: &StableItemId,
-    ) -> Result<BTreeSet<ProvenanceKey>, ProtocolV7ShapeError> {
+    ) -> Result<BTreeSet<ProvenanceKey>, StateTransportError> {
         let mut keys = BTreeSet::new();
         self.validate_into(owner, &mut keys)?;
         Ok(keys)
@@ -727,7 +701,7 @@ impl DescriptorFixedConfiguration {
         owner: &StableItemId,
         primary: &ProvenanceKey,
         actual: &BTreeSet<ProvenanceKey>,
-    ) -> Result<(), ProtocolV7ShapeError> {
+    ) -> Result<(), StateTransportError> {
         let expected = self.expected_provenance_keys(owner)?;
         validate_complete_set(primary, actual, &expected)
     }
@@ -736,9 +710,9 @@ impl DescriptorFixedConfiguration {
         &self,
         owner: &StableItemId,
         keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), ProtocolV7ShapeError> {
+    ) -> Result<(), StateTransportError> {
         if owner.item_kind() != ItemKind::Configuration {
-            return Err(ProtocolV7ShapeError::ItemKind {
+            return Err(StateTransportError::ItemKind {
                 field: "configuration descriptor",
                 expected: "Configuration",
                 actual: owner.item_kind(),
@@ -756,10 +730,10 @@ impl HostFixedConfiguration {
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] for owner-key mismatches,
+    /// Returns [`StateTransportError`] for owner-key mismatches,
     /// declaration/tree disagreement, malformed terms/variables, or inexact
     /// parser roles/ordinals.
-    pub fn validate(&self, owner: HostTypeKey) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate(&self, owner: HostTypeKey) -> Result<(), StateTransportError> {
         let mut keys = BTreeSet::new();
         validate_root(&self.root, &mut keys)?;
         validate_host_declaration(&self.declaration, owner, &mut keys)?;
@@ -771,11 +745,11 @@ fn validate_descriptor_declaration(
     declaration: &DescriptorConfigurationDeclaration,
     owner: &StableItemId,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     require_cell_owner_kind(owner, "cell declaration")?;
     insert_exact(keys, &declaration.key, "configuration_declaration", 0)?;
     if declaration.fields.is_empty() {
-        return Err(ProtocolV7ShapeError::EmptyCollection("fixed cell fields"));
+        return Err(StateTransportError::EmptyCollection("fixed cell fields"));
     }
     let mut rust_fields = BTreeSet::new();
     let mut emitted_names = BTreeSet::new();
@@ -785,21 +759,21 @@ fn validate_descriptor_declaration(
         let ordinal = checked_index(index)?;
         field.reference.cell.validate()?;
         if &field.reference.cell.owner != owner {
-            return Err(ProtocolV7ShapeError::CellOwnerMismatch);
+            return Err(StateTransportError::CellOwnerMismatch);
         }
         validate_rust_field(&field.rust_field)?;
         if field.reference.cell.field != field.rust_field {
-            return Err(ProtocolV7ShapeError::CellFieldMismatch);
+            return Err(StateTransportError::CellFieldMismatch);
         }
         if !rust_fields.insert(field.rust_field.clone())
             || !identities.insert(field.reference.cell.clone())
         {
-            return Err(ProtocolV7ShapeError::DuplicateValue("fixed cell fields"));
+            return Err(StateTransportError::DuplicateValue("fixed cell fields"));
         }
         insert_exact(keys, &field.reference.key, "configuration_field", ordinal)?;
         let emitted = validate_cell_metadata(field, ordinal, keys)?;
         if !emitted_names.insert(emitted) {
-            return Err(ProtocolV7ShapeError::DuplicateValue(
+            return Err(StateTransportError::DuplicateValue(
                 "emitted sibling cell names",
             ));
         }
@@ -814,7 +788,7 @@ fn validate_descriptor_declaration(
                 insert_exact(keys, &sort.key, "configuration_cell_content", ordinal)?;
                 sort.sort
                     .validate()
-                    .map_err(|_| ProtocolV7ShapeError::ItemKind {
+                    .map_err(|_| StateTransportError::ItemKind {
                         field: "cell content sort",
                         expected: "Sort or builtin",
                         actual: match &sort.sort {
@@ -831,7 +805,7 @@ fn validate_descriptor_declaration(
                         argument_ordinal,
                     )?;
                     argument.sort.validate().map_err(|_| {
-                        ProtocolV7ShapeError::InvalidTerm("invalid cell sort argument")
+                        StateTransportError::InvalidTerm("invalid cell sort argument")
                     })?;
                     argument_ordinal = increment(argument_ordinal)?;
                 }
@@ -854,10 +828,10 @@ fn validate_host_declaration(
     declaration: &HostConfigurationDeclaration,
     owner: HostTypeKey,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     insert_exact(keys, &declaration.key, "configuration_declaration", 0)?;
     if declaration.fields.is_empty() {
-        return Err(ProtocolV7ShapeError::EmptyCollection("fixed cell fields"));
+        return Err(StateTransportError::EmptyCollection("fixed cell fields"));
     }
     let mut rust_fields = BTreeSet::new();
     let mut emitted_names = BTreeSet::new();
@@ -866,18 +840,18 @@ fn validate_host_declaration(
     for (index, field) in declaration.fields.iter().enumerate() {
         let ordinal = checked_index(index)?;
         if field.reference.cell.owner.resolve() != owner.resolve() {
-            return Err(ProtocolV7ShapeError::CellOwnerMismatch);
+            return Err(StateTransportError::CellOwnerMismatch);
         }
         validate_rust_field(&field.rust_field)?;
         if !rust_fields.insert(field.rust_field.clone())
             || !identities.insert(field.reference.cell.resolve())
         {
-            return Err(ProtocolV7ShapeError::DuplicateValue("fixed cell fields"));
+            return Err(StateTransportError::DuplicateValue("fixed cell fields"));
         }
         insert_exact(keys, &field.reference.key, "configuration_field", ordinal)?;
         let emitted = validate_cell_metadata(field, ordinal, keys)?;
         if !emitted_names.insert(emitted) {
-            return Err(ProtocolV7ShapeError::DuplicateValue(
+            return Err(StateTransportError::DuplicateValue(
                 "emitted sibling cell names",
             ));
         }
@@ -898,7 +872,7 @@ fn validate_host_declaration(
                         argument_ordinal,
                     )?;
                     if argument.target.authored_path.trim().is_empty() {
-                        return Err(ProtocolV7ShapeError::InvalidText(
+                        return Err(StateTransportError::InvalidText(
                             "cell sort argument diagnostic path",
                         ));
                     }
@@ -913,7 +887,7 @@ fn validate_host_declaration(
                     ordinal,
                 )?;
                 if declaration.declaration.authored_path.trim().is_empty() {
-                    return Err(ProtocolV7ShapeError::InvalidText(
+                    return Err(StateTransportError::InvalidText(
                         "nested cell diagnostic path",
                     ));
                 }
@@ -927,7 +901,7 @@ fn validate_cell_metadata<I, S, N>(
     field: &ProtocolCellField<I, S, N>,
     ordinal: u32,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<String, ProtocolV7ShapeError> {
+) -> Result<String, StateTransportError> {
     let emitted = if let Some(name) = &field.emitted_name {
         validate_nonblank("emitted cell name", &name.value)?;
         insert_exact(keys, &name.key, "configuration_cell_name", ordinal)?;
@@ -941,7 +915,7 @@ fn validate_cell_metadata<I, S, N>(
     }
     if let Some(multiplicity) = &field.multiplicity {
         if multiplicity.value != "*" {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "unsupported cell multiplicity",
             ));
         }
@@ -954,12 +928,12 @@ fn validate_cell_metadata<I, S, N>(
     }
     if let Some(cell_type) = &field.cell_type {
         if field.multiplicity.is_none() {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "cell type requires repeated multiplicity",
             ));
         }
         if !matches!(cell_type.value.as_str(), "Bag" | "List" | "Map" | "Set") {
-            return Err(ProtocolV7ShapeError::InvalidTerm(
+            return Err(StateTransportError::InvalidTerm(
                 "unsupported repeated-cell collection type",
             ));
         }
@@ -971,7 +945,7 @@ fn validate_cell_metadata<I, S, N>(
 fn validate_root(
     root: &DescriptorConfigurationRoot,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if let DescriptorConfigurationRoot::Named { key, name } = root {
         validate_nonblank("configuration root name", name)?;
         insert_exact(keys, key, "configuration_root", 0)?;
@@ -984,9 +958,9 @@ fn validate_descriptor_initializer(
     owner: &StableItemId,
     declaration: &DescriptorConfigurationDeclaration,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if &initializer.owner != owner {
-        return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+        return Err(StateTransportError::InitializerDeclarationMismatch);
     }
     insert_exact(keys, &initializer.key, "initializer_declaration", 0)?;
     insert_exact(keys, &initializer.owner_key, "initializer_result_type", 0)?;
@@ -1008,9 +982,9 @@ fn validate_host_initializer(
     owner: HostTypeKey,
     declaration: &HostConfigurationDeclaration,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if initializer.owner.resolve() != owner.resolve() {
-        return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+        return Err(StateTransportError::InitializerDeclarationMismatch);
     }
     insert_exact(keys, &initializer.key, "initializer_declaration", 0)?;
     insert_exact(keys, &initializer.owner_key, "initializer_result_type", 0)?;
@@ -1030,7 +1004,7 @@ fn validate_host_initializer(
 fn validate_descriptor_variables(
     variables: &[DescriptorConfigurationVariable],
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<BTreeSet<String>, ProtocolV7ShapeError> {
+) -> Result<BTreeSet<String>, StateTransportError> {
     let mut bindings = BTreeSet::new();
     let mut external_names = BTreeSet::new();
     let mut main_count = 0;
@@ -1042,12 +1016,12 @@ fn validate_descriptor_variables(
             &variable.external_name,
         )?;
         if !bindings.insert(variable.binding.clone()) {
-            return Err(ProtocolV7ShapeError::DuplicateValue(
+            return Err(StateTransportError::DuplicateValue(
                 "configuration variable bindings",
             ));
         }
         if !external_names.insert(variable.external_name.clone()) {
-            return Err(ProtocolV7ShapeError::DuplicateValue(
+            return Err(StateTransportError::DuplicateValue(
                 "external configuration variable names",
             ));
         }
@@ -1073,14 +1047,14 @@ fn validate_descriptor_variables(
             .sort
             .sort
             .validate()
-            .map_err(|_| ProtocolV7ShapeError::InvalidCellContent("invalid variable sort"))?;
+            .map_err(|_| StateTransportError::InvalidCellContent("invalid variable sort"))?;
         if let Some(main_key) = &variable.main_key {
             main_count += 1;
             insert_exact(keys, main_key, "configuration_variable_main", ordinal)?;
         }
     }
     if main_count > 1 {
-        return Err(ProtocolV7ShapeError::MultipleMainVariables);
+        return Err(StateTransportError::MultipleMainVariables);
     }
     Ok(bindings)
 }
@@ -1088,7 +1062,7 @@ fn validate_descriptor_variables(
 fn validate_host_variables(
     variables: &[HostConfigurationVariable],
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<BTreeSet<String>, ProtocolV7ShapeError> {
+) -> Result<BTreeSet<String>, StateTransportError> {
     let mut bindings = BTreeSet::new();
     let mut external_names = BTreeSet::new();
     let mut main_count = 0;
@@ -1100,12 +1074,12 @@ fn validate_host_variables(
             &variable.external_name,
         )?;
         if !bindings.insert(variable.binding.clone()) {
-            return Err(ProtocolV7ShapeError::DuplicateValue(
+            return Err(StateTransportError::DuplicateValue(
                 "configuration variable bindings",
             ));
         }
         if !external_names.insert(variable.external_name.clone()) {
-            return Err(ProtocolV7ShapeError::DuplicateValue(
+            return Err(StateTransportError::DuplicateValue(
                 "external configuration variable names",
             ));
         }
@@ -1133,7 +1107,7 @@ fn validate_host_variables(
         }
     }
     if main_count > 1 {
-        return Err(ProtocolV7ShapeError::MultipleMainVariables);
+        return Err(StateTransportError::MultipleMainVariables);
     }
     Ok(bindings)
 }
@@ -1160,21 +1134,21 @@ fn validate_descriptor_initializer_cells(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if cells.is_empty() {
-        return Err(ProtocolV7ShapeError::EmptyCollection(
+        return Err(StateTransportError::EmptyCollection(
             "initializer cell fields",
         ));
     }
     if cells.len() != declarations.len() {
-        return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+        return Err(StateTransportError::InitializerDeclarationMismatch);
     }
     for (cell, declaration) in cells.iter().zip(declarations) {
         if cell.field.cell.owner != *owner
             || cell.field.cell != declaration.reference.cell
             || cell.field.cell.field != declaration.rust_field
         {
-            return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+            return Err(StateTransportError::InitializerDeclarationMismatch);
         }
         validate_descriptor_initializer_cell(
             cell,
@@ -1196,10 +1170,10 @@ fn validate_descriptor_initializer_cell(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     cell.field.cell.validate()?;
     if &cell.field.cell.owner != owner {
-        return Err(ProtocolV7ShapeError::CellOwnerMismatch);
+        return Err(StateTransportError::CellOwnerMismatch);
     }
     insert_exact(keys, &cell.key, "initializer_cell", counters.cell)?;
     insert_exact(keys, &cell.field.key, "initializer_field", counters.cell)?;
@@ -1236,7 +1210,7 @@ fn validate_descriptor_initializer_cell(
             }),
         ) if nested.declaration == declared.declaration => {
             if children.is_empty() {
-                return Err(ProtocolV7ShapeError::EmptyCollection(
+                return Err(StateTransportError::EmptyCollection(
                     "nested initializer children",
                 ));
             }
@@ -1282,7 +1256,7 @@ fn validate_descriptor_initializer_cell(
             None,
         ) => {
             if children.is_empty() {
-                return Err(ProtocolV7ShapeError::EmptyCollection(
+                return Err(StateTransportError::EmptyCollection(
                     "nested initializer children",
                 ));
             }
@@ -1302,7 +1276,7 @@ fn validate_descriptor_initializer_cell(
                 keys,
             )
         }
-        _ => Err(ProtocolV7ShapeError::InitializerDeclarationMismatch),
+        _ => Err(StateTransportError::InitializerDeclarationMismatch),
     }
 }
 
@@ -1312,11 +1286,11 @@ fn validate_descriptor_nested_children(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     let mut fields = BTreeSet::new();
     for child in children {
         if child.field.cell.owner != *owner || !fields.insert(child.field.cell.field.clone()) {
-            return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+            return Err(StateTransportError::InitializerDeclarationMismatch);
         }
         validate_descriptor_initializer_cell(child, None, owner, bindings, counters, keys)?;
     }
@@ -1330,20 +1304,20 @@ fn validate_host_initializer_cells(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if cells.is_empty() {
-        return Err(ProtocolV7ShapeError::EmptyCollection(
+        return Err(StateTransportError::EmptyCollection(
             "initializer cell fields",
         ));
     }
     if cells.len() != declarations.len() {
-        return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+        return Err(StateTransportError::InitializerDeclarationMismatch);
     }
     for (cell, declaration) in cells.iter().zip(declarations) {
         if cell.field.cell.resolve() != declaration.reference.cell.resolve()
             || cell.field.cell.owner.resolve() != owner.resolve()
         {
-            return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+            return Err(StateTransportError::InitializerDeclarationMismatch);
         }
         validate_host_initializer_cell(cell, Some(declaration), owner, bindings, counters, keys)?;
     }
@@ -1358,9 +1332,9 @@ fn validate_host_initializer_cell(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if cell.field.cell.owner.resolve() != owner.resolve() {
-        return Err(ProtocolV7ShapeError::CellOwnerMismatch);
+        return Err(StateTransportError::CellOwnerMismatch);
     }
     insert_exact(keys, &cell.key, "initializer_cell", counters.cell)?;
     insert_exact(keys, &cell.field.key, "initializer_field", counters.cell)?;
@@ -1397,7 +1371,7 @@ fn validate_host_initializer_cell(
             }),
         ) if nested.declaration.key.resolve() == declared.declaration.key.resolve() => {
             if children.is_empty() {
-                return Err(ProtocolV7ShapeError::EmptyCollection(
+                return Err(StateTransportError::EmptyCollection(
                     "nested initializer children",
                 ));
             }
@@ -1442,7 +1416,7 @@ fn validate_host_initializer_cell(
             None,
         ) => {
             if children.is_empty() {
-                return Err(ProtocolV7ShapeError::EmptyCollection(
+                return Err(StateTransportError::EmptyCollection(
                     "nested initializer children",
                 ));
             }
@@ -1461,7 +1435,7 @@ fn validate_host_initializer_cell(
                 keys,
             )
         }
-        _ => Err(ProtocolV7ShapeError::InitializerDeclarationMismatch),
+        _ => Err(StateTransportError::InitializerDeclarationMismatch),
     }
 }
 
@@ -1471,13 +1445,13 @@ fn validate_host_nested_children(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     let mut fields = BTreeSet::new();
     for child in children {
         if child.field.cell.owner.resolve() != owner.resolve()
             || !fields.insert(child.field.cell.field.resolve())
         {
-            return Err(ProtocolV7ShapeError::InitializerDeclarationMismatch);
+            return Err(StateTransportError::InitializerDeclarationMismatch);
         }
         validate_host_initializer_cell(child, None, owner, bindings, counters, keys)?;
     }
@@ -1487,14 +1461,14 @@ fn validate_host_nested_children(
 fn validate_wrapper_state<T>(
     wrapper: CellWrapper,
     value: &ProtocolInitializerStateTerm<T>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     match (wrapper, value) {
         (CellWrapper::KCell, ProtocolInitializerStateTerm::KSequence(_))
         | (
             CellWrapper::Cell,
             ProtocolInitializerStateTerm::Term(_) | ProtocolInitializerStateTerm::Map(_),
         ) => Ok(()),
-        _ => Err(ProtocolV7ShapeError::InvalidCellContent(
+        _ => Err(StateTransportError::InvalidCellContent(
             "wrapper and initializer state family disagree",
         )),
     }
@@ -1505,7 +1479,7 @@ fn validate_descriptor_state_term(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     match value {
         ProtocolInitializerStateTerm::Term(term) => {
             validate_descriptor_initializer_term(term, bindings, counters, keys, None)
@@ -1598,7 +1572,7 @@ fn validate_host_state_term(
     bindings: &BTreeSet<String>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     match value {
         ProtocolInitializerStateTerm::Term(term) => {
             validate_host_initializer_term(term, bindings, counters, keys, None)
@@ -1672,7 +1646,7 @@ fn validate_k_sequence_shell<T>(
     sequence: &ProtocolKSequence<T>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if let Some(payload_key) = &sequence.payload_key {
         insert_exact(keys, payload_key, "k_sequence_payload", counters.k_payload)?;
         counters.k_payload = increment(counters.k_payload)?;
@@ -1680,7 +1654,7 @@ fn validate_k_sequence_shell<T>(
     match sequence.notation {
         DescriptorKSequenceNotation::DotK => {
             if !sequence.items.is_empty() || sequence.payload_key.is_none() {
-                return Err(ProtocolV7ShapeError::InvalidCellContent(
+                return Err(StateTransportError::InvalidCellContent(
                     "standalone .K must be empty and have payload provenance",
                 ));
             }
@@ -1688,7 +1662,7 @@ fn validate_k_sequence_shell<T>(
                 sequence
                     .dot_k_key
                     .as_ref()
-                    .ok_or(ProtocolV7ShapeError::InvalidCellContent(
+                    .ok_or(StateTransportError::InvalidCellContent(
                         ".K is missing exact provenance",
                     ))?;
             insert_exact(keys, dot_key, "k_sequence_tail", counters.k_tail)?;
@@ -1700,7 +1674,7 @@ fn validate_k_sequence_shell<T>(
                 || (sequence.notation == DescriptorKSequenceNotation::Operator
                     && sequence.items.len() < 2)
             {
-                return Err(ProtocolV7ShapeError::InvalidCellContent(
+                return Err(StateTransportError::InvalidCellContent(
                     "invalid exact K-sequence shell",
                 ));
             }
@@ -1713,7 +1687,7 @@ fn validate_map_shell<T>(
     map: &ProtocolMap<T>,
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if let Some(payload_key) = &map.payload_key {
         insert_exact(keys, payload_key, "map_payload", counters.map_payload)?;
         counters.map_payload = increment(counters.map_payload)?;
@@ -1721,20 +1695,20 @@ fn validate_map_shell<T>(
     match &map.body {
         ProtocolMapBody::Empty { explicit_dot } => {
             if *explicit_dot != map.payload_key.is_some() {
-                return Err(ProtocolV7ShapeError::InvalidCellContent(
+                return Err(StateTransportError::InvalidCellContent(
                     "empty map payload provenance disagrees with notation",
                 ));
             }
         }
         ProtocolMapBody::Items { items } => {
             if items.is_empty() || map.payload_key.is_none() {
-                return Err(ProtocolV7ShapeError::InvalidCellContent(
+                return Err(StateTransportError::InvalidCellContent(
                     "map item form requires a nonempty payload",
                 ));
             }
         }
         ProtocolMapBody::Update { .. } if map.payload_key.is_none() => {
-            return Err(ProtocolV7ShapeError::InvalidCellContent(
+            return Err(StateTransportError::InvalidCellContent(
                 "map update requires payload provenance",
             ));
         }
@@ -1749,7 +1723,7 @@ fn validate_descriptor_initializer_term(
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
     structural_key: Option<&ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     insert_exact(keys, &term.key, "initializer_term", counters.term)?;
     counters.term = increment(counters.term)?;
     validate_descriptor_term_node(
@@ -1767,7 +1741,7 @@ fn validate_descriptor_term_node(
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
     structural_key: &ProvenanceKey,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     match term {
         DescriptorTerm::Variable {
             key,
@@ -1775,7 +1749,7 @@ fn validate_descriptor_term_node(
             name,
         } => {
             if key != path_key || !bindings.contains(name) {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "variable keys disagree or the binding is undeclared",
                 ));
             }
@@ -1793,14 +1767,14 @@ fn validate_descriptor_term_node(
                 || (*head_class == DescriptorApplicationHeadClass::BareReference
                     && !arguments.is_empty())
             {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "application path keys or head class are invalid",
                 ));
             }
             reference
                 .application
                 .validate()
-                .map_err(|_| ProtocolV7ShapeError::InvalidTerm("invalid application target"))?;
+                .map_err(|_| StateTransportError::InvalidTerm("invalid application target"))?;
             insert_exact(
                 keys,
                 &reference.key,
@@ -1818,7 +1792,7 @@ fn validate_descriptor_term_node(
                         structural_key,
                     )?,
                     DescriptorTermArgument::Named { .. } => {
-                        return Err(ProtocolV7ShapeError::InvalidTerm(
+                        return Err(StateTransportError::InvalidTerm(
                             "initializer syntax has no exact record-field provenance",
                         ));
                     }
@@ -1828,29 +1802,29 @@ fn validate_descriptor_term_node(
         }
         DescriptorTerm::Literal { key, literal } => {
             if key != structural_key {
-                return Err(ProtocolV7ShapeError::UnexpectedProvenance {
+                return Err(StateTransportError::UnexpectedProvenance {
                     expected: structural_key.clone(),
                     actual: key.clone(),
                 });
             }
             if matches!(literal, crate::DescriptorLiteral::Int(value) if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()))
             {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "integer literal is not canonical unsigned decimal",
                 ));
             }
             keys.insert(key.clone());
             Ok(())
         }
-        DescriptorTerm::Wildcard { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+        DescriptorTerm::Wildcard { .. } => Err(StateTransportError::InvalidTerm(
             "wildcards are not allowed in initializers",
         )),
         DescriptorTerm::BuiltinToken { .. }
         | DescriptorTerm::Anonymous { .. }
-        | DescriptorTerm::OrBool { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+        | DescriptorTerm::OrBool { .. } => Err(StateTransportError::InvalidTerm(
             "claim-only terms are not allowed in initializers",
         )),
-        DescriptorTerm::Cell { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+        DescriptorTerm::Cell { .. } => Err(StateTransportError::InvalidTerm(
             "fragment! terms are not allowed in initializers",
         )),
     }
@@ -1862,7 +1836,7 @@ fn validate_host_initializer_term(
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
     structural_key: Option<&ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     insert_exact(keys, &term.key, "initializer_term", counters.term)?;
     counters.term = increment(counters.term)?;
     validate_host_term_node(
@@ -1880,7 +1854,7 @@ fn validate_host_term_node(
     counters: &mut InitializerCounters,
     keys: &mut BTreeSet<ProvenanceKey>,
     structural_key: &ProvenanceKey,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     match term {
         HostTerm::Variable {
             key,
@@ -1888,7 +1862,7 @@ fn validate_host_term_node(
             name,
         } => {
             if key != path_key || !bindings.contains(name) {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "variable keys disagree or the binding is undeclared",
                 ));
             }
@@ -1906,7 +1880,7 @@ fn validate_host_term_node(
                 || (*head_class == DescriptorApplicationHeadClass::BareReference
                     && !arguments.is_empty())
             {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "application path keys or head class are invalid",
                 ));
             }
@@ -1923,7 +1897,7 @@ fn validate_host_term_node(
                         validate_host_term_node(value, bindings, counters, keys, structural_key)?;
                     }
                     HostTermArgument::Named { .. } => {
-                        return Err(ProtocolV7ShapeError::InvalidTerm(
+                        return Err(StateTransportError::InvalidTerm(
                             "initializer syntax has no exact record-field provenance",
                         ));
                     }
@@ -1933,29 +1907,29 @@ fn validate_host_term_node(
         }
         HostTerm::Literal { key, literal } => {
             if key != structural_key {
-                return Err(ProtocolV7ShapeError::UnexpectedProvenance {
+                return Err(StateTransportError::UnexpectedProvenance {
                     expected: structural_key.clone(),
                     actual: key.clone(),
                 });
             }
             if matches!(literal, crate::DescriptorLiteral::Int(value) if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()))
             {
-                return Err(ProtocolV7ShapeError::InvalidTerm(
+                return Err(StateTransportError::InvalidTerm(
                     "integer literal is not canonical unsigned decimal",
                 ));
             }
             keys.insert(key.clone());
             Ok(())
         }
-        HostTerm::Wildcard { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+        HostTerm::Wildcard { .. } => Err(StateTransportError::InvalidTerm(
             "wildcards are not allowed in initializers",
         )),
         HostTerm::BuiltinToken { .. } | HostTerm::Anonymous { .. } | HostTerm::OrBool { .. } => {
-            Err(ProtocolV7ShapeError::InvalidTerm(
+            Err(StateTransportError::InvalidTerm(
                 "claim-only terms are not allowed in initializers",
             ))
         }
-        HostTerm::Cell { .. } => Err(ProtocolV7ShapeError::InvalidTerm(
+        HostTerm::Cell { .. } => Err(StateTransportError::InvalidTerm(
             "fragment! terms are not allowed in initializers",
         )),
     }
@@ -1964,10 +1938,10 @@ fn validate_host_term_node(
 fn validate_k_cell_sort(
     wrapper: CellWrapper,
     sort: &DescriptorSortRef,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if wrapper == CellWrapper::KCell && sort != &DescriptorSortRef::Builtin(BuiltinSort::KSequence)
     {
-        return Err(ProtocolV7ShapeError::InvalidCellContent(
+        return Err(StateTransportError::InvalidCellContent(
             "KCell content sort must be builtin KSequence",
         ));
     }
@@ -1977,11 +1951,11 @@ fn validate_k_cell_sort(
 fn require_cell_owner_kind(
     owner: &StableItemId,
     field: &'static str,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     if matches!(owner.item_kind(), ItemKind::Configuration | ItemKind::Cell) {
         Ok(())
     } else {
-        Err(ProtocolV7ShapeError::ItemKind {
+        Err(StateTransportError::ItemKind {
             field,
             expected: "Configuration or Cell",
             actual: owner.item_kind(),
@@ -1989,17 +1963,17 @@ fn require_cell_owner_kind(
     }
 }
 
-fn validate_rust_field(value: &str) -> Result<(), ProtocolV7ShapeError> {
+fn validate_rust_field(value: &str) -> Result<(), StateTransportError> {
     if value.trim().is_empty() || value.contains("::") || value.contains(['/', '\\']) {
-        Err(ProtocolV7ShapeError::InvalidText("Rust field identity"))
+        Err(StateTransportError::InvalidText("Rust field identity"))
     } else {
         Ok(())
     }
 }
 
-fn validate_nonblank(field: &'static str, value: &str) -> Result<(), ProtocolV7ShapeError> {
+fn validate_nonblank(field: &'static str, value: &str) -> Result<(), StateTransportError> {
     if value.trim().is_empty() {
-        Err(ProtocolV7ShapeError::InvalidText(field))
+        Err(StateTransportError::InvalidText(field))
     } else {
         Ok(())
     }
@@ -2009,19 +1983,19 @@ fn validate_complete_set(
     primary: &ProvenanceKey,
     actual: &BTreeSet<ProvenanceKey>,
     expected: &BTreeSet<ProvenanceKey>,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     let expected_primary = canonical_key("configuration_declaration", 0);
     if primary != &expected_primary {
-        return Err(ProtocolV7ShapeError::UnexpectedProvenance {
+        return Err(StateTransportError::UnexpectedProvenance {
             expected: expected_primary,
             actual: primary.clone(),
         });
     }
     if let Some(missing) = expected.difference(actual).next() {
-        return Err(ProtocolV7ShapeError::MissingProvenance(missing.clone()));
+        return Err(StateTransportError::MissingProvenance(missing.clone()));
     }
     if let Some(extra) = actual.difference(expected).next() {
-        return Err(ProtocolV7ShapeError::ExtraProvenance(extra.clone()));
+        return Err(StateTransportError::ExtraProvenance(extra.clone()));
     }
     Ok(())
 }
@@ -2031,10 +2005,10 @@ fn insert_exact(
     actual: &ProvenanceKey,
     role: &'static str,
     ordinal: u32,
-) -> Result<(), ProtocolV7ShapeError> {
+) -> Result<(), StateTransportError> {
     let expected = canonical_key(role, ordinal);
     if actual != &expected {
-        return Err(ProtocolV7ShapeError::UnexpectedProvenance {
+        return Err(StateTransportError::UnexpectedProvenance {
             expected,
             actual: actual.clone(),
         });
@@ -2047,15 +2021,15 @@ fn canonical_key(role: &'static str, ordinal: u32) -> ProvenanceKey {
     ProvenanceKey::new(role, ordinal).expect("protocol-owned provenance roles are valid")
 }
 
-fn checked_index(index: usize) -> Result<u32, ProtocolV7ShapeError> {
+fn checked_index(index: usize) -> Result<u32, StateTransportError> {
     u32::try_from(index)
-        .map_err(|_| ProtocolV7ShapeError::InvalidCellContent("provenance ordinal exceeds u32"))
+        .map_err(|_| StateTransportError::InvalidCellContent("provenance ordinal exceeds u32"))
 }
 
-fn increment(value: u32) -> Result<u32, ProtocolV7ShapeError> {
+fn increment(value: u32) -> Result<u32, StateTransportError> {
     value
         .checked_add(1)
-        .ok_or(ProtocolV7ShapeError::InvalidCellContent(
+        .ok_or(StateTransportError::InvalidCellContent(
             "provenance ordinal exceeds u32",
         ))
 }

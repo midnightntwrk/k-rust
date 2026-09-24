@@ -43,17 +43,18 @@ pub use krs_ir::{
     DescriptorFormatFragment, DescriptorGroupReference, DescriptorLexicalPrecedence,
     DescriptorLiteral, DescriptorPrecedenceChain, DescriptorRuleCondition, DescriptorRuleLabel,
     DescriptorRulePriority, DescriptorSimplification, DescriptorSimplificationPriority,
-    FormatFragment, GroupAssociativity, HostApplicationIdentity, HostApplicationReference,
-    HostApplicationTarget, HostCellTermField, HostContextAliasReference, HostEnumVariantKey,
-    HostEnumVariantReference, HostEnumVariantReferenceError, HostGrammarDescriptor, HostProduction,
-    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
-    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, ProductionFieldId,
-    ProductionGroupId, ProtocolV6ShapeError, StrictnessKind, enum_variant_disambiguator,
+    FormatFragment, GrammarTransportError, GroupAssociativity, HostApplicationIdentity,
+    HostApplicationReference, HostApplicationTarget, HostCellTermField, HostContextAliasReference,
+    HostEnumVariantKey, HostEnumVariantReference, HostEnumVariantReferenceError,
+    HostGrammarDescriptor, HostProduction, HostProductionAttribute, HostProductionItem,
+    HostProductionOwner, HostRuleCondition, HostSortReference, HostStructuredRuleDescriptor,
+    HostTerm, HostTermArgument, ProductionFieldId, ProductionGroupId, StrictnessKind,
+    enum_variant_disambiguator,
 };
-// These protocol-v7 host contracts are reexported because downstream proc
+// These configuration host contracts are reexported because downstream proc
 // macro expansions must name them through the actual (possibly renamed) KRS
 // facade dependency. Stable descriptor counterparts remain in `krs-ir`.
-pub use krs_ir::protocol_v7::{
+pub use krs_ir::{
     CellWrapper, ClaimModality, DescriptorCellColor, DescriptorCellMultiplicity,
     DescriptorCellName, DescriptorCellType, DescriptorConfigurationRoot,
     DescriptorKSequenceNotation, HostCellDeclaration, HostCellDeclarationReference, HostCellField,
@@ -68,7 +69,7 @@ pub use krs_ir::protocol_v7::{
     ProtocolMapBody, ProtocolMapItem, ProtocolRuleBinding, ProtocolRuleBindingKind,
     ProtocolRuleCell, ProtocolRuleCells, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm, ProtocolV7ShapeError,
+    ProtocolRuleStateTerm, StateTransportError,
 };
 pub use krs_ir::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
@@ -1337,7 +1338,7 @@ mod tests {
     }
 
     #[test]
-    fn protocol_v7_host_contracts_are_reexported_through_a_facade_alias() {
+    fn configuration_host_contracts_are_reexported_through_a_facade_alias() {
         use crate as language;
 
         let _: Option<language::HostFixedConfiguration> = None;
@@ -1357,8 +1358,8 @@ mod tests {
         let registry = builtin_registry();
         registry.validate().expect("facade catalog is valid");
         registry
-            .validate_v7()
-            .expect("facade protocol-v7 catalog is valid");
+            .validate()
+            .expect("facade builtin catalog is valid");
 
         assert_eq!(registry.sorts.len(), BuiltinSort::ALL.len());
         assert_eq!(registry.operations.len(), BuiltinOperation::ALL.len());

@@ -321,7 +321,7 @@ fn identity_fixture_reaches_every_readable_payload_class() {
     ));
 
     let machine = baseline_descriptor("Machine");
-    machine.validate_v7_ownership().unwrap();
+    machine.validate_state_ownership().unwrap();
     let k::HostDescriptorPayload::FixedConfiguration(machine) = machine.payload else {
         panic!("Machine did not register as a fixed configuration")
     };

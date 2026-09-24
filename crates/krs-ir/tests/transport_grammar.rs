@@ -1,4 +1,4 @@
-//! Typed collector protocol-v6 contract tests.
+//! Grammar and structured-rule transport contract tests.
 
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,14 +11,14 @@ use krs_ir::{
     DescriptorPrecedenceChain, DescriptorProduction, DescriptorProductionAttribute,
     DescriptorProductionItem, DescriptorProductionOwner, DescriptorProvenance,
     DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef, DescriptorSortReference,
-    DescriptorTerm, DescriptorTermArgument, FormatFragment, GrammarDescriptor, GroupAssociativity,
-    HostApplicationIdentity, HostApplicationTarget, HostBuiltinOperationRegistration,
-    HostBuiltinRegistry, HostBuiltinRegistryError, HostBuiltinSortRegistration,
-    HostDeclarationIdentity, HostEnumVariantKey, HostEnumVariantReference,
-    HostEnumVariantReferenceError, HostListOperationRegistration, HostMapOperationRegistration,
-    HostSetOperationRegistration, HostTypeKey, HostTypeReference, ItemKind, ListOperation,
-    MapOperation, OriginStack, PackageId, ProductionFieldId, ProductionGroupId,
-    ProtocolV6ShapeError, ProvenanceKey, SentenceKind, SetOperation, Sha256Digest, SourceFileId,
+    DescriptorTerm, DescriptorTermArgument, FormatFragment, GrammarDescriptor,
+    GrammarTransportError, GroupAssociativity, HostApplicationIdentity, HostApplicationTarget,
+    HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
+    HostBuiltinSortRegistration, HostDeclarationIdentity, HostEnumVariantKey,
+    HostEnumVariantReference, HostEnumVariantReferenceError, HostListOperationRegistration,
+    HostMapOperationRegistration, HostSetOperationRegistration, HostTypeKey, HostTypeReference,
+    ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProductionFieldId,
+    ProductionGroupId, ProvenanceKey, SentenceKind, SetOperation, Sha256Digest, SourceFileId,
     SourceRange, StableItemId, StrictnessKind, StructuredRuleDescriptor,
     enum_variant_disambiguator,
 };
@@ -319,7 +319,7 @@ fn expression_descriptors() -> Vec<Descriptor> {
 fn expression_grammar_and_rule_round_trip_deterministically() {
     let descriptors = expression_descriptors();
     for descriptor in &descriptors {
-        descriptor.validate_v6_contract().unwrap();
+        descriptor.validate_grammar_contract().unwrap();
     }
     let forward = DescriptorBundle::new(descriptors.clone())
         .to_canonical_json()
@@ -356,7 +356,7 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
         name: "if-true".into(),
     });
 
-    descriptor.validate_v6_contract().unwrap();
+    descriptor.validate_grammar_contract().unwrap();
     assert_eq!(
         descriptor.provenance.origin_for(&label_key),
         Some(&origin(77))
@@ -367,8 +367,8 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
     };
     rule.label.as_mut().unwrap().name = "if true".into();
     assert!(matches!(
-        descriptor.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidTerm(
+        descriptor.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidTerm(
             "invalid explicit rule label"
         ))
     ));
@@ -376,7 +376,7 @@ fn explicit_rule_label_requires_exact_provenance_and_a_portable_name() {
 
 #[test]
 #[allow(clippy::too_many_lines)]
-fn protocol_v11_structured_requires_has_closed_exact_provenance_and_pre_bindings() {
+fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     let mut descriptors = expression_descriptors();
     let descriptor = &mut descriptors[1];
     let condition_keys = [
@@ -432,7 +432,7 @@ fn protocol_v11_structured_requires_has_closed_exact_provenance_and_pre_bindings
         },
     });
 
-    descriptor.validate_v6_contract().unwrap();
+    descriptor.validate_grammar_contract().unwrap();
     for condition_key in condition_keys {
         assert!(descriptor.provenance.origin_for(&condition_key).is_some());
     }
@@ -447,8 +447,8 @@ fn protocol_v11_structured_requires_has_closed_exact_provenance_and_pre_bindings
     };
     *path_key = key("rule_requires_path", 1);
     assert!(matches!(
-        wrong_path.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::UnexpectedProvenance { .. })
+        wrong_path.validate_grammar_contract(),
+        Err(GrammarTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut unbound = descriptor.clone();
@@ -467,8 +467,8 @@ fn protocol_v11_structured_requires_has_closed_exact_provenance_and_pre_bindings
     };
     *name = "post_only".into();
     assert!(matches!(
-        unbound.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidBinding(name)) if name == "post_only"
+        unbound.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidBinding(name)) if name == "post_only"
     ));
 
     let mut post_only = descriptor.clone();
@@ -491,8 +491,8 @@ fn protocol_v11_structured_requires_has_closed_exact_provenance_and_pre_bindings
     };
     *name = "post_only".into();
     assert!(matches!(
-        post_only.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidBinding(name)) if name == "post_only"
+        post_only.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidBinding(name)) if name == "post_only"
     ));
 }
 
@@ -543,7 +543,7 @@ fn crate_key(role: &str, ordinal: u32) -> ProvenanceKey {
 fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separately() {
     let mut descriptors = expression_descriptors();
     reorder_expression_fields(expression_production(&mut descriptors[0]));
-    descriptors[0].validate_v6_contract().unwrap();
+    descriptors[0].validate_grammar_contract().unwrap();
 
     let production = expression_production(&mut descriptors[0]);
     let DescriptorProductionItem::NonTerminal { field_key, .. } = &mut production.items[0] else {
@@ -551,8 +551,8 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     };
     *field_key = key("constructor_syntax_field_reference", 1);
     assert!(matches!(
-        descriptors[0].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::UnexpectedProvenance { .. })
+        descriptors[0].validate_grammar_contract(),
+        Err(GrammarTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut descriptors = expression_descriptors();
@@ -569,8 +569,8 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     *declaration_key = Some(key("constructor_field_declaration", 1));
     sort.key = key("constructor_field_sort", 1);
     assert!(matches!(
-        descriptors[0].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidProduction(
+        descriptors[0].validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidProduction(
             "constructor field declaration ordinals must be unique"
         ))
     ));
@@ -591,7 +591,7 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         path_key: key("rule_right_path", 0),
         arguments: vec![],
     };
-    descriptors[1].validate_v6_contract().unwrap();
+    descriptors[1].validate_grammar_contract().unwrap();
     let json = DescriptorBundle::new(descriptors)
         .to_canonical_json()
         .unwrap();
@@ -616,8 +616,8 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         }],
     };
     assert!(matches!(
-        descriptors[1].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidApplication(
+        descriptors[1].validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidApplication(
             "a bare-reference constructor must have no arguments"
         ))
     ));
@@ -700,14 +700,14 @@ fn ordinary_map_references_have_closed_wire_shapes() {
     arguments.pop();
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::default(), false),
-        Err(ProtocolV6ShapeError::InvalidApplication(
+        Err(GrammarTransportError::InvalidApplication(
             "Map operation has invalid arity"
         ))
     ));
 
     assert!(matches!(
         DescriptorApplicationRef::Map(MapOperation::Item).validate(),
-        Err(ProtocolV6ShapeError::InvalidApplication(
+        Err(GrammarTransportError::InvalidApplication(
             "structural-only Map operation used as an application head"
         ))
     ));
@@ -813,7 +813,7 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
     };
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::new(), false),
-        Err(ProtocolV6ShapeError::InvalidApplication(
+        Err(GrammarTransportError::InvalidApplication(
             "List operation has invalid arity"
         ))
     ));
@@ -1004,8 +1004,8 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     };
     *precede_regex = Some("[a-z]".into());
     assert!(matches!(
-        guarded_token.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidProduction(
+        guarded_token.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidProduction(
             "nominal token regex cannot carry precede/follow guards"
         ))
     ));
@@ -1018,8 +1018,8 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
         follow_regex: None,
     };
     assert!(matches!(
-        regex_bracket.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidProduction(
+        regex_bracket.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidProduction(
             "bracket production cannot contain regex items"
         ))
     ));
@@ -1032,8 +1032,8 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
     };
     *field = ProductionFieldId::new("inner").unwrap();
     assert!(matches!(
-        wrong_field_bracket.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidProduction(
+        wrong_field_bracket.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidProduction(
             "bracket nonterminal field must be `value`"
         ))
     ));
@@ -1043,15 +1043,15 @@ fn token_bracket_subsort_precedence_and_associativity_are_complete() {
         .result_sort
         .sort = DescriptorSortRef::Declared(item("OtherExpr", ItemKind::Sort));
     assert!(matches!(
-        wrong_sort_bracket.validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidProduction(
+        wrong_sort_bracket.validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidProduction(
             "bracket owner and result sorts must be identical"
         ))
     ));
 
     let descriptors = vec![token, bracket, subsort, precedence, associativity];
     for descriptor in &descriptors {
-        descriptor.validate_v6_contract().unwrap();
+        descriptor.validate_grammar_contract().unwrap();
     }
     let json = DescriptorBundle::new(descriptors)
         .to_canonical_json()
@@ -1068,8 +1068,8 @@ fn format_requires_explicit_constructor_syntax() {
     let mut descriptors = expression_descriptors();
     expression_production(&mut descriptors[0]).template_key = None;
     assert!(matches!(
-        descriptors[0].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidProduction(
+        descriptors[0].validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidProduction(
             "format metadata requires explicit constructor syntax"
         ))
     ));
@@ -1080,8 +1080,8 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
     let mut descriptors = expression_descriptors();
     descriptors[0].id = item("wrong", ItemKind::Rule);
     assert!(matches!(
-        descriptors[0].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::DescriptorItemKind { .. })
+        descriptors[0].validate_grammar_contract(),
+        Err(GrammarTransportError::DescriptorItemKind { .. })
     ));
 
     let mut descriptors = expression_descriptors();
@@ -1093,8 +1093,8 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
         literal: DescriptorLiteral::Int("1_000".into()),
     };
     assert!(matches!(
-        descriptors[1].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::MissingProvenance(_))
+        descriptors[1].validate_grammar_contract(),
+        Err(GrammarTransportError::MissingProvenance(_))
     ));
 
     let mut descriptors = expression_descriptors();
@@ -1105,8 +1105,8 @@ fn wrong_kinds_missing_origins_and_noncanonical_literals_are_rejected() {
         key: key("rule_left_wildcard", 0),
     };
     assert!(matches!(
-        descriptors[1].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::InvalidTerm(_))
+        descriptors[1].validate_grammar_contract(),
+        Err(GrammarTransportError::InvalidTerm(_))
     ));
 }
 
@@ -1664,8 +1664,8 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
     };
     *variable_key = key("rule_result_type", 0);
     assert!(matches!(
-        descriptors[1].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::UnexpectedProvenance { .. })
+        descriptors[1].validate_grammar_contract(),
+        Err(GrammarTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut descriptors = expression_descriptors();
@@ -1677,7 +1677,7 @@ fn swapped_roles_and_orphaned_provenance_are_rejected() {
     ));
     descriptors[0].provenance = DescriptorProvenance::new(primary, origins).unwrap();
     assert!(matches!(
-        descriptors[0].validate_v6_contract(),
-        Err(ProtocolV6ShapeError::ExtraProvenance(_))
+        descriptors[0].validate_grammar_contract(),
+        Err(GrammarTransportError::ExtraProvenance(_))
     ));
 }

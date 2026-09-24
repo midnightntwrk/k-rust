@@ -1,4 +1,4 @@
-//! Stable protocol-v7 state descriptors reach the existing semantic/Definition lane.
+//! Stable configuration descriptors reach the existing semantic/Definition lane.
 
 use std::collections::BTreeMap;
 
@@ -20,7 +20,7 @@ use krs_ir::{
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-V7", "v7", "0.1.0", "workspace").unwrap()
+    PackageId::new("KRS-STATE", "state", "0.1.0", "workspace").unwrap()
 }
 
 fn id(name: &str, kind: ItemKind) -> StableItemId {
@@ -445,7 +445,7 @@ fn fixed_configuration_and_simultaneous_rule_reach_emitted_k_deterministically()
     let krs_ir::semantic::SemanticRuleBody::Configuration(rule) =
         module.rules()[0].relational_body()
     else {
-        panic!("protocol-v7 rule must remain a simultaneous configuration rewrite");
+        panic!("a configuration rule must remain a simultaneous configuration rewrite");
     };
     assert_eq!(rule.clauses().len(), 2);
     assert!(matches!(
@@ -523,7 +523,7 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     let krs_ir::semantic::SemanticRuleBody::Configuration(rewrite) =
         module.rules()[0].relational_body()
     else {
-        panic!("protocol-v7 rule must remain a simultaneous configuration rewrite");
+        panic!("a configuration rule must remain a simultaneous configuration rewrite");
     };
     let env = &rewrite.clauses()[1];
     assert!(matches!(env.frame(), krs_ir::CellContentFrame::Exact));

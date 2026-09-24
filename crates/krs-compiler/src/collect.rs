@@ -203,7 +203,7 @@ pub fn collect_host_descriptors(
 
 /// Resolves host descriptors with the complete compiler-provided builtin catalog.
 ///
-/// Unlike [`collect_host_descriptors`], this entry point admits protocol-v6
+/// Unlike [`collect_host_descriptors`], this entry point admits typed-grammar
 /// references to builtin sort and operation marker types. The registry is
 /// validated for exact completeness before any descriptor is inspected.
 ///
@@ -217,7 +217,7 @@ pub fn collect_host_descriptors_with_builtins(
     descriptors: impl IntoIterator<Item = HostDescriptor>,
     builtins: &HostBuiltinRegistry,
 ) -> Result<DescriptorBundle, CollectionError> {
-    builtins.validate_v7().map_err(|error| {
+    builtins.validate().map_err(|error| {
         CollectionError::new(
             CollectionErrorKind::InvalidBuiltinRegistry,
             format!("invalid builtin registry: {error}"),
@@ -271,10 +271,10 @@ fn collect_host_descriptors_impl(
             ));
         }
         validate_payload_item_kind(&host)?;
-        host.validate_v7_ownership().map_err(|error| {
+        host.validate_state_ownership().map_err(|error| {
             CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
-                format!("invalid host protocol-v7 descriptor: {error}"),
+                format!("invalid host configuration descriptor: {error}"),
             )
         })?;
         let canonical_hint =
@@ -359,16 +359,16 @@ fn collect_host_descriptors_impl(
             )
         })?;
     for descriptor in &bundle.descriptors {
-        descriptor.validate_v6_contract().map_err(|error| {
+        descriptor.validate_grammar_contract().map_err(|error| {
             CollectionError::new(
                 CollectionErrorKind::ProvenanceMismatch,
-                format!("invalid stable protocol-v6 descriptor: {error}"),
+                format!("invalid stable grammar descriptor: {error}"),
             )
         })?;
-        descriptor.validate_v7_contract().map_err(|error| {
+        descriptor.validate_state_contract().map_err(|error| {
             CollectionError::new(
                 CollectionErrorKind::ProvenanceMismatch,
-                format!("invalid stable protocol-v7 descriptor: {error}"),
+                format!("invalid stable configuration descriptor: {error}"),
             )
         })?;
     }
@@ -3895,7 +3895,7 @@ fn path_spelling(path: &syn::Path) -> String {
 }
 
 #[cfg(test)]
-mod protocol_v6_tests {
+mod transport_tests {
     use std::any::TypeId;
 
     use super::*;
@@ -4293,7 +4293,7 @@ mod protocol_v6_tests {
     }
 
     #[test]
-    fn protocol_v7_cell_items_use_the_configuration_declaration_lane() {
+    fn configuration_cell_items_use_the_configuration_declaration_lane() {
         assert_eq!(descriptor_label(ItemKind::Cell), "cell");
         assert_eq!(
             primary_key(ItemKind::Cell).unwrap(),

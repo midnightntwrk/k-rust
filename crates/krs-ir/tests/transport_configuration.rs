@@ -1,4 +1,4 @@
-//! Staged non-rule collector protocol-v7 contract tests.
+//! Configuration transport contract tests.
 
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -23,8 +23,8 @@ use krs_ir::{
     ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
     ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm, ProtocolV7ShapeError, ProvenanceKey, SentenceKind, SetOperation,
-    Sha256Digest, SourceFileId, SourceRange, StableItemId,
+    ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation, Sha256Digest, SourceFileId,
+    SourceRange, StableItemId, StateTransportError,
 };
 
 fn package() -> PackageId {
@@ -201,14 +201,14 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
     wrong_key.declaration.fields[1].reference.key = key("configuration_field", 0);
     assert!(matches!(
         wrong_key.validate(&owner),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut duplicate_external = configuration.clone();
     duplicate_external.initializer.variables[1].external_name = "$PGM".into();
     assert_eq!(
         duplicate_external.validate(&owner),
-        Err(ProtocolV7ShapeError::DuplicateValue(
+        Err(StateTransportError::DuplicateValue(
             "external configuration variable names"
         ))
     );
@@ -217,7 +217,7 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
     reordered.initializer.cells.swap(0, 1);
     assert_eq!(
         reordered.validate(&owner),
-        Err(ProtocolV7ShapeError::InitializerDeclarationMismatch)
+        Err(StateTransportError::InitializerDeclarationMismatch)
     );
 
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
@@ -229,7 +229,7 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
             &key("configuration_declaration", 0),
             &actual,
         ),
-        Err(ProtocolV7ShapeError::ExtraProvenance(key("unexpected", 0)))
+        Err(StateTransportError::ExtraProvenance(key("unexpected", 0)))
     );
 }
 
@@ -257,7 +257,7 @@ fn marker<const N: usize>() -> TypeId {
 
 #[test]
 #[allow(clippy::too_many_lines)] // Exhaustively constructs and rejects the incomplete registry.
-fn v7_builtin_registry_requires_map_and_id() {
+fn builtin_registry_requires_map_and_id() {
     let sorts = BuiltinSort::ALL
         .into_iter()
         .enumerate()
@@ -363,12 +363,12 @@ fn v7_builtin_registry_requires_map_and_id() {
         list_operations,
         set_operations,
     };
-    registry.validate_v7().unwrap();
+    registry.validate().unwrap();
 
     let mut missing = registry.clone();
     missing.sorts.retain(|entry| entry.sort != BuiltinSort::Map);
     assert_eq!(
-        missing.validate_v7(),
+        missing.validate(),
         Err(HostBuiltinRegistryError::MissingSort(BuiltinSort::Map))
     );
 }
@@ -383,7 +383,7 @@ fn primary_key_is_configuration_declaration() {
             &key("initializer_declaration", 0),
             &actual,
         ),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 }
 
@@ -499,7 +499,7 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     *binding = "missing_tail".into();
     assert!(matches!(
         mismatched_tail.validate(ItemKind::ContextAlias),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "context-alias frame binding has the wrong structural kind or occurrence"
         ))
     ));
@@ -508,7 +508,7 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     lost_configuration.pattern.remainder = ProtocolRuleFrame::Exact;
     assert!(matches!(
         lost_configuration.validate(ItemKind::ContextAlias),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "context-alias structural binding catalog does not match its frames"
         ))
     ));
@@ -709,7 +709,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     descriptor.sentence_kind = SentenceKind::Alias;
     assert!(matches!(
         descriptor.validate(ItemKind::Alias),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "static aliases cannot have configuration rewrite bodies"
         ))
     ));
@@ -718,7 +718,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     host.sentence_kind = SentenceKind::Alias;
     assert!(matches!(
         host.validate(ItemKind::Alias),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "static aliases cannot have configuration rewrite bodies"
         ))
     ));
@@ -727,7 +727,7 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     descriptor.sentence_kind = SentenceKind::Simplification;
     assert!(matches!(
         descriptor.validate(ItemKind::Simplification),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "simplifications cannot have configuration rewrite bodies"
         ))
     ));
@@ -736,14 +736,14 @@ fn configuration_rule_protocol_rejects_static_alias_bodies_on_both_sides() {
     host.sentence_kind = SentenceKind::Simplification;
     assert!(matches!(
         host.validate(ItemKind::Simplification),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "simplifications cannot have configuration rewrite bodies"
         ))
     ));
 }
 
 #[test]
-fn protocol_v11_configuration_requires_is_exact_and_term_binding_only() {
+fn configuration_requires_is_exact_and_term_binding_only() {
     let (_, mut rule) = var_configuration_rule();
     rule.requires = Some(DescriptorRuleCondition {
         key: key("rule_requires", 0),
@@ -795,7 +795,7 @@ fn protocol_v11_configuration_requires_is_exact_and_term_binding_only() {
     *name = "tail".into();
     assert!(matches!(
         structural_frame.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(
+        Err(StateTransportError::InvalidTerm(
             "rule variable binding is not a term"
         ))
     ));
@@ -818,7 +818,7 @@ fn protocol_v11_configuration_requires_is_exact_and_term_binding_only() {
     *literal_key = key("rule_right_literal", 0);
     assert!(matches!(
         wrong_nested_role.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 }
 
@@ -830,14 +830,14 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     wrong_order.bindings.swap(0, 1);
     assert!(matches!(
         wrong_order.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 
     let mut wrong_kind = rule.clone();
     wrong_kind.bindings[1].kind = ProtocolRuleBindingKind::MapFrame;
     assert!(matches!(
         wrong_kind.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 
     let mut wrong_sort_key = rule.clone();
@@ -847,7 +847,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     sort.key = key("rule_binding_type", 2);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut wrong_sort_kind = rule.clone();
@@ -857,7 +857,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     sort.sort = DescriptorSortRef::Declared(item("Machine", ItemKind::Configuration));
     assert!(matches!(
         wrong_sort_kind.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::ItemKind { .. })
+        Err(StateTransportError::ItemKind { .. })
     ));
 
     let mut unbound_reuse = rule.clone();
@@ -867,7 +867,7 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     };
     assert!(matches!(
         unbound_reuse.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 
     let mut wrong_result_kind = rule.clone();
@@ -877,14 +877,14 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     };
     assert!(matches!(
         wrong_result_kind.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 
     let mut wrong_side = rule;
     wrong_side.result.cells[0].field.key = key("rule_left_cells_field", 0);
     assert!(matches!(
         wrong_side.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 }
 
@@ -954,7 +954,7 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     *wildcard = key("rule_left_wildcard", 1);
     assert!(matches!(
         wrong_ordinal.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut result_wildcard = rule;
@@ -963,7 +963,7 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     });
     assert!(matches!(
         result_wildcard.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 }
 
@@ -1079,7 +1079,7 @@ fn host_configuration_rule_accepts_only_exact_subject_wildcards() {
     *wildcard = key("rule_left_literal", 0);
     assert!(matches!(
         wrong_role.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 
     let mut result_wildcard = rule;
@@ -1088,7 +1088,7 @@ fn host_configuration_rule_accepts_only_exact_subject_wildcards() {
     });
     assert!(matches!(
         result_wildcard.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 }
 
@@ -1101,7 +1101,7 @@ fn host_configuration_rule_requires_exact_typed_binding_catalog() {
     wrong_kind.bindings[0].kind = ProtocolRuleBindingKind::KSequenceFrame;
     assert!(matches!(
         wrong_kind.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::InvalidTerm(_))
+        Err(StateTransportError::InvalidTerm(_))
     ));
 
     let mut wrong_sort_key = rule;
@@ -1111,7 +1111,7 @@ fn host_configuration_rule_requires_exact_typed_binding_catalog() {
     sort.key = key("rule_binding_type", 1);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
-        Err(ProtocolV7ShapeError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance { .. })
     ));
 }
 

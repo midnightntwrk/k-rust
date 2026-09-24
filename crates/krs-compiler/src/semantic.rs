@@ -335,7 +335,7 @@ impl From<krs_ir::StateShapeError> for DescriptorLoweringError {
     }
 }
 
-/// Resolves one protocol-v5 descriptor bundle into checked target-neutral IR.
+/// Resolves one descriptor bundle into checked target-neutral IR.
 ///
 /// This boundary performs no Cargo work and has no adapter knowledge. Named
 /// paths are joined exclusively through their parser-owned [`ProvenanceKey`];
@@ -359,13 +359,13 @@ pub fn lower_descriptor_bundle(
         .collect::<BTreeSet<_>>();
     let mut declarations = BTreeMap::new();
     for descriptor in &descriptors {
-        descriptor.validate_v6_contract().map_err(|error| {
+        descriptor.validate_grammar_contract().map_err(|error| {
             DescriptorLoweringError::ParserReferenceDisagreement {
                 id: Box::new(descriptor.id.clone()),
                 detail: error.to_string(),
             }
         })?;
-        descriptor.validate_v7_contract().map_err(|error| {
+        descriptor.validate_state_contract().map_err(|error| {
             DescriptorLoweringError::ParserReferenceDisagreement {
                 id: Box::new(descriptor.id.clone()),
                 detail: error.to_string(),
@@ -2449,7 +2449,7 @@ fn lower_head_rule_descriptor(
     else {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
-            detail: "head completion requires a protocol-v7 fixed configuration".into(),
+            detail: "head completion requires a fixed configuration".into(),
         });
     };
     let computation = require_cell_field(&rule.computation_cell.cell, declarations)?;
@@ -2895,7 +2895,7 @@ fn lower_configuration_rule_descriptor(
     else {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "configuration rule",
-            detail: "protocol-v7 rules require a protocol-v7 fixed configuration".into(),
+            detail: "configuration rules require a fixed configuration".into(),
         });
     };
 
@@ -3215,7 +3215,7 @@ fn lower_context_alias_descriptor(
     else {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "context alias",
-            detail: "context aliases require a protocol-v7 fixed configuration".into(),
+            detail: "context aliases require a fixed configuration".into(),
         });
     };
     let k_items = declarations

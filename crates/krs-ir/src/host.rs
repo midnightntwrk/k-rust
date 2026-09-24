@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    HostCellDeclaration, HostConfigurationRule, HostContextAlias, HostDeclarationIdentity,
-    HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule, HostStructuredRuleDescriptor,
-    ItemKind, ProtocolV6ShapeError, ProtocolV7ShapeError, ProtocolVersion, SentenceKind,
+    GrammarTransportError, HostCellDeclaration, HostConfigurationRule, HostContextAlias,
+    HostDeclarationIdentity, HostFixedConfiguration, HostGrammarDescriptor, HostHeadRule,
+    HostStructuredRuleDescriptor, ItemKind, ProtocolVersion, SentenceKind, StateTransportError,
 };
 
 /// A function returning rustc's build-local identity for a referenced type.
@@ -644,13 +644,13 @@ pub struct HostDescriptor {
 }
 
 impl HostDescriptor {
-    /// Checks protocol-v6 outer ownership before stable collection.
+    /// Checks grammar and structured-rule outer ownership before stable collection.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV6ShapeError`] when a grammar or structured rule is
+    /// Returns [`GrammarTransportError`] when a grammar or structured rule is
     /// registered under the wrong stable namespace.
-    pub fn validate_v6_ownership(&self) -> Result<(), ProtocolV6ShapeError> {
+    pub fn validate_grammar_ownership(&self) -> Result<(), GrammarTransportError> {
         let expected = match &self.payload {
             HostDescriptorPayload::Grammar(_) => Some(ItemKind::Grammar),
             HostDescriptorPayload::StructuredRule(rule) => Some(match rule.sentence_kind {
@@ -669,7 +669,7 @@ impl HostDescriptor {
             | HostDescriptorPayload::ContextAlias(_) => None,
         };
         if let Some(expected) = expected.filter(|expected| self.id.item_kind() != *expected) {
-            return Err(ProtocolV6ShapeError::DescriptorItemKind {
+            return Err(GrammarTransportError::DescriptorItemKind {
                 expected,
                 actual: self.id.item_kind(),
             });
@@ -677,25 +677,25 @@ impl HostDescriptor {
         Ok(())
     }
 
-    /// Validates protocol-v7 configuration/cell/rule ownership and host joins.
+    /// Validates configuration/cell/rule ownership and host joins.
     ///
     /// # Errors
     ///
-    /// Returns [`ProtocolV7ShapeError`] when a staged v7 payload is registered
+    /// Returns [`StateTransportError`] when a configuration payload is registered
     /// under the wrong item kind, lacks its nominal declaration key, or has an
     /// invalid configuration/cell/rule shape.
-    pub fn validate_v7_ownership(&self) -> Result<(), ProtocolV7ShapeError> {
+    pub fn validate_state_ownership(&self) -> Result<(), StateTransportError> {
         match &self.payload {
             HostDescriptorPayload::FixedConfiguration(configuration) => {
                 if self.id.item_kind() != ItemKind::Configuration {
-                    return Err(ProtocolV7ShapeError::ItemKind {
+                    return Err(StateTransportError::ItemKind {
                         field: "fixed configuration descriptor",
                         expected: "Configuration",
                         actual: self.id.item_kind(),
                     });
                 }
                 let Some(HostDeclarationIdentity::Nominal(owner)) = self.declared_type else {
-                    return Err(ProtocolV7ShapeError::InvalidCellContent(
+                    return Err(StateTransportError::InvalidCellContent(
                         "fixed configuration lacks a nominal host owner",
                     ));
                 };
@@ -703,14 +703,14 @@ impl HostDescriptor {
             }
             HostDescriptorPayload::Cell(declaration) => {
                 if self.id.item_kind() != ItemKind::Cell {
-                    return Err(ProtocolV7ShapeError::ItemKind {
+                    return Err(StateTransportError::ItemKind {
                         field: "nested cell descriptor",
                         expected: "Cell",
                         actual: self.id.item_kind(),
                     });
                 }
                 let Some(HostDeclarationIdentity::Nominal(owner)) = self.declared_type else {
-                    return Err(ProtocolV7ShapeError::InvalidCellContent(
+                    return Err(StateTransportError::InvalidCellContent(
                         "nested cell declaration lacks a nominal host owner",
                     ));
                 };
@@ -738,11 +738,11 @@ pub enum HostDescriptorPayload {
     Grammar(Box<HostGrammarDescriptor>),
     /// Fully structured relational sentence.
     StructuredRule(Box<HostStructuredRuleDescriptor>),
-    /// Protocol-v7 complete fixed configuration and initializer.
+    /// Complete fixed configuration and initializer.
     FixedConfiguration(Box<HostFixedConfiguration>),
-    /// Protocol-v7 nominal nested fixed-cell declaration.
+    /// Nominal nested fixed-cell declaration.
     Cell(Box<HostCellDeclaration>),
-    /// Protocol-v7 simultaneous whole-configuration rule.
+    /// Simultaneous whole-configuration rule.
     ConfigurationRule(Box<HostConfigurationRule>),
     /// Bare-sort rule completed into a fixed computation cell by the collector.
     HeadRule(Box<HostHeadRule>),

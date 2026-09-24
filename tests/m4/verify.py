@@ -528,7 +528,7 @@ def phase_rust(context: Context) -> str:
     run(
         [
             "cargo", "test", "--locked", "-p", "krs-ir", "--test",
-            "protocol_v6", "builtin_registry_is_complete_exact_and_alias_safe",
+            "transport_grammar", "builtin_registry_is_complete_exact_and_alias_safe",
             "--", "--exact",
         ],
         timeout=300,

@@ -1379,7 +1379,7 @@ fn main() {
     assert_eq!(analysis.transitive_parents()[diamond_id].len(), 3);
 
     let machine = descriptor(&descriptors, "Machine", ItemKind::Configuration);
-    machine.validate_v7_ownership().unwrap();
+    machine.validate_state_ownership().unwrap();
     let HostDescriptorPayload::FixedConfiguration(machine) = &machine.payload else {
         panic!("Machine must be a configuration descriptor")
     };
@@ -1444,7 +1444,7 @@ fn main() {
     assert!(descriptor_roles.contains(&"initializer_term_path"));
 
     let secondary = descriptor(&descriptors, "Secondary", ItemKind::Configuration);
-    secondary.validate_v7_ownership().unwrap();
+    secondary.validate_state_ownership().unwrap();
     let HostDescriptorPayload::FixedConfiguration(secondary) = &secondary.payload else {
         panic!("Secondary must be a configuration descriptor")
     };
@@ -1464,7 +1464,7 @@ fn main() {
         "ExplicitEquivalentMachine",
         ItemKind::Configuration,
     );
-    explicit_equivalent.validate_v7_ownership().unwrap();
+    explicit_equivalent.validate_state_ownership().unwrap();
     let HostDescriptorPayload::FixedConfiguration(explicit_equivalent) =
         &explicit_equivalent.payload
     else {
@@ -1475,7 +1475,7 @@ fn main() {
         "ReadableEquivalentMachine",
         ItemKind::Configuration,
     );
-    readable_equivalent.validate_v7_ownership().unwrap();
+    readable_equivalent.validate_state_ownership().unwrap();
     let HostDescriptorPayload::FixedConfiguration(readable_equivalent) =
         &readable_equivalent.payload
     else {
@@ -1506,7 +1506,7 @@ fn main() {
     assert_eq!(explicit_roles, readable_roles);
 
     let split = descriptor(&descriptors, "Split", ItemKind::Configuration);
-    split.validate_v7_ownership().unwrap();
+    split.validate_state_ownership().unwrap();
     let HostDescriptorPayload::FixedConfiguration(_) = &split.payload else {
         panic!("Split must be a configuration descriptor")
     };
@@ -1523,14 +1523,14 @@ fn main() {
     );
 
     let store = descriptor(&descriptors, "Store", ItemKind::Cell);
-    store.validate_v7_ownership().unwrap();
+    store.validate_state_ownership().unwrap();
     let HostDescriptorPayload::Cell(store) = &store.payload else {
         panic!("Store must be a nominal cell descriptor")
     };
     assert_eq!(store.fields.len(), 1);
 
     let nested_rule = descriptor(&descriptors, "nested_state_var", ItemKind::Rule);
-    nested_rule.validate_v7_ownership().unwrap();
+    nested_rule.validate_state_ownership().unwrap();
     let HostDescriptorPayload::ConfigurationRule(nested_rule) = &nested_rule.payload else {
         panic!("nested_state_var must be a configuration rule")
     };
@@ -1541,7 +1541,7 @@ fn main() {
     );
 
     let whole = descriptor(&descriptors, "whole_state_var", ItemKind::Rule);
-    whole.validate_v7_ownership().unwrap();
+    whole.validate_state_ownership().unwrap();
     let HostDescriptorPayload::ConfigurationRule(whole) = &whole.payload else {
         panic!("whole_state_var must be a configuration rule")
     };
@@ -1562,7 +1562,7 @@ fn main() {
     ));
 
     let guarded = descriptor(&descriptors, "guarded_term", ItemKind::Rule);
-    guarded.validate_v7_ownership().unwrap();
+    guarded.validate_state_ownership().unwrap();
     let HostDescriptorPayload::StructuredRule(guarded) = &guarded.payload else {
         panic!("guarded_term must be a structured rule")
     };
@@ -1578,7 +1578,7 @@ fn main() {
     ));
 
     let guarded = descriptor(&descriptors, "guarded_state", ItemKind::Rule);
-    guarded.validate_v7_ownership().unwrap();
+    guarded.validate_state_ownership().unwrap();
     let HostDescriptorPayload::ConfigurationRule(guarded) = &guarded.payload else {
         panic!("guarded_state must be a configuration rule")
     };
@@ -1588,7 +1588,7 @@ fn main() {
     );
 
     let wildcard = descriptor(&descriptors, "whole_state_wildcard", ItemKind::Rule);
-    wildcard.validate_v7_ownership().unwrap();
+    wildcard.validate_state_ownership().unwrap();
     let HostDescriptorPayload::ConfigurationRule(wildcard) = &wildcard.payload else {
         panic!("whole_state_wildcard must be a configuration rule")
     };
@@ -1962,7 +1962,7 @@ fn main() {
         eval_add.id.rust_module_path().last().map(String::as_str),
         Some("readable_imp_grammar")
     );
-    eval_add.validate_v7_ownership().unwrap();
+    eval_add.validate_state_ownership().unwrap();
     let HostDescriptorPayload::HeadRule(eval_add) = &eval_add.payload else {
         panic!("readable eval_add must be a head-anchored rule")
     };

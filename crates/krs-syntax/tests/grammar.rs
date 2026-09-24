@@ -531,7 +531,7 @@ fn explicit_builtin_to_authored_subsort_retains_both_paths() {
 }
 
 #[test]
-fn rules_preserve_builtin_heads_binders_and_literals_for_v6() {
+fn rules_preserve_builtin_heads_binders_and_literals() {
     let rule = parse_rule_item_source(
         "fn add(Add { lhs, rhs }: Term<Expr>) -> Term<Value> { int::add(lhs, int::sub(rhs, 0)) }",
     )
