@@ -9,9 +9,10 @@ version.workspace = true
 workspace = true
 
 [dependencies]
+k-rust.workspace = true
+kink-native.workspace = true
 kink-patch.workspace = true
-kink-portable.workspace = true
+kink-pattern.workspace = true
 
 [dev-dependencies]
-k-rust.workspace = true
 serde_json.workspace = true

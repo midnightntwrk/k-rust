@@ -219,9 +219,6 @@ pub enum Completeness {
     CompleteFinite,
     /// The producer declares that some relevant input was not considered.
     Incomplete,
-    /// Completeness is unknown. Generation never produces it; kink-campaign
-    /// oracle sides still use it.
-    Unknown,
 }
 
 /// What became of one selected origin.

@@ -5,45 +5,59 @@
 //! `oracleTerminalCases` of `mutation-vectors.json`, and
 //! `cross-feature-vectors.json`), which no longer exist in the tree. Row IDs
 //! are kept verbatim. Rows the current API cannot express are left out and
-//! named in the commit that added this file. The four crash-versus-crash
-//! `oracleTerminalCases` rows are also left out: the former Python checker
-//! and `compare_supplied` disagree on them until crashes are compared by
-//! their terminal terms. Tables marked Rust-only have no source vector.
+//! named in the commit that added this file. Crash sides are terminal terms,
+//! so the four crash-versus-crash `oracleTerminalCases` rows are in the
+//! terminal table. Tables marked Rust-only have no source vector.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
+use k_rust::kompile::initial_configuration::kore_application;
+use k_rust::kore::ast::Pattern;
 use kink_campaign::{
-    BaselineAdmission, CampaignFailureKind, CrashPolicy, ExecutionFailureKind, ManifestTest,
-    MutantId, MutantPlan, MutantReport, MutantScopeFailure, MutantStatus, OracleKind,
-    OracleOutcome, OracleSide, Rational, ScheduleMode, Score, TestPlan, TestRun, compare_supplied,
-    derive_mutant_report, score, validate_baseline,
+    BaselineAdmission, CampaignFailureKind, CrashPolicy, ExecutionFailureKind, ExitStop,
+    FinalResult, ManifestTest, MutantId, MutantPlan, MutantReport, MutantScopeFailure,
+    MutantStatus, OracleKind, OracleOutcome, OracleSide, OracleValue, PatternValue, Rational,
+    ScheduleMode, Score, TerminalClass, TestPlan, TestRun, compare_supplied, derive_mutant_report,
+    score, validate_baseline,
 };
 use kink_patch::{
-    CandidateDisposition, Completeness, Edit, Patch, SelectionPolicy, SiteSelector, TermRef,
-    derive_sites, select,
+    CandidateDisposition, Edit, Patch, SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
 };
-use kink_portable::{Digest, SemanticJson};
-use std::collections::BTreeMap;
 
 use MutantStatus::{Error, Invalid, Killed, Survived, Timeout, Unknown};
 use OracleOutcome::{Agree, Distinguish, Skipped};
 
-fn digest(character: char) -> Digest {
-    Digest::parse(&character.to_string().repeat(64)).expect("test digest is valid")
+const KINDS: [OracleKind; 3] = [
+    OracleKind::ExitStop,
+    OracleKind::FinalResult,
+    OracleKind::ExecutionPattern,
+];
+
+/// The constant term `name`.
+fn term(name: &str) -> Pattern {
+    kore_application(&format!("Lbl{name}"), Vec::new(), Vec::new())
 }
 
-fn object(values: &[(&str, SemanticJson)]) -> SemanticJson {
-    SemanticJson::Object(
-        values
-            .iter()
-            .map(|(key, value)| ((*key).to_owned(), value.clone()))
-            .collect::<BTreeMap<_, _>>(),
-    )
-}
-
-fn text(value: &str) -> SemanticJson {
-    SemanticJson::String(value.to_owned())
+/// A complete value of `kind`; equal tags give equal values, and `'a'` and `'b'` differ.
+fn value(kind: OracleKind, tag: char) -> OracleValue {
+    match kind {
+        OracleKind::ExitStop => OracleValue::ExitStop(
+            [ExitStop {
+                class: TerminalClass::Normal,
+                code: Some(i64::from(u32::from(tag))),
+            }]
+            .into(),
+        ),
+        OracleKind::FinalResult => {
+            OracleValue::FinalResult(FinalResult::WholeTerm([term(&tag.to_string())].into()))
+        }
+        OracleKind::ExecutionPattern => OracleValue::Pattern(if tag == 'a' {
+            PatternValue::Match { bindings: None }
+        } else {
+            PatternValue::NoMatch
+        }),
+    }
 }
 
 fn compared(id: &str, outcomes: &[OracleOutcome]) -> TestPlan {
@@ -594,15 +608,13 @@ fn statuses(reports: &[MutantReport]) -> Vec<MutantStatus> {
     reports.iter().map(|item| item.status).collect()
 }
 
-fn normal(value: SemanticJson) -> OracleSide {
-    OracleSide::Normal {
-        value,
-        completeness: Completeness::CompleteFinite,
-    }
+fn normal(kind: OracleKind, tag: char) -> OracleSide {
+    OracleSide::Normal(value(kind, tag))
 }
 
-fn crash(character: char) -> OracleSide {
-    OracleSide::SemanticCrash(digest(character))
+/// A crash whose terminal term is `crash<tag>`.
+fn crash(tag: char) -> OracleSide {
+    OracleSide::SemanticCrash(term(&format!("crash{tag}")))
 }
 
 /// C4 (`campaignCases`, and the baseline rows of the C1 `cases`): baseline
@@ -724,7 +736,7 @@ fn baseline_admission_gates_mutants_and_score() {
         let compared = compare_supplied(
             OracleKind::ExitStop,
             CrashPolicy::Distinguish,
-            &normal(text("a")),
+            &normal(OracleKind::ExitStop, 'a'),
             &mutant_side,
         )
         .expect("sides compare");
@@ -741,30 +753,12 @@ fn baseline_admission_gates_mutants_and_score() {
 /// execution-pattern oracle kills a mutant whose final result is unchanged.
 #[test]
 fn execution_pattern_kills_mutant_with_unchanged_final_result() {
-    let final_result = object(&[
-        ("projection", text("whole-term")),
-        ("term", text("final-configuration")),
-        ("terminalState", text("normal")),
-    ]);
-    let baseline_pattern = object(&[
-        ("bindingTuples", SemanticJson::Array(Vec::new())),
-        ("outcome", text("match")),
-        (
-            "patternResult",
-            object(&[(
-                "witnessIndices",
-                SemanticJson::Array(vec![SemanticJson::Integer(0), SemanticJson::Integer(2)]),
-            )]),
-        ),
-    ]);
-    let mutant_pattern = object(&[
-        ("bindingTuples", SemanticJson::Array(Vec::new())),
-        ("outcome", text("no-match")),
-        (
-            "patternResult",
-            object(&[("completeCoverage", SemanticJson::Bool(true))]),
-        ),
-    ]);
+    let final_result = OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+        [term("final")].into(),
+    )));
+    let baseline_pattern =
+        OracleSide::Normal(OracleValue::Pattern(PatternValue::Match { bindings: None }));
+    let mutant_pattern = OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch));
     let oracles = [
         (OracleKind::FinalResult, &final_result, &final_result, Agree),
         (
@@ -777,13 +771,8 @@ fn execution_pattern_kills_mutant_with_unchanged_final_result() {
     let outcomes = oracles
         .iter()
         .map(|(kind, baseline, mutant, expected)| {
-            let actual = compare_supplied(
-                *kind,
-                CrashPolicy::Distinguish,
-                &normal((*baseline).clone()),
-                &normal((*mutant).clone()),
-            )
-            .expect("kind-shaped values compare");
+            let actual = compare_supplied(*kind, CrashPolicy::Distinguish, baseline, mutant)
+                .expect("kind-shaped values compare");
             assert_eq!(actual, *expected, "{kind:?}");
             actual
         })
@@ -796,21 +785,21 @@ fn execution_pattern_kills_mutant_with_unchanged_final_result() {
     assert_eq!((counted.killed, counted.denominator), (1, 1));
 }
 
-/// E1 (`oracleTerminalCases` without the crash-vs-crash rows): equal normal
-/// values agree, different ones distinguish, a crash on one side distinguishes
-/// or is incomparable per crash policy, and a failure is error.
+/// E1 (`oracleTerminalCases`): equal normal values agree, different ones
+/// distinguish, a crash on one side distinguishes or is incomparable per crash
+/// policy, two crashes compare by their terminal terms, and a failure is error.
 #[test]
-fn terminal_comparison_truth_table_without_crash_pairs() {
+fn terminal_comparison_truth_table() {
     #[derive(Clone, Copy, Debug)]
     enum Side {
-        Normal(&'static str),
+        Normal(char),
         Crash(char),
         Failure,
     }
-    fn side(value: Side) -> OracleSide {
+    fn side(kind: OracleKind, value: Side) -> OracleSide {
         match value {
-            Side::Normal(value) => normal(text(value)),
-            Side::Crash(character) => crash(character),
+            Side::Normal(tag) => normal(kind, tag),
+            Side::Crash(tag) => crash(tag),
             Side::Failure => OracleSide::Error,
         }
     }
@@ -818,27 +807,43 @@ fn terminal_comparison_truth_table_without_crash_pairs() {
     use Side::{Crash, Failure, Normal};
     // "semantic-crash-distinguishes" is `CrashPolicy::Distinguish`;
     // "semantic-crash-incomparable" is `CrashPolicy::CompareIdentity`.
+    // different-crashes-incomparable keeps `CompareIdentity`'s Distinguish for
+    // two unequal crash terms; the former Python checker expected incomparable.
     #[rustfmt::skip]
     let rows = [
-        ("normal-normal-equal", Normal("a"), Normal("a"), Distinguishes, Agree),
-        ("normal-normal-different", Normal("a"), Normal("b"), Distinguishes, Distinguish),
-        ("baseline-normal-mutant-crash-distinguishes", Normal("a"), Crash('a'), Distinguishes, Distinguish),
-        ("baseline-crash-mutant-normal-distinguishes", Crash('a'), Normal("a"), Distinguishes, Distinguish),
-        ("baseline-normal-mutant-crash-incomparable", Normal("a"), Crash('a'), Incomparable, OracleOutcome::Incomparable),
-        ("baseline-crash-mutant-normal-incomparable", Crash('a'), Normal("a"), Incomparable, OracleOutcome::Incomparable),
-        ("mutant-worker-loss", Normal("a"), Failure, Distinguishes, OracleOutcome::Error),
+        ("normal-normal-equal", Normal('a'), Normal('a'), Distinguishes, Agree),
+        ("normal-normal-different", Normal('a'), Normal('b'), Distinguishes, Distinguish),
+        ("baseline-normal-mutant-crash-distinguishes", Normal('a'), Crash('a'), Distinguishes, Distinguish),
+        ("baseline-crash-mutant-normal-distinguishes", Crash('a'), Normal('a'), Distinguishes, Distinguish),
+        ("baseline-normal-mutant-crash-incomparable", Normal('a'), Crash('a'), Incomparable, OracleOutcome::Incomparable),
+        ("baseline-crash-mutant-normal-incomparable", Crash('a'), Normal('a'), Incomparable, OracleOutcome::Incomparable),
+        ("mutant-worker-loss", Normal('a'), Failure, Distinguishes, OracleOutcome::Error),
+        ("identical-crashes-distinguishing-policy", Crash('a'), Crash('a'), Distinguishes, Agree),
+        ("identical-crashes-incomparable-policy", Crash('a'), Crash('a'), Incomparable, Agree),
+        ("different-crashes-distinguish", Crash('a'), Crash('b'), Distinguishes, Distinguish),
+        ("different-crashes-incomparable", Crash('a'), Crash('b'), Incomparable, Distinguish),
     ];
-    for kind in [
-        OracleKind::ExitStop,
-        OracleKind::FinalResult,
-        OracleKind::ExecutionPattern,
-    ] {
+    for kind in KINDS {
         for (id, baseline, mutant, policy, expected) in rows {
             assert_eq!(
-                compare_supplied(kind, policy, &side(baseline), &side(mutant))
+                compare_supplied(kind, policy, &side(kind, baseline), &side(kind, mutant))
                     .expect("admitted sides compare"),
                 expected,
                 "{id} for {kind:?}"
+            );
+        }
+        for (baseline, mutant) in [(Crash('a'), Crash('a')), (Normal('a'), Crash('a'))] {
+            assert_eq!(
+                compare_supplied(
+                    kind,
+                    CrashPolicy::Reject,
+                    &side(kind, baseline),
+                    &side(kind, mutant)
+                )
+                .expect_err("the policy rejects crashes")
+                .kind(),
+                kink_campaign::OracleFailureKind::CrashRejected,
+                "{kind:?}"
             );
         }
     }
@@ -852,8 +857,8 @@ fn failed_sides_compare_error_then_timeout_then_unknown() {
     use OracleSide::{Error as SError, Timeout as STimeout, Unknown as SUnknown};
     #[rustfmt::skip]
     let rows = [
-        ("mutant-timeout", normal(text("a")), STimeout, O::Timeout),
-        ("baseline-timeout", STimeout, normal(text("a")), O::Timeout),
+        ("mutant-timeout", normal(OracleKind::ExitStop, 'a'), STimeout, O::Timeout),
+        ("baseline-timeout", STimeout, normal(OracleKind::ExitStop, 'a'), O::Timeout),
         ("timeout-against-crash", crash('a'), STimeout, O::Timeout),
         ("timeout-over-unknown", SUnknown, STimeout, O::Timeout),
         ("timeout-over-unknown-reversed", STimeout, SUnknown, O::Timeout),
@@ -876,61 +881,19 @@ fn failed_sides_compare_error_then_timeout_then_unknown() {
     }
 }
 
-/// Rust-only: a normal side without complete finite evidence is unknown against
-/// any other admitted side, including a crash, so a bounded baseline that
-/// might crash beyond its bound never kills a crashing mutant.
-#[test]
-fn incomplete_normal_side_is_unknown_even_against_a_crash() {
-    let incomplete = |completeness| OracleSide::Normal {
-        value: text("a"),
-        completeness,
-    };
-    for completeness in [Completeness::Incomplete, Completeness::Unknown] {
-        #[rustfmt::skip]
-        let rows = [
-            ("incomplete-baseline-against-crash", incomplete(completeness), crash('a')),
-            ("crash-against-incomplete-mutant", crash('a'), incomplete(completeness)),
-            ("incomplete-baseline-against-complete", incomplete(completeness), normal(text("b"))),
-            ("complete-against-incomplete-mutant", normal(text("b")), incomplete(completeness)),
-        ];
-        for (id, baseline, mutant) in rows {
-            for policy in [
-                CrashPolicy::Reject,
-                CrashPolicy::CompareIdentity,
-                CrashPolicy::Distinguish,
-            ] {
-                assert_eq!(
-                    compare_supplied(OracleKind::ExitStop, policy, &baseline, &mutant)
-                        .expect("incomplete evidence always compares"),
-                    OracleOutcome::Unknown,
-                    "{id} ({completeness:?}) under {policy:?}"
-                );
-            }
-        }
-    }
-}
-
 /// Every oracle kind keeps agree, distinguish and unknown apart, and an
 /// unknown oracle neither kills nor survives, so it is never scored.
 #[test]
 fn every_oracle_kind_keeps_agree_distinguish_and_unknown_distinct() {
-    let left = normal(SemanticJson::Bool(true));
-    let different = normal(SemanticJson::Bool(false));
-    for kind in [
-        OracleKind::ExitStop,
-        OracleKind::FinalResult,
-        OracleKind::ConcreteOutput,
-        OracleKind::Reachability,
-        OracleKind::ExecutionPattern,
-        OracleKind::StructuredPredicate,
-    ] {
+    for kind in KINDS {
+        let left = normal(kind, 'a');
         for (mutant, expected) in [
-            (&left, Agree),
-            (&different, Distinguish),
-            (&OracleSide::Unknown, OracleOutcome::Unknown),
+            (normal(kind, 'a'), Agree),
+            (normal(kind, 'b'), Distinguish),
+            (OracleSide::Unknown, OracleOutcome::Unknown),
         ] {
             assert_eq!(
-                compare_supplied(kind, CrashPolicy::Distinguish, &left, mutant)
+                compare_supplied(kind, CrashPolicy::Distinguish, &left, &mutant)
                     .expect("complete values compare"),
                 expected,
                 "{kind:?}"

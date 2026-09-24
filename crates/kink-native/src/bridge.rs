@@ -62,35 +62,43 @@ pub(crate) enum LeafPath {
     Incomplete(PathStop),
 }
 
-/// The path stop of a leaf, or the contract violation it is. Exhaustive over `HaltClass`.
-/// `terminal` is the leaf's terminal term when it has one (see `SplitState::terminal_term`).
+/// The stop of a leaf with halt class `halt`, before its state is read, or the contract
+/// violation it is. `None` is a stuck leaf: it is complete exactly when its state is a ground
+/// terminal term, and `SolverUnknown` otherwise, because the no-Z3 profile does not refute
+/// path conditions and a symbolic or constrained stuck leaf may be infeasible. Exhaustive over
+/// `HaltClass`.
+pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
+    Ok(Some(match halt {
+        HaltClass::Stuck => return Ok(None),
+        HaltClass::Trivial | HaltClass::Vacuous => PathStop::SolverUnknown,
+        HaltClass::DepthBound => PathStop::DepthLimit,
+        HaltClass::BreadthBound => PathStop::BranchLimit,
+        HaltClass::Indeterminate | HaltClass::UnsupportedHook | HaltClass::SimplificationError => {
+            PathStop::BackendLimit
+        }
+        HaltClass::Timeout => PathStop::TimeLimit,
+        // Until upstream tells cancellation from timeout.
+        HaltClass::Cancelled => PathStop::Error,
+        HaltClass::Branch | HaltClass::CutPoint | HaltClass::TerminalRule => {
+            return Err(BridgeFailure::ContractViolation(halt));
+        }
+    }))
+}
+
+/// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `terminal` is the
+/// leaf's terminal term when it has one (see `SplitState::terminal_term`).
 pub(crate) fn leaf_path(
     halt: HaltClass,
     terminal: Option<Pattern>,
     classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Result<LeafPath, BridgeFailure> {
-    Ok(match halt {
-        HaltClass::Stuck => match terminal {
-            Some(term) => LeafPath::Complete(ExecutionTerminal {
-                kind: classify(&term),
-                state: term,
-            }),
-            // The no-Z3 profile does not refute path conditions: a symbolic or constrained
-            // stuck leaf may be infeasible.
-            None => LeafPath::Incomplete(PathStop::SolverUnknown),
-        },
-        HaltClass::Trivial | HaltClass::Vacuous => LeafPath::Incomplete(PathStop::SolverUnknown),
-        HaltClass::DepthBound => LeafPath::Incomplete(PathStop::DepthLimit),
-        HaltClass::BreadthBound => LeafPath::Incomplete(PathStop::BranchLimit),
-        HaltClass::Indeterminate | HaltClass::UnsupportedHook | HaltClass::SimplificationError => {
-            LeafPath::Incomplete(PathStop::BackendLimit)
-        }
-        HaltClass::Timeout => LeafPath::Incomplete(PathStop::TimeLimit),
-        // Until upstream tells cancellation from timeout.
-        HaltClass::Cancelled => LeafPath::Incomplete(PathStop::Error),
-        HaltClass::Branch | HaltClass::CutPoint | HaltClass::TerminalRule => {
-            return Err(BridgeFailure::ContractViolation(halt));
-        }
+    Ok(match (halt_stop(halt)?, terminal) {
+        (Some(stop), _) => LeafPath::Incomplete(stop),
+        (None, Some(term)) => LeafPath::Complete(ExecutionTerminal {
+            kind: classify(&term),
+            state: term,
+        }),
+        (None, None) => LeafPath::Incomplete(PathStop::SolverUnknown),
     })
 }
 

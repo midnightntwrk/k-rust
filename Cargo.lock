@@ -420,8 +420,9 @@ name = "kink-campaign"
 version = "0.1.0"
 dependencies = [
  "k-rust",
+ "kink-native",
  "kink-patch",
- "kink-portable",
+ "kink-pattern",
  "serde_json",
 ]
 

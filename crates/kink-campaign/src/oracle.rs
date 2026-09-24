@@ -1,25 +1,22 @@
 use crate::OracleOutcome;
-use kink_patch::Completeness;
-use kink_portable::{Digest, SemanticJson};
+use k_rust::kore::ast::Pattern;
+use kink_pattern::Binding;
+use std::collections::BTreeSet;
 use std::fmt;
 
-/// The oracle kinds `compare_supplied` can compare.
+/// The oracle kinds `compare_supplied` can compare. Reachability and structured
+/// predicates wait for k-rust search completeness (`upstream/k-rust.toml`
+/// `search-completeness`).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OracleKind {
-    /// Exit/stop class and declared object-program exit code.
+    /// Terminal class and declared object-program exit code.
     ExitStop,
-    /// Whole final term or ordered typed final-term paths.
+    /// Whole final terms or selected final subterms.
     FinalResult,
-    /// Ordered semantic-output bytes or UTF-8-normalized channels.
-    ConcreteOutput,
-    /// Finite reachability truth.
-    Reachability,
     /// Execution-pattern outcome, optionally with complete bindings. A pattern failure
     /// (`kink_pattern::evaluate` rejecting its input) on either side must be supplied as
     /// `OracleSide::Error`, never as a value that could Distinguish.
     ExecutionPattern,
-    /// Structured-predicate Bool.
-    StructuredPredicate,
 }
 
 /// Declaration-owned semantic-crash comparison policy.
@@ -27,24 +24,89 @@ pub enum OracleKind {
 pub enum CrashPolicy {
     /// A crash is outside the admitted operand domain.
     Reject,
-    /// Equal crash identities agree; unequal crashes distinguish.
+    /// Equal crash terms agree; unequal crashes distinguish; a crash against a
+    /// normal value is incomparable.
     CompareIdentity,
     /// Any baseline/mutant crash-shape difference distinguishes.
     Distinguish,
 }
 
+/// How a complete, non-crash terminal ended, as the declaration's classifier says.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum TerminalClass {
+    Normal,
+    Stuck,
+}
+
+/// One terminal's exit-stop projection.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ExitStop {
+    pub class: TerminalClass,
+    /// The declared exit-code cell's value, or `None` when no cell is declared.
+    pub code: Option<i64>,
+}
+
+/// A final-result projection over every terminal of the run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FinalResult {
+    /// The whole terminal terms.
+    WholeTerm(BTreeSet<Pattern>),
+    /// Per terminal, the subterm at each declared child-index path, in path order.
+    TermPaths(BTreeSet<Vec<(Vec<u32>, Pattern)>>),
+}
+
+/// An execution-pattern value. `Unknown` and `Error` evaluations are never values.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PatternValue {
+    /// `bindings` is the set of witness binding tuples when the declaration asks for
+    /// them, which requires complete coverage; a set does not depend on witness order.
+    Match {
+        bindings: Option<BTreeSet<Vec<Binding>>>,
+    },
+    /// Only from complete evidence.
+    NoMatch,
+}
+
+/// A complete normal value. State values are sets over the complete terminal set, so a
+/// nondeterministic semantics compares as a whole.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OracleValue {
+    ExitStop(BTreeSet<ExitStop>),
+    FinalResult(FinalResult),
+    Pattern(PatternValue),
+}
+
+impl OracleValue {
+    /// The kind this value belongs to.
+    #[must_use]
+    pub const fn kind(&self) -> OracleKind {
+        match self {
+            Self::ExitStop(_) => OracleKind::ExitStop,
+            Self::FinalResult(_) => OracleKind::FinalResult,
+            Self::Pattern(_) => OracleKind::ExecutionPattern,
+        }
+    }
+
+    /// Whether the value is of `kind` and names at least one terminal.
+    fn is_valid_for(&self, kind: OracleKind) -> bool {
+        self.kind() == kind
+            && match self {
+                Self::ExitStop(stops) => !stops.is_empty(),
+                Self::FinalResult(FinalResult::WholeTerm(terms)) => !terms.is_empty(),
+                Self::FinalResult(FinalResult::TermPaths(terms)) => !terms.is_empty(),
+                Self::Pattern(_) => true,
+            }
+    }
+}
+
 /// One exact declaration-scoped semantic side.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OracleSide {
-    /// Kind-validated normalized value.
-    Normal {
-        /// Closed normalized value supplied by the kind-specific portable evaluator.
-        value: SemanticJson,
-        /// Completeness of the value's producing finite input.
-        completeness: Completeness,
-    },
-    /// Object-language crash operand, identified by its crash digest.
-    SemanticCrash(Digest),
+    /// A value from complete evidence. Incomplete evidence is `Unknown`, never `Normal`.
+    Normal(OracleValue),
+    /// The run's only terminal, classified as an object-language crash: its own
+    /// terminal term.
+    SemanticCrash(Pattern),
     /// A declared time bound stopped operand production.
     Timeout,
     /// Operand production was semantically unknown.
@@ -52,11 +114,14 @@ pub enum OracleSide {
     /// Operand production failed in infrastructure/backend code.
     Error,
 }
-/// Compares two already kind-validated supplied sides.
+
+/// Compares two supplied sides of one declaration.
 ///
-/// A failed side decides first, in the order error, timeout, unknown, and a
-/// normal side without complete finite evidence then gives unknown. This
-/// function performs no K parsing, projection, solver work, or discovery.
+/// A failed side decides first, in the order error, timeout, unknown. Two crashes
+/// compare by their terminal terms under `crash_policy`. A normal value of another
+/// kind, an empty value, a whole-term value against a term-path value, or a match
+/// with bindings against one without is `InvalidKindValue`. This function performs
+/// no K parsing, projection, solver work, or discovery.
 pub fn compare_supplied(
     kind: OracleKind,
     crash_policy: CrashPolicy,
@@ -67,17 +132,15 @@ pub fn compare_supplied(
         (OracleSide::Error, _) | (_, OracleSide::Error) => Ok(OracleOutcome::Error),
         (OracleSide::Timeout, _) | (_, OracleSide::Timeout) => Ok(OracleOutcome::Timeout),
         (OracleSide::Unknown, _) | (_, OracleSide::Unknown) => Ok(OracleOutcome::Unknown),
-        // Incomplete evidence on either side is unknown, including against a
-        // crash: a bounded side may still crash beyond its bound.
-        (OracleSide::Normal { completeness, .. }, _)
-        | (_, OracleSide::Normal { completeness, .. })
-            if *completeness != Completeness::CompleteFinite =>
-        {
-            Ok(OracleOutcome::Unknown)
-        }
-        (OracleSide::Normal { value: left, .. }, OracleSide::Normal { value: right, .. }) => {
-            validate_normalized_value(kind, left)?;
-            validate_normalized_value(kind, right)?;
+        (OracleSide::Normal(left), OracleSide::Normal(right)) => {
+            check_value(kind, left)?;
+            check_value(kind, right)?;
+            if !same_shape(left, right) {
+                return Err(OracleFailure::new(
+                    OracleFailureKind::InvalidKindValue,
+                    "the two values were projected differently",
+                ));
+            }
             Ok(if left == right {
                 OracleOutcome::Agree
             } else {
@@ -85,97 +148,60 @@ pub fn compare_supplied(
             })
         }
         (OracleSide::SemanticCrash(left), OracleSide::SemanticCrash(right)) => match crash_policy {
-            CrashPolicy::Reject => Err(OracleFailure::new(
-                OracleFailureKind::CrashRejected,
-                "declaration terminal policy rejects semantic crashes",
-            )),
+            CrashPolicy::Reject => Err(crash_rejected()),
             CrashPolicy::CompareIdentity | CrashPolicy::Distinguish => Ok(if left == right {
                 OracleOutcome::Agree
             } else {
                 OracleOutcome::Distinguish
             }),
         },
-        (OracleSide::SemanticCrash(_), OracleSide::Normal { .. })
-        | (OracleSide::Normal { .. }, OracleSide::SemanticCrash(_)) => match crash_policy {
-            CrashPolicy::Reject => Err(OracleFailure::new(
-                OracleFailureKind::CrashRejected,
-                "declaration terminal policy rejects semantic crashes",
-            )),
-            CrashPolicy::CompareIdentity => Ok(OracleOutcome::Incomparable),
-            CrashPolicy::Distinguish => Ok(OracleOutcome::Distinguish),
-        },
+        (OracleSide::SemanticCrash(_), OracleSide::Normal(value))
+        | (OracleSide::Normal(value), OracleSide::SemanticCrash(_)) => {
+            check_value(kind, value)?;
+            match crash_policy {
+                CrashPolicy::Reject => Err(crash_rejected()),
+                CrashPolicy::CompareIdentity => Ok(OracleOutcome::Incomparable),
+                CrashPolicy::Distinguish => Ok(OracleOutcome::Distinguish),
+            }
+        }
     }
 }
 
-fn validate_normalized_value(kind: OracleKind, value: &SemanticJson) -> Result<(), OracleFailure> {
-    let Some(fields) = value.as_object() else {
-        // Only object values are checked against the kind-specific shape
-        // below. Any non-object value skips kind validation and is compared
-        // as supplied.
-        return Ok(());
-    };
-    let valid = match kind {
-        OracleKind::ExitStop => {
-            exact_keys(fields, &["exitCode", "terminalClass"])
-                && matches!(
-                    fields.get("terminalClass").and_then(SemanticJson::as_str),
-                    Some("normal" | "stuck")
-                )
-                && matches!(
-                    fields.get("exitCode"),
-                    Some(SemanticJson::Null | SemanticJson::Integer(_))
-                )
-        }
-        OracleKind::FinalResult => {
-            exact_keys(fields, &["projection", "term", "terminalState"])
-                || exact_keys(fields, &["paths", "projection", "terminalState"])
-        }
-        OracleKind::ConcreteOutput => {
-            exact_keys(fields, &["channels"])
-                && matches!(fields.get("channels"), Some(SemanticJson::Array(items)) if !items.is_empty())
-        }
-        OracleKind::Reachability => {
-            exact_keys(fields, &["status", "witnesses"])
-                && matches!(
-                    fields.get("status").and_then(SemanticJson::as_str),
-                    Some("reached" | "not-reached")
-                )
-        }
-        OracleKind::ExecutionPattern => {
-            exact_keys(fields, &["bindingTuples", "outcome", "patternResult"])
-                && matches!(
-                    fields.get("outcome").and_then(SemanticJson::as_str),
-                    Some("match" | "no-match" | "unknown" | "error")
-                )
-        }
-        OracleKind::StructuredPredicate => {
-            exact_keys(
-                fields,
-                &[
-                    "bindings",
-                    "bindingsDigest",
-                    "input",
-                    "inputProjectionDigest",
-                    "query",
-                    "result",
-                ],
-            ) && matches!(fields.get("result"), Some(SemanticJson::Bool(_)))
-        }
-    };
-    if !valid {
-        return Err(OracleFailure::new(
+fn check_value(kind: OracleKind, value: &OracleValue) -> Result<(), OracleFailure> {
+    if value.is_valid_for(kind) {
+        Ok(())
+    } else {
+        Err(OracleFailure::new(
             OracleFailureKind::InvalidKindValue,
-            "normal value does not have the exact shape for its oracle kind",
-        ));
+            "normal value is empty or belongs to another oracle kind",
+        ))
     }
-    Ok(())
 }
 
-fn exact_keys(
-    fields: &std::collections::BTreeMap<String, SemanticJson>,
-    expected: &[&str],
-) -> bool {
-    fields.len() == expected.len() && expected.iter().all(|name| fields.contains_key(*name))
+/// Whether two values of one kind came from the same projection.
+const fn same_shape(left: &OracleValue, right: &OracleValue) -> bool {
+    match (left, right) {
+        (
+            OracleValue::FinalResult(FinalResult::WholeTerm(_)),
+            OracleValue::FinalResult(FinalResult::TermPaths(_)),
+        )
+        | (
+            OracleValue::FinalResult(FinalResult::TermPaths(_)),
+            OracleValue::FinalResult(FinalResult::WholeTerm(_)),
+        ) => false,
+        (
+            OracleValue::Pattern(PatternValue::Match { bindings: left }),
+            OracleValue::Pattern(PatternValue::Match { bindings: right }),
+        ) => left.is_some() == right.is_some(),
+        _ => true,
+    }
+}
+
+fn crash_rejected() -> OracleFailure {
+    OracleFailure::new(
+        OracleFailureKind::CrashRejected,
+        "declaration terminal policy rejects semantic crashes",
+    )
 }
 
 /// Closed oracle failure classifications.
@@ -185,6 +211,8 @@ pub enum OracleFailureKind {
     CrashRejected,
     /// A normal value does not belong to the selected oracle family.
     InvalidKindValue,
+    /// An oracle declaration is not well formed.
+    InvalidDeclaration,
 }
 
 /// Typed oracle failure with supplemental diagnostics.
@@ -195,7 +223,7 @@ pub struct OracleFailure {
 }
 
 impl OracleFailure {
-    fn new(kind: OracleFailureKind, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: OracleFailureKind, detail: impl Into<String>) -> Self {
         Self {
             kind,
             detail: detail.into(),

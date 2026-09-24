@@ -1,0 +1,696 @@
+//! Runs a campaign through kink-native and maps each run to typed oracle sides.
+//!
+//! The baseline and every mutant execute every test with one observed, time-bounded
+//! [`ExecutionAdapter`] run, read through the kink-native bridge. Each declared oracle
+//! turns the bridged paths into one [`OracleSide`]; each mapping is an exhaustive
+//! `match` that never turns incomplete evidence into a value:
+//!
+//! - A state oracle (exit stop or final result) needs every path complete and a
+//!   collection that stopped for lack of work. An explore-all run qualifies, because
+//!   k-rust's merging of converging branches keeps every distinct final state. Any
+//!   other stop is `Error` for an error or a cancelled leaf (until upstream tells
+//!   cancellation from timeout), `Timeout` for a timed-out leaf, and `Unknown`
+//!   otherwise, including a backend diagnostic.
+//! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
+//!   crash among several terminals is `Unknown`.
+//! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`
+//!   evaluations and pattern failures are never values, and declared bindings need
+//!   complete exhaustive coverage.
+//!
+//! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
+//! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing.
+
+use std::collections::BTreeSet;
+
+use k_rust::backend::{Backend, BackendOptions};
+use k_rust::kore::{
+    ast::{Pattern, Sort},
+    parser::parse_definition,
+    walk,
+};
+use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution};
+use kink_native::execution::{
+    ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, ExecutionRoute,
+};
+use kink_native::{
+    ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
+};
+use kink_patch::Patch;
+use kink_pattern::{
+    CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
+    ExecutionBounds, ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure,
+    PatternOutcome, PatternPlan, SearchPolicy, SymbolSorts, evaluate,
+};
+
+use crate::campaign::check_manifest;
+use crate::oracle::OracleFailure;
+use crate::{
+    BaselineAdmission, CampaignFailure, CampaignFailureKind, CrashPolicy, ExecutionFailureKind,
+    ExitStop, FinalResult, ManifestTest, MutantId, MutantPlan, MutantReport, MutantScopeFailure,
+    OracleFailureKind, OracleKind, OracleOutcome, OracleSide, OracleValue, PatternValue,
+    ScheduleMode, Score, TerminalClass, TestPlan, TestRun, compare_supplied, derive_mutant_report,
+    score, validate_baseline,
+};
+
+/// What a state oracle reads from each complete terminal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StateProjection {
+    /// The terminal class, and the `\dv{SortInt{}}` value of the one cell with this KORE
+    /// symbol (for example `Lbl'-LT-'exit-code'-GT-'`) when a cell is declared. A missing,
+    /// repeated or non-`Int` cell, or a code outside `i64`, is a projection failure.
+    ExitStop {
+        exit_code_cell: Option<String>,
+    },
+    WholeTerm,
+    /// The subterms at these child-index paths (`kore::walk::children`). The paths must be
+    /// nonempty, sorted and prefix-free, and there must be at least one.
+    TermPaths(Vec<Vec<u32>>),
+}
+
+/// What one oracle reads from a run.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Projection {
+    State(StateProjection),
+    /// The plan's outcome over the run's observed events. `with_bindings` adds the
+    /// witness binding tuples, which need complete coverage.
+    Pattern {
+        plan: PatternPlan,
+        with_bindings: bool,
+    },
+}
+
+/// One oracle slot of a test. Its kind follows from its projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OracleDeclaration {
+    crash_policy: CrashPolicy,
+    projection: Projection,
+}
+
+impl OracleDeclaration {
+    /// Checks that term paths are nonempty, sorted and prefix-free.
+    pub fn new(crash_policy: CrashPolicy, projection: Projection) -> Result<Self, OracleFailure> {
+        if let Projection::State(StateProjection::TermPaths(paths)) = &projection {
+            let ordered = paths
+                .windows(2)
+                .all(|pair| pair[0] < pair[1] && !pair[1].starts_with(&pair[0]));
+            if paths.is_empty() || paths.iter().any(Vec::is_empty) || !ordered {
+                return Err(OracleFailure::new(
+                    OracleFailureKind::InvalidDeclaration,
+                    "term paths must be nonempty, sorted and prefix-free",
+                ));
+            }
+        }
+        Ok(Self {
+            crash_policy,
+            projection,
+        })
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> OracleKind {
+        match &self.projection {
+            Projection::State(StateProjection::ExitStop { .. }) => OracleKind::ExitStop,
+            Projection::State(StateProjection::WholeTerm | StateProjection::TermPaths(_)) => {
+                OracleKind::FinalResult
+            }
+            Projection::Pattern { .. } => OracleKind::ExecutionPattern,
+        }
+    }
+
+    #[must_use]
+    pub const fn crash_policy(&self) -> CrashPolicy {
+        self.crash_policy
+    }
+
+    #[must_use]
+    pub const fn projection(&self) -> &Projection {
+        &self.projection
+    }
+}
+
+/// One test: an initial configuration and its oracle slots, at least one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestCase {
+    pub id: String,
+    pub initial_state: Pattern,
+    pub oracles: Vec<OracleDeclaration>,
+}
+
+/// Everything a campaign runs against. Every compiled side executes `module`, observes
+/// `observed_rules` (resolved to that side's own rule identities), and classifies its
+/// ground terminal terms with `classify`.
+pub struct Campaign<'a> {
+    pub validator: &'a NativeValidator,
+    pub module: &'a str,
+    pub observed_rules: &'a [ObservedRule],
+    /// The vocabulary of observed events that pattern plans are evaluated against.
+    pub vocabulary: &'a EventVocabulary,
+    pub classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
+    pub tests: &'a [TestCase],
+    pub budget: ExecutionBudget,
+}
+
+/// What one test's run on one compiled side produced.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SideRun {
+    /// One side per declared oracle, and how the leaves were obtained.
+    Sides {
+        route: ExecutionRoute,
+        sides: Vec<OracleSide>,
+    },
+    /// The run produced no operand.
+    Failed(ExecutionFailureKind),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TestEvidence {
+    pub test_id: String,
+    pub run: SideRun,
+}
+
+/// One mutant's plan, its report under the campaign's schedule, and its runs (none when
+/// a mutant-scope failure stopped it before execution).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MutantRun {
+    pub plan: MutantPlan,
+    pub report: MutantReport,
+    pub evidence: Vec<TestEvidence>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignRun {
+    pub baseline: Vec<TestEvidence>,
+    /// In `mutants` order: `mutants[index]` is `MutantId(index)`.
+    pub mutants: Vec<MutantRun>,
+    pub score: Score,
+}
+
+/// Runs the baseline, admits it, then runs every mutant patch and scores the result.
+///
+/// The baseline must compile, and every one of its sides must be a value or a crash its
+/// declaration admits; otherwise no mutant is validated. Every test runs on every mutant
+/// even under `FirstKill`, because a `MutantPlan` lists every manifest test; the schedule
+/// only decides the report.
+pub fn run_campaign(
+    campaign: &Campaign<'_>,
+    mutants: &[Patch],
+    schedule: ScheduleMode,
+) -> Result<CampaignRun, CampaignFailure> {
+    let manifest = campaign
+        .tests
+        .iter()
+        .map(|test| ManifestTest {
+            test_id: test.id.clone(),
+            slot_count: test.oracles.len(),
+        })
+        .collect::<Vec<_>>();
+    check_manifest(&manifest)?;
+
+    let Ok(baseline) = campaign.validator.compile_baseline() else {
+        return Err(admission_failure(BaselineAdmission::Invalid));
+    };
+    let mut runtime = match Runtime::prepare(campaign, &baseline) {
+        Ok(runtime) => runtime,
+        Err(Preparation::UnknownLabel(label)) => {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::InvalidDeclaration,
+                format!("no baseline rule is labelled {label}"),
+            ));
+        }
+        Err(Preparation::Infrastructure) => {
+            return Err(admission_failure(BaselineAdmission::Error));
+        }
+    };
+    let baseline_evidence = campaign
+        .tests
+        .iter()
+        .map(|test| runtime.run(campaign, test))
+        .collect::<Vec<_>>();
+    validate_baseline(admit(campaign.tests, &baseline_evidence))?;
+
+    let mut runs = Vec::with_capacity(mutants.len());
+    for (index, patch) in mutants.iter().enumerate() {
+        let (tests, mutant_failure, evidence) = run_mutant(campaign, patch, &baseline_evidence);
+        let plan = MutantPlan {
+            mutant_id: MutantId(index),
+            tests,
+            mutant_failure,
+        };
+        let report = derive_mutant_report(&plan, &manifest, schedule)?;
+        runs.push(MutantRun {
+            plan,
+            report,
+            evidence,
+        });
+    }
+    let statuses = runs.iter().map(|run| run.report.status).collect::<Vec<_>>();
+    Ok(CampaignRun {
+        baseline: baseline_evidence,
+        mutants: runs,
+        score: score(&statuses),
+    })
+}
+
+fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
+    validate_baseline(admission).expect_err("a rejected admission")
+}
+
+/// A baseline side that failed is `Error`; one that is bounded, unknown or a crash its
+/// declaration rejects is `OracleFailed`.
+fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
+    let mut admission = BaselineAdmission::Accepted;
+    for (test, evidence) in tests.iter().zip(evidence) {
+        let SideRun::Sides { sides, .. } = &evidence.run else {
+            return BaselineAdmission::Error;
+        };
+        for (declaration, side) in test.oracles.iter().zip(sides) {
+            match side {
+                OracleSide::Error => return BaselineAdmission::Error,
+                OracleSide::Timeout | OracleSide::Unknown => {
+                    admission = BaselineAdmission::OracleFailed;
+                }
+                OracleSide::SemanticCrash(_)
+                    if declaration.crash_policy() == CrashPolicy::Reject =>
+                {
+                    admission = BaselineAdmission::OracleFailed;
+                }
+                OracleSide::SemanticCrash(_) | OracleSide::Normal(_) => {}
+            }
+        }
+    }
+    admission
+}
+
+/// A mutant's tests, its mutant-scope failure, and its runs.
+fn run_mutant(
+    campaign: &Campaign<'_>,
+    patch: &Patch,
+    baseline: &[TestEvidence],
+) -> (Vec<TestPlan>, Option<MutantScopeFailure>, Vec<TestEvidence>) {
+    let side = match campaign.validator.validate(patch) {
+        Ok(side) => side,
+        Err(rejection) => return (Vec::new(), Some((&rejection).into()), Vec::new()),
+    };
+    // The baseline resolved every label, so a failure here is the mutant side's.
+    let Ok(mut runtime) = Runtime::prepare(campaign, &side) else {
+        return (
+            Vec::new(),
+            Some(MutantScopeFailure::Infrastructure),
+            Vec::new(),
+        );
+    };
+    let mut tests = Vec::with_capacity(campaign.tests.len());
+    let mut evidence = Vec::with_capacity(campaign.tests.len());
+    for (test, baseline) in campaign.tests.iter().zip(baseline) {
+        let mutant = runtime.run(campaign, test);
+        let run = match (&baseline.run, &mutant.run) {
+            (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
+            (
+                SideRun::Sides {
+                    sides: baseline, ..
+                },
+                SideRun::Sides { sides: mutant, .. },
+            ) => TestRun::Compared(
+                test.oracles
+                    .iter()
+                    .zip(baseline.iter().zip(mutant))
+                    .map(|(declaration, (baseline, mutant))| {
+                        slot_outcome(declaration, baseline, mutant)
+                    })
+                    .collect(),
+            ),
+            // Admission refused a failed baseline run.
+            (SideRun::Failed(_), SideRun::Sides { .. }) => {
+                TestRun::Failed(ExecutionFailureKind::Infrastructure)
+            }
+        };
+        tests.push(TestPlan {
+            test_id: test.id.clone(),
+            run,
+        });
+        evidence.push(mutant);
+    }
+    (tests, None, evidence)
+}
+
+/// Why a compiled side cannot run.
+enum Preparation {
+    /// An observed label names no authored baseline rule: a declaration error.
+    UnknownLabel(String),
+    Infrastructure,
+}
+
+/// One compiled side: its backend, reused across tests, and its evaluation context.
+struct Runtime {
+    backend: Backend,
+    adapter: ExecutionAdapter,
+    context: EvaluationContext,
+}
+
+impl Runtime {
+    /// Parses the side's KORE once, for both its symbol sorts and its backend, and
+    /// installs the observed rules under the side's own rule identities.
+    fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
+        let manifest = campaign
+            .validator
+            .observation_manifest(side, campaign.observed_rules)
+            .map_err(|failure| match failure {
+                ManifestFailure::UnknownLabel(label) => Preparation::UnknownLabel(label),
+                ManifestFailure::Identity { .. } | ManifestFailure::Installation(_) => {
+                    Preparation::Infrastructure
+                }
+            })?;
+        let parsed = parse_definition(&side.artifacts().definition_kore)
+            .map_err(|_| Preparation::Infrastructure)?;
+        let symbol_sorts = SymbolSorts::from_definition(&parsed);
+        let backend = Backend::from_definition(parsed, campaign.module, BackendOptions::default())
+            .map_err(|_| Preparation::Infrastructure)?;
+        let context = EvaluationContext {
+            test_id: String::new(),
+            bounds: ExecutionBounds {
+                depth: None,
+                time_ms: Some(u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX)),
+                branches: None,
+                results: None,
+            },
+            vocabulary: campaign.vocabulary.clone(),
+            selected_rule_labels: manifest.labels().map(str::to_owned).collect(),
+            symbol_sorts,
+        };
+        Ok(Self {
+            backend,
+            adapter: ExecutionAdapter::new(manifest),
+            context,
+        })
+    }
+
+    fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase) -> TestEvidence {
+        let run =
+            match self
+                .adapter
+                .execute(&mut self.backend, &test.initial_state, campaign.budget)
+            {
+                Err(failure) => SideRun::Failed((&failure).into()),
+                // The watchdog fired: whatever the leaves say, the run was cut short.
+                Ok(execution) if execution.timed_out() => {
+                    SideRun::Failed(ExecutionFailureKind::TimeLimit)
+                }
+                Ok(execution) => {
+                    self.context.test_id.clone_from(&test.id);
+                    let bridged = paths_from_execution(
+                        &execution,
+                        &BridgeContext {
+                            test_id: &test.id,
+                            classify: campaign.classify,
+                            sorts: &self.context.symbol_sorts,
+                        },
+                    );
+                    match bridged {
+                        Err(failure) => SideRun::Failed((&failure).into()),
+                        Ok(bridged) => SideRun::Sides {
+                            route: execution.route(),
+                            sides: test
+                                .oracles
+                                .iter()
+                                .map(|declaration| self.side(declaration, &bridged))
+                                .collect(),
+                        },
+                    }
+                }
+            };
+        TestEvidence {
+            test_id: test.id.clone(),
+            run,
+        }
+    }
+
+    fn side(&self, declaration: &OracleDeclaration, bridged: &BridgedPaths) -> OracleSide {
+        match declaration.projection() {
+            Projection::State(projection) => state_side(projection, bridged),
+            Projection::Pattern {
+                plan,
+                with_bindings,
+            } => pattern_side(
+                &evaluate(
+                    &self.context,
+                    plan,
+                    &bridged.paths,
+                    &bridged.collection,
+                    None,
+                    EvaluationOptions {
+                        stable_path_keys: true,
+                        search_policy: SearchPolicy::Exhaustive,
+                        input_error: false,
+                    },
+                ),
+                *with_bindings,
+            ),
+        }
+    }
+}
+
+/// The comparison of one slot. A comparison failure (a crash the declaration rejects, or
+/// values of the wrong kind or shape) is `Error`, never a dropped slot.
+#[must_use]
+pub fn slot_outcome(
+    declaration: &OracleDeclaration,
+    baseline: &OracleSide,
+    mutant: &OracleSide,
+) -> OracleOutcome {
+    compare_supplied(
+        declaration.kind(),
+        declaration.crash_policy(),
+        baseline,
+        mutant,
+    )
+    .unwrap_or(OracleOutcome::Error)
+}
+
+/// The failed side of the most severe incomplete stop: error, then timeout, then unknown.
+fn failed_side(sides: impl Iterator<Item = OracleSide>) -> Option<OracleSide> {
+    const fn rank(side: &OracleSide) -> u8 {
+        match side {
+            OracleSide::Error => 2,
+            OracleSide::Timeout => 1,
+            _ => 0,
+        }
+    }
+    sides.max_by_key(rank)
+}
+
+/// The side an incomplete path stop stands for. Exhaustive over `PathStop`.
+const fn path_stop_side(stop: PathStop) -> OracleSide {
+    match stop {
+        PathStop::Error => OracleSide::Error,
+        PathStop::TimeLimit => OracleSide::Timeout,
+        // A complete stop on a path not marked complete is not evidence either.
+        PathStop::Terminal
+        | PathStop::Stuck
+        | PathStop::MatchFound
+        | PathStop::DepthLimit
+        | PathStop::BranchLimit
+        | PathStop::ResultLimit
+        | PathStop::ResourceLimit
+        | PathStop::SolverUnknown
+        | PathStop::BackendLimit => OracleSide::Unknown,
+    }
+}
+
+/// The side a collection stop stands for, or `None` when the collection ran out of work.
+/// An explore-all execution has no exhaustion record, but merging converging branches
+/// keeps every distinct final state, so it is complete for state oracles. Exhaustive over
+/// `CollectionStop`.
+const fn collection_stop_side(stop: CollectionStop) -> Option<OracleSide> {
+    match stop {
+        CollectionStop::SearchExhausted | CollectionStop::ExhaustionUnrecorded => None,
+        CollectionStop::Error => Some(OracleSide::Error),
+        CollectionStop::TimeLimit => Some(OracleSide::Timeout),
+        CollectionStop::MatchFound
+        | CollectionStop::DepthLimit
+        | CollectionStop::BranchLimit
+        | CollectionStop::ResultLimit
+        | CollectionStop::ResourceLimit
+        | CollectionStop::SolverUnknown
+        | CollectionStop::BackendLimit => Some(OracleSide::Unknown),
+    }
+}
+
+/// The side of a state oracle over one run's bridged paths; see the module documentation.
+#[must_use]
+pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> OracleSide {
+    let incomplete = bridged
+        .paths
+        .iter()
+        .filter(|path| !path.complete)
+        .map(|path| path_stop_side(path.stop))
+        .chain(collection_stop_side(bridged.collection.stop));
+    if let Some(side) = failed_side(incomplete) {
+        return side;
+    }
+    let Some(terminals) = bridged
+        .paths
+        .iter()
+        .map(|path| path.execution_terminal.as_ref())
+        .collect::<Option<Vec<_>>>()
+        .filter(|terminals| !terminals.is_empty())
+    else {
+        return OracleSide::Error;
+    };
+    if terminals
+        .iter()
+        .any(|terminal| terminal.kind == ExecutionTerminalKind::SemanticCrash)
+    {
+        // Mixed crash and normal terminal sets are not modelled.
+        return match terminals.as_slice() {
+            [terminal] => OracleSide::SemanticCrash(terminal.state.clone()),
+            _ => OracleSide::Unknown,
+        };
+    }
+    project(projection, &terminals).map_or(OracleSide::Error, OracleSide::Normal)
+}
+
+/// Projects complete, non-crash terminals; `None` is a projection failure.
+fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Option<OracleValue> {
+    Some(match projection {
+        StateProjection::ExitStop { exit_code_cell } => OracleValue::ExitStop(
+            terminals
+                .iter()
+                .map(|terminal| {
+                    Some(ExitStop {
+                        class: match terminal.kind {
+                            ExecutionTerminalKind::Normal => TerminalClass::Normal,
+                            ExecutionTerminalKind::Stuck => TerminalClass::Stuck,
+                            ExecutionTerminalKind::SemanticCrash => return None,
+                        },
+                        code: match exit_code_cell {
+                            Some(cell) => Some(exit_code(&terminal.state, cell)?),
+                            None => None,
+                        },
+                    })
+                })
+                .collect::<Option<BTreeSet<_>>>()?,
+        ),
+        StateProjection::WholeTerm => OracleValue::FinalResult(FinalResult::WholeTerm(
+            terminals
+                .iter()
+                .map(|terminal| terminal.state.clone())
+                .collect(),
+        )),
+        StateProjection::TermPaths(paths) => OracleValue::FinalResult(FinalResult::TermPaths(
+            terminals
+                .iter()
+                .map(|terminal| {
+                    paths
+                        .iter()
+                        .map(|path| Some((path.clone(), subterm(&terminal.state, path)?.clone())))
+                        .collect::<Option<Vec<_>>>()
+                })
+                .collect::<Option<BTreeSet<_>>>()?,
+        )),
+    })
+}
+
+fn subterm<'a>(term: &'a Pattern, path: &[u32]) -> Option<&'a Pattern> {
+    path.iter().try_fold(term, |term, step| {
+        walk::children(term)
+            .get(usize::try_from(*step).ok()?)
+            .copied()
+    })
+}
+
+/// The `Int` held by the only application of `cell` in `term`.
+fn exit_code(term: &Pattern, cell: &str) -> Option<i64> {
+    let mut found = Vec::new();
+    let mut pending = vec![term];
+    while let Some(term) = pending.pop() {
+        if let Pattern::Application { symbol, arguments } = term
+            && symbol.name == cell
+        {
+            found.push(arguments.as_slice());
+        }
+        pending.extend(walk::children(term));
+    }
+    let [[Pattern::DomainValue { sort, value }]] = found.as_slice() else {
+        return None;
+    };
+    let int = Sort::Application {
+        name: "SortInt".to_owned(),
+        arguments: Vec::new(),
+    };
+    if *sort != int {
+        return None;
+    }
+    value.as_utf8().ok()?.parse().ok()
+}
+
+/// The side of a pattern oracle. Exhaustive over `PatternOutcome`.
+///
+/// A pattern failure is `Error`, never a value that could distinguish. Declared bindings
+/// need complete coverage from an exhaustive evaluation; without it the side is
+/// `Unknown`, so a match with bindings never meets a match without them.
+#[must_use]
+pub fn pattern_side(
+    evaluation: &Result<Evaluation, PatternFailure>,
+    with_bindings: bool,
+) -> OracleSide {
+    let Ok(evaluation) = evaluation else {
+        return OracleSide::Error;
+    };
+    let complete =
+        evaluation.complete_coverage && evaluation.search_policy == SearchPolicy::Exhaustive;
+    let value = match evaluation.outcome {
+        PatternOutcome::Error => return OracleSide::Error,
+        PatternOutcome::Unknown => return OracleSide::Unknown,
+        // `evaluate` returns `NoMatch` only with complete coverage; this guards the value.
+        PatternOutcome::NoMatch if complete => PatternValue::NoMatch,
+        PatternOutcome::Match if !with_bindings => PatternValue::Match { bindings: None },
+        PatternOutcome::Match if complete => PatternValue::Match {
+            bindings: Some(
+                evaluation
+                    .witnesses
+                    .iter()
+                    .map(|witness| witness.bindings.clone())
+                    .collect(),
+            ),
+        },
+        PatternOutcome::NoMatch | PatternOutcome::Match => return OracleSide::Unknown,
+    };
+    OracleSide::Normal(OracleValue::Pattern(value))
+}
+
+impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
+    fn from(failure: &ExecutionAdapterFailure) -> Self {
+        match failure {
+            ExecutionAdapterFailure::SolverProfileMismatch
+            | ExecutionAdapterFailure::InvalidState(_)
+            | ExecutionAdapterFailure::Backend(_)
+            | ExecutionAdapterFailure::UnknownHaltReason(_)
+            | ExecutionAdapterFailure::ContractViolation(_)
+            | ExecutionAdapterFailure::Observation(_) => Self::Infrastructure,
+        }
+    }
+}
+
+impl From<&BridgeFailure> for ExecutionFailureKind {
+    fn from(failure: &BridgeFailure) -> Self {
+        match failure {
+            BridgeFailure::NoLeaves
+            | BridgeFailure::ContractViolation(_)
+            | BridgeFailure::UnsupportedPayload
+            | BridgeFailure::UndecodablePayload(_)
+            | BridgeFailure::UndecodableState(_)
+            | BridgeFailure::UndecidedStateSort
+            | BridgeFailure::UnsupportedQueryShape(_)
+            | BridgeFailure::DuplicatePathIdentity(_) => Self::Infrastructure,
+        }
+    }
+}
+
+impl From<&MutantRejection> for MutantScopeFailure {
+    fn from(rejection: &MutantRejection) -> Self {
+        match rejection {
+            // Unreachable for a candidate that generation pre-applied, and mapped anyway.
+            MutantRejection::Patch(_) | MutantRejection::Compilation(_) => Self::Rejected,
+        }
+    }
+}

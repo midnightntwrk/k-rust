@@ -12,7 +12,7 @@ The work is intended to be merged into k-rust together with KRS.
 | [`kink-pattern`](crates/kink-pattern) | Execution pattern matching over traces. |
 | [`kink-patch`](crates/kink-patch) | Mutation sites, candidate selection and patch application. |
 | [`kink-native`](crates/kink-native) | Adapter over the k-rust backend. |
-| [`kink-campaign`](crates/kink-campaign) | Mutant classification, scoring and oracle comparison. |
+| [`kink-campaign`](crates/kink-campaign) | Campaign runner, typed oracle comparison, mutant classification and scoring. |
 | [`kink-portable`](crates/kink-portable) | Legacy portable K encoding, pending migration to k-rust types. |
 
 ## Upstream requests

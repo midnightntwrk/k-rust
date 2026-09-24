@@ -215,8 +215,8 @@ fn invalid_manifest(detail: &str) -> CampaignFailure {
     CampaignFailure::new(CampaignFailureKind::InvalidManifest, detail)
 }
 
-/// Rejects a manifest, or a plan that does not match it, before any fold.
-fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), CampaignFailure> {
+/// Rejects an empty manifest, a repeated test, or a test without oracle slots.
+pub(crate) fn check_manifest(manifest: &[ManifestTest]) -> Result<(), CampaignFailure> {
     let mut unique = BTreeSet::new();
     if manifest.is_empty()
         || !manifest
@@ -227,6 +227,12 @@ fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), Campai
             "the manifest must be nonempty, unique, and declare an oracle slot per test",
         ));
     }
+    Ok(())
+}
+
+/// Rejects a manifest, or a plan that does not match it, before any fold.
+fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), CampaignFailure> {
+    check_manifest(manifest)?;
     if let Some(failure) = plan.mutant_failure {
         if plan.tests.is_empty() {
             return Ok(());
@@ -415,6 +421,8 @@ const fn gcd(mut left: u64, mut right: u64) -> u64 {
 pub enum CampaignFailureKind {
     /// Manifest test/slot shape is invalid, or a plan does not match it.
     InvalidManifest,
+    /// A campaign declaration names something the baseline does not have.
+    InvalidDeclaration,
     /// A selected input was already marked skipped.
     FabricatedSkip,
     /// Baseline validation rejected.
@@ -433,7 +441,7 @@ pub struct CampaignFailure {
 }
 
 impl CampaignFailure {
-    fn new(kind: CampaignFailureKind, detail: impl Into<String>) -> Self {
+    pub(crate) fn new(kind: CampaignFailureKind, detail: impl Into<String>) -> Self {
         Self {
             kind,
             detail: detail.into(),
