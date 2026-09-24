@@ -6,7 +6,9 @@
 //! has no exhaustion record (`upstream/k-rust.toml` `search-completeness`), so its frontier and
 //! incomplete items become limit or indeterminate stops and its collection stop is never
 //! `SearchExhausted`. Neither function can therefore yield evidence for `NoMatch` unless the
-//! execution is a single complete path.
+//! execution is a single complete path. Both record their [`PathRoute`], because an
+//! explore-all execution's `ExhaustionUnrecorded` still holds every distinct final state and
+//! a search's does not.
 //!
 //! A path's events are evidence for `Match` only when its prefix is real
 //! (`PathStop::has_real_prefix`). Without a solver, a symbolic or constrained state may be
@@ -38,10 +40,22 @@ pub struct BridgeContext<'a> {
     pub sorts: &'a SymbolSorts,
 }
 
-/// Paths in response order and the evidence of how their collection stopped.
+/// How bridged paths were obtained. A consumer that needs every final state reads it
+/// instead of inferring the route from the collection stop, which an explore-all execution
+/// and a search share.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathRoute {
+    Execution(ExecutionRoute),
+    /// A `Final` path search: never a complete set of final states.
+    Search,
+}
+
+/// Paths in response order, the route that produced them, and the evidence of how their
+/// collection stopped.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BridgedPaths {
     pub paths: Vec<PathInput>,
+    pub route: PathRoute,
     pub collection: CollectionEvidence,
 }
 
@@ -388,8 +402,15 @@ impl<'a> PathSet<'a> {
         Ok(())
     }
 
-    /// The least severe incomplete stop, else `otherwise`.
-    fn finish(self, otherwise: CollectionStop) -> BridgedPaths {
+    /// The least severe incomplete stop, else the stop of `route` running out of work: only a
+    /// single-path execution records exhaustion.
+    fn finish(self, route: PathRoute) -> BridgedPaths {
+        let otherwise = match route {
+            PathRoute::Execution(ExecutionRoute::SinglePath) => CollectionStop::SearchExhausted,
+            PathRoute::Execution(ExecutionRoute::ExploreAll) | PathRoute::Search => {
+                CollectionStop::ExhaustionUnrecorded
+            }
+        };
         let stop = self
             .incomplete
             .iter()
@@ -397,6 +418,7 @@ impl<'a> PathSet<'a> {
             .map_or(otherwise, |stop| collection_stop(*stop));
         BridgedPaths {
             paths: self.entries.into_iter().map(|(.., path)| path).collect(),
+            route,
             collection: CollectionEvidence {
                 stop,
                 pending_work: u64::from(stop != CollectionStop::SearchExhausted),
@@ -414,6 +436,7 @@ pub fn paths_from_execution(
     if execution.timed_out {
         return Ok(BridgedPaths {
             paths: Vec::new(),
+            route: PathRoute::Execution(execution.route),
             collection: CollectionEvidence {
                 stop: CollectionStop::TimeLimit,
                 pending_work: 1,
@@ -428,10 +451,7 @@ pub fn paths_from_execution(
     for leaf in &execution.leaves {
         paths.push(&leaf.branch, leaf.halt)?;
     }
-    Ok(paths.finish(match execution.route {
-        ExecutionRoute::SinglePath => CollectionStop::SearchExhausted,
-        ExecutionRoute::ExploreAll => CollectionStop::ExhaustionUnrecorded,
-    }))
+    Ok(paths.finish(PathRoute::Execution(execution.route)))
 }
 
 /// The stop one upstream incomplete item stands for. A result bound adds no path: it is a
@@ -491,7 +511,7 @@ pub fn paths_from_search(
             }
         }
     }
-    Ok(paths.finish(CollectionStop::ExhaustionUnrecorded))
+    Ok(paths.finish(PathRoute::Search))
 }
 
 #[cfg(test)]
@@ -849,6 +869,7 @@ mod tests {
             let bridged = paths_from_execution(&execution, &bridge_context(&sorts))
                 .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
             assert_eq!(bridged.collection.stop, stop, "{id}");
+            assert_eq!(bridged.route, PathRoute::Execution(execution.route), "{id}");
             assert_eq!(bridged.paths.len(), paths, "{id}");
             assert_eq!(presence(&bridged), occurrence, "{id}");
             if !execution.diagnostics.is_empty() {
@@ -1129,6 +1150,7 @@ mod tests {
             )
             .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
             assert_eq!(bridged.collection.stop, stop, "{id}");
+            assert_eq!(bridged.route, PathRoute::Search, "{id}");
             assert_ne!(
                 bridged.collection.stop,
                 CollectionStop::SearchExhausted,

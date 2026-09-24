@@ -23,8 +23,8 @@ use kink_campaign::{
     pattern_side, slot_outcome, state_side,
 };
 use kink_native::MutantRejection;
-use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
-use kink_native::execution::{ExecutionAdapterFailure, HaltClass};
+use kink_native::bridge::{BridgeFailure, BridgedPaths, PathRoute, halt_stop};
+use kink_native::execution::{ExecutionAdapterFailure, ExecutionRoute, HaltClass};
 use kink_native::observation::ObservationFailure;
 use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, apply};
 use kink_pattern::{
@@ -144,6 +144,7 @@ fn run(paths: Vec<PathInput>) -> BridgedPaths {
             });
     BridgedPaths {
         paths,
+        route: PathRoute::Execution(ExecutionRoute::SinglePath),
         collection: collection(stop),
     }
 }
@@ -703,6 +704,7 @@ fn bounded_or_indeterminate_sides_are_unknown_even_against_a_crash() {
             "backend-diagnostic".to_owned(),
             BridgedPaths {
                 paths: vec![terminal(0, Normal, done.clone())],
+                route: PathRoute::Execution(ExecutionRoute::SinglePath),
                 collection: collection(CollectionStop::BackendLimit),
             },
         ),
@@ -765,6 +767,42 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
     }
 }
 
+/// Review P2.1: complete paths are a state value only when their route ran out of work, and
+/// only an execution route can: a single-path run records exhaustion, and an explore-all run
+/// keeps every distinct final state without recording it. A search is never complete, and
+/// a stop its route cannot produce is not evidence. One row per route and
+/// out-of-work stop.
+#[test]
+fn state_values_need_an_execution_route_that_ran_out_of_work() {
+    use CollectionStop::{ExhaustionUnrecorded, SearchExhausted};
+    use ExecutionRoute::{ExploreAll, SinglePath};
+    let done = configuration("done", "1");
+    let value = normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+        [done.clone()].into_iter().collect(),
+    )));
+    #[rustfmt::skip]
+    let rows = [
+        ("single-path-exhausted", PathRoute::Execution(SinglePath), SearchExhausted, value.clone()),
+        ("single-path-unrecorded", PathRoute::Execution(SinglePath), ExhaustionUnrecorded, OracleSide::Unknown),
+        ("explore-all-exhausted", PathRoute::Execution(ExploreAll), SearchExhausted, OracleSide::Unknown),
+        ("explore-all-unrecorded", PathRoute::Execution(ExploreAll), ExhaustionUnrecorded, value),
+        ("search-exhausted", PathRoute::Search, SearchExhausted, OracleSide::Unknown),
+        ("search-unrecorded", PathRoute::Search, ExhaustionUnrecorded, OracleSide::Unknown),
+    ];
+    for (id, route, stop, expected) in rows {
+        let bridged = BridgedPaths {
+            paths: vec![terminal(0, Normal, done.clone())],
+            route,
+            collection: collection(stop),
+        };
+        assert_eq!(
+            state_side(&StateProjection::WholeTerm, &bridged),
+            expected,
+            "{id}"
+        );
+    }
+}
+
 /// One row per `HaltClass`, `ExecutionAdapterFailure`, `BridgeFailure`,
 /// `MutantRejection` and `PatternOutcome` variant, plus the terminal-set shapes and the
 /// comparison failures.
@@ -812,7 +850,9 @@ fn runner_mapping_is_exhaustive() {
         ("single-crash-is-its-terminal-term", single(SemanticCrash, crash.clone()), OracleSide::SemanticCrash(crash.clone())),
         ("crash-among-terminals-is-unknown", run(vec![terminal(0, Normal, done.clone()), terminal(1, SemanticCrash, crash.clone())]), OracleSide::Unknown),
         // Explore-all: no exhaustion record, but every distinct final state is kept.
-        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, other.clone())], collection: collection(CollectionStop::ExhaustionUnrecorded) }, value(&[done.clone(), other])),
+        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, other.clone())], route: PathRoute::Execution(ExecutionRoute::ExploreAll), collection: collection(CollectionStop::ExhaustionUnrecorded) }, value(&[done.clone(), other.clone()])),
+        // Review P2.1: a search shares that stop but not that guarantee.
+        ("search-final-states-are-unknown", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, other)], route: PathRoute::Search, collection: collection(CollectionStop::ExhaustionUnrecorded) }, OracleSide::Unknown),
         ("error-over-timeout", run(vec![incomplete(0, PathStop::TimeLimit), incomplete(1, PathStop::Error)]), OracleSide::Error),
         ("timeout-over-unknown", run(vec![incomplete(0, PathStop::DepthLimit), incomplete(1, PathStop::TimeLimit)]), OracleSide::Timeout),
         ("no-paths-is-error", run(Vec::new()), OracleSide::Error),

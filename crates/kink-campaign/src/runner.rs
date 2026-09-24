@@ -6,8 +6,10 @@
 //! `match` that never turns incomplete evidence into a value:
 //!
 //! - A state oracle (exit stop or final result) needs every path complete and a
-//!   collection that stopped for lack of work. An explore-all run qualifies, because
-//!   k-rust's merging of converging branches keeps every distinct final state. Any
+//!   collection that stopped for lack of work on an execution route. An explore-all run
+//!   qualifies, because k-rust's merging of converging branches keeps every distinct final
+//!   state; a search never does, whatever its collection stop, because the bridged route
+//!   says it was one. Any
 //!   other stop is `Error` for an error or a cancelled leaf (until upstream tells
 //!   cancellation from timeout), `Timeout` for a timed-out leaf, and `Unknown`
 //!   otherwise, including a backend diagnostic.
@@ -31,7 +33,9 @@ use k_rust::kore::{
     parser::parse_definition,
     walk,
 };
-use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution};
+use kink_native::bridge::{
+    BridgeContext, BridgeFailure, BridgedPaths, PathRoute, paths_from_execution,
+};
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, ExecutionRoute,
 };
@@ -499,13 +503,25 @@ const fn path_stop_side(stop: PathStop) -> OracleSide {
     }
 }
 
-/// The side a collection stop stands for, or `None` when the collection ran out of work.
-/// An explore-all execution has no exhaustion record, but merging converging branches
-/// keeps every distinct final state, so it is complete for state oracles. Exhaustive over
-/// `CollectionStop`.
-const fn collection_stop_side(stop: CollectionStop) -> Option<OracleSide> {
+/// The side a collection stop of paths obtained on `route` stands for, or `None` when that
+/// route ran out of work. An explore-all execution has no exhaustion record, but merging
+/// converging branches keeps every distinct final state, so its `ExhaustionUnrecorded` is
+/// complete for state oracles; a search's is not (review P2.1), and neither is a stop that
+/// its route cannot produce. Exhaustive over `CollectionStop` and `PathRoute`.
+const fn collection_stop_side(route: PathRoute, stop: CollectionStop) -> Option<OracleSide> {
     match stop {
-        CollectionStop::SearchExhausted | CollectionStop::ExhaustionUnrecorded => None,
+        CollectionStop::SearchExhausted => match route {
+            PathRoute::Execution(ExecutionRoute::SinglePath) => None,
+            PathRoute::Execution(ExecutionRoute::ExploreAll) | PathRoute::Search => {
+                Some(OracleSide::Unknown)
+            }
+        },
+        CollectionStop::ExhaustionUnrecorded => match route {
+            PathRoute::Execution(ExecutionRoute::ExploreAll) => None,
+            PathRoute::Execution(ExecutionRoute::SinglePath) | PathRoute::Search => {
+                Some(OracleSide::Unknown)
+            }
+        },
         CollectionStop::Error => Some(OracleSide::Error),
         CollectionStop::TimeLimit => Some(OracleSide::Timeout),
         CollectionStop::MatchFound
@@ -526,7 +542,7 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
         .iter()
         .filter(|path| !path.complete)
         .map(|path| path_stop_side(path.stop))
-        .chain(collection_stop_side(bridged.collection.stop));
+        .chain(collection_stop_side(bridged.route, bridged.collection.stop));
     if let Some(side) = failed_side(incomplete) {
         return side;
     }
