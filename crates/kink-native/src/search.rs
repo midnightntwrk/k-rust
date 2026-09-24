@@ -1,4 +1,4 @@
-//! Positive-bounded adaptation of the pinned public k-rust search facade.
+//! Positive-bounded adaptation of the public k-rust search facade.
 
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendError, BindingOutput, BuiltinFailureOutput,
@@ -8,10 +8,10 @@ use k_rust::backend::{
     TermPairOutput, TranslationFailureOutput,
 };
 
+use crate::ProvenanceStatus;
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
 };
-use crate::{K_RUST_REVISION, ProvenanceStatus};
 
 /// Exact solver feature/profile selected by kink-native.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -547,7 +547,10 @@ fn failure_class(failure: &SearchFailureOutput) -> IncompleteClass {
         | SearchFailureOutput::InvalidBuiltinResultSymbol { .. }
         | SearchFailureOutput::Match { .. }
         | SearchFailureOutput::Requires { .. }
-        | SearchFailureOutput::Concreteness { .. } => IncompleteClass::Indeterminate,
+        | SearchFailureOutput::Concreteness { .. }
+        | SearchFailureOutput::SurvivingMacroOrAlias { .. }
+        | SearchFailureOutput::UnsupportedHook { .. }
+        | SearchFailureOutput::Instantiation { .. } => IncompleteClass::Indeterminate,
     }
 }
 
@@ -664,9 +667,6 @@ pub fn compare_replay(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReplayMismatch;
 
-/// Exact pinned backend revision retained as supplemental profile evidence.
-pub const SEARCH_BACKEND_REVISION: &str = K_RUST_REVISION;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,11 +681,11 @@ mod tests {
 
     const DEFINITION: &str = r#"[]
 module HIDDEN
-  sort SortS{} []
-  symbol hidden{}() : SortS{} [constructor{}()]
-  axiom{} \rewrites{SortS{}}(
-    \and{SortS{}}(hidden{}(), \top{SortS{}}()),
-    \and{SortS{}}(hidden{}(), \top{SortS{}}())
+  sort SortHidden{} []
+  symbol hidden{}() : SortHidden{} [constructor{}()]
+  axiom{} \rewrites{SortHidden{}}(
+    \and{SortHidden{}}(hidden{}(), \top{SortHidden{}}()),
+    \and{SortHidden{}}(hidden{}(), \top{SortHidden{}}())
   )
     [label{}("hidden-label"), UNIQUE'Unds'ID{}("hidden-id")]
 endmodule []

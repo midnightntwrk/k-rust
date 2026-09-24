@@ -1,4 +1,4 @@
-//! NR-07A fixture-only qualification across the pinned KRS and k-rust boundary.
+//! NR-07A fixture-only qualification across the KRS and k-rust boundary.
 //!
 //! This ignored gate consumes KORE compiled in a separate KRS process graph.
 //! `kink-native` therefore retains its exact no-Z3 feature profile.
@@ -14,10 +14,9 @@ use k_rust::{
     },
 };
 use kink_native::{
-    K_RUST_REVISION, KRS_REVISION, PinnedSources, ProvenanceStatus,
+    ProvenanceStatus,
     observation::{InstalledObservationManifest, NativeEvent, RuleObservationSpec},
     search::{PositiveBoundedOutcome, ReplaySearch, SearchAdapter, SolverProfile, compare_replay},
-    verify_pins,
 };
 
 const MODULE: &str = "EXPR";
@@ -53,22 +52,6 @@ fn krs_definition_ir_reaches_positive_observed_state_and_path() {
 }
 
 fn run_gate() {
-    let sources = PinnedSources {
-        krs: required_path("NR_07A_CLEAN_KRS"),
-        k_rust: required_path("NR_07A_CLEAN_K_RUST"),
-    };
-    let pins = verify_pins(&sources).expect("the disposable pin pair must be exact and clean");
-    assert_eq!(pins.krs_revision, KRS_REVISION);
-    assert_eq!(pins.k_rust_revision, K_RUST_REVISION);
-    assert_eq!(
-        pins.declared_krs_feature_profile,
-        "default-features=false,z3-inference"
-    );
-    assert_eq!(
-        pins.integration_feature_profile,
-        "default-features=false,structured-no-z3-inference"
-    );
-
     let definition_source = fs::read_to_string(required_path("NR_07A_COMPILED_KORE"))
         .expect("the isolated KRS compiler must publish one readable KORE fixture");
     let definition = parse_definition(&definition_source)
@@ -142,7 +125,9 @@ fn attribute_string<'a>(attributes: &'a Attributes, name: &str) -> Option<&'a st
         let [Pattern::String(value)] = arguments.as_slice() else {
             return None;
         };
-        (symbol.name == name).then_some(value.as_str())
+        (symbol.name == name)
+            .then(|| value.as_utf8().ok())
+            .flatten()
     })
 }
 

@@ -1,7 +1,7 @@
-//! Fail-closed integration over the pinned KRS and k-rust native definition boundary.
+//! Fail-closed integration over the KRS and k-rust native definition boundary.
 //!
 //! The index in this crate is semantic and owner-qualified, but its provenance data is only the
-//! KRS sidecar. The pinned KRS revision does not bridge that sidecar into every k-rust production,
+//! KRS sidecar. KRS does not bridge that sidecar into every k-rust production,
 //! term span, source-table entry, and generated origin. Consequently no type in this crate grants
 //! native provenance authority.
 
@@ -11,8 +11,6 @@ pub mod search;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
-    path::{Path, PathBuf},
-    process::Command,
 };
 
 use k_rust::{
@@ -24,62 +22,9 @@ use k_rust::{
 };
 use kink_patch::StagedNativeInput;
 
-/// Native definition type accepted by the exact k-rust pin.
+/// Native definition type accepted by k-rust.
 pub type NativeDefinition = Definition;
 
-/// Exact clean KRS source revision selected by NR-U5.
-pub const KRS_REVISION: &str = "be5f8449854567f198e841d2a96fbe188cfa96ac";
-
-/// Exact k-rust source revision declared by the reviewed KRS checkout.
-pub const K_RUST_REVISION: &str = "c41caa8bede96e279e0b058577dce504e4144f65";
-
-/// Exact published k-rust crate version declared by KRS.
-pub const K_RUST_CRATE_VERSION: &str = "0.4.0";
-
-/// Exact relative k-rust dependency path declared by KRS.
-pub const KRS_K_RUST_DEPENDENCY_PATH: &str =
-    "../../../inspirations/midnightntwrk/k-rust-krs-main/crates/k-rust";
-
-/// Exact solver feature set declared by KRS for its frontend adapter.
-pub const KRS_K_RUST_FEATURES: [&str; 1] = ["z3-inference"];
-
-/// Exact stable Rust release qualified for the native/frontend profile.
-pub const NATIVE_FRONTEND_RUST_VERSION: &str = "1.98.0";
-
-/// Absolute clean-source locations selected by the native-readiness work package.
-pub const KRS_PATH: &str = "/home/sebastiengllmt/git/workspaces/starstream-fv/krs";
-pub const K_RUST_PATH: &str =
-    "/home/sebastiengllmt/git/workspaces/starstream-fv/inspirations/midnightntwrk/k-rust-krs-main";
-
-/// Filesystem locations whose repository identity and cleanliness must be checked before use.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PinnedSources {
-    pub krs: PathBuf,
-    pub k_rust: PathBuf,
-}
-
-impl Default for PinnedSources {
-    fn default() -> Self {
-        Self {
-            krs: PathBuf::from(KRS_PATH),
-            k_rust: PathBuf::from(K_RUST_PATH),
-        }
-    }
-}
-
-/// Evidence that both source repositories were exact and clean at validator construction time.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct VerifiedPins {
-    pub krs_revision: &'static str,
-    pub k_rust_revision: &'static str,
-    pub k_rust_crate_version: &'static str,
-    pub declared_krs_feature_profile: &'static str,
-    pub integration_feature_profile: &'static str,
-    pub native_frontend_rust_version: &'static str,
-    pub rustc_identity: String,
-}
-
-/// Closed structural destination roles emitted by the reviewed KRS sidecar.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NativeNodeRole {
     Module,
@@ -107,7 +52,7 @@ pub enum NativeNodeRole {
     Term(Vec<u32>),
 }
 
-/// Closed sentence inventory for the pinned k-rust `Sentence` enum.
+/// Closed sentence inventory for the k-rust `Sentence` enum.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum SentenceVariant {
     SyntaxSort,
@@ -124,7 +69,7 @@ pub enum SentenceVariant {
     Bubble,
 }
 
-/// Closed term inventory for the pinned k-rust `Term` enum.
+/// Closed term inventory for the k-rust `Term` enum.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TermVariant {
     InjectedLabel,
@@ -189,7 +134,7 @@ pub struct NativeSignature {
     pub sentence: NativeSentenceId,
 }
 
-/// One direct semantic subsort edge selected by the pinned frontend's rule.
+/// One direct semantic subsort edge selected by the frontend's rule.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct NativeSubsort {
     pub owner_module: String,
@@ -255,7 +200,6 @@ pub struct ValidatedNativeOutput {
     definition: NativeDefinition,
     index: NativeIndex,
     artifacts: CompiledKoreArtifacts,
-    pins: VerifiedPins,
     compile_options: CompileOptions,
 }
 
@@ -270,10 +214,6 @@ impl ValidatedNativeOutput {
 
     pub const fn artifacts(&self) -> &CompiledKoreArtifacts {
         &self.artifacts
-    }
-
-    pub const fn pins(&self) -> &VerifiedPins {
-        &self.pins
     }
 
     /// Exact backend, KORE width, claims mode, and hook namespace profile used for lowering.
@@ -311,19 +251,6 @@ impl std::error::Error for NativePatchRejection {}
 /// Typed fail-closed native integration failures. No variant contains staged native output.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeFailure {
-    PinRepositoryUnavailable {
-        repository: &'static str,
-        detail: String,
-    },
-    WrongRevision {
-        repository: &'static str,
-        expected: &'static str,
-        actual: String,
-    },
-    DirtyRepository {
-        repository: &'static str,
-    },
-    DeclaredFrontendMismatch(String),
     DuplicateModule(String),
     UnsupportedSentence {
         module: String,
@@ -379,21 +306,6 @@ impl NativeFailure {
 impl fmt::Display for NativeFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PinRepositoryUnavailable { repository, detail } => {
-                write!(formatter, "cannot verify {repository}: {detail}")
-            }
-            Self::WrongRevision {
-                repository,
-                expected,
-                actual,
-            } => write!(
-                formatter,
-                "{repository} revision is {actual:?}, expected {expected:?}"
-            ),
-            Self::DirtyRepository { repository } => {
-                write!(formatter, "{repository} repository is not clean")
-            }
-            Self::DeclaredFrontendMismatch(detail) => detail.fmt(formatter),
             Self::DuplicateModule(module) => write!(formatter, "duplicate module {module:?}"),
             Self::UnsupportedSentence {
                 module,
@@ -465,39 +377,26 @@ impl fmt::Display for NativeFailure {
 
 impl std::error::Error for NativeFailure {}
 
-/// A pinned, immutable native baseline ready to serve as an NR-02 validator closure.
+/// An immutable native baseline ready to serve as an NR-02 validator closure.
 #[derive(Clone, Debug)]
-pub struct PinnedNativeValidator {
+pub struct NativeValidator {
     baseline: NativeDefinition,
     sidecar: Vec<ProvenanceSidecarRecord>,
-    pins: VerifiedPins,
     options: CompileOptions,
 }
 
-impl PinnedNativeValidator {
-    /// Verify exact clean default pins and capture an immutable KRS-adapted baseline.
+impl NativeValidator {
+    /// Capture an immutable KRS-adapted baseline.
     pub fn bind(
         definition: &NativeDefinition,
         sidecar: Vec<ProvenanceSidecarRecord>,
         options: CompileOptions,
-    ) -> Result<Self, NativeFailure> {
-        Self::bind_at(definition, sidecar, options, &PinnedSources::default())
-    }
-
-    /// Verify exact clean caller-selected repositories and capture the baseline.
-    pub fn bind_at(
-        definition: &NativeDefinition,
-        sidecar: Vec<ProvenanceSidecarRecord>,
-        options: CompileOptions,
-        sources: &PinnedSources,
-    ) -> Result<Self, NativeFailure> {
-        let pins = verify_pins(sources)?;
-        Ok(Self {
+    ) -> NativeValidator {
+        Self {
             baseline: definition.clone(),
             sidecar,
-            pins,
             options,
-        })
+        }
     }
 
     /// Clone, patch, inventory, index, resolve, check, lower, and publish one native output.
@@ -516,7 +415,7 @@ impl PinnedNativeValidator {
             .map_err(|error| NativeFailure::PatchRejected(error.to_string()))?;
         let index = index_definition_with_sidecar(&candidate, &self.sidecar)?;
         let prelude = builtin::embedded("prelude.md").ok_or_else(|| {
-            NativeFailure::Preparation("pinned k-rust prelude is unavailable".to_owned())
+            NativeFailure::Preparation("k-rust prelude is unavailable".to_owned())
         })?;
         let load_options = LoadOptions {
             implicit_sources: vec![prelude],
@@ -538,206 +437,9 @@ impl PinnedNativeValidator {
             definition: candidate,
             index,
             artifacts,
-            pins: self.pins.clone(),
             compile_options: self.options.clone(),
         })
     }
-}
-
-/// Verify repository HEADs, worktree cleanliness, and the KRS-declared frontend location.
-pub fn verify_pins(sources: &PinnedSources) -> Result<VerifiedPins, NativeFailure> {
-    verify_repository("k-rust", &sources.k_rust, K_RUST_REVISION)?;
-    verify_repository("KRS", &sources.krs, KRS_REVISION)?;
-    let manifest = sources.krs.join("crates/krs-k-rust/Cargo.toml");
-    let manifest_text = std::fs::read_to_string(&manifest).map_err(|error| {
-        NativeFailure::PinRepositoryUnavailable {
-            repository: "KRS",
-            detail: format!("cannot read {}: {error}", manifest.display()),
-        }
-    })?;
-    verify_krs_frontend_manifest(&manifest_text)?;
-    let declared = sources
-        .krs
-        .join("crates/krs-k-rust")
-        .join(KRS_K_RUST_DEPENDENCY_PATH)
-        .canonicalize()
-        .map_err(|error| NativeFailure::DeclaredFrontendMismatch(error.to_string()))?;
-    let selected = sources
-        .k_rust
-        .join("crates/k-rust")
-        .canonicalize()
-        .map_err(|error| NativeFailure::DeclaredFrontendMismatch(error.to_string()))?;
-    if declared != selected {
-        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
-            "KRS declares {}, but NR-05 selected {}",
-            declared.display(),
-            selected.display()
-        )));
-    }
-    Ok(VerifiedPins {
-        krs_revision: KRS_REVISION,
-        k_rust_revision: K_RUST_REVISION,
-        k_rust_crate_version: K_RUST_CRATE_VERSION,
-        declared_krs_feature_profile: "default-features=false,z3-inference",
-        integration_feature_profile: "default-features=false,structured-no-z3-inference",
-        native_frontend_rust_version: NATIVE_FRONTEND_RUST_VERSION,
-        rustc_identity: command_identity("rustc", &["--version", "--verbose"])?,
-    })
-}
-
-fn verify_krs_frontend_manifest(manifest_text: &str) -> Result<(), NativeFailure> {
-    let manifest = manifest_text.parse::<toml::Table>().map_err(|error| {
-        NativeFailure::DeclaredFrontendMismatch(format!(
-            "KRS frontend manifest is not valid TOML: {error}"
-        ))
-    })?;
-    let dependency = manifest
-        .get("dependencies")
-        .and_then(toml::Value::as_table)
-        .and_then(|dependencies| dependencies.get("k-rust"))
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| {
-            NativeFailure::DeclaredFrontendMismatch(
-                "KRS manifest has no dependencies.k-rust table".to_owned(),
-            )
-        })?;
-    let expected_keys = BTreeSet::from(["default-features", "features", "path", "version"]);
-    let actual_keys = dependency
-        .keys()
-        .map(String::as_str)
-        .collect::<BTreeSet<_>>();
-    if actual_keys != expected_keys {
-        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
-            "KRS dependencies.k-rust keys are {actual_keys:?}, expected {expected_keys:?}"
-        )));
-    }
-    require_dependency_string(dependency, "version", &format!("={K_RUST_CRATE_VERSION}"))?;
-    require_dependency_string(dependency, "path", KRS_K_RUST_DEPENDENCY_PATH)?;
-    if dependency
-        .get("default-features")
-        .and_then(toml::Value::as_bool)
-        != Some(false)
-    {
-        return Err(NativeFailure::DeclaredFrontendMismatch(
-            "KRS dependencies.k-rust default-features must be false".to_owned(),
-        ));
-    }
-    let features = dependency
-        .get("features")
-        .and_then(toml::Value::as_array)
-        .ok_or_else(|| {
-            NativeFailure::DeclaredFrontendMismatch(
-                "KRS dependencies.k-rust features must be an array".to_owned(),
-            )
-        })?;
-    let declared_features = features
-        .iter()
-        .map(toml::Value::as_str)
-        .collect::<Option<Vec<_>>>()
-        .ok_or_else(|| {
-            NativeFailure::DeclaredFrontendMismatch(
-                "KRS dependencies.k-rust features must contain only strings".to_owned(),
-            )
-        })?;
-    if declared_features.as_slice() != KRS_K_RUST_FEATURES {
-        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
-            "KRS dependencies.k-rust features are {declared_features:?}, expected {:?}",
-            KRS_K_RUST_FEATURES
-        )));
-    }
-    Ok(())
-}
-
-fn require_dependency_string(
-    dependency: &toml::Table,
-    key: &str,
-    expected: &str,
-) -> Result<(), NativeFailure> {
-    let actual = dependency.get(key).and_then(toml::Value::as_str);
-    if actual != Some(expected) {
-        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
-            "KRS dependencies.k-rust {key} is {actual:?}, expected {expected:?}"
-        )));
-    }
-    Ok(())
-}
-
-fn verify_native_frontend_rustc(identity: &str) -> Result<(), NativeFailure> {
-    let expected_release = format!("release: {NATIVE_FRONTEND_RUST_VERSION}");
-    if !identity.lines().any(|line| line == expected_release) {
-        return Err(NativeFailure::DeclaredFrontendMismatch(format!(
-            "native/frontend rustc is not exact stable Rust {NATIVE_FRONTEND_RUST_VERSION}"
-        )));
-    }
-    Ok(())
-}
-
-fn command_identity(command: &'static str, arguments: &[&str]) -> Result<String, NativeFailure> {
-    let output = Command::new(command)
-        .args(arguments)
-        .output()
-        .map_err(|error| NativeFailure::PinRepositoryUnavailable {
-            repository: "compiler",
-            detail: error.to_string(),
-        })?;
-    if !output.status.success() {
-        return Err(NativeFailure::PinRepositoryUnavailable {
-            repository: "compiler",
-            detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        });
-    }
-    let identity = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    verify_native_frontend_rustc(&identity)?;
-    Ok(identity)
-}
-
-fn verify_repository(
-    name: &'static str,
-    path: &Path,
-    expected: &'static str,
-) -> Result<(), NativeFailure> {
-    let head = git_output(path, &["rev-parse", "HEAD"], name)?;
-    if head != expected {
-        return Err(NativeFailure::WrongRevision {
-            repository: name,
-            expected,
-            actual: head,
-        });
-    }
-    let status = git_output(
-        path,
-        &["status", "--porcelain=v1", "--untracked-files=normal"],
-        name,
-    )?;
-    if !status.is_empty() {
-        return Err(NativeFailure::DirtyRepository { repository: name });
-    }
-    Ok(())
-}
-
-fn git_output(
-    path: &Path,
-    arguments: &[&str],
-    repository: &'static str,
-) -> Result<String, NativeFailure> {
-    let output = Command::new("git")
-        .arg("-c")
-        .arg(format!("safe.directory={}", path.display()))
-        .arg("-C")
-        .arg(path)
-        .args(arguments)
-        .output()
-        .map_err(|error| NativeFailure::PinRepositoryUnavailable {
-            repository,
-            detail: error.to_string(),
-        })?;
-    if !output.status.success() {
-        return Err(NativeFailure::PinRepositoryUnavailable {
-            repository,
-            detail: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-        });
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
 /// Build the closed semantic indexes for a native definition without granting provenance.
@@ -792,7 +494,7 @@ fn index_definition_with_sidecar(
         definition
             .modules
             .iter()
-            .flat_map(|module| module.local_sentences.iter()),
+            .flat_map(|module| module.local_sentences.iter().map(AsRef::as_ref)),
         false,
     )
     .map_err(|cycle| NativeFailure::InvalidSubsort(cycle.to_string()))?;
@@ -1253,6 +955,7 @@ mod tests {
         definition::{Attributes, FlatImport, FlatModule},
         kast::TermMetadata,
     };
+    use std::sync::Arc;
 
     fn production(label: &str, result: &str, arguments: &[&str]) -> Sentence {
         Sentence::Production {
@@ -1280,7 +983,7 @@ mod tests {
                     public: true,
                 })
                 .collect(),
-            local_sentences,
+            local_sentences: local_sentences.into_iter().map(Arc::new).collect(),
             attributes: Attributes::default(),
         }
     }
@@ -1676,158 +1379,5 @@ mod tests {
         }];
         let error = index_definition_with_sidecar(&source, &records).unwrap_err();
         assert!(matches!(error, NativeFailure::InvalidSidecar(_)));
-    }
-
-    #[test]
-    fn exact_structured_krs_frontend_dependency_accepts() {
-        let manifest = format!(
-            r#"
-[package]
-name = "krs-k-rust"
-
-[dependencies]
-k-rust = {{ version = "={K_RUST_CRATE_VERSION}", path = "{KRS_K_RUST_DEPENDENCY_PATH}", default-features = false, features = ["z3-inference"] }}
-unrelated = "1"
-"#
-        );
-        verify_krs_frontend_manifest(&manifest).unwrap();
-    }
-
-    #[test]
-    fn comments_unrelated_strings_and_wrong_tables_do_not_satisfy_frontend_pin() {
-        let exact_dependency_text = format!(
-            "version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\"]"
-        );
-        for manifest in [
-            format!(
-                "[package]\nname = \"decoy\"\ndescription = '{exact_dependency_text}'\n# k-rust = {{ {exact_dependency_text} }}\n"
-            ),
-            format!("[dependencies]\ndecoy = {{ {exact_dependency_text} }}\n"),
-            format!("[dev-dependencies]\nk-rust = {{ {exact_dependency_text} }}\n"),
-        ] {
-            assert!(matches!(
-                verify_krs_frontend_manifest(&manifest),
-                Err(NativeFailure::DeclaredFrontendMismatch(_))
-            ));
-        }
-    }
-
-    #[test]
-    fn duplicate_wrong_or_extended_frontend_tables_reject() {
-        let valid_fields = format!(
-            "version = \"={K_RUST_CRATE_VERSION}\"\npath = \"{KRS_K_RUST_DEPENDENCY_PATH}\"\ndefault-features = false\nfeatures = [\"z3-inference\"]\n"
-        );
-        let duplicate =
-            format!("[dependencies.k-rust]\n{valid_fields}\n[dependencies.k-rust]\n{valid_fields}");
-        assert!(matches!(
-            verify_krs_frontend_manifest(&duplicate),
-            Err(NativeFailure::DeclaredFrontendMismatch(_))
-        ));
-
-        for dependency in [
-            format!(
-                "{{ version = \"0.4.0\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\"] }}"
-            ),
-            format!(
-                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"wrong\", default-features = false, features = [\"z3-inference\"] }}"
-            ),
-            format!(
-                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = true, features = [\"z3-inference\"] }}"
-            ),
-            format!(
-                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [] }}"
-            ),
-            format!(
-                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\", \"extra\"] }}"
-            ),
-            format!(
-                "{{ version = \"={K_RUST_CRATE_VERSION}\", path = \"{KRS_K_RUST_DEPENDENCY_PATH}\", default-features = false, features = [\"z3-inference\"], optional = true }}"
-            ),
-        ] {
-            let manifest = format!("[dependencies]\nk-rust = {dependency}\n");
-            assert!(matches!(
-                verify_krs_frontend_manifest(&manifest),
-                Err(NativeFailure::DeclaredFrontendMismatch(_))
-            ));
-        }
-    }
-
-    #[test]
-    fn native_frontend_profile_is_exact_and_solver_feature_is_not_inherited() {
-        assert!(
-            verify_native_frontend_rustc(
-                "rustc 1.98.0 (test)\nrelease: 1.98.0\nLLVM version: test"
-            )
-            .is_ok()
-        );
-        assert!(verify_native_frontend_rustc("release: 1.98.1").is_err());
-
-        let manifest = include_str!("../Cargo.toml")
-            .parse::<toml::Table>()
-            .unwrap();
-        let package = manifest["package"].as_table().unwrap();
-        assert_eq!(package["rust-version"].as_str(), Some("1.98"));
-        let dependency = manifest["dependencies"].as_table().unwrap()["k-rust"]
-            .as_table()
-            .unwrap();
-        assert_eq!(dependency["default-features"].as_bool(), Some(false));
-        assert!(!dependency.contains_key("features"));
-    }
-
-    #[test]
-    fn frontend_constant_matches_work_package_pin() {
-        assert_eq!(KRS_REVISION, "be5f8449854567f198e841d2a96fbe188cfa96ac");
-        assert_eq!(K_RUST_REVISION, "c41caa8bede96e279e0b058577dce504e4144f65");
-        assert_eq!(NATIVE_FRONTEND_RUST_VERSION, "1.98.0");
-    }
-
-    #[test]
-    fn default_pin_check_accepts_only_exact_clean_repositories() {
-        match verify_pins(&PinnedSources::default()) {
-            Ok(pins) => {
-                assert_eq!(pins.krs_revision, KRS_REVISION);
-                assert_eq!(pins.k_rust_revision, K_RUST_REVISION);
-                assert_eq!(
-                    pins.native_frontend_rust_version,
-                    NATIVE_FRONTEND_RUST_VERSION
-                );
-            }
-            Err(NativeFailure::DirtyRepository { repository: "KRS" }) => {
-                // Concurrent shared-checkout dirtiness is rejected rather than accepted as pin
-                // evidence.
-            }
-            Err(error) => panic!("unexpected pin failure: {error}"),
-        }
-    }
-
-    #[test]
-    #[ignore = "run explicitly with NR_05R_CLEAN_KRS and NR_05R_CLEAN_K_RUST"]
-    fn exact_clean_pin_pair_passes_the_complete_binding_gate() {
-        let sources = PinnedSources {
-            krs: PathBuf::from(
-                std::env::var_os("NR_05R_CLEAN_KRS")
-                    .expect("NR_05R_CLEAN_KRS must name the clean KRS checkout"),
-            ),
-            k_rust: PathBuf::from(
-                std::env::var_os("NR_05R_CLEAN_K_RUST")
-                    .expect("NR_05R_CLEAN_K_RUST must name the clean dedicated k-rust checkout"),
-            ),
-        };
-        let pins = verify_pins(&sources).unwrap();
-        assert_eq!(pins.krs_revision, KRS_REVISION);
-        assert_eq!(pins.k_rust_revision, K_RUST_REVISION);
-        assert_eq!(pins.k_rust_crate_version, K_RUST_CRATE_VERSION);
-        assert_eq!(
-            pins.declared_krs_feature_profile,
-            "default-features=false,z3-inference"
-        );
-        assert_eq!(
-            pins.integration_feature_profile,
-            "default-features=false,structured-no-z3-inference"
-        );
-        assert_eq!(
-            pins.native_frontend_rust_version,
-            NATIVE_FRONTEND_RUST_VERSION
-        );
     }
 }

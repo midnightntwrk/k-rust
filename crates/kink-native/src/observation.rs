@@ -30,7 +30,7 @@ pub struct DomainEventSpec {
     pub payload: Vec<PayloadSource>,
 }
 
-/// Closed payload sources exposed by the pinned transition wire contract.
+/// Closed payload sources exposed by the k-rust transition wire contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PayloadSource {
     BeforeState,
