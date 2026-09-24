@@ -12,7 +12,7 @@ k_rust_commit = "985e0086f06e1ec05c2c533f26fb6f949c6b84fa"
 k_rust_version = "0.4.0"
 k_release = "7.1.337"
 checkout = "../inspirations/midnightntwrk/k-rust"
-source = "crates/kink-native/Cargo.toml path dependency"
+source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [retired_pins]
 "5fc7a083c3bdfe07b485df271e0299924823d327" = "more-semantics head audited on 2026-08-29; the branch was never merged and its fixes were reimplemented on main."

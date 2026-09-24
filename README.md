@@ -2,7 +2,7 @@
 
 k-in-k2 provides execution pattern matching and semantic mutation testing for K definitions.
 It is built on k-rust,
-which `kink-native` consumes as a path dependency on the on-disk checkout at `../inspirations/midnightntwrk/k-rust`.
+which the workspace consumes as a path dependency on the on-disk checkout at `../inspirations/midnightntwrk/k-rust`.
 The work is intended to be merged into k-rust together with KRS.
 
 ## Crates
