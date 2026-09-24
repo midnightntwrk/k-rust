@@ -6,7 +6,8 @@
 use std::cell::Cell;
 
 use krs_expand::sink::AuthoredFile;
-use krs_expand::{AttributeMacro, FunctionMacro, MacroEnvironment, SourcePosition};
+use krs_expand::{MacroEnvironment, SourcePosition};
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use proc_macro2::{LineColumn, Span, TokenStream, TokenTree};
 use quote::ToTokens;
 use syn::spanned::Spanned;

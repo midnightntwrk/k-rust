@@ -488,6 +488,7 @@ dependencies = [
 name = "krs-lesson-policy"
 version = "0.1.0"
 dependencies = [
+ "krs-syntax",
  "krs-wasm-abi",
  "proc-macro2",
  "serde",
@@ -501,6 +502,7 @@ name = "krs-macros"
 version = "0.1.0"
 dependencies = [
  "krs-expand",
+ "krs-syntax",
  "proc-macro-crate",
  "proc-macro2",
  "quote",

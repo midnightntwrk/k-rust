@@ -10,7 +10,7 @@ use proc_macro::TokenStream;
 mod environment;
 
 use environment::ProcMacroEnvironment;
-use krs_expand::{AttributeMacro, FunctionMacro};
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 
 fn finish(result: syn::Result<proc_macro2::TokenStream>) -> TokenStream {
     result.unwrap_or_else(syn::Error::into_compile_error).into()

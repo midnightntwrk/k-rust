@@ -556,42 +556,11 @@ fn version_1_tables_are_frozen_and_reused_by_version_2() {
 
 /// The attributes version 2 treats as order-sensitive are exactly the
 /// accepted attributes that the path-C expander does not skip as inert when
-/// it chooses the attribute to expand (`krs-expand/src/whole_file.rs`).
+/// it chooses the attribute to expand (`krs_syntax::surface`).
 #[test]
 fn order_sensitive_attributes_match_the_expanders_inert_set() {
-    let whole_file = include_str!("../../krs-expand/src/whole_file.rs");
-    let file = syn::parse_file(whole_file).expect("whole_file.rs parses");
-    let mut expander_inert = Vec::new();
-    let mut expander_tools = Vec::new();
-    for item in &file.items {
-        let syn::Item::Const(item) = item else {
-            continue;
-        };
-        let target = if item.ident == "INERT_ATTRIBUTES" {
-            &mut expander_inert
-        } else if item.ident == "TOOL_ATTRIBUTES" {
-            &mut expander_tools
-        } else {
-            continue;
-        };
-        let syn::Expr::Reference(reference) = &*item.expr else {
-            panic!("{} is a slice reference", item.ident);
-        };
-        let syn::Expr::Array(array) = &*reference.expr else {
-            panic!("{} is an array", item.ident);
-        };
-        for element in &array.elems {
-            let syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(name),
-                ..
-            }) = element
-            else {
-                panic!("{} holds string literals", item.ident);
-            };
-            target.push(name.value());
-        }
-    }
-    assert!(!expander_inert.is_empty() && !expander_tools.is_empty());
+    let expander_inert = krs_syntax::surface::INERT_ATTRIBUTES;
+    let expander_tools = krs_syntax::surface::TOOL_ATTRIBUTES;
     let policy_single: Vec<&str> = v2::INERT_ATTRIBUTES
         .iter()
         .chain(v2::VARIANT_ATTRIBUTES)
@@ -608,7 +577,7 @@ fn order_sensitive_attributes_match_the_expanders_inert_set() {
     assert_eq!(v2::ORDER_SENSITIVE_ATTRIBUTES, ["derive"]);
     for (tool, _) in v2::TOOL_ATTRIBUTES {
         assert!(
-            expander_tools.iter().any(|name| name == tool),
+            expander_tools.contains(tool),
             "the expander does not skip `{tool}::` attributes"
         );
     }

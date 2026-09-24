@@ -798,10 +798,14 @@ fn unresolved_constructor_sort_path_maps_like_native() {
     let mut cursor = 0;
     for item in &file.items {
         let (mut attrs, entry) = match item {
-            syn::Item::Trait(item) => (item.attrs.clone(), krs_expand::AttributeMacro::Sort),
-            syn::Item::Struct(item) => {
-                (item.attrs.clone(), krs_expand::AttributeMacro::Constructor)
-            }
+            syn::Item::Trait(item) => (
+                item.attrs.clone(),
+                krs_syntax::surface::AttributeMacro::Sort,
+            ),
+            syn::Item::Struct(item) => (
+                item.attrs.clone(),
+                krs_syntax::surface::AttributeMacro::Constructor,
+            ),
             _ => continue,
         };
         let replaced = authored

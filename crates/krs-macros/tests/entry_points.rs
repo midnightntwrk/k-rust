@@ -1,7 +1,7 @@
-//! `krs_expand::{AttributeMacro, FunctionMacro}` stay equal to the entry points
+//! `krs_syntax::surface::{AttributeMacro, FunctionMacro}` stay equal to the entry points
 //! of this crate, and each entry point only dispatches to its own variant.
 
-use krs_expand::{AttributeMacro, FunctionMacro};
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use quote::ToTokens;
 
 /// `(name, body tokens)` of one entry-point function.

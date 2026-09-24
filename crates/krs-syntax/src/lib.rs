@@ -18,6 +18,7 @@ mod rule;
 mod sorts;
 mod state_macro;
 mod state_rule;
+pub mod surface;
 mod term;
 pub mod trivia;
 

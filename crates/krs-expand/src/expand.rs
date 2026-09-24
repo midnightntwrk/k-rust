@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
+use krs_syntax::surface::{AttributeMacro, helper_entry, last_segment_entry};
 use krs_syntax::{
     ClaimModality as SyntaxClaimModality, ConfigurationCellContent, FixedCellInitializer,
     GroupAssociativity as SyntaxGroupAssociativity, InitializerCellContent, KSequence,
@@ -50,7 +51,7 @@ pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<
     };
     if attrs
         .iter()
-        .any(|attribute| attribute_named(attribute, "symbol"))
+        .any(|attribute| last_segment_entry(attribute.path()) == Some(AttributeMacro::Symbol))
     {
         return Err(syn::Error::new(span, "duplicate #[k::symbol] attribute"));
     }
@@ -58,7 +59,10 @@ pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<
         .iter()
         .enumerate()
         .filter(|(_, attribute)| {
-            attribute_named(attribute, "sort") || attribute_named(attribute, "constructor")
+            matches!(
+                last_segment_entry(attribute.path()),
+                Some(AttributeMacro::Sort | AttributeMacro::Constructor)
+            )
         })
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
@@ -2412,7 +2416,7 @@ pub(crate) fn priority(
     let Some(index) = function
         .attrs
         .iter()
-        .position(|attribute| helper_name(attribute).is_some_and(|helper| helper == "equation"))
+        .position(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Equation))
     else {
         return Err(syn::Error::new(
             Span::call_site(),
@@ -4712,30 +4716,10 @@ fn variant_marker_function(variant: &Ident) -> Ident {
     format_ident!("__krs_variant_type_id_{}", variant)
 }
 
-fn helper_name(attribute: &Attribute) -> Option<&Ident> {
-    (attribute.path().segments.len() >= 2)
-        .then(|| {
-            attribute
-                .path()
-                .segments
-                .last()
-                .map(|segment| &segment.ident)
-        })
-        .flatten()
-}
-
-fn attribute_named(attribute: &Attribute, expected: &str) -> bool {
-    attribute
-        .path()
-        .segments
-        .last()
-        .is_some_and(|segment| segment.ident == expected)
-}
-
 fn reject_unexpanded_symbol(attributes: &[Attribute]) -> syn::Result<()> {
     if let Some(attribute) = attributes
         .iter()
-        .find(|attribute| attribute_named(attribute, "symbol"))
+        .find(|attribute| last_segment_entry(attribute.path()) == Some(AttributeMacro::Symbol))
     {
         return Err(syn::Error::new(
             attribute.span(),
@@ -4751,7 +4735,7 @@ fn take_explicit_symbol_helper(
     let mut symbol = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if attribute_named(&attribute, "__krs_explicit_symbol") {
+        if attribute.path().is_ident("__krs_explicit_symbol") {
             let parsed =
                 parse_symbol_attribute(helper_tokens(&attribute, "__krs_explicit_symbol")?)
                     .map_err(krs_syntax::SyntaxError::into_syn_error)?;
@@ -4785,9 +4769,9 @@ fn take_bracket_helpers(
     let mut brackets = Vec::new();
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if helper_name(&attribute).is_some_and(|name| name == "bracket") {
+        if helper_entry(attribute.path()) == Some(AttributeMacro::Bracket) {
             brackets.push(
-                parse_bracket_attribute(helper_tokens(&attribute, "bracket")?)
+                parse_bracket_attribute(helper_tokens(&attribute, AttributeMacro::Bracket.name())?)
                     .map_err(krs_syntax::SyntaxError::into_syn_error)?,
             );
         } else {
@@ -4804,13 +4788,13 @@ fn take_strictness_helpers(
     let mut strictness = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        let parsed = match helper_name(&attribute).map(ToString::to_string).as_deref() {
-            Some("strict") => Some(
-                parse_strict_attribute(helper_tokens(&attribute, "strict")?)
+        let parsed = match helper_entry(attribute.path()) {
+            Some(entry @ AttributeMacro::Strict) => Some(
+                parse_strict_attribute(helper_tokens(&attribute, entry.name())?)
                     .map_err(krs_syntax::SyntaxError::into_syn_error)?,
             ),
-            Some("seqstrict") => Some(
-                parse_seqstrict_attribute(helper_tokens(&attribute, "seqstrict")?)
+            Some(entry @ AttributeMacro::Seqstrict) => Some(
+                parse_seqstrict_attribute(helper_tokens(&attribute, entry.name())?)
                     .map_err(krs_syntax::SyntaxError::into_syn_error)?,
             ),
             _ => None,
@@ -4835,7 +4819,7 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
     let mut alias = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if helper_name(&attribute).is_some_and(|name| name == "alias") {
+        if helper_entry(attribute.path()) == Some(AttributeMacro::Alias) {
             let tokens = match &attribute.meta {
                 Meta::Path(_) => TokenStream::new(),
                 Meta::List(list) => list.tokens.clone(),
@@ -4873,15 +4857,16 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
 }
 
 pub(crate) fn orphan_strictness(
-    name: &str,
+    entry: AttributeMacro,
     attributes: TokenStream,
     _item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    match name {
-        "strict" => {
+    let name = entry.name();
+    match entry {
+        AttributeMacro::Strict => {
             parse_strict_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
         }
-        "seqstrict" => {
+        AttributeMacro::Seqstrict => {
             parse_seqstrict_attribute(attributes)
                 .map_err(krs_syntax::SyntaxError::into_syn_error)?;
         }
@@ -4896,11 +4881,12 @@ pub(crate) fn orphan_strictness(
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn orphan_rule_helper(
     env: &dyn MacroEnvironment,
-    name: &str,
+    entry: AttributeMacro,
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    if name == "requires" {
+    let name = entry.name();
+    if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
         if let Some((index, outer)) =
             function
@@ -4908,15 +4894,18 @@ pub(crate) fn orphan_rule_helper(
                 .iter()
                 .enumerate()
                 .find_map(|(index, attribute)| {
-                    let helper = helper_name(attribute)?;
-                    (helper == "equation" || helper == "simplification")
-                        .then(|| (index, helper.to_string()))
+                    let helper = helper_entry(attribute.path())?;
+                    matches!(
+                        helper,
+                        AttributeMacro::Equation | AttributeMacro::Simplification
+                    )
+                    .then_some((index, helper))
                 })
         {
             function.attrs.remove(index);
             let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
             function.attrs.insert(0, helper);
-            return if outer == "equation" {
+            return if outer == AttributeMacro::Equation {
                 equation(env, TokenStream::new(), function.to_token_stream())
             } else {
                 simplification(env, TokenStream::new(), function.to_token_stream())
@@ -4925,7 +4914,7 @@ pub(crate) fn orphan_rule_helper(
     }
     Err(syn::Error::new(
         Span::call_site(),
-        if matches!(name, "exists" | "ensures") {
+        if matches!(entry, AttributeMacro::Exists | AttributeMacro::Ensures) {
             format!("`#[k::{name}]` is a claim helper; place `#[k::claim(...)]` before it")
         } else {
             format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it")

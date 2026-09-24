@@ -13,7 +13,7 @@ use krs_expand::sink::{InvocationId, MappingClass};
 use krs_expand::whole_file::{
     self, ExpandDiagnostic, FileExpansion, FileRequest, MacroUseKind, SelectedInvocation, Selection,
 };
-use krs_expand::{AttributeMacro, FunctionMacro};
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use proc_macro2::TokenStream;
 use sha2::{Digest, Sha256};
 use support::{Expansion, TOUR_MINIMAL, expand_tour_minimal};

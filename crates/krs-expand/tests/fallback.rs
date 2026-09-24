@@ -4,7 +4,7 @@
 
 mod support;
 
-use krs_expand::{AttributeMacro, FunctionMacro};
+use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use proc_macro2::TokenStream;
 use support::{Expansion, TestEnvironment, expand_tour_minimal};
 

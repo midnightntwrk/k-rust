@@ -40,17 +40,17 @@
 
 use std::ops::Range;
 
+use krs_syntax::surface::{self, AttributeMacro, Entry, FunctionMacro};
 use proc_macro2::{Delimiter, Spacing, Span, TokenStream, TokenTree};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Attribute, ImplItem, Item, Macro, Meta, Path, TraitItem};
+use syn::{Attribute, ImplItem, Item, Macro, Meta, Path, PathSegment, TraitItem};
 
 use crate::browser_env::BrowserEnvironment;
 use crate::sink::{
     AuthoredFile, GeneratedSource, InvocationId, MappingClass, Splice, print_with_map,
     splice_tokens,
 };
-use crate::{AttributeMacro, FunctionMacro};
 
 /// Maximum nesting depth of rescanned invocations: rustc's default
 /// `recursion_limit`.
@@ -85,29 +85,6 @@ pub const PRINT: &str = "krs::expand::print";
 /// Name of the crate-root registration table, which replaces `inventory`
 /// collection where link-time constructors do not run (the browser rustc).
 pub const REGISTRATION_TABLE: &str = "__KRS_REGISTRATIONS";
-
-/// Single-segment attributes rustc never expands (a subset of its built-in
-/// attributes that includes every inert attribute lesson policy v1 accepts).
-const INERT_ATTRIBUTES: &[&str] = &[
-    "allow",
-    "automatically_derived",
-    "cold",
-    "deny",
-    "deprecated",
-    "doc",
-    "expect",
-    "forbid",
-    "inline",
-    "must_use",
-    "no_mangle",
-    "non_exhaustive",
-    "repr",
-    "track_caller",
-    "warn",
-];
-
-/// Tool namespaces whose attributes are inert.
-const TOOL_ATTRIBUTES: &[&str] = &["clippy", "diagnostic", "rustdoc", "rustfmt"];
 
 /// Which invocations [`expand_file`] expands.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -497,21 +474,6 @@ fn unsupported_prefix(source: &str) -> Option<ExpandDiagnostic> {
     ))
 }
 
-#[derive(Clone, Copy, Debug)]
-enum Entry {
-    Attribute(AttributeMacro),
-    Function(FunctionMacro),
-}
-
-impl Entry {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Attribute(entry) => entry.name(),
-            Self::Function(entry) => entry.name(),
-        }
-    }
-}
-
 /// Where an invocation's output lands.
 #[derive(Clone, Debug)]
 enum Scope {
@@ -547,24 +509,10 @@ impl Discovery<'_> {
             .expect("discovered nodes come from the authored tokens")
     }
 
-    /// The entry name of a `<alias>::<entry>` path.
-    fn facade_entry<'p>(&self, path: &'p Path) -> Option<&'p syn::Ident> {
-        let [facade, entry] = [path.segments.first()?, path.segments.last()?];
-        (path.leading_colon.is_none()
-            && path.segments.len() == 2
-            && facade.ident == self.alias
-            && facade.arguments.is_none()
-            && entry.arguments.is_none())
-        .then_some(&entry.ident)
-    }
-
     /// Records a function-like KRS invocation, or scans another macro's
     /// tokens for KRS invocations. Returns whether `mac` is a KRS invocation.
     fn visit_mac(&mut self, mac: &Macro, replaced: Option<Range<usize>>) -> bool {
-        let entry = self
-            .facade_entry(&mac.path)
-            .and_then(|entry| FunctionMacro::from_name(&entry.to_string()));
-        let Some(entry) = entry else {
+        let Some(Entry::Function(entry)) = surface::resolve(&mac.path, self.alias) else {
             self.scan_tokens(&mac.tokens);
             return false;
         };
@@ -617,17 +565,17 @@ impl Discovery<'_> {
     fn visit_attributes(&mut self, attrs: &[Attribute], node: Span) -> bool {
         let krs = attrs
             .iter()
-            .position(|attribute| self.facade_entry(attribute.path()).is_some());
+            .position(|attribute| surface::facade_member(attribute.path(), self.alias).is_some());
         let Some(krs) = krs else {
             return false;
         };
         let first = attrs
             .iter()
-            .position(|attribute| !is_inert(attribute))
+            .position(|attribute| !surface::is_inert(attribute.path()))
             .expect("a facade attribute is not inert");
         let attribute = &attrs[first];
         let call_site = attribute.span();
-        let Some(name) = self.facade_entry(attribute.path()) else {
+        let Some(name) = surface::facade_member(attribute.path(), self.alias) else {
             let name = quote::ToTokens::to_token_stream(attribute.path())
                 .to_string()
                 .replace(' ', "");
@@ -640,7 +588,7 @@ impl Discovery<'_> {
             ));
             return true;
         };
-        let Some(entry) = AttributeMacro::from_name(&name.to_string()) else {
+        let Some(Entry::Attribute(entry)) = Entry::from_name(&name) else {
             self.diagnostics.push(ExpandDiagnostic::exact(
                 NOT_AN_ATTRIBUTE_MACRO,
                 format!("`{}::{name}` is not a KRS attribute macro", self.alias),
@@ -771,25 +719,6 @@ fn item_attributes(item: &Item) -> Option<&[Attribute]> {
     })
 }
 
-/// Whether rustc skips `attribute` when it chooses the attribute to expand:
-/// doc comments, built-in inert attributes, and tool attributes. `cfg` and
-/// `cfg_attr` are not inert; rustc evaluates them first.
-fn is_inert(attribute: &Attribute) -> bool {
-    let path = attribute.path();
-    if path.leading_colon.is_some() {
-        return false;
-    }
-    match path.segments.len() {
-        1 => INERT_ATTRIBUTES
-            .iter()
-            .any(|name| path.segments[0].ident == name),
-        2 => TOOL_ATTRIBUTES
-            .iter()
-            .any(|name| path.segments[0].ident == name),
-        _ => false,
-    }
-}
-
 /// The token trees of `stream` that lie inside `range`, without those inside
 /// `exclude`, taken from the innermost group that contains `range`.
 fn slice_trees(
@@ -872,9 +801,9 @@ fn is_joint_colon(tree: Option<&TokenTree>) -> bool {
     matches!(tree, Some(TokenTree::Punct(punct)) if punct.as_char() == ':' && punct.spacing() == Spacing::Joint)
 }
 
-/// The path segments starting at `trees[index]` (with an optional leading
-/// `::`) and the number of trees they occupy.
-fn path_at(trees: &[TokenTree], index: usize) -> Option<(bool, Vec<String>, usize)> {
+/// The path starting at `trees[index]` (with an optional leading `::`) and
+/// the number of trees it occupies.
+fn path_at(trees: &[TokenTree], index: usize) -> Option<(Path, usize)> {
     if index > 0 && is_punct(trees.get(index - 1), ':') {
         return None;
     }
@@ -883,40 +812,29 @@ fn path_at(trees: &[TokenTree], index: usize) -> Option<(bool, Vec<String>, usiz
     if leading {
         at += 2;
     }
-    let mut segments = Vec::new();
+    let mut path = Path {
+        leading_colon: leading.then(Default::default),
+        segments: syn::punctuated::Punctuated::new(),
+    };
     loop {
         let Some(TokenTree::Ident(ident)) = trees.get(at) else {
             return None;
         };
-        segments.push(ident.to_string());
+        path.segments.push(PathSegment::from(ident.clone()));
         at += 1;
         if is_joint_colon(trees.get(at)) && is_punct(trees.get(at + 1), ':') {
             at += 2;
         } else {
-            return Some((leading, segments, at - index));
+            return Some((path, at - index));
         }
     }
 }
 
-/// Whether a path names `<alias>::<entry>` or `<facade>::<entry>`.
-fn facade_entry_name(
-    leading: bool,
-    segments: &[String],
-    alias: &str,
-    facade: Option<&Path>,
-) -> Option<String> {
-    let (entry, prefix) = segments.split_last()?;
-    let alias_form = !leading && prefix.len() == 1 && prefix[0] == alias;
-    let facade_form = facade.is_some_and(|facade| {
-        facade.leading_colon.is_some() == leading
-            && facade.segments.len() == prefix.len()
-            && facade
-                .segments
-                .iter()
-                .zip(prefix)
-                .all(|(segment, name)| segment.ident == name && segment.arguments.is_none())
-    });
-    (alias_form || facade_form).then(|| entry.clone())
+/// The entry point that `path` invokes as `<alias>::<entry>` or, in
+/// generated code, as `<facade>::<entry>`.
+fn resolve(path: &Path, alias: &str, facade: Option<&Path>) -> Option<Entry> {
+    surface::resolve(path, alias)
+        .or_else(|| facade.and_then(|facade| surface::resolve_under(path, facade)))
 }
 
 fn function_call(
@@ -925,9 +843,10 @@ fn function_call(
     alias: &str,
     facade: Option<&Path>,
 ) -> Option<FunctionCall> {
-    let (leading, segments, len) = path_at(trees, index)?;
-    let name = facade_entry_name(leading, &segments, alias, facade)?;
-    let entry = FunctionMacro::from_name(&name)?;
+    let (path, len) = path_at(trees, index)?;
+    let Entry::Function(entry) = resolve(&path, alias, facade)? else {
+        return None;
+    };
     if !is_punct(trees.get(index + len), '!') {
         return None;
     }
@@ -950,7 +869,7 @@ fn attribute_call(
     index: usize,
     alias: &str,
     facade: Option<&Path>,
-) -> Option<String> {
+) -> Option<AttributeMacro> {
     if !is_punct(trees.get(index), '#') {
         return None;
     }
@@ -961,9 +880,11 @@ fn attribute_call(
         return None;
     }
     let inner = group.stream().into_iter().collect::<Vec<_>>();
-    let (leading, segments, _) = path_at(&inner, 0)?;
-    let name = facade_entry_name(leading, &segments, alias, facade)?;
-    AttributeMacro::from_name(&name).map(|_| name)
+    let (path, _) = path_at(&inner, 0)?;
+    match resolve(&path, alias, facade)? {
+        Entry::Attribute(entry) => Some(entry),
+        Entry::Function(_) => None,
+    }
 }
 
 /// One invocation to expand.
@@ -1170,12 +1091,13 @@ impl Expander<'_> {
                 index += call.len;
                 continue;
             }
-            if let Some(name) = attribute_call(&trees, index, self.alias, Some(self.facade)) {
+            if let Some(entry) = attribute_call(&trees, index, self.alias, Some(self.facade)) {
                 self.diagnostics.push(ExpandDiagnostic {
                     code: Some(NESTED_ATTRIBUTE),
                     message: format!(
-                        "the expansion contains a `#[{}::{name}]` invocation, which the browser expander does not expand",
-                        self.alias
+                        "the expansion contains a `#[{}::{}]` invocation, which the browser expander does not expand",
+                        self.alias,
+                        entry.name()
                     ),
                     class: MappingClass::InvocationLevel,
                     authored: Some(call_site.clone()),
@@ -1306,13 +1228,13 @@ pub fn macro_uses(source: &str) -> syn::Result<Vec<MacroUse>> {
     fn scan(tokens: &TokenStream, uses: &mut Vec<MacroUse>) {
         let trees = tokens.clone().into_iter().collect::<Vec<_>>();
         for index in 0..trees.len() {
-            if let Some((leading, segments, len)) = path_at(&trees, index)
+            if let Some((path, len)) = path_at(&trees, index)
                 && is_punct(trees.get(index + len), '!')
                 && matches!(trees.get(index + len + 1), Some(TokenTree::Group(_)))
             {
                 uses.push(MacroUse {
                     kind: MacroUseKind::Bang,
-                    path: format!("{}{}", if leading { "::" } else { "" }, segments.join("::")),
+                    path: text(&path),
                 });
             }
             if is_punct(trees.get(index), '#')
@@ -1345,7 +1267,7 @@ pub fn macro_uses(source: &str) -> syn::Result<Vec<MacroUse>> {
                         path: text(path),
                     }));
                 }
-            } else if !is_inert(attribute) {
+            } else if !surface::is_inert(attribute.path()) {
                 uses.push(MacroUse {
                     kind: MacroUseKind::Attribute,
                     path: text(attribute.path()),
