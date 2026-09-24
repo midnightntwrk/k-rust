@@ -679,6 +679,15 @@ fn search_graph_collecting(
                 reason,
             },
         };
+        // See `step_observed_cancellation`.
+        if step_observed_cancellation() {
+            incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
+                state,
+                observation_head,
+                &observation_log,
+            )));
+            continue;
+        }
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 if options.search_type != SearchType::Final {
@@ -837,6 +846,13 @@ fn materialize_search_state(
 /// only the reported copy is simplified. `None` is a result whose constraints simplify to
 /// `\bottom`: an empty state is no result, as it is none at the loop head. A failed
 /// simplification reports the unsimplified state in `incomplete` instead of a result.
+///
+/// A simplification that returns while the request is cancelled is not a result either. The
+/// simplifier keeps a constraint whose validity the solver leaves unknown, and once the request
+/// is cancelled every solver query answers unknown, so a constraint that refutes the state may
+/// have been kept only because of the cancellation. Publishing that copy would report a state
+/// that is not known to be reachable as part of a complete answer; the state's exploration is
+/// reported as cancelled instead.
 #[allow(clippy::too_many_arguments)]
 fn externalise_result(
     definition: &BackendDefinition,
@@ -863,6 +879,15 @@ fn externalise_result(
     ) {
         Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             record_effects(effects, simplified.effects, observe);
+            None
+        }
+        Ok(simplified) if cancellation_requested() => {
+            record_effects(effects, simplified.effects, observe);
+            incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
+                state,
+                observation,
+                observation_log,
+            )));
             None
         }
         Ok(simplified) => {
@@ -1230,6 +1255,13 @@ fn search_paths_collecting(
                 reason,
             },
         };
+        // See `step_observed_cancellation`.
+        if step_observed_cancellation() {
+            incomplete.push(IncompleteSearch::Cancelled(
+                path.materialize_state(&observation_log),
+            ));
+            continue;
+        }
         match rewrite {
             RewriteResult::Stuck(pattern) => {
                 path.state.pattern = pattern;
@@ -1760,6 +1792,18 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
         branch: witness.id,
         observations: witness.observations,
     }
+}
+
+/// Whether the request was cancelled by the time a state's rewrite step returned.
+///
+/// A step whose solver queries answered unknown because of the cancellation may have kept an
+/// equation's or rule's outcome undecided without recording an incomplete entry (the simplifier
+/// keeps an undecided constraint and an undecided equation leaves its subject unevaluated), so
+/// neither its successors nor a `Stuck` verdict can be trusted as complete. Search arms no step
+/// deadline, so the cancellation is its only interruption source, and the state's exploration
+/// is reported as cancelled.
+fn step_observed_cancellation() -> bool {
+    cancellation_requested()
 }
 
 /// Classify a simplification failure that ends the exploration of `state`.

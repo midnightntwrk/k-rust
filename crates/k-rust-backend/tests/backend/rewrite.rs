@@ -6683,6 +6683,111 @@ fn search_reports_a_cancellation_observed_by_the_remainder_check_as_cancelled() 
     assert_eq!(state.depth, 0);
 }
 
+/// `wrap(Y)` under `0 <Int X` and `X <Int 0`: `wrap` has no rewrite rule, so the state is final,
+/// but its constraints are contradictory, so it is no reachable state. The solver refutes them
+/// only while the reported copy of the final state is simplified.
+fn contradictory_final_state_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.lt"), smt-hook{}("<")]
+            "#,
+    )
+}
+
+fn contradictory_final_state(definition: &BackendDefinition) -> Pattern {
+    let lt = |left: &str, right: &str| {
+        Predicate::Equals(
+            internal_term(definition, &format!("lt{{}}({left}, {right})")),
+            internal_term(definition, r#"\dv{SortBool{}}("true")"#),
+        )
+    };
+    Pattern {
+        term: internal_term(definition, "wrap{}(Y:SortS{})"),
+        constraints: vec![
+            lt(r#"\dv{SortInt{}}("0")"#, "X:SortInt{}"),
+            lt("X:SortInt{}", r#"\dv{SortInt{}}("0")"#),
+        ],
+    }
+}
+
+/// A solver whose every answer is unknown, as a cancelled solver answers, and which cancels
+/// `token` while answering its first query.
+fn solver_cancelling_at_first_query(token: &CancellationToken) -> ScriptedSolver {
+    ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Unknown("request cancelled".into())), 16),
+        std::iter::repeat_n(Ok(Validity::Unknown("request cancelled".into())), 16),
+    )
+    .cancelling_at(0, token.clone())
+}
+
+#[test]
+fn search_does_not_publish_a_final_state_whose_externalisation_observed_a_cancellation() {
+    let definition = contradictory_final_state_definition();
+
+    // Control: a solver that refutes the constraints leaves no final state, and the search is
+    // complete.
+    let refuting = ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Unsat), 16),
+        std::iter::repeat_n(Ok(Validity::Invalid), 16),
+    );
+    let control = k_rust_backend::search::search_graph_with_solver(
+        &definition,
+        contradictory_final_state(&definition),
+        k_rust_backend::search::SearchOptions::default(),
+        &refuting,
+    );
+    assert!(control.states.is_empty(), "{control:#?}");
+    assert!(control.incomplete.is_empty(), "{control:#?}");
+
+    // The cancellation arrives during the first query that could refute the constraints, so the
+    // constraints are kept rather than refuted: the state is not known to be reachable and the
+    // search did not finish deciding it.
+    let token = CancellationToken::new();
+    let solver = solver_cancelling_at_first_query(&token);
+    let result = token.scope(|| {
+        k_rust_backend::search::search_graph_with_solver(
+            &definition,
+            contradictory_final_state(&definition),
+            k_rust_backend::search::SearchOptions::default(),
+            &solver,
+        )
+    });
+
+    assert!(token.is_cancelled());
+    assert!(result.states.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
+#[test]
+fn path_search_does_not_publish_a_final_witness_whose_externalisation_observed_a_cancellation() {
+    let definition = contradictory_final_state_definition();
+    let token = CancellationToken::new();
+    let solver = solver_cancelling_at_first_query(&token);
+    let result = token.scope(|| {
+        k_rust_backend::search::search_paths_with_solver(
+            &definition,
+            contradictory_final_state(&definition),
+            k_rust_backend::search::SearchOptions::default(),
+            &solver,
+        )
+    });
+
+    assert!(token.is_cancelled());
+    assert!(result.witnesses.is_empty(), "{result:#?}");
+    let [k_rust_backend::search::IncompleteSearch::Cancelled(state)] = result.incomplete.as_slice()
+    else {
+        panic!("expected cancellation, found {:#?}", result.incomplete);
+    };
+    assert_eq!(state.depth, 0);
+}
+
 #[test]
 fn execution_disables_console_capability_after_a_symbolic_transition() {
     let definition = console_io_definition(
