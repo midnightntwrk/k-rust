@@ -202,6 +202,15 @@ impl SyntaxRelations {
     }
 }
 
+/// The name a syntax-module declaration is made under, which decides whether it carries the syntax relations.
+#[derive(Clone, Copy)]
+enum SyntaxDeclaration<'a> {
+    /// Under the production's own label: priority and associativity groups name that label, so the declaration carries the `priorities`, `left`, and `right` it is related by.
+    UnderLabel(&'a SyntaxRelations),
+    /// Under the `bracketLabel` of an unlabelled bracket: no priority or associativity group can name it, so the declaration carries no relations.
+    UnderBracketLabel,
+}
+
 fn grouped_associativity(relations: &BTreeSet<(String, String)>) -> BTreeMap<String, Vec<Pattern>> {
     let mut grouped = BTreeMap::<String, Vec<Pattern>>::new();
     for (parent, child) in relations {
@@ -508,9 +517,8 @@ pub fn declaration_modules_from_resolved_with_options(
             &overloaded_greater,
             &anywhere_labels,
             &impure_labels,
-            false,
+            None,
             items,
-            &syntax_relations,
             hook_namespaces,
         )?;
         let syntax_attributes = symbol_attributes(
@@ -522,9 +530,8 @@ pub fn declaration_modules_from_resolved_with_options(
             &overloaded_greater,
             &anywhere_labels,
             &impure_labels,
-            true,
+            Some(SyntaxDeclaration::UnderLabel(&syntax_relations)),
             items,
-            &syntax_relations,
             hook_namespaces,
         )?;
         let hooked =
@@ -574,9 +581,8 @@ pub fn declaration_modules_from_resolved_with_options(
             &overloaded_greater,
             &anywhere_labels,
             &impure_labels,
-            true,
+            Some(SyntaxDeclaration::UnderBracketLabel),
             items,
-            &syntax_relations,
             hook_namespaces,
         )?;
         syntax_sentences.push(KoreSentence::SymbolDeclaration {
@@ -1261,9 +1267,8 @@ fn symbol_attributes(
     overloaded_greater: &BTreeSet<crate::definition::ProductionId>,
     anywhere_labels: &BTreeSet<String>,
     impure_labels: &BTreeSet<String>,
-    with_syntax: bool,
+    syntax: Option<SyntaxDeclaration<'_>>,
     items: &[ProductionItem],
-    syntax_relations: &SyntaxRelations,
     hook_namespaces: &[String],
 ) -> Result<Attributes, DeclarationError> {
     let mut entries = source.semantic_entries().clone();
@@ -1344,15 +1349,8 @@ fn symbol_attributes(
             );
         }
     }
-    if with_syntax {
-        add_syntax_attributes(
-            source,
-            label,
-            items,
-            syntax_relations,
-            &mut entries,
-            &mut overrides,
-        );
+    if let Some(syntax) = syntax {
+        add_syntax_attributes(source, label, items, syntax, &mut entries, &mut overrides);
     }
     Ok(emit_attributes(&entries, valued, &overrides))
 }
@@ -1361,7 +1359,7 @@ fn add_syntax_attributes(
     source: &KAttributes,
     label: &Label,
     items: &[ProductionItem],
-    syntax_relations: &SyntaxRelations,
+    syntax: SyntaxDeclaration<'_>,
     entries: &mut BTreeMap<String, Value>,
     overrides: &mut BTreeMap<String, Vec<Pattern>>,
 ) {
@@ -1427,12 +1425,9 @@ fn add_syntax_attributes(
                 .collect(),
         ),
     );
-    let has_user_label = [AttributeKey::Symbol, AttributeKey::Klabel]
-        .into_iter()
-        .any(|key| source.string(key).is_some_and(|label| !label.is_empty()));
-    if source.has(AttributeKey::Bracket) && !has_user_label {
+    let SyntaxDeclaration::UnderLabel(syntax_relations) = syntax else {
         return;
-    }
+    };
     for key in [
         AttributeKey::Priorities,
         AttributeKey::Left,
