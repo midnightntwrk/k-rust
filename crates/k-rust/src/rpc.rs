@@ -57,15 +57,30 @@ const REQUEST_CANCELLED: u8 = 1;
 const REQUEST_COMPLETED: u8 = 2;
 /// A connection's session ends when its reader stops (end of stream or a read error); its
 /// requests are then cancelled. A peer that vanishes without closing (crash, lost network)
-/// produces neither until the operating system gives up on it, so accepted sockets carry TCP
-/// keepalive: after `KEEPALIVE_IDLE` without traffic the OS sends a probe every
-/// `KEEPALIVE_INTERVAL`, and after `KEEPALIVE_RETRIES` unanswered probes the pending read fails.
-/// A silent vanished peer is therefore detected at most
-/// `KEEPALIVE_IDLE + KEEPALIVE_RETRIES * KEEPALIVE_INTERVAL` = 25 s after its last segment.
+/// produces neither until the operating system gives up on it, so accepted sockets carry two
+/// bounds on how long the OS keeps a silent peer:
+/// - TCP keepalive, which only probes a connection with nothing in flight: after
+///   `KEEPALIVE_IDLE` without traffic the OS sends a probe every `KEEPALIVE_INTERVAL`, and after
+///   `KEEPALIVE_RETRIES` unanswered probes the pending read fails, at most
+///   `KEEPALIVE_IDLE + KEEPALIVE_RETRIES * KEEPALIVE_INTERVAL` = 25 s after the peer's last segment.
+/// - `TCP_USER_TIMEOUT` = `UNACKNOWLEDGED_DATA_TIMEOUT` (Linux and Android), which covers the case
+///   keepalive skips: while response bytes sent to the peer stay unacknowledged the OS retransmits
+///   instead of probing, and the connection fails once data has stayed unacknowledged for 25 s,
+///   rather than when retransmission gives up (about 15 minutes with the Linux default
+///   `tcp_retries2`). It also fails a live client whose receive window has stayed full for 25 s,
+///   i.e. one that stopped reading a response larger than the socket buffers.
+///
+/// On those systems a silent vanished peer is therefore detected about 25 s after it falls silent,
+/// whether or not a response is in flight to it; elsewhere the in-flight case waits for the OS
+/// retransmission limit.
 /// A live idle client costs one empty segment each way per `KEEPALIVE_IDLE`.
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(10);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 const KEEPALIVE_RETRIES: u32 = 3;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const UNACKNOWLEDGED_DATA_TIMEOUT: Duration = Duration::from_secs(
+    KEEPALIVE_IDLE.as_secs() + KEEPALIVE_RETRIES as u64 * KEEPALIVE_INTERVAL.as_secs(),
+);
 
 struct RequestControl {
     token: CancellationToken,
@@ -1824,7 +1839,11 @@ fn enable_keepalive(stream: &TcpStream) -> io::Result<()> {
         .with_time(KEEPALIVE_IDLE)
         .with_interval(KEEPALIVE_INTERVAL)
         .with_retries(KEEPALIVE_RETRIES);
-    socket2::SockRef::from(stream).set_tcp_keepalive(&keepalive)
+    let socket = socket2::SockRef::from(stream);
+    socket.set_tcp_keepalive(&keepalive)?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    socket.set_tcp_user_timeout(Some(UNACKNOWLEDGED_DATA_TIMEOUT))?;
+    Ok(())
 }
 
 fn read_json_message(reader: &mut impl Read, buffer: &mut Vec<u8>) -> io::Result<Option<String>> {
@@ -4622,7 +4641,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_connections_carry_tcp_keepalive() {
+    fn accepted_connections_carry_tcp_keepalive_and_user_timeout() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let client = TcpStream::connect(address).unwrap();
@@ -4651,6 +4670,11 @@ mod tests {
         assert_eq!(socket.tcp_keepalive_time().unwrap(), KEEPALIVE_IDLE);
         assert_eq!(socket.tcp_keepalive_interval().unwrap(), KEEPALIVE_INTERVAL);
         assert_eq!(socket.tcp_keepalive_retries().unwrap(), KEEPALIVE_RETRIES);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        assert_eq!(
+            socket.tcp_user_timeout().unwrap(),
+            Some(UNACKNOWLEDGED_DATA_TIMEOUT)
+        );
 
         drop(client);
         server.join().unwrap();
