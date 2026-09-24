@@ -187,6 +187,89 @@ fn labelled_token_definition(hooked: bool) -> Definition {
     }
 }
 
+/// A bracket's `label` names its syntax-module symbol and the tag its priority and associativity groups use, so a structured bracket labelled `paren` without a `symbol` attribute is declared with the relations that name `paren`, as the source form `[bracket, symbol(paren)]` is.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn structured_labelled_bracket_declares_its_syntax_relations() {
+    let mut definition = structured_definition(false);
+    let exp = || ProductionItem::NonTerminal {
+        sort: Sort::new("Exp"),
+        name: None,
+    };
+    let sentences = &mut definition.modules[0].local_sentences;
+    sentences.push(std::sync::Arc::new(Sentence::Production {
+        label: Some(Label::new("paren")),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![
+            ProductionItem::Terminal("(".into()),
+            exp(),
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: Attributes::new(BTreeMap::from([
+            ("bracket".into(), json!("")),
+            ("format".into(), json!("%1 %2 %3")),
+        ])),
+    }));
+    sentences.push(std::sync::Arc::new(Sentence::Production {
+        label: Some(Label::new("plus")),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![exp(), ProductionItem::Terminal("+".into()), exp()],
+        attributes: Attributes::default(),
+    }));
+    sentences.push(std::sync::Arc::new(Sentence::SyntaxPriority {
+        priorities: vec![vec!["paren".into()], vec!["plus".into()]],
+        attributes: Attributes::default(),
+    }));
+
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let loaded = load_structured(
+            definition.clone(),
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![backend.excluded_module_attribute().into()],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected structured loading: {error}"));
+        let artifacts = compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected structured input: {error:#?}"));
+
+        let syntax = &artifacts.syntax_definition_kore;
+        let declaration = syntax
+            .find("symbol Lblparen{}(")
+            .map(|start| {
+                let rest = &syntax[start..];
+                &rest[..rest
+                    .find("\n  ]")
+                    .expect("the declaration's attributes close")]
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "{backend}: `paren` is not declared in the syntax module:\n{}",
+                    syntax
+                )
+            });
+        for attribute in ["bracket{}()", "format{}(", "left{}(", "right{}("] {
+            assert!(
+                declaration.contains(attribute),
+                "{backend}: missing `{attribute}` in {declaration}"
+            );
+        }
+        assert!(
+            declaration.contains("priorities{}(Lblplus{}())"),
+            "{backend}: `paren` does not carry its priority over `plus`: {declaration}"
+        );
+    }
+}
+
 fn assert_compiles_on_both_backends(
     definition: Definition,
     assert_artifacts: impl Fn(&k_rust::kompile::CompiledKoreArtifacts),
