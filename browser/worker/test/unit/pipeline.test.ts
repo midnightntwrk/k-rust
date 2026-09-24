@@ -11,7 +11,7 @@ import type { ExpandResponse, LookupResponse, PolicyResponse } from "../../src/m
 import { runExpander, runLookup, runPolicy } from "../../src/modules.ts";
 import { packFromManifest, type SourcePackManifest } from "../../src/pack-manifest.ts";
 import { checkActivation, recomputePackId, sha256Hex } from "../../src/pack.ts";
-import { createBuild, injectMissingFactory, runBuild, stagePolicy, StageFailure } from "../../src/pipeline.ts";
+import { createBuild, injectMissingFactory, runBuild, stageAssets, stagePolicy, StageFailure } from "../../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest, VerifiedAssets } from "../../src/protocol.ts";
 import { classifyRustc, collectorInvocation, lessonInvocation, parseStderr, reportable } from "../../src/rustc.ts";
 import { parseSysrootBundle, readOnlyTree } from "../../src/vfs.ts";
@@ -64,6 +64,21 @@ describe("collector template", () => {
   test("equals krs-cli render_production_main (explicit) for the lesson package", () => {
     expect(renderCollectorMain(lesson)).toBe(fixture("collector-main.expected.rs"));
   });
+});
+
+test("worker rejects an unresolved lesson dependency as a protocol error", async () => {
+  const pack = await adaptedPack();
+  const ctx = { pack, modules: {} as VerifiedAssets["modules"], layers: { sysroot: new Map(), pack: new Map(), krs: new Map() }, activationProblems: [] };
+  const inherited = { ...lesson, package: { ...lesson.package, cargo_toml: '[package]\nname = "example"\n[dependencies]\nk.workspace = true\n' } };
+  const build = createBuild(ctx, { generation: 1, lesson: inherited, files: {} }, { emit: () => {} });
+  try {
+    stageAssets(build);
+    throw new Error("expected protocol failure");
+  } catch (error) {
+    expect(error).toBeInstanceOf(StageFailure);
+    expect(error).toMatchObject({ code: "protocol-mismatch", stage: "assets" });
+    expect(String(error)).toContain("dependencies.k.workspace");
+  }
 });
 
 describe("pack adapter (pack manifest, schema_version 2)", () => {
@@ -317,4 +332,3 @@ describe("test-only fault injection", () => {
     expect(() => injectMissingFactory("fn a() {}\n", response)).toThrow(StageFailure);
   });
 });
-

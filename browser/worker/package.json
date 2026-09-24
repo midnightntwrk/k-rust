@@ -11,5 +11,8 @@
   "scripts": {
     "test": "bun test test/unit",
     "typecheck": "bunx --package typescript@5.9.3 tsc --noEmit -p . && bunx --package typescript@5.9.3 tsc --noEmit -p ../../tests/browser-backend"
+  },
+  "dependencies": {
+    "smol-toml": "1.9.0"
   }
 }

@@ -49,7 +49,7 @@ export interface LessonManifest {
     k_namespace: string;
     /** Cargo source kind passed to PackageContext::new (krs-cli: "workspace"). */
     cargo_source: string;
-    /** The fixed Cargo.toml text mounted at <manifest_dir>/Cargo.toml. */
+    /** The self-contained Cargo.toml text mounted at <manifest_dir>/Cargo.toml; workspace inheritance is a protocol error. */
     cargo_toml: string;
   };
   /** The facade dependency: `alias` is the extern name, `path` its absolute path. */

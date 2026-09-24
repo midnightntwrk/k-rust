@@ -15,6 +15,7 @@
 // path it opens must be a declared virtual path, as in the pack rlibs.
 
 import { renderCollectorMain } from "./collector-template.ts";
+import { validateLessonCargoToml } from "./lesson-cargo-toml.ts";
 import { fromCollector, fromExpander, fromPolicy, fromRustc, lookupRanges } from "./diagnostics.ts";
 import { runExpander, runLookup, runPolicy, type ExpandResponse } from "./modules.ts";
 import { checkActivation, sha256Hex } from "./pack.ts";
@@ -183,6 +184,11 @@ async function listPreopens(preopens: PreopenDirectory[]): Promise<VfsEntry[]> {
 
 export function stageAssets(build: Build): void {
   const { ctx, lesson } = build;
+  try {
+    validateLessonCargoToml(lesson.package.cargo_toml);
+  } catch (error) {
+    throw new StageFailure("assets", "protocol-mismatch", String(error));
+  }
   if (ctx.activationProblems.length > 0) {
     throw new StageFailure("assets", "pack-integrity", `pack ${ctx.pack.pack_id} is not activated: ${ctx.activationProblems.join("; ")}`);
   }
@@ -552,4 +558,3 @@ export async function runBuild(ctx: PipelineContext, request: CompileRequest, ho
     return { ok: false, replaceWorker: true, build };
   }
 }
-

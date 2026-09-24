@@ -1,4 +1,5 @@
 **/target/
+**/node_modules/
 
 # Recovery-transfer and local agent artifacts.
 .DS_Store

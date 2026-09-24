@@ -23,6 +23,7 @@ import { packFromManifest, type SourcePackManifest } from "../src/pack-manifest.
 import { sha256Hex } from "../src/pack.ts";
 import type { LessonManifest, PackAsset } from "../src/protocol.ts";
 import { scratchPath } from "../test/harness/environment.ts";
+import { buildLessonManifest } from "./lesson-manifest.ts";
 
 const { values } = parseArgs({
   options: {
@@ -99,33 +100,23 @@ const pack = await packFromManifest(source, {
 writeFileSync(join(OUT, "pack.json"), `${JSON.stringify(pack, null, 1)}\n`);
 
 // tour-minimal lesson manifest, rendered from the fixture's Cargo.toml.
-const cargoToml = text(gitShow("tests/tour-minimal/Cargo.toml"));
-const cargo = Bun.TOML.parse(cargoToml) as {
-  package: { name: string; version: string; edition: string; metadata: { krs: { "k-namespace": string } } };
-  lib: { name: string };
-  dependencies: Record<string, { package?: string }>;
-  lints?: { rust?: Record<string, string | { level: string; priority?: number }> };
-};
-const levelFlag: Record<string, string> = { forbid: "-F", deny: "-D", warn: "-W", allow: "-A" };
-const lintFlags = Object.entries(cargo.lints?.rust ?? {})
-  .map(([name, value]) => (typeof value === "string" ? { name, level: value, priority: 0 } : { name, level: value.level, priority: value.priority ?? 0 }))
-  .sort((a, b) => a.priority - b.priority || (a.name < b.name ? -1 : 1))
-  .flatMap(({ name, level }) => [levelFlag[level]!, name]);
-const facadeAlias = Object.entries(cargo.dependencies).find(([, dep]) => dep.package === "krs")![0];
+const cargo = buildLessonManifest(text(gitShow("tests/tour-minimal/Cargo.toml")), text(gitShow("Cargo.toml")));
+const facadeAlias = cargo.facadeAlias;
+const lintFlags = cargo.lintFlags;
 const lesson: LessonManifest = {
   schema: 1,
   lesson: "tour-minimal",
   pack_id: pack.pack_id,
   expansion: "krs-expander",
   package: {
-    cargo_name: cargo.package.name,
-    cargo_version: cargo.package.version,
-    crate_name: cargo.lib.name,
+    cargo_name: cargo.name,
+    cargo_version: cargo.version,
+    crate_name: cargo.libName,
     manifest_dir: "/workspace/tour-minimal",
-    edition: cargo.package.edition,
-    k_namespace: cargo.package.metadata.krs["k-namespace"],
+    edition: cargo.edition,
+    k_namespace: cargo.namespace!,
     cargo_source: "workspace",
-    cargo_toml: cargoToml,
+    cargo_toml: cargo.cargoToml,
   },
   facade: { alias: facadeAlias, path: `::${facadeAlias}` },
   display_file: "src/lib.rs",
