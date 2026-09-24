@@ -639,6 +639,20 @@ pub fn run_json(request: &[u8]) -> Vec<u8> {
     serde_json::to_vec(&run(request)).expect("expansion responses always serialize")
 }
 
+/// The JSON expansion response for a protocol error raised before any
+/// request bytes are read.
+pub(crate) fn protocol_error_json(message: &str) -> Vec<u8> {
+    let evidence = Evidence {
+        krs_expand_version: env!("CARGO_PKG_VERSION"),
+        request_sha256: sha256(&[]),
+        authored_sha256: None,
+        text_sha256: None,
+        policy_version: None,
+    };
+    let response = Response::failed(vec![Diagnostic::protocol(message.to_owned())], evidence);
+    serde_json::to_vec(&response).expect("expansion responses always serialize")
+}
+
 /// One lookup request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

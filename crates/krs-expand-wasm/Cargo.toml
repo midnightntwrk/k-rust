@@ -14,17 +14,17 @@ krs-expand = { path = "../krs-expand" }
 # Without the default `abi` feature, so this module does not re-export the
 # policy module's `krs_lesson_policy_*` symbols.
 krs-lesson-policy = { path = "../krs-lesson-policy", default-features = false }
-proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
+krs-wasm-abi = { path = "../krs-wasm-abi" }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
 syn = { version = "2.0.119", features = ["full", "parsing"] }
 
-# The workspace table forbids `unsafe_code`; the Wasm ABI needs
-# `#[unsafe(no_mangle)]`, which that lint reports and `forbid` cannot allow
-# locally. This table repeats the workspace policy with `deny`, and only the
-# ABI exports carry `#[allow(unsafe_code)]`. The crate has no `unsafe` block
-# (the same arrangement as `krs-lesson-policy`).
+# The workspace table forbids `unsafe_code`; the Wasm exports that
+# `krs_wasm_abi::export!` declares carry `#[unsafe(no_mangle)]`, which that
+# lint reports and `forbid` cannot allow locally. This table repeats the
+# workspace policy with `deny`, and only those exports carry
+# `#[allow(unsafe_code)]`. The crate has no `unsafe` block.
 [lints.rust]
 missing_docs = "warn"
 unsafe_code = "deny"

@@ -445,7 +445,7 @@ version = "0.1.0"
 dependencies = [
  "krs-expand",
  "krs-lesson-policy",
- "proc-macro2",
+ "krs-wasm-abi",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -488,6 +488,7 @@ dependencies = [
 name = "krs-lesson-policy"
 version = "0.1.0"
 dependencies = [
+ "krs-wasm-abi",
  "proc-macro2",
  "serde",
  "serde_json",
@@ -514,6 +515,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "krs-wasm-abi"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
 ]
 
 [[package]]

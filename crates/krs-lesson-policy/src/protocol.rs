@@ -93,7 +93,7 @@ pub fn run_json(request: &[u8]) -> Vec<u8> {
     serde_json::to_vec(&response).expect("policy responses always serialize")
 }
 
-fn protocol_error(message: String) -> Response {
+pub(crate) fn protocol_error(message: String) -> Response {
     Response {
         schema: SCHEMA,
         ok: false,

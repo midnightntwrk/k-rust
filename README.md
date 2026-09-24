@@ -34,7 +34,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 | `crates/krs-k-rust` | Adapter from Definition IR to the pinned `k-rust` frontend |
 | `crates/krs-cli` | The `krs` command: `check`, `expand`, `emit-k`, `build`, and `fmt` |
 | `crates/krs-fmt` | Canonical formatter |
-| `crates/krs-expand-wasm`, `crates/krs-lesson-policy` | Browser-lesson expander and editable-surface policy |
+| `crates/krs-expand-wasm`, `crates/krs-lesson-policy`, `crates/krs-wasm-abi` | Browser-lesson expander, editable-surface policy, and their shared Wasm ABI |
 | `semantics/` | Separate Cargo workspace with the KWasm, KEVM, and KMIR ports and `coverage.toml` |
 | `tests/` | Milestone gates (`m3b`–`m3d`, `m4`, `c7`, `cli`), port gates (`kwasm`, `kevm`, `kmir`), tour gates (`tour-*`), browser gates, and `repo-hygiene` |
 | `docs-plan/`, `docs-site/` | Tour curriculum, authoring specification, and the Vocs documentation site |
