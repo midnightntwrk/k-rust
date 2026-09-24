@@ -40,6 +40,13 @@ The reference checks are in `kernel/src/main/java/org/kframework/compile/checks/
 [Definition checks](../crates/k-rust/tests/definition_checks.rs) exercise these acceptance boundaries.
 Anywhere rules have the explicit supported-superset contract below.
 
+## Variable sort annotations
+
+A semantic cast `t:S` requires the sort of `t` to be less than or equal to `S` (K user manual, "Semantic casts"); on a variable this is an upper bound, in both inference engines.
+The variable's sort is then inferred like any other variable's: the same sort at every occurrence, maximal among the solutions, so `rule bar(X:Big) => foo(X)` with `foo(Small)` gives `X` the sort `Small` and compiles to a pattern matching `bar` of an injection of a `Small` into `Big`.
+To make an annotation exact, so that a narrower occurrence is a sort error, write the strict cast `X::S`.
+The pinned K frontend rejects `semcast3` and `semcast4`, whose ambiguous `a(X)` has exactly one well-sorted reading under this bound; Rust accepts them with that reading, and the differential manifest records both as `excluded` with the Rust acceptance as the local gate.
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.
