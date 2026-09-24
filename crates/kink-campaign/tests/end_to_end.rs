@@ -6,6 +6,7 @@ mod support;
 use std::time::Duration;
 
 use k_rust::backend::{Backend, BackendOptions, SearchRequest};
+use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
@@ -152,13 +153,29 @@ fn replace(baseline: &Baseline, label: &str, path: &[u32], replacement: Term) ->
 }
 
 /// The generation whose candidates are exactly `mutants`' patches, through the real path:
-/// every authored position of `baseline` (an exhaustive derivation) narrowed to the
-/// mutants' sites, selected `Each` and folded with each site's patch. The candidates come
-/// in site order, and the generation is scored when it has one.
+/// each mutant's site declared by its rule's label and its path (an exhaustive derivation),
+/// the derivations united, selected `Each` and folded with each site's patch. The
+/// candidates come in site order, and the generation is scored when it has one.
 fn generation<'b>(baseline: &'b Baseline, mutants: &[(TermRef, Patch)]) -> CandidateGeneration<'b> {
-    let discovery = derive_sites(baseline, "site", &[])
-        .expect("no bindings")
-        .filter(|tuple| mutants.iter().any(|(site, _)| *site == tuple.sites[0].at));
+    let derive = |clauses: &[SiteSelector]| derive_sites(baseline, "site", clauses);
+    let nothing = derive(&[SiteSelector::RuleLabel("NOTHING.nothing".to_owned())]);
+    let discovery = mutants
+        .iter()
+        .map(|(site, _)| {
+            let label = baseline
+                .sentence(&site.sentence)
+                .and_then(|rule| rule.attributes().string(AttributeKey::Label))
+                .expect("a labelled rule");
+            derive(&[
+                SiteSelector::RuleLabel(label.to_owned()),
+                SiteSelector::Path(site.path.0.clone()),
+            ])
+        })
+        .try_fold(nothing.expect("no bindings"), |all, next| {
+            all.union(&next.expect("no bindings"))
+        })
+        .expect("one baseline and shape");
+    assert!(discovery.exhaustive(), "declared by clauses");
     assert_eq!(
         discovery.tuples().len(),
         mutants.len(),
@@ -709,10 +726,10 @@ fn search_paths_are_never_a_state_value() {
 
 /// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and
 /// survives in every row, but only a complete generation is scored. A non-exhaustive
-/// (supplied) discovery gives an incomplete generation, and a cardinality mismatch a failed
-/// one with no candidates; neither has a score. A complete generation with no candidates,
-/// because nothing was selected or its one origin's patch changes nothing, has no score
-/// either, rather than one over zero mutants.
+/// (supplied, or narrowed by a closure) discovery gives an incomplete generation, and a
+/// cardinality mismatch a failed one with no candidates; neither has a score. A complete
+/// generation with no candidates, because nothing was selected or its one origin's patch
+/// changes nothing, has no score either, rather than one over zero mutants.
 #[test]
 fn incomplete_and_failed_generations_are_not_scored() {
     with_stack(|| {
@@ -746,7 +763,17 @@ fn incomplete_and_failed_generations_are_not_scored() {
         assert_eq!(exhaustive.tuples().len(), 1);
         let partial = Discovery::supplied(baseline, exhaustive.tuples().to_vec(), false, false)
             .expect("derived sites are known");
-        let nothing = exhaustive.clone().filter(|_| false);
+        let nothing = derive_sites(
+            baseline,
+            "requires",
+            &[SiteSelector::RuleLabel("COUNTER.nothing".to_owned())],
+        )
+        .expect("no bindings");
+        // Every `requires`, narrowed by a closure to `branch`'s: `fallback`'s is dropped by
+        // code, not by a declared clause.
+        let narrowed = derive_sites(baseline, "requires", &[SiteSelector::Path(vec![1])])
+            .expect("no bindings")
+            .filter(|tuple| tuple.sites[0].at == exhaustive.tuples()[0].sites[0].at);
         let mismatch = SelectionPolicy::Exact {
             expected_tuple_count: 2,
             expected_tuple_arity: 1,
@@ -756,6 +783,7 @@ fn incomplete_and_failed_generations_are_not_scored() {
         let rows = [
             ("complete-is-scored", &exhaustive, SelectionPolicy::Each, false, None, 1, Some((0, 1))),
             ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
+            ("closure-narrowed-discovery-is-not-scored", &narrowed, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
             ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, false, Some(CandidateFailureKind::CardinalityMismatch), 0, None),
             ("empty-selection-is-not-scored", &nothing, SelectionPolicy::Each, false, None, 0, None),
             ("every-origin-rejected-is-not-scored", &exhaustive, SelectionPolicy::Each, true, None, 0, None),

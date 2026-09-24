@@ -4,10 +4,10 @@
 //! The selection rows are the former `selectionCases` of
 //! `mutation-selection-vectors.json`, with their IDs kept. Sites are the
 //! bodies of the `write`, `load` and `free` rules and `write`'s right-hand
-//! side. An exhaustive row's discovery is derived: every authored position,
-//! narrowed to the named sites, and joined with itself for pairs. Tuples no
-//! derivation produces (repeated, or from a non-exhaustive discovery) are
-//! supplied by hand, which is never exhaustive.
+//! side. An exhaustive row's discovery is derived by clauses: each named
+//! site's rule label and path, joined for pairs, and the tuples united.
+//! Tuples no derivation produces (repeated, or from a non-exhaustive
+//! discovery) are supplied by hand, which is never exhaustive.
 //!
 //! The site-derivation rows are the former selector registries
 //! (`counter-mutation-site-registry.json`, `mutation-site-registry.json`)
@@ -39,16 +39,18 @@ impl Memory {
         }
     }
 
-    /// The body of rule `name`, or its right-hand side for `write.rhs`.
+    /// The label of the rule of site `name`, and the site's path in it: the
+    /// rule's body, or its right-hand side for `write.rhs`.
+    fn located(name: &str) -> (String, &'static [u32]) {
+        match name.strip_suffix(".rhs") {
+            Some(rule) => (format!("MEMORY.{rule}"), &[0, 1]),
+            None => (format!("MEMORY.{name}"), &[0]),
+        }
+    }
+
     fn site(&self, name: &str) -> TermRef {
-        let (rule, path): (_, &[u32]) = match name.strip_suffix(".rhs") {
-            Some(rule) => (rule, &[0, 1]),
-            None => (name, &[0]),
-        };
-        TermRef::new(
-            support::rule(&self.baseline, &format!("MEMORY.{rule}")),
-            path,
-        )
+        let (rule, path) = Self::located(name);
+        TermRef::new(support::rule(&self.baseline, &rule), path)
     }
 
     fn named(&self, at: &TermRef) -> Option<&'static str> {
@@ -63,40 +65,44 @@ impl Memory {
             .unwrap_or_else(|| panic!("{at:?} is not a named site"))
     }
 
-    /// The named sites of an exhaustive derivation, as unary tuples of `role`.
-    fn derived(&self, role: &str) -> Discovery<'_> {
-        derive_sites(&self.baseline, role, &[])
-            .expect("no bindings")
-            .filter(|tuple| self.named(&tuple.sites[0].at).is_some())
+    /// The exhaustive derivation of site `name` alone, by its rule label and
+    /// path clauses, as a unary tuple of `role`.
+    fn derived(&self, role: &str, name: &str) -> Discovery<'_> {
+        let (rule, at) = Self::located(name);
+        derive_sites(&self.baseline, role, &[label(&rule), path(at)]).expect("no bindings")
     }
 
-    /// An exhaustive discovery of exactly the `supplied` tuples: the named
-    /// sites, or their pairs when `joined`. Each tuple is unary, or a pair
-    /// when joined.
+    /// An exhaustive discovery of exactly the `supplied` tuples, declared by
+    /// clauses: the union of each named site's derivation, or of each pair's
+    /// join when `joined`. Each tuple is unary, or a pair when joined.
     fn discovery(
         &self,
         supplied: &[&[&str]],
         joined: bool,
         tuple_symmetric: bool,
     ) -> Discovery<'_> {
-        let names = |tuple: &DiscoveryTuple| {
-            tuple
-                .sites
-                .iter()
-                .map(|site| self.name(&site.at))
-                .collect::<Vec<_>>()
+        let nothing =
+            derive_sites(&self.baseline, "site", &[label("MEMORY.nothing")]).expect("no bindings");
+        let nothing = if joined {
+            nothing
+                .join(&nothing, tuple_symmetric)
+                .expect("one baseline")
+        } else {
+            nothing
         };
-        if !joined {
-            return self
-                .derived("site")
-                .filter(|tuple| supplied.iter().any(|wanted| *wanted == names(tuple)));
-        }
-        self.derived("left")
-            .join(&self.derived("right"), tuple_symmetric, |left, right| {
-                let pair = [names(left), names(right)].concat();
-                supplied.iter().any(|wanted| *wanted == pair)
+        supplied
+            .iter()
+            .map(|names| match (joined, names) {
+                (false, [name]) => self.derived("site", name),
+                (true, [left, right]) => self
+                    .derived("left", left)
+                    .join(&self.derived("right", right), tuple_symmetric)
+                    .expect("one baseline, no bindings"),
+                _ => panic!("{names:?} is not a tuple of this shape"),
             })
-            .expect("one baseline, no bindings")
+            .fold(nothing, |all, next| {
+                all.union(&next).expect("one baseline and shape")
+            })
     }
 
     /// A hand-supplied tuple, for a non-exhaustive discovery.
@@ -708,8 +714,8 @@ fn edits_outside_their_origin_publish_nothing() {
 /// registry digests are gone, so each adversary becomes a typing rule: a
 /// claimant's tuple order is replaced by canonical order, a hand-supplied
 /// discovery (forged, or missing a member) is never exhaustive and so never
-/// scored, a stale site is rejected, and discoveries of another baseline do
-/// not join.
+/// scored, and neither is one narrowed by a closure; a stale site is
+/// rejected, and discoveries of another baseline do not join or unite.
 #[test]
 fn discovery_authority_adversaries_publish_no_scored_generation() {
     let memory = Memory::new();
@@ -753,6 +759,30 @@ fn discovery_authority_adversaries_publish_no_scored_generation() {
     );
     assert!(forged.selected_origins().is_empty() && !forged.scored());
 
+    // A member dropped by code rather than by a declared selector: a closure
+    // narrowing an exhaustive derivation is never exhaustive, so leaving out
+    // `load` is never scored. The same sites declared by clauses are.
+    let bodies = derive_sites(&memory.baseline, "site", &[path(&[0])]).expect("no bindings");
+    assert!(bodies.exhaustive());
+    let narrowed = bodies.filter(|tuple| memory.name(&tuple.sites[0].at) != "load");
+    assert!(!narrowed.exhaustive());
+    let declared = memory.discovery(&[&["write"], &["free"]], false, false);
+    assert!(declared.exhaustive());
+    for (id, discovery, scored) in [("closure", &narrowed, false), ("clauses", &declared, true)] {
+        let generation = memory.fold(discovery, SelectionPolicy::Each);
+        assert_eq!(
+            generation
+                .selected_origins()
+                .iter()
+                .map(|origin| memory.name(&origin.site_tuple[0]))
+                .collect::<Vec<_>>(),
+            ["write", "free"],
+            "{id}"
+        );
+        assert_eq!(generation.candidates().len(), 2, "{id}");
+        assert_eq!(generation.scored(), scored, "{id}");
+    }
+
     // Stale site metadata: a position the baseline does not have.
     let write = memory.site("write").sentence;
     for (id, at) in [
@@ -788,8 +818,16 @@ fn discovery_authority_adversaries_publish_no_scored_generation() {
     let other = Memory::new();
     assert_eq!(
         memory
-            .derived("left")
-            .join(&other.derived("right"), false, |_, _| true)
+            .derived("left", "write")
+            .join(&other.derived("right", "load"), false)
+            .expect_err("two baselines")
+            .kind(),
+        CandidateFailureKind::InvalidJoin
+    );
+    assert_eq!(
+        memory
+            .derived("site", "write")
+            .union(&other.derived("site", "load"))
             .expect_err("two baselines")
             .kind(),
         CandidateFailureKind::InvalidJoin
@@ -973,7 +1011,7 @@ fn a_join_unifies_the_names_both_roles_bind() {
     let write_address = role("write-address", "MEMORY.write", &[0, 0, 0], "Address", "A");
     let load_address = role("load-address", "MEMORY.load", &[0, 0, 0], "Address", "A");
     let shared = write_address
-        .join(&load_address, false, |_, _| true)
+        .join(&load_address, false)
         .expect("one baseline");
     assert!(shared.exhaustive() && shared.joined());
     let [tuple] = shared.tuples() else {
@@ -994,15 +1032,13 @@ fn a_join_unifies_the_names_both_roles_bind() {
     // still considered every pair.
     let load_value = role("load-value", "MEMORY.load", &[0, 0, 1], "Nat", "A");
     let mismatch = write_address
-        .join(&load_value, false, |_, _| true)
+        .join(&load_value, false)
         .expect("one baseline");
     assert!(mismatch.tuples().is_empty() && mismatch.exhaustive());
 
     // Distinct names do not constrain each other.
     let value = role("load-value", "MEMORY.load", &[0, 0, 1], "Nat", "V");
-    let distinct = write_address
-        .join(&value, false, |_, _| true)
-        .expect("one baseline");
+    let distinct = write_address.join(&value, false).expect("one baseline");
     let [tuple] = distinct.tuples() else {
         panic!("one pair: {:?}", distinct.tuples());
     };
@@ -1015,6 +1051,119 @@ fn a_join_unifies_the_names_both_roles_bind() {
             .collect::<Vec<_>>(),
         ["A", "V"]
     );
+}
+
+/// The term at `path` below `term`, through rewrites and applications.
+fn term_mut<'t>(term: &'t mut Term, path: &[u32]) -> &'t mut Term {
+    let Some((step, rest)) = path.split_first() else {
+        return term;
+    };
+    let step = usize::try_from(*step).expect("step");
+    let child = match term {
+        Term::Annotated { term, .. } => return term_mut(term, path),
+        Term::Rewrite { left, right } => [left, right].into_iter().nth(step).expect("side"),
+        Term::Apply { arguments, .. } => arguments.get_mut(step).expect("argument"),
+        other => panic!("{other} has no children"),
+    };
+    term_mut(child, rest)
+}
+
+/// (id, baseline, put's site, get's site (a path, or every `Nat` position),
+/// pairs as (put path, get path), exhaustive)
+type UnificationRow<'a> = (
+    &'static str,
+    &'a Baseline,
+    Option<&'static [u32]>,
+    Option<&'static [u32]>,
+    &'static [(&'static [u32], &'static [u32])],
+    bool,
+);
+
+/// A join compares the terms a name binds modulo how a variable's sort is
+/// written, and never drops a pair it cannot decide in silence. In
+/// `annotated.k`, `put(A:Nat)` and `get(A)` load alike: a `Nat` cast
+/// (`[0, 0, 0]`) over the variable (`[0, 0, 0, 0]`). Two casts over `A` are
+/// one term. A cast against the variable under it, or two bare variables
+/// whose sorts come from outside the bound terms, would need the baseline's
+/// typing, so the pair is left out and the join is not exhaustive; a
+/// sort-only selector meets both kinds of position. A structured input that
+/// writes `get`'s `A` with an explicit `Nat` sort instead of a cast unifies
+/// with `put`'s cast, and one with another sort is undecided.
+#[test]
+fn a_join_decides_unification_modulo_variable_sorts_or_is_not_exhaustive() {
+    let annotated = support::load("annotated.k");
+    let get = support::rule(&annotated, "ANNOTATED.get");
+    // `get`'s left-hand argument becomes `A` written with `sort`.
+    let written = |sort: &str| {
+        let mut loaded = annotated.loaded().clone();
+        let module = loaded
+            .definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == get.module)
+            .expect("module");
+        let slot = &mut module.local_sentences[usize::try_from(get.index).expect("index")];
+        let k_rust::definition::Sentence::Rule { body, .. } = sentence_mut(slot) else {
+            panic!("get is a rule");
+        };
+        *term_mut(body, &[0, 0]) = Term::Variable {
+            name: "A".to_owned(),
+            sort: Some(Sort::new(sort)),
+        };
+        Baseline::new(loaded)
+    };
+    let nat = written("Nat");
+    let int = written("Int");
+    let bind_a = |baseline, role: &str, rule: &str, at: Option<&[u32]>| {
+        let mut selector = vec![label(rule), bind("A")];
+        selector.extend(at.map(path));
+        if at.is_none() {
+            selector.push(sort("Nat"));
+        }
+        derive_sites(baseline, role, &selector).expect("valid selector")
+    };
+    const CAST: Option<&[u32]> = Some(&[0, 0, 0]);
+    const VARIABLE: Option<&[u32]> = Some(&[0, 0, 0, 0]);
+    #[rustfmt::skip]
+    let rows: [UnificationRow<'_>; 6] = [
+        ("casts-over-one-variable-unify", &annotated, CAST, CAST, &[(&[0, 0, 0], &[0, 0, 0])], true),
+        ("a-cast-against-its-variable-is-undecided", &annotated, CAST, VARIABLE, &[], false),
+        ("bare-variables-are-sorted-from-outside", &annotated, VARIABLE, VARIABLE, &[], false),
+        // Every `Nat` position: the two casts and two variables of each rule.
+        ("a-sort-only-selector-keeps-only-decided-pairs", &annotated, None, None, &[(&[0, 0, 0], &[0, 0, 0]), (&[0, 0, 0], &[0, 1, 0]), (&[0, 1, 0], &[0, 0, 0]), (&[0, 1, 0], &[0, 1, 0])], false),
+        ("an-annotation-unifies-with-a-cast-of-its-sort", &nat, CAST, CAST, &[(&[0, 0, 0], &[0, 0, 0])], true),
+        ("an-annotation-of-another-sort-is-undecided", &int, CAST, CAST, &[], false),
+    ];
+    for (id, baseline, put_site, get_site, pairs, exhaustive) in rows {
+        let put = bind_a(baseline, "put", "ANNOTATED.put", put_site);
+        let got = bind_a(baseline, "get", "ANNOTATED.get", get_site);
+        assert!(put.exhaustive() && got.exhaustive(), "{id}");
+        let joined = put.join(&got, false).expect("one baseline");
+        assert_eq!(joined.exhaustive(), exhaustive, "{id}");
+        assert_eq!(
+            joined
+                .tuples()
+                .iter()
+                .map(|tuple| {
+                    let [left, right] = tuple.sites.as_slice() else {
+                        panic!("{id}: pairs");
+                    };
+                    (left.at.path.0.clone(), right.at.path.0.clone())
+                })
+                .collect::<Vec<_>>(),
+            pairs
+                .iter()
+                .map(|(left, right)| (left.to_vec(), right.to_vec()))
+                .collect::<Vec<_>>(),
+            "{id}"
+        );
+        let selection = select(&joined, SelectionPolicy::TupleEach, 16).expect("selection");
+        assert_eq!(
+            selection.completeness() == Completeness::CompleteFinite,
+            exhaustive,
+            "{id}: an undecided pair is never scored"
+        );
+    }
 }
 
 #[test]
@@ -1167,7 +1316,7 @@ fn operators_build_their_patches_from_bound_terms() {
         .expect("valid selector")
     };
     let coupled = value("write-value", "MEMORY.write")
-        .join(&value("load-value", "MEMORY.load"), false, |_, _| true)
+        .join(&value("load-value", "MEMORY.load"), false)
         .expect("one baseline");
     let generation = select(&coupled, EXACT_PAIR, 8)
         .expect("selection")

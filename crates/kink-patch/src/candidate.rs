@@ -11,10 +11,10 @@
 //! [`Selection`] that [`select`] makes of it, and the [`CandidateGeneration`]
 //! that [`Selection::fold`] makes of that, which is the only one a campaign
 //! runs. A generation can be scored only when its discovery was exhaustive,
-//! which only [`derive_sites`] (possibly narrowed or joined) gives; a
-//! [`Discovery::supplied`] one never is. Each stage borrows the baseline it
-//! was derived from, and a campaign compares that borrow with its own
-//! baseline by address. Address identity needs no digest: the borrow keeps
+//! which only declarative derivation gives: [`derive_sites`] and its unions
+//! and joins. A [`Discovery::supplied`] or [`Discovery::filter`]ed one never
+//! is. Each stage borrows the baseline it was derived from, and a campaign
+//! compares that borrow with its own baseline by address. Address identity needs no digest: the borrow keeps
 //! the baseline alive, so no other live baseline can share its address. An
 //! equal clone is a different baseline to this check, which refuses it
 //! conservatively.
@@ -25,7 +25,7 @@ use crate::{
     field_term,
 };
 use k_rust::definition::{AttributeKey, Sentence};
-use k_rust::kast::{Sort, Term};
+use k_rust::kast::{Label, Sort, Term};
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -122,12 +122,14 @@ pub struct DiscoveryTuple {
 /// The discovered tuples of one operator over one baseline, and whether they
 /// are all of them.
 ///
-/// Only [`derive_sites`] when it decided every position, and
-/// [`Discovery::filter`] and [`Discovery::join`] over exhaustive discoveries,
-/// give an exhaustive discovery: each considers every match of its (narrowed
-/// or joined) selector. Hand-supplied tuples
-/// ([`Discovery::supplied`]) are never exhaustive, because nothing shows that
-/// every match was considered, so a selection over them is never scored.
+/// Only declarative derivations give an exhaustive discovery: [`derive_sites`]
+/// when it decided every position, and [`Discovery::union`] and
+/// [`Discovery::join`] when every input is exhaustive and (for a join) every
+/// unification was decided. Each considers every match of its selector
+/// clauses, their disjunction or their join. Narrowing by code
+/// ([`Discovery::filter`]) and hand-supplied tuples ([`Discovery::supplied`])
+/// are never exhaustive, because nothing shows that every match of a declared
+/// selector was considered, so a selection over them is never scored.
 #[derive(Clone)]
 pub struct Discovery<'b> {
     baseline: &'b Baseline,
@@ -169,67 +171,119 @@ impl<'b> Discovery<'b> {
         })
     }
 
-    /// Keeps the tuples `keep` accepts. Exhaustiveness is kept: every match
-    /// of the narrowed selector was considered.
+    /// Keeps the tuples `keep` accepts. The result is not exhaustive: `keep`
+    /// is opaque code, not a declared selector, so nothing shows which
+    /// matches it was meant to keep, and a selection over it is never
+    /// scored. Narrow with [`SiteSelector`] clauses to keep exhaustiveness.
     #[must_use]
     pub fn filter(mut self, mut keep: impl FnMut(&DiscoveryTuple) -> bool) -> Self {
         self.tuples.retain(|tuple| keep(tuple));
+        self.exhaustive = false;
         self
     }
 
-    /// Joins every tuple of `self` with every tuple of `other`, in that
-    /// order, and keeps the pairs `keep` accepts. A joined tuple lists both
-    /// tuples' sites, and their bindings with each name once.
-    ///
-    /// A name bound on both sides is one pattern variable: a pair that binds
-    /// it to different terms (by `Term` equality) does not match and is
-    /// dropped before `keep` sees it. The join is exhaustive when both inputs
-    /// are, since every pair is considered. A pair that repeats a site is
-    /// kept if `keep` accepts it, and [`select`] rejects it.
+    /// The tuples of `self` and then those of `other` that `self` does not
+    /// already have: every match of either selector, once. It is exhaustive
+    /// when both inputs are.
     ///
     /// # Errors
     ///
-    /// Returns `InvalidJoin` for discoveries of different baselines.
-    pub fn join(
-        &self,
-        other: &Self,
-        tuple_symmetric: bool,
-        mut keep: impl FnMut(&DiscoveryTuple, &DiscoveryTuple) -> bool,
-    ) -> Result<Self, CandidateFailure> {
+    /// Returns `InvalidJoin` for discoveries of different baselines, or that
+    /// differ in whether they are joined or tuple-symmetric.
+    pub fn union(&self, other: &Self) -> Result<Self, CandidateFailure> {
         if !std::ptr::eq(self.baseline, other.baseline) {
             return Err(CandidateFailure::new(
                 CandidateFailureKind::InvalidJoin,
-                "discoveries of different baselines do not join",
+                "discoveries of different baselines do not unite",
             ));
         }
-        let mut tuples = Vec::new();
-        for left in &self.tuples {
-            for right in &other.tuples {
-                let unified =
-                    right.bindings.0.iter().all(|(name, term)| {
-                        left.bindings.get(name).is_none_or(|bound| bound == term)
-                    });
-                if unified && keep(left, right) {
-                    let mut bindings = left.bindings.0.clone();
-                    bindings.extend(
-                        right
-                            .bindings
-                            .0
-                            .iter()
-                            .filter(|(name, _)| left.bindings.get(name).is_none())
-                            .cloned(),
-                    );
-                    tuples.push(DiscoveryTuple {
-                        sites: left.sites.iter().chain(&right.sites).cloned().collect(),
-                        bindings: Bindings::new(bindings)?,
-                    });
-                }
+        if (self.joined, self.tuple_symmetric) != (other.joined, other.tuple_symmetric) {
+            return Err(CandidateFailure::new(
+                CandidateFailureKind::InvalidJoin,
+                "discoveries of different shapes do not unite",
+            ));
+        }
+        let mut tuples = self.tuples.clone();
+        for tuple in &other.tuples {
+            if !self.tuples.contains(tuple) {
+                tuples.push(tuple.clone());
             }
         }
         Ok(Self {
             baseline: self.baseline,
             tuples,
             exhaustive: self.exhaustive && other.exhaustive,
+            joined: self.joined,
+            tuple_symmetric: self.tuple_symmetric,
+        })
+    }
+
+    /// Joins every tuple of `self` with every tuple of `other`, in that
+    /// order. A joined tuple lists both tuples' sites, and their bindings
+    /// with each name once.
+    ///
+    /// A name bound on both sides is one pattern variable, and the pair is a
+    /// tuple only when every such name unifies: its two terms are equal once
+    /// each semantic cast over a variable is read as that variable's sort,
+    /// and every variable in them has a sort. The joined tuple keeps `self`'s
+    /// term for the name. A pair whose terms still differ with casts and
+    /// variable sorts ignored does not match. A pair whose terms differ only
+    /// in casts and variable sorts, or hold a variable whose sort comes from
+    /// outside the bound term, is undecided: the baseline's typing would
+    /// decide it, which this join does not consult, so the pair is left out
+    /// and the join is not exhaustive.
+    ///
+    /// Otherwise the join is exhaustive when both inputs are, since every
+    /// pair is considered. A pair that repeats a site is kept, and
+    /// [`select`] rejects it.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidJoin` for discoveries of different baselines.
+    pub fn join(&self, other: &Self, tuple_symmetric: bool) -> Result<Self, CandidateFailure> {
+        if !std::ptr::eq(self.baseline, other.baseline) {
+            return Err(CandidateFailure::new(
+                CandidateFailureKind::InvalidJoin,
+                "discoveries of different baselines do not join",
+            ));
+        }
+        let mut exhaustive = self.exhaustive && other.exhaustive;
+        let mut tuples = Vec::new();
+        for left in &self.tuples {
+            for right in &other.tuples {
+                let unified = right
+                    .bindings
+                    .0
+                    .iter()
+                    .filter_map(|(name, term)| Some(unify(left.bindings.get(name)?, term)))
+                    .fold(Unification::Match, Unification::and);
+                match unified {
+                    Unification::Match => {}
+                    Unification::Mismatch => continue,
+                    Unification::Undecided => {
+                        exhaustive = false;
+                        continue;
+                    }
+                }
+                let mut bindings = left.bindings.0.clone();
+                bindings.extend(
+                    right
+                        .bindings
+                        .0
+                        .iter()
+                        .filter(|(name, _)| left.bindings.get(name).is_none())
+                        .cloned(),
+                );
+                tuples.push(DiscoveryTuple {
+                    sites: left.sites.iter().chain(&right.sites).cloned().collect(),
+                    bindings: Bindings::new(bindings)?,
+                });
+            }
+        }
+        Ok(Self {
+            baseline: self.baseline,
+            tuples,
+            exhaustive,
             joined: true,
             tuple_symmetric,
         })
@@ -274,6 +328,147 @@ impl fmt::Debug for Discovery<'_> {
             .field("joined", &self.joined)
             .field("tuple_symmetric", &self.tuple_symmetric)
             .finish_non_exhaustive()
+    }
+}
+
+/// Whether two terms bound to one name are one term.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Unification {
+    /// Equal, with every variable's sort given inside the terms.
+    Match,
+    /// Different even with casts and variable sorts ignored.
+    Mismatch,
+    /// Equal with casts and variable sorts ignored, and not decided otherwise.
+    Undecided,
+}
+
+impl Unification {
+    /// Both hold: any mismatch decides, and otherwise any undecided part is.
+    const fn and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Mismatch, _) | (_, Self::Mismatch) => Self::Mismatch,
+            (Self::Undecided, _) | (_, Self::Undecided) => Self::Undecided,
+            (Self::Match, Self::Match) => Self::Match,
+        }
+    }
+}
+
+/// A variable and its sort: its own annotation, or the sort of the semantic
+/// cast directly over a variable without one, which is how the loader writes
+/// `A:Nat`.
+fn sorted_variable(term: &Term) -> Option<(&str, Option<Sort>)> {
+    match term.unannotated() {
+        Term::Variable { name, sort } => Some((name, sort.clone())),
+        Term::Apply { label, arguments } => {
+            let cast = label.semantic_cast_sort()?;
+            match arguments.as_slice() {
+                [argument] => match argument.unannotated() {
+                    Term::Variable { name, sort: None } => Some((name, Some(cast))),
+                    Term::Variable {
+                        name,
+                        sort: Some(sort),
+                    } if *sort == cast => Some((name, Some(cast))),
+                    _ => None,
+                },
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The label and argument of a semantic cast.
+fn cast_argument(term: &Term) -> Option<(&Label, &Term)> {
+    match term.unannotated() {
+        Term::Apply { label, arguments } if label.semantic_cast_sort().is_some() => {
+            match arguments.as_slice() {
+                [argument] => Some((label, argument)),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Compares two bound terms modulo how a variable's sort is written (an
+/// annotation or a cast over it) and semantic casts, without consulting the
+/// baseline's typing. A match needs every variable's sort written inside
+/// the terms and equal; two terms that still differ once casts and variable
+/// sorts are ignored are a mismatch; anything else is undecided.
+fn unify(left: &Term, right: &Term) -> Unification {
+    let (left, right) = (left.unannotated(), right.unannotated());
+    if let (Some((left_name, left_sort)), Some((right_name, right_sort))) =
+        (sorted_variable(left), sorted_variable(right))
+    {
+        return if left_name != right_name {
+            Unification::Mismatch
+        } else if left_sort.is_some() && left_sort == right_sort {
+            Unification::Match
+        } else {
+            Unification::Undecided
+        };
+    }
+    match (cast_argument(left), cast_argument(right)) {
+        (Some((left_cast, left_argument)), Some((right_cast, right_argument)))
+            if left_cast == right_cast =>
+        {
+            return unify(left_argument, right_argument);
+        }
+        // A cast over a term is that term only when the term has the cast's
+        // sort, which only the baseline's typing decides.
+        (Some((_, argument)), _) => {
+            return unify(argument, right).and(Unification::Undecided);
+        }
+        (_, Some((_, argument))) => {
+            return unify(left, argument).and(Unification::Undecided);
+        }
+        (None, None) => {}
+    }
+    let all = |left: &[Term], right: &[Term]| {
+        if left.len() == right.len() {
+            left.iter()
+                .zip(right)
+                .map(|(left, right)| unify(left, right))
+                .fold(Unification::Match, Unification::and)
+        } else {
+            Unification::Mismatch
+        }
+    };
+    match (left, right) {
+        (Term::Variable { .. }, _) | (_, Term::Variable { .. }) => Unification::Mismatch,
+        (
+            Term::Rewrite {
+                left: left_left,
+                right: left_right,
+            },
+            Term::Rewrite {
+                left: right_left,
+                right: right_right,
+            },
+        ) => unify(left_left, right_left).and(unify(left_right, right_right)),
+        (
+            Term::As {
+                pattern: left_pattern,
+                alias: left_alias,
+            },
+            Term::As {
+                pattern: right_pattern,
+                alias: right_alias,
+            },
+        ) => unify(left_pattern, right_pattern).and(unify(left_alias, right_alias)),
+        (Term::Sequence(left), Term::Sequence(right)) => all(left, right),
+        (
+            Term::Apply {
+                label: left_label,
+                arguments: left_arguments,
+            },
+            Term::Apply {
+                label: right_label,
+                arguments: right_arguments,
+            },
+        ) if left_label == right_label => all(left_arguments, right_arguments),
+        _ if left == right => Unification::Match,
+        _ => Unification::Mismatch,
     }
 }
 

@@ -1049,13 +1049,20 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
     let memory = support::load("memory.k");
     // Two positions of `write`: its body and the body's left-hand side. The
     // origins share a rule, since an origin may only edit its own sentences.
-    let discovery = derive_sites(
-        &memory,
-        "position",
-        &[SiteSelector::RuleLabel("MEMORY.write".to_owned())],
-    )
-    .expect("no bindings")
-    .filter(|tuple| matches!(tuple.sites[0].at.path.0.as_slice(), [0] | [0, 0]));
+    let position = |path: &[u32]| {
+        derive_sites(
+            &memory,
+            "position",
+            &[
+                SiteSelector::RuleLabel("MEMORY.write".to_owned()),
+                SiteSelector::Path(path.to_vec()),
+            ],
+        )
+        .expect("no bindings")
+    };
+    let discovery = position(&[0])
+        .union(&position(&[0, 0]))
+        .expect("one baseline and shape");
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
     let origins = generation.selected_origins().to_vec();
     assert_eq!(origins.len(), 2);
