@@ -16,7 +16,7 @@ use k_rust::{
 use kink_native::{
     ProvenanceStatus,
     observation::{InstalledObservationManifest, NativeEvent, RuleObservationSpec},
-    search::{PositiveBoundedOutcome, ReplaySearch, SearchAdapter, SolverProfile, compare_replay},
+    search::{ReplaySearch, SearchAdapter, SolverProfile, compare_replay},
 };
 
 const MODULE: &str = "EXPR";
@@ -72,16 +72,17 @@ fn run_gate() {
 
     let state_first =
         run_state_search(&definition_source, &manifest, fixture.initial_state.clone());
-    assert_eq!(
-        state_first.outcome,
-        PositiveBoundedOutcome::Positive,
-        "the exact positive state search must retain a witness: {state_first:#?}"
-    );
-    assert_eq!(state_first.states.len(), 1);
-    assert!(state_first.effects.is_empty());
-    assert!(state_first.incomplete.is_empty());
-    assert_no_authority(state_first.authority);
-    let state_branch = state_first.states[0].clone();
+    let state_witnesses = state_first.outcome().witnesses().unwrap_or_else(|| {
+        panic!("the exact positive state search must retain a witness: {state_first:#?}")
+    });
+    assert_eq!(state_witnesses.iter().count(), 1);
+    let state_branch = state_witnesses.first().clone();
+    assert!(state_first.frontier().is_empty());
+    assert!(state_first.effects().is_empty());
+    // An empty incomplete list does not prove the run complete; it only shows that upstream
+    // reported no truncation for this unbounded search.
+    assert!(state_first.incomplete().is_empty());
+    assert_no_authority(state_first.authority());
     assert_branch(&state_branch, &fixture);
 
     let state_second =
@@ -93,18 +94,15 @@ fn run_gate() {
     .expect("fresh state search must replay exactly");
 
     let path_first = run_path_search(&definition_source, &manifest, fixture.initial_state.clone());
-    assert_eq!(
-        path_first.outcome,
-        PositiveBoundedOutcome::Positive,
-        "the exact positive path search must retain a witness: {path_first:#?}"
-    );
-    assert_eq!(
-        path_first.witnesses.as_slice(),
-        std::slice::from_ref(&state_branch)
-    );
-    assert!(path_first.effects.is_empty());
-    assert!(path_first.incomplete.is_empty());
-    assert_no_authority(path_first.authority);
+    let path_witnesses = path_first.outcome().witnesses().unwrap_or_else(|| {
+        panic!("the exact positive path search must retain a witness: {path_first:#?}")
+    });
+    assert_eq!(path_witnesses.iter().collect::<Vec<_>>(), [&state_branch]);
+    assert!(path_first.frontier().is_empty());
+    assert!(path_first.effects().is_empty());
+    // As above, an empty incomplete list is not evidence of exhaustion.
+    assert!(path_first.incomplete().is_empty());
+    assert_no_authority(path_first.authority());
 
     let path_second = run_path_search(&definition_source, &manifest, fixture.initial_state);
     compare_replay(

@@ -1,11 +1,20 @@
-//! Positive-bounded adaptation of the public k-rust search facade.
+//! Existential adaptation of the public k-rust search facade.
+//!
+//! Every response is read against its [`QueryShape`]. A response can witness members of the
+//! requested result set; it can never show that the set is complete or empty. k-rust has no
+//! exhaustion record (`upstream/k-rust.toml` `search-completeness`), and an empty upstream
+//! incomplete list is not evidence of exhaustion: a `Final` search whose result bound is filled
+//! by a depth-bounded frontier state reports no incomplete item at all. Therefore no adapter
+//! response may map to `kink_pattern::Completeness::CompleteFinite` until upstream provides an
+//! exhaustion record. A bridge maps a response to `Incomplete` when its frontier or incomplete
+//! list is non-empty, and to `Unknown` otherwise.
 
 use k_rust::backend::{
     BACKEND_SCHEMA_VERSION, Backend, BackendError, BindingOutput, BuiltinFailureOutput,
     EffectOutput, IncompleteSearchOutput, ObservedRequest, PathPatternSearchResponse,
     PathSearchResponse, PatternSearchResponse, ResultModalityOutput, SatisfiabilityOutput,
-    SearchFailureOutput, SearchPatternRequest, SearchRequest, SearchResponse, SmtFailureOutput,
-    TermPairOutput, TranslationFailureOutput,
+    SearchFailureOutput, SearchPatternRequest, SearchRequest, SearchResponse, SearchTypeArg,
+    SmtFailureOutput, TermPairOutput, TranslationFailureOutput,
 };
 
 use crate::ProvenanceStatus;
@@ -37,11 +46,99 @@ impl SolverProfile {
     }
 }
 
-/// Positive existence or explicitly not-proven absence. Exhaustive absence is unrepresentable.
+/// Search type and depth bound that a response's witnesses are members of.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PositiveBoundedOutcome {
-    Positive,
-    UnknownNotProven,
+pub struct QueryShape {
+    search_type: SearchTypeArg,
+    max_depth: Option<u64>,
+}
+
+impl QueryShape {
+    fn of_state(request: &SearchRequest) -> Self {
+        Self {
+            search_type: request.search_type,
+            max_depth: request.max_depth,
+        }
+    }
+
+    fn of_pattern(request: &SearchPatternRequest) -> Self {
+        Self {
+            search_type: request.search_type,
+            max_depth: request.max_depth,
+        }
+    }
+
+    #[must_use]
+    pub const fn search_type(self) -> SearchTypeArg {
+        self.search_type
+    }
+
+    #[must_use]
+    pub const fn max_depth(self) -> Option<u64> {
+        self.max_depth
+    }
+
+    /// k-rust returns every `Final` state that reaches the depth bound as a result without
+    /// checking whether it can still rewrite. Such a result is unexplored frontier, not a final
+    /// state. The rule never over-claims but can under-report: result deduplication may keep a
+    /// frontier copy of a state and drop a shallower stuck copy of it.
+    fn is_frontier(self, depth: u64) -> bool {
+        self.search_type == SearchTypeArg::Final
+            && self.max_depth.is_some_and(|bound| depth >= bound)
+    }
+}
+
+/// Members of the query's result set in facade order; non-empty by construction.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Witnesses<T> {
+    first: T,
+    rest: Vec<T>,
+}
+
+impl<T> Witnesses<T> {
+    #[must_use]
+    pub const fn first(&self) -> &T {
+        &self.first
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        std::iter::once(&self.first).chain(&self.rest)
+    }
+}
+
+/// Existential outcome only. There is deliberately no complete, exhausted, or absent variant;
+/// adding one is gated on the upstream `search-completeness` request.
+///
+/// Under the no-Z3 profile a state or path witness is a result whose path condition was not
+/// refuted; pattern matches send an unknown condition to an incomplete item instead.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExistentialOutcome<T> {
+    /// At least one result is a member of the set named by the query's search type.
+    Witnessed(Witnesses<T>),
+    /// No member was witnessed. This says nothing about absence.
+    NotWitnessed,
+}
+
+impl<T> ExistentialOutcome<T> {
+    fn from_members(members: Vec<T>) -> Self {
+        let mut members = members.into_iter();
+        match members.next() {
+            Some(first) => Self::Witnessed(Witnesses {
+                first,
+                rest: members.collect(),
+            }),
+            None => Self::NotWitnessed,
+        }
+    }
+
+    /// The witnesses, when the outcome is `Witnessed`.
+    #[must_use]
+    pub const fn witnesses(&self) -> Option<&Witnesses<T>> {
+        match self {
+            Self::Witnessed(witnesses) => Some(witnesses),
+            Self::NotWitnessed => None,
+        }
+    }
 }
 
 /// Adapter-wide authority boundary.
@@ -82,25 +179,83 @@ impl AdapterAuthority {
     }
 }
 
-/// A state-set response preserving facade order and branch-local structure.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AdaptedStateSearch {
-    pub outcome: PositiveBoundedOutcome,
-    pub states: Vec<AdaptedBranch>,
-    pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<AdaptedIncomplete>,
-    pub authority: AdapterAuthority,
+/// Declares one adapted response. See the module documentation for why none of them may be
+/// read as a complete result set.
+macro_rules! adapted_search {
+    ($(#[$doc:meta])* $name:ident, $item:ty) => {
+        $(#[$doc])*
+        #[derive(Clone, Debug, PartialEq)]
+        pub struct $name {
+            query: QueryShape,
+            outcome: ExistentialOutcome<$item>,
+            frontier: Vec<$item>,
+            effects: Vec<EffectOutput>,
+            incomplete: Vec<AdaptedIncomplete>,
+            authority: AdapterAuthority,
+        }
+
+        impl $name {
+            #[must_use]
+            pub const fn query(&self) -> QueryShape {
+                self.query
+            }
+
+            #[must_use]
+            pub const fn outcome(&self) -> &ExistentialOutcome<$item> {
+                &self.outcome
+            }
+
+            /// `Final` results at or beyond the depth bound: unexplored work, never members.
+            /// Kept even when upstream reported no `DepthBound` item for them. An empty
+            /// frontier does not mean the search was exhaustive.
+            #[must_use]
+            pub fn frontier(&self) -> &[$item] {
+                &self.frontier
+            }
+
+            #[must_use]
+            pub fn effects(&self) -> &[EffectOutput] {
+                &self.effects
+            }
+
+            /// Upstream incomplete items in facade order. An empty list does not mean the
+            /// search was exhaustive.
+            #[must_use]
+            pub fn incomplete(&self) -> &[AdaptedIncomplete] {
+                &self.incomplete
+            }
+
+            #[must_use]
+            pub const fn authority(&self) -> AdapterAuthority {
+                self.authority
+            }
+        }
+    };
 }
 
-/// A path-set response preserving path witness order.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AdaptedPathSearch {
-    pub outcome: PositiveBoundedOutcome,
-    pub witnesses: Vec<AdaptedBranch>,
-    pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<AdaptedIncomplete>,
-    pub authority: AdapterAuthority,
-}
+adapted_search!(
+    /// A state-set response preserving facade order and branch-local structure.
+    AdaptedStateSearch,
+    AdaptedBranch
+);
+
+adapted_search!(
+    /// A path-set response preserving path witness order.
+    AdaptedPathSearch,
+    AdaptedBranch
+);
+
+adapted_search!(
+    /// A pattern state-set response.
+    AdaptedPatternSearch,
+    AdaptedPatternMatch
+);
+
+adapted_search!(
+    /// A pattern path-set response.
+    AdaptedPatternPathSearch,
+    AdaptedPatternMatch
+);
 
 /// One pattern match with exact binding and residual-constraint order.
 #[derive(Clone, Debug, PartialEq)]
@@ -110,27 +265,8 @@ pub struct AdaptedPatternMatch {
     pub branch: AdaptedBranch,
 }
 
-/// A pattern state-set response.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AdaptedPatternSearch {
-    pub outcome: PositiveBoundedOutcome,
-    pub matches: Vec<AdaptedPatternMatch>,
-    pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<AdaptedIncomplete>,
-    pub authority: AdapterAuthority,
-}
-
-/// A pattern path-set response.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AdaptedPatternPathSearch {
-    pub outcome: PositiveBoundedOutcome,
-    pub matches: Vec<AdaptedPatternMatch>,
-    pub effects: Vec<EffectOutput>,
-    pub incomplete: Vec<AdaptedIncomplete>,
-    pub authority: AdapterAuthority,
-}
-
-/// Decision-bearing class for each of the eight public incomplete variants.
+/// Decision-bearing class of the eight public incomplete variants. A simplification failure
+/// takes the class of its error.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IncompleteClass {
     ResultBound,
@@ -138,7 +274,6 @@ pub enum IncompleteClass {
     BreadthBound,
     Indeterminate,
     Cancelled,
-    Simplification,
     MatchIndeterminate,
     SolverDeferred,
 }
@@ -222,13 +357,14 @@ impl SearchAdapter {
         backend: &mut Backend,
         request: SearchRequest,
     ) -> Result<AdaptedStateSearch, SearchAdapterFailure> {
+        let query = QueryShape::of_state(&request);
         let response = backend
             .search_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
             .map_err(SearchAdapterFailure::backend)?;
-        adapt_state_response(&self.manifest, response)
+        adapt_state_response(&self.manifest, query, response)
     }
 
     /// Executes public observed path search.
@@ -237,13 +373,14 @@ impl SearchAdapter {
         backend: &mut Backend,
         request: SearchRequest,
     ) -> Result<AdaptedPathSearch, SearchAdapterFailure> {
+        let query = QueryShape::of_state(&request);
         let response = backend
             .search_paths_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
             .map_err(SearchAdapterFailure::backend)?;
-        adapt_path_response(&self.manifest, response)
+        adapt_path_response(&self.manifest, query, response)
     }
 
     /// Executes public observed pattern state search.
@@ -252,13 +389,14 @@ impl SearchAdapter {
         backend: &mut Backend,
         request: SearchPatternRequest,
     ) -> Result<AdaptedPatternSearch, SearchAdapterFailure> {
+        let query = QueryShape::of_pattern(&request);
         let response = backend
             .search_pattern_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
             .map_err(SearchAdapterFailure::backend)?;
-        adapt_pattern_response(&self.manifest, response)
+        adapt_pattern_response(&self.manifest, query, response)
     }
 
     /// Executes public observed pattern path search.
@@ -267,13 +405,14 @@ impl SearchAdapter {
         backend: &mut Backend,
         request: SearchPatternRequest,
     ) -> Result<AdaptedPatternPathSearch, SearchAdapterFailure> {
+        let query = QueryShape::of_pattern(&request);
         let response = backend
             .search_pattern_paths_observed(ObservedRequest {
                 request,
                 rules: Some(self.manifest.backend_rule_ids()),
             })
             .map_err(SearchAdapterFailure::backend)?;
-        adapt_pattern_path_response(&self.manifest, response)
+        adapt_pattern_path_response(&self.manifest, query, response)
     }
 
     /// Exact selected profile.
@@ -283,12 +422,16 @@ impl SearchAdapter {
     }
 }
 
-fn outcome(count: usize) -> PositiveBoundedOutcome {
-    if count == 0 {
-        PositiveBoundedOutcome::UnknownNotProven
-    } else {
-        PositiveBoundedOutcome::Positive
-    }
+/// Splits facade results into witnessed members and depth-bounded frontier, keeping order.
+fn partition<T>(
+    query: QueryShape,
+    results: Vec<T>,
+    depth: impl Fn(&T) -> u64,
+) -> (ExistentialOutcome<T>, Vec<T>) {
+    let (frontier, members) = results
+        .into_iter()
+        .partition(|result| query.is_frontier(depth(result)));
+    (ExistentialOutcome::from_members(members), frontier)
 }
 
 fn check_header(
@@ -307,6 +450,7 @@ fn check_header(
 
 fn adapt_state_response(
     manifest: &InstalledObservationManifest,
+    query: QueryShape,
     response: SearchResponse,
 ) -> Result<AdaptedStateSearch, SearchAdapterFailure> {
     inventory_effects(&response.effects);
@@ -330,9 +474,11 @@ fn adapt_state_response(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let incomplete = adapt_incomplete(manifest, response.incomplete)?;
+    let (outcome, frontier) = partition(query, states, |state| state.depth);
     Ok(AdaptedStateSearch {
-        outcome: outcome(states.len()),
-        states,
+        query,
+        outcome,
+        frontier,
         effects: response.effects,
         incomplete,
         authority: AdapterAuthority::NONE,
@@ -341,6 +487,7 @@ fn adapt_state_response(
 
 fn adapt_path_response(
     manifest: &InstalledObservationManifest,
+    query: QueryShape,
     response: PathSearchResponse,
 ) -> Result<AdaptedPathSearch, SearchAdapterFailure> {
     inventory_effects(&response.effects);
@@ -364,9 +511,11 @@ fn adapt_path_response(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let incomplete = adapt_incomplete(manifest, response.incomplete)?;
+    let (outcome, frontier) = partition(query, witnesses, |witness| witness.depth);
     Ok(AdaptedPathSearch {
-        outcome: outcome(witnesses.len()),
-        witnesses,
+        query,
+        outcome,
+        frontier,
         effects: response.effects,
         incomplete,
         authority: AdapterAuthority::NONE,
@@ -375,6 +524,7 @@ fn adapt_path_response(
 
 fn adapt_pattern_response(
     manifest: &InstalledObservationManifest,
+    query: QueryShape,
     response: PatternSearchResponse,
 ) -> Result<AdaptedPatternSearch, SearchAdapterFailure> {
     inventory_effects(&response.effects);
@@ -402,9 +552,11 @@ fn adapt_pattern_response(
         })
         .collect::<Result<Vec<_>, ObservationFailure>>()?;
     let incomplete = adapt_incomplete(manifest, response.incomplete)?;
+    let (outcome, frontier) = partition(query, matches, |found| found.branch.depth);
     Ok(AdaptedPatternSearch {
-        outcome: outcome(matches.len()),
-        matches,
+        query,
+        outcome,
+        frontier,
         effects: response.effects,
         incomplete,
         authority: AdapterAuthority::NONE,
@@ -413,6 +565,7 @@ fn adapt_pattern_response(
 
 fn adapt_pattern_path_response(
     manifest: &InstalledObservationManifest,
+    query: QueryShape,
     response: PathPatternSearchResponse,
 ) -> Result<AdaptedPatternPathSearch, SearchAdapterFailure> {
     inventory_effects(&response.effects);
@@ -440,9 +593,11 @@ fn adapt_pattern_path_response(
         })
         .collect::<Result<Vec<_>, ObservationFailure>>()?;
     let incomplete = adapt_incomplete(manifest, response.incomplete)?;
+    let (outcome, frontier) = partition(query, matches, |found| found.branch.depth);
     Ok(AdaptedPatternPathSearch {
-        outcome: outcome(matches.len()),
-        matches,
+        query,
+        outcome,
+        frontier,
         effects: response.effects,
         incomplete,
         authority: AdapterAuthority::NONE,
@@ -677,7 +832,12 @@ mod tests {
     use k_rust::kore::{json as kore_json, parser::parse_pattern};
     use serde_json::{Value, json};
 
-    use crate::observation::{NativeEvent, RuleObservationSpec};
+    use crate::observation::{ErasedBranch, NativeEvent, RuleObservationSpec};
+
+    const UNBOUNDED_FINAL: QueryShape = QueryShape {
+        search_type: SearchTypeArg::Final,
+        max_depth: None,
+    };
 
     const DEFINITION: &str = r#"[]
 module HIDDEN
@@ -839,9 +999,12 @@ endmodule []"#;
                 },
             )
             .unwrap();
-        assert_eq!(result.outcome, PositiveBoundedOutcome::Positive);
+        let witnesses = result
+            .outcome()
+            .witnesses()
+            .expect("the stuck state is a witness");
         assert!(matches!(
-            result.states[0].events.as_slice(),
+            witnesses.first().events.as_slice(),
             [NativeEvent::RuleApplied(event)] if event.rule_label == "step"
         ));
     }
@@ -918,8 +1081,10 @@ endmodule []"#;
             match (result, expected) {
                 (Ok(result), Committed(count)) => {
                     let events = result
-                        .states
-                        .iter()
+                        .outcome()
+                        .witnesses()
+                        .into_iter()
+                        .flat_map(Witnesses::iter)
                         .map(|state| state.events.len())
                         .sum::<usize>();
                     assert_eq!(events, count, "{id}");
@@ -930,61 +1095,446 @@ endmodule []"#;
         }
     }
 
+    /// Which facade entry point an O5 row drives.
+    #[derive(Clone, Copy, Debug)]
+    enum SearchKind {
+        State,
+        /// Pattern search for the initial state `a{}()`.
+        Pattern,
+        Path,
+    }
+
+    /// Observation-independent content of one adapted response. The unobserved facade reports
+    /// no branch identities, so branches keep only final state, depth and rule trace.
+    #[derive(Debug, PartialEq)]
+    struct ErasedSearch {
+        witnesses: Vec<ErasedBranch>,
+        frontier: Vec<ErasedBranch>,
+        incomplete: Vec<IncompleteClass>,
+        depth_bound: Vec<ErasedBranch>,
+        proves_exhaustive_absence: bool,
+    }
+
+    fn erase_semantics(branch: &AdaptedBranch) -> ErasedBranch {
+        ErasedBranch {
+            identity: Vec::new(),
+            ..branch.erase_observations()
+        }
+    }
+
+    fn erased_search<'a>(
+        witnesses: impl Iterator<Item = &'a AdaptedBranch>,
+        frontier: impl Iterator<Item = &'a AdaptedBranch>,
+        incomplete: &[AdaptedIncomplete],
+        authority: AdapterAuthority,
+    ) -> ErasedSearch {
+        ErasedSearch {
+            witnesses: witnesses.map(erase_semantics).collect(),
+            frontier: frontier.map(erase_semantics).collect(),
+            incomplete: incomplete.iter().map(AdaptedIncomplete::class).collect(),
+            depth_bound: incomplete
+                .iter()
+                .filter_map(|item| match item {
+                    AdaptedIncomplete::DepthBound { state } => Some(erase_semantics(state)),
+                    _ => None,
+                })
+                .collect(),
+            proves_exhaustive_absence: authority.proves_exhaustive_absence(),
+        }
+    }
+
+    /// Runs one row unobserved through the raw facade, or observed through the adapter.
+    fn run_o5_row(
+        kind: SearchKind,
+        observed: bool,
+        search_type: SearchTypeArg,
+        max_depth: Option<u64>,
+        max_results: Option<usize>,
+    ) -> ErasedSearch {
+        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let adapter = SearchAdapter::new(
+            SolverProfile::StructuredNoZ3Inference,
+            observed_manifest("step-id"),
+        )
+        .unwrap();
+        let request = SearchRequest {
+            state: kore("a{}()"),
+            search_type,
+            max_depth,
+            max_results,
+            ..SearchRequest::default()
+        };
+        let query = QueryShape::of_state(&request);
+        match kind {
+            SearchKind::State => {
+                let result = if observed {
+                    adapter.search(&mut backend, request).unwrap()
+                } else {
+                    let response = backend.search(request).unwrap();
+                    adapt_state_response(&empty_manifest(), query, response).unwrap()
+                };
+                erased_search(
+                    result
+                        .outcome()
+                        .witnesses()
+                        .into_iter()
+                        .flat_map(Witnesses::iter),
+                    result.frontier().iter(),
+                    result.incomplete(),
+                    result.authority(),
+                )
+            }
+            SearchKind::Path => {
+                let result = if observed {
+                    adapter.search_paths(&mut backend, request).unwrap()
+                } else {
+                    let response = backend.search_paths(request).unwrap();
+                    adapt_path_response(&empty_manifest(), query, response).unwrap()
+                };
+                erased_search(
+                    result
+                        .outcome()
+                        .witnesses()
+                        .into_iter()
+                        .flat_map(Witnesses::iter),
+                    result.frontier().iter(),
+                    result.incomplete(),
+                    result.authority(),
+                )
+            }
+            SearchKind::Pattern => {
+                let request = SearchPatternRequest {
+                    state: request.state,
+                    pattern: kore("a{}()"),
+                    search_type,
+                    max_depth,
+                    max_results,
+                    ..SearchPatternRequest::default()
+                };
+                let result = if observed {
+                    adapter.search_pattern(&mut backend, request).unwrap()
+                } else {
+                    let response = backend.search_pattern(request).unwrap();
+                    adapt_pattern_response(&empty_manifest(), query, response).unwrap()
+                };
+                erased_search(
+                    result
+                        .outcome()
+                        .witnesses()
+                        .into_iter()
+                        .flat_map(Witnesses::iter)
+                        .map(|found| &found.branch),
+                    result.frontier().iter().map(|found| &found.branch),
+                    result.incomplete(),
+                    result.authority(),
+                )
+            }
+        }
+    }
+
+    /// O5: a depth-bounded `Final` result is unexplored frontier, never a final-state witness,
+    /// and observation erasure agrees with the unobserved baseline within the bound. Agreement
+    /// within a bound is not identity of the unbounded searches.
     #[test]
-    fn erasing_observation_preserves_the_baseline_result() {
-        // (id, depth bound). The bounded row keeps its bound as an explicit incomplete item.
-        let rows = [
-            ("observer-erasure-is-identity", None),
-            ("bounded-erasure-is-identity", Some(0)),
+    fn bounded_final_results_are_frontier_and_erasure_agrees_within_the_bound() {
+        use IncompleteClass::DepthBound;
+        use SearchKind::{Path, Pattern, State};
+        use SearchTypeArg::{All, Final};
+        // `a => b` and `b` is stuck, so every path from `a{}()` ends after one step.
+        const LONGEST_PATH: u64 = 1;
+        // (id, kind, search type, max_depth, max_results, witness depths, frontier depths,
+        //  upstream incomplete classes). An empty witness list means `NotWitnessed`.
+        type Row = (
+            &'static str,
+            SearchKind,
+            SearchTypeArg,
+            Option<u64>,
+            Option<usize>,
+            &'static [u64],
+            &'static [u64],
+            &'static [IncompleteClass],
+        );
+        let rows: [Row; 10] = [
+            (
+                "unbounded-final-witnesses-the-stuck-state",
+                State,
+                Final,
+                None,
+                None,
+                &[1],
+                &[],
+                &[],
+            ),
+            (
+                "final-frontier-at-depth-zero-is-not-a-witness",
+                State,
+                Final,
+                Some(0),
+                None,
+                &[],
+                &[0],
+                &[DepthBound],
+            ),
+            // `b` is in fact stuck, but k-rust never checks stuckness at the bound.
+            (
+                "final-at-the-bound-is-frontier-even-if-stuck",
+                State,
+                Final,
+                Some(1),
+                None,
+                &[],
+                &[1],
+                &[DepthBound],
+            ),
+            (
+                "final-below-the-bound-is-a-witness",
+                State,
+                Final,
+                Some(2),
+                None,
+                &[1],
+                &[],
+                &[],
+            ),
+            (
+                "bounded-reachability-witness-is-sound",
+                State,
+                All,
+                Some(0),
+                None,
+                &[0],
+                &[],
+                &[DepthBound],
+            ),
+            // Pins the upstream gap: the result bound breaks before the frontier is recorded,
+            // so the empty upstream list is not evidence of a complete search.
+            (
+                "frontier-hidden-by-result-bound-is-still-frontier",
+                State,
+                Final,
+                Some(0),
+                Some(1),
+                &[],
+                &[0],
+                &[],
+            ),
+            (
+                "stuck-at-bound-hidden-by-result-bound",
+                State,
+                Final,
+                Some(1),
+                Some(1),
+                &[],
+                &[1],
+                &[],
+            ),
+            (
+                "final-pattern-frontier-is-not-a-match",
+                Pattern,
+                Final,
+                Some(0),
+                None,
+                &[],
+                &[0],
+                &[DepthBound],
+            ),
+            (
+                "reachability-pattern-at-bound-matches",
+                Pattern,
+                All,
+                Some(0),
+                None,
+                &[0],
+                &[],
+                &[DepthBound],
+            ),
+            (
+                "final-path-frontier-is-not-a-witness",
+                Path,
+                Final,
+                Some(0),
+                None,
+                &[],
+                &[0],
+                &[DepthBound],
+            ),
         ];
-        for (id, max_depth) in rows {
-            let request = SearchRequest {
-                state: kore("a{}()"),
-                max_depth,
-                ..SearchRequest::default()
+        for (id, kind, search_type, max_depth, max_results, witnesses, frontier, incomplete) in rows
+        {
+            let baseline = run_o5_row(kind, false, search_type, max_depth, max_results);
+            let observed = run_o5_row(kind, true, search_type, max_depth, max_results);
+            assert_eq!(observed, baseline, "{id}");
+            let depths = |branches: &[ErasedBranch]| {
+                branches
+                    .iter()
+                    .map(|branch| branch.depth)
+                    .collect::<Vec<_>>()
             };
-            let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
-            let baseline =
-                adapt_state_response(&empty_manifest(), backend.search(request.clone()).unwrap())
-                    .unwrap();
-            let observed = SearchAdapter::new(
-                SolverProfile::StructuredNoZ3Inference,
-                observed_manifest("step-id"),
+            assert_eq!(depths(&observed.witnesses), witnesses, "{id}");
+            assert_eq!(depths(&observed.frontier), frontier, "{id}");
+            assert_eq!(observed.incomplete, incomplete, "{id}");
+            if max_depth.is_some_and(|bound| bound <= LONGEST_PATH) {
+                assert!(
+                    !observed.frontier.is_empty() || !observed.incomplete.is_empty(),
+                    "{id}: a reached depth bound must leave a frontier or incomplete record"
+                );
+            }
+            assert!(!observed.proves_exhaustive_absence, "{id}");
+        }
+    }
+
+    #[test]
+    fn final_states_at_the_depth_bound_are_frontier_not_witnesses() {
+        let manifest = empty_manifest();
+        let depths = |branches: Vec<&AdaptedBranch>| {
+            branches
+                .iter()
+                .map(|branch| branch.depth)
+                .collect::<Vec<_>>()
+        };
+        let path_witness = |marker: i64| PathWitnessOutput {
+            id: state(marker).branch,
+            state: json!({ "marker": marker }),
+            depth: marker.unsigned_abs(),
+            trace: Vec::new(),
+            observations: Vec::new(),
+        };
+        let found = |marker| SearchMatchOutput {
+            bindings: Vec::new(),
+            constraints: Vec::new(),
+            state: state(marker),
+        };
+        let found_path = |marker| PathSearchMatchOutput {
+            bindings: Vec::new(),
+            constraints: Vec::new(),
+            witness: path_witness(marker),
+        };
+        // (id, query, witness depths, frontier depths) over results at depths [2, 3] and no
+        // DepthBound item: a result-bound break leaves exactly this upstream shape.
+        let bound = |search_type| QueryShape {
+            search_type,
+            max_depth: Some(3),
+        };
+        let rows: [(&str, QueryShape, &[u64], &[u64]); 3] = [
+            ("final-at-bound", bound(SearchTypeArg::Final), &[2], &[3]),
+            (
+                "reachability-at-bound",
+                bound(SearchTypeArg::All),
+                &[2, 3],
+                &[],
+            ),
+            ("unbounded-final", UNBOUNDED_FINAL, &[2, 3], &[]),
+        ];
+        for (id, query, witnesses, frontier) in rows {
+            let members = |outcome: &ExistentialOutcome<AdaptedBranch>| {
+                depths(
+                    outcome
+                        .witnesses()
+                        .into_iter()
+                        .flat_map(Witnesses::iter)
+                        .collect(),
+                )
+            };
+            let match_members = |outcome: &ExistentialOutcome<AdaptedPatternMatch>| {
+                depths(
+                    outcome
+                        .witnesses()
+                        .into_iter()
+                        .flat_map(Witnesses::iter)
+                        .map(|found| &found.branch)
+                        .collect(),
+                )
+            };
+            let state_result = adapt_state_response(
+                &manifest,
+                query,
+                state_response(vec![state(2), state(3)], Vec::new()),
             )
-            .unwrap()
-            .search(&mut backend, request)
             .unwrap();
-            // The unobserved facade reports no branch identities, so erasure is compared on
-            // the semantic content: final state, depth and rule trace.
-            let semantic = |states: &[AdaptedBranch]| {
-                states
-                    .iter()
-                    .map(|state| {
-                        let erased = state.erase_observations();
-                        (erased.state, erased.depth, erased.trace)
-                    })
-                    .collect::<Vec<_>>()
-            };
+            assert_eq!(members(state_result.outcome()), witnesses, "{id} state");
             assert_eq!(
-                semantic(&observed.states),
-                semantic(&baseline.states),
-                "{id}"
+                depths(state_result.frontier().iter().collect()),
+                frontier,
+                "{id} state"
             );
-            assert_eq!(observed.outcome, baseline.outcome, "{id}");
-            let classes = |search: &AdaptedStateSearch| {
-                search
-                    .incomplete
-                    .iter()
-                    .map(AdaptedIncomplete::class)
-                    .collect::<Vec<_>>()
-            };
-            assert_eq!(classes(&observed), classes(&baseline), "{id}");
+            assert!(state_result.incomplete().is_empty(), "{id} state");
+
+            let path_result = adapt_path_response(
+                &manifest,
+                query,
+                PathSearchResponse {
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                    modality: ResultModalityOutput::PathSet,
+                    witnesses: vec![path_witness(2), path_witness(3)],
+                    effects: Vec::new(),
+                    incomplete: Vec::new(),
+                },
+            )
+            .unwrap();
+            assert_eq!(members(path_result.outcome()), witnesses, "{id} path");
             assert_eq!(
-                classes(&observed).contains(&IncompleteClass::DepthBound),
-                max_depth.is_some(),
-                "{id}"
+                depths(path_result.frontier().iter().collect()),
+                frontier,
+                "{id} path"
             );
-            assert!(!observed.authority.proves_exhaustive_absence(), "{id}");
+
+            let pattern_result = adapt_pattern_response(
+                &manifest,
+                query,
+                PatternSearchResponse {
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                    modality: ResultModalityOutput::StateSet,
+                    matches: vec![found(2), found(3)],
+                    effects: Vec::new(),
+                    incomplete: Vec::new(),
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                match_members(pattern_result.outcome()),
+                witnesses,
+                "{id} pattern"
+            );
+            assert_eq!(
+                depths(
+                    pattern_result
+                        .frontier()
+                        .iter()
+                        .map(|found| &found.branch)
+                        .collect()
+                ),
+                frontier,
+                "{id} pattern"
+            );
+
+            let pattern_path_result = adapt_pattern_path_response(
+                &manifest,
+                query,
+                PathPatternSearchResponse {
+                    schema_version: BACKEND_SCHEMA_VERSION,
+                    modality: ResultModalityOutput::PathSet,
+                    matches: vec![found_path(2), found_path(3)],
+                    effects: Vec::new(),
+                    incomplete: Vec::new(),
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                match_members(pattern_path_result.outcome()),
+                witnesses,
+                "{id} pattern path"
+            );
+            assert_eq!(
+                depths(
+                    pattern_path_result
+                        .frontier()
+                        .iter()
+                        .map(|found| &found.branch)
+                        .collect()
+                ),
+                frontier,
+                "{id} pattern path"
+            );
         }
     }
 
@@ -1026,12 +1576,16 @@ endmodule []"#;
                 error: SmtFailureOutput::Unavailable,
             },
         ];
-        let result =
-            adapt_state_response(&empty_manifest(), state_response(Vec::new(), items)).unwrap();
-        assert_eq!(result.outcome, PositiveBoundedOutcome::UnknownNotProven);
+        let result = adapt_state_response(
+            &empty_manifest(),
+            UNBOUNDED_FINAL,
+            state_response(Vec::new(), items),
+        )
+        .unwrap();
+        assert_eq!(result.outcome(), &ExistentialOutcome::NotWitnessed);
         assert_eq!(
             result
-                .incomplete
+                .incomplete()
                 .iter()
                 .map(AdaptedIncomplete::class)
                 .collect::<Vec<_>>(),
@@ -1051,18 +1605,22 @@ endmodule []"#;
     #[test]
     fn result_bound_and_empty_success_are_always_unknown() {
         for incomplete in [Vec::new(), vec![IncompleteSearchOutput::ResultBound]] {
-            let result =
-                adapt_state_response(&empty_manifest(), state_response(Vec::new(), incomplete))
-                    .unwrap();
-            assert_eq!(result.outcome, PositiveBoundedOutcome::UnknownNotProven);
-            assert!(!result.authority.proves_exhaustive_absence());
+            let result = adapt_state_response(
+                &empty_manifest(),
+                UNBOUNDED_FINAL,
+                state_response(Vec::new(), incomplete),
+            )
+            .unwrap();
+            assert_eq!(result.outcome(), &ExistentialOutcome::NotWitnessed);
+            assert!(!result.authority().proves_exhaustive_absence());
         }
     }
 
     #[test]
-    fn positive_witness_survives_a_truncated_sibling() {
+    fn witness_survives_a_truncated_sibling() {
         let result = adapt_state_response(
             &empty_manifest(),
+            UNBOUNDED_FINAL,
             state_response(
                 vec![state(7)],
                 vec![IncompleteSearchOutput::BreadthBound {
@@ -1071,15 +1629,20 @@ endmodule []"#;
             ),
         )
         .unwrap();
-        assert_eq!(result.outcome, PositiveBoundedOutcome::Positive);
-        assert_eq!(result.states[0].state, json!({ "marker": 7 }));
-        assert_eq!(result.incomplete[0].class(), IncompleteClass::BreadthBound);
+        let witnesses = result.outcome().witnesses().expect("a member is a witness");
+        assert_eq!(witnesses.first().state, json!({ "marker": 7 }));
+        assert_eq!(witnesses.iter().count(), 1);
+        assert_eq!(
+            result.incomplete()[0].class(),
+            IncompleteClass::BreadthBound
+        );
     }
 
     #[test]
     fn solver_failures_defer_to_the_exact_later_profile() {
         let result = adapt_state_response(
             &empty_manifest(),
+            UNBOUNDED_FINAL,
             state_response(
                 Vec::new(),
                 vec![IncompleteSearchOutput::Smt {
@@ -1092,7 +1655,7 @@ endmodule []"#;
         )
         .unwrap();
         assert!(matches!(
-            &result.incomplete[0],
+            &result.incomplete()[0],
             AdaptedIncomplete::SolverDeferred {
                 required_profile: SolverProfile::QualifiedZ3InferenceRequired,
                 ..
@@ -1105,10 +1668,14 @@ endmodule []"#;
         let manifest = empty_manifest();
         let state_result = adapt_state_response(
             &manifest,
+            UNBOUNDED_FINAL,
             state_response(vec![state(2), state(1)], Vec::new()),
         )
         .unwrap();
-        assert_eq!(state_result.states[0].state, json!({ "marker": 2 }));
+        let first = |outcome: &ExistentialOutcome<AdaptedBranch>| {
+            outcome.witnesses().unwrap().first().state.clone()
+        };
+        assert_eq!(first(state_result.outcome()), json!({ "marker": 2 }));
 
         let witness = |marker| PathWitnessOutput {
             id: state(marker).branch,
@@ -1119,6 +1686,7 @@ endmodule []"#;
         };
         let path_result = adapt_path_response(
             &manifest,
+            UNBOUNDED_FINAL,
             PathSearchResponse {
                 schema_version: BACKEND_SCHEMA_VERSION,
                 modality: ResultModalityOutput::PathSet,
@@ -1128,10 +1696,11 @@ endmodule []"#;
             },
         )
         .unwrap();
-        assert_eq!(path_result.witnesses[0].state, json!({ "marker": 2 }));
+        assert_eq!(first(path_result.outcome()), json!({ "marker": 2 }));
 
         let pattern_result = adapt_pattern_response(
             &manifest,
+            UNBOUNDED_FINAL,
             PatternSearchResponse {
                 schema_version: BACKEND_SCHEMA_VERSION,
                 modality: ResultModalityOutput::StateSet,
@@ -1145,11 +1714,12 @@ endmodule []"#;
             },
         )
         .unwrap();
-        assert_eq!(pattern_result.outcome, PositiveBoundedOutcome::Positive);
-        assert_eq!(pattern_result.matches[0].constraints, [json!("constraint")]);
+        let found = pattern_result.outcome().witnesses().unwrap().first();
+        assert_eq!(found.constraints, [json!("constraint")]);
 
         let pattern_path_result = adapt_pattern_path_response(
             &manifest,
+            UNBOUNDED_FINAL,
             PathPatternSearchResponse {
                 schema_version: BACKEND_SCHEMA_VERSION,
                 modality: ResultModalityOutput::PathSet,
@@ -1164,7 +1734,13 @@ endmodule []"#;
         )
         .unwrap();
         assert_eq!(
-            pattern_path_result.matches[0].branch.state,
+            pattern_path_result
+                .outcome()
+                .witnesses()
+                .unwrap()
+                .first()
+                .branch
+                .state,
             json!({ "marker": 3 })
         );
     }
@@ -1174,6 +1750,7 @@ endmodule []"#;
         let result = ReplaySearch::State(
             adapt_state_response(
                 &empty_manifest(),
+                UNBOUNDED_FINAL,
                 state_response(vec![state(1)], Vec::new()),
             )
             .unwrap(),
@@ -1182,6 +1759,7 @@ endmodule []"#;
         let other = ReplaySearch::State(
             adapt_state_response(
                 &empty_manifest(),
+                UNBOUNDED_FINAL,
                 state_response(vec![state(2)], Vec::new()),
             )
             .unwrap(),
@@ -1193,15 +1771,16 @@ endmodule []"#;
     fn no_result_promotes_authority_or_provenance() {
         let result = adapt_state_response(
             &empty_manifest(),
+            UNBOUNDED_FINAL,
             state_response(vec![state(1)], Vec::new()),
         )
         .unwrap();
         assert_eq!(
-            result.authority.provenance(),
+            result.authority().provenance(),
             ProvenanceStatus::SidecarOnlyMissingBridge
         );
-        assert!(!result.authority.grants_native_authority());
-        assert!(!result.authority.has_production_receipt());
-        assert!(!result.authority.proves_exhaustive_absence());
+        assert!(!result.authority().grants_native_authority());
+        assert!(!result.authority().has_production_receipt());
+        assert!(!result.authority().proves_exhaustive_absence());
     }
 }
