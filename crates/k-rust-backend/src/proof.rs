@@ -341,13 +341,20 @@ pub fn prove_claim(
                     continue;
                 }
                 // Only a coverage condition says which part of the state already lies
-                // in the destination, so only its complement is the uncovered part. A
-                // refuted obligation (`ConsequentCondition`) covers none of the state;
-                // its condition is the matcher's report (bindings and predicates), whose
+                // in the destination, so only its complement is the uncovered part. Both a
+                // partial coverage and a contingent obligation carry one. A refuted
+                // obligation (`ConsequentCondition`) covers none of the state; its
+                // condition is the matcher's report (bindings and predicates), whose
                 // complement can be bottom. The whole state is then the part outside the
                 // destination and takes the arms below.
                 ImplicationStatus::Invalid
-                    if implication.failure == Some(ImplicationFailure::PartialCoverage) =>
+                    if matches!(
+                        implication.failure,
+                        Some(
+                            ImplicationFailure::PartialCoverage
+                                | ImplicationFailure::ContingentCondition
+                        )
+                    ) =>
                 {
                     let condition = implication
                         .condition

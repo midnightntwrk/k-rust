@@ -8508,7 +8508,8 @@ endmodule
 /// `false`), is graded exactly as one the solver refutes: the stuck check stops the state at
 /// depth 0, and without it the rule rewrites the state onward. `solver-refuted` and `simplifier-refuted` are
 /// true; `solver-refuted-false` and `simplifier-refuted-false` are false (their destination
-/// constraint fails on every state).
+/// constraint fails on every state). Their reached `st(0)` refutes the obligation and has no
+/// successor, so it is a stuck leaf in both modes.
 #[test]
 fn kprove_a_refuted_remainder_is_graded_alike_by_simplifier_and_solver() {
     let definition = r#"
@@ -8546,8 +8547,8 @@ endmodule
             [
                 ("proven".to_owned(), Vec::new()),
                 ("proven".to_owned(), Vec::new()),
-                ("disproved".to_owned(), vec!["Vacuous".to_owned()]),
-                ("disproved".to_owned(), vec!["Vacuous".to_owned()]),
+                stuck(),
+                stuck(),
             ],
         ),
     ] {
