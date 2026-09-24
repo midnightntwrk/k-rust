@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/structured_definition_conformance.rs
+description: "definition.kore of a structured MAIN importing INT, BOOL, MAP, LIST, SET with the embedded prelude, rust backend (concrete excluded)"
+---
+ArtifactDigest {
+    bytes: 164010,
+    sha256: "fc71b417c2a5c8b548eb0a787cd75cf7744b9b5777d4e75981e988b0966fd155",
+}

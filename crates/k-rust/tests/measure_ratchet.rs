@@ -4,8 +4,8 @@
 //! Bounds are measured values with headroom, recorded next to the assertion; a bound that trips
 //! after a deliberate algorithm change is re-pinned with the new value and the reason. Every
 //! test measures a `Snapshot::delta` around the call under test, so no test depends on the
-//! counters being zero when it starts. The standard prelude needs native Z3 inference, so the
-//! whole file follows that feature.
+//! counters being zero when it starts. The pinned counters, Z3 checks among them, were measured
+//! with native sort inference, so the whole file follows that feature.
 
 #![cfg(feature = "z3-inference")]
 

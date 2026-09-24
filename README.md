@@ -134,8 +134,12 @@ cargo build -p k-rust --no-default-features
 cargo build -p k-rust-wasm --target wasm32-unknown-unknown
 ```
 
-The CLI is deliberately native-only. A portable build returns a structured
-`Z3InferenceRequired` error when a definition crosses the inference boundary that needs Z3.
+The portable subset includes the embedded standard prelude: loading it as an implicit source
+(`builtin::embedded("prelude.md")`, for example through `load_structured`) needs no Z3 and gives
+the same loaded definition and `definition.kore` as the native build, under either backend's
+module exclusion. The CLI is deliberately native-only. A portable build returns a structured
+`Z3InferenceRequired` error when a rule needs parametric sort inference or contains an ambiguous
+forest the portable decision does not settle.
 
 ## CLI
 
@@ -523,9 +527,9 @@ const result = parseProgram({
 After initialization, parsing is synchronous. Use a worker for large inputs in latency-sensitive
 applications. `compileDefinition` exposes the same in-memory compiler API and returns all three KORE
 artifacts. Definitions that require native Z3 inference return an explicit unsupported-boundary
-error rather than silently choosing a different result. Because the standard prelude itself needs
-Z3 while parsing rules, the WASM package defaults `includePrelude` to `false`; portable dependencies
-must be passed explicitly through `sources`.
+error rather than silently choosing a different result. The WASM package does not yet expose the
+embedded prelude, so it defaults `includePrelude` to `false`; portable dependencies must be passed
+explicitly through `sources`.
 
 The WASM facade also exports `compileBackend` and `createBackend` with the same persistent API.
 Concrete execution and proofs work in-process; `capabilities.smt` and `capabilities.stepTimeouts`

@@ -1,6 +1,8 @@
-// Standard-prelude fixtures require native Z3 inference; their semantic assertions are
-// feature-gated below. inner_rules::portable_build_rejects_the_standard_prelude covers
-// the portable boundary instead of duplicating that rejection for each fixture.
+// The embedded standard prelude loads in the portable build to the same definition as in the
+// z3-inference build (inner_rules::the_standard_prelude_loads_to_the_same_definition_in_both_builds).
+// Fixtures gated on `z3-inference` below are gated for their own rules or pinned results, not for
+// the prelude: parametric sort inference, an ambiguous forest outside the portable decision, or
+// an assertion not yet checked against the portable build.
 
 use indoc::indoc;
 #[cfg(feature = "z3-inference")]

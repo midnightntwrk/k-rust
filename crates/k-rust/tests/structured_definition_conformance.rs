@@ -1,13 +1,13 @@
 use std::collections::BTreeMap;
 
-#[cfg(feature = "z3-inference")]
 use k_rust::{
     builtin::embedded,
     outer::{LoadOptions, ResolvedSource, load_structured, load_with_options},
 };
 use k_rust::{
     definition::{
-        Attributes, Definition, FlatModule, ProductionItem, ResolvedDefinition, Sentence,
+        Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition,
+        Sentence,
     },
     kast::{Label, Sort, Term},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
@@ -70,7 +70,6 @@ fn structured_configuration_compiles_through_the_public_pipeline() {
     });
 }
 
-#[cfg(feature = "z3-inference")]
 #[test]
 fn load_structured_compiles_an_authored_instrs_configuration() {
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
@@ -483,6 +482,82 @@ fn structured_labelled_bracket_declares_its_syntax_relations() {
     }
 }
 
+/// A structured definition importing prelude modules loads through `load_structured` and
+/// compiles on both backends to the same `definition.kore` in either build. The snapshot is the
+/// digest of each backend's `definition.kore`, recorded by the z3-inference build and asserted
+/// by the portable build.
+#[test]
+fn structured_definition_importing_the_prelude_compiles_to_the_same_kore_in_both_builds() {
+    let mut definition = structured_definition(false);
+    definition.modules[0].imports = ["INT", "BOOL", "MAP", "LIST", "SET"]
+        .into_iter()
+        .map(|name| FlatImport {
+            name: name.into(),
+            public: false,
+        })
+        .collect();
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let excluded = backend.excluded_module_attribute();
+        let loaded = load_structured(
+            definition.clone(),
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![excluded.into()],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected structured loading: {error}"));
+        let artifacts = compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{backend} rejected structured input: {error:#?}"));
+        assert!(parse_definition(&artifacts.definition_kore).is_ok());
+        let digest = artifact_digest(
+            &format!("structured-prelude-{backend}.kore"),
+            &artifacts.definition_kore,
+        );
+        insta::with_settings!({
+            description => format!(
+                "definition.kore of a structured MAIN importing INT, BOOL, MAP, LIST, SET with the embedded prelude, {backend} backend ({excluded} excluded)"
+            ),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+            snapshot_suffix => backend.to_string(),
+        }, {
+            insta::assert_debug_snapshot!("structured_prelude_definition_kore", digest);
+        });
+    }
+}
+
+/// The size and SHA-256 of a large artifact. The artifact itself is written under the test
+/// binary's temporary directory, where a mismatch can be diffed against the other build's copy.
+#[derive(Debug)]
+#[allow(dead_code)]
+struct ArtifactDigest {
+    bytes: usize,
+    sha256: String,
+}
+
+fn artifact_digest(name: &str, text: &str) -> ArtifactDigest {
+    use sha2::Digest;
+    // A rerun under a type-inference mode writes its own copy.
+    let mode = std::env::var("KRUST_TYPE_INFERENCE_MODE").map_or(String::new(), |mode| mode + "-");
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(mode + name);
+    std::fs::write(&path, text).unwrap();
+    eprintln!("{name}: {}", path.display());
+    ArtifactDigest {
+        bytes: text.len(),
+        sha256: sha2::Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    }
+}
+
 fn assert_compiles_on_both_backends(
     definition: Definition,
     assert_artifacts: impl Fn(&k_rust::kompile::CompiledKoreArtifacts),
@@ -519,7 +594,6 @@ fn structured_definition(with_configuration: bool) -> Definition {
     )
 }
 
-#[cfg(feature = "z3-inference")]
 fn structured_definition_with_configuration_cell(cell: &str) -> Definition {
     structured_definition_with_optional_configuration_cell(Some(cell), false)
 }

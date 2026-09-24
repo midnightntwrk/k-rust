@@ -1,6 +1,8 @@
-// Standard-prelude fixtures require native Z3 inference; their semantic assertions are
-// feature-gated below. inner_rules::portable_build_rejects_the_standard_prelude covers
-// the portable boundary instead of duplicating that rejection for each fixture.
+// The embedded standard prelude loads in the portable build to the same definition as in the
+// z3-inference build (inner_rules::the_standard_prelude_loads_to_the_same_definition_in_both_builds).
+// Fixtures gated on `z3-inference` below are gated for their own rules or pinned results, not for
+// the prelude: parametric sort inference, an ambiguous forest outside the portable decision, or
+// an assertion not yet checked against the portable build.
 
 use indoc::indoc;
 use k_rust::definition::{Attributes, Sentence, StructuralCheckOptions, check_rhs_variables};
@@ -3197,27 +3199,96 @@ fn resolves_an_element_of_an_overloaded_user_list() {
     assert_rule_resolution_snapshot!(source);
 }
 
-#[cfg(not(feature = "z3-inference"))]
+/// The size and SHA-256 of a large artifact. Its snapshot is recorded by the z3-inference build
+/// and asserted by the portable build, so both builds must produce the same bytes; the artifact
+/// itself is written under the test binary's temporary directory, where a mismatch can be
+/// diffed against the other build's copy.
+#[derive(Debug)]
+#[allow(dead_code)]
+struct ArtifactDigest {
+    bytes: usize,
+    sha256: String,
+}
+
+fn artifact_digest(name: &str, text: &str) -> ArtifactDigest {
+    use sha2::Digest;
+    // A rerun under a type-inference mode writes its own copy.
+    let mode = std::env::var("KRUST_TYPE_INFERENCE_MODE").map_or(String::new(), |mode| mode + "-");
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(mode + name);
+    std::fs::write(&path, text).unwrap();
+    eprintln!("{name}: {}", path.display());
+    ArtifactDigest {
+        bytes: text.len(),
+        sha256: sha2::Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
+    }
+}
+
+/// The embedded prelude is inside the portable boundary: an empty main module with the prelude
+/// loads in either build, under either backend's module exclusion, to the same definition.
 #[test]
-fn portable_build_rejects_the_standard_prelude() {
-    // The ambiguous monomorphic forests of the prelude are decided portably; what still stops
-    // it is a rule the portable rule grammar does not parse, such as a rewrite in an argument
-    // position of STDIN-STREAM.
-    let error = load_with_prelude("module MAIN endmodule", "test.k", "MAIN")
-        .expect_err("the standard prelude does not load in the portable build");
-    assert!(
-        matches!(
-            &error,
-            k_rust::outer::LoadError::RuleParsing(RuleError::Parse(_))
-        ),
-        "{error:?}"
+fn the_standard_prelude_loads_to_the_same_definition_in_both_builds() {
+    for excluded in ["concrete", "symbolic"] {
+        let loaded =
+            load_with_prelude_excluding("module MAIN endmodule", "test.k", "MAIN", excluded)
+                .unwrap_or_else(|error| {
+                    panic!("the prelude should load with {excluded} excluded: {error}")
+                });
+        let json = k_rust::definition::json::to_string_pretty(&loaded.definition).unwrap();
+        let digest = artifact_digest(&format!("standard-prelude-{excluded}.json"), &json);
+        insta::with_settings!({
+            description => format!(
+                "definition::json::to_string_pretty of `module MAIN endmodule` loaded with the embedded prelude, {excluded} excluded"
+            ),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+            snapshot_suffix => excluded,
+        }, {
+            insta::assert_debug_snapshot!("standard_prelude_definition", digest);
+        });
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn the_standard_prelude_agrees_under_checked_inference() {
+    // Checked mode runs the portable decision beside Z3 on every forest of the prelude and fails
+    // on any disagreement, so the equality above is also tested rule by rule.
+    assert_test_passes_under_checked_inference(
+        "the_standard_prelude_loads_to_the_same_definition_in_both_builds",
     );
 }
 
+#[cfg(feature = "z3-inference")]
 fn load_with_prelude(
     source: &str,
     name: &str,
     main_module: &str,
+) -> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
+    load_with_prelude_options(source, name, main_module, Vec::new())
+}
+
+fn load_with_prelude_excluding(
+    source: &str,
+    name: &str,
+    main_module: &str,
+    excluded_module_attribute: &str,
+) -> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
+    load_with_prelude_options(
+        source,
+        name,
+        main_module,
+        vec![excluded_module_attribute.into()],
+    )
+}
+
+fn load_with_prelude_options(
+    source: &str,
+    name: &str,
+    main_module: &str,
+    excluded_module_attributes: Vec<String>,
 ) -> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
     let prelude = k_rust::builtin::embedded("prelude.md").expect("embedded prelude should exist");
     let mut resolver = |_: &str, required: &str| {
@@ -3229,6 +3300,7 @@ fn load_with_prelude(
         &mut resolver,
         &LoadOptions {
             implicit_sources: vec![prelude],
+            excluded_module_attributes,
             ..LoadOptions::default()
         },
     )
@@ -4002,10 +4074,10 @@ fn kitem_argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
 
 // A parenthesized rewrite has one derivation per bracket that reaches its position: here the
 // `Int` bracket under `foo` and the `K` bracket under the `foo(...)` label application, which
-// are distinct rewrites (of sort `Int` and of sort `K`). Only sort inference can choose, so the
-// portable build reports the Z3 boundary instead of picking one.
+// are distinct rewrites (of sort `Int` and of sort `K`). The forest is ambiguous but
+// monomorphic, so sort inference decides it in either build, and both builds give one rule.
 #[test]
-fn argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
+fn argument_rewrite_inside_a_bracket_is_decided_by_sort_inference() {
     let source = indoc! {r#"
         module MAIN
           syntax Int ::= r"[0-9]+" [token]
@@ -4013,10 +4085,15 @@ fn argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
           rule foo((I:Int => 0))
         endmodule
     "#};
-    #[cfg(feature = "z3-inference")]
     assert_rule_resolution_snapshot!(source);
-    #[cfg(not(feature = "z3-inference"))]
-    assert_ambiguity_requires_z3(source);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn argument_rewrite_inside_a_bracket_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "argument_rewrite_inside_a_bracket_is_decided_by_sort_inference",
+    );
 }
 
 #[test]

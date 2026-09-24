@@ -1,0 +1,8 @@
+---
+source: crates/k-rust/tests/structured_definition_conformance.rs
+description: "definition.kore of a structured MAIN importing INT, BOOL, MAP, LIST, SET with the embedded prelude, llvm backend (symbolic excluded)"
+---
+ArtifactDigest {
+    bytes: 126145,
+    sha256: "44717449ec5e60b653a8007bab51cfeca5008b68d2d25039d871d6c6605ef86b",
+}
