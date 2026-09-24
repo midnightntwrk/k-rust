@@ -628,7 +628,12 @@ impl<'a> Solver<'a> {
                     // the inner sort by the declared one; bounding it from below too makes the
                     // two equal. Without it a cast would only restate what the enclosing
                     // position already requires and could not select an overload by sort.
-                    self.constrain(child.clone(), inner.clone())?;
+                    // A synthetic parser sort such as the bottom sort of `#token(_,_)` or
+                    // `#klabel(_)` says nothing about the term's sort: there the cast is the only
+                    // statement of that sort, so it cannot be required to equal the cast sort.
+                    if !matches!(inner, SortRef::Concrete(sort) if !is_real_ground_sort(sort)) {
+                        self.constrain(child.clone(), inner.clone())?;
+                    }
                 }
                 Ok(actual)
             }
