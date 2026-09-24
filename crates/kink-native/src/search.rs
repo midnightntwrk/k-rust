@@ -21,7 +21,6 @@ use k_rust::backend::{
 };
 use k_rust_backend::diagnostic::{self, BackendDiagnostic};
 
-use crate::ProvenanceStatus;
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
 };
@@ -153,44 +152,6 @@ impl<T> ExistentialOutcome<T> {
     }
 }
 
-/// Adapter-wide authority boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AdapterAuthority {
-    provenance: ProvenanceStatus,
-    native_authority: bool,
-    exhaustive_absence: bool,
-    production_receipt: bool,
-}
-
-impl AdapterAuthority {
-    const NONE: Self = Self {
-        provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
-        native_authority: false,
-        exhaustive_absence: false,
-        production_receipt: false,
-    };
-
-    #[must_use]
-    pub const fn provenance(self) -> ProvenanceStatus {
-        self.provenance
-    }
-
-    #[must_use]
-    pub const fn grants_native_authority(self) -> bool {
-        self.native_authority
-    }
-
-    #[must_use]
-    pub const fn proves_exhaustive_absence(self) -> bool {
-        self.exhaustive_absence
-    }
-
-    #[must_use]
-    pub const fn has_production_receipt(self) -> bool {
-        self.production_receipt
-    }
-}
-
 /// Declares one adapted response. See the module documentation for why none of them may be
 /// read as a complete result set.
 macro_rules! adapted_search {
@@ -204,7 +165,6 @@ macro_rules! adapted_search {
             effects: Vec<EffectOutput>,
             incomplete: Vec<AdaptedIncomplete>,
             diagnostics: Vec<BackendDiagnostic>,
-            authority: AdapterAuthority,
         }
 
         impl $name {
@@ -243,11 +203,6 @@ macro_rules! adapted_search {
             #[must_use]
             pub fn diagnostics(&self) -> &[BackendDiagnostic] {
                 &self.diagnostics
-            }
-
-            #[must_use]
-            pub const fn authority(&self) -> AdapterAuthority {
-                self.authority
             }
         }
     };
@@ -534,7 +489,6 @@ fn adapt_state_response(
         effects: response.effects,
         incomplete,
         diagnostics: Vec::new(),
-        authority: AdapterAuthority::NONE,
     })
 }
 
@@ -572,7 +526,6 @@ pub(crate) fn adapt_path_response(
         effects: response.effects,
         incomplete,
         diagnostics: Vec::new(),
-        authority: AdapterAuthority::NONE,
     })
 }
 
@@ -614,7 +567,6 @@ fn adapt_pattern_response(
         effects: response.effects,
         incomplete,
         diagnostics: Vec::new(),
-        authority: AdapterAuthority::NONE,
     })
 }
 
@@ -656,7 +608,6 @@ fn adapt_pattern_path_response(
         effects: response.effects,
         incomplete,
         diagnostics: Vec::new(),
-        authority: AdapterAuthority::NONE,
     })
 }
 
@@ -858,7 +809,7 @@ pub enum ReplaySearch {
     PatternPath(AdaptedPatternPathSearch),
 }
 
-/// Deterministic replay agreement. It grants no publication or authority.
+/// Deterministic replay agreement.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReplayAgreement;
 
@@ -1168,7 +1119,6 @@ endmodule []"#;
         frontier: Vec<ErasedBranch>,
         incomplete: Vec<IncompleteClass>,
         depth_bound: Vec<ErasedBranch>,
-        proves_exhaustive_absence: bool,
     }
 
     fn erase_semantics(branch: &AdaptedBranch) -> ErasedBranch {
@@ -1182,7 +1132,6 @@ endmodule []"#;
         witnesses: impl Iterator<Item = &'a AdaptedBranch>,
         frontier: impl Iterator<Item = &'a AdaptedBranch>,
         incomplete: &[AdaptedIncomplete],
-        authority: AdapterAuthority,
     ) -> ErasedSearch {
         ErasedSearch {
             witnesses: witnesses.map(erase_semantics).collect(),
@@ -1195,7 +1144,6 @@ endmodule []"#;
                     _ => None,
                 })
                 .collect(),
-            proves_exhaustive_absence: authority.proves_exhaustive_absence(),
         }
     }
 
@@ -1237,7 +1185,6 @@ endmodule []"#;
                         .flat_map(Witnesses::iter),
                     result.frontier().iter(),
                     result.incomplete(),
-                    result.authority(),
                 )
             }
             SearchKind::Path => {
@@ -1255,7 +1202,6 @@ endmodule []"#;
                         .flat_map(Witnesses::iter),
                     result.frontier().iter(),
                     result.incomplete(),
-                    result.authority(),
                 )
             }
             SearchKind::Pattern => {
@@ -1282,7 +1228,6 @@ endmodule []"#;
                         .map(|found| &found.branch),
                     result.frontier().iter().map(|found| &found.branch),
                     result.incomplete(),
-                    result.authority(),
                 )
             }
         }
@@ -1435,7 +1380,6 @@ endmodule []"#;
                     "{id}: a reached depth bound must leave a frontier or incomplete record"
                 );
             }
-            assert!(!observed.proves_exhaustive_absence, "{id}");
         }
     }
 
@@ -1668,7 +1612,6 @@ endmodule []"#;
             )
             .unwrap();
             assert_eq!(result.outcome(), &ExistentialOutcome::NotWitnessed);
-            assert!(!result.authority().proves_exhaustive_absence());
         }
     }
 
@@ -1821,22 +1764,5 @@ endmodule []"#;
             .unwrap(),
         );
         assert_eq!(compare_replay(&result, &other), Err(ReplayMismatch));
-    }
-
-    #[test]
-    fn no_result_promotes_authority_or_provenance() {
-        let result = adapt_state_response(
-            &empty_manifest(),
-            UNBOUNDED_FINAL,
-            state_response(vec![state(1)], Vec::new()),
-        )
-        .unwrap();
-        assert_eq!(
-            result.authority().provenance(),
-            ProvenanceStatus::SidecarOnlyMissingBridge
-        );
-        assert!(!result.authority().grants_native_authority());
-        assert!(!result.authority().has_production_receipt());
-        assert!(!result.authority().proves_exhaustive_absence());
     }
 }

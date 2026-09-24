@@ -82,7 +82,6 @@ fn run_gate() {
     // An empty incomplete list does not prove the run complete; it only shows that upstream
     // reported no truncation for this unbounded search.
     assert!(state_first.incomplete().is_empty());
-    assert_no_authority(state_first.authority());
     assert_branch(&state_branch, &fixture);
 
     let state_second =
@@ -102,7 +101,6 @@ fn run_gate() {
     assert!(path_first.effects().is_empty());
     // As above, an empty incomplete list is not evidence of exhaustion.
     assert!(path_first.incomplete().is_empty());
-    assert_no_authority(path_first.authority());
 
     let path_second = run_path_search(&definition_source, &manifest, fixture.initial_state);
     compare_replay(
@@ -566,14 +564,4 @@ fn assert_branch(branch: &kink_native::observation::AdaptedBranch, fixture: &Rul
     assert_eq!(event.before, fixture.initial_state);
     assert_eq!(event.after, fixture.final_state);
     assert_eq!(event.provenance, ProvenanceStatus::SidecarOnlyMissingBridge);
-}
-
-fn assert_no_authority(authority: kink_native::search::AdapterAuthority) {
-    assert_eq!(
-        authority.provenance(),
-        ProvenanceStatus::SidecarOnlyMissingBridge
-    );
-    assert!(!authority.grants_native_authority());
-    assert!(!authority.proves_exhaustive_absence());
-    assert!(!authority.has_production_receipt());
 }
