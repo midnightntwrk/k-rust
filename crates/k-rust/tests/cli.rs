@@ -8446,6 +8446,167 @@ endmodule
     }
 }
 
+/// A destination reached through a match remainder (`st(X)` against `st(0)`) is classified like
+/// any other obligation: the part where `X = 0` is at the destination and closes, and the rest
+/// can still rewrite, so it continues whatever the stuck check says. `remainder-rewritable` is
+/// true (the rest takes the rule to `st(0)`). In `remainder-false` the rest reaches `st(0)`,
+/// which is outside the destination `st(1)` and has no successor: a stuck leaf (disproved).
+#[test]
+fn kprove_a_remainder_destination_continues_the_uncovered_part() {
+    let definition = r#"
+module REMAINDER-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= st(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> st(X) => st(0) </k> requires X =/=Int 0
+endmodule
+"#;
+    let specification = r#"
+requires "remainder-probe.k"
+
+module REMAINDER-SPEC
+  imports REMAINDER-PROBE
+
+  claim <k> st(_X) => st(0) </k> [label(remainder-rewritable)]
+  claim <k> st(_X) => st(1) </k> [label(remainder-false)]
+endmodule
+"#;
+    for extra in [&[][..], &["--disable-stuck-check"][..]] {
+        let leaves = kprove_claim_leaves(
+            ("remainder-probe.k", definition),
+            ("remainder-spec.k", specification),
+            "REMAINDER-SPEC",
+            "REMAINDER-PROBE",
+            &["remainder-rewritable", "remainder-false"],
+            extra,
+        );
+        assert_eq!(
+            leaves[0],
+            (
+                "remainder-rewritable".to_owned(),
+                "proven".to_owned(),
+                Vec::new()
+            ),
+            "{extra:?}: {leaves:?}"
+        );
+        let (claim, verdict, outcomes) = &leaves[1];
+        assert_eq!(
+            (claim.as_str(), verdict.as_str()),
+            ("remainder-false", "disproved"),
+            "{extra:?}: {leaves:?}"
+        );
+        assert!(
+            !outcomes.is_empty() && outcomes.iter().all(|outcome| outcome == "Stuck"),
+            "{extra:?}: {leaves:?}"
+        );
+    }
+}
+
+/// A remainder obligation (`0 = X` from `st(X)` against `st(0)`) that the simplifier refutes,
+/// because together with the destination constraint it is false (`0 = X` with `X >Int 5`, or
+/// `false`), is graded exactly as one the solver refutes: the stuck check stops the state at
+/// depth 0, and without it the rule rewrites the state onward. `solver-refuted` and `simplifier-refuted` are
+/// true; `solver-refuted-false` and `simplifier-refuted-false` are false (their destination
+/// constraint fails on every state). Their reached `st(0)` refutes the obligation and has no
+/// successor, so it is a stuck leaf in both modes.
+#[test]
+fn kprove_a_refuted_remainder_is_graded_alike_by_simplifier_and_solver() {
+    let definition = r#"
+module REMAINDER-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= st(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> st(X) => st(0) </k> requires X =/=Int 0
+endmodule
+"#;
+    let specification = r#"
+requires "remainder-probe.k"
+
+module REMAINDER-SPEC
+  imports REMAINDER-PROBE
+
+  claim <k> st(X) => st(0) </k> requires X >Int 5 [label(solver-refuted)]
+  claim <k> st(X) => st(0) </k> requires X >Int 5 ensures X >Int 5 [label(simplifier-refuted)]
+  claim <k> st(X) => st(0) </k> requires X >Int 5 ensures X <Int 5 [label(solver-refuted-false)]
+  claim <k> st(X) => st(0) </k> requires X >Int 5 ensures false [label(simplifier-refuted-false)]
+endmodule
+"#;
+    let claims = [
+        "solver-refuted",
+        "simplifier-refuted",
+        "solver-refuted-false",
+        "simplifier-refuted-false",
+    ];
+    let stuck = || ("disproved".to_owned(), vec!["Stuck".to_owned()]);
+    for (extra, expected) in [
+        (&[][..], [stuck(), stuck(), stuck(), stuck()]),
+        (
+            &["--disable-stuck-check"][..],
+            [
+                ("proven".to_owned(), Vec::new()),
+                ("proven".to_owned(), Vec::new()),
+                stuck(),
+                stuck(),
+            ],
+        ),
+    ] {
+        let leaves = kprove_claim_leaves(
+            ("remainder-probe.k", definition),
+            ("remainder-spec.k", specification),
+            "REMAINDER-SPEC",
+            "REMAINDER-PROBE",
+            &claims,
+            extra,
+        );
+        let expected = claims
+            .iter()
+            .zip(expected)
+            .map(|(claim, (verdict, outcomes))| ((*claim).to_owned(), verdict, outcomes))
+            .collect::<Vec<_>>();
+        assert_eq!(leaves, expected, "{extra:?}");
+    }
+}
+
+/// Where `X =/=Int Y`, `q(X, Y)` rewrites to `q(Y, Y)`, which is stuck. The only witness for `?Z`
+/// there is `Y`, so `?Z ==Int X` is refuted. The first state is split on the remainder of the
+/// destination match (`X = Y` is covered). The rewritten part then refutes its obligation, and a
+/// refuted obligation covers nothing: the whole of `q(Y, Y)` under `X =/=Int Y` is a stuck leaf.
+/// That leaf is not an empty state, so accepting vacuous leaves cannot prove the claim.
+#[test]
+fn kprove_a_refuted_obligation_after_a_remainder_split_stays_stuck() {
+    let definition = r#"
+module SPLIT-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= q(Int, Int)
+  configuration <k> $PGM:State </k>
+  rule <k> q(X, Y) => q(Y, Y) </k> requires X =/=Int Y
+endmodule
+"#;
+    let specification = r#"
+requires "split-probe.k"
+
+module SPLIT-SPEC
+  imports SPLIT-PROBE
+
+  claim <k> q(X, Y) => q(?Z, ?Z) </k> ensures ?Z ==Int X [label(q-ens-false)]
+endmodule
+"#;
+    for extra in [&[][..], &["--allow-vacuous"][..]] {
+        let leaves = kprove_claim_leaves(
+            ("split-probe.k", definition),
+            ("split-spec.k", specification),
+            "SPLIT-SPEC",
+            "SPLIT-PROBE",
+            &["q-ens-false"],
+            extra,
+        );
+        assert_eq!(leaves, [stuck_leaf("q-ens-false")], "{extra:?}");
+    }
+}
+
 /// A claim universal that the path overwrote still names its initial value, so the part of the
 /// reached state where the destination fails on it is a stuck leaf (disproved), whether or not
 /// vacuous leaves are accepted.

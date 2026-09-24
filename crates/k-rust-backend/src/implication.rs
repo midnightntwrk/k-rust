@@ -869,12 +869,28 @@ fn discharge_consequent(
         Truth::True => {
             return Ok(valid_with_witnesses(substitution, obligations.witnesses));
         }
+        // The complete policy reports a refuted remainder obligation as a term mismatch. The proof
+        // policy grades a remainder obligation the simplifier refutes exactly as one the solver
+        // refutes below: as uncovered coverage whose complement is the whole antecedent.
+        Truth::False if had_match_remainder => {
+            return Ok(
+                if options.counterexamples == CounterexamplePolicy::RefuteImplication {
+                    invalid()
+                } else {
+                    partial(
+                        source.original_variable,
+                        substitution,
+                        obligations.witnesses,
+                        obligations.predicates,
+                    )
+                },
+            );
+        }
         Truth::False => {
-            return Ok(if had_match_remainder {
-                invalid()
-            } else {
-                condition_invalid_with_bindings(substitution, obligations.witnesses)
-            });
+            return Ok(condition_invalid_with_bindings(
+                substitution,
+                obligations.witnesses,
+            ));
         }
         Truth::Unknown => {}
     }
@@ -909,7 +925,14 @@ fn discharge_consequent(
         ),
         Ok(Validity::Invalid) => condition_invalid_with_bindings(substitution, witnesses),
         Ok(Validity::InconsistentGroundTruth) => vacuously_valid(),
-        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_) if had_match_remainder => {
+        // The complete policy reports an undecided remainder obligation as the condition under
+        // which the implication would hold. The proof policy classifies the obligation by what
+        // the solver established, whatever its origin: a contingent one splits the state below,
+        // and an undecided one shows no non-empty part outside the destination.
+        Ok(Validity::Indeterminate | Validity::Unknown(_)) | Err(_)
+            if had_match_remainder
+                && options.counterexamples == CounterexamplePolicy::RefuteImplication =>
+        {
             partial(
                 source.original_variable,
                 substitution,
@@ -1629,6 +1652,92 @@ mod tests {
         }
     }
 
+    fn check_complete(
+        definition: &BackendDefinition,
+        antecedent: &Pattern,
+        consequent: &Pattern,
+        solver: &dyn SmtSolver,
+    ) -> Result<ImplicationResult, ImplicationError> {
+        check_implication_with_existentials_complete(
+            definition,
+            antecedent,
+            &BTreeSet::new(),
+            consequent,
+            &BTreeSet::new(),
+            solver,
+        )
+    }
+
+    /// The proof policy classifies a remainder obligation by the solver's answer alone, as it
+    /// does an obligation without a remainder: a refuted one is partial coverage, a contingent
+    /// one is the exact coverage condition, and an undecided one is indeterminate. The complete
+    /// policy keeps reporting every undecided remainder obligation as its condition.
+    #[test]
+    fn a_match_remainder_does_not_change_the_proof_policy_classification() {
+        let definition = definition();
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let consequent = pattern(
+            &definition,
+            r#"pair{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("1"))"#,
+        );
+        let obligation = Predicate::Equals(
+            term(&definition, r#"\dv{SortInt{}}("0")"#),
+            term(&definition, "X:SortInt{}"),
+        );
+        let solver = |validity| FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity,
+        };
+
+        let refuted = solver(Ok(Validity::Invalid));
+        for result in [
+            check_implication(&definition, &antecedent, &consequent, &refuted),
+            check_complete(&definition, &antecedent, &consequent, &refuted),
+        ] {
+            let result = result.expect("implication should be checked");
+            assert_eq!(result.status, ImplicationStatus::Invalid, "{result:#?}");
+            assert_eq!(
+                result.failure,
+                Some(ImplicationFailure::PartialCoverage),
+                "{result:#?}"
+            );
+        }
+
+        let contingent = solver(Ok(Validity::Indeterminate));
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &contingent),
+            Ok(contingent_with_bindings(
+                Substitution::new(),
+                Substitution::new(),
+                vec![obligation],
+            ))
+        );
+
+        for undecided in [
+            solver(Ok(Validity::Unknown("timeout".into()))),
+            solver(Err(SmtError::Unavailable)),
+        ] {
+            assert_eq!(
+                check_implication(&definition, &antecedent, &consequent, &undecided),
+                Ok(indeterminate())
+            );
+        }
+
+        for undecided in [
+            solver(Ok(Validity::Indeterminate)),
+            solver(Ok(Validity::Unknown("timeout".into()))),
+            solver(Err(SmtError::Unavailable)),
+        ] {
+            let result = check_complete(&definition, &antecedent, &consequent, &undecided)
+                .expect("implication should be checked");
+            assert_eq!(
+                result.failure,
+                Some(ImplicationFailure::PartialCoverage),
+                "{result:#?}"
+            );
+        }
+    }
+
     #[test]
     fn identical_patterns_imply_each_other() {
         let definition = definition();
@@ -1757,7 +1866,13 @@ mod tests {
         let antecedent = pattern(&definition, r#"opaque{}(X:SortInt{})"#);
         let consequent = pattern(&definition, r#"X:SortInt{}"#);
 
-        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+        // The proof policy does not turn an undecided remainder obligation into a coverage
+        // condition; the complete policy reports it as the condition of its answer.
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &NoSolver),
+            Ok(indeterminate())
+        );
+        let result = check_complete(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Invalid);
@@ -1784,7 +1899,11 @@ mod tests {
             constraints: Vec::new(),
         };
 
-        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+        assert_eq!(
+            check_implication(&definition, &antecedent, &consequent, &NoSolver),
+            Ok(indeterminate())
+        );
+        let result = check_complete(&definition, &antecedent, &consequent, &NoSolver)
             .expect("implication should be checked");
         let condition = result
             .condition
@@ -1796,7 +1915,7 @@ mod tests {
     }
 
     #[test]
-    fn term_mismatch_results_carry_no_condition() {
+    fn a_refuted_remainder_is_term_mismatch_only_under_the_complete_policy() {
         let definition = definition();
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
         let value = int(&definition, "0");
@@ -1812,12 +1931,34 @@ mod tests {
             constraints: vec![Predicate::False],
         };
 
-        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
-            .expect("implication should be checked");
+        let result = check_implication_with_existentials_complete(
+            &definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &consequent,
+            &BTreeSet::new(),
+            &NoSolver,
+        )
+        .expect("implication should be checked");
 
         assert_eq!(result.status, ImplicationStatus::Invalid);
         assert_eq!(result.condition, None);
         assert_eq!(result.failure, Some(ImplicationFailure::TermMismatch));
+
+        // The proof policy grades the simplifier-refuted remainder `0 = X` as uncovered coverage,
+        // like a solver-refuted one, so the stuck check applies to it.
+        let result = check_implication(&definition, &antecedent, &consequent, &NoSolver)
+            .expect("implication should be checked");
+
+        assert_eq!(result.status, ImplicationStatus::Invalid);
+        assert_eq!(result.failure, Some(ImplicationFailure::PartialCoverage));
+        let condition = result
+            .condition
+            .expect("refuted coverage carries a condition");
+        assert!(
+            condition.predicates.contains(&Predicate::False),
+            "{condition:?}"
+        );
     }
 
     #[test]
@@ -2411,7 +2552,18 @@ mod tests {
         let consequent = pattern(&definition, r#"pair{}(X:SortInt{}, X:SortInt{})"#);
         let x = crate::term::Variable::new("X", Sort::simple("SortInt"));
 
-        let result = check_implication_with_existentials(
+        assert_eq!(
+            check_implication_with_existentials(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &BTreeSet::from([x.clone()]),
+                &NoSolver,
+            ),
+            Ok(indeterminate())
+        );
+        let result = check_implication_with_existentials_complete(
             &definition,
             &antecedent,
             &BTreeSet::new(),
@@ -2717,7 +2869,7 @@ mod tests {
     }
 
     #[test]
-    fn stable_unresolved_function_match_is_invalid() {
+    fn stable_unresolved_function_match_leaves_a_remainder_obligation() {
         let definition = definition();
         let antecedent = pattern(&definition, r#"f{}(X:SortInt{})"#);
         let consequent = pattern(&definition, r#"f{}(X:SortInt{})"#);
@@ -2727,7 +2879,13 @@ mod tests {
             check_implication(&definition, &antecedent, &consequent, &NoSolver),
             Ok(valid(Substitution::new()))
         );
-        let result = check_implication(&definition, &antecedent, &other, &NoSolver)
+        // `f(X) = 1` is not decided without a solver: the proof policy leaves it undecided, and
+        // the complete policy reports it as the condition of its answer.
+        assert_eq!(
+            check_implication(&definition, &antecedent, &other, &NoSolver),
+            Ok(indeterminate())
+        );
+        let result = check_complete(&definition, &antecedent, &other, &NoSolver)
             .expect("implication should be checked");
         assert_eq!(result.status, ImplicationStatus::Invalid);
         assert_eq!(

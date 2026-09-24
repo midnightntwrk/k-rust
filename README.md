@@ -370,9 +370,11 @@ branching semantic rules, breadth-first or depth-first traversal, depth bounds, 
 conditions entirely in process. A specification can `requires` and import its semantics definition
 in the normal K source layout. The reference stuck-state heuristic is enabled by default; pass
 `--disable-stuck-check` to continue rewriting after destination terms match but their side
-conditions do not. When the side conditions hold on part of a state and fail on a non-empty part,
-the covered part is closed and the rest continues rewriting in either mode; if it cannot move, it
-is a stuck leaf (disproved) that carries the failing condition. `--compiled-definition` accepts either a `kcompile --for-proving` output
+conditions do not. When the side conditions, or the equalities that matching the destination term
+leaves (`st(X)` against `st(0)`), hold on part of a state and fail on a non-empty part, the covered
+part is closed and the rest continues rewriting in either mode; if it cannot move, it is a stuck
+leaf (disproved) that carries the failing condition. When the solver cannot decide them, the state
+continues rewriting and, if it cannot move, ends indeterminate. `--compiled-definition` accepts either a `kcompile --for-proving` output
 directory or its `definition.kore` file. Without a positional source file, it never reloads the
 original K sources. With a source file, it uses the neighboring `parsed.json` and `krust.json` to
 compile that new specification against the prepared semantics. `--load-only`

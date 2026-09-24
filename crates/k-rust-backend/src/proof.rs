@@ -341,13 +341,20 @@ pub fn prove_claim(
                     continue;
                 }
                 // Only a coverage condition says which part of the state already lies
-                // in the destination, so only its complement is the uncovered part. A
-                // refuted obligation (`ConsequentCondition`) covers none of the state;
-                // its condition is the matcher's report (bindings and predicates), whose
+                // in the destination, so only its complement is the uncovered part. Both a
+                // partial coverage and a contingent obligation carry one. A refuted
+                // obligation (`ConsequentCondition`) covers none of the state; its
+                // condition is the matcher's report (bindings and predicates), whose
                 // complement can be bottom. The whole state is then the part outside the
                 // destination and takes the arms below.
                 ImplicationStatus::Invalid
-                    if implication.failure == Some(ImplicationFailure::PartialCoverage) =>
+                    if matches!(
+                        implication.failure,
+                        Some(
+                            ImplicationFailure::PartialCoverage
+                                | ImplicationFailure::ContingentCondition
+                        )
+                    ) =>
                 {
                     let condition = implication
                         .condition
@@ -2463,6 +2470,99 @@ mod tests {
         );
     }
 
+    /// A destination reached through a match remainder (`start(X)` against `start(0)`) is
+    /// classified like any other obligation. A contingent one closes the covered part and hands
+    /// the rest to the rewrite step, whatever the stuck check says: here the rest takes the rule
+    /// to `b()` and the stuck leaf (disproved) is at depth 1, not the stuck-check stop at depth 0.
+    /// An undecided one leaves the state indeterminate instead of a stuck complement that is not
+    /// shown non-empty.
+    #[test]
+    fn a_match_remainder_obligation_is_classified_like_any_other() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol idle{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol b{}() : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    b{}()
+                ) [label{}("step")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(start{}(\dv{SortInt{}}("0")))
+                ) [label{}("rewritable")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(idle{}(X:SortInt{}), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(idle{}(\dv{SortInt{}}("0")))
+                ) [label{}("terminal")]
+            endmodule []"#,
+        )
+        .expect("remainder destination probe should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("remainder destination probe should internalize");
+        // The remainder obligation is the destination's value equal to the state's.
+        let covered = crate::rule::Predicate::Equals(
+            term(&definition, r#"\dv{SortInt{}}("0")"#),
+            term(&definition, "X:SortInt{}"),
+        );
+
+        let contingent = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+        for stuck_check in [true, false] {
+            let result = prove_claim(
+                &definition,
+                claim_with_label(&definition, "rewritable"),
+                ProofOptions {
+                    stuck_check,
+                    ..ProofOptions::default()
+                },
+                &contingent,
+            )
+            .expect("claim should execute");
+            assert_eq!(result.status, ProofStatus::Disproved, "{result:#?}");
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("expected one leaf, found {result:#?}");
+            };
+            assert_eq!(leaf.outcome, ProofLeafOutcome::Stuck, "{result:#?}");
+            assert_eq!(leaf.depth, 1, "{result:#?}");
+            assert_eq!(leaf.pattern.term, term(&definition, "b{}()"), "{result:#?}");
+            assert!(
+                leaf.pattern
+                    .constraints
+                    .contains(&crate::rule::Predicate::Not(Box::new(covered.clone()))),
+                "{result:#?}"
+            );
+        }
+
+        let unknown = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Unknown("timeout".into())),
+        };
+        let result = prove_claim(
+            &definition,
+            claim_with_label(&definition, "terminal"),
+            ProofOptions::default(),
+            &unknown,
+        )
+        .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Indeterminate, "{result:#?}");
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf, found {result:#?}");
+        };
+        assert_eq!(
+            leaf.outcome,
+            ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication),
+            "{result:#?}"
+        );
+    }
+
     /// A disjunctive destination whose consequents together cover only part of the state splits
     /// it the same way. The part where `X = 0` is already at the second consequent and closes; the
     /// rest takes the `X =/= 0` rule to `b()`. Rewriting the whole state instead would send the
@@ -4163,6 +4263,8 @@ mod tests {
         }
     }
 
+    /// A remainder obligation that the solver refutes is partial coverage: the stuck check
+    /// stops the uncovered part, and without it the part continues to rewriting.
     #[test]
     fn partial_destination_remainders_respect_the_stuck_check() {
         let definition = definition(
@@ -4182,11 +4284,36 @@ mod tests {
             "#,
         );
 
+        /// Refutes the destination obligation `a() = X` and decides nothing else, so the
+        /// complement `¬(a() = X)` that the uncovered part carries stays undecided.
+        struct RefutesTheObligation;
+        impl SmtSolver for RefutesTheObligation {
+            fn is_sat(
+                &self,
+                _predicates: &[crate::rule::Predicate],
+                _substitution: &Substitution,
+            ) -> Result<Satisfiability, SmtError> {
+                Ok(Satisfiability::Sat)
+            }
+
+            fn check_predicates(
+                &self,
+                _known: &[crate::rule::Predicate],
+                _substitution: &Substitution,
+                checked: &[crate::rule::Predicate],
+            ) -> Result<Validity, SmtError> {
+                Ok(match checked {
+                    [crate::rule::Predicate::Equals(..)] => Validity::Invalid,
+                    _ => Validity::Unknown("undecided".into()),
+                })
+            }
+        }
+        let refuted = RefutesTheObligation;
         let checked = prove_claim(
             &definition,
             &definition.reachability_claims[0],
             ProofOptions::default(),
-            &NoSolver,
+            &refuted,
         )
         .expect("claim should execute");
         let unchecked = prove_claim(
@@ -4196,13 +4323,16 @@ mod tests {
                 stuck_check: false,
                 ..ProofOptions::default()
             },
-            &NoSolver,
+            &refuted,
         )
         .expect("claim should execute without the stuck heuristic");
 
         assert_eq!(checked.status, ProofStatus::Disproved);
         assert_eq!(checked.leaves[0].depth, 1);
-        assert!(matches!(checked.leaves[0].outcome, ProofLeafOutcome::Stuck));
+        assert!(
+            matches!(checked.leaves[0].outcome, ProofLeafOutcome::Stuck),
+            "{checked:#?}"
+        );
         assert_eq!(unchecked.status, ProofStatus::Disproved);
         assert!(unchecked.leaves.iter().any(|leaf| {
             leaf.trace
