@@ -129,6 +129,8 @@ KRS exposes them as `bytes::update` and `bytes::pad_right`, emits the upstream u
 The KEVM memory rules use them to write individual bytes and extend memory without a port-local byte-array adapter.
 
 Descriptor protocol 23 and Definition IR schema 16 add typed Map lookup and key membership plus the builtin Set sort and its empty, item, concatenation, and membership operations.
+K's `Set` concatenation is defined only on disjoint operands: concatenating a set with an element it already holds is `#Bottom` in the Haskell backend, although concrete backends such as native K-Rust silently accept it.
+KRS exposes no `|Set` union, so the port inserts access-list, touched-account, and accessed-storage elements through the total `#kevmSetInsert` function, which returns the set unchanged when the element is present, where upstream KEVM uses `|Set`.
 Descriptor protocol 24 and Definition IR schema 17 add classified repeated-cell multiplicity and collection type, retain nested-cell ancestry for rule emission, and transport readable head-rule `requires` clauses end to end.
 Canonical K and native K-Rust compilation therefore preserve the account collection boundary instead of flattening storage leaves into top-level adapter cells.
 Deterministic reference expansion preserves the same boundary with owner-qualified nested fields, so the independently expanded Rust compiles, re-collects, and emits the same configuration and sentence identities.
@@ -178,7 +180,7 @@ The canonical KRS port is `semantics/kevm`, the corpus is
 The refreshed development gate passes at descriptor protocol 32 and Definition IR schema 24:
 
 ```text
-PASS readable KEVM operational slice: 1100 descriptors; 240 K-Rust executions; 8 Java reference proofs deferred to --java-reference; protocol 32; K 7.1.337
+PASS readable KEVM operational slice: 1104 descriptors; 240 K-Rust executions; 8 Java reference proofs deferred to --java-reference; protocol 35; K 7.1.337
 ```
 
 The behavior matrix additionally covers present and absent accounts, EIP-161 account emptiness across code, nonce, and balance, warm and cold account access, byte-exact external code copying and hashing, log memory extraction and zero padding, ordered topics, SHA3 empty and expanded-memory hashing, successful/reverted/exceptional warm-account nonempty-code `STATICCALL`, child access-list rollback, revert returndata copying, ECREC/SHA-256/RIPEMD-160/identity/MODEXP/ECADD/ECMUL/ECPAIRING-precompile success and forwarded-gas failure, invalid-signature ECREC success with empty returndata, MODEXP modulus-zero and zero-output-width results, the 200-gas EIP-2565 floor, an above-floor long-exponent vector, ECADD infinity and invalid-point behavior, ECMUL generator-times-two and zero-scalar infinity behavior, ECPAIRING empty-product identity, non-identity generator product, malformed length, invalid G1/G2 points, post-charge mutation, atomic out-of-gas behavior, static rejection, all selected stack-underflow partitions, and self-balance lookup.

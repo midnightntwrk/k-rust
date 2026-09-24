@@ -942,6 +942,16 @@ pub struct Maximum {
     pub right: k::Term<Int>,
 }
 
+/// Adds `value` to `members`, leaving the set unchanged when it already holds the value.
+///
+/// K's `Set` concatenation is defined only on disjoint operands, so inserting a
+/// present element by concatenation is `#Bottom`; upstream KEVM uses `|Set`.
+#[k::function(total, sort = Set, syntax = "#kevmSetInsert({members}, {value})")]
+pub struct SetInsert {
+    pub members: k::Term<Set>,
+    pub value: k::Term<Int>,
+}
+
 #[k::function(total, sort = Set, syntax = "#kevmMarkAccountAccess({accessed}, {account})")]
 pub struct MarkAccountAccess {
     pub accessed: k::Term<Set>,
@@ -1357,7 +1367,10 @@ fn mark_storage_access_present(
     k::term![map::update(
         accessed,
         account,
-        set::concat(map::get(accessed, account), set::item(index))
+        SetInsert {
+            members: map::get(accessed, account),
+            value: index
+        }
     )]
 }
 
@@ -2763,11 +2776,26 @@ fn static_call_cost(
     )]
 }
 
+#[k::requires(set::contains(value, members))]
+#[k::equation]
+fn set_insert_present(k::term![SetInsert { members, value }]: k::Term<Set>) -> k::Term<Set> {
+    k::term![members]
+}
+
+#[k::requires(bool::not(set::contains(value, members)))]
+#[k::equation]
+fn set_insert_absent(k::term![SetInsert { members, value }]: k::Term<Set>) -> k::Term<Set> {
+    k::term![set::concat(members, set::item(value))]
+}
+
 #[k::equation]
 fn mark_account_access(
     k::term![MarkAccountAccess { accessed, account }]: k::Term<Set>,
 ) -> k::Term<Set> {
-    k::term![set::concat(accessed, set::item(account))]
+    k::term![SetInsert {
+        members: accessed,
+        value: account
+    }]
 }
 
 #[k::equation]
@@ -7916,7 +7944,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(1)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 1 },
         output: crate::EcrecPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcrecPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: bytes::length(crate::EcrecPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }) }, },
@@ -7941,7 +7969,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(1)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 1 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -7977,7 +8005,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(2)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 2 },
         output: crate::Sha256Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::Sha256Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 32 }, },
@@ -8002,7 +8030,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(2)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 2 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8038,7 +8066,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(3)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 3 },
         output: crate::CopyBytes { memory: bytes::pad_right(bytes::empty(), 32, 0), destination: 12, source: crate::Ripemd160Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: 20 },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::CopyBytes { memory: bytes::pad_right(bytes::empty(), 32, 0), destination: 12, source: crate::Ripemd160Digest { value: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: 20 }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 32 }, },
@@ -8063,7 +8091,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(3)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 3 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8099,7 +8127,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(4)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 4 },
         output: crate::ReturnBytes { memory, start: argument_start, width: argument_width },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::ReturnBytes { memory, start: argument_start, width: argument_width }, source_index: 0, remaining: crate::Minimum { left: return_width, right: argument_width }, },
@@ -8124,7 +8152,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(4)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 4 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8160,7 +8188,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(5)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 5 },
         output: crate::ModExpPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::ModExpPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: bytes::length(crate::ModExpPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }) }, },
@@ -8185,7 +8213,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(5)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 5 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8221,7 +8249,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(6)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 6 },
         output: crate::EcAddPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcAddPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 64 }, },
@@ -8246,7 +8274,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(6)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 6 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8282,7 +8310,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(7)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 7 },
         output: crate::EcMulPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcMulPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 64 }, },
@@ -8307,7 +8335,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(7)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 7 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8343,7 +8371,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(8)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 8 },
         output: crate::EcPairingPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } },
         address: address,
         local_mem: crate::CopyBytes { memory: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, destination: return_start, source: crate::EcPairingPrecompileOutput { data: crate::ReturnBytes { memory, start: argument_start, width: argument_width } }, source_index: 0, remaining: crate::Minimum { left: return_width, right: 32 }, },
@@ -8368,7 +8396,7 @@ k::rules! {
         gas: gas,
     } => {
         k: [ExecutionCommand::Run(), ..],
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(8)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: 8 },
         output: bytes::empty(),
         address: address,
         local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, },
@@ -8425,7 +8453,7 @@ k::rules! {
         k: [ExecutionCommand::Run(), ExecutionCommand::FinishStaticCall { return_start, return_width }, ..],
         call_stack: list::concat(list::item(k::fragment![CallState { program: program, jump_dests: jump_dests, address: address, caller: caller, call_data: call_data, call_value: call_value, word_stack: rest, local_mem: crate::PrepareCopyMemory { memory: crate::PrepareCopyMemory { memory, used, start: argument_start, width: argument_width }, used: crate::MemoryUsageUpdate { used, start: argument_start, width: argument_width }, start: return_start, width: return_width, }, pc: int::add(pc, 1), gas: int::sub(remaining, crate::StaticCallGas { requested: gas_cap, available: remaining }), memory_used: crate::CallMemoryUsage { used, argument_start, argument_width, return_start, return_width }, call_gas: crate::StaticCallGas { requested: gas_cap, available: remaining }, static_mode: static_mode, call_depth: call_depth, code_address: code_address, }]), call_stack,),
         interim_states: list::concat(list::item(SavedWorldState::Snapshot { account_id: present_account, balance: balance, code: code, nonce: nonce, storage: storage, original_storage: original_storage, self_destruct: self_destruct, logs: logs, refund: refund, accessed_accounts: crate::MarkAccountAccess { accessed, account }, accessed_storage: accessed_storage, created_accounts: created_accounts, }), interim_states,),
-        touched_accounts: set::concat(set::concat(touched_accounts, set::item(address)), set::item(account)),
+        touched_accounts: crate::SetInsert { members: crate::SetInsert { members: touched_accounts, value: address }, value: account },
         account_id: present_account,
         balance: balance,
         code: code,
