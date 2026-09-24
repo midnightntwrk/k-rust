@@ -190,8 +190,14 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
     }
 }
 
-/// C1 `statusContradictionCases`: a mutant-scope failure decides the status
-/// even over a kill, and no conclusive status can be supplied as one.
+/// C1 `statusContradictionCases`: a kill never survives a mutant-scope
+/// failure, and no conclusive status can be supplied as one.
+///
+/// The source row paired a validation rejection with a kill and expected
+/// `Invalid`. A rejected mutant never ran, so that plan is now refused as
+/// inconsistent; `Invalid` is what the rejection alone derives. A failure that
+/// can follow execution (`Infrastructure`) still decides the status over a
+/// kill.
 ///
 /// The three failure-classification rows of `statusContradictionCases`
 /// (`lowering-time-limit-cannot-be-unknown`,
@@ -201,17 +207,37 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
 /// failed test carries no slots and a mutant-scope failure is not a slot.
 #[test]
 fn killed_cannot_fail_validation() {
-    let plan = MutantPlan {
-        mutant_failure: Some(MutantScopeFailure::Rejected),
-        ..plan(one_test(&[Distinguish, Agree]))
+    let declared = manifest(&[("t1", 2)]);
+    let with_failure = |failure, tests| MutantPlan {
+        mutant_failure: Some(failure),
+        ..plan(tests)
     };
-    let actual = report(&plan, &manifest(&[("t1", 2)]), ScheduleMode::Full);
+    let killed = with_failure(
+        MutantScopeFailure::Rejected,
+        one_test(&[Distinguish, Agree]),
+    );
+    assert_eq!(
+        derive_mutant_report(&killed, &declared, ScheduleMode::Full)
+            .expect_err("a rejected mutant cannot carry a kill")
+            .kind(),
+        CampaignFailureKind::InvalidManifest
+    );
+    let rejected = with_failure(MutantScopeFailure::Rejected, Vec::new());
+    let actual = report(&rejected, &declared, ScheduleMode::Full);
     assert_eq!(actual.status, Invalid);
+    assert!(actual.killing_test_ids.is_empty());
+    let corrupted = with_failure(
+        MutantScopeFailure::Infrastructure,
+        one_test(&[Distinguish, Agree]),
+    );
+    let actual = report(&corrupted, &declared, ScheduleMode::Full);
+    assert_eq!(actual.status, Error);
     assert!(actual.killing_test_ids.is_empty());
 }
 
 /// One row per failure-kind `status` arm. A mutant-scope failure decides the
-/// status whether or not execution began, even over a kill; a failed test
+/// status, even over a kill; only `Infrastructure` may follow executed tests,
+/// and any other kind beside them is rejected as inconsistent. A failed test
 /// contributes its status to the fold, so it never survives and never
 /// overrides a kill in another test.
 #[test]
@@ -233,7 +259,8 @@ fn every_failure_kind_maps_to_one_status() {
             one_test(&[Distinguish, Agree]),
             one_test(&[Agree, Agree]),
         ] {
-            let actual = report(
+            let executed = !tests.is_empty();
+            let derived = derive_mutant_report(
                 &MutantPlan {
                     mutant_failure: Some(kind),
                     ..plan(tests)
@@ -241,6 +268,15 @@ fn every_failure_kind_maps_to_one_status() {
                 &declared,
                 ScheduleMode::Full,
             );
+            if executed && kind != S::Infrastructure {
+                assert_eq!(
+                    derived.expect_err("no test ran").kind(),
+                    CampaignFailureKind::InvalidManifest,
+                    "{kind:?}"
+                );
+                continue;
+            }
+            let actual = derived.expect("plan derives a report");
             assert_eq!(actual.status, expected, "{kind:?}");
             assert!(actual.killing_test_ids.is_empty(), "{kind:?}");
         }
@@ -367,15 +403,22 @@ type RejectionRow = (
 );
 
 /// Rust-only: a plan must match the selected-test manifest exactly, so no
-/// omitted test or slot can let an inconclusive mutant survive.
+/// omitted test or slot can let an inconclusive mutant survive, and a mutant
+/// rejected or not lowered cannot carry executed tests.
 #[test]
 fn plans_that_differ_from_the_manifest_are_rejected() {
     use CampaignFailureKind::{FabricatedSkip, InvalidManifest};
+    use ExecutionFailureKind as E;
+    use MutantScopeFailure as S;
     use OracleOutcome as O;
     let agree = |id| compared(id, &[Agree]);
+    let failed = |id: &str, kind| TestPlan {
+        test_id: id.to_owned(),
+        run: TestRun::Failed(kind),
+    };
     let t1_t2: &[(&str, usize)] = &[("t1", 1), ("t2", 1)];
     #[rustfmt::skip]
-    let rows: [RejectionRow; 11] = [
+    let rows: [RejectionRow; 16] = [
         ("missing-test", None, vec![agree("t1")], t1_t2, InvalidManifest),
         ("extra-test", None, vec![agree("t1"), agree("t2")], &[("t1", 1)], InvalidManifest),
         ("reordered-tests", None, vec![agree("t2"), agree("t1")], t1_t2, InvalidManifest),
@@ -387,6 +430,11 @@ fn plans_that_differ_from_the_manifest_are_rejected() {
         ("duplicate-manifest-test", None, vec![agree("t1"), agree("t1")], &[("t1", 1), ("t1", 1)], InvalidManifest),
         ("manifest-test-without-slots", Some(MutantScopeFailure::Rejected), Vec::new(), &[("t1", 0)], InvalidManifest),
         ("fabricated-skip", None, vec![compared("t1", &[O::Timeout, Skipped])], &[("t1", 2)], FabricatedSkip),
+        ("rejected-with-executed-tests", Some(S::Rejected), vec![agree("t1"), agree("t2")], t1_t2, InvalidManifest),
+        ("rejected-with-failed-test", Some(S::Rejected), vec![failed("t1", E::Infrastructure), agree("t2")], t1_t2, InvalidManifest),
+        ("lowering-nontermination-with-kill", Some(S::LoweringNontermination), vec![compared("t1", &[Distinguish]), agree("t2")], t1_t2, InvalidManifest),
+        ("lowering-time-limit-with-failed-test", Some(S::LoweringTimeLimit), vec![failed("t1", E::TimeLimit), agree("t2")], t1_t2, InvalidManifest),
+        ("lowering-resource-limit-with-executed-tests", Some(S::LoweringResourceLimit), vec![agree("t1"), failed("t2", E::ResourceLimit)], t1_t2, InvalidManifest),
     ];
     for (id, mutant_failure, tests, declared, expected) in rows {
         let plan = MutantPlan {

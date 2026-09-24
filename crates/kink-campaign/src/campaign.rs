@@ -52,7 +52,9 @@ pub enum MutantStatus {
 ///
 /// It dominates every oracle outcome, including a kill: a distinction computed
 /// against a rejected, unlowered or corrupted mutant says nothing about the
-/// mutant that is reported.
+/// mutant that is reported. Only `Infrastructure` can arise after execution
+/// began; every other kind stops the mutant before any test runs, so a plan
+/// carrying one lists no tests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MutantScopeFailure {
     /// Validation, lowering or backend compilation rejected the mutant.
@@ -77,6 +79,11 @@ impl MutantScopeFailure {
             Self::LoweringResourceLimit => MutantStatus::Unknown,
             Self::Infrastructure => MutantStatus::Error,
         }
+    }
+
+    /// Whether the mutant stopped before execution, so no test can have run.
+    const fn precedes_execution(self) -> bool {
+        !matches!(self, Self::Infrastructure)
     }
 }
 
@@ -141,7 +148,8 @@ pub struct MutantPlan {
     /// Stable mutant identity.
     pub mutant_id: Digest,
     /// Every manifest test in manifest order, or none when a mutant-scope
-    /// failure stopped the mutant before execution began.
+    /// failure stopped the mutant before execution began. A mutant rejected,
+    /// or whose lowering did not finish, never ran, so it must list none.
     pub tests: Vec<TestPlan>,
     /// Failure invalidating every test's evidence; it decides the status.
     pub mutant_failure: Option<MutantScopeFailure>,
@@ -215,8 +223,15 @@ fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), Campai
             "the manifest must be nonempty, unique, and declare an oracle slot per test",
         ));
     }
-    if plan.tests.is_empty() && plan.mutant_failure.is_some() {
-        return Ok(());
+    if let Some(failure) = plan.mutant_failure {
+        if plan.tests.is_empty() {
+            return Ok(());
+        }
+        if failure.precedes_execution() {
+            return Err(invalid_manifest(
+                "a mutant rejected or not lowered cannot carry executed tests",
+            ));
+        }
     }
     if plan.tests.len() != manifest.len() {
         return Err(invalid_manifest(
@@ -250,7 +265,8 @@ fn check_plan(plan: &MutantPlan, manifest: &[ManifestTest]) -> Result<(), Campai
 ///
 /// The plan must list every manifest test in order with one outcome per
 /// declared slot, or no tests when a mutant-scope failure stopped the mutant
-/// before execution. The status is one fold with a single precedence: a
+/// before execution; only an `Infrastructure` failure may accompany executed
+/// tests. The status is one fold with a single precedence: a
 /// mutant-scope failure, then any distinguishing slot (killed), then error
 /// (including incomparable slots and failed infrastructure runs), timeout and
 /// unknown, and complete agreement (survived) only when nothing else was seen.
