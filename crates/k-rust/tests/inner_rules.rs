@@ -671,6 +671,179 @@ fn one_maximal_typing_split_by_overload_and_parameter_agrees_under_checked_infer
     );
 }
 
+/// The body of the one rule `resolve_rule_bubbles` resolved in `definition`'s main module.
+fn only_rule_body(definition: &k_rust::definition::Definition) -> String {
+    definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .expect("the rule should be resolved")
+}
+
+/// `polymorphic_rhs_keeps_overload_branch_parameters_independent` (cgascap) without the
+/// prelude, so that the portable build reaches the rule: its two well-sorted readings share one
+/// maximal typing and differ in the `cap` overload and the instantiation of `ite`'s parameter.
+#[test]
+fn cgascap_is_left_to_z3_in_the_portable_build() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Gas ::= Int
+          syntax Gas ::= cap(Gas, Gas, Int, Int) [symbol(capGas), overload(cap), function, total]
+          syntax Int ::= cap(Int, Int, Int, Int) [symbol(capInt), overload(cap), function, total]
+          syntax Bool ::= Int "<=Int" Int [symbol(leInt), function, total]
+          syntax {S} S ::= "ite" "(" Bool "," S "," S ")" [symbol(ite), function, total]
+
+          rule [cgascap]:
+               cap(GCAP:Int, GAVAIL:Int, GEXTRA, IGNORED)
+            => ite(0 <=Int GEXTRA, GCAP, GAVAIL)
+            requires 0 <=Int GCAP
+            [concrete]
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source));
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let error = resolved.expect_err("the portable build does not choose within one typing");
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error, got {error:?}")
+        };
+        assert_eq!(
+            error.error,
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        );
+    }
+    #[cfg(feature = "z3-inference")]
+    {
+        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
+        assert!(body.contains("capInt"), "{body}");
+        assert!(!body.contains("capGas"), "{body}");
+        assert!(body.contains("ite{Int}"), "{body}");
+        assert!(!body.contains("ite{Gas}"), "{body}");
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn cgascap_without_the_prelude_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference("cgascap_is_left_to_z3_in_the_portable_build");
+}
+
+/// `lam(0 => 0)(0)` reads as `lam1` over a rewrite or as `lam2` over a pattern and a body
+/// (the shape of the prelude's `#fun2` and `#fun3`). The rule has no variable, so both trees
+/// share the empty typing; they instantiate different parametric productions and lower to
+/// different terms. `prefer` on `lam1` would resolve the whole group, but a preference over
+/// parameter instantiations can remove the `lam1` tree before that pass runs (the z3 build
+/// takes `lam2`), so the portable decision must not decide the group by `prefer`: it leaves the
+/// rule to Z3. A portable rule grammar that offers only the `lam2` reading (one that does not
+/// parse a rewrite as the argument of `lam1`) gives the portable engine a single tree and the
+/// z3 build's reading; either way the portable build never takes `lam1`.
+#[test]
+fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "trigger" [symbol(trigger), function]
+          syntax {S} S ::= "lam" "(" S ")" "(" S ")" [symbol(lam1), prefer]
+          syntax {S1, S2} S1 ::= "lam" "(" S2 "=>" S1 ")" "(" S2 ")" [symbol(lam2)]
+
+          rule trigger => lam(0 => 0)(0)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source));
+
+    #[cfg(not(feature = "z3-inference"))]
+    match resolved {
+        Err(RuleError::Parse(error))
+            if error.error
+                == ParseError::Z3InferenceRequired {
+                    ambiguity: true,
+                    parametric_sorts: false,
+                } => {}
+        Ok(definition) => {
+            let body = only_rule_body(&definition);
+            assert!(body.contains("lam2"), "{body}");
+            assert!(!body.contains("lam1"), "{body}");
+        }
+        Err(error) => panic!("expected Z3InferenceRequired or the lam2 reading, got {error:?}"),
+    }
+    #[cfg(feature = "z3-inference")]
+    {
+        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
+        assert!(body.contains("lam2"), "{body}");
+        assert!(!body.contains("lam1"), "{body}");
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "preferred_reading_among_parameter_instantiations_is_left_to_z3",
+    );
+}
+
+/// `pick(pick(0))` over `pick1 [prefer]` (`{S} S ::= pick(S)`) and `pick2` (`{S1, S2} S1 ::=
+/// pick(S2)`): every reading shares the empty typing and the readings differ only in which
+/// parametric production each `pick` instantiates and at which sort. Resolving the group by
+/// `prefer` gives `pick1{Int}(pick1{Int}(0))`, while a preference over parameter instantiations
+/// (placing `pick2`'s free argument parameter at `K`) keeps `pick2{Int, K}(pick1{K}(0))`, a
+/// different term. The portable decision cannot tell which trees such a preference keeps, so it
+/// leaves the rule to Z3 rather than returning the `prefer` reading.
+#[test]
+fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "trigger" [symbol(trigger), function]
+          syntax {S} S ::= "pick" "(" S ")" [symbol(pick1), prefer]
+          syntax {S1, S2} S1 ::= "pick" "(" S2 ")" [symbol(pick2)]
+
+          rule trigger => pick(pick(0))
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source));
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let error = resolved.expect_err("the portable build does not choose within one typing");
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error, got {error:?}")
+        };
+        assert_eq!(
+            error.error,
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        );
+    }
+    #[cfg(feature = "z3-inference")]
+    {
+        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
+        assert!(body.contains("pick2{Int"), "{body}");
+        assert!(body.contains("pick1{K}"), "{body}");
+        assert!(!body.contains("pick1{Int}"), "{body}");
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn nested_preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "nested_preferred_reading_among_parameter_instantiations_is_left_to_z3",
+    );
+}
+
 #[test]
 fn incomparable_maximal_typings_are_reported_as_ambiguity() {
     let source = indoc! {r#"
@@ -3548,6 +3721,26 @@ fn assert_test_passes_under_checked_inference(test_name: &str) {
     assert!(
         output.status.success(),
         "{test_name} fails under KRUST_TYPE_INFERENCE_MODE=checked:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Every test of this binary also passes under checked inference, so a rule on which the two
+/// engines disagree fails the suite even when no test names it. The only tests not rerun are
+/// the `*_under_checked_inference` tests, this one included: each already runs its subject
+/// under checked inference in a child process.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn every_rule_test_passes_under_checked_inference() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--skip", "under_checked_inference"])
+        .env("KRUST_TYPE_INFERENCE_MODE", "checked")
+        .output()
+        .expect("the test binary re-runs itself");
+    assert!(
+        output.status.success(),
+        "inner_rules fails under KRUST_TYPE_INFERENCE_MODE=checked:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
 }

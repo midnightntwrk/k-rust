@@ -29,9 +29,9 @@
 //! is decided by typing each tree and keeping the trees whose typing no other tree's typing
 //! strictly exceeds (`Grammar::infer_ambiguous_sorts_portable`). Parametric forests, larger
 //! forests, trees without a greatest typing and trees of one typing that instantiate formal
-//! parameters differently and stay ambiguous after lowering dispatch to Z3; checked mode runs both engines as
-//! oracles, comparing inferred trees on unambiguous forests and lowered terms on ambiguous
-//! ones. `Counter::ParserPortableInferences` counts portable inference attempts, one per tree.
+//! parameters differently and do not all lower to one term dispatch to Z3; checked mode runs
+//! both engines as oracles, comparing inferred trees on unambiguous forests and lowered terms on
+//! ambiguous ones. `Counter::ParserPortableInferences` counts portable inference attempts, one per tree.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -115,9 +115,29 @@ struct TypedTree {
 /// The kept trees of one maximal typing, factored into one term.
 struct TypingGroup {
     term: Rc<PackedTerm>,
-    /// Two of the trees instantiate the formal sort parameters of their productions
-    /// differently (`parameter_instantiations`).
-    parameters_differ: bool,
+    /// The group's trees when two of them instantiate the formal sort parameters of their
+    /// productions differently (`parameter_instantiations`); `None` when all instantiate them
+    /// alike.
+    parameter_split: Option<BTreeSet<ParsedTerm>>,
+}
+
+/// A lowered parse result whose equality with another decides whether a choice among inferred
+/// trees changes the parse (`Grammar::infer_ambiguous_sorts_portable`).
+pub(super) trait LoweredTerm {
+    /// Equal as parse results, compiler metadata included.
+    fn same_lowering(&self, other: &Self) -> bool;
+}
+
+impl LoweredTerm for Term {
+    fn same_lowering(&self, other: &Self) -> bool {
+        self.identical(other)
+    }
+}
+
+impl LoweredTerm for ParsedTerm {
+    fn same_lowering(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 struct Solver<'a> {
@@ -135,7 +155,7 @@ impl Grammar {
     ///
     /// The portable decision of an ambiguous forest depends on how its kept trees lower
     /// (`Grammar::infer_ambiguous_sorts_portable`), so inference and lowering are one step here.
-    pub(super) fn infer_packed_sorts<T>(
+    pub(super) fn infer_packed_sorts<T: LoweredTerm>(
         &self,
         term: Rc<PackedTerm>,
         top_sort: &Sort,
@@ -212,8 +232,12 @@ impl Grammar {
     /// constraints separates them: when the post-inference passes (`lower`) leave them
     /// ambiguous, the rule itself is ambiguous and `ParseError::Ambiguous` is the answer. When
     /// the trees of one typing instantiate parameters differently, choosing among them needs a
-    /// preference over parameter instantiations that this decision does not model, so if that
-    /// group alone does not lower to one term the forest is left to Z3 with
+    /// preference over parameter instantiations that this decision does not model. The choice
+    /// is immaterial only when every tree of the group lowers, on its own, to one and the same
+    /// term: then any non-empty subset of the group lowers to that term. Otherwise a preference
+    /// that keeps a subset of the group can change the parse, including when the
+    /// post-inference passes would resolve the whole group (a `prefer` on a production whose
+    /// trees the preference removes), so the forest is left to Z3 with
     /// `ParseError::Z3InferenceRequired`. An ambiguity between different maximal typings stays
     /// `ParseError::Ambiguous`.
     ///
@@ -223,7 +247,7 @@ impl Grammar {
     /// to identify it across trees, and when the forest has more than
     /// `PORTABLE_AMBIGUITY_TREE_LIMIT` complete trees. When no tree is well-sorted, the first
     /// tree's rejection is returned.
-    pub(super) fn infer_ambiguous_sorts_portable<T>(
+    pub(super) fn infer_ambiguous_sorts_portable<T: LoweredTerm>(
         &self,
         term: &Rc<PackedTerm>,
         top_sort: &Sort,
@@ -245,18 +269,17 @@ impl Grammar {
             ))
             .unpack()
         };
-        let undecided =
-            |result: &Result<T, ParseError>| matches!(result, Err(ParseError::Ambiguous { .. }));
-        if let [group] = groups.as_slice() {
-            let result = lower(joined(vec![Rc::clone(&group.term)]));
-            return if group.parameters_differ && undecided(&result) {
-                Err(required())
-            } else {
-                result
+        for trees in groups
+            .iter()
+            .filter_map(|group| group.parameter_split.as_ref())
+        {
+            let mut lowered = trees
+                .iter()
+                .map(|tree| lower(joined(vec![PackedTerm::from_parsed(tree)])));
+            let Some(Ok(first)) = lowered.next() else {
+                return Err(required());
             };
-        }
-        for group in groups.iter().filter(|group| group.parameters_differ) {
-            if undecided(&lower(joined(vec![Rc::clone(&group.term)]))) {
+            if !lowered.all(|other| other.is_ok_and(|other| other.same_lowering(&first))) {
                 return Err(required());
             }
         }
@@ -323,13 +346,16 @@ impl Grammar {
         Ok(groups
             .into_values()
             .map(|trees| {
-                let instantiations = trees
+                let parameters_differ = trees
                     .iter()
                     .map(parameter_instantiations)
-                    .collect::<BTreeSet<_>>();
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    > 1;
+                let parameter_split = parameters_differ.then(|| trees.clone());
                 TypingGroup {
-                    parameters_differ: instantiations.len() > 1,
                     term: PackedTerm::from_parsed(&factor_trees(trees)),
+                    parameter_split,
                 }
             })
             .collect())
