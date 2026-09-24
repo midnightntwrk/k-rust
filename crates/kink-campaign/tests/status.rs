@@ -9,8 +9,8 @@
 //! this file.
 
 use kink_campaign::{
-    ArtifactKey, BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantPlan, MutantReport,
-    MutantStatus, OracleKind, OracleOutcome, OracleSide, Rational, ScheduleMode, Score, TestPlan,
+    BaselineAdmission, CampaignFailureKind, CrashPolicy, MutantPlan, MutantReport, MutantStatus,
+    OracleKind, OracleOutcome, OracleSide, Rational, ScheduleMode, Score, TestPlan,
     compare_supplied, derive_mutant_report, score, validate_baseline,
 };
 use kink_contracts::{Completeness, EvidenceClass, NativeConformance};
@@ -300,9 +300,7 @@ fn normal(value: SemanticJson) -> OracleSide {
 }
 
 fn crash(character: char) -> OracleSide {
-    OracleSide::SemanticCrash(
-        ArtifactKey::new("semantic-crash", digest(character)).expect("test artifact is valid"),
-    )
+    OracleSide::SemanticCrash(digest(character))
 }
 
 /// C4 (`campaignCases`, and the baseline rows of the C1 `cases`): baseline
@@ -554,6 +552,45 @@ fn terminal_comparison_truth_table_without_crash_pairs() {
             );
         }
     }
+}
+
+/// Every oracle kind keeps agree, distinguish and unknown apart, and an
+/// unknown oracle neither kills nor survives, so it is never scored.
+#[test]
+fn every_oracle_kind_keeps_agree_distinguish_and_unknown_distinct() {
+    let left = normal(SemanticJson::Bool(true));
+    let different = normal(SemanticJson::Bool(false));
+    for kind in [
+        OracleKind::ExitStop,
+        OracleKind::FinalResult,
+        OracleKind::ConcreteOutput,
+        OracleKind::Reachability,
+        OracleKind::ExecutionPattern,
+        OracleKind::StructuredPredicate,
+    ] {
+        for (mutant, expected) in [
+            (&left, Agree),
+            (&different, Distinguish),
+            (&OracleSide::Unknown, OracleOutcome::Unknown),
+        ] {
+            assert_eq!(
+                compare_supplied(kind, CrashPolicy::Distinguish, &left, mutant)
+                    .expect("complete values compare"),
+                expected,
+                "{kind:?}"
+            );
+        }
+    }
+    let unknown = report(
+        &MutantPlan {
+            mutant_id: digest('a'),
+            tests: one_test(vec![OracleOutcome::Unknown]),
+            preclassified: None,
+        },
+        ScheduleMode::Full,
+    );
+    assert_eq!(unknown.status, Unknown);
+    assert_eq!(score(&[unknown.status]).denominator, 0);
 }
 
 /// S5 (duplicate-discovery-is-not-a-second-mutant): two origins that produce
