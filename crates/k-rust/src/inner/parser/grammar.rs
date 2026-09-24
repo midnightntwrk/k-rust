@@ -298,6 +298,62 @@ impl Grammar {
 }
 
 impl Grammar {
+    /// Let every argument position of sort `S` also recognize `rule_sorts[S]`, the rule
+    /// scaffolding sort that derives `S`, `S => S`, and `S #as V`.
+    ///
+    /// A rewrite `L => R` whose sides have sort `S` stands for a term of sort `S` in a rule
+    /// pattern, so it is admissible wherever an `S` is, and it lowers to the same untyped
+    /// `#KRewrite` at any depth. The widened position only changes what the recognizer predicts;
+    /// the declared item sort stays in `items` for inference, priorities, and list completion.
+    ///
+    /// Positions are left unchanged where widening would add a second derivation of the same
+    /// rewrite or would change a production that is not a monomorphic constructor:
+    /// - an unlabeled single-nonterminal production (a subsort or chain), because the rewrite is
+    ///   already admitted at the result sort, whose `#Rule` sort is predicted there;
+    /// - the productions of the `#Rule` sorts themselves, so the operands of `S => S` stay plain
+    ///   `S` and a rewrite cannot be the direct operand of another rewrite;
+    /// - the rule structure (`#RuleBody`, `#RuleContent`): the body is already a `#Rule` position
+    ///   and side conditions are not patterns;
+    /// - token productions and concretized parametric productions.
+    ///
+    /// Generated record-field productions are widened like their source production, so a named
+    /// field `name: S` admits the same rewrites as the positional argument.
+    #[cfg(not(feature = "z3-inference"))]
+    pub(in crate::inner) fn admit_rewrites_in_argument_positions(
+        &mut self,
+        rule_sorts: &BTreeMap<Sort, Sort>,
+    ) {
+        let rule_sort_ids = rule_sorts
+            .iter()
+            .filter_map(|(sort, rule_sort)| Some((self.sort_id(sort)?, self.sort_id(rule_sort)?)))
+            .collect::<BTreeMap<_, _>>();
+        let scaffolding = rule_sort_ids.values().copied().collect::<BTreeSet<_>>();
+        let mut changed = false;
+        for production in &mut self.productions {
+            let unary_chain = production.label.is_none()
+                && !production.bracket
+                && matches!(production.items.as_slice(), [Item::NonTerminal(_)]);
+            if unary_chain
+                || production.token
+                || production.parametric_origin.is_some()
+                || scaffolding.contains(&production.result_id)
+                || production.result.is_frontend(FrontendSort::RuleBody)
+                || production.result.is_frontend(FrontendSort::RuleContent)
+            {
+                continue;
+            }
+            for sort_id in production.item_sort_ids.iter_mut().flatten() {
+                if let Some(rule_sort_id) = rule_sort_ids.get(sort_id) {
+                    *sort_id = *rule_sort_id;
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            self.invalidate_prediction_analysis();
+        }
+    }
+
     pub(crate) fn add(
         &mut self,
         result: Sort,

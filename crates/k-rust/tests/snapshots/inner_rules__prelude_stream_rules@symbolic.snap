@@ -1,0 +1,123 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "STDIN-STREAM and STDOUT-STREAM rules of the embedded prelude, symbolic excluded"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`_List_`(`ListItem`(`#parseInput(_,_)_K-IO_Stream_String_String`(#SemanticCastToString(_),#SemanticCastToString(Delimiters))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(S)=>`_+String__STRING-COMMON_String_String_String`(#SemanticCastToString(S),`chrChar(_)_STRING-COMMON_String_Int`(`project:Int`(`#getc(_)_K-IO_IOInt_Int`(#SemanticCastToInt(N)))))))),`ListItem`(#token(\"\\\"on\\\"\",\"String\"))),`ListItem`(`#istream(_)_K-IO_Stream_Int`(#SemanticCastToInt(N)))),#noDots(.KList))",
+        requires: "`_==Int_`(`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#SemanticCastToString(S),#SemanticCastToString(Delimiters),#token(\"0\",\"Int\")),#token(\"-1\",\"Int\"))",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDIN-STREAM.stdinGetc",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#parseInput(_,_)_K-IO_Stream_String_String`(#token(\"\\\"String\\\"\",\"String\"),#SemanticCastToString(Delimiters)))=>`ListItem`(#SemanticCastToString(S)),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(S)=>#token(\"\\\"\\\"\",\"String\")))),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "`_=/=Int_`(`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#SemanticCastToString(S),#SemanticCastToString(Delimiters),#token(\"0\",\"Int\")),#token(\"-1\",\"Int\"))",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDIN-STREAM.stdinParseString",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#parseInput(_,_)_K-IO_Stream_String_String`(#token(\"\\\"Int\\\"\",\"String\"),#SemanticCastToString(Delimiters)))=>`ListItem`(`String2Int(_)_STRING-COMMON_Int_String`(`substrString(_,_,_)_STRING-COMMON_String_String_Int_Int`(#SemanticCastToString(S),#token(\"0\",\"Int\"),`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#SemanticCastToString(S),#SemanticCastToString(Delimiters),#token(\"0\",\"Int\"))))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(S)=>`substrString(_,_,_)_STRING-COMMON_String_String_Int_Int`(#SemanticCastToString(S),`_+Int_`(`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#SemanticCastToString(S),#SemanticCastToString(Delimiters),#token(\"0\",\"Int\")),#token(\"1\",\"Int\")),`lengthString(_)_STRING-COMMON_Int_String`(#SemanticCastToString(S)))))),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "`_andBool_`(`_=/=Int_`(`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#SemanticCastToString(S),#SemanticCastToString(Delimiters),#token(\"0\",\"Int\")),#token(\"-1\",\"Int\")),`_>Int_`(`lengthString(_)_STRING-COMMON_Int_String`(#SemanticCastToString(S)),#token(\"1\",\"Int\")))",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDIN-STREAM.stdinParseInt",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#parseInput(_,_)_K-IO_Stream_String_String`(#SemanticCastToString(Sort),#SemanticCastToString(Delimiters))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(S)=>`substrString(_,_,_)_STRING-COMMON_String_String_Int_Int`(#SemanticCastToString(S),#token(\"1\",\"Int\"),`lengthString(_)_STRING-COMMON_Int_String`(#SemanticCastToString(S)))))),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "`_andBool_`(`_andBool_`(`_=/=Int_`(`findChar(_,_,_)_STRING-COMMON_Int_String_String_Int`(#SemanticCastToString(S),#SemanticCastToString(Delimiters),#token(\"0\",\"Int\")),#token(\"-1\",\"Int\")),`_=/=String__STRING-COMMON_Bool_String_String`(#SemanticCastToString(Sort),#token(\"\\\"String\\\"\",\"String\"))),`_<=Int_`(`lengthString(_)_STRING-COMMON_Int_String`(#SemanticCastToString(S)),#token(\"1\",\"Int\")))",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDIN-STREAM.stdinTrim",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdin>`(#noDots(.KList),`_List_`(`.List`(.KList)=>`ListItem`(`#parseInput(_,_)_K-IO_Stream_String_String`(#SemanticCastToString(?Sort),#SemanticCastToString(?Delimiters))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(_)))),#dots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDIN-STREAM.stdinUnblock",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initStdinCell(Init)=>`<stdin>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(`project:String`(`Map:lookup`(Init,#token(\"$STDIN\",\"KConfigVar\")))))),`ListItem`(#SemanticCastToString(`project:String`(`Map:lookup`(Init,#token(\"$IO\",\"KConfigVar\")))))),`ListItem`(`#istream(_)_K-IO_Stream_Int`(`#stdin_K-IO_Int`(.KList)))),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(#SemanticCastToInt(_))),`ListItem`(#SemanticCastToKItem(_))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(Buffer)=>`_+String__STRING-COMMON_String_String_String`(#SemanticCastToString(Buffer),`Float2String(_)_STRING-COMMON_String_Float`(#SemanticCastToFloat(F)))))),`ListItem`(#SemanticCastToFloat(F))=>`.List`(.KList)),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDOUT-STREAM.stdoutBufferFloat",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(#SemanticCastToInt(_))),`ListItem`(#SemanticCastToKItem(_))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(Buffer)=>`_+String__STRING-COMMON_String_String_String`(#SemanticCastToString(Buffer),`Int2String(_)_STRING-COMMON_String_Int`(#SemanticCastToInt(I)))))),`ListItem`(#SemanticCastToInt(I))=>`.List`(.KList)),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDOUT-STREAM.stdoutBufferInt",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(#SemanticCastToInt(_))),`ListItem`(#SemanticCastToKItem(_))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(Buffer)=>`_+String__STRING-COMMON_String_String_String`(#SemanticCastToString(Buffer),#SemanticCastToString(S))))),`ListItem`(#SemanticCastToString(S))=>`.List`(.KList)),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDOUT-STREAM.stdoutBufferString",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(#SemanticCastToInt(N)=>`project:Int`(`#write(_,_)_K-IO_K_Int_String`(#SemanticCastToInt(N),#SemanticCastToString(S))~>#SemanticCastToInt(N)))),`ListItem`(#token(\"\\\"on\\\"\",\"String\"))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#SemanticCastToString(S)=>#token(\"\\\"\\\"\",\"String\")))),#SemanticCastToList(_)),#noDots(.KList))",
+        requires: "`_=/=String__STRING-COMMON_Bool_String_String`(#SemanticCastToString(S),#token(\"\\\"\\\"\",\"String\"))",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: Some(
+            "STDOUT-STREAM.stdoutWrite",
+        ),
+    },
+    SentenceSummary {
+        kind: "rule",
+        body: "initStdoutCell(Init)=>`<stdout>`(#noDots(.KList),`_List_`(`_List_`(`ListItem`(`#ostream(_)_K-IO_Stream_Int`(`#stdout_K-IO_Int`(.KList))),`ListItem`(#SemanticCastToString(`project:String`(`Map:lookup`(Init,#token(\"$IO\",\"KConfigVar\")))))),`ListItem`(`#buffer(_)_K-IO_Stream_K`(#token(\"\\\"\\\"\",\"String\")))),#noDots(.KList))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]

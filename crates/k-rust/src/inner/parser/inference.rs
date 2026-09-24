@@ -548,6 +548,21 @@ impl<'a> Solver<'a> {
                         SortRef::Concrete(production.result.clone()),
                     )
                 };
+                // A position the grammar widened to a `#Rule` scaffolding sort accepts a rewrite
+                // or `#as` node of that sort; such a node stands for a term of the declared sort
+                // and its own children carry that bound. Any other child keeps the declared sort.
+                let widened = production
+                    .items
+                    .iter()
+                    .zip(&production.item_sort_ids)
+                    .filter_map(|(item, sort_id)| match item {
+                        Item::NonTerminal(sort) => {
+                            let parse = &grammar.sorts[sort_id.expect("nonterminal has a sort id")];
+                            Some((parse != sort).then(|| SortRef::Concrete(parse.clone())))
+                        }
+                        Item::Terminal(_) | Item::Regex { .. } => None,
+                    })
+                    .collect::<Vec<_>>();
                 if expected.len() != child_sorts.len() {
                     return Err(inference_error(format!(
                         "production {:?} has {} nonterminals but its parse node has {} children",
@@ -583,6 +598,10 @@ impl<'a> Solver<'a> {
                         && let Some(lhs_sort) = &anywhere_lhs_sort
                     {
                         lhs_sort.clone()
+                    } else if let Some(Some(parse)) = widened.get(index)
+                        && &child == parse
+                    {
+                        parse.clone()
                     } else {
                         expected
                     };
