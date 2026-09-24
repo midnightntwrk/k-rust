@@ -670,10 +670,15 @@ fn rule_grammar(
     add_rule_cells(&mut grammar, &visible)?;
     #[cfg(not(feature = "z3-inference"))]
     add_rule_sort(&mut grammar, &Sort::new("Bag"))?;
+    // `KItem` is reserved, so it is not among the concrete sorts, but it is the declared sort of
+    // common argument positions (`ListItem`, `SetItem`, user `KItem` arguments). A rewrite whose
+    // sides are `KItem`s is a `KItem` pattern, admissible at such a position like any other.
+    #[cfg(not(feature = "z3-inference"))]
+    add_rule_sort(&mut grammar, &Sort::new("KItem"))?;
     // The sorts that have a `#Rule` scaffolding sort (`K` from add_rule_k_syntax); every argument
     // position of one of them admits a rewrite or `#as` pattern of that sort.
     #[cfg(not(feature = "z3-inference"))]
-    let mut rule_sorts = [Sort::new("K"), Sort::new("Bag")]
+    let mut rule_sorts = [Sort::new("K"), Sort::new("KItem"), Sort::new("Bag")]
         .into_iter()
         .map(|sort| {
             let rule = rule_sort(&sort);

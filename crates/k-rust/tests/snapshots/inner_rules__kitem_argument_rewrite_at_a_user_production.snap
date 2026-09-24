@@ -1,0 +1,15 @@
+---
+source: crates/k-rust/tests/inner_rules.rs
+description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]\n  syntax KItem ::= foo(Int) [symbol(foo)]\n  syntax KItem ::= wrap(KItem) [symbol(wrap)]\n  syntax List ::= ListItem(KItem) [symbol(ListItem)]\n                | List List [symbol(_List_)]\n                | \".List\" [symbol(.List)]\n  syntax Set ::= SetItem(KItem) [symbol(SetItem)]\n  rule wrap(foo(0) => foo(1))\nendmodule\n"
+---
+[
+    SentenceSummary {
+        kind: "rule",
+        body: "wrap(foo(#token(\"0\",\"Int\"))=>foo(#token(\"1\",\"Int\")))",
+        requires: "#token(\"true\",\"Bool\")",
+        ensures: Some(
+            "#token(\"true\",\"Bool\")",
+        ),
+        label: None,
+    },
+]
