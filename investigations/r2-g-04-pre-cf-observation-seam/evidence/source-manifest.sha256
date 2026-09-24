@@ -1,4 +1,0 @@
-cbc98fa208ba1d09d1c5b17b97aa73b0b275df433d85a49bfe56e9e5209773b3  k-frontend/src/main/java/org/kframework/kompile/DefinitionParsing.java
-87b1c19f487bf4056b1131d687df9d2d8ec413a4789a84134ebdcea0dde65c57  k-frontend/src/main/java/org/kframework/compile/GenerateSentencesFromConfigDecl.java
-a63e1a3cd3947af73da253a6808d5e09a6475f1ed55aec36faf06c77465c0c31  k-frontend/src/main/java/org/kframework/kompile/Kompile.java
-cea3d4674c74feb18f6572516c4ff8af38399167f73285ef92c4db5f4e324c84  k-frontend/src/main/java/org/kframework/kompile/KompileFrontEnd.java
