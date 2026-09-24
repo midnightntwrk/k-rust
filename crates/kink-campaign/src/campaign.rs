@@ -64,7 +64,8 @@ pub enum MutantScopeFailure {
     LoweringTimeLimit,
     /// A declared resource bound was reached while lowering the mutant.
     LoweringResourceLimit,
-    /// Infrastructure failure or artifact corruption affecting the whole mutant.
+    /// Infrastructure failure affecting the whole mutant, for example a
+    /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
 }
 
@@ -89,7 +90,8 @@ impl MutantScopeFailure {
 /// Why one test's mutant execution produced no operand for any of its slots.
 ///
 /// Bounded or indeterminate evidence that still yields an operand belongs in
-/// the slot outcome (`OracleSide::Unknown` or an incomplete `Normal`), not here.
+/// the slot outcome as `OracleSide::Unknown`, not here; a `Normal` side is
+/// always complete evidence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionFailureKind {
     /// The run could not decide how to proceed, for example a solver step.
@@ -166,11 +168,15 @@ pub struct MutantReport {
     pub mutant_id: MutantId,
     /// Final closed classification.
     pub status: MutantStatus,
-    /// Tests actually executed in manifest order.
+    /// Tests whose outcomes the status fold read, in manifest order: every
+    /// test under `Full`, and the prefix through the first killing test under
+    /// `FirstKill`, or none when the plan lists no tests. It is not a record
+    /// of execution: the runner executes every test of a mutant it can run,
+    /// whatever the schedule.
     pub executed_test_ids: Vec<String>,
     /// Exact killing-test prefix or full list; empty unless `Killed`.
     pub killing_test_ids: Vec<String>,
-    /// Explicit skipped suffix under first-kill.
+    /// The manifest suffix the fold did not read under first-kill.
     pub skipped_test_ids: Vec<String>,
 }
 

@@ -1,9 +1,17 @@
-//! Fail-closed integration over the KRS and k-rust native definition boundary.
+//! Fail-closed integration with the k-rust backend.
 //!
-//! The index in this crate is semantic and owner-qualified, but its provenance data is only the
-//! KRS sidecar. KRS does not bridge that sidecar into every k-rust production,
-//! term span, source-table entry, and generated origin. Consequently no type in this crate grants
-//! native provenance authority.
+//! - [`NativeValidator`] applies a kink-patch patch and compiles the mutant with k-rust.
+//! - [`execution`] runs observed, time-bounded executions through the k-rust `execute` facade.
+//! - [`search`] adapts the k-rust search facade existentially: a response can witness members
+//!   of a result set, never show that the set is complete or empty.
+//! - [`observation`] installs exact-label rule observations and adapts branch-local events.
+//! - [`bridge`] maps adapted executions and searches to kink-pattern paths and collection
+//!   evidence.
+//!
+//! The crate root also holds a semantic, owner-qualified index of a native definition. Its
+//! provenance data is only the KRS sidecar: KRS does not bridge that sidecar into every k-rust
+//! production, term span, source-table entry and generated origin, so no event or index entry
+//! is emitting-sentence provenance ([`ProvenanceStatus::SidecarOnlyMissingBridge`]).
 
 pub mod bridge;
 pub mod execution;

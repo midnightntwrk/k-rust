@@ -199,9 +199,11 @@ fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
     .expect("evaluation")
 }
 
+/// Pins kink's copy of the spellings, read from k-rust's private `halt_reason`
+/// (`backend/mod.rs:984-1002` at the ledger pin). It reads no k-rust output, so it cannot notice
+/// a moved spelling; the adapter fails closed with `UnknownHaltReason` on one instead.
 #[test]
 fn every_halt_reason_string_maps_to_exactly_one_class() {
-    // The spellings of k-rust `backend/mod.rs` `halt_reason`.
     let spellings = [
         "cancelled",
         "stuck",

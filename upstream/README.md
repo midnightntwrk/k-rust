@@ -30,3 +30,4 @@ Requests that KRS already tracks against k-rust are listed under `[[krs_owned]]`
 
 k-rust is consumed as an on-disk path dependency, so moving the pin means building against the checkout's current commit.
 Run `cargo test --workspace`, then re-screen every `open` and `partial` request at the new commit and update `status_basis` and `[reference_pin]`.
+No test reads k-rust's private `halt_reason`, so also compare its spellings with kink-native's `HaltClass` (`execution-leaf-completeness`).

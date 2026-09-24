@@ -7,7 +7,7 @@ schema = 1
 updated = "2026-09-24"
 
 [reference_pin]
-# Status is judged against this commit of the on-disk checkout that kink-native builds against.
+# Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
 k_rust_commit = "985e0086f06e1ec05c2c533f26fb6f949c6b84fa"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
@@ -139,7 +139,8 @@ Definition with start => mid1, start => mid2, mid1 => done and mid2 => done, lab
 local_workaround = """
 kink-native's ExecutionAdapter runs with stop_at_branch first: a ground initial state that ends in exactly one stuck leaf, with no backend diagnostic and within the time budget, is a single-path witness and complete evidence.
 Otherwise it reruns explore-all without a depth bound. State-set oracles are then complete only under the assumption that every distinct final state is returned; an execution-pattern oracle reaches at most Match, NoMatch and binding sets are Unknown, and the collection stop is ExhaustionUnrecorded.
-kink-native every_halt_reason_string_maps_to_exactly_one_class fails when a halt spelling moves.
+kink-native HaltClass::parse accepts exactly the 13 spellings of the private halt_reason (crates/k-rust/src/backend/mod.rs:984-1002) at the pin. every_halt_reason_string_maps_to_exactly_one_class checks kink's copy of that list, not k-rust output, so it cannot notice a moved spelling.
+A moved or new spelling makes the execution adapter fail closed with UnknownHaltReason, which the runner reports as Error, and the live kink-native bridge rows fail for the spellings they reach (cancelled, stuck, vacuous). Re-read halt_reason when moving the pin.
 """
 requested_action = """
 Give ExecutionLeaf a typed halt reason.
