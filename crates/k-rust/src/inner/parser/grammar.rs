@@ -299,7 +299,7 @@ impl Grammar {
 
 impl Grammar {
     /// Let every argument position of sort `S` also recognize `rule_sorts[S]`, the rule
-    /// scaffolding sort that derives `S`, `S => S`, and `S #as V`.
+    /// scaffolding sort that derives `S`, `S #as V`, and a rewrite between two of those.
     ///
     /// A rewrite `L => R` whose sides have sort `S` stands for a term of sort `S` in a rule
     /// pattern, so it is admissible wherever an `S` is, and it lowers to the same untyped
@@ -310,8 +310,9 @@ impl Grammar {
     /// rewrite or would change a production that is not a monomorphic constructor:
     /// - an unlabeled single-nonterminal production (a subsort or chain), because the rewrite is
     ///   already admitted at the result sort, whose `#Rule` sort is predicted there;
-    /// - the productions of the `#Rule` sorts themselves, so the operands of `S => S` stay plain
-    ///   `S` and a rewrite cannot be the direct operand of another rewrite;
+    /// - the productions of the `scaffolding` sorts (the `#Rule` sorts and the rewrite-side sorts
+    ///   below them), so the operands of `=>` and `#as` stay plain `S` and a rewrite cannot be
+    ///   the direct operand of another rewrite or of an `#as`;
     /// - the rule structure (`#RuleBody`, `#RuleContent`): the body is already a `#Rule` position
     ///   and side conditions are not patterns;
     /// - token productions and concretized parametric productions.
@@ -322,12 +323,16 @@ impl Grammar {
     pub(in crate::inner) fn admit_rewrites_in_argument_positions(
         &mut self,
         rule_sorts: &BTreeMap<Sort, Sort>,
+        scaffolding: &BTreeSet<Sort>,
     ) {
         let rule_sort_ids = rule_sorts
             .iter()
             .filter_map(|(sort, rule_sort)| Some((self.sort_id(sort)?, self.sort_id(rule_sort)?)))
             .collect::<BTreeMap<_, _>>();
-        let scaffolding = rule_sort_ids.values().copied().collect::<BTreeSet<_>>();
+        let scaffolding = scaffolding
+            .iter()
+            .filter_map(|sort| self.sort_id(sort))
+            .collect::<BTreeSet<_>>();
         let mut changed = false;
         for production in &mut self.productions {
             let unary_chain = production.label.is_none()
@@ -352,6 +357,35 @@ impl Grammar {
         if changed {
             self.invalidate_prediction_analysis();
         }
+    }
+
+    /// Add `result ::= items` where every operand declared `declared` is recognized as
+    /// `recognized`, a scaffolding sort that derives `declared` and further patterns of it.
+    ///
+    /// As at a widened argument position, the declared sort stays in `items` for inference,
+    /// priorities, and list completion; only what the recognizer predicts at the operand changes.
+    #[cfg(not(feature = "z3-inference"))]
+    pub(in crate::inner) fn add_with_recognized_operands(
+        &mut self,
+        result: Sort,
+        items: Vec<ProductionItem>,
+        label: Option<Label>,
+        declared: &Sort,
+        recognized: &Sort,
+    ) -> Result<(), ParseError> {
+        self.add_production(result, &items, label, false, false)?;
+        let recognized = self.intern_sort(recognized);
+        let production = self
+            .productions
+            .last_mut()
+            .expect("add_production pushed a production");
+        for (item, sort_id) in production.items.iter().zip(&mut production.item_sort_ids) {
+            if matches!(item, Item::NonTerminal(sort) if sort == declared) {
+                *sort_id = Some(recognized);
+            }
+        }
+        self.invalidate_prediction_analysis();
+        Ok(())
     }
 
     pub(crate) fn add(
