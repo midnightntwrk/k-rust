@@ -8569,6 +8569,44 @@ endmodule
     }
 }
 
+/// Where `X =/=Int Y`, `q(X, Y)` rewrites to `q(Y, Y)`, which is stuck. The only witness for `?Z`
+/// there is `Y`, so `?Z ==Int X` is refuted. The first state is split on the remainder of the
+/// destination match (`X = Y` is covered). The rewritten part then refutes its obligation, and a
+/// refuted obligation covers nothing: the whole of `q(Y, Y)` under `X =/=Int Y` is a stuck leaf.
+/// That leaf is not an empty state, so accepting vacuous leaves cannot prove the claim.
+#[test]
+fn kprove_a_refuted_obligation_after_a_remainder_split_stays_stuck() {
+    let definition = r#"
+module SPLIT-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= q(Int, Int)
+  configuration <k> $PGM:State </k>
+  rule <k> q(X, Y) => q(Y, Y) </k> requires X =/=Int Y
+endmodule
+"#;
+    let specification = r#"
+requires "split-probe.k"
+
+module SPLIT-SPEC
+  imports SPLIT-PROBE
+
+  claim <k> q(X, Y) => q(?Z, ?Z) </k> ensures ?Z ==Int X [label(q-ens-false)]
+endmodule
+"#;
+    for extra in [&[][..], &["--allow-vacuous"][..]] {
+        let leaves = kprove_claim_leaves(
+            ("split-probe.k", definition),
+            ("split-spec.k", specification),
+            "SPLIT-SPEC",
+            "SPLIT-PROBE",
+            &["q-ens-false"],
+            extra,
+        );
+        assert_eq!(leaves, [stuck_leaf("q-ens-false")], "{extra:?}");
+    }
+}
+
 /// A claim universal that the path overwrote still names its initial value, so the part of the
 /// reached state where the destination fails on it is a stuck leaf (disproved), whether or not
 /// vacuous leaves are accepted.
