@@ -10,12 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-fn package_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("workspace layout")
-        .join("investigations/backend-agnostic-goal-closure")
+fn data_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data")
 }
 
 fn load(path: impl AsRef<Path>) -> SemanticJson {
@@ -180,8 +176,8 @@ fn edit_key(edit: &SemanticJson) -> (String, String, String, String) {
 
 #[test]
 fn all_frozen_patch_application_vectors_pass_unchanged() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
     let cases = object(&vectors)
         .get("cases")
         .and_then(SemanticJson::as_array)
@@ -197,7 +193,7 @@ fn all_frozen_patch_application_vectors_pass_unchanged() {
             .get("definitionFixture")
             .and_then(SemanticJson::as_str)
             .expect("definition fixture");
-        let baseline = load(root.join("fixtures").join(fixture));
+        let baseline = load(root.join(fixture));
         let patch = materialize_patch(&vectors, case, false);
         let expected = object(fields.get("expected").expect("expected"));
         if expected
@@ -280,8 +276,8 @@ fn all_frozen_patch_application_vectors_pass_unchanged() {
 
 #[test]
 fn rejects_sort_condition_signature_and_replacement_anchor_adversaries_atomically() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
     let cases = object(&vectors)
         .get("cases")
         .and_then(SemanticJson::as_array)
@@ -293,7 +289,7 @@ fn rejects_sort_condition_signature_and_replacement_anchor_adversaries_atomicall
                 == Some("atomic-distinct-sentence-replacements")
         })
         .expect("atomic case");
-    let baseline = load(root.join("fixtures/semantic-definition-memory.json"));
+    let baseline = load(root.join("semantic-definition-memory.json"));
 
     let mut outer_drift = materialize_patch(&vectors, atomic_case, false).to_json();
     let edits = patch_edits_mut(&mut outer_drift);
@@ -320,7 +316,7 @@ fn rejects_sort_condition_signature_and_replacement_anchor_adversaries_atomicall
                 == Some("replace-condition-second-family")
         })
         .expect("condition case");
-    let counter = load(root.join("fixtures/semantic-definition-counter.json"));
+    let counter = load(root.join("semantic-definition-counter.json"));
     let mut non_bool = materialize_patch(&vectors, condition_case, false).to_json();
     object_mut(&mut patch_edits_mut(&mut non_bool)[0]).insert(
         "value".to_owned(),
@@ -431,8 +427,8 @@ fn rejects_sort_condition_signature_and_replacement_anchor_adversaries_atomicall
 
 #[test]
 fn injection_descendant_path_is_typed_and_sort_preserving() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
     let cases = object(&vectors)
         .get("cases")
         .and_then(SemanticJson::as_array)
@@ -444,7 +440,7 @@ fn injection_descendant_path_is_typed_and_sort_preserving() {
                 == Some("atomic-distinct-sentence-replacements")
         })
         .expect("atomic case");
-    let mut baseline = load(root.join("fixtures/semantic-definition-memory.json"));
+    let mut baseline = load(root.join("semantic-definition-memory.json"));
     let sentence = first_sentence_value_mut(&mut baseline);
     let body = object_mut(sentence).get_mut("body").expect("body");
     let left = object_mut(object_mut(body).get_mut("node").expect("node"))
@@ -500,8 +496,8 @@ fn injection_descendant_path_is_typed_and_sort_preserving() {
 
 #[test]
 fn patch_model_rejects_identity_order_shape_and_operation_drift() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
     let case = object(&vectors)
         .get("cases")
         .and_then(SemanticJson::as_array)
@@ -556,10 +552,10 @@ fn patch_model_rejects_identity_order_shape_and_operation_drift() {
 
 #[test]
 fn equal_slot_cross_module_insertions_have_distinct_destination_anchored_lineages() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
-    let mut combined = load(root.join("fixtures/semantic-definition-memory.json"));
-    let counter = load(root.join("fixtures/semantic-definition-counter.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
+    let mut combined = load(root.join("semantic-definition-memory.json"));
+    let counter = load(root.join("semantic-definition-counter.json"));
     let counter_module = object(&counter)
         .get("modules")
         .and_then(SemanticJson::as_array)
@@ -1225,14 +1221,14 @@ fn inline_well_sortedness_and_attribute_adversaries_publish_nothing() {
             ("stale-precondition"),
         ),
     ];
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
     let cases = object(&vectors)
         .get("cases")
         .and_then(SemanticJson::as_array)
         .expect("cases");
     for (id, fixture, case_id, mutate, expected) in rows {
-        let baseline = load(root.join("fixtures").join(fixture));
+        let baseline = load(root.join(fixture));
         let case = cases
             .iter()
             .find(|case| object(case).get("id").and_then(SemanticJson::as_str) == Some(case_id))

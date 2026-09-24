@@ -19,11 +19,11 @@ use std::collections::BTreeMap;
 
 const EXECUTION_VECTORS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../investigations/backend-agnostic-goal-closure/vectors/execution-pattern-vectors.json"
+    "/tests/data/execution-pattern-vectors.json"
 ));
 const MUTATION_VECTORS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../investigations/backend-agnostic-goal-closure/vectors/mutation-vectors.json"
+    "/tests/data/mutation-selection-vectors.json"
 ));
 
 fn digest(value: &str) -> Digest {

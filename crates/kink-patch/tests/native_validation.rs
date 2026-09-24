@@ -32,12 +32,8 @@ impl Drop for LeakingNativeFailure {
     }
 }
 
-fn package_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("workspace layout")
-        .join("investigations/backend-agnostic-goal-closure")
+fn data_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data")
 }
 
 fn load(path: impl AsRef<Path>) -> SemanticJson {
@@ -168,9 +164,9 @@ fn validate_test_native_input(input: StagedNativeInput<'_>) -> TestNativeOutput 
 
 #[test]
 fn publishes_portable_and_opaque_native_outputs_only_after_validation_success() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
-    let baseline = load(root.join("fixtures/semantic-definition-memory.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
+    let baseline = load(root.join("semantic-definition-memory.json"));
     let patch = materialize_patch(
         &vectors,
         fixture_case(&vectors, "atomic-distinct-sentence-replacements"),
@@ -207,9 +203,9 @@ fn publishes_portable_and_opaque_native_outputs_only_after_validation_success() 
 
 #[test]
 fn validator_owned_error_cannot_escape_with_cloned_staged_output_or_identity() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
-    let baseline = load(root.join("fixtures/semantic-definition-memory.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
+    let baseline = load(root.join("semantic-definition-memory.json"));
     let patch = materialize_patch(
         &vectors,
         fixture_case(&vectors, "atomic-distinct-sentence-replacements"),
@@ -251,9 +247,9 @@ fn validator_owned_error_cannot_escape_with_cloned_staged_output_or_identity() {
 
 #[test]
 fn portable_failure_skips_native_validation_and_commits_nothing() {
-    let root = package_root();
-    let vectors = load(root.join("vectors/patch-application-vectors.json"));
-    let baseline = load(root.join("fixtures/semantic-definition-memory.json"));
+    let root = data_dir();
+    let vectors = load(root.join("patch-application-vectors.json"));
+    let baseline = load(root.join("semantic-definition-memory.json"));
     let patch = materialize_patch(
         &vectors,
         fixture_case(&vectors, "stale-precondition-is-atomic"),

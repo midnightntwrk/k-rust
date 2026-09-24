@@ -913,10 +913,8 @@ mod tests {
         let registry =
             RoleSpecRegistry::from_repository_root(&root).expect("frozen registry must load");
         let mut value = parse_json(
-            &fs::read(root.join(
-                "investigations/backend-agnostic-goal-closure/fixtures/semantic-definition-memory.json",
-            ))
-            .expect("definition fixture"),
+            &fs::read(root.join("crates/kink-patch/tests/data/semantic-definition-memory.json"))
+                .expect("definition fixture"),
         )
         .expect("definition fixture is restricted JSON");
         let definition = PortableDefinition::from_json(&value).expect("fixture definition");

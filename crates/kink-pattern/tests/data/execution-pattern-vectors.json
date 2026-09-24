@@ -1904,23 +1904,5 @@
         "result": "unknown"
       }
     ]
-  },
-  "compilerConformance": {
-    "status": "not-proven",
-    "futureRequirement": "rust-k-pattern-compiler-receipt"
-  },
-  "historicalRetiredWholeTraceEvidence": [
-    {
-      "id": "accepted-r3-g-04-exact-pair",
-      "status": "historical-only",
-      "retiredSemantics": "legacy-exact-trace",
-      "evidence": "bounded-retired-stack"
-    },
-    {
-      "id": "accepted-r3-three-events-was-exact-pattern-only",
-      "status": "historical-only",
-      "retiredSemantics": "legacy-exact-trace",
-      "evidence": "bounded-retired-stack"
-    }
-  ]
+  }
 }

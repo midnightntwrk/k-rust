@@ -936,9 +936,5 @@
         "diffId": "a86e724fb15fc0f26e0bda2abb927e7900b2b64fe145b8387d8859380ad01c8c"
       }
     }
-  ],
-  "portableApplicationBoundary": {
-    "portableApplication": "applied-and-locally-well-formed",
-    "nativeIrValidation": "rust-proof-pending"
-  }
+  ]
 }
