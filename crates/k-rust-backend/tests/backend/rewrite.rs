@@ -4593,42 +4593,108 @@ fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
     );
 }
 
-#[test]
-fn deep_concrete_recursion_has_bounded_linear_productive_work() {
+/// Stack bytes that one nesting level of the `size` recursion may use.
+///
+/// Simplifying `size` of a `concrete_chain` recurses once per cons cell, so
+/// the native stack it needs is linear in the chain depth. This is the stated
+/// per-level ceiling of that contract, at about 1.8 times the measured slope,
+/// so that ordinary frame changes pass and a doubled frame fails.
+///
+/// Receipt (commit `985e0086`, minimum passing thread stack found by
+/// bisection, one process per size):
+/// - debug: `simplify` alone at depths 256/512/1,024/2,048 needs
+///   4,047/8,046/16,060/32,072 KiB, a slope of 15.6 KiB per level;
+/// - release: 2,543/10,126 KiB at depths 1,024/4,096, a slope of 2.47 KiB per
+///   level.
+///
+/// `debug_assertions` stands for the unoptimised profile here; a profile that
+/// optimises with debug assertions on gets the larger ceiling.
+const STACK_BYTES_PER_RECURSION_LEVEL: usize = if cfg!(debug_assertions) {
+    28 * 1024
+} else {
+    4_608 // 4.5 KiB
+};
+
+/// Depth-independent stack of a recursion test thread: the test harness and
+/// the frames below the first recursive call (measured intercept: about
+/// 43 KiB debug, 16 KiB release).
+const STACK_BASE_BYTES: usize = 256 * 1024;
+
+/// Runs `body` on a thread whose stack is the stated linear bound for a
+/// recursion `depth` levels deep; a stack overflow aborts the test process.
+fn on_recursion_stack(name: &str, depth: usize, body: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
-        .name("deep-concrete-recursion".into())
-        .stack_size(16 * 1024 * 1024)
-        .spawn(deep_concrete_recursion_has_bounded_linear_productive_work_inner)
+        .name(name.into())
+        .stack_size(STACK_BASE_BYTES + depth * STACK_BYTES_PER_RECURSION_LEVEL)
+        .spawn(body)
         .expect("the regression thread should start")
         .join()
         .expect("the regression thread should complete");
 }
 
-fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
-    const DEPTH: usize = 1_024;
-    const OVERRIDE: usize = 4_096;
-
-    let definition = deep_concrete_recursion_definition();
-    let stack = concrete_chain(&definition, DEPTH);
+/// Simplifies `size` of a chain `depth` cells deep and checks its value.
+fn simplify_size_of_chain(
+    definition: &BackendDefinition,
+    stack: &Term,
+    depth: usize,
+) -> k_rust_backend::simplify::Simplification {
     let size = Term::application(
         definition.symbols["size"].clone(),
         Vec::new(),
         vec![stack.clone()],
     );
     let simplified = k_rust_backend::simplify::simplify(
-        &definition,
+        definition,
         &size,
         SimplificationOptions {
-            max_iterations: OVERRIDE,
+            max_iterations: 4 * depth,
             ..SimplificationOptions::default()
         },
     )
     .expect("the request-level override should complete finite concrete recursion");
-
     assert_eq!(
         simplified.term,
-        Term::domain_value(Sort::simple("SortInt"), DEPTH.to_string())
+        Term::domain_value(Sort::simple("SortInt"), depth.to_string())
     );
+    simplified
+}
+
+#[test]
+fn deep_concrete_recursion_has_bounded_linear_productive_work() {
+    on_recursion_stack(
+        "deep-concrete-recursion",
+        DEEP_CONCRETE_RECURSION_DEPTH,
+        deep_concrete_recursion_has_bounded_linear_productive_work_inner,
+    );
+}
+
+/// Depth of the chain in the work test; the `stackState` rewrite rule of
+/// `deep_concrete_recursion_definition` requires `size` to be exactly this.
+const DEEP_CONCRETE_RECURSION_DEPTH: usize = 1_024;
+
+/// The stack of `size` recursion grows linearly with depth: depths N and 4N
+/// each complete on a stack proportional to their depth under the same
+/// per-level ceiling, so superlinear growth, or a frame that doubles, aborts.
+#[test]
+fn deep_concrete_recursion_stack_grows_linearly_with_depth() {
+    const DEPTH: usize = 256;
+    for depth in [DEPTH, 4 * DEPTH] {
+        on_recursion_stack("concrete-recursion-stack-growth", depth, move || {
+            let definition = deep_concrete_recursion_definition();
+            let stack = concrete_chain(&definition, depth);
+            simplify_size_of_chain(&definition, &stack, depth);
+        });
+    }
+}
+
+fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
+    const DEPTH: usize = DEEP_CONCRETE_RECURSION_DEPTH;
+    const OVERRIDE: usize = 4 * DEPTH;
+
+    let definition = deep_concrete_recursion_definition();
+    let stack = concrete_chain(&definition, DEPTH);
+    let simplified = simplify_size_of_chain(&definition, &stack, DEPTH);
+
     assert_eq!(simplified.applied_rules.len(), 2 * DEPTH + 1);
     assert_eq!(
         simplified
