@@ -36,4 +36,4 @@ It does not pin KRS source, and it reads K and schema versions from `Krs.lock`.
 After an intended output change, run the gate with `--record` (and `--java-reference --record` for the kompiled digest); it rewrites only the output pins that run measured, and only when every step passes.
 `--artifacts-only` runs preflight, the Rust checks, and repeated emission, compares every emitted artifact and the native KORE with its pin, and stops before the K-Rust behavior and Java reference comparisons with a PASS line that says they were skipped.
 Use it for a change expected to leave every artifact byte-identical; any artifact difference fails and asks for the full gate, and it cannot be combined with `--record` or `--java-reference`.
-Cargo targets and workspaces default to `/var/tmp`; `KRS_GATE_SCRATCH` moves them, and `KRS_<PORT>_ROOT_TARGET` or `KRS_<PORT>_FIXTURE_TARGET` moves one target.
+Cargo targets and workspaces default to `/var/tmp`; `KRS_GATE_SCRATCH` moves them, and `KRS_<PORT>_ROOT_TARGET`, `KRS_<PORT>_FIXTURE_TARGET`, or `KRS_<PORT>_EXPANDED_TARGET` moves one target.

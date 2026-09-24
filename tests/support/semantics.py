@@ -221,7 +221,7 @@ def artifact_gate(
     expanded.joinpath("Cargo.toml").write_text(manifest, encoding="utf-8")
     shutil.copy2(LOCK, expanded / "Cargo.lock")
     expanded.joinpath("src/lib.rs").write_text(expansions[0], encoding="utf-8")
-    expanded_env = {**environment, "CARGO_TARGET_DIR": os.fspath(workspace / "expanded-target")}
+    expanded_env = {**environment, "CARGO_TARGET_DIR": os.fspath(port.target("expanded"))}
     run(
         ["cargo", "check", "--manifest-path", expanded / "Cargo.toml", "--locked", "--offline"],
         environment=expanded_env,
