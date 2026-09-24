@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from dataclasses import dataclass, field
 import os
 from pathlib import Path
 import re
@@ -116,6 +116,15 @@ _KORE_TOKEN = re.compile(
 _KORE_ESCAPES = {'"': '"', "\\": "\\", "n": "\n", "t": "\t", "r": "\r", "f": "\f"}
 
 
+@dataclass
+class _KoreFrame:
+    kind: str
+    name: str
+    phase: str = "sort_item_or_close"
+    sorts: list[dict[str, object]] = field(default_factory=list)
+    args: list[dict[str, object]] = field(default_factory=list)
+
+
 def _kore_string(literal: str) -> str:
     body = literal[1:-1]
     value: list[str] = []
@@ -176,37 +185,80 @@ def parse_kore_pattern(text: str) -> dict[str, object]:
     def peek(value: str) -> bool:
         return cursor < len(tokens) and tokens[cursor] == ("punct", value)
 
-    def separated(close: str, item: Callable[[], dict[str, object]]) -> list[dict[str, object]]:
-        items = []
-        if not peek(close):
-            items.append(item())
-            while peek(","):
+    frames: list[_KoreFrame] = []
+    result: dict[str, object] | None = None
+
+    def start(kind: str) -> None:
+        name = take("ident")
+        take("punct", "{")
+        frames.append(_KoreFrame(kind, name))
+
+    def finish(node: dict[str, object]) -> None:
+        nonlocal result
+        frames.pop()
+        if not frames:
+            result = node
+            return
+        parent = frames[-1]
+        if parent.phase == "sort_child":
+            parent.sorts.append(node)
+            parent.phase = "sort_separator_or_close"
+        elif parent.phase == "arg_child":
+            parent.args.append(node)
+            parent.phase = "arg_separator_or_close"
+        else:
+            raise GateError("malformed KORE parser state")
+
+    start("pattern")
+    while frames:
+        frame = frames[-1]
+        if frame.phase in {"sort_item_or_close", "sort_item_required"}:
+            if frame.phase == "sort_item_or_close" and peek("}"):
+                take("punct", "}")
+                if frame.kind == "sort":
+                    finish({"tag": "SortApp", "name": frame.name, "args": frame.sorts})
+                    continue
+                take("punct", "(")
+                if frame.name == "\\dv":
+                    if len(frame.sorts) != 1:
+                        raise GateError("a KORE domain value takes exactly one sort")
+                    value = _kore_string(take("string"))
+                    take("punct", ")")
+                    finish({"tag": "DV", "sort": frame.sorts[0], "value": value})
+                    continue
+                if frame.name.startswith("\\"):
+                    raise GateError(f"unsupported KORE connective {frame.name} in a concrete pattern")
+                frame.phase = "arg_item_or_close"
+            else:
+                frame.phase = "sort_child"
+                start("sort")
+        elif frame.phase == "sort_separator_or_close":
+            if peek(","):
                 take("punct", ",")
-                items.append(item())
-        take("punct", close)
-        return items
+                frame.phase = "sort_item_required"
+            else:
+                frame.phase = "sort_item_or_close"
+                if not peek("}"):
+                    take("punct", "}")
+        elif frame.phase in {"arg_item_or_close", "arg_item_required"}:
+            if frame.phase == "arg_item_or_close" and peek(")"):
+                take("punct", ")")
+                finish({"tag": "App", "name": frame.name, "sorts": frame.sorts, "args": frame.args})
+            else:
+                frame.phase = "arg_child"
+                start("pattern")
+        elif frame.phase == "arg_separator_or_close":
+            if peek(","):
+                take("punct", ",")
+                frame.phase = "arg_item_required"
+            else:
+                frame.phase = "arg_item_or_close"
+                if not peek(")"):
+                    take("punct", ")")
+        else:
+            raise GateError("malformed KORE parser state")
 
-    def sort() -> dict[str, object]:
-        name = take("ident")
-        take("punct", "{")
-        return {"tag": "SortApp", "name": name, "args": separated("}", sort)}
-
-    def pattern() -> dict[str, object]:
-        name = take("ident")
-        take("punct", "{")
-        sorts = separated("}", sort)
-        take("punct", "(")
-        if name == "\\dv":
-            if len(sorts) != 1:
-                raise GateError("a KORE domain value takes exactly one sort")
-            value = _kore_string(take("string"))
-            take("punct", ")")
-            return {"tag": "DV", "sort": sorts[0], "value": value}
-        if name.startswith("\\"):
-            raise GateError(f"unsupported KORE connective {name} in a concrete pattern")
-        return {"tag": "App", "name": name, "sorts": sorts, "args": separated(")", pattern)}
-
-    result = pattern()
+    assert result is not None
     if cursor != len(tokens):
         raise GateError(f"trailing KORE text after the pattern: {tokens[cursor][1]!r}")
     return result

@@ -271,39 +271,60 @@ def unwrap_injection(term: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def map_items(term: Mapping[str, Any]) -> list[tuple[Mapping[str, Any], Mapping[str, Any]]]:
-    name = term.get("name")
-    arguments = term.get("args")
-    if term.get("tag") == "App" and name == "Lbl'Stop'Map" and arguments == []:
-        return []
-    if term.get("tag") == "App" and name == "Lbl'Unds'Map'Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
-        return [*map_items(arguments[0]), *map_items(arguments[1])]
-    if term.get("tag") == "App" and name == "Lbl'UndsPipe'-'-GT-Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
-        return [(unwrap_injection(arguments[0]), unwrap_injection(arguments[1]))]
-    raise GateError(f"malformed concrete Map: {term}")
+    entries: list[tuple[Mapping[str, Any], Mapping[str, Any]]] = []
+    pending = [term]
+    while pending:
+        current = pending.pop()
+        name = current.get("name")
+        arguments = current.get("args")
+        if current.get("tag") == "App" and name == "Lbl'Stop'Map" and arguments == []:
+            continue
+        if current.get("tag") == "App" and name == "Lbl'Unds'Map'Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
+            pending.extend((arguments[1], arguments[0]))
+            continue
+        if current.get("tag") == "App" and name == "Lbl'UndsPipe'-'-GT-Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
+            entries.append((unwrap_injection(arguments[0]), unwrap_injection(arguments[1])))
+            continue
+        raise GateError(f"malformed concrete Map: {current}")
+    return entries
 
 
 def set_values(term: Mapping[str, Any]) -> list[str]:
-    name = term.get("name")
-    arguments = term.get("args")
-    if term.get("tag") == "App" and name == "Lbl'Stop'Set" and arguments == []:
-        return []
-    if term.get("tag") == "App" and name == "Lbl'Unds'Set'Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
-        return [*set_values(arguments[0]), *set_values(arguments[1])]
-    if term.get("tag") == "App" and name == "LblSetItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
-        return [domain_value(unwrap_injection(arguments[0]), "Int")]
-    raise GateError(f"malformed concrete Set: {term}")
+    values: list[str] = []
+    pending = [term]
+    while pending:
+        current = pending.pop()
+        name = current.get("name")
+        arguments = current.get("args")
+        if current.get("tag") == "App" and name == "Lbl'Stop'Set" and arguments == []:
+            continue
+        if current.get("tag") == "App" and name == "Lbl'Unds'Set'Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
+            pending.extend((arguments[1], arguments[0]))
+            continue
+        if current.get("tag") == "App" and name == "LblSetItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
+            values.append(domain_value(unwrap_injection(arguments[0]), "Int"))
+            continue
+        raise GateError(f"malformed concrete Set: {current}")
+    return values
 
 
 def list_values(term: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    name = term.get("name")
-    arguments = term.get("args")
-    if term.get("tag") == "App" and name == "Lbl'Stop'List" and arguments == []:
-        return []
-    if term.get("tag") == "App" and name == "Lbl'Unds'List'Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
-        return [*list_values(arguments[0]), *list_values(arguments[1])]
-    if term.get("tag") == "App" and name == "LblListItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
-        return [unwrap_injection(arguments[0])]
-    raise GateError(f"malformed concrete List: {term}")
+    values: list[Mapping[str, Any]] = []
+    pending = [term]
+    while pending:
+        current = pending.pop()
+        name = current.get("name")
+        arguments = current.get("args")
+        if current.get("tag") == "App" and name == "Lbl'Stop'List" and arguments == []:
+            continue
+        if current.get("tag") == "App" and name == "Lbl'Unds'List'Unds'" and isinstance(arguments, list) and len(arguments) == 2 and all(isinstance(item, dict) for item in arguments):
+            pending.extend((arguments[1], arguments[0]))
+            continue
+        if current.get("tag") == "App" and name == "LblListItem" and isinstance(arguments, list) and len(arguments) == 1 and isinstance(arguments[0], dict):
+            values.append(unwrap_injection(arguments[0]))
+            continue
+        raise GateError(f"malformed concrete List: {current}")
+    return values
 
 
 def rendered_int_map(term: Mapping[str, Any]) -> str:

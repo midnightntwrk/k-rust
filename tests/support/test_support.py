@@ -344,6 +344,25 @@ class KDefinitionTests(unittest.TestCase):
         with self.assertRaisesRegex(GateError, "trailing KORE text"):
             kdefinition.parse_kore_pattern("a{}() b{}()")
 
+    def test_parse_kore_pattern_handles_deep_applications_and_sorts(self) -> None:
+        depth = 5_000
+        prefix = 'Lbl\'Unds\'WS{}(\\dv{SortInt{}}("1"),'
+        term = kdefinition.parse_kore_pattern(
+            prefix * depth + "Lbl'Stop'WordStack{}()" + ")" * depth
+        )
+        for _ in range(depth):
+            self.assertEqual(term["name"], "Lbl'Unds'WS")
+            term = term["args"][1]
+        self.assertEqual(term["name"], "Lbl'Stop'WordStack")
+
+        nested_sort = "SortBox{" * depth + "SortInt{}" + "}" * depth
+        term = kdefinition.parse_kore_pattern(f"Lblvalue{{{nested_sort}}}()")
+        sort = term["sorts"][0]
+        for _ in range(depth):
+            self.assertEqual(sort["name"], "SortBox")
+            sort = sort["args"][0]
+        self.assertEqual(sort["name"], "SortInt")
+
 
 class LedgerTests(unittest.TestCase):
     TOML = (
