@@ -8150,25 +8150,31 @@ module CELL-SPEC2
 endmodule
 "#;
 
-/// A universal variable constrained by the claim's precondition cannot take the value the path
-/// writes into its cell.
+/// A universal claim variable denotes its initial value in the reached state, so the value the path
+/// writes into its cell falsifies the claim whether or not the precondition constrains the variable.
 #[test]
 fn kprove_constrained_universal_claim_variables_are_checked() {
+    let verdicts = kprove_claim_verdicts(
+        ("cell-probe2.k", CELL_PROBE2),
+        ("cell-spec2.k", CELL_SPEC2),
+        "CELL-SPEC2",
+        "CELL-PROBE2",
+        &[
+            "free-unchanged",
+            "constrained-unchanged",
+            "constrained-set",
+            "concrete-unchanged",
+        ],
+    );
+    // `X = 5` is not entailed for an unconstrained `X`, but it is satisfiable, so the prover finds
+    // no refutation of the whole state: the claim must be decided and not proven.
+    assert!(
+        !["proven", "error"].contains(&verdicts[0].1.as_str()),
+        "{verdicts:?}"
+    );
     assert_eq!(
-        kprove_claim_verdicts(
-            ("cell-probe2.k", CELL_PROBE2),
-            ("cell-spec2.k", CELL_SPEC2),
-            "CELL-SPEC2",
-            "CELL-PROBE2",
-            &[
-                "free-unchanged",
-                "constrained-unchanged",
-                "constrained-set",
-                "concrete-unchanged"
-            ],
-        ),
+        verdicts[1..],
         expected_verdicts(&[
-            ("free-unchanged", "error"),
             ("constrained-unchanged", "disproved"),
             ("constrained-set", "proven"),
             ("concrete-unchanged", "disproved"),

@@ -888,9 +888,7 @@ impl RpcService {
             &consequent_existentials,
             solver,
         )
-        .map_err(|error| {
-            implication_backend_fault(error, &antecedent, &consequent, &consequent_existentials)
-        })?;
+        .map_err(implication_backend_fault)?;
         let vacuous_antecedent = result.status == ImplicationStatus::Valid
             && result.condition.as_ref().is_some_and(|condition| {
                 condition.predicates.as_slice() == [Predicate::False]
@@ -1255,46 +1253,14 @@ fn simplified_not_consequent_response_syntax(
     })
 }
 
-fn implication_backend_fault(
-    error: ImplicationError,
-    antecedent: &KorePattern,
-    consequent: &KorePattern,
-    consequent_existentials: &BTreeSet<Variable>,
-) -> RpcFault {
-    match error {
-        ImplicationError::ConsequentFreeVariables(variables) => {
-            let (consequent_body, syntax_existentials) = consequent.leading_existentials();
-            let names = variables
-                .iter()
-                .map(|variable| variable.name.to_string())
-                .collect::<Vec<_>>();
-            let existentials = if syntax_existentials.is_empty() {
-                consequent_existentials
-                    .iter()
-                    .map(|variable| variable.name.to_string())
-                    .collect::<Vec<_>>()
-            } else {
-                syntax_existentials
-                    .iter()
-                    .map(|variable| variable.name.clone())
-                    .collect()
-            };
-            RpcFault::implication(
-                format!(
-                    "The RHS must not have free variables not present in the LHS: {}",
-                    names.join(", ")
-                ),
-                implication_pattern_context(antecedent, consequent_body, &existentials),
-            )
-        }
-        error => RpcFault::backend_error(
-            BackendErrorKind::ImplicationCheckError,
-            serde_json::to_value(ErrorDetail::message(format!(
-                "implication check failed: {error}"
-            )))
-            .expect("error details are serializable"),
-        ),
-    }
+fn implication_backend_fault(error: ImplicationError) -> RpcFault {
+    RpcFault::backend_error(
+        BackendErrorKind::ImplicationCheckError,
+        serde_json::to_value(ErrorDetail::message(format!(
+            "implication check failed: {error}"
+        )))
+        .expect("error details are serializable"),
+    )
 }
 
 fn implication_pattern_context(
@@ -3096,27 +3062,50 @@ mod tests {
         );
     }
 
+    /// A free variable that only the consequent mentions is universal over the implication, so it
+    /// is decided like any other: invalid when the match constrains it under a satisfiable
+    /// antecedent, valid under an unsatisfiable antecedent or when nothing constrains it.
     #[test]
-    fn implication_rejects_free_consequent_variables_with_context() {
-        let error = implication_error(
-            "X:SortK{}",
-            r#"\exists{SortK{}}(Z:SortK{}, \and{SortK{}}(Y:SortK{}, Z:SortK{}))"#,
+    fn implication_decides_free_consequent_variables() {
+        let refuted =
+            boxed_integer_implication(r#"box{}(\dv{SortInt{}}("0"))"#, "box{}(Y:SortInt{})");
+        assert_eq!(refuted["result"]["status"], "invalid", "{refuted:#}");
+
+        let vacuous = boxed_integer_implication(
+            r#"\and{SortK{}}(
+                box{}(X:SortInt{}),
+                \and{SortK{}}(
+                    \equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \equals{SortInt{}, SortK{}}(X:SortInt{}, \dv{SortInt{}}("1"))
+                )
+            )"#,
+            "box{}(Y:SortInt{})",
+        );
+        assert_eq!(vacuous["result"]["status"], "valid", "{vacuous:#}");
+
+        let unconstrained = boxed_integer_implication(
+            r#"box{}(\dv{SortInt{}}("0"))"#,
+            r#"\and{SortK{}}(
+                box{}(\dv{SortInt{}}("0")),
+                \or{SortK{}}(
+                    \equals{SortInt{}, SortK{}}(Y:SortInt{}, \dv{SortInt{}}("0")),
+                    \not{SortK{}}(
+                        \equals{SortInt{}, SortK{}}(Y:SortInt{}, \dv{SortInt{}}("0"))
+                    )
+                )
+            )"#,
         );
         assert_eq!(
-            error,
-            json!({
-                "code": 4,
-                "message": "Implication check error",
-                "data": {
-                    "context": [
-                        "LHS: X:SortK{}",
-                        r#"RHS: \and{SortK{}}(Y:SortK{}, Z:SortK{})"#,
-                        "existentials: [Z]",
-                    ],
-                    "error": "The RHS must not have free variables not present in the LHS: Y",
-                },
-            })
+            unconstrained["result"]["status"], "valid",
+            "{unconstrained:#}"
         );
+
+        // An antecedent existential is not the consequent's universal of the same name.
+        let captured = boxed_integer_implication(
+            r#"\exists{SortK{}}(Y:SortInt{}, box{}(Y:SortInt{}))"#,
+            "box{}(Y:SortInt{})",
+        );
+        assert_eq!(captured["result"]["status"], "invalid", "{captured:#}");
     }
 
     #[test]
