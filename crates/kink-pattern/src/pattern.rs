@@ -26,6 +26,7 @@ pub enum PatternFailureKind {
     InvalidTermGraph,
     InvalidPath,
     InvalidCollection,
+    InvalidCorpus,
     InputError,
 }
 
@@ -1596,6 +1597,95 @@ pub fn aggregate_existential(
     } else {
         PatternOutcome::Unknown
     }
+}
+
+/// One corpus test in manifest order: evaluated to an outcome, or explicitly skipped.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CorpusComponent {
+    Evaluated(PatternOutcome),
+    Skipped(CorpusSkip),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CorpusSkip {
+    SharedSetupFailed,
+    MatchFound,
+}
+
+/// The folded corpus answer. Indices refer to manifest test order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CorpusDecision {
+    pub outcome: PatternOutcome,
+    pub complete_coverage: bool,
+    pub matching_tests: Vec<usize>,
+    /// First unknown or error test when that test makes the corpus inconclusive.
+    pub cause: Option<usize>,
+}
+
+/// Folds per-test outcomes after checking that every skip is justified: a shared-setup
+/// failure skips every test, and early stop skips exactly the tests after the first match.
+/// Absence follows `aggregate_existential`, so it needs explicit exhaustion evidence.
+pub fn aggregate_corpus(
+    components: &[CorpusComponent],
+    shared_setup_failed: bool,
+    early_stop_after_match: bool,
+    exhaustion: Option<&ArtifactRef>,
+) -> Result<CorpusDecision, PatternFailure> {
+    let invalid = |detail: &str| {
+        Err(PatternFailure::new(
+            PatternFailureKind::InvalidCorpus,
+            detail,
+        ))
+    };
+    if components.is_empty() {
+        return invalid("corpus has no tests");
+    }
+    let first_match = components
+        .iter()
+        .position(|item| *item == CorpusComponent::Evaluated(PatternOutcome::Match));
+    let expected_skip = |index: usize| {
+        if shared_setup_failed {
+            Some(CorpusSkip::SharedSetupFailed)
+        } else if early_stop_after_match && first_match.is_some_and(|first| index > first) {
+            Some(CorpusSkip::MatchFound)
+        } else {
+            None
+        }
+    };
+    let mut outcomes = Vec::with_capacity(components.len());
+    for (index, component) in components.iter().enumerate() {
+        match (*component, expected_skip(index)) {
+            (CorpusComponent::Evaluated(outcome), None) => outcomes.push(outcome),
+            (CorpusComponent::Skipped(skip), Some(expected)) if skip == expected => {}
+            _ => return invalid("corpus skips do not follow its setup and stop policy"),
+        }
+    }
+    let outcome = aggregate_existential(&outcomes, shared_setup_failed, exhaustion);
+    let cause = matches!(outcome, PatternOutcome::Unknown | PatternOutcome::Error)
+        .then(|| {
+            components.iter().position(|item| {
+                matches!(
+                    item,
+                    CorpusComponent::Evaluated(PatternOutcome::Unknown | PatternOutcome::Error)
+                )
+            })
+        })
+        .flatten();
+    Ok(CorpusDecision {
+        outcome,
+        complete_coverage: matches!(outcome, PatternOutcome::Match | PatternOutcome::NoMatch)
+            && outcomes.len() == components.len()
+            && outcomes
+                .iter()
+                .all(|item| matches!(item, PatternOutcome::Match | PatternOutcome::NoMatch)),
+        matching_tests: components
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| **item == CorpusComponent::Evaluated(PatternOutcome::Match))
+            .map(|(index, _)| index)
+            .collect(),
+        cause,
+    })
 }
 
 fn binding_digest(bindings: &[Binding]) -> Digest {

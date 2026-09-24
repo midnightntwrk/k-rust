@@ -15,12 +15,12 @@ pub use candidate::{
     derive_mutant_id, derive_site_id, select, validate_edit_receipts,
 };
 pub use pattern::{
-    ArtifactRef, Atom, Binding, CollectionEvidence, CollectionStop, Constructor, Evaluation,
-    EvaluationAuthority, EvaluationOptions, Event, EventOrigin, EventVocabulary, ExecutionBounds,
-    ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, MatchMode, NamedQuery, OriginMode,
-    PathInput, PathStop, PatternArm, PatternFailure, PatternFailureKind, PatternOutcome,
-    PatternPlan, PayloadClause, Relation, SearchPolicy, SemanticSiteOrigin, SideCondition,
-    SideConditionResult, SideConditionRow, SideConditionTable, TermRelation, TermSignature,
-    TerminalAuthority, Witness, aggregate_existential, derive_path_identity, derive_trace_digest,
-    evaluate,
+    ArtifactRef, Atom, Binding, CollectionEvidence, CollectionStop, Constructor, CorpusComponent,
+    CorpusDecision, CorpusSkip, Evaluation, EvaluationAuthority, EvaluationOptions, Event,
+    EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop, ExecutionTerminal,
+    ExecutionTerminalKind, MatchMode, NamedQuery, OriginMode, PathInput, PathStop, PatternArm,
+    PatternFailure, PatternFailureKind, PatternOutcome, PatternPlan, PayloadClause, Relation,
+    SearchPolicy, SemanticSiteOrigin, SideCondition, SideConditionResult, SideConditionRow,
+    SideConditionTable, TermRelation, TermSignature, TerminalAuthority, Witness, aggregate_corpus,
+    aggregate_existential, derive_path_identity, derive_trace_digest, evaluate,
 };
