@@ -147,6 +147,11 @@ pub(super) struct HeadRuleTarget {
     cells: Vec<HeadRuleCellTarget>,
 }
 
+struct HeadRuleSelection<'a> {
+    target: &'a HeadRuleTarget,
+    computation: &'a HeadRuleCellTarget,
+}
+
 fn collect_head_rule_cells(
     declaration: &krs_ir::HostCellDeclaration,
     declarations: &HashMap<TypeId, &krs_ir::HostCellDeclaration>,
@@ -300,13 +305,11 @@ pub(super) fn resolve_head_rule_targets(
     Ok(targets)
 }
 
-#[allow(clippy::too_many_lines)] // Resolution keeps one closed head-rule transport audit together.
-fn resolve_head_rule(
+fn resolve_head_rule_target<'a>(
     rule: &krs_ir::HostHeadRule,
-    targets: &[HeadRuleTarget],
+    targets: &'a [HeadRuleTarget],
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-    builtins: Option<&HostBuiltinRegistry>,
-) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
+) -> Result<HeadRuleSelection<'a>, CollectionError> {
     let target = if let Some(configuration) = &rule.configuration {
         let selected = resolve_configuration_reference(configuration, declarations)?;
         targets
@@ -358,8 +361,21 @@ fn resolve_head_rule(
             detail,
         ));
     };
+    Ok(HeadRuleSelection {
+        target,
+        computation,
+    })
+}
+
+fn resolve_head_rule_extras(
+    rule: &krs_ir::HostHeadRule,
+    selection: &HeadRuleSelection<'_>,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<Vec<krs_ir::DescriptorHeadRuleExtra>, CollectionError> {
     let resolve_cell = |cell: &krs_ir::HostHeadRuleCellReference| {
-        let matches = target
+        let matches = selection
+            .target
             .cells
             .iter()
             .filter(|candidate| candidate.names.iter().any(|name| name == &cell.name))
@@ -380,7 +396,7 @@ fn resolve_head_rule(
                 detail,
             ));
         };
-        if resolved.identity == computation.identity {
+        if resolved.identity == selection.computation.identity {
             return Err(CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!(
@@ -394,8 +410,7 @@ fn resolve_head_rule(
             cell: resolved.identity.clone(),
         })
     };
-    let extras = rule
-        .extras
+    rule.extras
         .iter()
         .map(|extra| {
             Ok(match extra {
@@ -430,7 +445,17 @@ fn resolve_head_rule(
                 },
             })
         })
-        .collect::<Result<Vec<_>, CollectionError>>()?;
+        .collect::<Result<Vec<_>, CollectionError>>()
+}
+
+fn resolve_head_rule(
+    rule: &krs_ir::HostHeadRule,
+    targets: &[HeadRuleTarget],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
+    let selection = resolve_head_rule_target(rule, targets, declarations)?;
+    let extras = resolve_head_rule_extras(rule, &selection, declarations, builtins)?;
     let result = match &rule.result {
         krs_ir::ProtocolHeadRuleResult::Replace(term) => {
             krs_ir::ProtocolHeadRuleResult::Replace(resolve_term(term, declarations, builtins)?)
@@ -454,10 +479,10 @@ fn resolve_head_rule(
             .as_ref()
             .map(|sort| resolve_sort_reference(sort, declarations, builtins))
             .transpose()?,
-        configuration: target.configuration.clone(),
+        configuration: selection.target.configuration.clone(),
         computation_cell: krs_ir::DescriptorCellReference {
             key: rule.pattern_key.clone(),
-            cell: computation.identity.clone(),
+            cell: selection.computation.identity.clone(),
         },
         bindings: rule
             .bindings
@@ -489,7 +514,6 @@ fn resolve_head_rule(
     })
 }
 
-#[allow(clippy::too_many_lines)]
 pub(super) fn resolve_payload(
     payload: &HostDescriptorPayload,
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
@@ -1261,7 +1285,165 @@ fn resolve_application_reference(
     })
 }
 
-#[allow(clippy::too_many_lines)]
+fn resolve_grammar_owner(
+    owner: &HostProductionOwner,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<DescriptorProductionOwner, CollectionError> {
+    Ok(match owner {
+        HostProductionOwner::Constructor { constructor } => {
+            DescriptorProductionOwner::Constructor {
+                constructor: resolve_application_reference(
+                    constructor,
+                    declarations,
+                    builtins,
+                    false,
+                )?,
+            }
+        }
+        HostProductionOwner::TokenSort { sort } => DescriptorProductionOwner::TokenSort {
+            sort: resolve_sort_reference(sort, declarations, builtins)?,
+        },
+        HostProductionOwner::BracketSort { sort } => DescriptorProductionOwner::BracketSort {
+            sort: resolve_sort_reference(sort, declarations, builtins)?,
+        },
+    })
+}
+
+fn resolve_grammar_items(
+    items: &[HostProductionItem],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<Vec<DescriptorProductionItem>, CollectionError> {
+    items
+        .iter()
+        .map(|item| {
+            Ok(match item {
+                HostProductionItem::Terminal { key, text } => DescriptorProductionItem::Terminal {
+                    key: key.clone(),
+                    text: text.clone(),
+                },
+                HostProductionItem::NonTerminal {
+                    key,
+                    field_key,
+                    declaration_key,
+                    field,
+                    sort,
+                } => DescriptorProductionItem::NonTerminal {
+                    key: key.clone(),
+                    field_key: field_key.clone(),
+                    declaration_key: declaration_key.clone(),
+                    field: field.clone(),
+                    sort: Box::new(resolve_sort_reference(sort, declarations, builtins)?),
+                },
+                HostProductionItem::RegexTerminal {
+                    key,
+                    precede_regex,
+                    regex,
+                    follow_regex,
+                } => DescriptorProductionItem::RegexTerminal {
+                    key: key.clone(),
+                    precede_regex: precede_regex.clone(),
+                    regex: regex.clone(),
+                    follow_regex: follow_regex.clone(),
+                },
+            })
+        })
+        .collect::<Result<Vec<_>, CollectionError>>()
+}
+
+fn resolve_grammar_attributes(
+    attributes: &[HostProductionAttribute],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    context_aliases: &HashMap<HostItemId, StableItemId>,
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<Vec<DescriptorProductionAttribute>, CollectionError> {
+    attributes
+        .iter()
+        .map(|attribute| {
+            resolve_grammar_attribute(attribute, declarations, context_aliases, builtins)
+        })
+        .collect::<Result<Vec<_>, CollectionError>>()
+}
+
+fn resolve_grammar_attribute(
+    attribute: &HostProductionAttribute,
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    context_aliases: &HashMap<HostItemId, StableItemId>,
+    builtins: Option<&HostBuiltinRegistry>,
+) -> Result<DescriptorProductionAttribute, CollectionError> {
+    Ok(match attribute {
+        HostProductionAttribute::Documentation { key, text } => {
+            DescriptorProductionAttribute::Documentation {
+                key: key.clone(),
+                text: text.clone(),
+            }
+        }
+        HostProductionAttribute::Function { key } => {
+            DescriptorProductionAttribute::Function { key: key.clone() }
+        }
+        HostProductionAttribute::Total { key } => {
+            DescriptorProductionAttribute::Total { key: key.clone() }
+        }
+        HostProductionAttribute::Hook { key, operation } => DescriptorProductionAttribute::Hook {
+            key: key.clone(),
+            operation: *operation,
+        },
+        HostProductionAttribute::Alias { key } => {
+            DescriptorProductionAttribute::Alias { key: key.clone() }
+        }
+        HostProductionAttribute::Token {
+            key,
+            lexical_precedence,
+        } => DescriptorProductionAttribute::Token {
+            key: key.clone(),
+            lexical_precedence: lexical_precedence.clone(),
+        },
+        HostProductionAttribute::Group { reference } => DescriptorProductionAttribute::Group {
+            reference: reference.clone(),
+        },
+        HostProductionAttribute::Bracket { key } => {
+            DescriptorProductionAttribute::Bracket { key: key.clone() }
+        }
+        HostProductionAttribute::Avoid { key } => {
+            DescriptorProductionAttribute::Avoid { key: key.clone() }
+        }
+        HostProductionAttribute::Format { key, fragments } => {
+            DescriptorProductionAttribute::Format {
+                key: key.clone(),
+                fragments: fragments.clone(),
+            }
+        }
+        HostProductionAttribute::Strictness {
+            key,
+            kind,
+            using,
+            fields,
+            result_sort,
+        } => DescriptorProductionAttribute::Strictness {
+            key: key.clone(),
+            kind: *kind,
+            using: using
+                .as_ref()
+                .map(|using| {
+                    let alias = context_aliases.get(&using.alias).cloned().ok_or_else(|| {
+                        CollectionError::new(
+                            CollectionErrorKind::UnresolvedTypeReference,
+                            format!("unknown context alias `{}`", using.alias.item_name()),
+                        )
+                    })?;
+                    Ok(krs_ir::DescriptorContextAliasReference {
+                        key: using.key.clone(),
+                        alias,
+                    })
+                })
+                .transpose()?,
+            fields: fields.clone(),
+            result_sort: Box::new(resolve_sort_reference(result_sort, declarations, builtins)?),
+        },
+    })
+}
+
 fn resolve_grammar(
     grammar: &HostGrammarDescriptor,
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
@@ -1270,154 +1452,14 @@ fn resolve_grammar(
 ) -> Result<GrammarDescriptor, CollectionError> {
     Ok(match grammar {
         HostGrammarDescriptor::Production(production) => {
-            let owner = match &production.owner {
-                HostProductionOwner::Constructor { constructor } => {
-                    DescriptorProductionOwner::Constructor {
-                        constructor: resolve_application_reference(
-                            constructor,
-                            declarations,
-                            builtins,
-                            false,
-                        )?,
-                    }
-                }
-                HostProductionOwner::TokenSort { sort } => DescriptorProductionOwner::TokenSort {
-                    sort: resolve_sort_reference(sort, declarations, builtins)?,
-                },
-                HostProductionOwner::BracketSort { sort } => {
-                    DescriptorProductionOwner::BracketSort {
-                        sort: resolve_sort_reference(sort, declarations, builtins)?,
-                    }
-                }
-            };
-            let items = production
-                .items
-                .iter()
-                .map(|item| {
-                    Ok(match item {
-                        HostProductionItem::Terminal { key, text } => {
-                            DescriptorProductionItem::Terminal {
-                                key: key.clone(),
-                                text: text.clone(),
-                            }
-                        }
-                        HostProductionItem::NonTerminal {
-                            key,
-                            field_key,
-                            declaration_key,
-                            field,
-                            sort,
-                        } => DescriptorProductionItem::NonTerminal {
-                            key: key.clone(),
-                            field_key: field_key.clone(),
-                            declaration_key: declaration_key.clone(),
-                            field: field.clone(),
-                            sort: Box::new(resolve_sort_reference(sort, declarations, builtins)?),
-                        },
-                        HostProductionItem::RegexTerminal {
-                            key,
-                            precede_regex,
-                            regex,
-                            follow_regex,
-                        } => DescriptorProductionItem::RegexTerminal {
-                            key: key.clone(),
-                            precede_regex: precede_regex.clone(),
-                            regex: regex.clone(),
-                            follow_regex: follow_regex.clone(),
-                        },
-                    })
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?;
-            let attributes = production
-                .attributes
-                .iter()
-                .map(|attribute| {
-                    Ok(match attribute {
-                        HostProductionAttribute::Documentation { key, text } => {
-                            DescriptorProductionAttribute::Documentation {
-                                key: key.clone(),
-                                text: text.clone(),
-                            }
-                        }
-                        HostProductionAttribute::Function { key } => {
-                            DescriptorProductionAttribute::Function { key: key.clone() }
-                        }
-                        HostProductionAttribute::Total { key } => {
-                            DescriptorProductionAttribute::Total { key: key.clone() }
-                        }
-                        HostProductionAttribute::Hook { key, operation } => {
-                            DescriptorProductionAttribute::Hook {
-                                key: key.clone(),
-                                operation: *operation,
-                            }
-                        }
-                        HostProductionAttribute::Alias { key } => {
-                            DescriptorProductionAttribute::Alias { key: key.clone() }
-                        }
-                        HostProductionAttribute::Token {
-                            key,
-                            lexical_precedence,
-                        } => DescriptorProductionAttribute::Token {
-                            key: key.clone(),
-                            lexical_precedence: lexical_precedence.clone(),
-                        },
-                        HostProductionAttribute::Group { reference } => {
-                            DescriptorProductionAttribute::Group {
-                                reference: reference.clone(),
-                            }
-                        }
-                        HostProductionAttribute::Bracket { key } => {
-                            DescriptorProductionAttribute::Bracket { key: key.clone() }
-                        }
-                        HostProductionAttribute::Avoid { key } => {
-                            DescriptorProductionAttribute::Avoid { key: key.clone() }
-                        }
-                        HostProductionAttribute::Format { key, fragments } => {
-                            DescriptorProductionAttribute::Format {
-                                key: key.clone(),
-                                fragments: fragments.clone(),
-                            }
-                        }
-                        HostProductionAttribute::Strictness {
-                            key,
-                            kind,
-                            using,
-                            fields,
-                            result_sort,
-                        } => DescriptorProductionAttribute::Strictness {
-                            key: key.clone(),
-                            kind: *kind,
-                            using: using
-                                .as_ref()
-                                .map(|using| {
-                                    let alias = context_aliases
-                                        .get(&using.alias)
-                                        .cloned()
-                                        .ok_or_else(|| {
-                                            CollectionError::new(
-                                                CollectionErrorKind::UnresolvedTypeReference,
-                                                format!(
-                                                    "unknown context alias `{}`",
-                                                    using.alias.item_name()
-                                                ),
-                                            )
-                                        })?;
-                                    Ok(krs_ir::DescriptorContextAliasReference {
-                                        key: using.key.clone(),
-                                        alias,
-                                    })
-                                })
-                                .transpose()?,
-                            fields: fields.clone(),
-                            result_sort: Box::new(resolve_sort_reference(
-                                result_sort,
-                                declarations,
-                                builtins,
-                            )?),
-                        },
-                    })
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?;
+            let owner = resolve_grammar_owner(&production.owner, declarations, builtins)?;
+            let items = resolve_grammar_items(&production.items, declarations, builtins)?;
+            let attributes = resolve_grammar_attributes(
+                &production.attributes,
+                declarations,
+                context_aliases,
+                builtins,
+            )?;
             GrammarDescriptor::Production(DescriptorProduction {
                 key: production.key.clone(),
                 template_key: production.template_key.clone(),
