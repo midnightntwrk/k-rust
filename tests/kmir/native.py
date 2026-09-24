@@ -104,9 +104,8 @@ class Parser:
             while True:
                 self.take("|->")
                 items.append((key, self.term()))
-                if self.peek() != ",":
+                if self.peek() == ".Map":
                     break
-                self.take(",")
                 key = self.term()
             self.take(".Map")
             return "Map", items
