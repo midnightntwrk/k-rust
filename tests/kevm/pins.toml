@@ -4,7 +4,6 @@ expansion_sha256 = "377442d78dc5ba1bc8bada6f89c6bd6beeee75cc36d839844e0862dbca62
 behavior_sha256 = "7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673"
 definition_kore_sha256 = "629f95c05f10d4ad4ee2a445579e61710617f8a1596dc142bb6919d4039d6a3f"
 native_definition_kore_sha256 = "11966e310e6928415ba6cc331a48f4acce32daf831981c931ba31905ece01aea"
-java_behavior_sha256 = "ab35a71dee8705d30c205e9f72a18c25854d1e5082d87fccdaab7b2e63fe202c"
 
 [kevm]
 version = "7.1.337"

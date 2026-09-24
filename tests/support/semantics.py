@@ -16,16 +16,18 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
 import shutil
 import sys
+import tempfile
 from typing import Any, Mapping, Sequence
 
 from support import ROOT, GateError
 from support.checkouts import verify_checkout
-from support.hashing import exact_directory, sha256_file, sha256_text
+from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split_claims
 from support.lock import msrv
 from support.pins import Ledger
@@ -277,17 +279,21 @@ def native_behavior(
     pins: Ledger,
     corpus: Mapping[str, Any],
     environment: Mapping[str, str],
-) -> int:
-    """Execute the corpus on the native runner and record its behavior digest."""
+) -> tuple[int, list[dict[str, Any]]]:
+    """Execute the corpus, pin its digest, and return its ordered outcomes."""
 
     behavior = corpus.get("behavior")
     if not isinstance(behavior, list) or not behavior:
         raise GateError("behavior corpus is empty")
-    result = run(
-        [sys.executable, port.here / "native.py", runner, definition, port.module, port.corpus_path],
-        environment=environment,
-        timeout=900,
-    )
+    with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-outcomes-", dir=scratch_root()) as temporary:
+        outcomes_path = Path(temporary) / "outcomes.json"
+        result = run(
+            [sys.executable, port.here / "native.py", runner, definition, port.module,
+             port.corpus_path, "--outcomes", outcomes_path],
+            environment=environment,
+            timeout=900,
+        )
+        outcomes = json.loads(outcomes_path.read_text(encoding="utf-8"))
     summary = _NATIVE_SUMMARY.match(result.stdout.strip())
     if (
         summary is None
@@ -296,7 +302,54 @@ def native_behavior(
     ):
         raise GateError(f"K-Rust behavior evidence differs: {result.stdout.strip()}")
     pins.expect("behavior_sha256", summary.group(3))
-    return len(behavior)
+    if not isinstance(outcomes, list) or len(outcomes) != len(behavior) or any(
+        not isinstance(outcome, dict) or outcome.get("id") != case.get("id")
+        for outcome, case in zip(outcomes, behavior, strict=True)
+    ):
+        raise GateError("native outcomes differ from the ordered corpus")
+    if json_sha256(outcomes) != summary.group(3):
+        raise GateError("native outcome list differs from its reported digest")
+    return len(behavior), outcomes
+
+
+def compare_routes(
+    label: str,
+    native_outcomes: Sequence[Mapping[str, Any]],
+    java_outcomes: Sequence[Mapping[str, Any]],
+    skipped: Mapping[str, str],
+) -> None:
+    """Require every Java outcome to match its native peer and account for all ids."""
+
+    native = {str(outcome["id"]): outcome for outcome in native_outcomes}
+    if len(native) != len(native_outcomes):
+        raise GateError(f"{label} native outcomes contain duplicate ids")
+    unknown_skips = set(skipped) - set(native)
+    if unknown_skips:
+        raise GateError(f"{label} skipped id is absent from corpus: {sorted(unknown_skips)}")
+    compared: set[str] = set()
+    for outcome in java_outcomes:
+        case_id = str(outcome["id"])
+        if case_id not in native or case_id in compared or case_id in skipped:
+            raise GateError(f"{label} unexpected or duplicate Java case id: {case_id}")
+        compared.add(case_id)
+        expected = native[case_id]
+        if outcome != expected:
+            key = next(
+                key for key in dict.fromkeys([*expected, *outcome])
+                if key not in expected or key not in outcome or expected[key] != outcome[key]
+            )
+            raise GateError(
+                f"{label} case {case_id} differs at {key}: native={expected.get(key)!r}, "
+                f"Java={outcome.get(key)!r}"
+            )
+    missing = set(native) - compared - set(skipped)
+    if missing:
+        raise GateError(f"{label} Java route did not compare cases: {sorted(missing)}")
+    skip_text = f" ({len(skipped)} skipped: Haskell backend gaps)" if skipped else ""
+    print(
+        f"PASS Java reference {label} agrees with K-Rust on "
+        f"{len(compared)} of {len(native)} cases{skip_text}"
+    )
 
 
 def reference_definition(

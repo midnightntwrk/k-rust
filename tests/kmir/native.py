@@ -1905,6 +1905,7 @@ def main() -> int:
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
+    parser.add_argument("--outcomes", type=Path, help="write ordered behavior outcomes as JSON")
     parser.add_argument(
         "--id",
         action="append",
@@ -1937,6 +1938,8 @@ def main() -> int:
             raise GateError(f"native response order or shape differs: {response}")
         outcomes.append(checked(case, observed(case, sole_state(response["result"]))))
     digest = json_sha256(outcomes)
+    if arguments.outcomes is not None:
+        arguments.outcomes.write_text(canonical_json(outcomes) + "\n", encoding="utf-8")
     print(f"PASS native KMIR behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 

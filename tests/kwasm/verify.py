@@ -5,18 +5,18 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import re
 import sys
 import tempfile
 from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, semantics  # noqa: E402
-from support.hashing import json_sha256  # noqa: E402
+from support.kdefinition import parse_kore_pattern  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool, scratch_root  # noqa: E402
+from kwasm import native  # noqa: E402
 
 
 PORT = semantics.Port(
@@ -33,7 +33,8 @@ def java_reference_gate(
     k: Mapping[str, str],
     pins: Ledger,
     corpus: Mapping[str, Any],
-) -> tuple[int, int]:
+    native_outcomes: list[dict[str, Any]],
+) -> int:
     definition, source, claims = semantics.reference_definition(
         PORT, workspace, artifacts, k["kompile"], 1, pins
     )
@@ -43,10 +44,6 @@ def java_reference_gate(
         raise GateError("behavior corpus is empty")
     outcomes: list[dict[str, str]] = []
     for case in behavior:
-        case_id = str(case["id"])
-        expected_outcome = str(case.get("expected_outcome", "value"))
-        if expected_outcome not in {"trap", "value"}:
-            raise GateError(f"{case_id} has an unsupported expected outcome")
         result = run(
             [
                 k["krun"],
@@ -55,50 +52,20 @@ def java_reference_gate(
                 f"-cPGM={case['program']}",
                 "-cSTACK=.ValStack",
                 "--output",
-                "pretty",
+                "kore",
             ],
             timeout=120,
         ).stdout
-        if expected_outcome == "trap":
-            if not re.search(
-                r"<instrs>\s*trap\s*~>\s*\.Instrs\s*~>\s*\.K\s*</instrs>",
-                result,
-            ):
-                raise GateError(f"{case_id} did not finish with a trap: {result}")
-            if not re.search(r"<valstack>\s*\.ValStack\s*</valstack>", result):
-                raise GateError(f"{case_id} trapped with an unexpected stack: {result}")
-            observed = {"id": case_id, "outcome": "trap"}
-            expected = {"id": case_id, "outcome": "trap"}
-        else:
-            if not re.search(r"<instrs>\s*\.K\s*</instrs>", result):
-                raise GateError(
-                    f"{case_id} did not finish its instruction stream: {result}"
-                )
-            match = re.search(
-                r"<valstack>\s*<\s*(i32|i64)\s*>\s*(-?[0-9]+)\s*:\s*\.ValStack\s*</valstack>",
-                result,
-            )
-            if match is None:
-                raise GateError(f"{case_id} has an unexpected value stack: {result}")
-            observed = {
-                "id": case_id,
-                "outcome": "value",
-                "type": match.group(1),
-                "value": match.group(2),
-            }
-            expected = {
-                "id": case_id,
-                "outcome": "value",
-                "type": str(case["expected_type"]),
-                "value": str(case["expected_value"]),
-            }
-        if observed != expected:
-            raise GateError(f"{case_id} differs: expected={expected}, actual={observed}")
-        outcomes.append(observed)
-    pins.expect("behavior_sha256", json_sha256(outcomes))
+        state = parse_kore_pattern(result)
+        outcomes.append(native.observed(case, state))
+
+    semantics.compare_routes(PORT.label, native_outcomes, outcomes, {})
+    cases_by_id = {str(case["id"]): case for case in behavior}
+    for outcome in outcomes:
+        native.checked(cases_by_id[str(outcome["id"])], outcome)
 
     semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])
-    return len(outcomes), 1
+    return 1
 
 
 def main() -> int:
@@ -127,15 +94,13 @@ def main() -> int:
         if arguments.artifacts_only:
             print(f"PASS readable KWasm integer slice: {semantics.artifacts_only_summary(PORT)}")
             return 0
-        behavior_count = semantics.native_behavior(PORT, runner, definition, pins, corpus, environment)
+        behavior_count, native_outcomes = semantics.native_behavior(PORT, runner, definition, pins, corpus, environment)
         proof_count = 0
         if arguments.java_reference:
             k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
-            reference_behavior, proof_count = java_reference_gate(
+            proof_count = java_reference_gate(
                 workspace, artifacts, k, pins, corpus
             )
-            if reference_behavior != behavior_count:
-                raise GateError("K-Rust and reference execution counts differ")
     pins.finish("readable KWasm integer slice")
     proof_status = (
         f"{proof_count} reference proof"

@@ -124,8 +124,7 @@ def sole_state(result: Mapping[str, Any]) -> Mapping[str, Any]:
     return state["term"]
 
 
-def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, str]:
-    state = sole_state(result)
+def observed(case: Mapping[str, Any], state: Mapping[str, Any]) -> dict[str, str]:
     instructions = cell(state, "instrs")
     expected_outcome = str(case.get("expected_outcome", "value"))
     if expected_outcome == "trap":
@@ -151,12 +150,22 @@ def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, st
     }
 
 
+def checked(case: Mapping[str, Any], outcome: dict[str, str]) -> dict[str, str]:
+    expected = {"id": str(case["id"]), "outcome": str(case.get("expected_outcome", "value"))}
+    if expected["outcome"] == "value":
+        expected.update(type=str(case["expected_type"]), value=str(case["expected_value"]))
+    if outcome != expected:
+        raise GateError(f"{case['id']} differs: expected={expected}, actual={outcome}")
+    return outcome
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("runner", type=Path)
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
+    parser.add_argument("--outcomes", type=Path, help="write ordered behavior outcomes as JSON")
     arguments = parser.parse_args()
     corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
@@ -174,14 +183,10 @@ def main() -> int:
     for case, response in zip(cases, responses, strict=True):
         if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
             raise GateError(f"native response order or shape differs: {response}")
-        outcome = observed(case, response["result"])
-        expected = {"id": str(case["id"]), "outcome": str(case.get("expected_outcome", "value"))}
-        if expected["outcome"] == "value":
-            expected.update(type=str(case["expected_type"]), value=str(case["expected_value"]))
-        if outcome != expected:
-            raise GateError(f"{case['id']} differs: expected={expected}, actual={outcome}")
-        outcomes.append(outcome)
+        outcomes.append(checked(case, observed(case, sole_state(response["result"]))))
     digest = json_sha256(outcomes)
+    if arguments.outcomes is not None:
+        arguments.outcomes.write_text(canonical_json(outcomes) + "\n", encoding="utf-8")
     print(f"PASS native KWasm behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 

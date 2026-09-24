@@ -421,17 +421,20 @@ STATUS_LABELS = {
 }
 
 
-def observed(case: Mapping[str, Any], result: Mapping[str, Any]) -> dict[str, str]:
+def sole_state(result: Mapping[str, Any]) -> Mapping[str, Any]:
     leaves = result.get("leaves")
     if not isinstance(leaves, list) or len(leaves) != 1 or not isinstance(leaves[0], dict):
-        raise GateError(f"{case['id']} produced {0 if not isinstance(leaves, list) else len(leaves)} leaves")
+        raise GateError(f"native execution produced {0 if not isinstance(leaves, list) else len(leaves)} leaves")
     leaf = leaves[0]
     if leaf.get("reason") != "stuck":
-        raise GateError(f"{case['id']} halted with {leaf.get('reason')}: {leaf.get('detail')}")
+        raise GateError(f"native execution halted with {leaf.get('reason')}: {leaf.get('detail')}")
     state = leaf.get("state")
     if not isinstance(state, dict) or state.get("format") != "KORE" or not isinstance(state.get("term"), dict):
-        raise GateError(f"{case['id']} returned malformed KORE JSON")
-    state = state["term"]
+        raise GateError("native execution returned malformed KORE JSON")
+    return state["term"]
+
+
+def observed(case: Mapping[str, Any], state: Mapping[str, Any]) -> dict[str, str]:
     k = cell(state, "k")
     expected_stuck_operation = case.get("expected_stuck_operation")
     if expected_stuck_operation is None:
@@ -540,6 +543,13 @@ def expected(case: Mapping[str, Any]) -> dict[str, str]:
     return outcome
 
 
+def checked(case: Mapping[str, Any], outcome: dict[str, str]) -> dict[str, str]:
+    wanted = expected(case)
+    if outcome != wanted:
+        raise GateError(f"{case['id']} differs: expected={wanted}, actual={outcome}")
+    return outcome
+
+
 def execute_batch(
     runner: Path,
     definition: Path,
@@ -561,10 +571,7 @@ def execute_batch(
     for (index, case), response in zip(cases, responses, strict=True):
         if response.get("id") != case["id"] or not isinstance(response.get("result"), dict):
             raise GateError(f"native response order or shape differs: {response}")
-        outcome = observed(case, response["result"])
-        wanted = expected(case)
-        if outcome != wanted:
-            raise GateError(f"{case['id']} differs: expected={wanted}, actual={outcome}")
+        outcome = checked(case, observed(case, sole_state(response["result"])))
         outcomes.append((index, outcome))
     return outcomes
 
@@ -608,6 +615,7 @@ def main() -> int:
     parser.add_argument("definition", type=Path)
     parser.add_argument("module")
     parser.add_argument("corpus", type=Path)
+    parser.add_argument("--outcomes", type=Path, help="write ordered behavior outcomes as JSON")
     arguments = parser.parse_args()
     corpus = load_toml(arguments.corpus)
     cases = corpus.get("behavior")
@@ -628,6 +636,8 @@ def main() -> int:
         arguments.jobs,
     )
     digest = json_sha256(outcomes)
+    if arguments.outcomes is not None:
+        arguments.outcomes.write_text(canonical_json(outcomes) + "\n", encoding="utf-8")
     print(f"PASS native KEVM behavior: {len(outcomes)} executions; sha256={digest}")
     return 0
 

@@ -12,7 +12,6 @@ from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, semantics  # noqa: E402
-from support.hashing import json_sha256  # noqa: E402
 from support.kdefinition import parse_kore_pattern  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
@@ -282,7 +281,8 @@ def java_reference_gate(
     k: Mapping[str, str],
     pins: Ledger,
     corpus: Mapping[str, Any],
-) -> tuple[int, int]:
+    native_outcomes: list[dict[str, Any]],
+) -> int:
     definition, source, claims = semantics.reference_definition(
         PORT, workspace, artifacts, k["kompile"], 1, pins
     )
@@ -327,11 +327,15 @@ def java_reference_gate(
             timeout=120,
         ).stdout
         state = parse_kore_pattern(result)
-        outcomes.append(native.checked(case, native.observed(case, state)))
-    pins.expect("behavior_sha256", json_sha256(outcomes))
+        outcomes.append(native.observed(case, state))
+
+    semantics.compare_routes(PORT.label, native_outcomes, outcomes, {})
+    cases_by_id = {str(case["id"]): case for case in behavior}
+    for outcome in outcomes:
+        native.checked(cases_by_id[str(outcome["id"])], outcome)
 
     semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])
-    return len(outcomes), 1
+    return 1
 
 
 def main() -> int:
@@ -362,15 +366,13 @@ def main() -> int:
             if arguments.artifacts_only:
                 print(f"PASS readable KMIR operational slice: {semantics.artifacts_only_summary(PORT)}")
                 return 0
-            executions = semantics.native_behavior(PORT, runner, definition, pins, corpus, environment)
+            executions, native_outcomes = semantics.native_behavior(PORT, runner, definition, pins, corpus, environment)
             proofs = 0
             if arguments.java_reference:
                 k = {name: k_tool(name, k_version()) for name in ("kompile", "krun", "kprove")}
-                reference_executions, proofs = java_reference_gate(
-                    workspace, artifacts, k, pins, corpus
+                proofs = java_reference_gate(
+                    workspace, artifacts, k, pins, corpus, native_outcomes
                 )
-                if reference_executions != executions:
-                    raise GateError("K-Rust and reference execution counts differ")
         pins.finish("readable KMIR operational slice")
         proof_status = (
             f"{proofs} reference proof"

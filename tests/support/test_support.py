@@ -12,7 +12,24 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
-from support import checkouts, hashing, kdefinition, lock, lsp, parallel, pins, process, tools  # noqa: E402
+from support import checkouts, hashing, kdefinition, lock, lsp, parallel, pins, process, semantics, tools  # noqa: E402
+
+
+class RouteComparisonTests(unittest.TestCase):
+    def test_reports_case_and_first_differing_key(self) -> None:
+        with self.assertRaisesRegex(GateError, r"KEVM case one differs at gas: native='3', Java='4'"):
+            semantics.compare_routes(
+                "KEVM", [{"id": "one", "gas": "3", "pc": "2"}],
+                [{"id": "one", "gas": "4", "pc": "9"}], {},
+            )
+
+    def test_rejects_skipped_id_absent_from_corpus(self) -> None:
+        with self.assertRaisesRegex(GateError, r"skipped id is absent from corpus: \['missing'\]"):
+            semantics.compare_routes("KEVM", [{"id": "one"}], [], {"missing": "gap"})
+
+    def test_requires_every_unskipped_case(self) -> None:
+        with self.assertRaisesRegex(GateError, "did not compare cases"):
+            semantics.compare_routes("KMIR", [{"id": "one"}], [], {})
 
 
 def write_executable(path: Path, body: str) -> Path:
