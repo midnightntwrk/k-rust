@@ -7,6 +7,7 @@ use k_rust::{
         Backend, BackendOptions, ExecuteRequest, ImplicationRequest, ObservedRequest,
         PatternRequest, ProveRequest, SearchPatternRequest, SearchRequest,
     },
+    builtin::embedded,
     definition::checks::check_definition,
     diagnostic::{Diagnostic, DiagnosticPolicy, Severity},
     inner::{ProgramParser, parse_program_for_presentation},
@@ -291,23 +292,18 @@ fn compile_definition(options: &str) -> Result<String, String> {
         .as_deref()
         .unwrap_or("rust")
         .parse::<CompilationBackend>()?;
-    if options.include_prelude.unwrap_or(false) {
-        return Err(
-            "the embedded prelude requires native Z3 inference and is unavailable in WebAssembly; provide portable sources explicitly"
-                .to_owned(),
-        );
-    }
     let source_name = options
         .source_name
         .unwrap_or_else(|| "definition.k".to_owned());
-    let mut resolver = VirtualResolver::new(options.sources.unwrap_or_default());
+    let mut resolver =
+        VirtualResolver::new(options.sources.unwrap_or_default(), options.include_prelude);
     let loaded = load_with_options(
         ResolvedSource::new(source_name, options.definition),
         &options.module_name,
         &mut resolver,
         &LoadOptions {
             markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
-            implicit_sources: Vec::new(),
+            implicit_sources: implicit_sources(options.include_prelude)?,
             excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
             configuration_module: None,
             project_root: None,
@@ -333,6 +329,17 @@ fn compile_definition(options: &str) -> Result<String, String> {
     })
 }
 
+/// The sources loaded before the user's definition: the embedded standard prelude when
+/// `includePrelude` is true, nothing otherwise (the default).
+fn implicit_sources(include_prelude: Option<bool>) -> Result<Vec<ResolvedSource>, String> {
+    if !include_prelude.unwrap_or(false) {
+        return Ok(Vec::new());
+    }
+    embedded("prelude.md")
+        .map(|prelude| vec![prelude])
+        .ok_or_else(|| "the embedded prelude is unavailable".to_owned())
+}
+
 /// Load an in-memory K definition and parse one concrete program.
 #[wasm_bindgen(js_name = parseProgramWasm)]
 pub fn parse_program_wasm(options: &str) -> Result<String, JsError> {
@@ -344,20 +351,15 @@ fn parse_program(options: &str) -> Result<String, String> {
     let source_name = options
         .source_name
         .unwrap_or_else(|| "definition.k".to_owned());
-    let mut resolver = VirtualResolver::new(options.sources.unwrap_or_default());
-    if options.include_prelude.unwrap_or(false) {
-        return Err(
-            "the embedded prelude requires native Z3 inference and is unavailable in WebAssembly; provide portable sources explicitly"
-                .to_owned(),
-        );
-    }
+    let mut resolver =
+        VirtualResolver::new(options.sources.unwrap_or_default(), options.include_prelude);
     let loaded = load_with_options(
         ResolvedSource::new(source_name, options.definition),
         &options.module_name,
         &mut resolver,
         &LoadOptions {
             markdown_selector: options.markdown_selector.unwrap_or_else(|| "k".to_owned()),
-            implicit_sources: Vec::new(),
+            implicit_sources: implicit_sources(options.include_prelude)?,
             excluded_module_attributes: Vec::new(),
             configuration_module: None,
             project_root: None,
@@ -536,13 +538,19 @@ impl From<Diagnostic> for WasmDiagnostic {
     }
 }
 
+/// Resolves `requires` against `options.sources`. When the embedded prelude is part of the
+/// definition, a name no source provides falls back to the embedded builtin of that name, which is
+/// how the prelude's own `requires` resolve and how a user definition names a builtin the prelude
+/// already loads.
 struct VirtualResolver {
     sources: BTreeMap<String, ResolvedSource>,
+    builtins: bool,
 }
 
 impl VirtualResolver {
-    fn new(sources: Vec<Source>) -> Self {
+    fn new(sources: Vec<Source>, include_prelude: Option<bool>) -> Self {
         Self {
+            builtins: include_prelude.unwrap_or(false),
             sources: sources
                 .into_iter()
                 .map(|source| {
@@ -567,6 +575,11 @@ impl SourceResolver for VirtualResolver {
             if let Some(source) = self.sources.get(&candidate) {
                 return Ok(source.clone());
             }
+        }
+        if self.builtins {
+            return embedded(required).ok_or_else(|| {
+                format!("{required:?} was not provided in options.sources and is not a builtin")
+            });
         }
         Err(format!("{required:?} was not provided in options.sources"))
     }
@@ -684,16 +697,19 @@ mod tests {
 
     #[test]
     fn loads_equivalent_duplicate_modules_through_virtual_requires() {
-        let mut resolver = VirtualResolver::new(vec![
-            Source {
-                name: "definitions/left/shared.k".to_owned(),
-                text: "module SHARED endmodule".to_owned(),
-            },
-            Source {
-                name: "definitions/right/shared.k".to_owned(),
-                text: "module SHARED endmodule\n\nmodule SIBLING endmodule".to_owned(),
-            },
-        ]);
+        let mut resolver = VirtualResolver::new(
+            vec![
+                Source {
+                    name: "definitions/left/shared.k".to_owned(),
+                    text: "module SHARED endmodule".to_owned(),
+                },
+                Source {
+                    name: "definitions/right/shared.k".to_owned(),
+                    text: "module SHARED endmodule\n\nmodule SIBLING endmodule".to_owned(),
+                },
+            ],
+            None,
+        );
         let loaded = load_with_options(
             ResolvedSource::new(
                 "definitions/main.k",
@@ -762,6 +778,109 @@ endmodule"#,
         assert_eq!(
             result["kast"]["term"]["label"]["params"],
             serde_json::json!([])
+        );
+    }
+
+    /// A definition importing INT, shared with `test/bindings.test.mjs`, which compiles it in
+    /// WebAssembly and checks the same digests.
+    const PRELUDE_FIXTURE: &str = include_str!("../test/fixtures/prelude-int.json");
+
+    fn sha256_hex(text: &str) -> String {
+        use sha2::Digest;
+        sha2::Sha256::digest(text.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
+    #[test]
+    fn compiles_a_definition_importing_the_embedded_prelude() {
+        let fixture: Value = serde_json::from_str(PRELUDE_FIXTURE).unwrap();
+        let definition = fixture["definition"].as_str().unwrap();
+        let module_name = fixture["moduleName"].as_str().unwrap();
+        for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+            let name = backend.to_string();
+            let compiled = compile_definition(
+                &serde_json::json!({
+                    "definition": definition,
+                    "moduleName": module_name,
+                    "backend": name,
+                    "includePrelude": true,
+                })
+                .to_string(),
+            )
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let compiled: Value = serde_json::from_str(&compiled).unwrap();
+            let definition_kore = compiled["definitionKore"].as_str().unwrap();
+
+            // The same load and compilation as a native host with the embedded prelude.
+            let loaded = load_with_options(
+                ResolvedSource::new("definition.k", definition),
+                module_name,
+                &mut VirtualResolver::new(Vec::new(), Some(true)),
+                &LoadOptions {
+                    implicit_sources: vec![embedded("prelude.md").unwrap()],
+                    excluded_module_attributes: vec![
+                        backend.excluded_module_attribute().to_owned(),
+                    ],
+                    ..LoadOptions::default()
+                },
+            )
+            .unwrap();
+            let native = compile_loaded_definition(
+                &loaded,
+                CompileOptions {
+                    backend,
+                    ..CompileOptions::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(definition_kore, native.definition_kore, "{name}");
+
+            // Recorded once and asserted by every build: the portable engine (`cargo test -p
+            // k-rust-wasm`), the z3-inference engine (the workspace suite), and WebAssembly.
+            assert_eq!(
+                sha256_hex(definition_kore),
+                fixture["definitionKoreSha256"][&name].as_str().unwrap(),
+                "{name}: definition.kore digest"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_a_program_with_the_embedded_prelude() {
+        let result = parse_program(
+            r#"{
+                "definition": "requires \"domains.md\"\nmodule MAIN\n imports INT\n syntax Exp ::= Int | Exp \"+\" Exp [symbol(plus)]\nendmodule",
+                "moduleName": "MAIN",
+                "sort": "Exp",
+                "program": "1 + 2",
+                "includePrelude": true
+            }"#,
+        )
+        .unwrap();
+        let result: Value = serde_json::from_str(&result).unwrap();
+        assert_eq!(
+            result["text"],
+            r#"plus(#token("1","Int"),#token("2","Int"))"#
+        );
+    }
+
+    #[test]
+    fn resolves_builtin_requires_only_with_the_prelude() {
+        let error = parse_program(
+            r#"{
+                "definition": "requires \"domains.md\"\nmodule MAIN\nendmodule",
+                "moduleName": "MAIN",
+                "sort": "K",
+                "program": ".K",
+                "includePrelude": false
+            }"#,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("was not provided in options.sources"),
+            "{error}"
         );
     }
 

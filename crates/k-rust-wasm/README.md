@@ -105,6 +105,11 @@ Step timeouts are also unavailable because `wasm32-unknown-unknown` has no host 
 inspect `backend.capabilities` before enabling optional behavior.
 
 This portable build intentionally excludes native Z3 inference and MPFR folding. Parsing or
-compilation that needs Z3 returns an explicit error instead of silently changing semantics. The
-standard prelude itself needs Z3 during rule parsing, so this package defaults `includePrelude` to
-`false` and rejects `true`; pass any portable dependencies explicitly through `sources`.
+compilation that needs Z3 returns an explicit error instead of silently changing semantics.
+`includePrelude: true` loads the embedded standard prelude before the definition, with the same
+result as the native build: it needs no Z3, and a definition importing its modules compiles to the
+native `definition.kore`. While the prelude is included, a `requires` of a builtin file that
+`sources` does not provide (for example `"domains.md"`) resolves to the embedded one.
+`includePrelude` defaults to `false`, in which case every dependency comes from `sources`. User rules
+that need parametric sort inference, or whose ambiguity the portable decision does not settle, still
+return `Z3InferenceRequired`.

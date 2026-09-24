@@ -1107,6 +1107,7 @@ dependencies = [
  "k-rust",
  "serde",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
 ]
 

@@ -490,9 +490,9 @@ const result = parseProgram({
 After initialization, parsing is synchronous. Use a worker for large inputs in latency-sensitive
 applications. `compileDefinition` exposes the same in-memory compiler API and returns all three KORE
 artifacts. Definitions that require native Z3 inference return an explicit unsupported-boundary
-error rather than silently choosing a different result. The WASM package does not yet expose the
-embedded prelude, so it defaults `includePrelude` to `false`; portable dependencies must be passed
-explicitly through `sources`.
+error rather than silently choosing a different result. The WASM package offers the same embedded
+prelude as the native build through `includePrelude: true`; it defaults to `false`, in which case
+dependencies must be passed explicitly through `sources`.
 
 The WASM facade also exports `compileBackend` and `createBackend` with the same persistent API.
 Concrete execution and proofs work in-process; `capabilities.smt` and `capabilities.stepTimeouts`
