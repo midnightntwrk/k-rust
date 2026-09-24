@@ -1100,6 +1100,83 @@ fn reference_three_sibling_rule_cells_associate_left() {
     assert_eq!(actual, expected);
 }
 
+// `P #as V` matches P and binds V to the matched subterm, so both of its sides are
+// left-hand-side patterns and a rewrite on either side has no before/after reading.
+// The z3 rule grammar composes `#as` and `=>` freely; rewrite placement is a property of the
+// whole rule, which the definition checks enforce, as they do for nested rewrites.
+// The portable rule grammar admits only a variable after `#as`, so there the shape is a rule
+// parse error ("unexpected token '(' following token '#as'"). These pin both rejections
+// through the public load path.
+const REWRITE_ON_THE_VARIABLE_SIDE_OF_AS: &str = indoc! {r##"
+    module MAIN
+      syntax Foo ::= "a"
+      syntax KItem ::= foo(Foo)
+      configuration <k> foo(a) </k>
+      rule <k> foo(a) #as (V => W) </k>
+      syntax K
+      syntax Map
+    endmodule
+"##};
+
+fn load_rewrite_on_the_variable_side_of_as()
+-> Result<k_rust::outer::LoadedDefinition, k_rust::outer::LoadError> {
+    let mut resolver = |_: &str, _: &str| Err("not found".to_owned());
+    load(
+        ResolvedSource::new("as-rewrite.k", REWRITE_ON_THE_VARIABLE_SIDE_OF_AS),
+        "MAIN",
+        &mut resolver,
+    )
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn rewrite_on_the_variable_side_of_an_as_pattern_is_rejected_by_the_definition_checks() {
+    let loaded = load_rewrite_on_the_variable_side_of_as()
+        .expect("the z3 rule grammar parses a rewrite as the alias of an #as pattern");
+    let diagnostics = k_rust::definition::check_definition(&loaded.resolved)
+        .expect("definition checks run on the loaded definition");
+    let placement = diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code == k_rust::diagnostic::DiagnosticCode::InvalidRewrite
+                && diagnostic.severity == k_rust::diagnostic::Severity::Error
+        })
+        .map(|diagnostic| diagnostic.message.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        placement,
+        ["Rewrites are not allowed inside an #as pattern."],
+        "{diagnostics:?}"
+    );
+}
+
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn rewrite_on_the_variable_side_of_an_as_pattern_is_a_portable_rule_parse_error() {
+    let error = match load_rewrite_on_the_variable_side_of_as() {
+        Ok(_) => panic!("the portable rule grammar yields no sentence for a rewrite after #as"),
+        Err(error) => error,
+    };
+    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(ref parse)) = error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(
+        parse.location.as_ref().map(|location| location.start_line),
+        Some(5),
+        "{error:?}"
+    );
+    // Today the portable grammar stops at the token after `#as`; a grammar that admits more
+    // than a variable there may instead defer the rule to z3 inference, which is also a
+    // rejection of the rule in this build.
+    assert!(
+        matches!(
+            parse.error,
+            ParseError::NoParse { .. } | ParseError::Z3InferenceRequired { .. }
+        ),
+        "{error:?}"
+    );
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn loader_parses_parenthesized_sequence_rewrites_before_cell_dots() {
