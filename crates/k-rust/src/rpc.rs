@@ -4596,16 +4596,20 @@ mod tests {
         for message in messages {
             writeln!(client, "{message}").unwrap();
         }
+        // Closing the sending side ends the session, so the answers are read first.
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let mut responses = Vec::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            responses.push(serde_json::from_str::<Value>(&line).unwrap());
+        }
         client.shutdown(Shutdown::Write).unwrap();
-        let mut responses = String::new();
-        client.read_to_string(&mut responses).unwrap();
+        let mut rest = String::new();
+        reader.read_to_string(&mut rest).unwrap();
         worker.join().unwrap();
 
-        let responses = responses
-            .lines()
-            .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(responses.len(), 2, "{responses:#?}");
+        assert!(rest.is_empty(), "{rest}");
         assert_eq!(responses[0]["id"], 1);
         assert_eq!(responses[0]["error"]["code"], -32002, "{:#}", responses[0]);
         assert_eq!(

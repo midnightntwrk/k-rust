@@ -52,7 +52,7 @@ module MAIN
   axiom{}
     \or{SortExp{}}(\exists{SortExp{}}(X0:SortStr{}, Lblwrap{}(X0:SortStr{})), \bottom{SortExp{}}())
     [constructor{}()]
-  axiom{} \or{SortStr{}}(\top{SortStr{}}(), LblidLit{}(), \bottom{SortStr{}}()) [constructor{}()]
+  axiom{} \or{SortStr{}}(\top{SortStr{}}(), \bottom{SortStr{}}()) [constructor{}()]
 endmodule [
   org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,5,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)")
