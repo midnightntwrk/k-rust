@@ -146,6 +146,25 @@ pub(crate) fn inferred_variable_name(term: &Term) -> Option<&str> {
     }
 }
 
+/// The variable leaf `term` with `sort` recorded as the variable's own sort, keeping its metadata,
+/// or `None` when `term` is not a variable node (a `KConfigVar` token has no sort to record).
+///
+/// A semantic cast `X:S` only bounds X from above, so when inference gives X a sort below `S`, the
+/// occurrence under the cast records that sort on X itself: `#SemanticCastToS(X:Inferred)`.
+pub(crate) fn variable_with_inferred_sort(term: &Term, sort: &Sort) -> Option<Term> {
+    let Term::Variable { name, .. } = term.unannotated() else {
+        return None;
+    };
+    let variable = Term::Variable {
+        name: name.clone(),
+        sort: Some(sort.clone()),
+    };
+    Some(match term.metadata() {
+        Some(metadata) => variable.with_metadata(metadata.clone()),
+        None => variable,
+    })
+}
+
 #[derive(Clone, Copy)]
 struct ParseProvenance {
     source: SourceId,

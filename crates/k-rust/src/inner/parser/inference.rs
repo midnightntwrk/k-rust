@@ -237,7 +237,7 @@ impl Grammar {
             term,
             &variable_sorts,
             &parameter_sorts,
-            false,
+            None,
             &mut next_anonymous,
             "root",
         )
@@ -363,7 +363,7 @@ impl Grammar {
         term: ParsedTerm,
         variable_sorts: &BTreeMap<VariableId, Sort>,
         parameter_sorts: &BTreeMap<String, Vec<Sort>>,
-        existing_cast: bool,
+        enclosing_cast: Option<&Sort>,
         next_anonymous: &mut usize,
         path: &str,
     ) -> Result<ParsedTerm, ParseError> {
@@ -373,12 +373,20 @@ impl Grammar {
                     unreachable!()
                 };
                 let id = variable_id(name, next_anonymous);
-                if existing_cast {
-                    return Ok(term);
-                }
                 let sort = variable_sorts.get(&id).ok_or_else(|| {
                     inference_error(format!("no inferred sort was produced for variable {name}"))
                 })?;
+                // A semantic cast bounds the variable from above; it records the variable's sort
+                // only when inference chose the bound itself. Otherwise the variable carries the
+                // inferred sort under the cast, so every occurrence agrees on it.
+                if let Some(bound) = enclosing_cast {
+                    if bound == sort {
+                        return Ok(term);
+                    }
+                    if let Some(variable) = super::variable_with_inferred_sort(leaf, sort) {
+                        return Ok(ParsedTerm::Term(variable));
+                    }
+                }
                 let label = Label::semantic_cast(sort).name;
                 let production = self
                     .productions
@@ -410,9 +418,13 @@ impl Grammar {
                 metadata,
             } => {
                 let descriptor = &self.productions[production];
-                let is_cast = descriptor.label.as_ref().is_some_and(|label| {
-                    matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
-                });
+                let cast_sort = descriptor
+                    .label
+                    .as_ref()
+                    .is_some_and(|label| {
+                        matches!(label.generated(), Some(GeneratedLabel::SemanticCast { .. }))
+                    })
+                    .then_some(&descriptor.result);
                 let children = children
                     .into_iter()
                     .enumerate()
@@ -421,7 +433,7 @@ impl Grammar {
                             child,
                             variable_sorts,
                             parameter_sorts,
-                            is_cast,
+                            cast_sort,
                             next_anonymous,
                             &format!("{path}_c{index}"),
                         )

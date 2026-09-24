@@ -974,8 +974,8 @@ fn excluded_cases_have_complete_oracle_dispositions() {
     let excluded = manifest["excluded"].as_array().expect("excluded cases");
     assert_eq!(
         excluded.len(),
-        6,
-        "the six audited exclusions must stay explicit"
+        8,
+        "the eight audited exclusions must stay explicit"
     );
 
     let allowed_dispositions =
@@ -986,6 +986,8 @@ fn excluded_cases_have_complete_oracle_dispositions() {
         "fresh-constants-execution",
         "mir-execution",
         "proof-counterexample-artifact",
+        "semcast3",
+        "semcast4",
         "wasm-execution",
     ]);
     let mut names = BTreeSet::new();
@@ -1012,7 +1014,7 @@ fn excluded_cases_have_complete_oracle_dispositions() {
             "unknown disposition {disposition} on excluded case {name}",
         );
         let expected_disposition = match name {
-            "ecdsa-invalid-execution" | "evm-execution" => "local-gate",
+            "ecdsa-invalid-execution" | "evm-execution" | "semcast3" | "semcast4" => "local-gate",
             "fresh-constants-execution" => "comparison-impossible",
             "mir-execution" | "proof-counterexample-artifact" | "wasm-execution" => {
                 "alternative-oracle"
