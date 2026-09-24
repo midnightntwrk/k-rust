@@ -970,13 +970,13 @@ fn add_rule_sort(grammar: &mut Grammar, sort: &Sort) -> Result<(), ParseError> {
         false,
         false,
     )?;
+    // `P #as V` is the conjunction of `P` and `V` at one position: it matches the terms that
+    // match both and binds `V` to the matched term. Both conjuncts occupy that position, so the
+    // alias is an operand of `sort` like the pattern: a bare variable there is bounded by `sort`,
+    // and a sort-annotated variable (`V:Int`) can stand there.
     grammar.add(
         result,
-        vec![
-            child,
-            ProductionItem::Terminal("#as".into()),
-            nonterminal("#KVariable"),
-        ],
+        vec![child.clone(), ProductionItem::Terminal("#as".into()), child],
         Some(Label::new("#KAs")),
         false,
         false,

@@ -2312,6 +2312,59 @@ rule_snapshot!(
     "##
 );
 
+// `P #as V` patterns. Each snapshot is shared by the portable and the z3-inference builds, so
+// the two parses must resolve to the same rule sentence: the alias takes the sort of the
+// position the `#as` occupies, like its pattern.
+macro_rules! as_pattern_snapshot {
+    ($name:ident, $rule:expr) => {
+        #[test]
+        fn $name() {
+            let source = format!(
+                indoc! {r#"
+                    module MAIN
+                      syntax Int ::= r"[0-9]+" [token]
+                      syntax Exp ::= Int | bar(Exp) [symbol(bar)]
+                      syntax KItem ::= foo(Int) [symbol(foo)]
+                      syntax List ::= ListItem(KItem) [symbol(ListItem)]
+                                    | List List [symbol(_List_)]
+                                    | ".List" [symbol(.List)]
+                      syntax KCell ::= "<k>" K "</k>" [cell]
+                      rule {}
+                    endmodule
+                "#},
+                $rule
+            );
+            assert_rule_resolution_snapshot!(source.as_str());
+        }
+    };
+}
+
+as_pattern_snapshot!(as_pattern_alias_of_an_application, "foo(0) #as V");
+as_pattern_snapshot!(as_pattern_inside_a_cell, "<k> foo(0) #as V </k>");
+as_pattern_snapshot!(
+    as_pattern_inside_a_cell_with_dots,
+    "<k> foo(0) #as V ... </k>"
+);
+as_pattern_snapshot!(as_pattern_alias_with_a_semantic_cast, "foo(0) #as V:KItem");
+as_pattern_snapshot!(as_pattern_alias_with_a_narrower_cast, "foo(0) #as V:Int");
+as_pattern_snapshot!(
+    as_pattern_alias_with_a_syntactic_cast,
+    "foo(0) #as V::KItem"
+);
+as_pattern_snapshot!(as_pattern_anonymous_alias, "foo(0) #as _");
+// Argument positions: the alias takes the sort of the argument the `#as` fills (`Int`, `Exp`,
+// `KItem`), which rule sorts at argument positions make available to the `#as` production.
+as_pattern_snapshot!(as_pattern_at_an_argument_position, "foo(0 #as V)");
+as_pattern_snapshot!(as_pattern_at_a_supersort_argument_position, "bar(0 #as V)");
+as_pattern_snapshot!(
+    as_pattern_at_an_argument_position_with_a_cast,
+    "foo(0 #as V:Int)"
+);
+as_pattern_snapshot!(
+    as_pattern_at_a_kitem_argument_position,
+    "ListItem(foo(0) #as V)"
+);
+
 rule_snapshot!(
     parses_nested_collection_operations_in_a_record_field,
     r##"
