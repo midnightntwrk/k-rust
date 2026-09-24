@@ -17,11 +17,13 @@ thread_local! {
     static ACTIVE_DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
 }
 
-/// Return whether the active rewrite/proof step has exhausted its deadline.
+/// Return whether the request was cancelled or the active rewrite/proof step has exhausted its
+/// deadline.
 ///
-/// Native hooks call this at cooperative interruption points. A thread-local deadline keeps the
-/// hot hook API small and mirrors the fact that backend simplification is synchronous and
-/// thread-confined; nested timers restore the previous deadline when they leave scope.
+/// Native hooks and the simplifier's fixed-point loops call this at cooperative interruption
+/// points. A thread-local deadline keeps the hot hook API small and mirrors the fact that backend
+/// simplification is synchronous and thread-confined; nested timers restore the previous deadline
+/// when they leave scope.
 pub(crate) fn interruption_requested() -> bool {
     if cancellation_requested() {
         return true;

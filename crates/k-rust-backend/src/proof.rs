@@ -663,7 +663,9 @@ fn finish_at_breadth_limit(
 /// proven, trusted, trivial, vacuous, or timed-out leaf is reported as it stands. A constraint
 /// set that simplifies to `\bottom` is an empty state and takes the outcome the loop head gives
 /// one. When the simplification fails, an `Indeterminate` leaf keeps its pattern and reason;
-/// any other leaf reports the failure, as a failed loop-head simplification does.
+/// any other leaf reports the failure, as a failed loop-head simplification does. The outcome is
+/// decided before externalisation, which only normalises the pattern, so a step deadline that
+/// passes during it leaves the leaf as it stands with its unsimplified pattern.
 fn externalise_leaf(
     definition: &BackendDefinition,
     mut state: ProofState,
@@ -704,6 +706,7 @@ fn externalise_leaf(
             state.pattern = simplified.pattern;
             state.leaf(outcome)
         }
+        Err(SimplificationError::Interrupted) => state.leaf(outcome),
         Err(_) if matches!(outcome, ProofLeafOutcome::Indeterminate(_)) => state.leaf(outcome),
         Err(error) => state.leaf(ProofLeafOutcome::Indeterminate(
             ProofIndeterminateReason::Simplification(error),
@@ -3148,6 +3151,73 @@ mod tests {
                 outcome: ProofLeafOutcome::TimedOut(StepTimeoutMode::Manual(timeout)),
                 ..
             }] if timeout.is_zero()
+        ));
+    }
+
+    #[test]
+    fn interrupts_an_equation_loop_at_the_step_deadline() {
+        // `spin(a) = spin(b)` and `spin(b) = spin(a)` never reach a value and call no hook; with
+        // no iteration bound only the step deadline ends the loop-head simplification.
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortT{} []
+                sort SortState{} []
+                symbol a{}() : SortT{} [constructor{}(), total{}()]
+                symbol b{}() : SortT{} [constructor{}(), total{}()]
+                symbol spin{}(SortT{}) : SortInt{} [function{}()]
+                symbol state{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, a{}()), \top{R}())),
+                    \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(b{}()), \top{SortInt{}}()))
+                ) [label{}("spin-a")]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, b{}()), \top{R}())),
+                    \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(a{}()), \top{SortInt{}}()))
+                ) [label{}("spin-b")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(\top{SortState{}}(), state{}(spin{}(a{}()))),
+                    weakExistsFinally{SortState{}}(
+                        \and{SortState{}}(done{}(), \top{SortState{}}())
+                    )
+                ) [label{}("equation-loop-timeout")]
+            endmodule []"#,
+        )
+        .expect("equation loop claim should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("equation loop claim should internalize");
+        let step_timeout = Duration::from_millis(50);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let result = prove_claim(
+                &definition,
+                &definition.reachability_claims[0],
+                ProofOptions {
+                    max_simplification_iterations: usize::MAX,
+                    step_timeout: Some(step_timeout),
+                    ..ProofOptions::default()
+                },
+                &NoSolver,
+            );
+            let _ = sender.send(result);
+        });
+
+        let result = receiver
+            .recv_timeout(Duration::from_secs(120))
+            .expect("the step deadline should end the equation loop")
+            .expect("timeout should be a proof outcome");
+
+        assert_eq!(result.status, ProofStatus::Indeterminate);
+        assert!(matches!(
+            result.leaves.as_slice(),
+            [ProofLeaf {
+                outcome: ProofLeafOutcome::TimedOut(StepTimeoutMode::Manual(timeout)),
+                ..
+            }] if *timeout == step_timeout
         ));
     }
 

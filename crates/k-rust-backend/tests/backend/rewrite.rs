@@ -4944,6 +4944,118 @@ fn execution_interrupts_native_hooks_at_the_step_deadline() {
     ));
 }
 
+/// `spin(a) = spin(b)` and `spin(b) = spin(a)` are ground function equations that never reach a
+/// value and call no hook, so only the step deadline can end their simplification once the
+/// iteration budget does not. `go` exposes `spin(a)` to the simplifier after one rewrite step.
+fn tail_equation_loop_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            sort SortT{} []
+            symbol a{}() : SortT{} [constructor{}(), total{}()]
+            symbol b{}() : SortT{} [constructor{}(), total{}()]
+            symbol spin{}(SortT{}) : SortInt{} [function{}()]
+            symbol start{}(SortT{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol kbox{}(SortInt{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, a{}()), \top{R}())),
+                \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(b{}()), \top{SortInt{}}()))
+            ) [label{}("spin-a")]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortT{}, R}(X0:SortT{}, b{}()), \top{R}())),
+                \equals{SortInt{}, R}(spin{}(X0:SortT{}), \and{SortInt{}}(spin{}(a{}()), \top{SortInt{}}()))
+            ) [label{}("spin-b")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(start{}(T:SortT{}), \top{SortS{}}()),
+                kbox{}(spin{}(T:SortT{}))
+            ) [label{}("go")]
+            "#,
+    )
+}
+
+/// Execute the tail-loop fixture with an unbounded iteration budget and a short step deadline.
+/// The run happens on a worker thread so that a regression, an unbounded loop, fails the test
+/// after a generous watchdog instead of hanging the suite.
+fn execute_tail_equation_loop(
+    step_timeout: Duration,
+    terminal_rules: BTreeSet<String>,
+) -> ExecutionResult {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("tail-equation-loop".into())
+        .spawn(move || {
+            let definition = tail_equation_loop_definition();
+            let a = Term::application(definition.symbols["a"].clone(), Vec::new(), Vec::new());
+            let initial = Pattern {
+                term: Term::application(definition.symbols["start"].clone(), Vec::new(), vec![a]),
+                constraints: Vec::new(),
+            };
+            let result = execute(
+                &definition,
+                initial,
+                ExecutionOptions {
+                    max_simplification_iterations: usize::MAX,
+                    step_timeout: Some(step_timeout),
+                    terminal_rules,
+                    ..ExecutionOptions::default()
+                },
+            );
+            let _ = sender.send(result);
+        })
+        .expect("execution thread should start");
+    receiver
+        .recv_timeout(Duration::from_secs(120))
+        .expect("the step deadline should end the equation loop")
+}
+
+#[test]
+fn step_deadline_interrupts_an_equation_loop_inside_a_step() {
+    // The rewrite step `go` simplifies its successor `kbox(spin(a))`, which never reaches a
+    // value. The deadline interrupts that simplification and the step reports its timeout on
+    // the state it started from, as it does for a deadline observed between phases.
+    let step_timeout = Duration::from_millis(50);
+
+    let result = execute_tail_equation_loop(step_timeout, BTreeSet::new());
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::Timeout(StepTimeoutMode::Manual(step_timeout))
+    );
+    assert_eq!(leaf.depth, 0);
+    assert!(
+        matches!(
+            leaf.pattern.term.kind(),
+            TermKind::Application { symbol, .. } if symbol.name.as_ref() == "start"
+        ),
+        "expected the pre-step state start(a), found {:?}",
+        leaf.pattern.term
+    );
+}
+
+#[test]
+fn step_deadline_ends_an_equation_loop_after_a_terminal_rule() {
+    // With `go` terminal the step also simplifies the successor; the interruption is still the
+    // step's timeout, not a simplification failure.
+    let step_timeout = Duration::from_millis(50);
+
+    let result = execute_tail_equation_loop(step_timeout, BTreeSet::from(["go".to_owned()]));
+
+    assert!(
+        matches!(
+            result.leaves.as_slice(),
+            [ExecutionLeaf {
+                halt_reason: HaltReason::Timeout(StepTimeoutMode::Manual(timeout)),
+                ..
+            }] if *timeout == step_timeout
+        ),
+        "leaves: {:?}",
+        result.leaves
+    );
+}
+
 #[test]
 fn execution_stops_before_work_when_the_request_is_cancelled() {
     let definition = definition("");

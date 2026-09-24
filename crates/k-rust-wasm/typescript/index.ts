@@ -360,6 +360,7 @@ export type SearchSatisfiability =
 
 export type SearchFailure =
   | { kind: 'cancelled' }
+  | { kind: 'interrupted' }
   | { kind: 'builtin'; error: BuiltinFailure }
   | { kind: 'conflicting-results'; rules: string[] }
   | { kind: 'smt'; rule?: string; error: SmtFailure }
