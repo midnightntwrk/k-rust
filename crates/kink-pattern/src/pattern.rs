@@ -837,7 +837,8 @@ pub struct Evaluation {
     pub complete_coverage: bool,
     pub witnesses: Vec<Witness>,
     pub primary_witness: Option<usize>,
-    /// For `Unknown`, the least severe incomplete stop in `PathStop` order. Unlike
+    /// For `Unknown`, the least severe incomplete stop in `PathStop` order, never
+    /// `MatchFound`: an indeterminate candidate is `SolverUnknown`. Unlike
     /// `CorpusDecision::cause`, this does not prefer an error over a limit.
     pub failure: Option<PathStop>,
     pub search_policy: SearchPolicy,
@@ -912,11 +913,13 @@ pub fn evaluate(
 
     let mut pending = Vec::new();
     let mut indeterminate = false;
+    let mut match_stop_indeterminate = false;
     for path in paths {
         let path_order = path
             .path_key
             .clone()
             .unwrap_or_else(|| path.path_identity_digest.to_string());
+        let mut path_indeterminate = false;
         for (arm_ordinal, arm) in plan.arms.iter().enumerate() {
             let mut context = ExtendContext {
                 test_id: &authority.test_id,
@@ -927,10 +930,12 @@ pub fn evaluate(
                 side_table,
                 path_order: &path_order,
                 pending: &mut pending,
-                indeterminate: &mut indeterminate,
+                indeterminate: &mut path_indeterminate,
             };
             extend_occurrence(&mut context, 0, &[], &BTreeMap::new());
         }
+        indeterminate |= path_indeterminate;
+        match_stop_indeterminate |= path_indeterminate && path.stop == PathStop::MatchFound;
     }
     pending.sort_by(|left, right| {
         left.path_order
@@ -947,12 +952,13 @@ pub fn evaluate(
         .collect::<Vec<_>>();
     if search_policy == SearchPolicy::ExistentialFirst {
         // `validate_collection` admits at most one match-found path; an indeterminate
-        // candidate on it is missing evidence, not a dishonest stop.
+        // candidate on that path itself is missing evidence, not a dishonest stop. An
+        // indeterminate candidate elsewhere does not explain why the stop was taken.
         let stopped = paths.iter().any(|path| path.stop == PathStop::MatchFound);
         if witnesses
             .iter()
             .any(|witness| witness.stop_reason != PathStop::MatchFound)
-            || (stopped && witnesses.is_empty() && !indeterminate)
+            || (stopped && witnesses.is_empty() && !match_stop_indeterminate)
         {
             return Err(PatternFailure::new(
                 PatternFailureKind::InvalidCollection,
@@ -972,9 +978,12 @@ pub fn evaluate(
         PatternOutcome::NoMatch
     };
     let failure = if outcome == PatternOutcome::Unknown {
+        // A match-found stop reaches `Unknown` only through its own indeterminate
+        // candidate, so it is never the cause; that candidate is reported as
+        // `SolverUnknown` unless another incomplete stop is less severe.
         paths
             .iter()
-            .filter(|path| !path.complete)
+            .filter(|path| !path.complete && path.stop != PathStop::MatchFound)
             .map(|path| path.stop)
             .min()
             .or_else(|| collection_failure(collection.stop))

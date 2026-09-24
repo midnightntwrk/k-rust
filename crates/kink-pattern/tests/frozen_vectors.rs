@@ -2276,6 +2276,7 @@ struct ExistentialRow {
     match_stop: bool,
     outcome: PatternOutcome,
     complete_coverage: bool,
+    failure: Option<PathStop>,
 }
 
 #[test]
@@ -2293,9 +2294,11 @@ fn inline_existential_first_rows_keep_absence_and_missing_evidence() {
             match_stop: false,
             outcome: PatternOutcome::NoMatch,
             complete_coverage: true,
+            failure: None,
         },
         // A match stop whose only candidate has no side-condition row is missing
-        // evidence, not a dishonest stop; BAG-16 raised here instead.
+        // evidence, not a dishonest stop; BAG-16 raised here instead. The cause is the
+        // indeterminate candidate, not the match stop.
         ExistentialRow {
             id: "existential-first-indeterminate-match-stop-is-unknown",
             plan: "write-then-load-side-condition",
@@ -2304,6 +2307,7 @@ fn inline_existential_first_rows_keep_absence_and_missing_evidence() {
             match_stop: true,
             outcome: PatternOutcome::Unknown,
             complete_coverage: false,
+            failure: Some(PathStop::SolverUnknown),
         },
     ];
     for row in rows {
@@ -2344,6 +2348,74 @@ fn inline_existential_first_rows_keep_absence_and_missing_evidence() {
             row.id
         );
         assert!(result.witnesses.is_empty(), "{}", row.id);
+        assert_eq!(result.failure, row.failure, "{}", row.id);
+    }
+}
+
+/// The indeterminate exemption belongs to the match-found path's own candidates: an
+/// indeterminate candidate on another path does not excuse a match stop without a
+/// witness, while the same candidate on the stop path still leaves `Unknown` caused
+/// by `SolverUnknown`.
+#[test]
+fn existential_first_indeterminate_exemption_is_local_to_the_match_stop() {
+    let data: Value = serde_json::from_str(EXECUTION_VECTORS).expect("execution vectors");
+    let table = side_table(&data["sideConditionTable"]);
+    let plan = frozen_plan(&data, "write-then-load-side-condition");
+    let options = EvaluationOptions {
+        search_policy: SearchPolicy::ExistentialFirst,
+        ..exhaustive_options()
+    };
+    // (id, events on p0, events on the match-found p1, rejected)
+    #[rustfmt::skip]
+    let rows: [(&str, &[&str], &[&str], bool); 2] = [
+        ("existential-first-indeterminate-elsewhere-does-not-excuse-match-stop", &["wa", "la"], &["wa"], true),
+        ("existential-first-indeterminate-on-match-stop-beside-absence", &["wa"], &["wa", "la"], false),
+    ];
+    for (id, first, stopped, rejected) in rows {
+        let first = path(
+            &serde_json::json!({
+                "pathKey": "p0", "complete": true, "stopReason": "terminal",
+                "eventRefs": first, "pathPredicate": "false",
+            }),
+            &data,
+            id,
+            0,
+        );
+        let mut stopped = path(
+            &serde_json::json!({
+                "pathKey": "p1", "complete": true, "stopReason": "terminal",
+                "eventRefs": stopped, "pathPredicate": "false",
+            }),
+            &data,
+            id,
+            1,
+        );
+        stopped.complete = false;
+        stopped.stop = PathStop::MatchFound;
+        stopped.execution_stop = ExecutionStop::QuerySatisfied;
+        stopped.execution_terminal = None;
+        refresh_path(&mut stopped);
+        let paths = vec![first, stopped];
+        let result = evaluate(
+            &authority(id, &paths),
+            &plan,
+            &paths,
+            &collection(&paths, SearchPolicy::ExistentialFirst),
+            Some(&table),
+            options,
+        );
+        if rejected {
+            assert_eq!(
+                result.expect_err(id).kind(),
+                kink_pattern::PatternFailureKind::InvalidCollection,
+                "{id}"
+            );
+        } else {
+            let result = result.unwrap_or_else(|error| panic!("{id}: {error}"));
+            assert_eq!(result.outcome, PatternOutcome::Unknown, "{id}");
+            assert!(result.witnesses.is_empty(), "{id}");
+            assert_eq!(result.failure, Some(PathStop::SolverUnknown), "{id}");
+        }
     }
 }
 
