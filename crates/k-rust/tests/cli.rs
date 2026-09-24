@@ -8324,6 +8324,63 @@ endmodule
     }
 }
 
+/// A destination reached through a match remainder (`st(X)` against `st(0)`) is classified like
+/// any other obligation: the part where `X = 0` is at the destination and closes, and the rest
+/// can still rewrite, so it continues whatever the stuck check says. `remainder-rewritable` is
+/// true (the rest takes the rule to `st(0)`). In `remainder-false` the rest reaches `st(0)`,
+/// which is outside the destination `st(1)` and has no successor: a stuck leaf (disproved).
+#[test]
+fn kprove_a_remainder_destination_continues_the_uncovered_part() {
+    let definition = r#"
+module REMAINDER-PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= st(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> st(X) => st(0) </k> requires X =/=Int 0
+endmodule
+"#;
+    let specification = r#"
+requires "remainder-probe.k"
+
+module REMAINDER-SPEC
+  imports REMAINDER-PROBE
+
+  claim <k> st(_X) => st(0) </k> [label(remainder-rewritable)]
+  claim <k> st(_X) => st(1) </k> [label(remainder-false)]
+endmodule
+"#;
+    for extra in [&[][..], &["--disable-stuck-check"][..]] {
+        let leaves = kprove_claim_leaves(
+            ("remainder-probe.k", definition),
+            ("remainder-spec.k", specification),
+            "REMAINDER-SPEC",
+            "REMAINDER-PROBE",
+            &["remainder-rewritable", "remainder-false"],
+            extra,
+        );
+        assert_eq!(
+            leaves[0],
+            (
+                "remainder-rewritable".to_owned(),
+                "proven".to_owned(),
+                Vec::new()
+            ),
+            "{extra:?}: {leaves:?}"
+        );
+        let (claim, verdict, outcomes) = &leaves[1];
+        assert_eq!(
+            (claim.as_str(), verdict.as_str()),
+            ("remainder-false", "disproved"),
+            "{extra:?}: {leaves:?}"
+        );
+        assert!(
+            !outcomes.is_empty() && outcomes.iter().all(|outcome| outcome == "Stuck"),
+            "{extra:?}: {leaves:?}"
+        );
+    }
+}
+
 /// A claim universal that the path overwrote still names its initial value, so the part of the
 /// reached state where the destination fails on it is a stuck leaf (disproved), whether or not
 /// vacuous leaves are accepted.
