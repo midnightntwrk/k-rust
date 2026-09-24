@@ -492,7 +492,7 @@ export interface ProofLeaf {
 
 export interface ProofResult {
   claim: string
-  status: 'proven' | 'disproved' | 'indeterminate' | 'depth-bound' | 'breadth-bound'
+  status: 'proven' | 'disproved' | 'failed' | 'indeterminate' | 'depth-bound' | 'breadth-bound'
   exploredStates: number
   unexploredStates: number
   leaves: ProofLeaf[]

@@ -3333,7 +3333,13 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trusted
                 )
             }) {
-                writeln!(output, "  {:?} at depth {}", leaf.outcome, leaf.depth)?;
+                // A certified stuck leaf is the one that makes the claim `disproved`.
+                let certified = if leaf.certified { " (certified)" } else { "" };
+                writeln!(
+                    output,
+                    "  {:?}{certified} at depth {}",
+                    leaf.outcome, leaf.depth
+                )?;
                 if matches!(
                     leaf.outcome,
                     ProofLeafOutcome::Vacuous | ProofLeafOutcome::Trivial
@@ -3399,6 +3405,7 @@ fn proof_status(status: ProofStatus) -> &'static str {
     match status {
         ProofStatus::Proven => "proven",
         ProofStatus::Disproved => "disproved",
+        ProofStatus::Failed => "failed",
         ProofStatus::Indeterminate => "indeterminate",
         ProofStatus::DepthBound => "depth bound",
         ProofStatus::BreadthBound => "breadth bound",

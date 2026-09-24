@@ -5356,10 +5356,9 @@ fn kprove_one_path_claim_fails_on_the_uncovered_case() {
     let stdout = String::from_utf8(output.stdout).unwrap();
 
     assert!(!output.status.success(), "{stdout}");
-    assert!(
-        stdout.contains("claim ONEPATH-SPEC.c1: disproved"),
-        "{stdout}"
-    );
+    // A one-path trace may have dropped an applicable alternative, so its stuck leaf fails the
+    // claim without certifying a refutation.
+    assert!(stdout.contains("claim ONEPATH-SPEC.c1: failed"), "{stdout}");
     assert!(stdout.contains("Stuck at depth 1"), "{stdout}");
 }
 
@@ -5404,8 +5403,11 @@ fn reference_ite_bug_splits_implication_obligations_without_branching_functions(
             "{specification}: {stdout}\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
+        // The failing leaves are constrained through `bool2Word`, which has no SMT translation:
+        // they are non-empty only modulo abstraction, so the claims fail without a certified
+        // refutation.
         assert!(
-            stdout.contains(if should_prove { "proven" } else { "disproved" }),
+            stdout.contains(if should_prove { "proven" } else { "failed" }),
             "{specification}: {stdout}"
         );
     }
@@ -5466,9 +5468,11 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
         .unwrap();
     let rejected_stdout = String::from_utf8(rejected.stdout).unwrap();
     assert!(!rejected.status.success(), "{rejected_stdout}");
+    // A trivial leaf is an empty set of configurations: the vacuity policy rejects it, so the
+    // claim fails, but no configuration refutes it.
     for claim in ["TRIVIAL-SPEC.ct1", "TRIVIAL-SPEC.ct2"] {
         assert!(
-            rejected_stdout.contains(&format!("claim {claim}: disproved")),
+            rejected_stdout.contains(&format!("claim {claim}: failed")),
             "{rejected_stdout}"
         );
     }
@@ -5557,6 +5561,9 @@ endmodule
     )
     .unwrap();
 
+    // `ab-false` fails without a certified refutation: its leaf's generated counter holds the
+    // unevaluated function application `Gen0 +Int 1`. The leaf of `existential-wrong` is a
+    // term of constructors and integers with no constraint, a certified refutation.
     let cases = [
         (
             "exist-spec.k",
@@ -5564,6 +5571,7 @@ endmodule
             "EXIST-PROBE",
             "ab-false",
             "Lblst'LParUndsCommUndsRParUnds'EXIST-PROBE",
+            ("failed", "Stuck at depth 1"),
         ),
         (
             "ex-spec.k",
@@ -5571,9 +5579,10 @@ endmodule
             "CELL-PROBE",
             "existential-wrong",
             "Lbl'-LT-'n'-GT-'{}(\\dv{SortInt{}}(\"5\"))",
+            ("disproved", "Stuck (certified) at depth 1"),
         ),
     ];
-    for (specification, module, definition_module, claim, leaf_term) in cases {
+    for (specification, module, definition_module, claim, leaf_term, (verdict, leaf)) in cases {
         for flags in [
             &[][..],
             &["--allow-vacuous"][..],
@@ -5605,7 +5614,7 @@ endmodule
 
             assert!(!output.status.success(), "{context}");
             assert!(
-                stdout.contains(&format!("claim {claim}: disproved")),
+                stdout.contains(&format!("claim {claim}: {verdict}")),
                 "{context}"
             );
             let leaves = stdout
@@ -5613,7 +5622,7 @@ endmodule
                 .filter(|line| line.contains(" at depth "))
                 .map(str::trim)
                 .collect::<Vec<_>>();
-            assert_eq!(leaves, ["Stuck at depth 1"], "{context}");
+            assert_eq!(leaves, [leaf], "{context}");
             assert!(stdout.contains(leaf_term), "{context}");
             assert!(!stdout.contains("simplified to bottom"), "{context}");
         }
@@ -8115,11 +8124,20 @@ fn verdicts_of(leaves: &[(String, String, Vec<String>)]) -> Vec<(String, String)
         .collect()
 }
 
-/// A claim that ends `disproved` at exactly one leaf, which is stuck.
-fn stuck_leaf(claim: &str) -> (String, String, Vec<String>) {
+/// A claim that ends `disproved` at exactly one leaf, a certified stuck leaf.
+fn refuted_leaf(claim: &str) -> (String, String, Vec<String>) {
     (
         claim.to_owned(),
         "disproved".to_owned(),
+        vec!["Stuck (certified)".to_owned()],
+    )
+}
+
+/// A claim that ends `failed` at exactly one leaf, a stuck leaf that is not certified.
+fn failed_stuck_leaf(claim: &str) -> (String, String, Vec<String>) {
+    (
+        claim.to_owned(),
+        "failed".to_owned(),
         vec!["Stuck".to_owned()],
     )
 }
@@ -8163,11 +8181,7 @@ endmodule
             "EXIST-PROBE",
             &["ab", "za", "ab-false"],
         ),
-        expected_verdicts(&[
-            ("ab", "proven"),
-            ("za", "proven"),
-            ("ab-false", "disproved")
-        ]),
+        expected_verdicts(&[("ab", "proven"), ("za", "proven"), ("ab-false", "failed")]),
     );
 }
 
@@ -8200,10 +8214,10 @@ endmodule
             ],
         ),
         expected_verdicts(&[
-            ("same-counter", "disproved"),
+            ("same-counter", "failed"),
             ("exists-counter", "proven"),
             ("incremented-counter", "proven"),
-            ("wrong-counter", "disproved"),
+            ("wrong-counter", "failed"),
         ]),
     );
 }
@@ -8285,15 +8299,18 @@ endmodule
     );
     // The increment of an unmentioned cell falsifies the claim. The frame equation holds on part
     // of the reached state as far as the solver can tell (the two `<n>` values are opaque to it),
-    // so the part where it fails continues and ends as a stuck leaf (disproved).
-    assert_eq!(leaves[0], stuck_leaf("unmentioned"), "{leaves:?}");
+    // so the part where it fails continues and ends as a stuck leaf. That part is non-empty only
+    // modulo the abstraction of the two cells, so the leaf is not certified: the claim fails.
+    assert_eq!(leaves[0], failed_stuck_leaf("unmentioned"), "{leaves:?}");
     assert_eq!(
         verdicts_of(&leaves[1..]),
         expected_verdicts(&[
             ("incremented", "proven"),
-            ("unchanged", "disproved"),
+            // The leaves of `unchanged` and `unreachable` hold `X +Int 1`, an unevaluated
+            // function application; `constant`'s holds the value `4` of the matched `X = 3`.
+            ("unchanged", "failed"),
             ("constant", "disproved"),
-            ("unreachable", "disproved"),
+            ("unreachable", "failed"),
         ]),
     );
 }
@@ -8338,8 +8355,9 @@ fn kprove_constrained_universal_claim_variables_are_checked() {
         &[],
     );
     // `X = 5` holds on part of the reached state for an unconstrained `X`: that part is in the
-    // destination, and the part where `X` differs from 5 has no successor, a stuck leaf (disproved).
-    assert_eq!(leaves[0], stuck_leaf("free-unchanged"), "{leaves:?}");
+    // destination, and the part where `X` differs from 5 has no successor. Its constraint
+    // `¬(X = 5)` is over the integers only, so the leaf is a certified refutation.
+    assert_eq!(leaves[0], refuted_leaf("free-unchanged"), "{leaves:?}");
     assert_eq!(
         verdicts_of(&leaves[1..]),
         expected_verdicts(&[
@@ -8397,8 +8415,13 @@ endmodule
         ]),
     );
     // Copying `<n>` into `<m>` changes the unmentioned `<m>` wherever the two differ; that part
-    // of the reached state has no successor, a stuck leaf (disproved).
-    assert_eq!(leaves[3], stuck_leaf("copied-unmentioned"), "{leaves:?}");
+    // of the reached state has no successor, a stuck leaf. It is non-empty only modulo the
+    // abstraction of the cells the frame equation compares, so the claim fails.
+    assert_eq!(
+        leaves[3],
+        failed_stuck_leaf("copied-unmentioned"),
+        "{leaves:?}"
+    );
 }
 
 /// A destination that holds on part of a state closes that part; only the rest continues. The
@@ -8450,7 +8473,8 @@ endmodule
 /// any other obligation: the part where `X = 0` is at the destination and closes, and the rest
 /// can still rewrite, so it continues whatever the stuck check says. `remainder-rewritable` is
 /// true (the rest takes the rule to `st(0)`). In `remainder-false` the rest reaches `st(0)`,
-/// which is outside the destination `st(1)` and has no successor: a stuck leaf (disproved).
+/// which is outside the destination `st(1)` and has no successor: a certified stuck leaf
+/// (disproved).
 #[test]
 fn kprove_a_remainder_destination_continues_the_uncovered_part() {
     let definition = r#"
@@ -8497,7 +8521,10 @@ endmodule
             "{extra:?}: {leaves:?}"
         );
         assert!(
-            !outcomes.is_empty() && outcomes.iter().all(|outcome| outcome == "Stuck"),
+            !outcomes.is_empty()
+                && outcomes
+                    .iter()
+                    .all(|outcome| outcome == "Stuck (certified)"),
             "{extra:?}: {leaves:?}"
         );
     }
@@ -8539,16 +8566,19 @@ endmodule
         "solver-refuted-false",
         "simplifier-refuted-false",
     ];
-    let stuck = || ("disproved".to_owned(), vec!["Stuck".to_owned()]);
+    // The stuck check stops `st(X)` with `X >Int 5`, which still rewrites: a failed claim, not a
+    // refutation. The reached `st(0)` of the false claims has no successor: a certified one.
+    let stopped = || ("failed".to_owned(), vec!["Stuck".to_owned()]);
+    let refuted = || ("disproved".to_owned(), vec!["Stuck (certified)".to_owned()]);
     for (extra, expected) in [
-        (&[][..], [stuck(), stuck(), stuck(), stuck()]),
+        (&[][..], [stopped(), stopped(), stopped(), stopped()]),
         (
             &["--disable-stuck-check"][..],
             [
                 ("proven".to_owned(), Vec::new()),
                 ("proven".to_owned(), Vec::new()),
-                stuck(),
-                stuck(),
+                refuted(),
+                refuted(),
             ],
         ),
     ] {
@@ -8603,13 +8633,13 @@ endmodule
             &["q-ens-false"],
             extra,
         );
-        assert_eq!(leaves, [stuck_leaf("q-ens-false")], "{extra:?}");
+        assert_eq!(leaves, [refuted_leaf("q-ens-false")], "{extra:?}");
     }
 }
 
 /// A claim universal that the path overwrote still names its initial value, so the part of the
-/// reached state where the destination fails on it is a stuck leaf (disproved), whether or not
-/// vacuous leaves are accepted.
+/// reached state where the destination fails on it is a certified stuck leaf (disproved),
+/// whether or not vacuous leaves are accepted.
 #[test]
 fn kprove_an_overwritten_universal_keeps_the_uncovered_part() {
     let specification = r#"
@@ -8630,6 +8660,86 @@ endmodule
             &["free-remainder"],
             extra,
         );
-        assert_eq!(leaves, [stuck_leaf("free-remainder")], "{extra:?}");
+        assert_eq!(leaves, [refuted_leaf("free-remainder")], "{extra:?}");
     }
+}
+
+/// `disproved` is reserved for a certified refutation. The ground all-path claim `start => stuck`
+/// of the reference proof corpus reaches `done`, which has no successor, is outside the
+/// destination, and has no constraint: its leaf is certified. A claim whose leaf is reached
+/// through a circularity is not: the claim step summarises paths it does not follow, so the
+/// leaf only fails the claim. Without the circularity the same leaf is certified.
+#[test]
+fn kprove_certifies_only_a_refutation_the_search_followed_step_by_step() {
+    let definition = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reference/mini-proof.k"),
+    )
+    .unwrap();
+    let specification = r#"
+requires "mini-proof.k"
+
+module MINI-PROOF-SPEC
+  imports MINI-PROOF
+
+  claim <k> start => stuck </k> [label(claim-refuted)]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("mini-proof.k", &definition),
+        ("mini-proof-spec.k", specification),
+        "MINI-PROOF-SPEC",
+        "MINI-PROOF",
+        &["claim-refuted"],
+        &[],
+    );
+    assert_eq!(leaves, [refuted_leaf("claim-refuted")]);
+
+    let definition = r#"
+module CIRCULARITY-PROBE
+  imports INT
+  syntax State ::= a(Int) | b(Int) | c(Int) | d(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> a(X) => b(X) </k>
+  rule <k> b(X) => c(X) </k>
+endmodule
+"#;
+    let specification = r#"
+requires "circularity-probe.k"
+
+module CIRCULARITY-SPEC
+  imports CIRCULARITY-PROBE
+
+  claim <k> b(X) => c(X) </k> [label(b-to-c), trusted]
+  claim <k> a(X) => d(X) </k> [label(through-circularity)]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("circularity-probe.k", definition),
+        ("circularity-spec.k", specification),
+        "CIRCULARITY-SPEC",
+        "CIRCULARITY-PROBE",
+        &["through-circularity"],
+        // A claim selection keeps only the selected claims as circularities.
+        &["--claim", "b-to-c"],
+    );
+    assert_eq!(leaves, [failed_stuck_leaf("through-circularity")]);
+
+    let specification = r#"
+requires "circularity-probe.k"
+
+module DIRECT-SPEC
+  imports CIRCULARITY-PROBE
+
+  claim <k> a(X) => d(X) </k> [label(direct)]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("circularity-probe.k", definition),
+        ("direct-spec.k", specification),
+        "DIRECT-SPEC",
+        "CIRCULARITY-PROBE",
+        &["direct"],
+        &[],
+    );
+    assert_eq!(leaves, [refuted_leaf("direct")]);
 }

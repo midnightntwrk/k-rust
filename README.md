@@ -373,8 +373,30 @@ in the normal K source layout. The reference stuck-state heuristic is enabled by
 conditions do not. When the side conditions, or the equalities that matching the destination term
 leaves (`st(X)` against `st(0)`), hold on part of a state and fail on a non-empty part, the covered
 part is closed and the rest continues rewriting in either mode; if it cannot move, it is a stuck
-leaf (disproved) that carries the failing condition. When the solver cannot decide them, the state
-continues rewriting and, if it cannot move, ends indeterminate. `--compiled-definition` accepts either a `kcompile --for-proving` output
+leaf that carries the failing condition. When the solver cannot decide them, the state
+continues rewriting and, if it cannot move, ends indeterminate.
+
+Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves:
+
+- `proven`: every leaf reached the destination.
+- `disproved`: the claim is false. Some leaf is a certified stuck leaf, printed
+  `Stuck (certified)`: it has no successor, it was reached on an all-path trace (or a one-path
+  trace that dropped no applicable rule, which today means one with no rewrite step) without a
+  circularity or trusted claim, every destination check on the way was decided, and it is non-empty
+  outside the destination. Non-emptiness requires a leaf term built from constructors and values
+  only, and constraints that hold syntactically or are satisfiable by an SMT query over `Int` and
+  `Bool` variables that abstracts no subterm.
+- `failed`: the proof stopped at a leaf outside the destination that it did not continue (an
+  uncertified stuck leaf, such as a stuck-check stop or a leaf whose non-emptiness rests on an
+  abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`Trivial`, `Vacuous`).
+  It does not show the claim false.
+- `indeterminate`, `depth bound`, `breadth bound`: the search could not decide a leaf, or hit a
+  bound.
+
+When leaves disagree the first word of this list applies, in the order `disproved`, `failed`,
+`indeterminate`, `depth bound`, `breadth bound`. The Node.js and WebAssembly `status` field uses the
+same words, with `depth-bound` and `breadth-bound`. The exit status is 0 exactly when every selected
+claim is proven. `--compiled-definition` accepts either a `kcompile --for-proving` output
 directory or its `definition.kore` file. Without a positional source file, it never reloads the
 original K sources. With a source file, it uses the neighboring `parsed.json` and `krust.json` to
 compile that new specification against the prepared semantics. `--load-only`

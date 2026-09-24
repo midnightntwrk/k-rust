@@ -13,7 +13,7 @@ use crate::{
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
     substitution::Substitution,
-    term::{Sort, Term, TermKind, Variable},
+    term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable},
 };
 
 #[cfg(feature = "z3")]
@@ -591,6 +591,42 @@ impl SmtPrelude {
             mappings: translation.mappings,
         })
     }
+}
+
+/// Whether `predicates` translate to SMT-LIB without approximating anything, so that a `Sat`
+/// answer for them has a model over the values the predicates speak about.
+///
+/// The translation approximates in three ways, each of which can make an unsatisfiable set
+/// answer `Sat`: a term or predicate without an SMT translation becomes an unrelated fresh
+/// constant (no congruence, no constructor injectivity); a variable of a sort other than `Int`
+/// or `Bool` ranges over an uninterpreted sort, which knows nothing of the sort's values; and a
+/// partial function becomes a total SMT operation that has a value where the function has none.
+/// This answers true only when none of them happened.
+pub fn translates_exactly(predicates: &[Predicate]) -> bool {
+    let mut translation = TranslationState::new();
+    if predicates
+        .iter()
+        .any(|predicate| translation.translate_predicate(predicate).is_err())
+    {
+        return false;
+    }
+    translation.predicate_mappings.is_empty()
+        && translation.dependent_mappings.is_empty()
+        && translation.mappings.keys().all(|term| {
+            matches!(term.kind(), TermKind::Variable(_))
+                && (term.sort().is_builtin(BuiltinSort::Int)
+                    || term.sort().is_builtin(BuiltinSort::Bool))
+        })
+        && predicates.iter().all(|predicate| {
+            let mut total = true;
+            predicate.visit_terms(&mut |term: &Term| {
+                term.visit_symbols(&mut |symbol| {
+                    total &= symbol.attributes.symbol_type
+                        != SymbolType::Function(FunctionType::Partial);
+                });
+            });
+            total
+        })
 }
 
 fn collection_size_hook(hook: Option<&str>) -> bool {
