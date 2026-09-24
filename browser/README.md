@@ -31,6 +31,8 @@ The worker's JSON-over-linear-memory calls (`worker/src/modules.ts`) stay separa
 A runner is one file, run directly: `bun <file>.ts` for TypeScript and `python3 <file>.py` for Python gates.
 It takes its inputs and output directories as options, writes its evidence under `--out`, and exits nonzero when a check fails.
 Every default location derives from the scratch root, `KRS_GATE_SCRATCH` (default `/var/tmp`), as for the other gates; `tests/browser-pack/run.py` passes explicit locations under its `--out` to every step.
+The staging script finds its two Wasm modules under `krs-<checkout>-<key>/browser-pack-target/<pkg>/wasm32-unknown-unknown/release/` within that scratch root, matching the browser pack runner's default Cargo targets.
+`KRS_STAGE_POLICY` and `KRS_STAGE_EXPANDER` override the module paths.
 Heavy runners wait while the 1-minute load average exceeds `--load-max` (default 40).
 `worker/package.json` defines only the two checks that need no pack: `bun run test` (unit tests) and `bun run typecheck` (the worker and the backend suite page); CI runs both.
 

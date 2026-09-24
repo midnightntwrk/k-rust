@@ -3,8 +3,9 @@
 // binary, and the load-average wait that precedes each heavy step. Runs under
 // Bun and Node (test/run-pipeline.ts and the backend suite's Node host).
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, realpathSync } from "node:fs";
+import { basename, join } from "node:path";
 
 /** The disk-backed scratch root: `KRS_GATE_SCRATCH`, as for the other gates, else /var/tmp. */
 export function scratchRoot(): string {
@@ -18,6 +19,14 @@ export function scratchPath(name: string): string {
 
 /** The KRS checkout that contains this module. */
 export const REPO = join(import.meta.dirname, "../../../..");
+
+/** The persistent scratch directory keyed by this resolved KRS checkout. */
+export function checkoutScratch(): string {
+  const key = createHash("sha256").update(realpathSync(REPO, { encoding: "buffer" })).digest("hex").slice(0, 12);
+  const directory = join(scratchRoot(), `krs-${basename(REPO)}-${key}`);
+  mkdirSync(directory, { recursive: true });
+  return directory;
+}
 
 /** The Firefox binary the drivers start: `KRS_FIREFOX`, else the system Firefox. */
 export function firefoxBinary(): string {

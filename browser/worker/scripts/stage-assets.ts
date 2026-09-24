@@ -7,23 +7,24 @@
 //
 // Inputs:
 //   --pack               a dependency pack root (holds pack-manifest.toml; default SCRATCH/krs-browser-pack/pack)
-//   KRS_STAGE_POLICY     krs_lesson_policy.wasm built from the pack's crates/ tree (required)
-//   KRS_STAGE_EXPANDER   krs_expand_wasm.wasm built from the pack's crates/ tree (required)
+//   KRS_STAGE_POLICY     krs_lesson_policy.wasm built from the pack's crates/ tree
+//   KRS_STAGE_EXPANDER   krs_expand_wasm.wasm built from the pack's crates/ tree
 //   KRS_STAGE_REPO       KRS checkout holding --krs-rev (module revision and the tour-minimal lesson)
 // SCRATCH is the scratch root (test/harness/environment.ts). Build each module in
 // its own cargo invocation (a joint build unifies the policy crate's `abi`
-// feature into the expander), as tests/browser-pack/run.py does. Set
-// CARGO_TARGET_ROOT to a checkout-specific directory when invoking the runner:
-//   CARGO_TARGET_DIR=$CARGO_TARGET_ROOT/<pkg> cargo +stable build -p <pkg> \
+// feature into the expander), as tests/browser-pack/run.py does. The module
+// defaults are under checkoutScratch()/browser-pack-target/<pkg>/wasm32-unknown-unknown/release/;
+// KRS_STAGE_POLICY and KRS_STAGE_EXPANDER override those paths. Build each with:
+//   CARGO_TARGET_DIR=<checkout scratch>/browser-pack-target/<pkg> cargo +stable build -p <pkg> \
 //     --target wasm32-unknown-unknown --release --offline
 
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { parseArgs } from "node:util";
 import { packFromManifest, type SourcePackManifest } from "../src/pack-manifest.ts";
 import { sha256Hex } from "../src/pack.ts";
 import type { LessonManifest, PackAsset } from "../src/protocol.ts";
-import { scratchPath } from "../test/harness/environment.ts";
+import { checkoutScratch, scratchPath } from "../test/harness/environment.ts";
 import { buildLessonManifest } from "./lesson-manifest.ts";
 
 const { values } = parseArgs({
@@ -35,14 +36,16 @@ const { values } = parseArgs({
 });
 const OUT = values.out!;
 const PACK = values.pack!;
-const requiredEnv = (name: string): string => {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} must name a built Wasm module`);
-  return value;
+const moduleInput = (variable: string, packageName: string, fileName: string): string => {
+  const path = process.env[variable] ?? join(checkoutScratch(), "browser-pack-target", packageName, "wasm32-unknown-unknown", "release", fileName);
+  if (!existsSync(path) || !statSync(path).isFile()) {
+    throw new Error(`${variable} Wasm module is missing at ${path}; build it or set ${variable}`);
+  }
+  return path;
 };
 const inputs = {
-  policy: requiredEnv("KRS_STAGE_POLICY"),
-  expander: requiredEnv("KRS_STAGE_EXPANDER"),
+  policy: moduleInput("KRS_STAGE_POLICY", "krs-lesson-policy", "krs_lesson_policy.wasm"),
+  expander: moduleInput("KRS_STAGE_EXPANDER", "krs-expand-wasm", "krs_expand_wasm.wasm"),
   repo: process.env.KRS_STAGE_REPO ?? join(import.meta.dir, "../../.."),
 };
 
