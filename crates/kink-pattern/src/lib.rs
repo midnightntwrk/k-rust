@@ -8,11 +8,11 @@ mod candidate;
 mod pattern;
 
 pub use candidate::{
-    Candidate, CandidateFailure, CandidateFailureKind, CandidateGeneration, DiscoveryAuthority,
-    DiscoveryEvidence, DiscoveryRegistry, DiscoveryTuple, EditOriginReceipt, EditReceiptSource,
-    PatchOrigin, PatchTemplateRole, ReceiptAuthority, SelectionPolicy, Site, SuppliedPatch,
-    ValidatedDiscoveryRegistry, canonical_binding_digest, derive_candidate_id, derive_instance_id,
-    derive_mutant_id, derive_site_id, select, validate_edit_receipts,
+    Candidate, CandidateFailure, CandidateFailureKind, CandidateGeneration, Completeness,
+    DiscoveryAuthority, DiscoveryEvidence, DiscoveryRegistry, DiscoveryTuple, EditOriginReceipt,
+    EditReceiptSource, PatchOrigin, PatchTemplateRole, ReceiptAuthority, SelectionPolicy, Site,
+    SuppliedPatch, ValidatedDiscoveryRegistry, canonical_binding_digest, derive_candidate_id,
+    derive_instance_id, derive_mutant_id, derive_site_id, select, validate_edit_receipts,
 };
 pub use pattern::{
     ArtifactRef, Atom, Binding, CollectionEvidence, CollectionStop, Constructor, CorpusComponent,

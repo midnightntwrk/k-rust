@@ -6,7 +6,6 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-kink-contracts.workspace = true
 kink-portable.workspace = true
 
 [dev-dependencies]

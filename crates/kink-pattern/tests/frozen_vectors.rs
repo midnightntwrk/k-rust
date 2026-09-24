@@ -1,4 +1,3 @@
-use kink_contracts::NativeConformance;
 use kink_pattern::{
     ArtifactRef, Binding, CollectionEvidence, CollectionStop, Constructor, DiscoveryAuthority,
     DiscoveryEvidence, DiscoveryRegistry, DiscoveryTuple, EditOriginReceipt, EditReceiptSource,
@@ -570,11 +569,6 @@ fn every_applicable_execution_pattern_vector_matches_the_frozen_denotation() {
         assert_eq!(
             result.complete_coverage,
             expected["completeCoverage"].as_bool().expect("coverage"),
-            "{case_id}"
-        );
-        assert_eq!(
-            result.native_conformance,
-            NativeConformance::NotProven,
             "{case_id}"
         );
         assert_eq!(result.bounds, authority.bounds, "{case_id}");
@@ -1455,7 +1449,7 @@ fn every_applicable_mutation_selection_vector_folds_supplied_tuples() {
         }
         let mut result = selection.unwrap_or_else(|error| panic!("{case_id}: {error}"));
         assert_eq!(
-            result.completeness == kink_contracts::Completeness::CompleteFinite,
+            result.completeness == kink_pattern::Completeness::CompleteFinite,
             expected["complete"].as_bool().expect("complete"),
             "{case_id}"
         );
@@ -1477,7 +1471,6 @@ fn every_applicable_mutation_selection_vector_folds_supplied_tuples() {
                 .unwrap_or(expected_failure.is_none()),
             "{case_id}"
         );
-        assert_eq!(result.native_conformance, NativeConformance::NotProven);
         if let Some(expected_tuples) = expected.get("candidateSiteTuples") {
             let actual = result
                 .selected_origins

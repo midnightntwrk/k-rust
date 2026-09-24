@@ -13,8 +13,9 @@ use kink_campaign::{
     OracleKind, OracleOutcome, OracleSide, Rational, ScheduleMode, Score, TestPlan,
     compare_supplied, derive_mutant_report, score, validate_baseline,
 };
-use kink_contracts::{Completeness, EvidenceClass, NativeConformance};
-use kink_pattern::{CandidateGeneration, PatchOrigin, SuppliedPatch, derive_mutant_id};
+use kink_pattern::{
+    CandidateGeneration, Completeness, PatchOrigin, SuppliedPatch, derive_mutant_id,
+};
 use kink_portable::{Digest, SemanticJson};
 use std::collections::BTreeMap;
 
@@ -611,8 +612,6 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
         completeness: Completeness::CompleteFinite,
         failure: None,
         scored: true,
-        evidence: EvidenceClass::Portable,
-        native_conformance: NativeConformance::NotProven,
     }
     .fold_patches(
         "op",

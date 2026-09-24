@@ -1,4 +1,3 @@
-use kink_contracts::{EvidenceClass, NativeConformance};
 use kink_portable::{
     Digest, DigestDomain, Provenance, SemanticJson, Term, TermNode, digest, digest_without_field,
 };
@@ -832,8 +831,6 @@ pub struct Evaluation {
     pub failure: Option<PathStop>,
     pub search_policy: SearchPolicy,
     pub bounds: ExecutionBounds,
-    pub evidence: EvidenceClass,
-    pub native_conformance: NativeConformance,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -872,8 +869,6 @@ pub fn evaluate(
             failure: Some(PathStop::Error),
             search_policy,
             bounds: authority.bounds.clone(),
-            evidence: EvidenceClass::Portable,
-            native_conformance: NativeConformance::NotProven,
         });
     }
     validate_collection(paths, collection, search_policy)?;
@@ -967,8 +962,6 @@ pub fn evaluate(
         failure,
         search_policy,
         bounds: authority.bounds.clone(),
-        evidence: EvidenceClass::Portable,
-        native_conformance: NativeConformance::NotProven,
     })
 }
 

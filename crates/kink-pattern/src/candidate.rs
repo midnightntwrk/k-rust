@@ -1,4 +1,3 @@
-use kink_contracts::{Completeness, EvidenceClass, NativeConformance};
 use kink_portable::{Digest, DigestDomain, SemanticJson, digest as checked_digest};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -140,6 +139,17 @@ pub struct Candidate {
     pub origins: Vec<SuppliedPatch>,
 }
 
+/// Whether a producer considered its whole declared finite input.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Completeness {
+    /// The declared finite input was completely considered.
+    CompleteFinite,
+    /// The producer declares that some relevant input was not considered.
+    Incomplete,
+    /// Completeness is unknown.
+    Unknown,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CandidateGeneration {
     pub candidates: Vec<Candidate>,
@@ -147,8 +157,6 @@ pub struct CandidateGeneration {
     pub completeness: Completeness,
     pub failure: Option<CandidateFailureKind>,
     pub scored: bool,
-    pub evidence: EvidenceClass,
-    pub native_conformance: NativeConformance,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -611,12 +619,6 @@ pub fn select(
         },
         failure: (!complete).then_some(CandidateFailureKind::IncompleteGeneration),
         scored: complete,
-        evidence: if complete {
-            EvidenceClass::Portable
-        } else {
-            EvidenceClass::Incomplete
-        },
-        native_conformance: NativeConformance::NotProven,
     })
 }
 
@@ -1199,8 +1201,6 @@ fn failed(kind: CandidateFailureKind) -> CandidateGeneration {
         completeness: Completeness::CompleteFinite,
         failure: Some(kind),
         scored: false,
-        evidence: EvidenceClass::Portable,
-        native_conformance: NativeConformance::NotProven,
     }
 }
 
@@ -1211,8 +1211,6 @@ fn incomplete(origins: Vec<PatchOrigin>) -> CandidateGeneration {
         completeness: Completeness::Incomplete,
         failure: Some(CandidateFailureKind::IncompleteGeneration),
         scored: false,
-        evidence: EvidenceClass::Incomplete,
-        native_conformance: NativeConformance::NotProven,
     }
 }
 

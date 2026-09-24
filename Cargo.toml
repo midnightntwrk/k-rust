@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "crates/kink-campaign",
-  "crates/kink-contracts",
   "crates/kink-native",
   "crates/kink-patch",
   "crates/kink-pattern",
@@ -16,7 +15,6 @@ rust-version = "1.88"
 version = "0.1.0"
 
 [workspace.dependencies]
-kink-contracts = { path = "crates/kink-contracts" }
 kink-patch = { path = "crates/kink-patch" }
 kink-portable = { path = "crates/kink-portable" }
 serde = { version = "1.0.228", features = ["derive"] }

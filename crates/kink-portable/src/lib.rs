@@ -1,27 +1,15 @@
-//! Backend-neutral portable values, identities, and artifact ingress.
+//! Backend-neutral portable values and identities.
 //!
 //! This crate deliberately implements only the frozen portable v1 surface.
 //! Native K forms must enter through a future coverage-checked adapter.
 
-mod artifact;
 mod definition;
-mod durable_artifact;
 mod identity;
 mod json;
 
-pub use artifact::{
-    ArtifactCatalogEntry, ArtifactStore, InMemoryArtifactStore, IngressedArtifact,
-    RepositoryResolver, RoleSpecRegistry, ingest_artifact,
-};
 pub use definition::{
     Attribute, GeneratedIdentity, GeneratedRole, Location, Module, PortableDefinition, Provenance,
     Sentence, SentenceKind, SentenceValue, Term, TermNode,
-};
-pub use durable_artifact::{
-    DurableArtifactAuthority, DurableArtifactConflictState, DurableArtifactFailpoint,
-    DurableArtifactFailure, DurableArtifactFailureKind, DurableArtifactInput,
-    DurableArtifactPublication, DurableArtifactStore, DurableProcessLock,
-    PreparedArtifactTransaction,
 };
 pub use identity::{
     BaselineFamily, DefinitionIdentitySummary, IdentityError, IdentityErrorKind,
