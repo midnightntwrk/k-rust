@@ -3588,6 +3588,73 @@ argument_rewrite_snapshot!(
 );
 argument_rewrite_snapshot!(argument_rewrite_at_a_supersort_position, "bar(X => 1)");
 
+// Rewrites directly at a declared `KItem` argument position (`ListItem`, `SetItem`, a user
+// `KItem` argument). Shared by both builds like the snapshots above.
+macro_rules! kitem_argument_rewrite_snapshot {
+    ($name:ident, $rule:expr) => {
+        #[test]
+        fn $name() {
+            let source = format!(
+                indoc! {r#"
+                    module MAIN
+                      syntax Int ::= r"[0-9]+" [token]
+                      syntax KItem ::= foo(Int) [symbol(foo)]
+                      syntax KItem ::= wrap(KItem) [symbol(wrap)]
+                      syntax List ::= ListItem(KItem) [symbol(ListItem)]
+                                    | List List [symbol(_List_)]
+                                    | ".List" [symbol(.List)]
+                      syntax Set ::= SetItem(KItem) [symbol(SetItem)]
+                      rule {}
+                    endmodule
+                "#},
+                $rule
+            );
+            assert_rule_resolution_snapshot!(source.as_str());
+        }
+    };
+}
+
+kitem_argument_rewrite_snapshot!(
+    kitem_argument_rewrite_of_applications,
+    "ListItem(foo(0) => foo(1))"
+);
+kitem_argument_rewrite_snapshot!(
+    kitem_argument_rewrite_of_a_variable,
+    "ListItem(X => foo(1))"
+);
+kitem_argument_rewrite_snapshot!(
+    kitem_argument_rewrite_at_a_user_production,
+    "wrap(foo(0) => foo(1))"
+);
+kitem_argument_rewrite_snapshot!(
+    kitem_argument_rewrite_in_a_set_element,
+    "SetItem(foo(0) => foo(1))"
+);
+// Sides of a concrete sort: the only derivation is the `KItem` rewrite over the `KItem ::= Int`
+// subsort, because unlabeled chains are not widened, so no sort has to be chosen.
+kitem_argument_rewrite_snapshot!(
+    kitem_argument_rewrite_of_concrete_sides,
+    "ListItem(I:Int => 0)"
+);
+
+// A parenthesized rewrite at a `KItem` position has one derivation per bracket that reaches it
+// (the `Int` bracket under the `KItem ::= Int` subsort and the `KItem` bracket), which are
+// rewrites of different sorts; the portable build reports the Z3 boundary instead of choosing.
+#[test]
+fn kitem_argument_rewrite_inside_a_bracket_is_an_inference_ambiguity() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax List ::= ListItem(KItem) [symbol(ListItem)]
+          rule ListItem((0 => 1))
+        endmodule
+    "#};
+    #[cfg(feature = "z3-inference")]
+    assert_rule_resolution_snapshot!(source);
+    #[cfg(not(feature = "z3-inference"))]
+    assert_ambiguity_requires_z3(source);
+}
+
 // A parenthesized rewrite has one derivation per bracket that reaches its position: here the
 // `Int` bracket under `foo` and the `K` bracket under the `foo(...)` label application, which
 // are distinct rewrites (of sort `Int` and of sort `K`). Only sort inference can choose, so the
