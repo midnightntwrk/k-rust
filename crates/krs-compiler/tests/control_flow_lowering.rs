@@ -13,13 +13,12 @@ use krs_ir::{
     GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
     OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
-    SemanticClaim, SemanticClaimBinder, SemanticConfiguration, SemanticContextAlias, SemanticId,
-    SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticRuleCondition, SemanticRuleLabel, SemanticSimplification,
-    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
-    SemanticTheory, SemanticValidationError, SemanticVariable, SentenceKind, Sha256Digest,
-    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
-    TransformationOriginKind,
+    SemanticClaim, SemanticClaimBinder, SemanticContextAlias, SemanticId, SemanticModule,
+    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticRuleCondition,
+    SemanticRuleLabel, SemanticSimplification, SemanticSimplificationPriority, SemanticSort,
+    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
+    SemanticVariable, SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
+    StableItemId, StrictnessKind, TransformationOriginKind,
 };
 
 const CALC_SYNTAX: &str = "KRS-CALC-SYNTAX";
@@ -421,78 +420,72 @@ fn configuration_module() -> SemanticModule {
     let stmt = sort("Stmt");
     let k = sid("cell.k");
     let env = sid("cell.env");
-    let configuration = SemanticConfiguration::fixed(
-        FixedConfiguration::new(
-            origin("calc.configuration"),
-            sid("configuration.calc"),
-            ConfigurationRoot::GeneratedTop,
-            vec![
-                FixedCell::leaf(
-                    origin("calc.configuration.k"),
-                    k.clone(),
-                    "k",
-                    vec![
-                        CellAttribute::color(origin("calc.configuration.k.color"), "green")
-                            .unwrap(),
-                    ],
-                    SemanticSortRef::k_sequence(),
-                )
-                .unwrap(),
-                FixedCell::leaf(
-                    origin("calc.configuration.env"),
-                    env.clone(),
-                    "env",
-                    vec![
-                        CellAttribute::color(origin("calc.configuration.env.color"), "yellow")
-                            .unwrap(),
-                    ],
-                    SemanticSortRef::map(),
-                )
-                .unwrap(),
-            ],
-            origin("calc.configuration.initializer"),
-            sid("initializer.calc"),
-            vec![
-                FixedConfigurationVariable::new(
-                    origin("calc.configuration.variable.pgm"),
-                    sid("PGM"),
-                    "PGM",
+    let configuration = FixedConfiguration::new(
+        origin("calc.configuration"),
+        sid("configuration.calc"),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                origin("calc.configuration.k"),
+                k.clone(),
+                "k",
+                vec![CellAttribute::color(origin("calc.configuration.k.color"), "green").unwrap()],
+                SemanticSortRef::k_sequence(),
+            )
+            .unwrap(),
+            FixedCell::leaf(
+                origin("calc.configuration.env"),
+                env.clone(),
+                "env",
+                vec![
+                    CellAttribute::color(origin("calc.configuration.env.color"), "yellow").unwrap(),
+                ],
+                SemanticSortRef::map(),
+            )
+            .unwrap(),
+        ],
+        origin("calc.configuration.initializer"),
+        sid("initializer.calc"),
+        vec![
+            FixedConfigurationVariable::new(
+                origin("calc.configuration.variable.pgm"),
+                sid("PGM"),
+                "PGM",
+                stmt.clone(),
+                true,
+            )
+            .unwrap(),
+            FixedConfigurationVariable::new(
+                origin("calc.configuration.variable.env"),
+                sid("ENV"),
+                "ENV",
+                SemanticSortRef::map(),
+                false,
+            )
+            .unwrap(),
+        ],
+        vec![
+            FixedInitializerCell::term(
+                origin("calc.configuration.initializer.k"),
+                k,
+                SemanticTerm::k_sequence(
+                    origin("calc.configuration.initializer.k.sequence"),
                     stmt.clone(),
-                    true,
-                )
-                .unwrap(),
-                FixedConfigurationVariable::new(
-                    origin("calc.configuration.variable.env"),
-                    sid("ENV"),
+                    vec![variable("calc.configuration.initializer.pgm", "PGM", stmt)],
+                ),
+            ),
+            FixedInitializerCell::term(
+                origin("calc.configuration.initializer.env"),
+                env,
+                variable(
+                    "calc.configuration.initializer.env.variable",
                     "ENV",
                     SemanticSortRef::map(),
-                    false,
-                )
-                .unwrap(),
-            ],
-            vec![
-                FixedInitializerCell::term(
-                    origin("calc.configuration.initializer.k"),
-                    k,
-                    SemanticTerm::k_sequence(
-                        origin("calc.configuration.initializer.k.sequence"),
-                        stmt.clone(),
-                        vec![variable("calc.configuration.initializer.pgm", "PGM", stmt)],
-                    ),
                 ),
-                FixedInitializerCell::term(
-                    origin("calc.configuration.initializer.env"),
-                    env,
-                    variable(
-                        "calc.configuration.initializer.env.variable",
-                        "ENV",
-                        SemanticSortRef::map(),
-                    ),
-                ),
-            ],
-        )
-        .unwrap(),
-    );
+            ),
+        ],
+    )
+    .unwrap();
     SemanticModule::new(
         origin("calc.module"),
         ModuleId::new(CALC).unwrap(),

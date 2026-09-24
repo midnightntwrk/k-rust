@@ -26,21 +26,18 @@ pub mod semantic;
 pub mod state;
 
 pub use bundle::{
-    ConfigurationCellDescriptor, ConfigurationDescriptor, ConfigurationInitializerDescriptor,
-    ConfigurationVariableDescriptor, ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor,
-    DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin,
-    DescriptorPayload, DescriptorProvenance, DescriptorProvenanceError, DescriptorReference,
-    RuleDescriptor, RuleParameterDescriptor, SentenceKind, SortDescriptor,
+    ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
+    DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
+    DescriptorProvenance, DescriptorProvenanceError, SentenceKind, SortDescriptor,
 };
 pub use definition::{
-    CellDeclaration, ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef,
-    DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
-    DefinitionProductionAttribute, DefinitionRuleBody, DefinitionRuleCondition,
-    DefinitionRulePriority, DefinitionSentence, DefinitionSimplification,
-    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
-    DefinitionValidationError, DefinitionVariable, InitializerDeclaration, LabelId, LabelIdentity,
-    LegacyConfigurationSentence, ProductionGroupIdentity, ProductionItem, ProductionSentence,
-    RuleSentence, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
+    DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,
+    DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence,
+    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
+    DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
+    ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence, SubsortSentence,
+    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 pub use generated::{GeneratedProductionIdError, GeneratedProductionKind, generated_production_id};
 pub use grammar::{
@@ -57,13 +54,10 @@ pub use head_rule::{
     ProtocolHeadRuleResult,
 };
 pub use host::{
-    AnchorPrecision, ConfigurationDescriptorError, DuplicateReferenceKey, HostAuthoredAnchor,
-    HostConfigurationDescriptor, HostConfigurationInitializerDescriptor,
-    HostConfigurationVariableDescriptor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
-    HostDescriptor, HostDescriptorPayload, HostDescriptorReference, HostIdentityError, HostItemId,
-    HostPackageKey, HostProvenance, HostProvenanceError, HostRuleDescriptor,
-    HostRuleParameterDescriptor, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
-    HostTypeKey, HostTypeReference, ProvenanceKey, RuleBindingError,
+    AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
+    HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId, HostPackageKey,
+    HostProvenance, HostProvenanceError, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    HostTypeKey, HostTypeReference, ProvenanceKey,
 };
 pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
@@ -119,13 +113,12 @@ pub use provenance::{
     TransformationOriginKind,
 };
 pub use semantic::{
-    SemanticApplicationRef, SemanticCell, SemanticClaim, SemanticClaimBinder,
-    SemanticConfiguration, SemanticContextAlias, SemanticInitializer, SemanticModule,
-    SemanticProduction, SemanticProductionAttribute, SemanticProductionItem, SemanticRule,
-    SemanticRuleBody, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
-    SemanticSimplification, SemanticSimplificationPriority, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticValidationError,
-    SemanticVariable,
+    SemanticApplicationRef, SemanticClaim, SemanticClaimBinder, SemanticConfiguration,
+    SemanticContextAlias, SemanticModule, SemanticProduction, SemanticProductionAttribute,
+    SemanticProductionItem, SemanticRule, SemanticRuleBody, SemanticRuleCondition,
+    SemanticRuleLabel, SemanticRulePriority, SemanticSimplification,
+    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
+    SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
 };
 pub use state::{
     CellAttribute, CellCollectionType, CellColor, CellContentFrame, CellMultiplicity, CellPost,

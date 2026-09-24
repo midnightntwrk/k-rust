@@ -300,50 +300,29 @@ impl SemanticTheory {
             }
             if let Some(configuration) = &module.configuration {
                 configurations += 1;
-                match configuration {
-                    SemanticConfiguration::Legacy(configuration) => {
-                        insert_semantic_id(&mut semantic_ids, &configuration.id, "configuration")?;
-                        insert_semantic_id(&mut semantic_ids, &configuration.cell.id, "cell")?;
-                        insert_semantic_id(
-                            &mut semantic_ids,
-                            &configuration.initializer.id,
-                            "initializer",
-                        )?;
-                        if configuration.cell.name.trim().is_empty() {
-                            return Err(SemanticValidationError::EmptyText("cell name"));
-                        }
-                        insert_node(&mut node_keys, configuration.origin.key())?;
-                        insert_node(&mut node_keys, configuration.cell.origin.key())?;
-                        insert_node(&mut node_keys, configuration.initializer.origin.key())?;
-                    }
-                    SemanticConfiguration::Fixed(configuration) => {
-                        insert_semantic_id(&mut semantic_ids, configuration.id(), "configuration")?;
-                        insert_semantic_id(
-                            &mut semantic_ids,
-                            configuration.initializer_id(),
-                            "initializer",
-                        )?;
-                        insert_node(&mut node_keys, configuration.origin().key())?;
-                        insert_node(&mut node_keys, configuration.initializer_origin().key())?;
-                        collect_fixed_configuration_nodes(
-                            configuration,
-                            &mut semantic_ids,
-                            &mut node_keys,
-                        )?;
-                    }
-                }
+                insert_semantic_id(&mut semantic_ids, configuration.id(), "configuration")?;
+                insert_semantic_id(
+                    &mut semantic_ids,
+                    configuration.initializer_id(),
+                    "initializer",
+                )?;
+                insert_node(&mut node_keys, configuration.origin().key())?;
+                insert_node(&mut node_keys, configuration.initializer_origin().key())?;
+                collect_fixed_configuration_nodes(
+                    configuration,
+                    &mut semantic_ids,
+                    &mut node_keys,
+                )?;
             }
         }
 
         if configurations != 1 {
             return Err(SemanticValidationError::ConfigurationCount(configurations));
         }
-        let fixed_configuration = self.modules.iter().find_map(|module| {
-            module
-                .configuration
-                .as_ref()
-                .and_then(SemanticConfiguration::as_fixed)
-        });
+        let fixed_configuration = self
+            .modules
+            .iter()
+            .find_map(|module| module.configuration.as_ref());
 
         for module in &self.modules {
             for import in &module.imports {
@@ -393,28 +372,13 @@ impl SemanticTheory {
                 }
             }
             if let Some(configuration) = &module.configuration {
-                match configuration {
-                    SemanticConfiguration::Legacy(configuration) => {
-                        require_semantic_sort(&declarations, &configuration.cell.sort)?;
-                        validate_initializer(
-                            &configuration.initializer,
-                            &configuration.cell.sort,
-                            &declarations,
-                            &production_signatures,
-                            &sort_parents,
-                            &mut node_keys,
-                        )?;
-                    }
-                    SemanticConfiguration::Fixed(configuration) => {
-                        validate_fixed_configuration(
-                            configuration,
-                            &declarations,
-                            &production_signatures,
-                            &sort_parents,
-                            &mut node_keys,
-                        )?;
-                    }
-                }
+                validate_fixed_configuration(
+                    configuration,
+                    &declarations,
+                    &production_signatures,
+                    &sort_parents,
+                    &mut node_keys,
+                )?;
             }
             for rule in &module.rules {
                 validate_rule(
@@ -785,197 +749,8 @@ impl SemanticProduction {
     }
 }
 
-/// One legacy single-cell configuration or general ordered fixed configuration tree.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SemanticConfiguration {
-    /// Compatibility representation for the original one-cell surface.
-    Legacy(Box<SemanticLegacyConfiguration>),
-    /// General fixed/nested configuration.
-    Fixed(Box<FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>>),
-}
-
-/// The legacy one-cell representation.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticLegacyConfiguration {
-    origin: NodeOrigin,
-    id: SemanticId,
-    cell: SemanticCell,
-    initializer: SemanticInitializer,
-}
-
-impl SemanticConfiguration {
-    /// Creates one configuration and its initializer.
-    #[must_use]
-    pub fn new(
-        origin: NodeOrigin,
-        id: SemanticId,
-        cell: SemanticCell,
-        initializer: SemanticInitializer,
-    ) -> Self {
-        Self::Legacy(Box::new(SemanticLegacyConfiguration {
-            origin,
-            id,
-            cell,
-            initializer,
-        }))
-    }
-
-    /// Wraps one general fixed/nested configuration.
-    #[must_use]
-    pub fn fixed(
-        configuration: FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>,
-    ) -> Self {
-        Self::Fixed(Box::new(configuration))
-    }
-    /// Returns the semantic configuration ID.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        match self {
-            Self::Legacy(configuration) => &configuration.id,
-            Self::Fixed(configuration) => configuration.id(),
-        }
-    }
-    /// Returns the origin.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        match self {
-            Self::Legacy(configuration) => &configuration.origin,
-            Self::Fixed(configuration) => configuration.origin(),
-        }
-    }
-    /// Returns the sole legacy fixed cell, when this is the one-cell form.
-    #[must_use]
-    pub const fn cell(&self) -> Option<&SemanticCell> {
-        match self {
-            Self::Legacy(configuration) => Some(&configuration.cell),
-            Self::Fixed(_) => None,
-        }
-    }
-    /// Returns the legacy initializer, when this is the one-cell form.
-    #[must_use]
-    pub const fn initializer(&self) -> Option<&SemanticInitializer> {
-        match self {
-            Self::Legacy(configuration) => Some(&configuration.initializer),
-            Self::Fixed(_) => None,
-        }
-    }
-
-    /// Returns the general fixed configuration, when present.
-    #[must_use]
-    pub const fn as_fixed(
-        &self,
-    ) -> Option<&FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>> {
-        match self {
-            Self::Legacy(_) => None,
-            Self::Fixed(configuration) => Some(configuration),
-        }
-    }
-}
-
-/// One fixed computation cell.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticCell {
-    origin: NodeOrigin,
-    id: SemanticId,
-    name: String,
-    sort: SemanticSortRef,
-}
-
-impl SemanticCell {
-    /// Creates a cell, rejecting an empty name.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SemanticValidationError`] for a blank cell name.
-    pub fn new(
-        origin: NodeOrigin,
-        id: SemanticId,
-        name: impl Into<String>,
-        sort: SemanticSortRef,
-    ) -> Result<Self, SemanticValidationError> {
-        let name = name.into();
-        if name.trim().is_empty() {
-            return Err(SemanticValidationError::EmptyText("cell name"));
-        }
-        Ok(Self {
-            origin,
-            id,
-            name,
-            sort,
-        })
-    }
-    /// Returns its semantic ID.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        &self.id
-    }
-    /// Returns its origin.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns its exact authored name.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    /// Returns its content sort.
-    #[must_use]
-    pub const fn sort(&self) -> &SemanticSortRef {
-        &self.sort
-    }
-}
-
-/// Declarative configuration initializer.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SemanticInitializer {
-    origin: NodeOrigin,
-    id: SemanticId,
-    variables: Vec<SemanticVariable>,
-    body: SemanticTerm,
-}
-
-impl SemanticInitializer {
-    /// Creates an initializer; variable order is preserved.
-    #[must_use]
-    pub const fn new(
-        origin: NodeOrigin,
-        id: SemanticId,
-        variables: Vec<SemanticVariable>,
-        body: SemanticTerm,
-    ) -> Self {
-        Self {
-            origin,
-            id,
-            variables,
-            body,
-        }
-    }
-    /// Returns its ID.
-    #[must_use]
-    pub const fn id(&self) -> &SemanticId {
-        &self.id
-    }
-    /// Returns its origin.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns ordered variables.
-    #[must_use]
-    pub fn variables(&self) -> &[SemanticVariable] {
-        &self.variables
-    }
-    /// Returns the initialized cell content.
-    #[must_use]
-    pub const fn body(&self) -> &SemanticTerm {
-        &self.body
-    }
-}
+/// The one fixed, possibly nested, configuration tree of a semantic theory.
+pub type SemanticConfiguration = FixedConfiguration<SemanticSortRef, SemanticId, SemanticTerm>;
 
 /// A resolved rule variable declaration.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1932,8 +1707,6 @@ pub enum SemanticValidationError {
     AliasCondition,
     /// An explicit emitted K rule label was invalid.
     InvalidRuleLabel(String),
-    /// The initializer result does not match the cell content sort.
-    InitializerSortMismatch,
     /// A structured fixed initializer did not mirror its declaration tree.
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
@@ -2122,9 +1895,6 @@ impl fmt::Display for SemanticValidationError {
             }
             Self::InvalidRuleLabel(label) => {
                 write!(formatter, "invalid explicit K rule label {label:?}")
-            }
-            Self::InitializerSortMismatch => {
-                formatter.write_str("initializer body sort must match the cell sort")
             }
             Self::InitializerTreeMismatch => {
                 formatter.write_str("initializer tree must exactly mirror the fixed cell tree")
@@ -2553,29 +2323,6 @@ fn validate_cell_frame(
         return Err(SemanticValidationError::CellFrameBindingMismatch(
             binding.clone(),
         ));
-    }
-    Ok(())
-}
-
-fn validate_initializer(
-    initializer: &SemanticInitializer,
-    expected_sort: &SemanticSortRef,
-    declarations: &BTreeMap<StableItemId, ItemKind>,
-    signatures: &BTreeMap<StableItemId, (SemanticSortRef, Vec<SemanticSortRef>)>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), SemanticValidationError> {
-    let scope = variable_scope(&initializer.variables, declarations)?;
-    validate_term(
-        &initializer.body,
-        &scope,
-        declarations,
-        signatures,
-        sort_parents,
-        nodes,
-    )?;
-    if &initializer.body.sort != expected_sort {
-        return Err(SemanticValidationError::InitializerSortMismatch);
     }
     Ok(())
 }

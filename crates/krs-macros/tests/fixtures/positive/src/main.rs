@@ -2392,8 +2392,6 @@ fn assert_semantic_configuration_equivalent(bundle: &krs_ir::DescriptorBundle) {
     };
     let explicit = lower("ExplicitEquivalentMachine");
     let readable = lower("ReadableEquivalentMachine");
-    let explicit = explicit.as_fixed().expect("explicit configuration is fixed");
-    let readable = readable.as_fixed().expect("readable configuration is fixed");
 
     assert_eq!(explicit.root().name(), readable.root().name());
     assert_eq!(explicit.cells().len(), readable.cells().len());

@@ -5,11 +5,11 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, ConfigurationSentence,
-    DefinitionIr, DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, FixedCell, FixedCellContent, FixedConfiguration, FixedInitializerCell,
-    FixedInitializerContent, LabelId, ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey,
-    StableItemId, SymbolId, SymbolKind,
+    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr, DefinitionRuleBody,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell,
+    FixedCellContent, FixedConfiguration, FixedInitializerCell, FixedInitializerContent, LabelId,
+    ModuleId, NodeOrigin, OriginFrame, OriginStack, SourceMapKey, StableItemId, SymbolId,
+    SymbolKind,
 };
 use serde::{Deserialize, Serialize};
 
@@ -113,36 +113,13 @@ impl SymbolMap {
                             symbol_kind: Some(SymbolKind::Production),
                         },
                     )?,
-                    DefinitionSentence::Configuration(sentence) => match sentence {
-                        ConfigurationSentence::Legacy(_) => {
-                            if let (Some(cell), Some(initializer)) =
-                                (sentence.cell(), sentence.initializer())
-                            {
-                                for (symbol, origin) in [
-                                    (cell.symbol(), cell.origin()),
-                                    (initializer.symbol(), initializer.origin()),
-                                ] {
-                                    push_symbol(
-                                        &mut entries,
-                                        &mut identities,
-                                        SymbolMapEntry {
-                                            identity: MappedIdentity::Symbol(symbol.id().clone()),
-                                            emitted_name: symbol.emitted_name().to_owned(),
-                                            source_map_key: origin.key().clone(),
-                                            symbol_kind: Some(symbol.kind()),
-                                        },
-                                    )?;
-                                }
-                            }
-                        }
-                        ConfigurationSentence::Fixed(configuration) => {
-                            push_fixed_cell_symbols(
-                                configuration.cells(),
-                                &mut entries,
-                                &mut identities,
-                            )?;
-                        }
-                    },
+                    DefinitionSentence::Configuration(configuration) => {
+                        push_fixed_cell_symbols(
+                            configuration.cells(),
+                            &mut entries,
+                            &mut identities,
+                        )?;
+                    }
                     DefinitionSentence::Rule(sentence) => push_symbol(
                         &mut entries,
                         &mut identities,
@@ -444,28 +421,9 @@ impl SourceMap {
                             }
                         }
                     }
-                    DefinitionSentence::Configuration(sentence) => match sentence {
-                        ConfigurationSentence::Legacy(_) => {
-                            if let (Some(cell), Some(initializer)) =
-                                (sentence.cell(), sentence.initializer())
-                            {
-                                insert_origin(
-                                    &mut entries,
-                                    cell.origin(),
-                                    SourceMapNodeKind::Cell,
-                                )?;
-                                insert_origin(
-                                    &mut entries,
-                                    initializer.origin(),
-                                    SourceMapNodeKind::Initializer,
-                                )?;
-                                insert_term(&mut entries, initializer.body())?;
-                            }
-                        }
-                        ConfigurationSentence::Fixed(configuration) => {
-                            insert_fixed_configuration(&mut entries, configuration)?;
-                        }
-                    },
+                    DefinitionSentence::Configuration(configuration) => {
+                        insert_fixed_configuration(&mut entries, configuration)?;
+                    }
                     DefinitionSentence::Rule(sentence) => {
                         insert_rule_body(&mut entries, sentence.relational_body())?;
                         if let Some(priority) = sentence.priority() {

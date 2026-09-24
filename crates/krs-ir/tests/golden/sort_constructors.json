@@ -10,22 +10,22 @@
           "cargo_source": "workspace"
         },
         "module_path": [
-          "rules"
+          "syntax"
         ],
-        "item_name": "foo_to_bar",
-        "item_kind": "rule",
+        "item_name": "Bar",
+        "item_kind": "constructor",
         "disambiguator": ""
       },
       "cfg": {},
       "provenance": {
         "primary_key": {
-          "role": "rule_declaration",
+          "role": "constructor_declaration",
           "ordinal": 0
         },
         "origins": [
           {
             "key": {
-              "role": "rule_declaration",
+              "role": "constructor_declaration",
               "ordinal": 0
             },
             "origin": [
@@ -51,69 +51,27 @@
           }
         ]
       },
-      "descriptor_kind": "rule",
+      "descriptor_kind": "constructor",
       "descriptor": {
-        "sentence_kind": "transition",
-        "parameters": [
-          {
-            "bindings": [
-              "x"
+        "sort": {
+          "sort_source": "declared",
+          "sort": {
+            "package": {
+              "k_namespace": "ORG-EXAMPLE-SMOKE",
+              "cargo_name": "smoke-semantics",
+              "cargo_version": "0.1.0",
+              "cargo_source": "workspace"
+            },
+            "module_path": [
+              "syntax"
             ],
-            "sort": {
-              "package": {
-                "k_namespace": "ORG-EXAMPLE-SMOKE",
-                "cargo_name": "smoke-semantics",
-                "cargo_version": "0.1.0",
-                "cargo_source": "workspace"
-              },
-              "module_path": [
-                "syntax"
-              ],
-              "item_name": "Value",
-              "item_kind": "sort",
-              "disambiguator": ""
-            },
-            "pattern": "Foo { value: x }"
+            "item_name": "Value",
+            "item_kind": "sort",
+            "disambiguator": ""
           }
-        ],
-        "result_sort": {
-          "package": {
-            "k_namespace": "ORG-EXAMPLE-SMOKE",
-            "cargo_name": "smoke-semantics",
-            "cargo_version": "0.1.0",
-            "cargo_source": "workspace"
-          },
-          "module_path": [
-            "syntax"
-          ],
-          "item_name": "Value",
-          "item_kind": "sort",
-          "disambiguator": ""
         },
-        "references": [
-          {
-            "key": {
-              "role": "rule_right_path",
-              "ordinal": 0
-            },
-            "target": {
-              "package": {
-                "k_namespace": "ORG-EXAMPLE-SMOKE",
-                "cargo_name": "smoke-semantics",
-                "cargo_version": "0.1.0",
-                "cargo_source": "workspace"
-              },
-              "module_path": [
-                "syntax"
-              ],
-              "item_name": "Bar",
-              "item_kind": "constructor",
-              "disambiguator": ""
-            }
-          }
-        ],
-        "lhs": "Foo { value: x }",
-        "rhs": "Bar { value: x }"
+        "syntax": "bar",
+        "fields": []
       }
     },
     {
@@ -291,10 +249,10 @@
           "cargo_source": "workspace"
         },
         "module_path": [
-          "rules"
+          "syntax"
         ],
-        "item_name": "foo_to_bar",
-        "item_kind": "rule",
+        "item_name": "Bar",
+        "item_kind": "constructor",
         "disambiguator": ""
       },
       "visibility": {

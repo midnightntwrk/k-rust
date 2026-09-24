@@ -3,15 +3,14 @@ use std::error::Error;
 use std::fmt;
 
 use krs_ir::{
-    ApplicationRef, CellAttribute, CellContentFrame, CellDeclaration, CellPost, ConfigurationRoot,
-    ConfigurationSentence, ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder,
-    DefinitionIr, DefinitionModule, DefinitionRuleCondition, DefinitionRulePriority,
-    DefinitionSentence, DefinitionSimplification, DefinitionSimplificationPriority,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DefinitionValidationError, FixedCell,
-    FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, GrammarProductionItemKind,
-    GroupAssociativitySentence, InitializerDeclaration, IrIdentityError, LabelId, LabelIdentity,
+    ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
+    ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr, DefinitionModule,
+    DefinitionRuleCondition, DefinitionRulePriority, DefinitionSentence, DefinitionSimplification,
+    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    DefinitionValidationError, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent,
+    GrammarProductionItemKind, GroupAssociativitySentence, IrIdentityError, LabelId, LabelIdentity,
     ModuleId, NodeOrigin, OriginFrame, OriginStack, PrecedenceRelation, ProductionAttribute,
     ProductionContextAliasReference, ProductionFieldReference, ProductionGroupId,
     ProductionGroupIdentity, ProductionItem, ProductionResultSort, ProductionSentence,
@@ -213,9 +212,7 @@ struct NamingPass {
     modules: BTreeMap<ModuleId, ModuleId>,
     sorts: BTreeMap<StableItemId, SymbolIdentity>,
     productions: BTreeMap<StableItemId, SymbolIdentity>,
-    cells: BTreeMap<String, SymbolIdentity>,
     fixed_cells: BTreeMap<krs_ir::SemanticId, SymbolId>,
-    initializers: BTreeMap<String, SymbolIdentity>,
     rules: BTreeMap<StableItemId, LabelIdentity>,
 }
 
@@ -290,62 +287,7 @@ impl NamingPass {
                     SymbolIdentity::new(id, name, SymbolKind::Production)?,
                 );
             }
-            if let Some(configuration) = module.configuration()
-                && let (Some(cell), Some(initializer)) =
-                    (configuration.cell(), configuration.initializer())
-            {
-                let config_owner = format!("configuration {}", configuration.id().as_str());
-                let cell_id = SymbolId::new(format!(
-                    "cell:{}",
-                    hex_encode(cell.id().as_str().as_bytes())
-                ))?;
-                let cell_name = cell.name().to_owned();
-                validate_cell_name(&cell_name)?;
-                claim(
-                    &mut identities,
-                    cell_id.as_str().to_owned(),
-                    config_owner.clone(),
-                    "symbol ID",
-                    cell.origin(),
-                )?;
-                claim(
-                    &mut emitted,
-                    cell_name.clone(),
-                    config_owner.clone(),
-                    "emitted symbol",
-                    cell.origin(),
-                )?;
-                pass.cells.insert(
-                    configuration.id().as_str().to_owned(),
-                    SymbolIdentity::new(cell_id, cell_name.clone(), SymbolKind::Cell)?,
-                );
-
-                let initializer_id = SymbolId::new(format!(
-                    "initializer:{}",
-                    hex_encode(initializer.id().as_str().as_bytes())
-                ))?;
-                let initializer_name = format!("init{}Cell", upper_camel(&cell_name));
-                validate_label_name("initializer", &initializer_name)?;
-                claim(
-                    &mut identities,
-                    initializer_id.as_str().to_owned(),
-                    config_owner.clone(),
-                    "symbol ID",
-                    initializer.origin(),
-                )?;
-                claim(
-                    &mut emitted,
-                    initializer_name.clone(),
-                    config_owner,
-                    "emitted symbol",
-                    initializer.origin(),
-                )?;
-                pass.initializers.insert(
-                    configuration.id().as_str().to_owned(),
-                    SymbolIdentity::new(initializer_id, initializer_name, SymbolKind::Initializer)?,
-                );
-            }
-            if let Some(configuration) = module.configuration().and_then(|value| value.as_fixed()) {
+            if let Some(configuration) = module.configuration() {
                 name_fixed_cells(
                     configuration.cells(),
                     &mut pass.fixed_cells,
@@ -694,60 +636,8 @@ fn lower_configuration(
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<DefinitionSentence, LoweringError> {
-    if let Some(configuration) = configuration.as_fixed() {
-        return Ok(DefinitionSentence::Configuration(
-            ConfigurationSentence::fixed(lower_fixed_configuration(configuration, names, origins)?),
-        ));
-    }
-    let cell_value = configuration
-        .cell()
-        .ok_or_else(|| LoweringError::UnsupportedShape {
-            node: "configuration",
-            detail: "fixed configuration lowering is not yet selected".to_owned(),
-        })?;
-    let initializer_value =
-        configuration
-            .initializer()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "configuration",
-                detail: "fixed configuration lowering is not yet selected".to_owned(),
-            })?;
-    let key = configuration.id().as_str();
-    let cell_symbol =
-        names
-            .cells
-            .get(key)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "configuration cell",
-                detail: format!("no naming entry for {key:?}"),
-            })?;
-    let initializer_symbol =
-        names
-            .initializers
-            .get(key)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "configuration initializer",
-                detail: format!("no naming entry for {key:?}"),
-            })?;
-    let cell = CellDeclaration::new(
-        origins.lower(cell_value.origin(), "cell", None, Some(key))?,
-        cell_symbol,
-        lower_sort_ref(cell_value.sort(), names)?,
-    )?;
-    let initializer = InitializerDeclaration::new(
-        origins.lower(initializer_value.origin(), "initializer", None, Some(key))?,
-        initializer_symbol,
-        lower_variables(initializer_value.variables(), names)?,
-        lower_term(initializer_value.body(), names, origins)?,
-    )?;
     Ok(DefinitionSentence::Configuration(
-        ConfigurationSentence::new(
-            origins.lower(configuration.origin(), "configuration", None, Some(key))?,
-            cell,
-            initializer,
-        ),
+        lower_fixed_configuration(configuration, names, origins)?,
     ))
 }
 
@@ -1609,14 +1499,6 @@ fn lower_camel(value: &str) -> String {
     let mut characters = value.chars();
     match characters.next() {
         Some(first) => first.to_lowercase().chain(characters).collect(),
-        None => String::new(),
-    }
-}
-
-fn upper_camel(value: &str) -> String {
-    let mut characters = value.chars();
-    match characters.next() {
-        Some(first) => first.to_uppercase().chain(characters).collect(),
         None => String::new(),
     }
 }

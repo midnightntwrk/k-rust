@@ -20,15 +20,14 @@ use k_rust::{
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, CellAttribute, CellContentFrame, CellDeclaration,
-    ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence, DefinitionClaim,
-    DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionProductionAttribute,
-    DefinitionRuleCondition, DefinitionSentence, DefinitionSortRef, DefinitionTerm, FixedCell,
-    FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationVariable,
-    FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence,
-    HookOperation, InitializerDeclaration, ItemKind, LabelId, LabelIdentity, ListOperation,
-    MapOperation, ModuleId, NodeOrigin, OriginStack, PackageId, PrecedenceRelation,
-    ProductionFieldId, ProductionFieldReference, ProductionGroupId,
+    ApplicationRef, BuiltinOperation, CellAttribute, CellContentFrame, ClaimModality,
+    ConfigurationRoot, ContextAliasSentence, DefinitionClaim, DefinitionClaimBinder, DefinitionIr,
+    DefinitionModule, DefinitionProductionAttribute, DefinitionRuleCondition, DefinitionSentence,
+    DefinitionSortRef, DefinitionTerm, FixedCell, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationPattern, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
+    GroupAssociativity, GroupAssociativitySentence, HookOperation, ItemKind, LabelId,
+    LabelIdentity, ListOperation, MapOperation, ModuleId, NodeOrigin, OriginStack, PackageId,
+    PrecedenceRelation, ProductionFieldId, ProductionFieldReference, ProductionGroupId,
     ProductionItem as IrProductionItem, ProductionResultSort, ProductionSentence, RuleSentence,
     SemanticId, SentenceKind, SetOperation, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
     StableItemId, StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
@@ -45,20 +44,11 @@ use super::{
 const MODULE: &str = "KRS-ADAPTER-TEST";
 
 fn smoke_definition() -> DefinitionIr {
-    smoke_definition_with_cell(SentenceKind::Transition, "initKCell", "k")
+    smoke_definition_with_cell(SentenceKind::Transition, "k")
 }
 
 #[allow(clippy::too_many_lines)]
-fn smoke_definition_with(rule_kind: SentenceKind, initializer_name: &str) -> DefinitionIr {
-    smoke_definition_with_cell(rule_kind, initializer_name, "k")
-}
-
-#[allow(clippy::too_many_lines)]
-fn smoke_definition_with_cell(
-    rule_kind: SentenceKind,
-    initializer_name: &str,
-    cell_name: &str,
-) -> DefinitionIr {
+fn smoke_definition_with_cell(rule_kind: SentenceKind, cell_name: &str) -> DefinitionIr {
     let k_item = SymbolId::new("sort.kitem").unwrap();
     let k_result = SymbolId::new("sort.kresult").unwrap();
     let value = SymbolId::new("sort.value").unwrap();
@@ -129,38 +119,7 @@ fn smoke_definition_with_cell(
             )),
         ],
     );
-    let initializer = InitializerDeclaration::new(
-        node("def.initializer"),
-        symbol(
-            "initializer.machine",
-            initializer_name,
-            SymbolKind::Initializer,
-        ),
-        Vec::new(),
-        DefinitionTerm::k_sequence(
-            node("def.term.init.sequence"),
-            DefinitionSortRef::declared(k_item.clone()),
-            vec![DefinitionTerm::application(
-                node("def.term.init.foo"),
-                DefinitionSortRef::declared(value.clone()),
-                ApplicationRef::Declared(foo.clone()),
-                Vec::new(),
-            )],
-        ),
-    )
-    .unwrap();
-    let configuration = if cell_name == "k" {
-        DefinitionSentence::Configuration(ConfigurationSentence::new(
-            node("def.configuration"),
-            CellDeclaration::new(
-                node("def.cell.k"),
-                symbol("cell.k", cell_name, SymbolKind::Cell),
-                DefinitionSortRef::k_sequence(),
-            )
-            .unwrap(),
-            initializer,
-        ))
-    } else {
+    let configuration = {
         let cell = SymbolId::new("cell.k").unwrap();
         let program = semantic_id("program");
         let initializer_body = DefinitionTerm::k_sequence(
@@ -172,7 +131,7 @@ fn smoke_definition_with_cell(
                 program.clone(),
             )],
         );
-        DefinitionSentence::Configuration(ConfigurationSentence::fixed(
+        DefinitionSentence::Configuration(
             FixedConfiguration::new(
                 node("def.configuration"),
                 semantic_id("configuration.machine"),
@@ -206,7 +165,7 @@ fn smoke_definition_with_cell(
                 )],
             )
             .unwrap(),
-        ))
+        )
     };
     let rewrite = DefinitionTerm::rewrite(
         node("def.term.rule.rewrite"),
@@ -1430,8 +1389,7 @@ fn fixed_configuration_preserves_config_variables_and_cell_properties() {
         )],
     )
     .unwrap();
-    let sentence = ConfigurationSentence::fixed(fixed);
-    let native = adapter.configuration(&sentence, MODULE, 0).unwrap();
+    let native = adapter.configuration(&fixed, MODULE, 0).unwrap();
     let Sentence::Configuration { body, .. } = native else {
         panic!("fixed configuration must remain native")
     };
@@ -1762,8 +1720,13 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
             Term::Token { token: end, .. }
         ] if start == "k"
             && end == "k"
-            && properties.name == "#cellPropertyListTerminator"
-            && matches!(items.as_slice(), [Term::Apply { label, arguments }] if label.name == "Lblfoo" && arguments.is_empty())
+            && properties.name == "#cellPropertyList"
+            && matches!(
+                items.as_slice(),
+                [Term::Apply { label, arguments }]
+                    if label.name == "#SemanticCastToValue"
+                        && matches!(arguments.as_slice(), [Term::Token { token, .. }] if token == "$PGM")
+            )
     ));
 
     let rule = main
@@ -1823,7 +1786,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
         "def.cell.k",
         "def.initializer",
         "def.term.init.sequence",
-        "def.term.init.foo",
+        "def.term.init.program",
         "def.rule.foo-to-bar",
         "def.term.rule.rewrite",
         "def.term.rule.foo",
@@ -1850,8 +1813,7 @@ fn permanent_structured_compile_uses_the_pinned_compatibility_layer() {
 
 #[test]
 fn permanent_structured_compile_replaces_the_bootstrap_default_configuration() {
-    let definition =
-        smoke_definition_with_cell(SentenceKind::Transition, "initInstrsCell", "instrs");
+    let definition = smoke_definition_with_cell(SentenceKind::Transition, "instrs");
     let adapted = adapt_definition(&definition).unwrap();
     let loaded = prepare_definition(adapted.definition, Backend::Llvm).unwrap();
     assert!(
@@ -1947,19 +1909,6 @@ fn provisional_ir_oracle_compiles_and_reparses_both_kore_artifacts() {
     let checkout = env!("CARGO_MANIFEST_DIR");
     assert!(!artifacts.definition_kore.contains(checkout));
     assert!(!artifacts.syntax_definition_kore.contains(checkout));
-}
-
-#[test]
-fn provisional_oracle_rejects_initializer_identity_drift() {
-    let error = compile_definition_provisional_oracle(
-        &smoke_definition_with(SentenceKind::Transition, "initMachine"),
-        CompileOptions::default(),
-    )
-    .expect_err("frontend-derived initializer identity must not replace the IR identity");
-    assert!(matches!(
-        error,
-        super::ProvisionalCompileError::InitializerIdentity { .. }
-    ));
 }
 
 #[test]

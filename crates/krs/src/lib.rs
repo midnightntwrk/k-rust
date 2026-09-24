@@ -29,18 +29,14 @@ use std::any::TypeId;
 use std::marker::PhantomData;
 
 pub use krs_ir::{
-    AnchorPrecision, BuiltinOperation, BuiltinSort, ConfigurationCellDescriptor,
-    ConfigurationDescriptorError, HookOperation, HostAuthoredAnchor,
+    AnchorPrecision, BuiltinOperation, BuiltinSort, HookOperation, HostAuthoredAnchor,
     HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,
-    HostBuiltinSortRegistration, HostConfigurationDescriptor,
-    HostConfigurationInitializerDescriptor, HostConfigurationVariableDescriptor,
-    HostConstructorDescriptor, HostConstructorFieldDescriptor, HostDeclarationIdentity,
-    HostDescriptor, HostDescriptorPayload, HostDescriptorReference, HostIdentityError, HostItemId,
+    HostBuiltinSortRegistration, HostConstructorDescriptor, HostConstructorFieldDescriptor,
+    HostDeclarationIdentity, HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId,
     HostListOperationRegistration, HostMapOperationRegistration, HostPackageKey, HostProvenance,
-    HostProvenanceError, HostRuleDescriptor, HostRuleParameterDescriptor,
-    HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
-    HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation, ProtocolVersion,
-    ProvenanceKey, RuleBindingError, SentenceKind, SetOperation,
+    HostProvenanceError, HostSetOperationRegistration, HostSortDescriptor, HostSourceAnchor,
+    HostSourcePosition, HostTypeKey, HostTypeReference, ItemKind, ListOperation, MapOperation,
+    ProtocolVersion, ProvenanceKey, SentenceKind, SetOperation,
 };
 pub use krs_ir::{
     DescriptorApplicationHeadClass, DescriptorAssociativitySentence, DescriptorFieldReference,

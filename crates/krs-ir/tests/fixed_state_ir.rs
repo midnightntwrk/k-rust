@@ -1,13 +1,13 @@
 //! Hand-built fixed-state Definition IR contract.
 
 use krs_ir::{
-    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, ConfigurationSentence,
-    DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionValidationError, DefinitionVariable, FixedCell, FixedCellClause, FixedConfiguration,
-    FixedConfigurationRewrite, FixedConfigurationVariable, FixedInitializerCell, LabelId,
-    LabelIdentity, MapOperation, ModuleId, NodeOrigin, OriginStack, RuleSentence, SemanticId,
-    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StateShapeError,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr, DefinitionModule,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
+    DefinitionVariable, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, LabelId, LabelIdentity, MapOperation,
+    ModuleId, NodeOrigin, OriginStack, RuleSentence, SemanticId, SentenceKind, Sha256Digest,
+    SourceFileId, SourceMapKey, SourceRange, StateShapeError, SubsortSentence, SymbolId,
+    SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
@@ -170,9 +170,7 @@ fn calc_definition(variants: Variants) -> Result<DefinitionIr, DefinitionValidat
         initializer,
     )
     .unwrap();
-    sentences.push(DefinitionSentence::Configuration(
-        ConfigurationSentence::fixed(configuration),
-    ));
+    sentences.push(DefinitionSentence::Configuration(configuration));
 
     let target = if variants.matching_target {
         configuration_id.clone()

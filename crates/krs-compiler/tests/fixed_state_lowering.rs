@@ -12,10 +12,10 @@ use krs_ir::{
     GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
     OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
-    SemanticConfiguration, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
-    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
-    SemanticVariable, SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
-    StableItemId, StrictnessKind, TransformationOriginKind,
+    SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
+    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
+    StrictnessKind, TransformationOriginKind,
 };
 
 fn package() -> PackageId {
@@ -223,36 +223,34 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
     } else {
         vec![k_cell, env_cell]
     };
-    let configuration = SemanticConfiguration::fixed(
-        FixedConfiguration::new(
-            origin("configuration.calc"),
-            configuration_id.clone(),
-            ConfigurationRoot::GeneratedTop,
-            cells,
-            origin("configuration.initializer"),
-            sid("initializer.calc"),
-            vec![
-                FixedConfigurationVariable::new(
-                    origin("configuration.variable.pgm"),
-                    sid("PGM"),
-                    "PGM",
-                    stmt.clone(),
-                    true,
-                )
-                .unwrap(),
-                FixedConfigurationVariable::new(
-                    origin("configuration.variable.env"),
-                    sid("ENV"),
-                    "ENV",
-                    SemanticSortRef::map(),
-                    false,
-                )
-                .unwrap(),
-            ],
-            initializer,
-        )
-        .unwrap(),
-    );
+    let configuration = FixedConfiguration::new(
+        origin("configuration.calc"),
+        configuration_id.clone(),
+        ConfigurationRoot::GeneratedTop,
+        cells,
+        origin("configuration.initializer"),
+        sid("initializer.calc"),
+        vec![
+            FixedConfigurationVariable::new(
+                origin("configuration.variable.pgm"),
+                sid("PGM"),
+                "PGM",
+                stmt.clone(),
+                true,
+            )
+            .unwrap(),
+            FixedConfigurationVariable::new(
+                origin("configuration.variable.env"),
+                sid("ENV"),
+                "ENV",
+                SemanticSortRef::map(),
+                false,
+            )
+            .unwrap(),
+        ],
+        initializer,
+    )
+    .unwrap();
 
     let frame = |key: &str, binding: &str| CellContentFrame::KSequenceTail {
         origin: origin(key),
@@ -677,7 +675,7 @@ fn exact_calc_source_and_fixed_state_sidecars_are_complete() {
         .sentences()
         .iter()
         .find_map(|sentence| match sentence {
-            krs_ir::DefinitionSentence::Configuration(sentence) => sentence.as_fixed(),
+            krs_ir::DefinitionSentence::Configuration(sentence) => Some(sentence),
             _ => None,
         })
         .unwrap();

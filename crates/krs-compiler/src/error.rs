@@ -37,11 +37,7 @@ pub enum CollectionErrorKind {
     UnresolvedTypeReference,
     /// A resolved declaration had the wrong semantic item kind.
     ReferenceKindMismatch,
-    /// A rule contained an unsupported or repeated parser-owned reference key.
-    InvalidReferenceKey,
-    /// A rule contained a blank or repeated authored binding name.
-    InvalidRuleBindings,
-    /// A combined configuration/initializer descriptor violated protocol v5.
+    /// A fixed configuration, cell, or configuration rule descriptor was malformed.
     InvalidConfiguration,
     /// A display filename was not a normalized relative source hint.
     InvalidDisplayFile,

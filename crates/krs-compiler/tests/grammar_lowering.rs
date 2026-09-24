@@ -1,15 +1,15 @@
-//! Protocol-v6 grammar reaches Definition IR and canonical K source.
+//! Structured grammar reaches Definition IR and canonical K source.
 
 use krs_compiler::{emit_k, lower_semantic_theory};
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, HookOperation, ItemKind, ModuleId, NodeOrigin, OriginStack,
-    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticCell,
-    SemanticConfiguration, SemanticId, SemanticInitializer, SemanticModule, SemanticProduction,
-    SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort,
-    SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, Sha256Digest, SourceFileId,
-    SourceMapKey, SourceRange, StableItemId, StrictnessKind,
+    ApplicationRef, BuiltinOperation, BuiltinSort, ConfigurationRoot, FixedCell,
+    FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
+    GroupAssociativity, GroupAssociativitySentence, HookOperation, ItemKind, ModuleId, NodeOrigin,
+    OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticId, SemanticModule,
+    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, Sha256Digest,
+    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
 };
 
 fn package() -> PackageId {
@@ -337,23 +337,36 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
         .unwrap(),
     )
     .unwrap();
-    let configuration = SemanticConfiguration::new(
+    let k_cell = SemanticId::new("machine.k").unwrap();
+    let configuration = FixedConfiguration::new(
         origin("configuration"),
         SemanticId::new("machine").unwrap(),
-        SemanticCell::new(
-            origin("cell"),
-            SemanticId::new("machine.k").unwrap(),
-            "k",
-            SemanticSortRef::k_sequence(),
-        )
-        .unwrap(),
-        SemanticInitializer::new(
-            origin("initializer"),
-            SemanticId::new("machine.init").unwrap(),
-            vec![SemanticVariable::new(
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                origin("cell"),
+                k_cell.clone(),
+                "k",
+                vec![],
+                SemanticSortRef::k_sequence(),
+            )
+            .unwrap(),
+        ],
+        origin("initializer"),
+        SemanticId::new("machine.init").unwrap(),
+        vec![
+            FixedConfigurationVariable::new(
+                origin("initializer.variable"),
                 pgm.clone(),
+                "PGM",
                 SemanticSortRef::Declared(expr.clone()),
-            )],
+                true,
+            )
+            .unwrap(),
+        ],
+        vec![FixedInitializerCell::term(
+            origin("initializer.k"),
+            k_cell,
             SemanticTerm::k_sequence(
                 origin("initializer.sequence"),
                 SemanticSortRef::Declared(expr.clone()),
@@ -363,8 +376,9 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
                     pgm,
                 )],
             ),
-        ),
-    );
+        )],
+    )
+    .unwrap();
     let module = SemanticModule::new(
         origin("module"),
         ModuleId::new("KRS-GRAMMAR-LOWERING").unwrap(),
@@ -426,9 +440,10 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     assert!(source.contains("+Int 1"));
     let configuration = source
         .lines()
-        .find(|line| line.trim_start().starts_with("configuration "))
+        .find(|line| line.trim_start().starts_with("<k> "))
         .unwrap();
-    assert!(configuration.starts_with("  configuration <k> $PGM:"));
+    assert!(source.contains("  configuration\n"));
+    assert!(configuration.starts_with("    <k> $PGM:"));
     assert!(configuration.ends_with(" </k>"));
     assert!(!configuration.contains("V50474D"));
     assert!(source.contains("V50474D:Int +Int 1"));

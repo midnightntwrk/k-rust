@@ -169,8 +169,6 @@ pub enum SymbolKind {
     Production,
     /// Generated configuration cell label.
     Cell,
-    /// Generated initializer label.
-    Initializer,
 }
 
 /// The sole declaration of a generated symbol's ID and emitted K name.
@@ -463,33 +461,13 @@ impl DefinitionIr {
                     DefinitionSentence::Precedence(_) | DefinitionSentence::Associativity(_) => {}
                     DefinitionSentence::Configuration(sentence) => {
                         configurations += 1;
-                        match sentence {
-                            ConfigurationSentence::Legacy(sentence) => {
-                                validate_symbol_text(&sentence.cell.symbol)?;
-                                validate_symbol_text(&sentence.initializer.symbol)?;
-                                insert_node(&mut nodes, sentence.cell.origin.key())?;
-                                insert_node(&mut nodes, sentence.initializer.origin.key())?;
-                                declare_symbol(
-                                    &sentence.cell.symbol,
-                                    &mut symbols,
-                                    &mut symbol_names,
-                                )?;
-                                declare_symbol(
-                                    &sentence.initializer.symbol,
-                                    &mut symbols,
-                                    &mut symbol_names,
-                                )?;
-                            }
-                            ConfigurationSentence::Fixed(sentence) => {
-                                insert_node(&mut nodes, sentence.initializer_origin().key())?;
-                                collect_definition_fixed_configuration(
-                                    sentence,
-                                    &mut symbols,
-                                    &mut symbol_names,
-                                    &mut nodes,
-                                )?;
-                            }
-                        }
+                        insert_node(&mut nodes, sentence.initializer_origin().key())?;
+                        collect_definition_fixed_configuration(
+                            sentence,
+                            &mut symbols,
+                            &mut symbol_names,
+                            &mut nodes,
+                        )?;
                     }
                     DefinitionSentence::ContextAlias(sentence) => {
                         if sentence.id.item_kind() != ItemKind::ContextAlias
@@ -530,7 +508,7 @@ impl DefinitionIr {
         }
         let fixed_configuration = self.modules.iter().find_map(|module| {
             module.sentences.iter().find_map(|sentence| match sentence {
-                DefinitionSentence::Configuration(configuration) => configuration.as_fixed(),
+                DefinitionSentence::Configuration(configuration) => Some(configuration),
                 _ => None,
             })
         });
@@ -563,7 +541,7 @@ impl DefinitionIr {
                             require_definition_group(&groups, group)?;
                         }
                     }
-                    DefinitionSentence::Configuration(sentence) => validate_configuration(
+                    DefinitionSentence::Configuration(sentence) => validate_fixed_configuration(
                         sentence,
                         &symbols,
                         &production_signatures,
@@ -978,174 +956,8 @@ impl ProductionSentence {
     }
 }
 
-/// Exactly-one fixed computation cell.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CellDeclaration {
-    origin: NodeOrigin,
-    symbol: SymbolIdentity,
-    content_sort: DefinitionSortRef,
-}
-impl CellDeclaration {
-    /// Creates a fixed cell symbol declaration.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DefinitionValidationError`] when the symbol is not a cell.
-    pub fn new(
-        origin: NodeOrigin,
-        symbol: SymbolIdentity,
-        content_sort: DefinitionSortRef,
-    ) -> Result<Self, DefinitionValidationError> {
-        expect_symbol_kind(&symbol, SymbolKind::Cell)?;
-        Ok(Self {
-            origin,
-            symbol,
-            content_sort,
-        })
-    }
-    /// Returns its origin.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns its symbol declaration.
-    #[must_use]
-    pub const fn symbol(&self) -> &SymbolIdentity {
-        &self.symbol
-    }
-    /// Returns the cell content sort.
-    #[must_use]
-    pub const fn content_sort(&self) -> &DefinitionSortRef {
-        &self.content_sort
-    }
-}
-
-/// Declarative initializer symbol and body.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct InitializerDeclaration {
-    origin: NodeOrigin,
-    symbol: SymbolIdentity,
-    variables: Vec<DefinitionVariable>,
-    body: DefinitionTerm,
-}
-impl InitializerDeclaration {
-    /// Creates an initializer; variable order is semantic.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DefinitionValidationError`] when the symbol is not an initializer.
-    pub fn new(
-        origin: NodeOrigin,
-        symbol: SymbolIdentity,
-        variables: Vec<DefinitionVariable>,
-        body: DefinitionTerm,
-    ) -> Result<Self, DefinitionValidationError> {
-        expect_symbol_kind(&symbol, SymbolKind::Initializer)?;
-        Ok(Self {
-            origin,
-            symbol,
-            variables,
-            body,
-        })
-    }
-    /// Returns its origin.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        &self.origin
-    }
-    /// Returns its generated symbol.
-    #[must_use]
-    pub const fn symbol(&self) -> &SymbolIdentity {
-        &self.symbol
-    }
-    /// Returns ordered variables.
-    #[must_use]
-    pub fn variables(&self) -> &[DefinitionVariable] {
-        &self.variables
-    }
-    /// Returns its structured body.
-    #[must_use]
-    pub const fn body(&self) -> &DefinitionTerm {
-        &self.body
-    }
-}
-
-/// Legacy single-cell or general fixed/nested source configuration sentence.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ConfigurationSentence {
-    /// Compatibility representation for the original one-cell form.
-    Legacy(LegacyConfigurationSentence),
-    /// General fixed/nested configuration.
-    Fixed(FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>),
-}
-
-/// Legacy one-cell source configuration.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LegacyConfigurationSentence {
-    origin: NodeOrigin,
-    cell: CellDeclaration,
-    initializer: InitializerDeclaration,
-}
-impl ConfigurationSentence {
-    /// Creates the legacy one-cell configuration.
-    #[must_use]
-    pub const fn new(
-        origin: NodeOrigin,
-        cell: CellDeclaration,
-        initializer: InitializerDeclaration,
-    ) -> Self {
-        Self::Legacy(LegacyConfigurationSentence {
-            origin,
-            cell,
-            initializer,
-        })
-    }
-    /// Wraps one general fixed/nested configuration.
-    #[must_use]
-    pub const fn fixed(
-        configuration: FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>,
-    ) -> Self {
-        Self::Fixed(configuration)
-    }
-    /// Returns sentence provenance.
-    #[must_use]
-    pub const fn origin(&self) -> &NodeOrigin {
-        match self {
-            Self::Legacy(value) => &value.origin,
-            Self::Fixed(value) => value.origin(),
-        }
-    }
-    /// Returns the legacy cell, when this is the one-cell form.
-    #[must_use]
-    pub const fn cell(&self) -> Option<&CellDeclaration> {
-        match self {
-            Self::Legacy(value) => Some(&value.cell),
-            Self::Fixed(_) => None,
-        }
-    }
-    /// Returns the legacy initializer, when this is the one-cell form.
-    #[must_use]
-    pub const fn initializer(&self) -> Option<&InitializerDeclaration> {
-        match self {
-            Self::Legacy(value) => Some(&value.initializer),
-            Self::Fixed(_) => None,
-        }
-    }
-    /// Returns the general fixed configuration, when present.
-    #[must_use]
-    pub const fn as_fixed(
-        &self,
-    ) -> Option<&FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>> {
-        match self {
-            Self::Legacy(_) => None,
-            Self::Fixed(value) => Some(value),
-        }
-    }
-}
+/// The one fixed, possibly nested, source configuration sentence.
+pub type ConfigurationSentence = FixedConfiguration<DefinitionSortRef, SymbolId, DefinitionTerm>;
 
 /// Definition-level variable declaration.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -1571,7 +1383,7 @@ impl RuleSentence {
     pub const fn requires(&self) -> Option<&DefinitionRuleCondition> {
         self.requires.as_ref()
     }
-    /// Returns the legacy term rewrite body, when present.
+    /// Returns the ordinary term rewrite body, when present.
     #[must_use]
     pub const fn body(&self) -> Option<&DefinitionTerm> {
         match &self.body {
@@ -1946,8 +1758,6 @@ pub enum DefinitionValidationError {
     RuleConditionSortMismatch,
     /// A static alias clause carried a runtime condition.
     AliasCondition,
-    /// Initializer result differs from cell content sort.
-    InitializerSortMismatch,
     /// A structured fixed initializer did not mirror its declaration tree.
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
@@ -2143,9 +1953,6 @@ impl fmt::Display for DefinitionValidationError {
             }
             Self::InvalidAliasProduction => {
                 formatter.write_str("alias metadata cannot be combined with function metadata")
-            }
-            Self::InitializerSortMismatch => {
-                formatter.write_str("initializer body sort must match the cell sort")
             }
             Self::InitializerTreeMismatch => {
                 formatter.write_str("initializer tree must exactly mirror the fixed cell tree")
@@ -2473,42 +2280,6 @@ fn variable_scope(
         }
     }
     Ok(scope)
-}
-
-fn validate_configuration(
-    sentence: &ConfigurationSentence,
-    symbols: &BTreeMap<SymbolId, SymbolKind>,
-    signatures: &BTreeMap<SymbolId, (DefinitionSortRef, Vec<DefinitionSortRef>)>,
-    subsort_parents: &BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>>,
-    nodes: &mut BTreeSet<SourceMapKey>,
-) -> Result<(), DefinitionValidationError> {
-    match sentence {
-        ConfigurationSentence::Legacy(sentence) => {
-            require_declared_kind(symbols, sentence.cell.symbol.id(), SymbolKind::Cell)?;
-            require_definition_sort(symbols, &sentence.cell.content_sort)?;
-            require_declared_kind(
-                symbols,
-                sentence.initializer.symbol.id(),
-                SymbolKind::Initializer,
-            )?;
-            let scope = variable_scope(&sentence.initializer.variables, symbols)?;
-            validate_term(
-                &sentence.initializer.body,
-                &scope,
-                symbols,
-                signatures,
-                subsort_parents,
-                nodes,
-            )?;
-            if sentence.initializer.body.sort != sentence.cell.content_sort {
-                return Err(DefinitionValidationError::InitializerSortMismatch);
-            }
-        }
-        ConfigurationSentence::Fixed(sentence) => {
-            validate_fixed_configuration(sentence, symbols, signatures, subsort_parents, nodes)?;
-        }
-    }
-    Ok(())
 }
 
 fn validate_fixed_configuration(

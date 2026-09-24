@@ -212,13 +212,6 @@ pub struct OriginMapping {
     pub role: NativeNodeRole,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct InitializerIdentity {
-    module: String,
-    cell_name: String,
-    emitted_name: String,
-}
-
 /// A native source definition structurally adapted from Definition IR.
 ///
 /// This value is intentionally not a [`LoadedDefinition`]. Its origin sidecar
@@ -232,7 +225,6 @@ struct InitializerIdentity {
 pub struct AdaptedDefinition {
     definition: NativeDefinition,
     origins: Vec<OriginMapping>,
-    initializers: Vec<InitializerIdentity>,
 }
 
 impl AdaptedDefinition {
@@ -492,14 +484,6 @@ pub enum ProvisionalCompileError {
         /// Pinned parser message.
         message: String,
     },
-    /// Configuration expansion did not expose the one generated initializer
-    /// identity which must be rebound to the IR-owned emitted name.
-    InitializerIdentity {
-        /// Module containing the configuration.
-        module: String,
-        /// Explanation of the unexpected expanded shape.
-        message: String,
-    },
 }
 
 impl fmt::Display for ProvisionalCompileError {
@@ -522,10 +506,6 @@ impl fmt::Display for ProvisionalCompileError {
             Self::KoreReparse { artifact, message } => {
                 write!(formatter, "pinned parser rejected {artifact}: {message}")
             }
-            Self::InitializerIdentity { module, message } => write!(
-                formatter,
-                "cannot preserve initializer identity in module {module:?}: {message}"
-            ),
         }
     }
 }
@@ -535,10 +515,7 @@ impl Error for ProvisionalCompileError {
         match self {
             Self::Adapter(error) => Some(error),
             Self::Compile(error) => Some(error),
-            Self::Configuration(_)
-            | Self::Resolution(_)
-            | Self::KoreReparse { .. }
-            | Self::InitializerIdentity { .. } => None,
+            Self::Configuration(_) | Self::Resolution(_) | Self::KoreReparse { .. } => None,
         }
     }
 }
@@ -603,10 +580,6 @@ pub fn compile_definition(
     let adapted = adapt_definition(ir).map_err(DefinitionCompileError::Adapter)?;
     let loaded = prepare_definition(adapted.definition.clone(), options.backend)
         .map_err(DefinitionCompileError::Preparation)?;
-    for initializer in &adapted.initializers {
-        validate_initializer_identity(&loaded.definition, initializer)
-            .map_err(|error| DefinitionCompileError::Preparation(error.to_string()))?;
-    }
     let mut artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
         let authored_existential_keys = authored_existential_sentence_keys(ir);
         let diagnostics = error
@@ -996,7 +969,6 @@ struct Adapter {
     initializer_variables: BTreeMap<SemanticId, String>,
     context_here: Option<SemanticId>,
     origins: Vec<OriginMapping>,
-    initializers: Vec<InitializerIdentity>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1030,28 +1002,7 @@ impl Adapter {
                             sentence.symbol().emitted_name().to_owned(),
                         );
                     }
-                    DefinitionSentence::Configuration(sentence) if sentence.cell().is_some() => {
-                        let cell = sentence.cell().expect("legacy configuration cell");
-                        let initializer = sentence
-                            .initializer()
-                            .expect("legacy configuration initializer");
-                        symbols.insert(
-                            cell.symbol().id().clone(),
-                            cell.symbol().emitted_name().to_owned(),
-                        );
-                        cells.insert(
-                            cell.symbol().id().clone(),
-                            cell.symbol().emitted_name().to_owned(),
-                        );
-                        symbols.insert(
-                            initializer.symbol().id().clone(),
-                            initializer.symbol().emitted_name().to_owned(),
-                        );
-                    }
-                    DefinitionSentence::Configuration(sentence) => {
-                        let configuration = sentence
-                            .as_fixed()
-                            .expect("non-legacy configuration is fixed");
+                    DefinitionSentence::Configuration(configuration) => {
                         collect_fixed_cells(configuration.cells(), &mut cells);
                     }
                     DefinitionSentence::ContextAlias(sentence) => {
@@ -1072,7 +1023,6 @@ impl Adapter {
             initializer_variables: BTreeMap::new(),
             context_here: None,
             origins: Vec::new(),
-            initializers: Vec::new(),
         }
     }
 
@@ -1089,7 +1039,6 @@ impl Adapter {
                 attributes: NativeAttributes::default(),
             },
             origins: self.origins,
-            initializers: self.initializers,
         })
     }
 
@@ -1417,75 +1366,33 @@ impl Adapter {
 
     fn configuration(
         &mut self,
-        sentence: &ConfigurationSentence,
+        configuration: &ConfigurationSentence,
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
         self.initializer_variables.clear();
-        let body =
-            if let (Some(cell), Some(initializer)) = (sentence.cell(), sentence.initializer()) {
-                for variable in initializer.variables() {
-                    self.initializer_variables
-                        .insert(variable.id().clone(), variable.id().as_str().to_owned());
-                }
-                self.map_origin(
-                    cell.origin(),
-                    module,
-                    Some(sentence_index),
-                    NativeNodeRole::ConfigurationCell,
-                );
-                self.map_origin(
-                    initializer.origin(),
-                    module,
-                    Some(sentence_index),
-                    NativeNodeRole::ConfigurationInitializer,
-                );
-                let cell_name = cell.symbol().emitted_name().to_owned();
-                let contents = self.term(
-                    initializer.body(),
-                    module,
-                    sentence_index,
-                    Vec::new(),
-                    TermContext::ConfigurationInitializer,
-                    None,
-                )?;
-                self.initializers.push(InitializerIdentity {
-                    module: module.to_owned(),
-                    cell_name: cell_name.clone(),
-                    emitted_name: initializer.symbol().emitted_name().to_owned(),
-                });
-                native_config_cell(
-                    &cell_name,
-                    NativeTerm::apply("#cellPropertyListTerminator", Vec::new()),
-                    contents,
-                )
-            } else {
-                let configuration = sentence
-                    .as_fixed()
-                    .expect("configuration is legacy or fixed");
-                for variable in configuration.variables() {
-                    self.initializer_variables
-                        .insert(variable.id().clone(), variable.external_name().to_owned());
-                    self.map_origin(
-                        variable.origin(),
-                        module,
-                        Some(sentence_index),
-                        NativeNodeRole::ConfigurationInitializer,
-                    );
-                }
-                self.map_origin(
-                    configuration.initializer_origin(),
-                    module,
-                    Some(sentence_index),
-                    NativeNodeRole::ConfigurationInitializer,
-                );
-                self.fixed_configuration(configuration, module, sentence_index)?
-            };
+        for variable in configuration.variables() {
+            self.initializer_variables
+                .insert(variable.id().clone(), variable.external_name().to_owned());
+            self.map_origin(
+                variable.origin(),
+                module,
+                Some(sentence_index),
+                NativeNodeRole::ConfigurationInitializer,
+            );
+        }
+        self.map_origin(
+            configuration.initializer_origin(),
+            module,
+            Some(sentence_index),
+            NativeNodeRole::ConfigurationInitializer,
+        );
+        let body = self.fixed_configuration(configuration, module, sentence_index)?;
         self.initializer_variables.clear();
         Ok(NativeSentence::Configuration {
             body,
             ensures: truth(),
-            attributes: attributes_for_origin(sentence.origin()),
+            attributes: attributes_for_origin(configuration.origin()),
         })
     }
 
@@ -2335,18 +2242,7 @@ fn module_builtin_imports(module: &krs_ir::DefinitionModule) -> BTreeSet<String>
                 // Configuration expansion lowers external variables through
                 // `Map:lookup`, even when no authored cell has sort Map.
                 sorts.insert(BuiltinSort::Map);
-                if let Some(cell) = sentence.cell() {
-                    collect_builtin_sort(cell.content_sort(), &mut sorts);
-                }
-                if let Some(initializer) = sentence.initializer() {
-                    for variable in initializer.variables() {
-                        collect_builtin_sort(variable.sort(), &mut sorts);
-                    }
-                    collect_term_builtins(initializer.body(), &mut sorts);
-                }
-                if let Some(configuration) = sentence.as_fixed() {
-                    collect_fixed_configuration_builtins(configuration, &mut sorts);
-                }
+                collect_fixed_configuration_builtins(sentence, &mut sorts);
             }
             DefinitionSentence::ContextAlias(sentence) => {
                 for variable in sentence.variables() {
@@ -2746,64 +2642,8 @@ fn prepare_provisional_oracle(
     adapted: &AdaptedDefinition,
     backend: Backend,
 ) -> Result<LoadedDefinition, ProvisionalCompileError> {
-    let loaded = prepare_definition(adapted.definition.clone(), backend)
-        .map_err(ProvisionalCompileError::Configuration)?;
-    for initializer in &adapted.initializers {
-        validate_initializer_identity(&loaded.definition, initializer)?;
-    }
-    Ok(loaded)
-}
-
-fn validate_initializer_identity(
-    definition: &NativeDefinition,
-    initializer: &InitializerIdentity,
-) -> Result<(), ProvisionalCompileError> {
-    let Some(module) = definition
-        .modules
-        .iter()
-        .find(|module| module.name == initializer.module)
-    else {
-        return Err(ProvisionalCompileError::InitializerIdentity {
-            module: initializer.module.clone(),
-            message: "expanded module is absent".into(),
-        });
-    };
-    let cell_sort = native_definition::configuration::cell_sort_name(&initializer.cell_name);
-    let generated = module
-        .local_sentences
-        .iter()
-        .filter_map(|sentence| match sentence {
-            NativeSentence::Production {
-                label: Some(label),
-                sort,
-                attributes,
-                ..
-            } if sort.name == cell_sort && attributes.get("initializer").is_some() => {
-                Some(label.name.clone())
-            }
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    let [generated] = generated.as_slice() else {
-        return Err(ProvisionalCompileError::InitializerIdentity {
-            module: initializer.module.clone(),
-            message: format!(
-                "expected one generated initializer for cell {:?}, found {}",
-                initializer.cell_name,
-                generated.len()
-            ),
-        });
-    };
-    if generated != &initializer.emitted_name {
-        return Err(ProvisionalCompileError::InitializerIdentity {
-            module: initializer.module.clone(),
-            message: format!(
-                "frontend generated {generated:?} for cell {:?}, but Definition IR owns {:?}",
-                initializer.cell_name, initializer.emitted_name
-            ),
-        });
-    }
-    Ok(())
+    prepare_definition(adapted.definition.clone(), backend)
+        .map_err(ProvisionalCompileError::Configuration)
 }
 
 #[cfg(test)]

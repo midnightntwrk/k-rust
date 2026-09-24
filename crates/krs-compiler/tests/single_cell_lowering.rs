@@ -1,12 +1,13 @@
-//! Single-cell compatibility configuration lowering on the current classified IR.
+//! One-cell fixed configuration lowering on the current classified IR.
 
 use krs_compiler::{LoweringError, emit_k, lower_semantic_theory};
 use krs_ir::{
-    ApplicationRef, DefinitionSentence, ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack,
-    PackageId, RangedOriginKind, SemanticCell, SemanticConfiguration, SemanticId,
-    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
-    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, TransformationOriginKind,
+    ApplicationRef, ConfigurationRoot, DefinitionSentence, FixedCell, FixedConfiguration,
+    FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack, PackageId,
+    RangedOriginKind, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
+    TransformationOriginKind,
 };
 
 fn package() -> PackageId {
@@ -88,20 +89,27 @@ fn theory(reverse: bool) -> SemanticTheory {
         sorts.reverse();
         productions.reverse();
     }
-    let configuration = SemanticConfiguration::new(
+    let k_cell = SemanticId::new("machine.k").unwrap();
+    let configuration = FixedConfiguration::new(
         origin("sem.configuration"),
         SemanticId::new("machine").unwrap(),
-        SemanticCell::new(
-            origin("sem.cell.k"),
-            SemanticId::new("machine.k").unwrap(),
-            "k",
-            SemanticSortRef::k_sequence(),
-        )
-        .unwrap(),
-        SemanticInitializer::new(
-            origin("sem.initializer"),
-            SemanticId::new("machine.init").unwrap(),
-            vec![],
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                origin("sem.cell.k"),
+                k_cell.clone(),
+                "k",
+                vec![],
+                SemanticSortRef::k_sequence(),
+            )
+            .unwrap(),
+        ],
+        origin("sem.initializer"),
+        SemanticId::new("machine.init").unwrap(),
+        vec![],
+        vec![FixedInitializerCell::term(
+            origin("sem.initializer.k"),
+            k_cell,
             SemanticTerm::k_sequence(
                 origin("sem.term.init.sequence"),
                 SemanticSortRef::Declared(k_item),
@@ -112,8 +120,9 @@ fn theory(reverse: bool) -> SemanticTheory {
                     vec![],
                 )],
             ),
-        ),
-    );
+        )],
+    )
+    .unwrap();
     let rewrite = SemanticTerm::rewrite(
         origin("sem.term.rule.rewrite"),
         SemanticSortRef::Declared(object.clone()),
@@ -186,7 +195,9 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
   syntax KItem ::= KResult
   syntax KResult ::= Obj
 
-  configuration <k> foo </k>
+  configuration
+    <k> foo </k>
+
 
   rule foo => bar [label(krsRule_7ff2bcc3f880afc8861cfcfe)]
 endmodule
@@ -228,7 +239,7 @@ fn lowering_appends_definition_origins_and_source_ranges_are_honest() {
 }
 
 #[test]
-fn exact_chain_configuration_and_initializer_remain_structural() {
+fn one_cell_configuration_and_initializer_remain_structural() {
     let lowered = lower_semantic_theory(&theory(false)).unwrap();
     let configuration = lowered
         .definition()
@@ -240,14 +251,17 @@ fn exact_chain_configuration_and_initializer_remain_structural() {
             _ => None,
         })
         .unwrap();
-    assert_eq!(configuration.cell().unwrap().symbol().emitted_name(), "k");
-    assert_eq!(
-        configuration.initializer().unwrap().symbol().emitted_name(),
-        "initKCell"
-    );
+    let [cell] = configuration.cells() else {
+        panic!("the configuration declares exactly one cell");
+    };
+    assert_eq!(cell.name(), "k");
+    let [initializer] = configuration.initializer() else {
+        panic!("the initializer fills exactly one cell");
+    };
     assert!(matches!(
-        configuration.initializer().unwrap().body().kind(),
-        krs_ir::DefinitionTermKind::KSequence { items, .. } if items.len() == 1
+        initializer.content(),
+        krs_ir::FixedInitializerContent::Term { term }
+            if matches!(term.kind(), krs_ir::DefinitionTermKind::KSequence { items, .. } if items.len() == 1)
     ));
 }
 

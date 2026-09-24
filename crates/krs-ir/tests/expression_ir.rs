@@ -1,17 +1,17 @@
 //! Hand-built expression-grammar Definition IR contract.
 
 use krs_ir::{
-    ApplicationRef, BuiltinOperation, CellDeclaration, ConfigurationSentence, DefinitionIr,
-    DefinitionModule, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
-    DefinitionValidationError, DefinitionVariable, FormatFragment, GroupAssociativity,
-    GroupAssociativitySentence, InitializerDeclaration, LabelId, LabelIdentity, ModuleId,
-    NodeOrigin, OriginStack, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
-    ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity, ProductionItem,
-    ProductionResultSort, ProductionSentence, SemanticCell, SemanticConfiguration, SemanticId,
-    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
-    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ApplicationRef, BuiltinOperation, ConfigurationRoot, DefinitionIr, DefinitionModule,
+    DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
+    DefinitionVariable, FixedCell, FixedConfiguration, FixedConfigurationVariable,
+    FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence, LabelId,
+    LabelIdentity, ModuleId, NodeOrigin, OriginStack, PrecedenceRelation, ProductionAttribute,
+    ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity,
+    ProductionItem, ProductionResultSort, ProductionSentence, SemanticId, SemanticModule,
+    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, Sha256Digest, SourceFileId,
+    SourceMapKey, SourceRange, StableItemId, StrictnessKind, SubsortSentence, SymbolId,
+    SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
@@ -440,26 +440,46 @@ fn expression_definition(reverse_sets: bool) -> Result<DefinitionIr, DefinitionV
         syntax,
     );
 
-    let pgm = DefinitionVariable::new(SemanticId::new("pgm").unwrap(), expr.clone());
-    let initializer = InitializerDeclaration::new(
-        node("initializer.expr"),
-        symbol("initializer.expr", "initKCell", SymbolKind::Initializer),
-        vec![pgm],
-        DefinitionTerm::k_sequence(
-            node("term.init.sequence"),
-            k_item,
-            vec![variable("term.init.pgm", "pgm", expr)],
-        ),
-    )?;
-    let configuration = DefinitionSentence::Configuration(ConfigurationSentence::new(
-        node("configuration.expr"),
-        CellDeclaration::new(
-            node("cell.k"),
-            symbol("cell.k", "k", SymbolKind::Cell),
-            DefinitionSortRef::k_sequence(),
-        )?,
-        initializer,
-    ));
+    let k_cell = SymbolId::new("cell.k").unwrap();
+    let configuration = DefinitionSentence::Configuration(
+        FixedConfiguration::new(
+            node("configuration.expr"),
+            SemanticId::new("machine").unwrap(),
+            ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    node("cell.k"),
+                    k_cell.clone(),
+                    "k",
+                    vec![],
+                    DefinitionSortRef::k_sequence(),
+                )
+                .unwrap(),
+            ],
+            node("initializer.expr"),
+            SemanticId::new("machine.init").unwrap(),
+            vec![
+                FixedConfigurationVariable::new(
+                    node("configuration.variable.pgm"),
+                    SemanticId::new("pgm").unwrap(),
+                    "PGM",
+                    expr.clone(),
+                    true,
+                )
+                .unwrap(),
+            ],
+            vec![FixedInitializerCell::term(
+                node("initializer.k"),
+                k_cell,
+                DefinitionTerm::k_sequence(
+                    node("term.init.sequence"),
+                    k_item,
+                    vec![variable("term.init.pgm", "pgm", expr)],
+                ),
+            )],
+        )
+        .unwrap(),
+    );
     let mut rules = vec![configuration, neg_rule, addition_rule, conjunction_rule];
     if reverse_sets {
         rules.reverse();
@@ -702,23 +722,36 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
         .unwrap(),
     )
     .unwrap();
-    let configuration = SemanticConfiguration::new(
+    let k_cell = SemanticId::new("machine.k").unwrap();
+    let configuration = FixedConfiguration::new(
         node("sem.configuration"),
         SemanticId::new("machine").unwrap(),
-        SemanticCell::new(
-            node("sem.cell.k"),
-            SemanticId::new("machine.k").unwrap(),
-            "k",
-            SemanticSortRef::k_sequence(),
-        )
-        .unwrap(),
-        SemanticInitializer::new(
-            node("sem.initializer"),
-            SemanticId::new("machine.init").unwrap(),
-            vec![krs_ir::SemanticVariable::new(
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                node("sem.cell.k"),
+                k_cell.clone(),
+                "k",
+                vec![],
+                SemanticSortRef::k_sequence(),
+            )
+            .unwrap(),
+        ],
+        node("sem.initializer"),
+        SemanticId::new("machine.init").unwrap(),
+        vec![
+            FixedConfigurationVariable::new(
+                node("sem.configuration.variable.pgm"),
                 SemanticId::new("pgm").unwrap(),
+                "PGM",
                 SemanticSortRef::declared(expr.clone()),
-            )],
+                true,
+            )
+            .unwrap(),
+        ],
+        vec![FixedInitializerCell::term(
+            node("sem.initializer.k"),
+            k_cell,
             SemanticTerm::k_sequence(
                 node("sem.term.init.sequence"),
                 SemanticSortRef::declared(k_item),
@@ -728,8 +761,9 @@ fn semantic_expression_contract_resolves_builtin_sorts_and_applications() {
                     SemanticId::new("pgm").unwrap(),
                 )],
             ),
-        ),
-    );
+        )],
+    )
+    .unwrap();
     let main = SemanticModule::new(
         node("sem.module.main"),
         ModuleId::new("SEM-EXPR").unwrap(),

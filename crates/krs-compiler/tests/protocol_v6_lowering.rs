@@ -1,4 +1,4 @@
-//! Stable protocol-v6 descriptors lower without reparsing Rust spellings.
+//! Stable grammar and structured-rule descriptors lower without reparsing Rust spellings.
 
 use std::collections::BTreeMap;
 
@@ -7,18 +7,17 @@ use krs_compiler::{
     lower_semantic_theory,
 };
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, ConfigurationCellDescriptor, ConfigurationDescriptor,
-    ConfigurationInitializerDescriptor, ConstructorDescriptor, ConstructorFieldDescriptor,
+    BuiltinOperation, BuiltinSort, CellWrapper, ConstructorDescriptor, ConstructorFieldDescriptor,
     Descriptor, DescriptorApplicationHeadClass, DescriptorApplicationRef,
     DescriptorApplicationReference, DescriptorBundle, DescriptorGroupReference, DescriptorLiteral,
     DescriptorNodeOrigin, DescriptorPayload, DescriptorPrecedenceChain, DescriptorProduction,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorProvenance, DescriptorReference, DescriptorRuleCondition, DescriptorRuleLabel,
-    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, DescriptorTermArgument,
-    GeneratedProductionKind, GrammarDescriptor, GroupAssociativity, ItemKind, MapOperation,
-    OriginStack, PackageId, ProductionFieldId, ProductionGroupId, ProvenanceKey, SemanticSortRef,
-    SemanticTerm, SemanticTermKind, SentenceKind, Sha256Digest, SortDescriptor, SourceFileId,
-    SourceRange, StableItemId, StructuredRuleDescriptor, generated_production_id,
+    DescriptorProvenance, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef,
+    DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind,
+    GrammarDescriptor, GroupAssociativity, ItemKind, MapOperation, OriginStack, PackageId,
+    ProductionFieldId, ProductionGroupId, ProvenanceKey, SemanticSortRef, SemanticTerm,
+    SemanticTermKind, SentenceKind, Sha256Digest, SortDescriptor, SourceFileId, SourceRange,
+    StableItemId, StructuredRuleDescriptor, generated_production_id,
 };
 
 fn package() -> PackageId {
@@ -81,6 +80,87 @@ fn declaration(id: StableItemId, payload: DescriptorPayload, primary: &str) -> D
         cfg: BTreeMap::new(),
         provenance: provenance(key(primary, 0), extra),
         payload,
+    }
+}
+
+fn machine_configuration(start: StableItemId) -> Descriptor {
+    let owner = id("Machine", ItemKind::Configuration);
+    let k = krs_ir::DescriptorCellIdentity {
+        owner: owner.clone(),
+        field: "k".into(),
+    };
+    let configuration = krs_ir::DescriptorFixedConfiguration {
+        root: krs_ir::DescriptorConfigurationRoot::GeneratedTop,
+        declaration: krs_ir::DescriptorConfigurationDeclaration {
+            key: key("configuration_declaration", 0),
+            fields: vec![krs_ir::DescriptorCellField {
+                reference: krs_ir::DescriptorCellReference {
+                    key: key("configuration_field", 0),
+                    cell: k.clone(),
+                },
+                rust_field: "k".into(),
+                emitted_name: None,
+                color: None,
+                multiplicity: None,
+                cell_type: None,
+                content: krs_ir::ProtocolCellContent::Leaf {
+                    wrapper_key: key("configuration_cell_wrapper", 0),
+                    wrapper: CellWrapper::KCell,
+                    sort: DescriptorSortReference {
+                        key: key("configuration_cell_content", 0),
+                        sort: DescriptorSortRef::Builtin(BuiltinSort::KSequence),
+                    },
+                    arguments: Vec::new(),
+                },
+            }],
+        },
+        initializer: krs_ir::DescriptorConfigurationInitializer {
+            key: key("initializer_declaration", 0),
+            owner_key: key("initializer_result_type", 0),
+            owner: owner.clone(),
+            variables: Vec::new(),
+            body_key: key("initializer_body", 0),
+            cells: vec![krs_ir::DescriptorInitializerCell {
+                key: key("initializer_cell", 0),
+                field: krs_ir::DescriptorCellReference {
+                    key: key("initializer_field", 0),
+                    cell: k,
+                },
+                content: krs_ir::ProtocolInitializerCellContent::Leaf {
+                    constructor_key: key("initializer_cell_constructor", 0),
+                    wrapper: CellWrapper::KCell,
+                    value: krs_ir::ProtocolInitializerStateTerm::KSequence(
+                        krs_ir::ProtocolKSequence {
+                            payload_key: Some(key("k_sequence_payload", 0)),
+                            dot_k_key: None,
+                            notation: krs_ir::DescriptorKSequenceNotation::Comma,
+                            items: vec![krs_ir::ProtocolKSequenceItem {
+                                key: key("k_sequence_item", 0),
+                                value: krs_ir::ProtocolInitializerTerm {
+                                    key: key("initializer_term", 0),
+                                    term: DescriptorTerm::Application {
+                                        head_class: DescriptorApplicationHeadClass::BareReference,
+                                        reference: DescriptorApplicationReference {
+                                            key: key("initializer_term_path", 0),
+                                            application: DescriptorApplicationRef::Declared(start),
+                                        },
+                                        path_key: key("initializer_term_path", 0),
+                                        arguments: vec![],
+                                    },
+                                },
+                            }],
+                        },
+                    ),
+                },
+            }],
+        },
+    };
+    let keys = configuration.expected_provenance_keys(&owner).unwrap();
+    Descriptor {
+        id: owner,
+        cfg: BTreeMap::new(),
+        provenance: provenance(key("configuration_declaration", 0), keys),
+        payload: DescriptorPayload::FixedConfiguration(Box::new(configuration)),
     }
 }
 
@@ -406,36 +486,7 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
         })),
     });
 
-    let configuration_primary = key("configuration_declaration", 0);
-    descriptors.push(Descriptor {
-        id: id("Machine", ItemKind::Configuration),
-        cfg: BTreeMap::new(),
-        provenance: provenance(
-            configuration_primary.clone(),
-            [
-                key("configuration_field", 0),
-                key("initializer_declaration", 0),
-                key("initializer_term", 0),
-                key("initializer_term_path", 0),
-            ],
-        ),
-        payload: DescriptorPayload::Configuration(ConfigurationDescriptor {
-            root: "machine".into(),
-            cell: ConfigurationCellDescriptor {
-                name: "k".into(),
-                content_sort: BuiltinSort::KSequence,
-            },
-            main_variable: None,
-            initializer: ConfigurationInitializerDescriptor {
-                name: "init".into(),
-                term: "Start".into(),
-                references: vec![DescriptorReference::new(
-                    key("initializer_term_path", 0),
-                    start,
-                )],
-            },
-        }),
-    });
+    descriptors.push(machine_configuration(start));
     (
         DescriptorBundle::new(descriptors),
         generated_production_id(&bracket_grammar_id, GeneratedProductionKind::Bracket).unwrap(),

@@ -58,81 +58,14 @@
                 }
               ]
             },
-            "cell": {
-              "origin": {
-                "key": "cell.k",
-                "origin": [
-                  {
-                    "frame_type": "ranged",
-                    "kind": "authored",
-                    "range": {
-                      "file": {
-                        "package": {
-                          "k_namespace": "ORG-EXAMPLE-EXPR",
-                          "cargo_name": "expr-semantics",
-                          "cargo_version": "0.1.0",
-                          "cargo_source": "workspace"
-                        },
-                        "package_relative_path": "src/expr.rs",
-                        "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-                      },
-                      "start_byte": 0,
-                      "end_byte": 7
-                    }
-                  }
-                ]
-              },
-              "symbol": {
-                "id": "cell.k",
-                "emitted_name": "k",
-                "kind": "cell"
-              },
-              "content_sort": {
-                "sort_source": "builtin",
-                "sort": "k_sequence"
-              }
+            "id": "machine",
+            "root": {
+              "root_kind": "generated_top"
             },
-            "initializer": {
-              "origin": {
-                "key": "initializer.expr",
-                "origin": [
-                  {
-                    "frame_type": "ranged",
-                    "kind": "authored",
-                    "range": {
-                      "file": {
-                        "package": {
-                          "k_namespace": "ORG-EXAMPLE-EXPR",
-                          "cargo_name": "expr-semantics",
-                          "cargo_version": "0.1.0",
-                          "cargo_source": "workspace"
-                        },
-                        "package_relative_path": "src/expr.rs",
-                        "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
-                      },
-                      "start_byte": 0,
-                      "end_byte": 7
-                    }
-                  }
-                ]
-              },
-              "symbol": {
-                "id": "initializer.expr",
-                "emitted_name": "initKCell",
-                "kind": "initializer"
-              },
-              "variables": [
-                {
-                  "id": "pgm",
-                  "sort": {
-                    "sort_source": "declared",
-                    "sort": "sort.expr"
-                  }
-                }
-              ],
-              "body": {
+            "cells": [
+              {
                 "origin": {
-                  "key": "term.init.sequence",
+                  "key": "cell.k",
                   "origin": [
                     {
                       "frame_type": "ranged",
@@ -154,19 +87,107 @@
                     }
                   ]
                 },
+                "id": "cell.k",
+                "name": "k",
+                "attributes": [],
+                "content": {
+                  "content_kind": "term",
+                  "sort": {
+                    "sort_source": "builtin",
+                    "sort": "k_sequence"
+                  }
+                }
+              }
+            ],
+            "initializer_origin": {
+              "key": "initializer.expr",
+              "origin": [
+                {
+                  "frame_type": "ranged",
+                  "kind": "authored",
+                  "range": {
+                    "file": {
+                      "package": {
+                        "k_namespace": "ORG-EXAMPLE-EXPR",
+                        "cargo_name": "expr-semantics",
+                        "cargo_version": "0.1.0",
+                        "cargo_source": "workspace"
+                      },
+                      "package_relative_path": "src/expr.rs",
+                      "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                    },
+                    "start_byte": 0,
+                    "end_byte": 7
+                  }
+                }
+              ]
+            },
+            "initializer_id": "machine.init",
+            "variables": [
+              {
+                "origin": {
+                  "key": "configuration.variable.pgm",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "id": "pgm",
+                "external_name": "PGM",
                 "sort": {
-                  "sort_source": "builtin",
-                  "sort": "k_sequence"
-                },
-                "term_kind": "k_sequence",
-                "item_sort": {
                   "sort_source": "declared",
-                  "sort": "sort.kitem"
+                  "sort": "sort.expr"
                 },
-                "items": [
-                  {
+                "main": true
+              }
+            ],
+            "initializer": [
+              {
+                "origin": {
+                  "key": "initializer.k",
+                  "origin": [
+                    {
+                      "frame_type": "ranged",
+                      "kind": "authored",
+                      "range": {
+                        "file": {
+                          "package": {
+                            "k_namespace": "ORG-EXAMPLE-EXPR",
+                            "cargo_name": "expr-semantics",
+                            "cargo_version": "0.1.0",
+                            "cargo_source": "workspace"
+                          },
+                          "package_relative_path": "src/expr.rs",
+                          "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                        },
+                        "start_byte": 0,
+                        "end_byte": 7
+                      }
+                    }
+                  ]
+                },
+                "cell": "cell.k",
+                "content": {
+                  "content_kind": "term",
+                  "term": {
                     "origin": {
-                      "key": "term.init.pgm",
+                      "key": "term.init.sequence",
                       "origin": [
                         {
                           "frame_type": "ranged",
@@ -189,15 +210,51 @@
                       ]
                     },
                     "sort": {
-                      "sort_source": "declared",
-                      "sort": "sort.expr"
+                      "sort_source": "builtin",
+                      "sort": "k_sequence"
                     },
-                    "term_kind": "variable",
-                    "variable": "pgm"
+                    "term_kind": "k_sequence",
+                    "item_sort": {
+                      "sort_source": "declared",
+                      "sort": "sort.kitem"
+                    },
+                    "items": [
+                      {
+                        "origin": {
+                          "key": "term.init.pgm",
+                          "origin": [
+                            {
+                              "frame_type": "ranged",
+                              "kind": "authored",
+                              "range": {
+                                "file": {
+                                  "package": {
+                                    "k_namespace": "ORG-EXAMPLE-EXPR",
+                                    "cargo_name": "expr-semantics",
+                                    "cargo_version": "0.1.0",
+                                    "cargo_source": "workspace"
+                                  },
+                                  "package_relative_path": "src/expr.rs",
+                                  "content_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+                                },
+                                "start_byte": 0,
+                                "end_byte": 7
+                              }
+                            }
+                          ]
+                        },
+                        "sort": {
+                          "sort_source": "declared",
+                          "sort": "sort.expr"
+                        },
+                        "term_kind": "variable",
+                        "variable": "pgm"
+                      }
+                    ]
                   }
-                ]
+                }
               }
-            }
+            ]
           }
         },
         {

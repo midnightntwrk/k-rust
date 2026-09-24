@@ -4,22 +4,20 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use krs_ir::{
-    AnchorPrecision, ConfigurationDescriptor, ConfigurationInitializerDescriptor,
-    ConfigurationVariableDescriptor, ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor,
+    AnchorPrecision, ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle,
     DescriptorDeclaration, DescriptorNodeOrigin, DescriptorPayload, DescriptorProduction,
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
-    DescriptorProvenance, DescriptorReference, DescriptorSortRef, DescriptorSortReference,
-    DescriptorTerm, DescriptorTermArgument, GrammarDescriptor, HostApplicationIdentity,
-    HostBuiltinRegistry, HostConfigurationDescriptor, HostDescriptor, HostDescriptorPayload,
-    HostGrammarDescriptor, HostItemId, HostProductionAttribute, HostProductionItem,
-    HostProductionOwner, HostProvenance, HostSortReference, HostSourceAnchor,
-    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, HostTypeReference, ItemKind,
-    OriginFrame, OriginStack, PackageId, ProtocolCellContent, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleFrame, ProtocolRuleMapBody,
-    ProtocolRuleStateTerm, ProtocolVersion, ProvenanceKey, RangedOriginKind, RuleDescriptor,
-    RuleParameterDescriptor, RustVisibility, Sha256Digest, SortDescriptor, SourceFileId,
-    SourceRange, StableItemId, StructuredRuleDescriptor, TransformationOriginKind,
+    DescriptorProvenance, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
+    DescriptorTermArgument, GrammarDescriptor, HostApplicationIdentity, HostBuiltinRegistry,
+    HostDescriptor, HostDescriptorPayload, HostGrammarDescriptor, HostItemId,
+    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostProvenance,
+    HostSortReference, HostSourceAnchor, HostStructuredRuleDescriptor, HostTerm, HostTermArgument,
+    HostTypeReference, ItemKind, OriginFrame, OriginStack, PackageId, ProtocolCellContent,
+    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolMapBody,
+    ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProtocolVersion, ProvenanceKey,
+    RangedOriginKind, RustVisibility, Sha256Digest, SortDescriptor, SourceFileId, SourceRange,
+    StableItemId, StructuredRuleDescriptor, TransformationOriginKind,
 };
 use krs_syntax::surface::AttributeMacro;
 use krs_syntax::{
@@ -35,7 +33,7 @@ use krs_syntax::{
     parse_rule_attribute, parse_rule_block, parse_rule_block_source_with_trivia,
     parse_seqstrict_attribute, parse_simplification_attribute, parse_sort_attribute,
     parse_sorts_declaration, parse_strict_attribute, parse_subsort_attribute,
-    parse_symbol_attribute, parse_term_expression_source, parse_token_attribute,
+    parse_symbol_attribute, parse_token_attribute,
 };
 use proc_macro2::TokenStream;
 use sha2::{Digest, Sha256};
@@ -157,7 +155,6 @@ struct ParsedInvocation {
     primary: ProvenanceKey,
     item_name: String,
     anchors: BTreeMap<ProvenanceKey, Coordinates>,
-    legacy_anchors: Option<BTreeMap<ProvenanceKey, Coordinates>>,
     payload: ParsedInvocationPayload,
     visibility: RustVisibility,
     explicit_symbol: Option<krs_ir::ExplicitSymbol>,
@@ -168,9 +165,6 @@ enum ParsedInvocationPayload {
     Declaration,
     Rule {
         bindings: Vec<String>,
-        references: BTreeMap<ProvenanceKey, String>,
-        lhs: String,
-        rhs: String,
     },
     HeadRule {
         bindings: Vec<String>,
@@ -178,22 +172,7 @@ enum ParsedInvocationPayload {
         result_kind: String,
         extras: Vec<(String, String)>,
     },
-    Configuration {
-        root: String,
-        cell_name: String,
-    },
-    Initializer {
-        term: String,
-        variable: Option<ParsedConfigurationVariable>,
-        references: BTreeMap<ProvenanceKey, String>,
-    },
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ParsedConfigurationVariable {
-    binding: String,
-    external_name: String,
-    sort_key: ProvenanceKey,
+    Configuration,
 }
 
 #[derive(Debug)]
@@ -292,17 +271,10 @@ fn collect_host_descriptors_impl(
             ));
         }
         validate_payload_item_kind(&host)?;
-        validate_rule_reference_provenance(&host)?;
         host.validate_v7_ownership().map_err(|error| {
             CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!("invalid host protocol-v7 descriptor: {error}"),
-            )
-        })?;
-        host.validate_configuration_pairing().map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
-                format!("invalid paired configuration descriptor: {error}"),
             )
         })?;
         let canonical_hint =
@@ -387,14 +359,6 @@ fn collect_host_descriptors_impl(
             )
         })?;
     for descriptor in &bundle.descriptors {
-        descriptor
-            .validate_configuration_contract()
-            .map_err(|error| {
-                CollectionError::new(
-                    CollectionErrorKind::InvalidConfiguration,
-                    format!("invalid stable configuration descriptor: {error}"),
-                )
-            })?;
         descriptor.validate_v6_contract().map_err(|error| {
             CollectionError::new(
                 CollectionErrorKind::ProvenanceMismatch,
@@ -518,16 +482,7 @@ fn validate_payload_item_kind(host: &HostDescriptor) -> Result<(), CollectionErr
     let expected = match &host.payload {
         HostDescriptorPayload::Sort(_) => ItemKind::Sort,
         HostDescriptorPayload::Constructor(_) => ItemKind::Constructor,
-        HostDescriptorPayload::Configuration(_) | HostDescriptorPayload::FixedConfiguration(_) => {
-            ItemKind::Configuration
-        }
-        HostDescriptorPayload::Rule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
+        HostDescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
         HostDescriptorPayload::Grammar(_) => ItemKind::Grammar,
         HostDescriptorPayload::StructuredRule(rule) => match rule.sentence_kind {
             krs_ir::SentenceKind::Transition => ItemKind::Rule,
@@ -562,59 +517,6 @@ fn validate_payload_item_kind(host: &HostDescriptor) -> Result<(), CollectionErr
                 host.id.item_kind()
             ),
         ));
-    }
-    Ok(())
-}
-
-fn validate_rule_reference_provenance(host: &HostDescriptor) -> Result<(), CollectionError> {
-    let HostDescriptorPayload::Rule(rule) = &host.payload else {
-        return Ok(());
-    };
-    rule.validate_reference_keys().map_err(|error| {
-        CollectionError::new(CollectionErrorKind::InvalidReferenceKey, error.to_string())
-    })?;
-    rule.validate_bindings().map_err(|error| {
-        CollectionError::new(CollectionErrorKind::InvalidRuleBindings, error.to_string())
-    })?;
-    let provenance_keys = host
-        .provenance
-        .authored()
-        .iter()
-        .map(krs_ir::HostAuthoredAnchor::key)
-        .collect::<BTreeSet<_>>();
-    for reference in &rule.references {
-        expected_reference_kind(&reference.key)?;
-        if !provenance_keys.contains(&reference.key) {
-            return Err(CollectionError::new(
-                CollectionErrorKind::InvalidReferenceKey,
-                format!(
-                    "rule reference key `{}`#{} has no shared-parser provenance node",
-                    reference.key.role(),
-                    reference.key.ordinal()
-                ),
-            ));
-        }
-    }
-    for role in [ProvenanceRole::RuleType, ProvenanceRole::RuleResultType] {
-        let required = role.key(0).map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::InvalidReferenceKey,
-                format!("cannot construct required rule reference key: {error}"),
-            )
-        })?;
-        if !rule
-            .references
-            .iter()
-            .any(|reference| reference.key == required)
-        {
-            return Err(CollectionError::new(
-                CollectionErrorKind::InvalidReferenceKey,
-                format!(
-                    "rule descriptor lacks required reference `{}`#0",
-                    role.as_str()
-                ),
-            ));
-        }
     }
     Ok(())
 }
@@ -706,8 +608,6 @@ fn declared_cell_field_table(
             HostDescriptorPayload::Cell(declaration) => declaration.as_ref(),
             HostDescriptorPayload::Sort(_)
             | HostDescriptorPayload::Constructor(_)
-            | HostDescriptorPayload::Configuration(_)
-            | HostDescriptorPayload::Rule(_)
             | HostDescriptorPayload::Grammar(_)
             | HostDescriptorPayload::StructuredRule(_)
             | HostDescriptorPayload::ConfigurationRule(_)
@@ -1130,59 +1030,6 @@ fn resolve_payload(
                     .collect::<Result<Vec<_>, CollectionError>>()?,
             }))
         }
-        HostDescriptorPayload::Configuration(configuration) => {
-            resolve_configuration(configuration, declarations).map(DescriptorPayload::Configuration)
-        }
-        HostDescriptorPayload::Rule(rule) => {
-            rule.validate_reference_keys().map_err(|error| {
-                CollectionError::new(CollectionErrorKind::InvalidReferenceKey, error.to_string())
-            })?;
-            let mut references = rule
-                .references
-                .iter()
-                .map(|reference| {
-                    let expected = expected_reference_kind(&reference.key)?;
-                    Ok(DescriptorReference::new(
-                        reference.key.clone(),
-                        resolve_nominal_reference(&reference.target, expected, declarations)?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, CollectionError>>()?;
-            references.sort();
-            let resolved = RuleDescriptor {
-                sentence_kind: rule.sentence_kind,
-                parameters: rule
-                    .parameters
-                    .iter()
-                    .map(|parameter| {
-                        Ok(RuleParameterDescriptor {
-                            bindings: parameter.bindings.clone(),
-                            sort: resolve_nominal_reference(
-                                &parameter.sort,
-                                ItemKind::Sort,
-                                declarations,
-                            )?,
-                            pattern: parameter.pattern.clone(),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, CollectionError>>()?,
-                result_sort: resolve_nominal_reference(
-                    &rule.result_sort,
-                    ItemKind::Sort,
-                    declarations,
-                )?,
-                references,
-                lhs: rule.lhs.clone(),
-                rhs: rule.rhs.clone(),
-            };
-            resolved.validate_reference_keys().map_err(|error| {
-                CollectionError::new(CollectionErrorKind::InvalidReferenceKey, error.to_string())
-            })?;
-            resolved.validate_bindings().map_err(|error| {
-                CollectionError::new(CollectionErrorKind::InvalidRuleBindings, error.to_string())
-            })?;
-            Ok(DescriptorPayload::Rule(resolved))
-        }
         HostDescriptorPayload::Grammar(grammar) => Ok(DescriptorPayload::Grammar(Box::new(
             resolve_grammar(grammar, declarations, context_aliases, builtins)?,
         ))),
@@ -1257,55 +1104,6 @@ fn resolve_context_alias(
             .collect::<Result<Vec<_>, CollectionError>>()?,
         pattern: resolve_rule_cells(&alias.pattern, declarations, cell_fields, builtins)?,
     })
-}
-
-fn resolve_configuration(
-    configuration: &HostConfigurationDescriptor,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
-) -> Result<ConfigurationDescriptor, CollectionError> {
-    let main_variable = configuration
-        .main_variable
-        .as_ref()
-        .map(|variable| {
-            Ok(ConfigurationVariableDescriptor {
-                binding: variable.binding.clone(),
-                external_name: variable.external_name.clone(),
-                sort: DescriptorReference::new(
-                    variable.sort.key.clone(),
-                    resolve_nominal_reference(&variable.sort.target, ItemKind::Sort, declarations)?,
-                ),
-            })
-        })
-        .transpose()?;
-    let mut references = configuration
-        .initializer
-        .references
-        .iter()
-        .map(|reference| {
-            Ok(DescriptorReference::new(
-                reference.key.clone(),
-                resolve_nominal_reference(&reference.target, ItemKind::Constructor, declarations)?,
-            ))
-        })
-        .collect::<Result<Vec<_>, CollectionError>>()?;
-    references.sort();
-    let resolved = ConfigurationDescriptor {
-        root: configuration.root.clone(),
-        cell: configuration.cell.clone(),
-        main_variable,
-        initializer: ConfigurationInitializerDescriptor {
-            name: configuration.initializer.name.clone(),
-            term: configuration.initializer.term.clone(),
-            references,
-        },
-    };
-    resolved.validate().map_err(|error| {
-        CollectionError::new(
-            CollectionErrorKind::InvalidConfiguration,
-            format!("invalid resolved configuration: {error}"),
-        )
-    })?;
-    Ok(resolved)
 }
 
 fn resolve_cell_reference(
@@ -1785,17 +1583,6 @@ fn resolve_claim_binders(
             })
         })
         .collect()
-}
-
-fn expected_reference_kind(key: &ProvenanceKey) -> Result<ItemKind, CollectionError> {
-    match key.role() {
-        "rule_type" | "rule_result_type" => Ok(ItemKind::Sort),
-        "rule_left_path" | "rule_right_path" => Ok(ItemKind::Constructor),
-        role => Err(CollectionError::new(
-            CollectionErrorKind::InvalidReferenceKey,
-            format!("rule reference key uses unsupported parser role `{role}`"),
-        )),
-    }
 }
 
 fn resolve_nominal_reference(
@@ -2309,37 +2096,17 @@ fn materialize_descriptor_provenance(
     CollectionError,
 > {
     let primary = payload_primary_key(payload, id.item_kind())?;
-    let (parsed, mut origins) = materialize_invocation(
+    let (parsed, origins) = materialize_invocation(
         &host.provenance,
         &primary,
         id.item_name(),
         descriptor_label(id.item_kind()),
         id,
-        matches!(payload, HostDescriptorPayload::Rule(_)),
         context_index,
         contexts,
         source_cache,
     )?;
     validate_reparsed_payload(payload, &parsed, id)?;
-
-    if let HostDescriptorPayload::Configuration(configuration) = payload {
-        let initializer_primary = ProvenanceRole::InitializerDeclaration
-            .key(0)
-            .map_err(|error| invalid_provenance_key(&error))?;
-        let (initializer, initializer_origins) = materialize_invocation(
-            &configuration.initializer.provenance,
-            &initializer_primary,
-            &configuration.initializer.name,
-            "initializer",
-            id,
-            false,
-            context_index,
-            contexts,
-            source_cache,
-        )?;
-        validate_reparsed_initializer(configuration, &initializer, id)?;
-        origins.extend(initializer_origins);
-    }
 
     let provenance = DescriptorProvenance::new(primary, origins).map_err(|error| {
         CollectionError::new(
@@ -2360,7 +2127,6 @@ fn materialize_invocation(
     expected_item_name: &str,
     label: &str,
     id: &StableItemId,
-    legacy_catalog: bool,
     context_index: usize,
     contexts: &[PreparedContext],
     source_cache: &mut BTreeMap<(usize, String), SourceDocument>,
@@ -2438,17 +2204,9 @@ fn materialize_invocation(
         .enumerate()
         .filter(|invocation| {
             let invocation = invocation.1;
-            let anchors = if legacy_catalog {
-                invocation
-                    .legacy_anchors
-                    .as_ref()
-                    .unwrap_or(&invocation.anchors)
-            } else {
-                &invocation.anchors
-            };
             (id.item_kind() == ItemKind::Grammar || invocation.item_name == expected_item_name)
                 && &invocation.primary == primary_key
-                && anchors.get(primary_key) == Some(&primary_coordinates)
+                && invocation.anchors.get(primary_key) == Some(&primary_coordinates)
         })
         .collect::<Vec<_>>();
     let (primary_invocation_index, invocation) = match primary_candidates.as_slice() {
@@ -2511,16 +2269,8 @@ fn materialize_invocation(
             )
         })?;
         let coordinates = host_coordinates(authored.anchor());
-        let primary_anchors = if legacy_catalog {
-            invocation
-                .legacy_anchors
-                .as_ref()
-                .unwrap_or(&invocation.anchors)
-        } else {
-            &invocation.anchors
-        };
         let candidate_hits = if authored_cache_key == primary_cache_key
-            && primary_anchors.get(authored.key()) == Some(&coordinates)
+            && invocation.anchors.get(authored.key()) == Some(&coordinates)
         {
             vec![(primary_invocation_index, invocation)]
         } else {
@@ -2529,15 +2279,7 @@ fn materialize_invocation(
                 .iter()
                 .enumerate()
                 .filter(|(_, candidate)| {
-                    let anchors = if legacy_catalog {
-                        candidate
-                            .legacy_anchors
-                            .as_ref()
-                            .unwrap_or(&candidate.anchors)
-                    } else {
-                        &candidate.anchors
-                    };
-                    anchors.get(authored.key()) == Some(&coordinates)
+                    candidate.anchors.get(authored.key()) == Some(&coordinates)
                 })
                 .collect::<Vec<_>>()
         };
@@ -2567,15 +2309,7 @@ fn materialize_invocation(
             }
         };
         if matched_invocations.insert((authored_cache_key.clone(), invocation_index)) {
-            let anchors = if legacy_catalog {
-                parsed_invocation
-                    .legacy_anchors
-                    .as_ref()
-                    .unwrap_or(&parsed_invocation.anchors)
-            } else {
-                &parsed_invocation.anchors
-            };
-            parser_keys.extend(anchors.keys().cloned());
+            parser_keys.extend(parsed_invocation.anchors.keys().cloned());
         }
     }
     if host_keys != parser_keys {
@@ -3204,12 +2938,7 @@ fn collect_invocations(
                         ProvenanceRole::ConfigurationDeclaration,
                         item_struct.ident.to_string(),
                         anchors,
-                        ParsedInvocationPayload::Configuration {
-                            root: parsed
-                                .optional_root()
-                                .map_or_else(|| item_struct.ident.to_string(), syn::LitStr::value),
-                            cell_name: declaration.cell().name().to_string(),
-                        },
+                        ParsedInvocationPayload::Configuration,
                     )?);
                 }
                 for _attribute in item_struct
@@ -3355,14 +3084,6 @@ fn collect_invocations(
                         .iter()
                         .map(ToString::to_string)
                         .collect();
-                    let references = rule
-                        .reference_candidates()
-                        .map_err(source_syntax)?
-                        .into_iter()
-                        .map(|candidate| (candidate.key().clone(), candidate.path_spelling()))
-                        .collect();
-                    let legacy_anchors =
-                        parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
                     let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     anchors.push(ProvenanceAnchor::new(
                         ProvenanceRole::SimplificationMarker,
@@ -3370,19 +3091,12 @@ fn collect_invocations(
                         TokenRange::for_tokens(&item_fn.sig.ident).map_err(source_syntax)?,
                     ));
                     anchors.extend(parsed.provenance().map_err(source_syntax)?);
-                    let mut invocation = parsed_invocation(
+                    output.push(parsed_invocation(
                         ProvenanceRole::RuleDeclaration,
                         item_fn.sig.ident.to_string(),
                         anchors,
-                        ParsedInvocationPayload::Rule {
-                            bindings,
-                            references,
-                            lhs: rule.parameter().pattern.spelling(),
-                            rhs: rule.result().spelling(),
-                        },
-                    )?;
-                    invocation.legacy_anchors = Some(legacy_anchors);
-                    output.push(invocation);
+                        ParsedInvocationPayload::Rule { bindings },
+                    )?);
                 }
                 for attribute in item_fn
                     .attrs
@@ -3399,14 +3113,6 @@ fn collect_invocations(
                         .iter()
                         .map(ToString::to_string)
                         .collect();
-                    let references = rule
-                        .reference_candidates()
-                        .map_err(source_syntax)?
-                        .into_iter()
-                        .map(|candidate| (candidate.key().clone(), candidate.path_spelling()))
-                        .collect();
-                    let legacy_anchors =
-                        parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
                     let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     for priority in item_fn
                         .attrs
@@ -3420,19 +3126,12 @@ fn collect_invocations(
                                 .map_err(source_syntax)?,
                         );
                     }
-                    let mut invocation = parsed_invocation(
+                    output.push(parsed_invocation(
                         ProvenanceRole::RuleDeclaration,
                         item_fn.sig.ident.to_string(),
                         anchors,
-                        ParsedInvocationPayload::Rule {
-                            bindings,
-                            references,
-                            lhs: rule.parameter().pattern.spelling(),
-                            rhs: rule.result().spelling(),
-                        },
-                    )?;
-                    invocation.legacy_anchors = Some(legacy_anchors);
-                    output.push(invocation);
+                        ParsedInvocationPayload::Rule { bindings },
+                    )?);
                 }
                 for attribute in item_fn
                     .attrs
@@ -3448,33 +3147,18 @@ fn collect_invocations(
                         .iter()
                         .map(ToString::to_string)
                         .collect();
-                    let references = rule
-                        .reference_candidates()
-                        .map_err(source_syntax)?
-                        .into_iter()
-                        .map(|candidate| (candidate.key().clone(), candidate.path_spelling()))
-                        .collect();
-                    let legacy_anchors =
-                        parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
                     let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     anchors.push(ProvenanceAnchor::new(
                         ProvenanceRole::AliasClause,
                         0,
                         TokenRange::for_tokens(&item_fn.sig.ident).map_err(source_syntax)?,
                     ));
-                    let mut invocation = parsed_invocation(
+                    output.push(parsed_invocation(
                         ProvenanceRole::RuleDeclaration,
                         item_fn.sig.ident.to_string(),
                         anchors,
-                        ParsedInvocationPayload::Rule {
-                            bindings,
-                            references,
-                            lhs: rule.parameter().pattern.spelling(),
-                            rhs: rule.result().spelling(),
-                        },
-                    )?;
-                    invocation.legacy_anchors = Some(legacy_anchors);
-                    output.push(invocation);
+                        ParsedInvocationPayload::Rule { bindings },
+                    )?);
                 }
                 for attribute in item_fn
                     .attrs
@@ -3502,29 +3186,14 @@ fn collect_invocations(
                         .iter()
                         .map(ToString::to_string)
                         .collect();
-                    let references = rule
-                        .reference_candidates()
-                        .map_err(source_syntax)?
-                        .into_iter()
-                        .map(|candidate| (candidate.key().clone(), candidate.path_spelling()))
-                        .collect();
-                    let legacy_anchors =
-                        parsed_anchor_map(rule.provenance().map_err(source_syntax)?)?;
                     let mut anchors = rule.full_provenance().map_err(source_syntax)?;
                     anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
-                    let mut invocation = parsed_invocation(
+                    output.push(parsed_invocation(
                         ProvenanceRole::RuleDeclaration,
                         item_fn.sig.ident.to_string(),
                         anchors,
-                        ParsedInvocationPayload::Rule {
-                            bindings,
-                            references,
-                            lhs: rule.parameter().pattern.spelling(),
-                            rhs: rule.result().spelling(),
-                        },
-                    )?;
-                    invocation.legacy_anchors = Some(legacy_anchors);
-                    output.push(invocation);
+                        ParsedInvocationPayload::Rule { bindings },
+                    )?);
                 }
             }
             Item::Impl(item_impl) => {
@@ -3589,38 +3258,11 @@ fn collect_invocations(
                             .retain(|attribute| !resolver.invokes(attribute, AttributeMacro::Init));
                         let initializer =
                             InitializerFunction::from_item(method).map_err(source_syntax)?;
-                        let references = initializer
-                            .reference_candidates()
-                            .map_err(source_syntax)?
-                            .into_iter()
-                            .filter(|candidate| {
-                                matches!(
-                                    candidate.key().role(),
-                                    "configuration_variable_type" | "initializer_term_path"
-                                )
-                            })
-                            .map(|candidate| (candidate.key().clone(), candidate.path_spelling()))
-                            .collect();
-                        let variable = initializer.variables().first().map(|variable| {
-                            ParsedConfigurationVariable {
-                                binding: variable.binding().to_string(),
-                                external_name: variable.attribute().name().value(),
-                                sort_key: ProvenanceRole::ConfigurationVariableType
-                                    .key(0)
-                                    .expect("the static provenance role is valid"),
-                            }
-                        });
                         output.push(parsed_invocation(
                             ProvenanceRole::InitializerDeclaration,
                             initializer.item().sig.ident.to_string(),
                             initializer.provenance().map_err(source_syntax)?,
-                            ParsedInvocationPayload::Initializer {
-                                term: initializer
-                                    .legacy_cell()
-                                    .map_or_else(String::new, |cell| cell.term().spelling()),
-                                variable,
-                                references,
-                            },
+                            ParsedInvocationPayload::Declaration,
                         )?);
                     }
                 }
@@ -3794,7 +3436,6 @@ fn parsed_invocation(
         primary,
         item_name,
         anchors: parsed,
-        legacy_anchors: None,
         payload,
         visibility: RustVisibility::Inherited,
         explicit_symbol: None,
@@ -3843,10 +3484,9 @@ fn validate_reparsed_payload(
             | HostDescriptorPayload::ContextAlias(_),
             ParsedInvocationPayload::Declaration,
         ) => Ok(()),
-        (
-            HostDescriptorPayload::FixedConfiguration(_),
-            ParsedInvocationPayload::Configuration { .. },
-        ) => Ok(()),
+        (HostDescriptorPayload::FixedConfiguration(_), ParsedInvocationPayload::Configuration) => {
+            Ok(())
+        }
         (
             HostDescriptorPayload::HeadRule(rule),
             ParsedInvocationPayload::HeadRule {
@@ -3891,67 +3531,12 @@ fn validate_reparsed_payload(
             Ok(())
         }
         (
-            HostDescriptorPayload::Rule(rule),
-            ParsedInvocationPayload::Rule {
-                bindings,
-                references,
-                lhs,
-                rhs,
-            },
-        ) => {
-            if rule.parameters.len() != 1 || rule.parameters[0].bindings != *bindings {
-                return Err(provenance_mismatch(id, "authored rule bindings"));
-            }
-            let host_parameter = canonical_term_spelling(&rule.parameters[0].pattern)?;
-            let host_lhs = canonical_term_spelling(&rule.lhs)?;
-            let host_rhs = canonical_term_spelling(&rule.rhs)?;
-            let parsed_lhs = canonical_term_spelling(lhs)?;
-            let parsed_rhs = canonical_term_spelling(rhs)?;
-            if host_parameter != parsed_lhs || host_lhs != parsed_lhs || host_rhs != parsed_rhs {
-                return Err(CollectionError::new(
-                    CollectionErrorKind::ProvenanceMismatch,
-                    format!(
-                        "macro and shared parser disagree about rule spelling for `{}`: host parameter={:?}, host lhs={:?}, host rhs={:?}, parsed lhs={lhs:?}, parsed rhs={rhs:?}",
-                        display_item(id),
-                        rule.parameters[0].pattern,
-                        rule.lhs,
-                        rule.rhs,
-                    ),
-                ));
-            }
-            let host_references = rule
-                .references
-                .iter()
-                .map(|reference| {
-                    (
-                        reference.key.clone(),
-                        reference.target.authored_path.clone(),
-                    )
-                })
-                .collect::<BTreeMap<_, _>>();
-            if references != &host_references {
-                return Err(provenance_mismatch(id, "explicit rule references"));
-            }
-            Ok(())
-        }
-        (
             HostDescriptorPayload::StructuredRule(rule),
             ParsedInvocationPayload::Rule { bindings, .. },
         ) if rule.bindings == *bindings => Ok(()),
         (HostDescriptorPayload::StructuredRule(_), ParsedInvocationPayload::Rule { .. }) => {
             Err(provenance_mismatch(id, "authored structured-rule bindings"))
         }
-        (
-            HostDescriptorPayload::Configuration(configuration),
-            ParsedInvocationPayload::Configuration { root, cell_name },
-        ) if configuration.root == *root && configuration.cell.name == *cell_name => Ok(()),
-        (
-            HostDescriptorPayload::Configuration(_),
-            ParsedInvocationPayload::Configuration { .. },
-        ) => Err(provenance_mismatch(
-            id,
-            "configuration root or cell spelling",
-        )),
         _ => Err(CollectionError::new(
             CollectionErrorKind::ProvenanceMismatch,
             format!(
@@ -3962,65 +3547,6 @@ fn validate_reparsed_payload(
     }
 }
 
-fn validate_reparsed_initializer(
-    configuration: &HostConfigurationDescriptor,
-    invocation: &ParsedInvocation,
-    id: &StableItemId,
-) -> Result<(), CollectionError> {
-    let ParsedInvocationPayload::Initializer {
-        term,
-        variable,
-        references,
-    } = &invocation.payload
-    else {
-        return Err(provenance_mismatch(id, "paired initializer declaration"));
-    };
-    let host_variable =
-        configuration
-            .main_variable
-            .as_ref()
-            .map(|variable| ParsedConfigurationVariable {
-                binding: variable.binding.clone(),
-                external_name: variable.external_name.clone(),
-                sort_key: variable.sort.key.clone(),
-            });
-    if &host_variable != variable {
-        return Err(provenance_mismatch(
-            id,
-            "main configuration variable metadata",
-        ));
-    }
-    if canonical_term_spelling(&configuration.initializer.term)? != canonical_term_spelling(term)? {
-        return Err(provenance_mismatch(id, "initializer term spelling"));
-    }
-    let host_references = configuration
-        .main_variable
-        .iter()
-        .map(|variable| {
-            (
-                variable.sort.key.clone(),
-                variable.sort.target.authored_path.clone(),
-            )
-        })
-        .chain(
-            configuration
-                .initializer
-                .references
-                .iter()
-                .map(|reference| {
-                    (
-                        reference.key.clone(),
-                        reference.target.authored_path.clone(),
-                    )
-                }),
-        )
-        .collect::<BTreeMap<_, _>>();
-    if references != &host_references {
-        return Err(provenance_mismatch(id, "initializer semantic references"));
-    }
-    Ok(())
-}
-
 fn provenance_mismatch(id: &StableItemId, field: &str) -> CollectionError {
     CollectionError::new(
         CollectionErrorKind::ProvenanceMismatch,
@@ -4029,12 +3555,6 @@ fn provenance_mismatch(id: &StableItemId, field: &str) -> CollectionError {
             display_item(id)
         ),
     )
-}
-
-fn canonical_term_spelling(spelling: &str) -> Result<String, CollectionError> {
-    parse_term_expression_source(spelling)
-        .map(|term| term.spelling())
-        .map_err(source_syntax)
 }
 
 fn attribute_tokens(attribute: &Attribute) -> Result<TokenStream, CollectionError> {

@@ -4,14 +4,13 @@ use std::fmt;
 
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellAttribute, CellContentFrame, CellPost,
-    ClaimModality, ConfigurationRoot, ConfigurationSentence, ContextAliasSentence,
-    DefinitionClaimBinder, DefinitionIr, DefinitionModule, DefinitionRuleBody, DefinitionSentence,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, FixedCell, FixedCellContent,
-    FixedCellPattern, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
-    FixedInitializerContent, FormatFragment, GrammarProductionItemKind, GroupAssociativity,
-    LabelIdentity, ListOperation, MapOperation, ProductionAttribute, ProductionGroupId,
-    ProductionSentence, RuleSentence, SemanticId, SentenceKind, SetOperation, SourceMapKey,
-    StrictnessKind, SymbolId, SymbolIdentity, SymbolKind,
+    ClaimModality, ConfigurationRoot, ContextAliasSentence, DefinitionClaimBinder, DefinitionIr,
+    DefinitionModule, DefinitionRuleBody, DefinitionSentence, DefinitionSortRef, DefinitionTerm,
+    DefinitionTermKind, FixedCell, FixedCellContent, FixedCellPattern, FixedConfiguration,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, FormatFragment,
+    GrammarProductionItemKind, GroupAssociativity, LabelIdentity, ListOperation, MapOperation,
+    ProductionAttribute, ProductionGroupId, ProductionSentence, RuleSentence, SemanticId,
+    SentenceKind, SetOperation, SourceMapKey, StrictnessKind, SymbolId, SymbolIdentity,
 };
 
 use crate::sidecar::SidecarError;
@@ -151,10 +150,7 @@ impl<'a> EmitContext<'a> {
                 {
                     non_associative_groups.extend(associativity.groups().iter().cloned());
                 }
-                if let DefinitionSentence::Configuration(ConfigurationSentence::Fixed(
-                    configuration,
-                )) = sentence
-                {
+                if let DefinitionSentence::Configuration(configuration) = sentence {
                     collect_emit_cells(
                         configuration.cells(),
                         &mut cells,
@@ -455,26 +451,13 @@ fn builtin_imports(module: &DefinitionModule) -> Vec<String> {
                     }
                 }
             }
-            DefinitionSentence::Configuration(sentence) => match sentence {
-                ConfigurationSentence::Legacy(_) => {
-                    if let (Some(cell), Some(initializer)) =
-                        (sentence.cell(), sentence.initializer())
-                    {
-                        requirements.sort(cell.content_sort());
-                        for variable in initializer.variables() {
-                            requirements.sort(variable.sort());
-                        }
-                        requirements.term(initializer.body());
-                    }
+            DefinitionSentence::Configuration(configuration) => {
+                requirements.fixed_cells(configuration.cells());
+                for variable in configuration.variables() {
+                    requirements.sort(variable.sort());
                 }
-                ConfigurationSentence::Fixed(configuration) => {
-                    requirements.fixed_cells(configuration.cells());
-                    for variable in configuration.variables() {
-                        requirements.sort(variable.sort());
-                    }
-                    requirements.initializer(configuration.initializer());
-                }
-            },
+                requirements.initializer(configuration.initializer());
+            }
             DefinitionSentence::ContextAlias(sentence) => {
                 for variable in sentence.variables() {
                     requirements.sort(variable.sort());
@@ -570,7 +553,7 @@ fn emit_sentence(
             emit_group_list(sentence.groups(), context, writer)?;
         }
         DefinitionSentence::Configuration(sentence) => {
-            emit_configuration(sentence, context, writer)?;
+            emit_fixed_configuration(sentence, context, writer)?;
         }
         DefinitionSentence::ContextAlias(sentence) => {
             emit_context_alias(sentence, context, writer)?;
@@ -801,73 +784,6 @@ fn emit_production_attribute(
             writer.push(")");
         }
     }
-    Ok(())
-}
-
-fn emit_configuration(
-    sentence: &ConfigurationSentence,
-    context: &EmitContext<'_>,
-    writer: &mut Writer,
-) -> Result<(), EmitError> {
-    if let Some(configuration) = sentence.as_fixed() {
-        return emit_fixed_configuration(configuration, context, writer);
-    }
-    let (Some(cell), Some(initializer)) = (sentence.cell(), sentence.initializer()) else {
-        return Err(EmitError::UnsupportedShape {
-            node: "configuration",
-            detail: "fixed configuration emission is not yet selected".to_owned(),
-        });
-    };
-    if cell.symbol().kind() != SymbolKind::Cell
-        || cell.content_sort() != &DefinitionSortRef::Builtin(BuiltinSort::KSequence)
-        || initializer.symbol().kind() != SymbolKind::Initializer
-    {
-        return Err(EmitError::UnsupportedShape {
-            node: "configuration",
-            detail: "expected one fixed KSequence cell and initializer".to_owned(),
-        });
-    }
-    let DefinitionTermKind::KSequence { .. } = initializer.body().kind() else {
-        return Err(EmitError::UnsupportedShape {
-            node: "configuration initializer",
-            detail: "initializer body is not a KSequence".to_owned(),
-        });
-    };
-    writer.push("configuration ");
-    let cell_start = writer.source.len();
-    writer.push("<");
-    writer.push(cell.symbol().emitted_name());
-    writer.push("> ");
-    if let DefinitionTermKind::KSequence { items, .. } = initializer.body().kind()
-        && let [item] = items.as_slice()
-        && let DefinitionTermKind::Variable { variable } = item.kind()
-        && initializer
-            .variables()
-            .iter()
-            .any(|value| value.id() == variable)
-    {
-        let start = writer.source.len();
-        writer.push("$");
-        writer.push(variable.as_str());
-        writer.push(":");
-        writer.push(context.sort_name_ref(item.sort())?);
-        writer.record(item.origin().key(), start, writer.source.len())?;
-        writer.record(
-            initializer.body().origin().key(),
-            start,
-            writer.source.len(),
-        )?;
-    } else {
-        writer.append_rendered(render_term(initializer.body(), context, false)?)?;
-    }
-    writer.push(" </");
-    writer.push(cell.symbol().emitted_name());
-    writer.push(">");
-    let cell_end = writer.source.len();
-    writer.record(cell.origin().key(), cell_start, cell_end)?;
-    // The initializer declaration has no independent source syntax. Its honest
-    // generated range is the initializer expression used in the configuration.
-    writer.record(initializer.origin().key(), cell_start, cell_end)?;
     Ok(())
 }
 
@@ -2244,10 +2160,7 @@ fn sentence_key(sentence: &DefinitionSentence) -> (u8, String) {
         DefinitionSentence::Production(sentence) => sentence.symbol().emitted_name().to_owned(),
         DefinitionSentence::Precedence(sentence) => format!("{sentence:?}"),
         DefinitionSentence::Associativity(sentence) => format!("{sentence:?}"),
-        DefinitionSentence::Configuration(sentence) => sentence.cell().map_or_else(
-            || format!("{:?}", sentence.origin().key()),
-            |cell| cell.symbol().emitted_name().to_owned(),
-        ),
+        DefinitionSentence::Configuration(sentence) => format!("{:?}", sentence.origin().key()),
         DefinitionSentence::ContextAlias(sentence) => sentence.name().to_owned(),
         DefinitionSentence::Rule(sentence) => sentence.label().emitted_name().to_owned(),
     };

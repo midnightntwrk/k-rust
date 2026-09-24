@@ -1,14 +1,14 @@
 //! Target-neutral semantic and Definition IR contracts over the foo-bar theory.
 
 use krs_ir::{
-    ApplicationRef, CellDeclaration, ConfigurationSentence, DefinitionIr, DefinitionModule,
-    DefinitionSentence, DefinitionSortRef, DefinitionTerm, InitializerDeclaration, IrSchemaVersion,
-    ItemKind, LabelId, LabelIdentity, ModuleId, NodeOrigin, OriginStack, PackageId, ProductionItem,
-    ProductionSentence, RuleSentence, SemanticCell, SemanticConfiguration, SemanticId,
-    SemanticInitializer, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
-    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
-    Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolIdentity,
-    SymbolKind, SyntaxSortSentence,
+    ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
+    DefinitionSortRef, DefinitionTerm, FixedCell, FixedConfiguration, FixedInitializerCell,
+    IrSchemaVersion, ItemKind, LabelId, LabelIdentity, ModuleId, NodeOrigin, OriginStack,
+    PackageId, ProductionItem, ProductionSentence, RuleSentence, SemanticId, SemanticModule,
+    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, Sha256Digest, SourceFileId,
+    SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
+    SyntaxSortSentence,
 };
 
 fn package() -> PackageId {
@@ -102,29 +102,36 @@ fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> S
         None,
         vec![],
     );
-    let initializer = SemanticInitializer::new(
+    let k_cell = SemanticId::new("machine.k").unwrap();
+    let configuration = FixedConfiguration::new(
+        node("sem.configuration"),
+        SemanticId::new("machine").unwrap(),
+        ConfigurationRoot::GeneratedTop,
+        vec![
+            FixedCell::leaf(
+                node("sem.cell.k"),
+                k_cell.clone(),
+                "k",
+                vec![],
+                SemanticSortRef::declared(value.clone()),
+            )
+            .unwrap(),
+        ],
         node("sem.initializer"),
         SemanticId::new("machine.init").unwrap(),
         vec![],
-        SemanticTerm::application(
-            node("sem.term.init.foo"),
-            SemanticSortRef::declared(value.clone()),
-            ApplicationRef::Declared(foo.clone()),
-            vec![],
-        ),
-    );
-    let configuration = SemanticConfiguration::new(
-        node("sem.configuration"),
-        SemanticId::new("machine").unwrap(),
-        SemanticCell::new(
-            node("sem.cell.k"),
-            SemanticId::new("machine.k").unwrap(),
-            "k",
-            SemanticSortRef::declared(value.clone()),
-        )
-        .unwrap(),
-        initializer,
-    );
+        vec![FixedInitializerCell::term(
+            node("sem.initializer.k"),
+            k_cell,
+            SemanticTerm::application(
+                node("sem.term.init.foo"),
+                SemanticSortRef::declared(value.clone()),
+                ApplicationRef::Declared(foo.clone()),
+                vec![],
+            ),
+        )],
+    )
+    .unwrap();
     let lhs = SemanticTerm::application(
         node("sem.term.rule.foo"),
         SemanticSortRef::declared(value.clone()),
@@ -238,33 +245,38 @@ fn definition_ir(reverse_sets: bool, bar_reference: Option<SymbolId>) -> Definit
         syntax_sentences,
     );
 
-    let init = InitializerDeclaration::new(
-        node("def.initializer"),
-        symbol(
-            "initializer.machine",
-            "initMachine",
-            SymbolKind::Initializer,
-        ),
-        vec![],
-        DefinitionTerm::application(
-            node("def.term.init.foo"),
-            DefinitionSortRef::declared(value.clone()),
-            ApplicationRef::Declared(foo.clone()),
+    let k_cell = SymbolId::new("cell.k").unwrap();
+    let configuration = DefinitionSentence::Configuration(
+        FixedConfiguration::new(
+            node("def.configuration"),
+            SemanticId::new("machine").unwrap(),
+            ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    node("def.cell.k"),
+                    k_cell.clone(),
+                    "k",
+                    vec![],
+                    DefinitionSortRef::declared(value.clone()),
+                )
+                .unwrap(),
+            ],
+            node("def.initializer"),
+            SemanticId::new("machine.init").unwrap(),
             vec![],
-        ),
-    )
-    .unwrap();
-    let cell = CellDeclaration::new(
-        node("def.cell.k"),
-        symbol("cell.k", "k", SymbolKind::Cell),
-        DefinitionSortRef::declared(value.clone()),
-    )
-    .unwrap();
-    let configuration = DefinitionSentence::Configuration(ConfigurationSentence::new(
-        node("def.configuration"),
-        cell,
-        init,
-    ));
+            vec![FixedInitializerCell::term(
+                node("def.initializer.k"),
+                k_cell,
+                DefinitionTerm::application(
+                    node("def.term.init.foo"),
+                    DefinitionSortRef::declared(value.clone()),
+                    ApplicationRef::Declared(foo.clone()),
+                    vec![],
+                ),
+            )],
+        )
+        .unwrap(),
+    );
     let lhs = DefinitionTerm::application(
         node("def.term.rule.foo"),
         DefinitionSortRef::declared(value.clone()),

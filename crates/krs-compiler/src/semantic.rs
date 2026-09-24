@@ -17,17 +17,16 @@ use krs_ir::{
     NodeOrigin, OriginFrame, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolMapBody, ProtocolRuleBindingKind, ProtocolRuleFrame,
-    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SemanticCell, SemanticConfiguration,
-    SemanticContextAlias, SemanticId, SemanticInitializer, SemanticModule, SemanticProduction,
-    SemanticProductionItem, SemanticRule, SemanticRuleCondition, SemanticRuleLabel,
-    SemanticRulePriority, SemanticSimplification, SemanticSimplificationPriority, SemanticSort,
-    SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
-    SemanticVariable, SetOperation, SourceMapKey, StableItemId, StructuredRuleDescriptor,
-    TransformationOriginKind, generated_production_id,
+    ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey, SemanticConfiguration,
+    SemanticContextAlias, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority,
+    SemanticSimplification, SemanticSimplificationPriority, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError, SemanticVariable,
+    SetOperation, SourceMapKey, StableItemId, StructuredRuleDescriptor, TransformationOriginKind,
+    generated_production_id,
 };
-use krs_syntax::{ProvenanceRole, parse_term_expression_source};
+use krs_syntax::ProvenanceRole;
 use sha2::{Digest, Sha256};
-use syn::{Expr, Lit, Member};
 
 use crate::{AnalysisError, AnalysisErrorKind};
 
@@ -116,9 +115,7 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
                     constructors.push((descriptor.id.clone(), sort.clone()));
                 }
             }
-            DescriptorPayload::Configuration(_)
-            | DescriptorPayload::Rule(_)
-            | DescriptorPayload::StructuredRule(_)
+            DescriptorPayload::StructuredRule(_)
             | DescriptorPayload::FixedConfiguration(_)
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
@@ -386,25 +383,13 @@ pub fn lower_descriptor_bundle(
     }
     let configurations = descriptors
         .iter()
-        .filter(|descriptor| {
-            matches!(
-                descriptor.payload,
-                DescriptorPayload::Configuration(_) | DescriptorPayload::FixedConfiguration(_)
-            )
-        })
+        .filter(|descriptor| matches!(descriptor.payload, DescriptorPayload::FixedConfiguration(_)))
         .count();
     if configurations != 1 {
         return Err(DescriptorLoweringError::ConfigurationCount(configurations));
     }
 
     validate_all_stable_references(&descriptors, &declarations)?;
-    let direct_parents = descriptors
-        .iter()
-        .filter_map(|descriptor| match &descriptor.payload {
-            DescriptorPayload::Sort(sort) => Some((descriptor.id.clone(), sort.parents.clone())),
-            _ => None,
-        })
-        .collect::<BTreeMap<_, _>>();
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
     let mut declaration_metadata = bundle
@@ -447,7 +432,6 @@ pub fn lower_descriptor_bundle(
             &package_descriptors,
             &module_ids,
             &declaration_catalog,
-            &direct_parents,
             &semantic_sort_parents,
             &production_catalog,
         )?);
@@ -467,16 +451,7 @@ fn require_payload_kind(descriptor: &Descriptor) -> Result<(), DescriptorLowerin
     let expected = match &descriptor.payload {
         DescriptorPayload::Sort(_) => ItemKind::Sort,
         DescriptorPayload::Constructor(_) => ItemKind::Constructor,
-        DescriptorPayload::Configuration(_) | DescriptorPayload::FixedConfiguration(_) => {
-            ItemKind::Configuration
-        }
-        DescriptorPayload::Rule(rule) => match rule.sentence_kind {
-            krs_ir::SentenceKind::Transition => ItemKind::Rule,
-            krs_ir::SentenceKind::Equation => ItemKind::Equation,
-            krs_ir::SentenceKind::Simplification => ItemKind::Simplification,
-            krs_ir::SentenceKind::Alias => ItemKind::Alias,
-            krs_ir::SentenceKind::Claim => ItemKind::Claim,
-        },
+        DescriptorPayload::FixedConfiguration(_) => ItemKind::Configuration,
         DescriptorPayload::Grammar(_) => ItemKind::Grammar,
         DescriptorPayload::StructuredRule(rule) => match rule.sentence_kind {
             krs_ir::SentenceKind::Transition => ItemKind::Rule,
@@ -538,35 +513,6 @@ fn validate_all_stable_references(
                         }
                     })?;
                     validate_sort_ref(sort, declarations)?;
-                }
-            }
-            DescriptorPayload::Configuration(configuration) => {
-                if let Some(variable) = &configuration.main_variable {
-                    require_descriptor(&variable.sort.target, ItemKind::Sort, declarations)?;
-                }
-                for reference in &configuration.initializer.references {
-                    require_descriptor(&reference.target, ItemKind::Constructor, declarations)?;
-                }
-            }
-            DescriptorPayload::Rule(rule) => {
-                for parameter in &rule.parameters {
-                    require_descriptor(&parameter.sort, ItemKind::Sort, declarations)?;
-                }
-                require_descriptor(&rule.result_sort, ItemKind::Sort, declarations)?;
-                for reference in &rule.references {
-                    let expected = match reference.key.role() {
-                        "rule_type" | "rule_result_type" => ItemKind::Sort,
-                        "rule_left_path" | "rule_right_path" => ItemKind::Constructor,
-                        reference_role => {
-                            return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-                                id: Box::new(descriptor.id.clone()),
-                                detail: format!(
-                                    "unsupported rule reference role {reference_role:?}"
-                                ),
-                            });
-                        }
-                    };
-                    require_descriptor(&reference.target, expected, declarations)?;
                 }
             }
             DescriptorPayload::Grammar(grammar) => {
@@ -971,8 +917,6 @@ fn build_semantic_sort_parents(
                 }
             }
             DescriptorPayload::Constructor(_)
-            | DescriptorPayload::Configuration(_)
-            | DescriptorPayload::Rule(_)
             | DescriptorPayload::StructuredRule(_)
             | DescriptorPayload::FixedConfiguration(_)
             | DescriptorPayload::Cell(_)
@@ -1367,7 +1311,6 @@ fn lower_package_module(
     descriptors: &[&Descriptor],
     module_ids: &BTreeMap<PackageId, ModuleId>,
     declarations: &DeclarationCatalog<'_>,
-    direct_parents: &BTreeMap<StableItemId, Vec<StableItemId>>,
     semantic_sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticModule, DescriptorLoweringError> {
@@ -1377,15 +1320,14 @@ fn lower_package_module(
             detail: format!("package {package:?} has no generated module identity"),
         }
     })?;
-    let origin_descriptor = descriptors
-        .iter()
-        .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::Configuration(_)))
-        .copied()
-        .or_else(|| descriptors.first().copied())
-        .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
-            node: "module",
-            detail: format!("package {package:?} has no semantic descriptors"),
-        })?;
+    let origin_descriptor =
+        descriptors
+            .first()
+            .copied()
+            .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
+                node: "module",
+                detail: format!("package {package:?} has no semantic descriptors"),
+            })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
     let mut imports = referenced_packages(descriptors)
         .into_iter()
@@ -1470,24 +1412,6 @@ fn lower_package_module(
                     Vec::new(),
                     declaration.visibility.clone(),
                     declaration.explicit_symbol.clone(),
-                )?);
-            }
-            DescriptorPayload::Configuration(value) => {
-                if configuration.is_some() {
-                    return Err(DescriptorLoweringError::ConfigurationCount(2));
-                }
-                configuration = Some(lower_configuration_descriptor(
-                    descriptor,
-                    value,
-                    declarations.descriptors,
-                    direct_parents,
-                )?);
-            }
-            DescriptorPayload::Rule(rule) => {
-                rules.push(lower_rule_descriptor(
-                    descriptor,
-                    rule,
-                    declarations.descriptors,
                 )?);
             }
             DescriptorPayload::Grammar(grammar) => lower_grammar_descriptor(
@@ -1742,25 +1666,6 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
                         DescriptorSortRef::Declared(id) => Some(id),
                         DescriptorSortRef::Builtin(_) => None,
                     })
-                    .for_each(&mut insert);
-            }
-            DescriptorPayload::Configuration(configuration) => {
-                if let Some(variable) = &configuration.main_variable {
-                    insert(&variable.sort.target);
-                }
-                configuration
-                    .initializer
-                    .references
-                    .iter()
-                    .map(|reference| &reference.target)
-                    .for_each(&mut insert);
-            }
-            DescriptorPayload::Rule(rule) => {
-                rule.parameters
-                    .iter()
-                    .map(|parameter| &parameter.sort)
-                    .chain(std::iter::once(&rule.result_sort))
-                    .chain(rule.references.iter().map(|reference| &reference.target))
                     .for_each(&mut insert);
             }
             DescriptorPayload::Grammar(grammar) => match grammar.as_ref() {
@@ -2090,7 +1995,7 @@ fn lower_fixed_configuration_descriptor(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
-    Ok(SemanticConfiguration::fixed(FixedConfiguration::new(
+    Ok(FixedConfiguration::new(
         semantic_origin(
             descriptor,
             configuration.declaration.key.clone(),
@@ -2107,7 +2012,7 @@ fn lower_fixed_configuration_descriptor(
         initializer_id,
         variables,
         initializer,
-    )?))
+    )?)
 }
 
 fn lower_cell_declaration(
@@ -3890,167 +3795,6 @@ fn semantic_term_slices_equivalent(left: &[SemanticTerm], right: &[SemanticTerm]
             .all(|(left, right)| semantic_terms_equivalent(left, right))
 }
 
-fn lower_configuration_descriptor(
-    descriptor: &Descriptor,
-    configuration: &krs_ir::ConfigurationDescriptor,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
-    direct_parents: &BTreeMap<StableItemId, Vec<StableItemId>>,
-) -> Result<SemanticConfiguration, DescriptorLoweringError> {
-    descriptor
-        .validate_configuration_contract()
-        .map_err(|error| DescriptorLoweringError::UnsupportedShape {
-            node: "configuration descriptor",
-            detail: error.to_string(),
-        })?;
-    if configuration.cell.content_sort != BuiltinSort::KSequence {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "configuration cell",
-            detail: "the computation cell accepts only builtin KSequence".into(),
-        });
-    }
-    let configuration_id = SemanticId::new(configuration.root.clone())?;
-    let cell_id = SemanticId::new(format!(
-        "{}.{}",
-        configuration.root, configuration.cell.name
-    ))?;
-    let initializer_id = SemanticId::new(format!("{}.init", configuration.root))?;
-    let mut variables = Vec::new();
-    let mut scope = BTreeMap::new();
-    if let Some(variable) = &configuration.main_variable {
-        let id = SemanticId::new(variable.external_name.clone())?;
-        variables.push(SemanticVariable::new(
-            id.clone(),
-            SemanticSortRef::Declared(variable.sort.target.clone()),
-        ));
-        scope.insert(variable.binding.clone(), (id, variable.sort.target.clone()));
-    }
-    let item = lower_descriptor_term(
-        descriptor,
-        &configuration.initializer.term,
-        ProvenanceRole::InitializerTermPath,
-        &scope,
-        declarations,
-    )?;
-    let SemanticSortRef::Declared(item_sort) = item.sort() else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "initializer item",
-            detail: "initializer item must have a declared sort".into(),
-        });
-    };
-    let sequence_item_sort = unique_root_sort(item_sort, direct_parents)?;
-    let body = SemanticTerm::k_sequence(
-        semantic_origin(
-            descriptor,
-            role_key(ProvenanceRole::InitializerTerm, 0)?,
-            "initializer-sequence",
-        )?,
-        SemanticSortRef::Declared(sequence_item_sort),
-        vec![item],
-    );
-    Ok(SemanticConfiguration::new(
-        semantic_origin(
-            descriptor,
-            role_key(ProvenanceRole::ConfigurationDeclaration, 0)?,
-            "configuration",
-        )?,
-        configuration_id,
-        SemanticCell::new(
-            semantic_origin(
-                descriptor,
-                role_key(ProvenanceRole::ConfigurationField, 0)?,
-                "configuration-cell",
-            )?,
-            cell_id,
-            configuration.cell.name.clone(),
-            SemanticSortRef::k_sequence(),
-        )?,
-        SemanticInitializer::new(
-            semantic_origin(
-                descriptor,
-                role_key(ProvenanceRole::InitializerDeclaration, 0)?,
-                "configuration-initializer",
-            )?,
-            initializer_id,
-            variables,
-            body,
-        ),
-    ))
-}
-
-fn lower_rule_descriptor(
-    descriptor: &Descriptor,
-    rule: &krs_ir::RuleDescriptor,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
-) -> Result<SemanticRule, DescriptorLoweringError> {
-    if rule.parameters.len() != 1 {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "rule parameters",
-            detail: format!(
-                "expected one subject parameter, found {}",
-                rule.parameters.len()
-            ),
-        });
-    }
-    if rule.parameters[0].pattern != rule.lhs {
-        return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(descriptor.id.clone()),
-            detail: "parameter pattern and left-hand spelling differ".into(),
-        });
-    }
-    let parameter_key = role_key(ProvenanceRole::RuleType, 0)?;
-    let result_key = role_key(ProvenanceRole::RuleResultType, 0)?;
-    let parameter_type = rule_reference_target(descriptor, rule, &parameter_key)?;
-    let result_type = rule_reference_target(descriptor, rule, &result_key)?;
-    if parameter_type != &rule.parameters[0].sort || result_type != &rule.result_sort {
-        return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(descriptor.id.clone()),
-            detail: "rule type references disagree with the resolved parameter/result sorts".into(),
-        });
-    }
-    let mut variables = Vec::new();
-    let mut scope = BTreeMap::new();
-    for binding in &rule.parameters[0].bindings {
-        let id = SemanticId::new(binding.clone())?;
-        variables.push(SemanticVariable::new(
-            id.clone(),
-            SemanticSortRef::Declared(rule.parameters[0].sort.clone()),
-        ));
-        scope.insert(binding.clone(), (id, rule.parameters[0].sort.clone()));
-    }
-    let lhs = lower_descriptor_term(
-        descriptor,
-        &rule.lhs,
-        ProvenanceRole::RuleLeftPath,
-        &scope,
-        declarations,
-    )?;
-    let rhs = lower_descriptor_term(
-        descriptor,
-        &rule.rhs,
-        ProvenanceRole::RuleRightPath,
-        &scope,
-        declarations,
-    )?;
-    let rewrite = SemanticTerm::rewrite(
-        semantic_origin_from_primary(descriptor, "rule-rewrite")?,
-        SemanticSortRef::Declared(rule.result_sort.clone()),
-        lhs,
-        rhs,
-    )
-    .map_err(DescriptorLoweringError::InvalidSemanticTheory)?;
-    Ok(SemanticRule::new(
-        semantic_origin(
-            descriptor,
-            role_key(ProvenanceRole::RuleDeclaration, 0)?,
-            "rule",
-        )?,
-        descriptor.id.clone(),
-        rule.sentence_kind,
-        variables,
-        rewrite,
-    )?)
-}
-
 #[allow(clippy::too_many_lines)] // One closed pass performs inference, lowering, and metadata.
 fn lower_structured_rule_descriptor(
     descriptor: &Descriptor,
@@ -5243,410 +4987,6 @@ fn order_structured_arguments<'a>(
     Ok(ordered)
 }
 
-fn rule_reference_target<'a>(
-    descriptor: &Descriptor,
-    rule: &'a krs_ir::RuleDescriptor,
-    key: &ProvenanceKey,
-) -> Result<&'a StableItemId, DescriptorLoweringError> {
-    rule.references
-        .iter()
-        .find(|reference| &reference.key == key)
-        .map(|reference| &reference.target)
-        .ok_or_else(|| DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(descriptor.id.clone()),
-            detail: format!(
-                "rule lacks required type reference `{}#{}`",
-                key.role(),
-                key.ordinal()
-            ),
-        })
-}
-
-fn unique_root_sort(
-    start: &StableItemId,
-    direct_parents: &BTreeMap<StableItemId, Vec<StableItemId>>,
-) -> Result<StableItemId, DescriptorLoweringError> {
-    let mut pending = vec![start.clone()];
-    let mut visited = BTreeSet::new();
-    let mut roots = BTreeSet::new();
-    while let Some(sort) = pending.pop() {
-        if !visited.insert(sort.clone()) {
-            continue;
-        }
-        let parents = direct_parents
-            .get(&sort)
-            .ok_or_else(|| DescriptorLoweringError::DanglingReference(Box::new(sort.clone())))?;
-        if parents.is_empty() {
-            roots.insert(sort);
-        } else {
-            pending.extend(parents.iter().cloned());
-        }
-    }
-    match roots.into_iter().collect::<Vec<_>>().as_slice() {
-        [root] => Ok(root.clone()),
-        roots => Err(DescriptorLoweringError::UnsupportedShape {
-            node: "initializer item sort",
-            detail: format!("expected one structural top sort, found {roots:?}"),
-        }),
-    }
-}
-
-fn lower_descriptor_term(
-    descriptor: &Descriptor,
-    spelling: &str,
-    path_role: ProvenanceRole,
-    scope: &BTreeMap<String, (SemanticId, StableItemId)>,
-    declarations: &BTreeMap<StableItemId, &Descriptor>,
-) -> Result<SemanticTerm, DescriptorLoweringError> {
-    let term = parse_term_expression_source(spelling).map_err(|error| {
-        DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id.clone()),
-            detail: error.to_string(),
-        }
-    })?;
-    let references = descriptor_reference_table(descriptor, path_role)?;
-    let mut builder = TermBuilder {
-        descriptor,
-        path_role,
-        next_path: 0,
-        next_literal: 0,
-        scope,
-        references,
-        declarations,
-    };
-    let lowered = builder.lower(term.expression(), None)?;
-    let parsed_path_count =
-        u32::try_from(term.symbols().len()).map_err(|_| DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id.clone()),
-            detail: "term has more than u32::MAX path nodes".into(),
-        })?;
-    if builder.next_path != parsed_path_count {
-        return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(descriptor.id.clone()),
-            detail: format!(
-                "term traversal consumed {} paths but the shared parser reported {parsed_path_count}",
-                builder.next_path
-            ),
-        });
-    }
-    for key in builder.references.keys() {
-        if key.ordinal() >= parsed_path_count {
-            return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-                id: Box::new(descriptor.id.clone()),
-                detail: format!(
-                    "reference `{}#{}` is outside the parsed term",
-                    key.role(),
-                    key.ordinal()
-                ),
-            });
-        }
-    }
-    Ok(lowered)
-}
-
-fn descriptor_reference_table(
-    descriptor: &Descriptor,
-    role: ProvenanceRole,
-) -> Result<BTreeMap<ProvenanceKey, StableItemId>, DescriptorLoweringError> {
-    let references = match &descriptor.payload {
-        DescriptorPayload::Configuration(configuration)
-            if role == ProvenanceRole::InitializerTermPath =>
-        {
-            &configuration.initializer.references
-        }
-        DescriptorPayload::Rule(rule_payload)
-            if matches!(
-                role,
-                ProvenanceRole::RuleLeftPath | ProvenanceRole::RuleRightPath
-            ) =>
-        {
-            &rule_payload.references
-        }
-        _ => {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "term descriptor",
-                detail: format!("descriptor {:?} has no {role:?} term", descriptor.id),
-            });
-        }
-    };
-    let mut table = BTreeMap::new();
-    for reference in references
-        .iter()
-        .filter(|reference| reference.key.role() == role.as_str())
-    {
-        if table
-            .insert(reference.key.clone(), reference.target.clone())
-            .is_some()
-        {
-            return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-                id: Box::new(descriptor.id.clone()),
-                detail: format!(
-                    "duplicate term reference `{}#{}`",
-                    reference.key.role(),
-                    reference.key.ordinal()
-                ),
-            });
-        }
-    }
-    Ok(table)
-}
-
-struct TermBuilder<'a> {
-    descriptor: &'a Descriptor,
-    path_role: ProvenanceRole,
-    next_path: u32,
-    next_literal: u32,
-    scope: &'a BTreeMap<String, (SemanticId, StableItemId)>,
-    references: BTreeMap<ProvenanceKey, StableItemId>,
-    declarations: &'a BTreeMap<StableItemId, &'a Descriptor>,
-}
-
-impl TermBuilder<'_> {
-    #[allow(clippy::too_many_lines)]
-    fn lower(
-        &mut self,
-        expression: &Expr,
-        expected_sort: Option<&StableItemId>,
-    ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        match expression {
-            Expr::Paren(paren) => self.lower(&paren.expr, expected_sort),
-            Expr::Group(group) => self.lower(&group.expr, expected_sort),
-            Expr::Path(path) => self.lower_path(&path.path),
-            Expr::Call(call) => {
-                let Expr::Path(head) = &*call.func else {
-                    return Err(self.invalid_term("term call head is not a plain path"));
-                };
-                let (key, production, result_sort, argument_sorts) =
-                    self.resolve_production_head()?;
-                if call.args.len() != argument_sorts.len() {
-                    return Err(self.invalid_term(format!(
-                        "constructor {:?} expects {} arguments but term supplies {}",
-                        production,
-                        argument_sorts.len(),
-                        call.args.len()
-                    )));
-                }
-                let arguments = call
-                    .args
-                    .iter()
-                    .zip(&argument_sorts)
-                    .map(|(argument, sort)| self.lower(argument, Some(sort)))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let _ = head;
-                Ok(SemanticTerm::application(
-                    semantic_origin(self.descriptor, key, "term-application")?,
-                    SemanticSortRef::Declared(result_sort),
-                    ApplicationRef::Declared(production),
-                    arguments,
-                ))
-            }
-            Expr::Struct(record) => {
-                let (key, production, result_sort, argument_sorts) =
-                    self.resolve_production_head()?;
-                let production_descriptor =
-                    require_descriptor(&production, ItemKind::Constructor, self.declarations)?;
-                let DescriptorPayload::Constructor(production_payload) =
-                    &production_descriptor.payload
-                else {
-                    unreachable!("kind-checked production has constructor payload")
-                };
-                if record.fields.len() != production_payload.fields.len() {
-                    return Err(self.invalid_term(format!(
-                        "record constructor {:?} expects {} fields but term supplies {}",
-                        production,
-                        production_payload.fields.len(),
-                        record.fields.len()
-                    )));
-                }
-                let mut lowered_by_name = BTreeMap::new();
-                for field in &record.fields {
-                    let Member::Named(name) = &field.member else {
-                        return Err(self.invalid_term("record term uses an unnamed field"));
-                    };
-                    let field_name = name.to_string();
-                    let declared = production_payload
-                        .fields
-                        .iter()
-                        .find(|declared| declared.name == field_name)
-                        .ok_or_else(|| {
-                            self.invalid_term(format!("unknown record field `{name}`"))
-                        })?;
-                    let sort = declared.sort.as_ref().ok_or_else(|| {
-                        self.invalid_term(format!("record field `{name}` has no sort"))
-                    })?;
-                    let DescriptorSortRef::Declared(sort) = sort else {
-                        return Err(self.invalid_term(format!(
-                            "legacy record field `{name}` uses a builtin sort; structured grammar is required"
-                        )));
-                    };
-                    let value = self.lower(&field.expr, Some(sort))?;
-                    if lowered_by_name.insert(field_name, value).is_some() {
-                        return Err(self.invalid_term(format!("duplicate record field `{name}`")));
-                    }
-                }
-                let field_order = constructor_field_order(&production, production_payload)?;
-                let arguments = field_order
-                    .iter()
-                    .map(|field| {
-                        lowered_by_name.remove(field).ok_or_else(|| {
-                            self.invalid_term(format!("missing record field `{field}`"))
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                debug_assert_eq!(argument_sorts.len(), arguments.len());
-                Ok(SemanticTerm::application(
-                    semantic_origin(self.descriptor, key, "term-application")?,
-                    SemanticSortRef::Declared(result_sort),
-                    ApplicationRef::Declared(production),
-                    arguments,
-                ))
-            }
-            Expr::Lit(literal) => {
-                let sort = expected_sort.ok_or_else(|| {
-                    self.invalid_term("literal term has no production argument sort")
-                })?;
-                let value = literal_value(&literal.lit)
-                    .ok_or_else(|| self.invalid_term("unsupported literal in descriptor term"))?;
-                let role = format!("term-literal-{}", self.next_literal);
-                self.next_literal = self
-                    .next_literal
-                    .checked_add(1)
-                    .ok_or_else(|| self.invalid_term("term contains too many literals"))?;
-                Ok(SemanticTerm::token(
-                    semantic_origin_from_primary(self.descriptor, &role)?,
-                    SemanticSortRef::Declared(sort.clone()),
-                    value,
-                )?)
-            }
-            _ => Err(self.invalid_term("term contains an unsupported expression node")),
-        }
-    }
-
-    fn lower_path(&mut self, path: &syn::Path) -> Result<SemanticTerm, DescriptorLoweringError> {
-        let key = self.next_key()?;
-        let binding = (path.leading_colon.is_none() && path.segments.len() == 1)
-            .then(|| path.segments[0].ident.to_string())
-            .and_then(|name| self.scope.get(&name));
-        if let Some((variable, sort)) = binding {
-            if self.references.contains_key(&key) {
-                return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-                    id: Box::new(self.descriptor.id.clone()),
-                    detail: format!(
-                        "bound variable path `{}#{}` unexpectedly has a constructor target",
-                        key.role(),
-                        key.ordinal()
-                    ),
-                });
-            }
-            return Ok(SemanticTerm::variable(
-                semantic_origin(self.descriptor, key, "term-variable")?,
-                SemanticSortRef::Declared(sort.clone()),
-                variable.clone(),
-            ));
-        }
-        let production = self.references.get(&key).cloned().ok_or_else(|| {
-            DescriptorLoweringError::ParserReferenceDisagreement {
-                id: Box::new(self.descriptor.id.clone()),
-                detail: format!(
-                    "named path `{}#{}` has no resolved constructor reference",
-                    key.role(),
-                    key.ordinal()
-                ),
-            }
-        })?;
-        let (_, result_sort, arguments) = self.production_signature(&production)?;
-        if !arguments.is_empty() {
-            return Err(self.invalid_term(format!(
-                "bare constructor {:?} requires {} arguments",
-                production,
-                arguments.len()
-            )));
-        }
-        Ok(SemanticTerm::application(
-            semantic_origin(self.descriptor, key, "term-application")?,
-            SemanticSortRef::Declared(result_sort),
-            ApplicationRef::Declared(production),
-            Vec::new(),
-        ))
-    }
-
-    fn resolve_production_head(
-        &mut self,
-    ) -> Result<
-        (ProvenanceKey, StableItemId, StableItemId, Vec<StableItemId>),
-        DescriptorLoweringError,
-    > {
-        let key = self.next_key()?;
-        let production = self.references.get(&key).cloned().ok_or_else(|| {
-            DescriptorLoweringError::ParserReferenceDisagreement {
-                id: Box::new(self.descriptor.id.clone()),
-                detail: format!(
-                    "application head `{}#{}` has no resolved constructor reference",
-                    key.role(),
-                    key.ordinal()
-                ),
-            }
-        })?;
-        let (_, result_sort, arguments) = self.production_signature(&production)?;
-        Ok((key, production, result_sort, arguments))
-    }
-
-    fn production_signature(
-        &self,
-        production: &StableItemId,
-    ) -> Result<(&Descriptor, StableItemId, Vec<StableItemId>), DescriptorLoweringError> {
-        let descriptor = require_descriptor(production, ItemKind::Constructor, self.declarations)?;
-        let DescriptorPayload::Constructor(payload) = &descriptor.payload else {
-            unreachable!("kind-checked production has constructor payload")
-        };
-        let arguments = constructor_field_order(production, payload)?
-            .into_iter()
-            .map(|field_name| {
-                let field = payload
-                    .fields
-                    .iter()
-                    .find(|field| field.name == field_name)
-                    .expect("validated field order names declared fields");
-                let sort = field.sort.clone().ok_or_else(|| {
-                    self.invalid_term(format!(
-                        "constructor {:?} field {:?} has no sort",
-                        production, field.name
-                    ))
-                })?;
-                let DescriptorSortRef::Declared(sort) = sort else {
-                    return Err(self.invalid_term(format!(
-                        "legacy constructor {:?} field {:?} uses a builtin sort; structured grammar is required",
-                        production, field.name
-                    )));
-                };
-                Ok(sort)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let DescriptorSortRef::Declared(result_sort) = &payload.sort else {
-            return Err(self.invalid_term(format!(
-                "legacy constructor {production:?} uses a builtin result sort; structured grammar is required"
-            )));
-        };
-        Ok((descriptor, result_sort.clone(), arguments))
-    }
-
-    fn next_key(&mut self) -> Result<ProvenanceKey, DescriptorLoweringError> {
-        let key = role_key(self.path_role, self.next_path)?;
-        self.next_path = self
-            .next_path
-            .checked_add(1)
-            .ok_or_else(|| self.invalid_term("term contains more than u32::MAX named paths"))?;
-        Ok(key)
-    }
-
-    fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
-        DescriptorLoweringError::InvalidTerm {
-            id: Box::new(self.descriptor.id.clone()),
-            detail: detail.into(),
-        }
-    }
-}
-
 fn constructor_field_order(
     production: &StableItemId,
     constructor: &krs_ir::ConstructorDescriptor,
@@ -5815,19 +5155,6 @@ fn is_field_name(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-}
-
-fn literal_value(literal: &Lit) -> Option<String> {
-    match literal {
-        Lit::Str(value) => Some(value.value()),
-        Lit::ByteStr(value) => String::from_utf8(value.value()).ok(),
-        Lit::Byte(value) => Some(value.value().to_string()),
-        Lit::Char(value) => Some(value.value().to_string()),
-        Lit::Int(value) => Some(value.base10_digits().to_owned()),
-        Lit::Float(value) => Some(value.base10_digits().to_owned()),
-        Lit::Bool(value) => Some(value.value.to_string()),
-        _ => None,
-    }
 }
 
 fn visit_parents(

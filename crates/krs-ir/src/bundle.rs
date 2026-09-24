@@ -6,13 +6,9 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::host::{
-    ConfigurationDescriptorError, DuplicateReferenceKey, RuleBindingError,
-    validate_configuration_shape, validate_rule_bindings, validate_unique_reference_keys,
-};
 use crate::{
-    BuiltinSort, DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
-    DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor, ItemKind,
+    DescriptorCellDeclaration, DescriptorConfigurationRule, DescriptorContextAlias,
+    DescriptorFixedConfiguration, DescriptorSortRef, ExplicitSymbol, GrammarDescriptor,
     OriginStack, ProtocolV6ShapeError, ProtocolV7ShapeError, ProtocolVersion, ProvenanceKey,
     RustVisibility, StableItemId, StructuredRuleDescriptor,
 };
@@ -50,9 +46,6 @@ impl<'de> Deserialize<'de> for DescriptorBundle {
             )));
         }
         for descriptor in &wire.descriptors {
-            descriptor
-                .validate_configuration_contract()
-                .map_err(serde::de::Error::custom)?;
             descriptor
                 .validate_v6_contract()
                 .map_err(serde::de::Error::custom)?;
@@ -299,42 +292,6 @@ impl Descriptor {
         self.provenance.primary_origin()
     }
 
-    /// Validates configuration item ownership and reference-origin joins.
-    ///
-    /// Other descriptor variants have no additional v5 checks here.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigurationDescriptorError`] when a configuration payload
-    /// has the wrong outer item kind, invalid fixed data, or a semantic
-    /// reference without an exact parser-keyed origin.
-    pub fn validate_configuration_contract(&self) -> Result<(), ConfigurationDescriptorError> {
-        let DescriptorPayload::Configuration(configuration) = &self.payload else {
-            return Ok(());
-        };
-        if self.id.item_kind() != ItemKind::Configuration {
-            return Err(ConfigurationDescriptorError::ConfigurationItemKindMismatch(
-                self.id.item_kind(),
-            ));
-        }
-        configuration.validate()?;
-        let references = configuration
-            .main_variable
-            .iter()
-            .map(|variable| &variable.sort)
-            .chain(configuration.initializer.references.iter());
-        for reference in references {
-            if self.provenance.origin_for(&reference.key).is_none() {
-                return Err(
-                    ConfigurationDescriptorError::MissingInitializerReferenceOrigin(
-                        reference.key.clone(),
-                    ),
-                );
-            }
-        }
-        Ok(())
-    }
-
     /// Validates typed grammar or structured-rule protocol-v6 extensions.
     ///
     /// # Errors
@@ -360,8 +317,6 @@ impl Descriptor {
             }
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
-            | DescriptorPayload::Configuration(_)
-            | DescriptorPayload::Rule(_)
             | DescriptorPayload::FixedConfiguration(_)
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
@@ -433,8 +388,6 @@ impl Descriptor {
             ),
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
-            | DescriptorPayload::Configuration(_)
-            | DescriptorPayload::Rule(_)
             | DescriptorPayload::Grammar(_)
             | DescriptorPayload::StructuredRule(_) => Ok(()),
         }
@@ -446,10 +399,6 @@ impl Descriptor {
             DescriptorPayload::Sort(sort) => {
                 sort.parents.sort();
                 sort.parents.dedup();
-            }
-            DescriptorPayload::Rule(rule) => rule.references.sort(),
-            DescriptorPayload::Configuration(configuration) => {
-                configuration.initializer.references.sort();
             }
             DescriptorPayload::Constructor(_)
             | DescriptorPayload::Grammar(_)
@@ -623,10 +572,6 @@ pub enum DescriptorPayload {
     Sort(SortDescriptor),
     /// Constructor declaration.
     Constructor(ConstructorDescriptor),
-    /// Fixed configuration and its paired initializer.
-    Configuration(ConfigurationDescriptor),
-    /// Relational sentence declaration.
-    Rule(RuleDescriptor),
     /// Typed after-the-fact object-grammar sentence.
     Grammar(Box<GrammarDescriptor>),
     /// Fully structured relational sentence using typed term references.
@@ -672,147 +617,6 @@ pub struct ConstructorFieldDescriptor {
     pub sort: Option<crate::DescriptorSortRef>,
 }
 
-/// The sole fixed computation cell represented without Rust wrapper paths.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConfigurationCellDescriptor {
-    /// Exact authored field name (`k`).
-    pub name: String,
-    /// Intrinsic content sort, always builtin `KSequence` in the single-cell configuration.
-    pub content_sort: BuiltinSort,
-}
-
-/// Stable combined configuration/initializer payload.
-///
-/// Its enclosing descriptor owns the only [`StableItemId`]. The initializer
-/// receives a semantic/generated identity during lowering and is never an
-/// independently registered Rust declaration.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-pub struct ConfigurationDescriptor {
-    /// Authored root-cell name used for configuration selection and naming.
-    pub root: String,
-    /// The fixed authored computation cell.
-    pub cell: ConfigurationCellDescriptor,
-    /// Zero or one explicitly main configuration variable.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub main_variable: Option<ConfigurationVariableDescriptor>,
-    /// Exactly one paired declarative initializer.
-    pub initializer: ConfigurationInitializerDescriptor,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ConfigurationDescriptorWire {
-    root: String,
-    cell: ConfigurationCellDescriptor,
-    main_variable: Option<ConfigurationVariableDescriptor>,
-    initializer: ConfigurationInitializerDescriptor,
-}
-
-impl TryFrom<ConfigurationDescriptorWire> for ConfigurationDescriptor {
-    type Error = ConfigurationDescriptorError;
-
-    fn try_from(wire: ConfigurationDescriptorWire) -> Result<Self, Self::Error> {
-        let descriptor = Self {
-            root: wire.root,
-            cell: wire.cell,
-            main_variable: wire.main_variable,
-            initializer: wire.initializer,
-        };
-        descriptor.validate()?;
-        Ok(descriptor)
-    }
-}
-
-impl<'de> Deserialize<'de> for ConfigurationDescriptor {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let wire = ConfigurationDescriptorWire::deserialize(deserializer)?;
-        Self::try_from(wire).map_err(serde::de::Error::custom)
-    }
-}
-
-impl ConfigurationDescriptor {
-    /// Validates the closed single-cell shape, reference keys, and stable target kinds.
-    ///
-    /// The shared syntax parser remains responsible for reparsing `term` and
-    /// proving that its complete path set matches `references`; the protocol
-    /// deliberately does not define a second term AST.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConfigurationDescriptorError`] for malformed fixed data,
-    /// duplicate/wrong parser roles, or a resolved target of the wrong kind.
-    pub fn validate(&self) -> Result<(), ConfigurationDescriptorError> {
-        validate_configuration_shape(
-            &self.root,
-            &self.cell,
-            self.main_variable.as_ref().map(|variable| {
-                (
-                    variable.binding.as_str(),
-                    variable.external_name.as_str(),
-                    &variable.sort.key,
-                )
-            }),
-            &self.initializer.name,
-            &self.initializer.term,
-            self.initializer
-                .references
-                .iter()
-                .map(|reference| &reference.key),
-        )?;
-        if let Some(variable) = &self.main_variable {
-            validate_configuration_target(&variable.sort, ItemKind::Sort)?;
-        }
-        for reference in &self.initializer.references {
-            validate_configuration_target(reference, ItemKind::Constructor)?;
-        }
-        Ok(())
-    }
-}
-
-/// Optional main configuration-variable metadata.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConfigurationVariableDescriptor {
-    /// Authored Rust parameter binding.
-    pub binding: String,
-    /// External K configuration-variable name.
-    pub external_name: String,
-    /// Parser-keyed resolved declared sort.
-    pub sort: DescriptorReference,
-}
-
-/// Stable paired initializer syntax and semantic references.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ConfigurationInitializerDescriptor {
-    /// Fixed authored associated-method name (`init`).
-    pub name: String,
-    /// Deterministic single-item spelling for the existing shared term parser.
-    pub term: String,
-    /// Parser-keyed resolved named term constructors.
-    pub references: Vec<DescriptorReference>,
-}
-
-fn validate_configuration_target(
-    reference: &DescriptorReference,
-    expected: ItemKind,
-) -> Result<(), ConfigurationDescriptorError> {
-    let actual = reference.target.item_kind();
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(ConfigurationDescriptorError::ReferenceKindMismatch {
-            key: reference.key.clone(),
-            expected,
-            actual,
-        })
-    }
-}
-
 /// Explicit K sentence kind; rule ordering is never encoded here.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -827,84 +631,4 @@ pub enum SentenceKind {
     Alias,
     /// Reachability or logical claim.
     Claim,
-}
-
-/// One collector-resolved Rust target keyed to its parser-owned AST position.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct DescriptorReference {
-    /// Parser-owned semantic role and AST-order ordinal.
-    pub key: ProvenanceKey,
-    /// Stable item identity resolved from the host process's Rust type key.
-    pub target: StableItemId,
-}
-
-impl DescriptorReference {
-    /// Associates a parser-owned key with one stable target.
-    #[must_use]
-    pub const fn new(key: ProvenanceKey, target: StableItemId) -> Self {
-        Self { key, target }
-    }
-}
-
-/// Minimal resolved rule/equation/claim payload.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct RuleDescriptor {
-    /// Explicit sentence kind.
-    pub sentence_kind: SentenceKind,
-    /// Parameters in authored order.
-    pub parameters: Vec<RuleParameterDescriptor>,
-    /// Result sort resolved by rustc and the collector.
-    pub result_sort: StableItemId,
-    /// Explicit constructor and type targets from the authored rule.
-    pub references: Vec<DescriptorReference>,
-    /// Deterministic explicit-surface left-hand payload.
-    pub lhs: String,
-    /// Deterministic explicit-surface right-hand payload.
-    pub rhs: String,
-}
-
-impl RuleDescriptor {
-    /// Validates the collector's one-target-per-parser-node invariant.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DuplicateReferenceKey`] for the first repeated role/ordinal.
-    pub fn validate_reference_keys(&self) -> Result<(), DuplicateReferenceKey> {
-        validate_unique_reference_keys(self.references.iter().map(|reference| &reference.key))
-    }
-
-    /// Validates all binding names without changing authored preorder.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RuleBindingError`] for a blank or repeated binding.
-    pub fn validate_bindings(&self) -> Result<(), RuleBindingError> {
-        validate_rule_bindings(
-            self.parameters
-                .iter()
-                .map(|parameter| parameter.bindings.as_slice()),
-        )
-    }
-}
-
-/// One resolved rule binder and pattern.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct RuleParameterDescriptor {
-    /// Binder names in deterministic authored pattern preorder; may be empty.
-    pub bindings: Vec<String>,
-    /// Sort of the parameter.
-    pub sort: StableItemId,
-    /// Deterministic reference-surface pattern payload.
-    pub pattern: String,
-}
-
-impl RuleParameterDescriptor {
-    /// Validates this parameter's bindings without sorting them.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RuleBindingError`] for a blank or repeated binding.
-    pub fn validate_bindings(&self) -> Result<(), RuleBindingError> {
-        validate_rule_bindings(std::iter::once(self.bindings.as_slice()))
-    }
 }
