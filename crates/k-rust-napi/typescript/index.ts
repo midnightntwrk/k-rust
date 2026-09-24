@@ -308,7 +308,6 @@ export interface PathWitness {
 }
 
 export type BuiltinFailure =
-  | { kind: 'interrupted' }
   | { kind: 'wrong-arity'; hook: string; expected: number; actual: number }
   | { kind: 'unexpected-sort'; hook: string; expected: string; actual: string }
   | { kind: 'alternative-sorts-differ'; thenSort: string; elseSort: string }
@@ -357,7 +356,6 @@ export type SearchSatisfiability =
   | { kind: 'error'; error: SmtFailure }
 
 export type SearchFailure =
-  | { kind: 'cancelled' }
   | { kind: 'stack-exhausted' }
   | { kind: 'builtin'; error: BuiltinFailure }
   | { kind: 'conflicting-results'; rules: string[] }
