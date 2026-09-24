@@ -681,16 +681,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kink-conformance"
-version = "0.1.0"
-dependencies = [
- "kink-contracts",
- "kink-portable",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "kink-contracts"
 version = "0.1.0"
 

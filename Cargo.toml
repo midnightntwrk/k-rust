@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "crates/kink-campaign",
-  "crates/kink-conformance",
   "crates/kink-contracts",
   "crates/kink-native",
   "crates/kink-patch",
