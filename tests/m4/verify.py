@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 import os
 from pathlib import Path
@@ -18,7 +18,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, TypeVar, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
@@ -343,14 +343,47 @@ class Context:
     target: Path
     tools: dict[str, str] = field(default_factory=dict)
     environment: dict[str, str] = field(default_factory=dict)
-    krs: Path | None = None
-    artifacts: Path | None = None
-    reference_definition: Path | None = None
-    actual_definition: Path | None = None
-    reference_failure_definition: Path | None = None
-    actual_failure_definition: Path | None = None
-    native_build: Path | None = None
-    artifact_hashes: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RustBuild:
+    krs: Path
+
+    @property
+    def detail(self) -> str:
+        return (
+            "workspace/package fmt, check, Clippy, tests, docs, authored IMP MSRV, "
+            "stable native frontend, diagnostic and readable IMP LSP"
+        )
+
+
+@dataclass(frozen=True)
+class Artifacts:
+    paths: Path
+    hashes: Mapping[str, str]
+    native_build: Path
+
+    @property
+    def detail(self) -> str:
+        return (
+            "124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; "
+            "six repeated CLI/API source artifacts; repeated native build and LLVM capability boundary; "
+            f"sha256={json_sha256(self.hashes)}"
+        )
+
+
+@dataclass(frozen=True)
+class SourceDefinitions:
+    actual: Path
+    reference: Path
+    actual_failure: Path
+    reference_failure: Path
+    actual_execution_k: Path
+    comparison: Mapping[str, Any]
+
+    @property
+    def detail(self) -> str:
+        return f"parsed/compiled fail-closed projection: {self.comparison}"
 
 
 KRS_LOCK_EXTERNAL_TREES = (
@@ -463,7 +496,7 @@ def phase_preflight(context: Context) -> str:
     )
 
 
-def phase_rust(context: Context) -> str:
+def phase_rust(context: Context) -> RustBuild:
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     # Rust 1.98 added these style lints after the project's 1.88 MSRV gate.
     # Keep every other warning denied without rewriting recovered test logic.
@@ -567,8 +600,8 @@ def phase_rust(context: Context) -> str:
         timeout=600,
         environment=env,
     )
-    context.krs = context.target / "debug/krs"
-    if not context.krs.is_file():
+    krs = context.target / "debug/krs"
+    if not krs.is_file():
         raise GateError("workspace build did not produce the KRS CLI")
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
@@ -588,10 +621,7 @@ def phase_rust(context: Context) -> str:
             "CARGO_TARGET_DIR": os.fspath(context.target / "readable-lsp"),
         },
     )
-    return (
-        "workspace/package fmt, check, Clippy, tests, docs, authored IMP MSRV, "
-        "stable native frontend, diagnostic and readable IMP LSP"
-    )
+    return RustBuild(krs)
 
 
 ARTIFACT_NAMES = (
@@ -614,16 +644,15 @@ def krs_base(krs: Path) -> list[str]:
     ]
 
 
-def native_artifacts(context: Context, env: Mapping[str, str]) -> None:
+def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Path:
     """Build the native definition twice and pin it, with the LLVM capability boundary."""
 
-    assert context.krs is not None
     llvm_evidence: list[subprocess.CompletedProcess[str]] = []
     for name in ("llvm-failure-a", "llvm-failure-b"):
         output = context.workspace / name
         process = run(
             [
-                context.krs, "build", *krs_base(context.krs)[1:],
+                krs, "build", *krs_base(krs)[1:],
                 "--backend", "llvm", "--output", output,
             ],
             timeout=900,
@@ -664,7 +693,7 @@ def native_artifacts(context: Context, env: Mapping[str, str]) -> None:
     for name in ("native-a", "native-b"):
         output = context.workspace / name
         run(
-            [context.krs, "build", *krs_base(context.krs)[1:], "--backend", "haskell", "--output", output],
+            [krs, "build", *krs_base(krs)[1:], "--backend", "haskell", "--output", output],
             timeout=900,
             environment=env,
         )
@@ -674,19 +703,18 @@ def native_artifacts(context: Context, env: Mapping[str, str]) -> None:
         raise GateError("native artifact set is absent from pins.json")
     for name, digest in exact_directory(builds[0], builds[1], native_files).items():
         context.pins.expect(("native_artifact_sha256", name), digest)
-    context.native_build = builds[0]
+    return builds[0]
 
 
-def phase_artifacts(context: Context) -> str:
-    if context.krs is None:
-        raise GateError("artifact phase lacks the phase-2 KRS binary")
+def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
+    krs = rust_build.krs
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
-    check = run([context.krs, "check", *krs_base(context.krs)[1:]], timeout=300, environment=env)
+    check = run([krs, "check", *krs_base(krs)[1:]], timeout=300, environment=env)
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
         raise GateError(f"KRS check summary differs: {compact(check)}")
 
     expands = [
-        run([context.krs, "expand", *krs_base(context.krs)[1:]], timeout=300, environment=env).stdout
+        run([krs, "expand", *krs_base(krs)[1:]], timeout=300, environment=env).stdout
         for _ in range(2)
     ]
     if expands[0] != expands[1]:
@@ -701,13 +729,13 @@ def phase_artifacts(context: Context) -> str:
     emit_b = context.workspace / "emit-b"
     for output in (emit_a, emit_b):
         run(
-            [context.krs, "emit-k", *krs_base(context.krs)[1:], "--backend", "haskell", "--output", output],
+            [krs, "emit-k", *krs_base(krs)[1:], "--backend", "haskell", "--output", output],
             timeout=300,
             environment=env,
         )
     replacement_check = run(
         [
-            context.krs,
+            krs,
             "check",
             "--manifest-path",
             EXPANDED_MANIFEST,
@@ -724,7 +752,7 @@ def phase_artifacts(context: Context) -> str:
     replacement = context.workspace / "expanded-replacement"
     run(
         [
-            context.krs,
+            krs,
             "emit-k",
             "--manifest-path",
             EXPANDED_MANIFEST,
@@ -778,20 +806,12 @@ def phase_artifacts(context: Context) -> str:
 
     for name, digest in probe_hashes.items():
         context.pins.expect(("artifact_sha256", name), digest)
-    context.artifacts = probes[0]
-    context.artifact_hashes = probe_hashes
-    native_artifacts(context, env)
-    return (
-        "124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; "
-        "six repeated CLI/API source artifacts; repeated native build and LLVM capability boundary; "
-        f"sha256={json_sha256(probe_hashes)}"
-    )
+    native_build = native_artifacts(context, krs, env)
+    return Artifacts(probes[0], probe_hashes, native_build)
 
 
-def compile_source_definitions(context: Context) -> None:
-    if context.artifacts is None:
-        raise GateError("source compilation lacks deterministic artifacts")
-    definition_source = context.artifacts / "definition.k"
+def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
+    definition_source = artifacts.paths / "definition.k"
     claim_free, labels, _ = split_claims(definition_source.read_text(encoding="utf-8"), CLAIM_COUNT)
     actual_source = context.workspace / "actual-execution.k"
     actual_source.write_text(claim_free, encoding="utf-8")
@@ -848,10 +868,7 @@ def compile_source_definitions(context: Context) -> None:
         for name in ("parsed.json", "compiled.json", "definition.kore"):
             if not directory.joinpath(name).is_file():
                 raise GateError(f"source frontend omitted {directory.name}/{name}")
-    context.actual_definition = actual
-    context.reference_definition = reference
-    context.actual_failure_definition = actual_failure
-    context.reference_failure_definition = reference_failure
+    return SourceDefinitions(actual, reference, actual_failure, reference_failure, actual_source, {})
 
 
 def _projection_policy(raw: Any):
@@ -874,10 +891,8 @@ def _projection_policy(raw: Any):
     return ProjectionPolicy(**value)
 
 
-def phase_source_definition(context: Context) -> str:
-    compile_source_definitions(context)
-    assert context.reference_definition is not None
-    assert context.actual_definition is not None
+def phase_source_definition(context: Context, artifacts: Artifacts) -> SourceDefinitions:
+    definitions = compile_source_definitions(context, artifacts)
     sys.path.insert(0, os.fspath(HERE / "oracle"))
     from source_definition import compare_definitions, load_definition
 
@@ -915,8 +930,8 @@ def phase_source_definition(context: Context) -> str:
             f"source_definition.files.{filename}.actual_supplemental_sha256",
         )
         comparison[filename] = compare_definitions(
-            load_definition(context.reference_definition / filename),
-            load_definition(context.actual_definition / filename),
+            load_definition(definitions.reference / filename),
+            load_definition(definitions.actual / filename),
             _projection_policy(reference_raw),
             _projection_policy(actual_raw),
             file_policy["compatible_sentence_pairs"],
@@ -930,17 +945,13 @@ def phase_source_definition(context: Context) -> str:
         "compiled_sentence_count": comparison["compiled.json"].sentence_count,
     }
     context.pins.expect(("source_definition", "expected"), observed)
-    return f"parsed/compiled fail-closed projection: {observed}"
+    return replace(definitions, comparison=observed)
 
 
-def phase_native(context: Context) -> str:
-    if context.artifacts is None or context.actual_definition is None:
-        raise GateError("native phase lacks artifacts or source definition")
-    if context.native_build is None:
-        raise GateError("native phase lacks the phase-3 native build")
+def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefinitions) -> str:
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
-    native_kore = context.native_build / "definition.kore"
-    reference_kore = context.actual_definition / "definition.kore"
+    native_kore = artifacts.native_build / "definition.kore"
+    reference_kore = definitions.actual / "definition.kore"
     comparator = [
         "cargo", "run", "--locked", "--quiet", "--manifest-path", NATIVE_MANIFEST,
         "--bin", "krs-m4-native-comparator", "--",
@@ -956,9 +967,9 @@ def phase_native(context: Context) -> str:
     # exact emitted claims as a supplemental spec through the supported
     # kprove --dry-run route, then require the comparator to merge only that
     # one-import/claims-only KORE module.
-    execution_source = context.workspace / "actual-execution.k"
+    execution_source = definitions.actual_execution_k
     _, labels, claim_source = split_claims(
-        context.artifacts.joinpath("definition.k").read_text(encoding="utf-8"), CLAIM_COUNT
+        artifacts.paths.joinpath("definition.k").read_text(encoding="utf-8"), CLAIM_COUNT
     )
     if labels != context.pins.get("claim_labels"):
         raise GateError("native supplemental claim order differs")
@@ -989,7 +1000,7 @@ def phase_native(context: Context) -> str:
     run(
         [
             context.tools["kprove"], spec_path, "-I", upstream,
-            "-d", context.actual_definition,
+            "-d", definitions.actual,
             "--spec-module", spec_module, "--dry-run", "--temp-dir", spec_temp,
         ],
         timeout=900,
@@ -1009,14 +1020,7 @@ def phase_native(context: Context) -> str:
     return result.stdout.strip()
 
 
-def phase_behavior(context: Context) -> str:
-    if (
-        context.reference_definition is None
-        or context.actual_definition is None
-        or context.reference_failure_definition is None
-        or context.actual_failure_definition is None
-    ):
-        raise GateError("behavior phase lacks compiled source routes")
+def phase_behavior(context: Context, definitions: SourceDefinitions) -> str:
     # The complete plan is deliberately constructed from corpus.json by a
     # separately tested fail-closed adapter.  Importing it here keeps the root
     # runner's ordered process ownership while retaining a small oracle API.
@@ -1031,14 +1035,14 @@ def phase_behavior(context: Context) -> str:
     summary = behavior.compare_behavior(
         kast=context.tools["kast"], krun=context.tools["krun"],
         reference=behavior.Route(
-            context.reference_definition,
+            definitions.reference,
             reference_policy,
-            context.reference_failure_definition,
+            definitions.reference_failure,
         ),
         actual=behavior.Route(
-            context.actual_definition,
+            definitions.actual,
             actual_policy,
-            context.actual_failure_definition,
+            definitions.actual_failure,
         ),
         plan=plan,
     )
@@ -1082,30 +1086,28 @@ def phase_proofs(context: Context) -> str:
     return result.stdout.strip()
 
 
-def phase_compatibility(context: Context) -> str:
-    if context.krs is None or context.artifacts is None:
-        raise GateError("compatibility phase lacks CLI and deterministic artifacts")
+def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Artifacts) -> str:
     env = {
         **context.environment,
         "CARGO_TARGET_DIR": os.fspath(context.target),
         "KRS_M4_PROBE_TARGET_ROOT": os.fspath(context.target / "probes"),
     }
     commands = [
-        [context.tools["python"], HERE / "compatibility/stable-names/probe.py", "--krs", context.krs],
+        [context.tools["python"], HERE / "compatibility/stable-names/probe.py", "--krs", rust_build.krs],
         [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/probe.py"],
         [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/lsp_probe.py"],
-        [context.tools["python"], HERE / "compatibility/diagnostics/krs-analysis/probe.py", "--krs", context.krs],
+        [context.tools["python"], HERE / "compatibility/diagnostics/krs-analysis/probe.py", "--krs", rust_build.krs],
         [
             context.tools["python"], HERE / "compatibility/diagnostics/k-frontend/probe.py",
-            "--definition", context.artifacts / "definition.k",
-            "--sources", context.artifacts / "sources.json",
+            "--definition", artifacts.paths / "definition.k",
+            "--sources", artifacts.paths / "sources.json",
             "--authored", HERE / "rust-definition/src/claims.rs",
             "--source-relative-path", "src/claims.rs", "--token", "bool::and",
             "--kompile", context.tools["kompile"], "--module", MODULE,
             "--verification-definition", ROOT.parent
             / "inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics",
         ],
-        [context.tools["python"], HERE / "compatibility/diagnostics/backend-capability/probe.py", "--krs", context.krs],
+        [context.tools["python"], HERE / "compatibility/diagnostics/backend-capability/probe.py", "--krs", rust_build.krs],
         [context.tools["python"], HERE / "compatibility/diagnostics/probe.py"],
     ]
     # Each probe owns its Cargo target and scratch directories, except that the
@@ -1128,18 +1130,53 @@ def phase_compatibility(context: Context) -> str:
     return f"seven live compatibility probes; policy=1; sha256={digest}"
 
 
-PHASES: tuple[tuple[str, Callable[[Context], str]], ...] = (
-    ("preflight", phase_preflight),
-    ("rust-and-lsp", phase_rust),
-    ("deterministic-artifacts", phase_artifacts),
-    ("source-definition", phase_source_definition),
-    ("native-kore", phase_native),
-    ("parser-execution-search", phase_behavior),
-    ("bounded-proofs", phase_proofs),
-    ("compatibility-reproduction", phase_compatibility),
+PHASES = (
+    "preflight",
+    "rust-and-lsp",
+    "deterministic-artifacts",
+    "source-definition",
+    "native-kore",
+    "parser-execution-search",
+    "bounded-proofs",
+    "compatibility-reproduction",
 )
 ARTIFACT_PHASES = 3
 """Preflight, the Rust checks, and every emitted artifact; `--artifacts-only` stops here."""
+
+
+class StopPhases(Exception):
+    """End the default gate after its first failed phase."""
+
+
+PhaseResult = str | RustBuild | Artifacts | SourceDefinitions
+T = TypeVar("T", bound=PhaseResult)
+
+
+def run_phase(
+    index: int,
+    name: str,
+    requires: tuple[str, ...],
+    passed: set[str],
+    failures: list[tuple[str, str]],
+    audit_all: bool,
+    function: Callable[[], T],
+) -> T | None:
+    for dependency in requires:
+        if dependency not in passed:
+            print(f"SKIP {name}: requires {dependency}", flush=True)
+            return None
+    try:
+        result = function()
+    except Exception as error:
+        failures.append((name, str(error)))
+        print(f"FAIL M4.{index} {name}: {error}", file=sys.stderr, flush=True)
+        if not audit_all:
+            raise StopPhases from error
+        return None
+    passed.add(name)
+    detail = result if isinstance(result, str) else result.detail
+    print(f"PASS M4.{index} {name}: {detail}", flush=True)
+    return result
 
 
 def main() -> int:
@@ -1172,22 +1209,46 @@ def main() -> int:
     if arguments.artifacts_only and (arguments.record or arguments.audit_all):
         parser.error("--artifacts-only cannot be combined with --record or --audit-all")
     pins = Ledger(PINS_PATH, record=arguments.record, artifacts_only=arguments.artifacts_only)
-    phases = PHASES[:ARTIFACT_PHASES] if arguments.artifacts_only else PHASES
     corpus = load_json(CORPUS_PATH)
     failures: list[tuple[str, str]] = []
+    passed: set[str] = set()
+    artifacts: Artifacts | None = None
     with tempfile.TemporaryDirectory(prefix="krs-m4-root-") as temporary:
         context = Context(pins, corpus, Path(temporary), arguments.target_dir.resolve())
         context.target.mkdir(parents=True, exist_ok=True)
-        for index, (name, function) in enumerate(phases, start=1):
-            try:
-                detail = function(context)
-            except Exception as error:
-                failures.append((name, str(error)))
-                print(f"FAIL M4.{index} {name}: {error}", file=sys.stderr, flush=True)
-                if not arguments.audit_all:
-                    break
-            else:
-                print(f"PASS M4.{index} {name}: {detail}", flush=True)
+        try:
+            run_phase(1, PHASES[0], (), passed, failures, arguments.audit_all,
+                      lambda: phase_preflight(context))
+            rust_build = run_phase(2, PHASES[1], (PHASES[0],), passed, failures,
+                                   arguments.audit_all, lambda: phase_rust(context))
+            artifacts = run_phase(3, PHASES[2], (PHASES[1],), passed, failures,
+                                  arguments.audit_all,
+                                  lambda: phase_artifacts(context, cast(RustBuild, rust_build)))
+            if not arguments.artifacts_only:
+                definitions = run_phase(
+                    4, PHASES[3], (PHASES[2],), passed, failures, arguments.audit_all,
+                    lambda: phase_source_definition(context, cast(Artifacts, artifacts)),
+                )
+                run_phase(
+                    5, PHASES[4], (PHASES[2], PHASES[3]), passed, failures,
+                    arguments.audit_all,
+                    lambda: phase_native(context, cast(Artifacts, artifacts),
+                                         cast(SourceDefinitions, definitions)),
+                )
+                run_phase(
+                    6, PHASES[5], (PHASES[3],), passed, failures, arguments.audit_all,
+                    lambda: phase_behavior(context, cast(SourceDefinitions, definitions)),
+                )
+                run_phase(7, PHASES[6], (PHASES[0],), passed, failures,
+                          arguments.audit_all, lambda: phase_proofs(context))
+                run_phase(
+                    8, PHASES[7], (PHASES[1], PHASES[2]), passed, failures,
+                    arguments.audit_all,
+                    lambda: phase_compatibility(context, cast(RustBuild, rust_build),
+                                                cast(Artifacts, artifacts)),
+                )
+        except StopPhases:
+            pass
     if failures:
         if arguments.audit_all:
             print("M4 audit blockers:", file=sys.stderr)
@@ -1209,7 +1270,7 @@ def main() -> int:
             "commit": lock.value("k_rust", "commit"),
         },
         "proof_bounds": pins["proof_policy"],
-        "artifacts": context.artifact_hashes,
+        "artifacts": cast(Artifacts, artifacts).hashes,
         "compatibility_policy": pins["compatibility"]["policy_version"],
     }
     print(f"PASS M4 complete IMP: {canonical_json(summary)}")
