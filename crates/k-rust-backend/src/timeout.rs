@@ -85,10 +85,10 @@ impl StepTimeoutController {
     pub(crate) fn begin_step(&self) -> StepTimer<'_> {
         #[cfg(target_arch = "wasm32")]
         {
-            return StepTimer {
+            StepTimer {
                 _controller: std::marker::PhantomData,
                 record_elapsed: false,
-            };
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
