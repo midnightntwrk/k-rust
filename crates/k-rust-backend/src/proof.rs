@@ -319,7 +319,19 @@ pub fn prove_claim(
                 solver,
             );
             finish_if_timed_out!();
-            let implication = implication.map_err(ProofError::Implication)?;
+            let implication = match implication {
+                // The check ran out of this thread's stack: the state cannot be decided here,
+                // and the rest of the proof can still be.
+                Err(ImplicationError::Simplification(
+                    error @ SimplificationError::StackExhausted,
+                )) => {
+                    record_leaf!(state.leaf(ProofLeafOutcome::Indeterminate(
+                        ProofIndeterminateReason::Simplification(error),
+                    )));
+                    continue;
+                }
+                implication => implication.map_err(ProofError::Implication)?,
+            };
             match implication.status {
                 ImplicationStatus::Valid => {
                     let outcome = if implication.vacuous {
@@ -1059,9 +1071,21 @@ fn apply_claim(
     // Kore evaluates the remainder predicate and prunes an unsatisfiable remainder before it
     // becomes a state (RewriteStep.hs:308-322): the claim then covers the whole subject, and no
     // bottom successor is left for the vacuity check to reject.
-    let complement = complement.filter(|negated| {
-        !remainder_is_unsatisfiable(definition, subject, negated, simplification, solver)
-    });
+    let complement = match complement {
+        Some(negated) => {
+            match remainder_is_unsatisfiable(definition, subject, &negated, simplification, solver)
+            {
+                Ok(true) => None,
+                Ok(false) => Some(negated),
+                Err(error) => {
+                    return ClaimApplication::Indeterminate(
+                        ClaimIndeterminateReason::Simplification(error),
+                    );
+                }
+            }
+        }
+        None => None,
+    };
     let mut covered_knowledge = subject.constraints.clone();
     extend_unique(&mut covered_knowledge, conditions);
 
@@ -1101,14 +1125,16 @@ fn apply_claim(
 
 /// The remainder of a claim application is the subject under the negated, quantified match
 /// condition. It is unsatisfiable when that condition simplifies to false or the solver refutes
-/// it together with the subject's constraints; an undecided or unavailable solver keeps it.
+/// it together with the subject's constraints; an undecided or unavailable solver, or a failed
+/// simplification, keeps it. An exhausted stack is returned instead: keeping the remainder would
+/// turn the lack of stack into a state the claim does not cover.
 fn remainder_is_unsatisfiable(
     definition: &BackendDefinition,
     subject: &Pattern,
     negated: &crate::rule::Predicate,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
-) -> bool {
+) -> Result<bool, SimplificationError> {
     let simplified = match simplify_predicates_with_solver(
         definition,
         std::slice::from_ref(negated),
@@ -1117,17 +1143,18 @@ fn remainder_is_unsatisfiable(
         solver,
     ) {
         Ok(simplified) => simplified,
-        Err(_) => return false,
+        Err(error @ SimplificationError::StackExhausted) => return Err(error),
+        Err(_) => return Ok(false),
     };
     if predicates_truth(&simplified) == Truth::False {
-        return true;
+        return Ok(true);
     }
     let mut constraints = subject.constraints.clone();
     extend_unique(&mut constraints, simplified);
-    matches!(
+    Ok(matches!(
         solver.is_sat(&constraints, &Substitution::new()),
         Ok(Satisfiability::Unsat)
-    )
+    ))
 }
 
 /// Unification may bind variables of the subject rather than of the claim. Such bindings are

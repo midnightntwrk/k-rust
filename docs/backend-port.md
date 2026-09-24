@@ -100,6 +100,16 @@ The standalone term simplifier retains typed `IterationLimit` errors.
 An equation's side conditions (its `requires`, the definedness obligations of its bindings, and its `ensures`) are decided in their unsimplified form when simplifying them exhausts the budget, which may leave the equation unapplied; that exhaustion is recorded as a `SimplificationBudgetExhausted` diagnostic over `Predicates` followed by a `RuleConditionUnsimplified { rule_id, limit }` diagnostic naming the rule, once per rule and limit in a request.
 The backend does not yet implement Booster's separate equation-loop detector, so a genuinely non-terminating equation set may produce a partial configuration with a diagnostic.
 
+## Simplification stack depth
+
+Simplification recursion depth is bounded by the native stack of the thread that runs it, not by a depth count or the iteration budget, which restarts for every equation condition.
+The simplifier reads the current thread's stack bounds at every fixed-point round and predicate entry and stops with the typed error `SimplificationError::StackExhausted` when less than a 128 KiB red zone remains, instead of overflowing the stack, which would abort the process.
+The guard covers every native thread, whoever created it: CLI and RPC workers, Node-API calls on Node's JavaScript thread, and embedders' own threads.
+On wasm32 the engine's call-stack limit is invisible to the module, so the guard is absent and exhaustion is a trap reported to the JavaScript host.
+Ground function recursion reaches about 26,000 levels on a 64 MiB release thread (about 2.5 KiB per level in release builds and 16 KiB in debug builds).
+Exhaustion is reported, never decided: an equation condition, definedness obligation, or `ensures` whose simplification is cancelled, interrupted by the step deadline, or runs out of stack propagates that error instead of being decided unsimplified, and `KeepPartial` budgets do not absorb it.
+Execution ends the state with `Simplification(StackExhausted)`, a proof records an indeterminate leaf with that error, KORE RPC `execute` and `simplify` answer with a runtime error and `implies` with an implication-check error while the connection keeps serving, and the CLI prints the error and exits nonzero.
+
 ## Final search depth cuts
 
 FINAL search treats `--depth N` as a cut of the execution graph.

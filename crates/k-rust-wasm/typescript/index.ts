@@ -361,6 +361,7 @@ export type SearchSatisfiability =
 export type SearchFailure =
   | { kind: 'cancelled' }
   | { kind: 'interrupted' }
+  | { kind: 'stack-exhausted' }
   | { kind: 'builtin'; error: BuiltinFailure }
   | { kind: 'conflicting-results'; rules: string[] }
   | { kind: 'smt'; rule?: string; error: SmtFailure }

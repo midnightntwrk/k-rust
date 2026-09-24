@@ -442,7 +442,8 @@ pub fn check_disjunctive_implication_with_existentials(
                 solver,
             ) {
                 Ok(obligations) => obligations,
-                Err(_) => {
+                Err(error) => {
+                    stack_exhaustion(error)?;
                     incomplete = true;
                     continue;
                 }
@@ -455,7 +456,8 @@ pub fn check_disjunctive_implication_with_existentials(
                 solver,
             ) {
                 Ok(predicates) => predicates,
-                Err(_) => {
+                Err(error) => {
+                    stack_exhaustion(error)?;
                     incomplete = true;
                     continue;
                 }
@@ -488,14 +490,19 @@ pub fn check_disjunctive_implication_with_existentials(
                     .map(|branch| conjoin(branch.predicates))
                     .collect(),
             )];
-            let combined = simplify_predicates_with_solver(
+            let combined = match simplify_predicates_with_solver(
                 definition,
                 &combined,
                 &antecedent.constraints,
                 options,
                 solver,
-            )
-            .unwrap_or(combined);
+            ) {
+                Ok(simplified) => simplified,
+                Err(error) => {
+                    stack_exhaustion(error)?;
+                    combined
+                }
+            };
             match predicates_truth(&combined) {
                 Truth::True => {
                     return Ok(valid_with_witnesses(Substitution::new(), witnesses));
@@ -521,7 +528,7 @@ pub fn check_disjunctive_implication_with_existentials(
                         options,
                         solver,
                     )
-                    .unwrap_or(false)
+                    .or_else(|error| stack_exhaustion(error).map(|()| false))?
                     {
                         return Ok(valid_with_witnesses(Substitution::new(), witnesses));
                     }
@@ -600,7 +607,7 @@ fn check_implication_with_existentials_and_options_and_policy(
     let _span = measure::algorithm_span(Algorithm::BackendImplicationCheck);
     let (consequent, consequent_existentials) =
         freshen_existentials(antecedent, consequent, consequent_existentials);
-    let consequent = simplify_consequent(definition, antecedent, consequent, options, solver);
+    let consequent = simplify_consequent(definition, antecedent, consequent, options, solver)?;
     let antecedent_variables = free_variables(antecedent)
         .difference(antecedent_existentials)
         .cloned()
@@ -707,16 +714,17 @@ fn check_implication_with_existentials_and_options_and_policy(
 /// (Kore/Reachability/Claim.hs simplify', simplifyRightHandSide: Pattern.makeEvaluate under the
 /// left-hand side's side condition). A top equation result erases its conjunction operand, so
 /// `2 #And n +Int n` with `n +Int n = \top` becomes `2`. A simplification failure keeps the
-/// destination as written; the check then proceeds exactly as before.
+/// destination as written; the check then proceeds exactly as before. An exhausted stack is
+/// returned instead (`stack_exhaustion`).
 fn simplify_consequent(
     definition: &BackendDefinition,
     antecedent: &Pattern,
     consequent: Pattern,
     options: ImplicationCheckOptions,
     solver: &dyn SmtSolver,
-) -> Pattern {
+) -> Result<Pattern, ImplicationError> {
     if consequent.term.attributes().evaluated {
-        return consequent;
+        return Ok(consequent);
     }
     match simplify_with_solver(
         definition,
@@ -725,11 +733,29 @@ fn simplify_consequent(
         options.simplification,
         solver,
     ) {
-        Ok(simplified) => Pattern {
+        Ok(simplified) => Ok(Pattern {
             term: simplified.term,
             constraints: merge_predicates(consequent.constraints, simplified.constraints),
-        },
-        Err(_) => consequent,
+        }),
+        Err(error) => {
+            stack_exhaustion(error)?;
+            Ok(consequent)
+        }
+    }
+}
+
+/// Return an exhausted native stack as the check's error; any other simplification failure is
+/// left to the caller's fallback.
+///
+/// Where a simplification inside the check fails, the check falls back to a weaker but sound
+/// step: the unsimplified form, or an indeterminate verdict. That is a fit answer to a bound or
+/// to an error of the input. An exhausted stack is neither: it is a limit of the thread that ran
+/// the check, visible to the caller only through this error, whereas cancellation and the step
+/// deadline stay observable on the caller's own token and timer after the check returns.
+fn stack_exhaustion(error: SimplificationError) -> Result<(), ImplicationError> {
+    match error {
+        SimplificationError::StackExhausted => Err(ImplicationError::Simplification(error)),
+        _ => Ok(()),
     }
 }
 
@@ -809,7 +835,10 @@ fn discharge_consequent(
         solver,
     ) {
         Ok(obligations) => obligations,
-        Err(_) => return Ok(indeterminate()),
+        Err(error) => {
+            stack_exhaustion(error)?;
+            return Ok(indeterminate());
+        }
     };
     if obligations.predicates.is_empty() {
         return Ok(valid_with_witnesses(substitution, obligations.witnesses));
@@ -823,7 +852,10 @@ fn discharge_consequent(
         solver,
     ) {
         Ok(predicates) => predicates,
-        Err(_) => return Ok(indeterminate()),
+        Err(error) => {
+            stack_exhaustion(error)?;
+            return Ok(indeterminate());
+        }
     };
     let obligations = Obligations {
         predicates,
@@ -859,7 +891,7 @@ fn discharge_consequent(
         options.simplification,
         solver,
     )
-    .unwrap_or(false)
+    .or_else(|error| stack_exhaustion(error).map(|()| false))?
     {
         return Ok(valid_with_witnesses(substitution, witnesses));
     }

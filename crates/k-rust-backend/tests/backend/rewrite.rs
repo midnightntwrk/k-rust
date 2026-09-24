@@ -4694,6 +4694,139 @@ fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
     ));
 }
 
+/// Two ground function definitions whose evaluation never reaches a value and never runs
+/// out of iteration budget before it runs out of stack: `down(N) = 1 +Int down(N +Int 1)`
+/// recurses in the term, and `h(N) = 0 requires h(N +Int 1) ==Int 0` recurses through the
+/// condition of its only equation, where every condition starts a fresh iteration budget.
+fn stack_exhaustion_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            hooked-symbol intEq{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq")]
+            symbol down{}(SortInt{}) : SortInt{} [function{}()]
+            symbol h{}(SortInt{}) : SortInt{} [function{}()]
+            symbol startNest{}(SortInt{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol kbox{}(SortInt{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, N:SortInt{}), \top{R}())),
+                \equals{SortInt{}, R}(
+                    down{}(X0:SortInt{}),
+                    \and{SortInt{}}(
+                        intAdd{}(
+                            \dv{SortInt{}}("1"),
+                            down{}(intAdd{}(N:SortInt{}, \dv{SortInt{}}("1")))
+                        ),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("down")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortBool{}, R}(
+                        intEq{}(h{}(intAdd{}(N:SortInt{}, \dv{SortInt{}}("1"))), \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \and{R}(\in{SortInt{}, R}(X0:SortInt{}, N:SortInt{}), \top{R}())
+                ),
+                \equals{SortInt{}, R}(
+                    h{}(X0:SortInt{}),
+                    \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+                )
+            ) [label{}("h-nest")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(startNest{}(N:SortInt{}), \top{SortS{}}()),
+                kbox{}(h{}(N:SortInt{}))
+            ) [label{}("go-nest")]
+            "#,
+    )
+}
+
+fn int_application(definition: &BackendDefinition, symbol: &str, value: i64) -> Term {
+    Term::application(
+        definition.symbols[symbol].clone(),
+        Vec::new(),
+        vec![Term::domain_value(
+            Sort::simple("SortInt"),
+            value.to_string(),
+        )],
+    )
+}
+
+/// Run `body` on a fresh thread with `stack_size` bytes of stack and return its result; a
+/// native stack overflow would abort the test process instead.
+fn on_thread_with_stack<T: Send + 'static>(
+    name: &str,
+    stack_size: usize,
+    body: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    std::thread::Builder::new()
+        .name(name.into())
+        .stack_size(stack_size)
+        .spawn(body)
+        .expect("the regression thread should start")
+        .join()
+        .expect("the regression thread should complete")
+}
+
+#[test]
+fn unbounded_non_tail_recursion_reports_an_exhausted_stack() {
+    let result = on_thread_with_stack("down-unbounded", 64 * 1024 * 1024, || {
+        let definition = stack_exhaustion_definition();
+        k_rust_backend::simplify::simplify(
+            &definition,
+            &int_application(&definition, "down", 0),
+            SimplificationOptions::unbounded(),
+        )
+    });
+    assert_eq!(result, Err(SimplificationError::StackExhausted));
+}
+
+#[test]
+fn an_embedder_sized_thread_reports_an_exhausted_stack() {
+    // A 2 MiB thread is the Rust default for spawned threads and the size of an ordinary
+    // embedder's worker; the guard reads the bounds of whatever thread runs the simplifier.
+    let result = on_thread_with_stack("down-2mib", 2 * 1024 * 1024, || {
+        let definition = stack_exhaustion_definition();
+        k_rust_backend::simplify::simplify(
+            &definition,
+            &int_application(&definition, "down", 0),
+            SimplificationOptions::unbounded(),
+        )
+    });
+    assert_eq!(result, Err(SimplificationError::StackExhausted));
+}
+
+#[test]
+fn stack_exhaustion_in_an_equation_condition_ends_execution_with_the_error() {
+    // Each evaluation of `h`'s condition starts a fresh iteration budget, so only the stack
+    // bounds the nesting. The condition fallback must not decide the unsimplified condition:
+    // that would block the equation and report a silent `Stuck` with `h(0)` unevaluated.
+    let result = on_thread_with_stack("nest-default", 64 * 1024 * 1024, || {
+        let definition = stack_exhaustion_definition();
+        execute(
+            &definition,
+            Pattern {
+                term: int_application(&definition, "startNest", 0),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions::default(),
+        )
+    });
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::Simplification(SimplificationError::StackExhausted)
+    );
+}
+
 #[test]
 fn rule_requires_budget_exhaustion_is_not_a_simplification_error() {
     let definition = definition(

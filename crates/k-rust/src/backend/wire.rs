@@ -289,6 +289,7 @@ pub enum SatisfiabilityOutput {
 pub enum SearchFailureOutput {
     Cancelled,
     Interrupted,
+    StackExhausted,
     SurvivingMacroOrAlias {
         symbol: String,
     },
@@ -786,6 +787,7 @@ fn simplification_failure_output(
     Ok(match error {
         SimplificationError::Cancelled => SearchFailureOutput::Cancelled,
         SimplificationError::Interrupted => SearchFailureOutput::Interrupted,
+        SimplificationError::StackExhausted => SearchFailureOutput::StackExhausted,
         SimplificationError::Builtin(error) => SearchFailureOutput::Builtin {
             error: builtin_failure_output(error),
         },
