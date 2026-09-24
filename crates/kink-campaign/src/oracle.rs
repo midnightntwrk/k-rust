@@ -54,7 +54,8 @@ pub enum OracleSide {
 }
 /// Compares two already kind-validated supplied sides.
 ///
-/// A failed side decides first, in the order error, timeout, unknown. This
+/// A failed side decides first, in the order error, timeout, unknown, and a
+/// normal side without complete finite evidence then gives unknown. This
 /// function performs no K parsing, projection, solver work, or discovery.
 pub fn compare_supplied(
     kind: OracleKind,
@@ -66,17 +67,11 @@ pub fn compare_supplied(
         (OracleSide::Error, _) | (_, OracleSide::Error) => Ok(OracleOutcome::Error),
         (OracleSide::Timeout, _) | (_, OracleSide::Timeout) => Ok(OracleOutcome::Timeout),
         (OracleSide::Unknown, _) | (_, OracleSide::Unknown) => Ok(OracleOutcome::Unknown),
-        (
-            OracleSide::Normal {
-                completeness: left_completeness,
-                ..
-            },
-            OracleSide::Normal {
-                completeness: right_completeness,
-                ..
-            },
-        ) if *left_completeness != Completeness::CompleteFinite
-            || *right_completeness != Completeness::CompleteFinite =>
+        // Incomplete evidence on either side is unknown, including against a
+        // crash: a bounded side may still crash beyond its bound.
+        (OracleSide::Normal { completeness, .. }, _)
+        | (_, OracleSide::Normal { completeness, .. })
+            if *completeness != Completeness::CompleteFinite =>
         {
             Ok(OracleOutcome::Unknown)
         }

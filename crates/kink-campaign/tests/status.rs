@@ -810,6 +810,40 @@ fn failed_sides_compare_error_then_timeout_then_unknown() {
     }
 }
 
+/// Rust-only: a normal side without complete finite evidence is unknown against
+/// any other admitted side, including a crash, so a bounded baseline that
+/// might crash beyond its bound never kills a crashing mutant.
+#[test]
+fn incomplete_normal_side_is_unknown_even_against_a_crash() {
+    let incomplete = |completeness| OracleSide::Normal {
+        value: text("a"),
+        completeness,
+    };
+    for completeness in [Completeness::Incomplete, Completeness::Unknown] {
+        #[rustfmt::skip]
+        let rows = [
+            ("incomplete-baseline-against-crash", incomplete(completeness), crash('a')),
+            ("crash-against-incomplete-mutant", crash('a'), incomplete(completeness)),
+            ("incomplete-baseline-against-complete", incomplete(completeness), normal(text("b"))),
+            ("complete-against-incomplete-mutant", normal(text("b")), incomplete(completeness)),
+        ];
+        for (id, baseline, mutant) in rows {
+            for policy in [
+                CrashPolicy::Reject,
+                CrashPolicy::CompareIdentity,
+                CrashPolicy::Distinguish,
+            ] {
+                assert_eq!(
+                    compare_supplied(OracleKind::ExitStop, policy, &baseline, &mutant)
+                        .expect("incomplete evidence always compares"),
+                    OracleOutcome::Unknown,
+                    "{id} ({completeness:?}) under {policy:?}"
+                );
+            }
+        }
+    }
+}
+
 /// Every oracle kind keeps agree, distinguish and unknown apart, and an
 /// unknown oracle neither kills nor survives, so it is never scored.
 #[test]
