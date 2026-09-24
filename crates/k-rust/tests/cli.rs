@@ -5499,6 +5499,128 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     }
 }
 
+/// A destination whose condition is false on the reached state covers none of it, so the whole
+/// state is a stuck leaf. It is never reported as a vacuous branch, so `--allow-vacuous` cannot
+/// turn these false claims into proofs, and the leaf is the same with or without the stuck check
+/// because no rule applies to it.
+#[test]
+fn kprove_reports_a_refuted_destination_condition_as_a_stuck_leaf() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("exist-probe.k"),
+        r#"
+module EXIST-PROBE
+  imports INT
+  syntax State ::= "start" | st(Int, Int) | "done"
+  configuration <k> $PGM:State </k>
+  rule <k> start => st(!N:Int, 7) </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("exist-spec.k"),
+        r#"
+requires "exist-probe.k"
+
+module EXIST-SPEC
+  imports EXIST-PROBE
+
+  claim <k> start => st(?B:Int, ?A:Int) </k> ensures ?A ==Int 8 [label(ab-false)]
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("cell-probe.k"),
+        r#"
+module CELL-PROBE
+  imports INT
+  syntax State ::= "start" | "middle"
+  configuration <k> $PGM:State </k> <n> 0 </n>
+  rule <k> start => middle </k> <n> _ => 5 </n>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("ex-spec.k"),
+        r#"
+requires "cell-probe.k"
+
+module EX-SPEC
+  imports CELL-PROBE
+
+  claim <k> start => middle </k> <n> _ => ?N </n> ensures ?N ==Int 7 [label(existential-wrong)]
+endmodule
+"#,
+    )
+    .unwrap();
+
+    let cases = [
+        (
+            "exist-spec.k",
+            "EXIST-SPEC",
+            "EXIST-PROBE",
+            "ab-false",
+            "Lblst'LParUndsCommUndsRParUnds'EXIST-PROBE",
+        ),
+        (
+            "ex-spec.k",
+            "EX-SPEC",
+            "CELL-PROBE",
+            "existential-wrong",
+            "Lbl'-LT-'n'-GT-'{}(\\dv{SortInt{}}(\"5\"))",
+        ),
+    ];
+    for (specification, module, definition_module, claim, leaf_term) in cases {
+        for flags in [
+            &[][..],
+            &["--allow-vacuous"][..],
+            &["--disable-stuck-check"][..],
+            &["--allow-vacuous", "--disable-stuck-check"][..],
+        ] {
+            let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .args([
+                    "kprove",
+                    root.join(specification).to_str().unwrap(),
+                    "--main-module",
+                    module,
+                    "--definition-module",
+                    definition_module,
+                    "--depth",
+                    "10",
+                    "--claim",
+                    claim,
+                ])
+                .args(flags)
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let context = format!(
+                "{claim} {flags:?}: {stdout}\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            assert!(!output.status.success(), "{context}");
+            assert!(
+                stdout.contains(&format!("claim {claim}: disproved")),
+                "{context}"
+            );
+            let leaves = stdout
+                .lines()
+                .filter(|line| line.contains(" at depth "))
+                .map(str::trim)
+                .collect::<Vec<_>>();
+            assert_eq!(leaves, ["Stuck at depth 1"], "{context}");
+            assert!(stdout.contains(leaf_term), "{context}");
+            assert!(!stdout.contains("simplified to bottom"), "{context}");
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kprove_recalls_the_same_claim_from_another_spec_module() {
     let (root, _) = fixture();

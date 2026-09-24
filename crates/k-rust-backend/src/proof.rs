@@ -333,7 +333,15 @@ pub fn prove_claim(
                     record_leaf!(state.leaf(outcome));
                     continue;
                 }
-                ImplicationStatus::Invalid if implication.condition.is_some() => {
+                // Only a coverage condition says which part of the state already lies
+                // in the destination, so only its complement is the uncovered part. A
+                // refuted obligation (`ConsequentCondition`) covers none of the state;
+                // its condition is the matcher's report (bindings and predicates), whose
+                // complement can be bottom. The whole state is then the part outside the
+                // destination and takes the arms below.
+                ImplicationStatus::Invalid
+                    if implication.failure == Some(ImplicationFailure::PartialCoverage) =>
+                {
                     let condition = implication
                         .condition
                         .expect("a partial implication carries its coverage condition");
@@ -2114,6 +2122,141 @@ mod tests {
         assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
         assert_eq!(result.explored_states, 2);
         assert_eq!(result.unexplored_states, 0);
+    }
+
+    /// `done(7)` refutes `∃N. done(N) ∧ N = 8`: the match binds `N := 7` and the obligation
+    /// `7 = 8` is false, so no part of the state lies in the destination. The refutation's
+    /// condition holds that binding and no predicate; the whole state must stay the leaf, never
+    /// the complement of that condition (which is bottom and would read as a vacuous branch).
+    #[test]
+    fn a_refuted_destination_condition_leaves_the_whole_state_stuck() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}() : SortState{} [constructor{}()]
+                symbol done{}(SortInt{}) : SortState{} [constructor{}()]
+                symbol held{}(SortInt{}) : SortState{} [constructor{}()]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    done{}(\dv{SortInt{}}("7"))
+                ) [label{}("step")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(
+                        \exists{SortState{}}(
+                            N:SortInt{},
+                            \and{SortState{}}(
+                                done{}(N:SortInt{}),
+                                \equals{SortInt{}, SortState{}}(
+                                    N:SortInt{},
+                                    \dv{SortInt{}}("8")
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("after-a-step")]
+                claim{} \implies{SortState{}}(
+                    \and{SortState{}}(held{}(\dv{SortInt{}}("7")), \top{SortState{}}()),
+                    weakAlwaysFinally{SortState{}}(
+                        \exists{SortState{}}(
+                            N:SortInt{},
+                            \and{SortState{}}(
+                                held{}(N:SortInt{}),
+                                \equals{SortInt{}, SortState{}}(
+                                    N:SortInt{},
+                                    \dv{SortInt{}}("8")
+                                )
+                            )
+                        )
+                    )
+                ) [label{}("at-the-start")]
+            endmodule []"#,
+        )
+        .expect("refuted destination claims should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("refuted destination claims should internalize");
+        let stuck_state = Pattern {
+            term: term(&definition, r#"done{}(\dv{SortInt{}}("7"))"#),
+            constraints: Vec::new(),
+        };
+
+        let claim = claim_with_label(&definition, "after-a-step");
+        let refutation = check_disjunctive_implication_with_existentials(
+            &definition,
+            &stuck_state,
+            &claim.rhs,
+            &claim.existentials,
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the destination check should run");
+        assert_eq!(
+            refutation.status,
+            ImplicationStatus::Invalid,
+            "{refutation:#?}"
+        );
+        assert_eq!(
+            refutation.failure,
+            Some(ImplicationFailure::ConsequentCondition),
+            "{refutation:#?}"
+        );
+        let condition = refutation
+            .condition
+            .as_ref()
+            .expect("a refutation reports the match it refuted");
+        assert!(condition.predicates.is_empty(), "{refutation:#?}");
+        assert!(
+            !condition.substitution.is_empty() || !condition.witnesses.is_empty(),
+            "{refutation:#?}"
+        );
+
+        // Each claim's left-hand side matches only its own states, so neither claim can serve
+        // as a circularity for the other.
+        let held_state = Pattern {
+            term: term(&definition, r#"held{}(\dv{SortInt{}}("7"))"#),
+            constraints: Vec::new(),
+        };
+        for (label, depth, stuck_state) in [
+            ("after-a-step", 1, &stuck_state),
+            ("at-the-start", 0, &held_state),
+        ] {
+            for allow_vacuous in [false, true] {
+                for stuck_check in [true, false] {
+                    let options = ProofOptions {
+                        allow_vacuous,
+                        stuck_check,
+                        ..ProofOptions::default()
+                    };
+                    let result = prove_claim(
+                        &definition,
+                        claim_with_label(&definition, label),
+                        options,
+                        &NoSolver,
+                    )
+                    .expect("claim should execute");
+
+                    assert_eq!(
+                        result.status,
+                        ProofStatus::Disproved,
+                        "{label}: {result:#?}"
+                    );
+                    let [leaf] = result.leaves.as_slice() else {
+                        panic!("{label}: expected one leaf, found {result:#?}");
+                    };
+                    assert_eq!(
+                        leaf.outcome,
+                        ProofLeafOutcome::Stuck,
+                        "{label}: {result:#?}"
+                    );
+                    assert_eq!(leaf.depth, depth, "{label}: {result:#?}");
+                    assert_eq!(&leaf.pattern, stuck_state, "{label}: {result:#?}");
+                }
+            }
+        }
     }
 
     #[test]
