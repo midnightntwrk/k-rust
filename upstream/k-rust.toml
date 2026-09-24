@@ -25,19 +25,27 @@ id = "search-completeness"
 title = "Search results do not state exhaustive completion and do not account for unvisited work"
 kind = "correctness"
 status = "partial"
-status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (cargo test -p k-rust-backend --lib search:: passes 60/60)"
+status_basis = "test run at 985e0086 on 2026-09-24 (kink-native bounded_final_results_are_frontier_and_erasure_agrees_within_the_bound reproduces both frontier clauses) plus static screen of search.rs, timeout.rs, builtin.rs and simplify.rs at 985e0086 on 2026-09-24"
 blocking = true
 needed_by = ["exhaustive absence", "complete pattern denotation", "finite not-reached", "NR-07"]
 summary = """
-Result-limit truncation is reported, a zero result limit is never reported as exhaustive, cancellation is distinct from failure, and a truncated sibling is not claimed absent.
-Exhaustion must still be inferred from an empty IncompleteSearch list (k-rust-backend/src/search.rs:150-173), so K-in-K2 must treat every empty result as unknown.
+Result-limit truncation is usually reported, a zero result limit is never reported as exhaustive, and a truncated sibling is not claimed absent.
+There is no exhaustion record, and an empty IncompleteSearch list (k-rust-backend/src/search.rs:150-173) is not evidence of exhaustion: a Final result-bound break can leave the frontier unreported (see reproducer).
+Final search returns states that reach the depth bound as results without checking whether they can still rewrite (search.rs:593-594 state search, 1169-1170 path search; pattern matches are taken from the same results), so a depth-bounded Final result is not a final state.
+Cancellation is only partly distinct from failure: a hook that notices cancellation returns BuiltinError::Interrupted (timeout.rs:25-28, builtin.rs:502-507), which reaches the caller as a builtin failure, not as IncompleteSearch::Cancelled.
 """
-reproducer = "Search a finite graph with no target; the result carries no positive exhaustion record. Search with max_results reached; ResultBound carries no frontier or unvisited-work count."
-local_workaround = "kink-native search adapter classifies every result as positive-bounded and never claims absence."
+reproducer = """
+Final search from a{}() under a => b with max_depth=0 and max_results=1 returns states=[a@0] and incomplete=[]; the result bound breaks with an empty queue before the DepthBound push (search.rs:622-636 then 658-663), so neither DepthBound nor ResultBound is emitted for the frontier state.
+The same search without max_results returns states=[a@0] and incomplete=[DepthBound@0]: the unexplored initial state is returned as a Final result.
+Search a finite graph with no target; the result carries no positive exhaustion record.
+"""
+local_workaround = "kink-native search adapter reports only existential witnesses, moves Final results at depth >= max_depth to a separate frontier list whether or not upstream emitted DepthBound for them, and never maps a response to CompleteFinite."
 requested_action = """
 Add an explicit exhausted/complete disposition.
+Mark depth-bounded Final results as frontier, or exclude them from Final results and report them only as DepthBound.
+Emit DepthBound (or ResultBound) for a frontier state that fills the result bound when the queue is empty, so every unexplored state is accounted for.
 Retain the frontier, or an exact unvisited-work count, on ResultBound.
-Separate a timeout disposition from Cancelled (timeout.rs:24-40 folds the deadline into cancellation) and add a host-resource disposition.
+Report cancellation noticed inside a hook as Cancelled rather than as a builtin Interrupted failure. Search installs no step deadline; execute and prove fold their step deadline into BuiltinError::Interrupted (timeout.rs:20-41, rewrite/execute.rs:76, proof.rs:216), and a deadline never becomes IncompleteSearch::Cancelled. Add distinct timeout and host-resource dispositions if search gains a deadline.
 Report whether pattern-search matches are the complete denotation.
 Expose timeout and cancellation through SearchRequest (crates/k-rust/src/backend/wire.rs:54-63).
 """
