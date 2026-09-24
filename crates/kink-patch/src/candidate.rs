@@ -2,12 +2,15 @@
 //!
 //! Sites are term positions of one [`Baseline`], identified by their
 //! [`TermRef`]; there are no site, candidate or mutant digests. Operators build
-//! a [`Patch`] from a selected origin, so every edit is authorized by the sites
-//! it was built from. Equal patches fold into one candidate that keeps every
-//! origin, and a patch that does not apply is a rejected disposition, never a
-//! mutant.
+//! a [`Patch`] from a selected origin, and [`CandidateGeneration::fold`]
+//! checks that every edit targets a sentence of that origin. Equal patches
+//! fold into one candidate that keeps every origin, and a patch that does not
+//! apply is a rejected disposition, never a mutant.
 
-use crate::{Baseline, Patch, PatchFailure, TermRef, apply, child, field_term};
+use crate::{
+    Baseline, Edit, InsertPosition, Patch, PatchFailure, SentenceRef, TermRef, apply, child,
+    field_term,
+};
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::Term;
 use std::collections::BTreeSet;
@@ -22,6 +25,8 @@ pub enum CandidateFailureKind {
     CandidateCap,
     IncompleteGeneration,
     InvalidBinding,
+    /// An operator built an edit outside the sentences of its origin.
+    UnauthorizedEdit,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -363,20 +368,48 @@ impl CandidateGeneration {
     /// patches into one candidate that keeps every origin, and applies each
     /// distinct patch to `baseline` once.
     ///
+    /// Every edit must target a sentence that holds a site of its origin: a
+    /// term, sentence or attribute edit names that sentence, an insertion
+    /// before or after names it, and a module-start or module-end insertion
+    /// names the module of one of those sentences. The check is per sentence,
+    /// like the former receipt's target lineage: operators legitimately edit
+    /// around a site (the right-hand side of a body site, an attribute of the
+    /// site's rule), so no term-level relation between site and edit is
+    /// imposed. Because of it, two origins fold into one candidate only when
+    /// they share a sentence.
+    ///
     /// A patch that does not apply (for example a no-change patch) is a
     /// rejected disposition and never a candidate. The dispositions are
     /// parallel to `selected_origins`.
-    #[must_use]
+    ///
+    /// # Errors
+    ///
+    /// Returns `UnauthorizedEdit` when some origin's patch edits outside that
+    /// origin's sentences. No generation is published then, not even the
+    /// candidates of the other origins.
     pub fn fold(
         mut self,
         baseline: &Baseline,
         operator: &str,
         mut patch_for: impl FnMut(&PatchOrigin) -> Patch,
-    ) -> (Self, Vec<CandidateDisposition>) {
+    ) -> Result<(Self, Vec<CandidateDisposition>), CandidateFailure> {
         let mut rejected: Vec<(Patch, PatchFailure)> = Vec::new();
         let mut dispositions = Vec::with_capacity(self.selected_origins.len());
         for origin in &self.selected_origins {
             let patch = patch_for(origin);
+            if let Some(edit) = patch
+                .edits()
+                .iter()
+                .find(|edit| !edit_is_authorized(edit, origin))
+            {
+                return Err(CandidateFailure::new(
+                    CandidateFailureKind::UnauthorizedEdit,
+                    format!(
+                        "{operator}: edit {edit:?} targets no sentence of origin {:?}",
+                        origin.site_tuple
+                    ),
+                ));
+            }
             if let Some(index) = self
                 .candidates
                 .iter()
@@ -403,7 +436,32 @@ impl CandidateGeneration {
                 }
             }
         }
-        (self, dispositions)
+        Ok((self, dispositions))
+    }
+}
+
+/// Whether `edit` targets a sentence that holds a site of `origin`.
+fn edit_is_authorized(edit: &Edit, origin: &PatchOrigin) -> bool {
+    let holds_site =
+        |sentence: &SentenceRef| origin.site_tuple.iter().any(|at| at.sentence == *sentence);
+    match edit {
+        Edit::ReplaceTerm { at, .. } => holds_site(&at.sentence),
+        Edit::ReplaceSentence { at, .. }
+        | Edit::DeleteSentence { at }
+        | Edit::AddAttribute { at, .. }
+        | Edit::RemoveAttribute { at, .. }
+        | Edit::ReplaceAttribute { at, .. }
+        | Edit::InsertSentence {
+            position: InsertPosition::Before(at) | InsertPosition::After(at),
+            ..
+        } => holds_site(at),
+        Edit::InsertSentence {
+            position: InsertPosition::ModuleStart(module) | InsertPosition::ModuleEnd(module),
+            ..
+        } => origin
+            .site_tuple
+            .iter()
+            .any(|at| at.sentence.module == *module),
     }
 }
 

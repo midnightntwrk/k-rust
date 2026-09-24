@@ -915,8 +915,13 @@ fn every_oracle_kind_keeps_agree_distinguish_and_unknown_distinct() {
 #[test]
 fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
     let memory = support::load("memory.k");
-    // The bodies of `write` and `load`.
-    let mut discovery = derive_sites(&memory, "body", &[SiteSelector::Root(0)]);
+    // Two positions of `write`: its body and the body's left-hand side. The
+    // origins share a rule, since an origin may only edit its own sentences.
+    let mut discovery = derive_sites(
+        &memory,
+        "position",
+        &[SiteSelector::RuleLabel("MEMORY.write".to_owned())],
+    );
     discovery.tuples.truncate(2);
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
     let origins = generation.selected_origins.clone();
@@ -936,7 +941,9 @@ fn duplicate_discovery_is_one_mutant_that_keeps_both_origins() {
         replacement: term(&[0, 0]),
     }])
     .expect("one edit");
-    let (generation, dispositions) = generation.fold(&memory, "rhs-to-lhs", |_| patch.clone());
+    let (generation, dispositions) = generation
+        .fold(&memory, "rhs-to-lhs", |_| patch.clone())
+        .expect("both origins lie in `write`");
     assert_eq!(generation.candidates.len(), 1);
     let candidate = &generation.candidates[0];
     assert_eq!(candidate.origins, origins);

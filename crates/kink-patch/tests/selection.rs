@@ -13,8 +13,8 @@ mod support;
 use k_rust::kast::Term;
 use kink_patch::{
     Baseline, Bindings, CandidateDisposition, CandidateFailureKind, Completeness, Discovery,
-    DiscoveryTuple, Edit, Patch, PatchFailureKind, PatchOrigin, SelectionPolicy, Site,
-    SiteSelector, TermRef, derive_sites, select,
+    DiscoveryTuple, Edit, InsertPosition, Patch, PatchFailureKind, PatchOrigin, SelectionPolicy,
+    Site, SiteSelector, TermRef, derive_sites, select,
 };
 
 const NAMES: [&str; 3] = ["write", "load", "free"];
@@ -30,19 +30,24 @@ impl Memory {
         }
     }
 
-    /// The body of rule `name`.
+    /// The body of rule `name`, or its right-hand side for `write.rhs`.
     fn site(&self, name: &str) -> TermRef {
+        let (rule, path): (_, &[u32]) = match name.strip_suffix(".rhs") {
+            Some(rule) => (rule, &[0, 1]),
+            None => (name, &[0]),
+        };
         TermRef::new(
-            support::rule(&self.baseline, &format!("MEMORY.{name}")),
-            [0],
+            support::rule(&self.baseline, &format!("MEMORY.{rule}")),
+            path,
         )
     }
 
     fn name(&self, at: &TermRef) -> &'static str {
         NAMES
             .into_iter()
+            .chain(["write.rhs"])
             .find(|name| self.site(name) == *at)
-            .unwrap_or_else(|| panic!("{at:?} is not a rule body"))
+            .unwrap_or_else(|| panic!("{at:?} is not a named site"))
     }
 
     fn tuple(&self, names: &[&str]) -> DiscoveryTuple {
@@ -105,7 +110,8 @@ struct Row {
     tuple_symmetric: bool,
     exhaustive: bool,
     cap: usize,
-    /// Every origin builds the same patch.
+    /// Every origin builds the first origin's patch; the fold's sentence
+    /// check requires the origins to share that sentence.
     same_patch: bool,
     expected: Expected,
 }
@@ -236,16 +242,17 @@ const ROWS: &[Row] = &[
             },
         )
     },
+    // Two sites of one rule, since an origin may only edit its own sentences.
     Row {
         same_patch: true,
         ..row(
             "identical-patch-dedup-retains-origins",
             SelectionPolicy::Each,
-            &[&["write"], &["load"]],
+            &[&["write"], &["write.rhs"]],
             Expected::Generated {
                 complete: true,
                 failure: None,
-                site_tuples: &[&["write"], &["load"]],
+                site_tuples: &[&["write"], &["write.rhs"]],
                 retained: Some(2),
             },
         )
@@ -326,13 +333,15 @@ fn selection_rows_fold_discovered_tuples() {
 
         let origins = generation.selected_origins.clone();
         let same = origins.first().map(|origin| memory.patch(origin));
-        let (folded, dispositions) = generation.fold(&memory.baseline, "rhs-to-lhs", |origin| {
-            if row.same_patch {
-                same.clone().expect("an origin exists")
-            } else {
-                memory.patch(origin)
-            }
-        });
+        let (folded, dispositions) = generation
+            .fold(&memory.baseline, "rhs-to-lhs", |origin| {
+                if row.same_patch {
+                    same.clone().expect("an origin exists")
+                } else {
+                    memory.patch(origin)
+                }
+            })
+            .unwrap_or_else(|error| panic!("{id}: {error}"));
         let expected_candidates = if row.same_patch {
             origins.len().min(1)
         } else {
@@ -410,7 +419,9 @@ fn cap_is_applied_before_patch_deduplication() {
     );
     assert!(!selected.scored);
     let same = memory.patch(&selected.selected_origins[0]);
-    let (folded, _) = selected.fold(&memory.baseline, "rhs-to-lhs", |_| same.clone());
+    let (folded, _) = selected
+        .fold(&memory.baseline, "rhs-to-lhs", |_| same.clone())
+        .expect("the one origin builds its own patch");
     assert_eq!(folded.candidates.len(), 1);
     assert_eq!(
         folded.candidates[0].origins.len(),
@@ -491,20 +502,22 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
     let discovery = derive_sites(&memory.baseline, "body", &[SiteSelector::Root(0)]);
     let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
     let write = memory.site("write");
-    let (folded, dispositions) = generation.fold(&memory.baseline, "rhs-to-lhs", |origin| {
-        if origin.site_tuple == [write.clone()] {
-            let at = TermRef::new(write.sentence.clone(), [0, 1]);
-            let current = memory.baseline.term(&at).expect("term").clone();
-            Patch::new(vec![Edit::ReplaceTerm {
-                at,
-                expected: current.clone(),
-                replacement: current,
-            }])
-            .expect("one edit")
-        } else {
-            memory.patch(origin)
-        }
-    });
+    let (folded, dispositions) = generation
+        .fold(&memory.baseline, "rhs-to-lhs", |origin| {
+            if origin.site_tuple == [write.clone()] {
+                let at = TermRef::new(write.sentence.clone(), [0, 1]);
+                let current = memory.baseline.term(&at).expect("term").clone();
+                Patch::new(vec![Edit::ReplaceTerm {
+                    at,
+                    expected: current.clone(),
+                    replacement: current,
+                }])
+                .expect("one edit")
+            } else {
+                memory.patch(origin)
+            }
+        })
+        .expect("every origin edits its own rule");
     let [write_disposition, load, free] = dispositions.as_slice() else {
         panic!("one disposition per origin: {dispositions:?}");
     };
@@ -534,5 +547,89 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
             .candidates
             .iter()
             .all(|candidate| candidate.operator == "rhs-to-lhs")
+    );
+}
+
+/// Plan row S2 (edit authorization), the edit-receipt half of the former
+/// `discovery_authority_and_edit_receipt_adversaries_publish_nothing`: every
+/// edit must target a sentence of the origin it was built from, and one
+/// foreign edit publishes no generation at all. The discovery-authority half
+/// is not ported, because `derive_sites` reads the baseline in-process.
+#[test]
+fn edits_outside_their_origin_publish_nothing() {
+    let memory = Memory::new();
+    let write = memory.site("write").sentence;
+    let free = memory.baseline.sentence(&memory.site("free").sentence);
+    let free = free.expect("free").clone();
+    let insert = |position| Edit::InsertSentence {
+        position,
+        ordinal: 0,
+        sentence: free.clone(),
+    };
+    let attribute = |at: &str| Edit::AddAttribute {
+        at: memory.site(at).sentence,
+        key: "priority".to_owned(),
+        value: serde_json::Value::String("40".to_owned()),
+    };
+    // (id, origin sites, edits, authorized)
+    #[rustfmt::skip]
+    let rows: Vec<(&str, &[&str], Vec<Edit>, bool)> = vec![
+        ("term-in-origin-rule", &["write"], vec![memory.rhs_to_lhs(&memory.site("write"))], true),
+        ("term-in-origin-rule-from-a-nested-site", &["write.rhs"], vec![memory.rhs_to_lhs(&memory.site("write"))], true),
+        ("term-in-another-rule", &["load"], vec![memory.rhs_to_lhs(&memory.site("write"))], false),
+        ("one-foreign-edit-among-authorized-ones", &["write"], vec![memory.rhs_to_lhs(&memory.site("write")), memory.rhs_to_lhs(&memory.site("load"))], false),
+        ("joined-origin-authorizes-each-member", &["write", "load"], vec![memory.rhs_to_lhs(&memory.site("write")), memory.rhs_to_lhs(&memory.site("load"))], true),
+        ("attribute-of-origin-rule", &["write"], vec![attribute("write")], true),
+        ("attribute-of-another-rule", &["write"], vec![attribute("load")], false),
+        ("delete-another-rule", &["write"], vec![Edit::DeleteSentence { at: memory.site("load").sentence }], false),
+        ("insert-after-origin-rule", &["write"], vec![insert(InsertPosition::After(write.clone()))], true),
+        ("insert-before-another-rule", &["write"], vec![insert(InsertPosition::Before(memory.site("load").sentence))], false),
+        ("insert-at-origin-module-end", &["write"], vec![insert(InsertPosition::ModuleEnd("MEMORY".to_owned()))], true),
+        ("insert-at-another-module-start", &["write"], vec![insert(InsertPosition::ModuleStart("MEMORY-SYNTAX".to_owned()))], false),
+    ];
+    for (id, sites, edits, authorized) in rows {
+        let discovery = Discovery {
+            tuples: vec![memory.tuple(sites)],
+            exhaustive: true,
+            joined: sites.len() > 1,
+            tuple_symmetric: false,
+        };
+        let policy = if sites.len() > 1 {
+            SelectionPolicy::TupleEach
+        } else {
+            SelectionPolicy::Each
+        };
+        let generation = select(&discovery, policy, 4).expect("selection");
+        let patch = Patch::new(edits).expect("nonempty");
+        let folded = generation.fold(&memory.baseline, "adversary", |_| patch.clone());
+        if authorized {
+            // The patch may still be rejected by `apply`; only the fold's
+            // authorization is under test.
+            let (_, dispositions) = folded.unwrap_or_else(|error| panic!("{id}: {error}"));
+            assert_eq!(dispositions.len(), 1, "{id}");
+        } else {
+            assert_eq!(
+                folded.expect_err(id).kind(),
+                CandidateFailureKind::UnauthorizedEdit,
+                "{id}"
+            );
+        }
+    }
+
+    // A later foreign edit withdraws the earlier origins' candidates too.
+    let discovery = Discovery {
+        tuples: vec![memory.tuple(&["write"]), memory.tuple(&["load"])],
+        exhaustive: true,
+        joined: false,
+        tuple_symmetric: false,
+    };
+    let generation = select(&discovery, SelectionPolicy::Each, 4).expect("selection");
+    let write_patch = memory.patch(&generation.selected_origins[0]);
+    assert_eq!(
+        generation
+            .fold(&memory.baseline, "adversary", |_| write_patch.clone())
+            .expect_err("load's origin edits write")
+            .kind(),
+        CandidateFailureKind::UnauthorizedEdit
     );
 }

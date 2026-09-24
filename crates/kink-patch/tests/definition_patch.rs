@@ -292,9 +292,10 @@ const ROWS: &[Row] = &[
         },
         Expect::File,
     ),
+    // Former row `add-existing-attribute`, as the M6 rows valued and bare.
     // M6, valued: the same value is still never overwritten.
     (
-        "add-existing-attribute",
+        "add-existing-valued-attribute",
         "counter.k",
         |f| {
             vec![Edit::AddAttribute {
@@ -307,7 +308,7 @@ const ROWS: &[Row] = &[
     ),
     // M6, bare.
     (
-        "add-existing-attribute",
+        "add-existing-bare-attribute",
         "counter.k",
         |f| {
             vec![Edit::AddAttribute {
@@ -485,7 +486,9 @@ fn patch_rows_apply_or_fail_atomically() {
     let memory = support::load("memory.k");
     let counter = support::load("counter.k");
     let ids = ROWS.iter().map(|(id, ..)| *id).collect::<BTreeSet<_>>();
-    assert_eq!(ids.len(), 22, "every former vector row is ported");
+    // 22 former vector rows, with `add-existing-attribute` split into its
+    // bare and valued M6 rows.
+    assert_eq!(ids.len(), 23, "every former vector row is ported");
     for (id, fixture, edits, expect) in ROWS {
         let baseline = if *fixture == "memory.k" {
             &memory
@@ -612,6 +615,15 @@ fn local_sort_check_rejects_what_k_rust_compiles() {
         baseline: &counter,
         expected: None,
     };
+    // The former M2 row `last-occurrence-signature-drift` is structural and
+    // has no port. The portable model derived a symbol's signature from its
+    // occurrences, so replacing the sentence that held a symbol's last
+    // occurrence could change the signature. Here signatures come from the
+    // baseline's productions (k-rust `ProductionCatalog`), and
+    // `ReplaceSentence` accepts only rule-like sentences, which declare no
+    // production, so no edit changes a signature: a relabelled application
+    // is checked against its declared signature, as `arity-drift` and
+    // `unknown-label` are.
     // (row, path, replacement, whether k-rust itself compiles the raw edit)
     let rows: &[(&str, &[u32], Term, bool)] = &[
         (

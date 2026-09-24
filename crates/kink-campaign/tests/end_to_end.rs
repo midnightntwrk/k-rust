@@ -721,7 +721,8 @@ fn incomplete_and_failed_generations_are_not_scored() {
                         replacement: bool_token("false"),
                     }])
                     .expect("one edit")
-                });
+                })
+                .unwrap_or_else(|failure| panic!("{id}: {failure}"));
             assert_eq!(generation.failure, failure, "{id}");
             let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
                 .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
