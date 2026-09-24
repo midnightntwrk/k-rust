@@ -1,6 +1,7 @@
 use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
+use syn::ext::IdentExt;
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{
@@ -1267,11 +1268,7 @@ fn is_config_var_attribute(attribute: &Attribute) -> bool {
 }
 
 fn derived_external_name(binding: &Ident) -> String {
-    let spelling = binding.to_string();
-    spelling
-        .strip_prefix("r#")
-        .unwrap_or(&spelling)
-        .to_uppercase()
+    binding.unraw().to_string().to_uppercase()
 }
 
 fn inferred_constructor_path(computation: bool, span: proc_macro2::Span) -> Path {

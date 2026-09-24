@@ -9,6 +9,7 @@
 use std::ops::Range;
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
+use syn::ext::IdentExt;
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -148,13 +149,6 @@ fn module_directory(display_file: &str) -> String {
     }
 }
 
-fn unraw(name: String) -> String {
-    match name.strip_prefix("r#") {
-        Some(stripped) => stripped.to_owned(),
-        None => name,
-    }
-}
-
 /// Helpers that the next attributed child node of the current item accepts.
 #[derive(Clone, Copy, Default)]
 struct PendingHelpers {
@@ -251,7 +245,7 @@ impl<'ast> Checker<'_, 'ast> {
         {
             return None;
         }
-        Some(unraw(path.segments[1].ident.to_string()))
+        Some(path.segments[1].ident.unraw().to_string())
     }
 
     fn names_reserved_facade_item(&self, segments: &[String]) -> bool {
@@ -376,7 +370,7 @@ impl<'ast> Checker<'_, 'ast> {
         let attribute_range = self.range(attribute.span());
         let path_range = self.range(path.span());
         if let Some(ident) = path.get_ident() {
-            let name = unraw(ident.to_string());
+            let name = ident.unraw().to_string();
             self.check_single_segment_attribute(attribute, &name, position);
             return false;
         }
@@ -611,7 +605,7 @@ impl<'ast> Checker<'_, 'ast> {
         let direct_facade_child = prefix.len() == 1 && under_facade;
         match tree {
             UseTree::Path(path) => {
-                let name = unraw(path.ident.to_string());
+                let name = path.ident.unraw().to_string();
                 if under_facade && name.starts_with("__") {
                     let range = self.range(path.ident.span());
                     self.report(
@@ -626,13 +620,13 @@ impl<'ast> Checker<'_, 'ast> {
                 prefix.pop();
             }
             UseTree::Name(name) => {
-                let ident = unraw(name.ident.to_string());
+                let ident = name.ident.unraw().to_string();
                 let range = self.range(name.span());
                 self.check_use_leaf(&ident, None, prefix, range);
             }
             UseTree::Rename(rename) => {
-                let ident = unraw(rename.ident.to_string());
-                let binding = unraw(rename.rename.to_string());
+                let ident = rename.ident.unraw().to_string();
+                let binding = rename.rename.unraw().to_string();
                 let range = self.range(rename.span());
                 self.check_use_leaf(&ident, Some(&binding), prefix, range);
             }
@@ -755,7 +749,10 @@ impl<'ast> Checker<'_, 'ast> {
                     && matches!(tokens.get(index + 1), Some(TokenTree::Ident(_)))
                     && is_punct(tokens.get(index + 2), ';') =>
             {
-                let name = unraw(tokens[index + 1].to_string());
+                let TokenTree::Ident(name) = &tokens[index + 1] else {
+                    unreachable!("the guard matched an identifier");
+                };
+                let name = name.unraw().to_string();
                 let range = self.span_range(ident.span(), tokens[index + 2].span());
                 self.check_out_of_line_module(&name, range);
                 index + 3
@@ -801,7 +798,7 @@ impl<'ast> Checker<'_, 'ast> {
         let mut segments = Vec::new();
         let first = cursor;
         while let Some(TokenTree::Ident(ident)) = tokens.get(cursor) {
-            segments.push(unraw(ident.to_string()));
+            segments.push(ident.unraw().to_string());
             cursor += 1;
             if is_path_separator(tokens, cursor) {
                 cursor += 2;
@@ -922,7 +919,7 @@ impl Checker<'_, '_> {
             let Some(ident) = attribute.path().get_ident() else {
                 continue;
             };
-            let name = unraw(ident.to_string());
+            let name = ident.unraw().to_string();
             if self
                 .rules
                 .order_sensitive_attributes
@@ -945,7 +942,7 @@ impl Checker<'_, '_> {
     /// generates names in.
     fn check_reserved_name(&mut self, ident: &Ident) {
         let range = self.range(ident.span());
-        self.check_reserved_binding(&unraw(ident.to_string()), range);
+        self.check_reserved_binding(&ident.unraw().to_string(), range);
     }
 
     /// Rejects `name`, bound at `range`, when it is in the reserved
@@ -1041,7 +1038,7 @@ fn path_segments(path: &Path) -> (bool, Vec<String>) {
         path.leading_colon.is_some(),
         path.segments
             .iter()
-            .map(|segment| unraw(segment.ident.to_string()))
+            .map(|segment| segment.ident.unraw().to_string())
             .collect(),
     )
 }
@@ -1285,11 +1282,11 @@ impl<'ast> Visit<'ast> for Checker<'_, 'ast> {
                 let mut bare = module.clone();
                 bare.attrs.clear();
                 let range = self.range(bare.span());
-                let name = unraw(module.ident.to_string());
+                let name = module.ident.unraw().to_string();
                 self.check_out_of_line_module(&name, range);
             }
             Some((_, items)) => {
-                self.module_path.push(unraw(module.ident.to_string()));
+                self.module_path.push(module.ident.unraw().to_string());
                 self.module_scope += 1;
                 for item in items {
                     self.visit_item(item);

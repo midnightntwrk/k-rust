@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{
     Attribute, Field, Fields, GenericArgument, Ident, ItemStruct, Path, PathArguments, Type,
@@ -448,7 +449,7 @@ fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellFie
     let (attribute, cell_helper_present) = parse_cell_helper(&field.attrs)?;
     let emitted_name = attribute
         .name()
-        .map_or_else(|| unraw(&name), syn::LitStr::value);
+        .map_or_else(|| name.unraw().to_string(), syn::LitStr::value);
     let content = parse_cell_type(
         &field.ty,
         cell_helper_present && infer_plain_leaf && !attribute.is_nested(),
@@ -681,11 +682,6 @@ fn is_cell_attribute(attribute: &Attribute) -> bool {
             .segments
             .last()
             .is_some_and(|segment| segment.ident == "cell")
-}
-
-fn unraw(identifier: &Ident) -> String {
-    let spelling = identifier.to_string();
-    spelling.strip_prefix("r#").unwrap_or(&spelling).to_owned()
 }
 
 fn checked_ordinal(ordinal: usize, span: proc_macro2::Span) -> Result<u32, SyntaxError> {
