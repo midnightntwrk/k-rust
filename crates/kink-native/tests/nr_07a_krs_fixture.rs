@@ -39,8 +39,11 @@ struct RuleFixture {
     semantic_value: serde_json::Value,
 }
 
+/// Set `NR_07A_COMPILED_KORE` to the KORE that KRS `krs-native-compile` emits for
+/// `crates/krs-ir/tests/golden/definition_expr.json`, then run
+/// `cargo test -p kink-native --test nr_07a_krs_fixture -- --ignored`.
 #[test]
-#[ignore = "run through draft/tasks/rust-upfront/verify-nr-07a.sh"]
+#[ignore = "needs NR_07A_COMPILED_KORE from KRS krs-native-compile; run with -- --ignored"]
 fn krs_definition_ir_reaches_positive_observed_state_and_path() {
     thread::Builder::new()
         .name("nr-07a-krs-fixture".into())
