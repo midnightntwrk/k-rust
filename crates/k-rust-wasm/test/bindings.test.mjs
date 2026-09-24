@@ -40,6 +40,11 @@ module MAIN
   ) [label{}("reaches-c")]
 endmodule []`
 
+// Without associativity or priorities, a+a+a has two well-sorted trees that denote different terms,
+// so no sort decision can pick one: the error must name the ambiguity and list both readings.
+const bothAdditionReadings =
+  /Parsing ambiguity\.[\s\S]*add\(a\(\.KList\),add\(a\(\.KList\),a\(\.KList\)\)\)[\s\S]*add\(add\(a\(\.KList\),a\(\.KList\)\),a\(\.KList\)\)/
+
 test('compiles a portable definition into all KORE artifacts', () => {
   const compiled = compileDefinition({
     definition: `
@@ -72,7 +77,7 @@ test('compiles unambiguous parametric applications portably', () => {
   assert.deepEqual(compiled.diagnostics, [])
 })
 
-test('reports the compiler Z3 boundary for an ambiguous rule', () => {
+test('reports both readings of an ambiguous rule', () => {
   assert.throws(
     () =>
       compileDefinition({
@@ -84,7 +89,7 @@ test('reports the compiler Z3 boundary for an ambiguous rule', () => {
         `,
         moduleName: 'MAIN',
       }),
-    /native Z3 sort inference.*ambiguous/i,
+    bothAdditionReadings,
   )
 })
 
@@ -171,7 +176,7 @@ test('infers nested parametric applications portably', () => {
   assert.deepEqual(parsed.kast.term.args[0].label.params, [])
 })
 
-test('reports the portable Z3 boundary for an ambiguous program', () => {
+test('reports both readings of an ambiguous program', () => {
   assert.throws(
     () =>
       parseProgram({
@@ -185,7 +190,7 @@ test('reports the portable Z3 boundary for an ambiguous program', () => {
         program: 'a+a+a',
         includePrelude: false,
       }),
-    /native Z3 sort inference.*ambiguous/i,
+    bothAdditionReadings,
   )
 })
 
