@@ -139,7 +139,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.search.paths — exponential in b and d, plus O(d) visited-list… — in: [rewrite result]
 - backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result]
 - backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… — in: [match result]
-- backend.simplify.term — O(r x |t| x c), with r bounded by max_iterations +1 mode — in: [match result]
+- backend.simplify.term — O(r x |t| x c), with the rounds that are not… +1 mode — in: [match result]
 - backend.smt.cache — O(L x log E) for the key comparison, after an… +1 mode
 - backend.substitution.apply — O(t x v log s), with O(1) skipping of… +1 mode
 - backend.substitution.extract_output — O(c^2 x t)

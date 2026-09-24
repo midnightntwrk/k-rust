@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "z3")]
+use k_rust_backend::substitution::substitute;
 use k_rust_backend::{
     builtin::BuiltinEffect,
     cancellation::CancellationToken,
@@ -19,15 +21,13 @@ use k_rust_backend::{
     },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver, TranslationError, Validity},
     substitution::Substitution,
-    term::{Sort, Term, TermKind},
+    term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,
     transition::{
         ExecutionIoState, ObservationEvent, ObservationFilterError, ObservationOptions,
         PatternDigest, TransitionClass, UncommittedReason,
     },
 };
-#[cfg(feature = "z3")]
-use k_rust_backend::{substitution::substitute, term::Variable};
 use k_rust_kore::{
     kore::parser::{parse_definition, parse_pattern},
     measure::{Counter, snapshot},
@@ -4698,6 +4698,8 @@ fn deep_concrete_recursion_has_bounded_linear_productive_work_inner() {
 /// out of iteration budget before it runs out of stack: `down(N) = 1 +Int down(N +Int 1)`
 /// recurses in the term, and `h(N) = 0 requires h(N +Int 1) ==Int 0` recurses through the
 /// condition of its only equation, where every condition starts a fresh iteration budget.
+/// Every step of either is a determined ground function step, which the budget does not count.
+/// `go-down` and `go-nest` expose `down(N)` and `h(N)` to the simplifier after one rewrite step.
 fn stack_exhaustion_definition() -> BackendDefinition {
     definition(
         r#"
@@ -4710,6 +4712,8 @@ fn stack_exhaustion_definition() -> BackendDefinition {
             symbol down{}(SortInt{}) : SortInt{} [function{}()]
             symbol h{}(SortInt{}) : SortInt{} [function{}()]
             symbol startNest{}(SortInt{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            symbol startDown{}(SortInt{}) : SortS{}
                 [function{}(), total{}(), injective{}(), no-evaluators{}()]
             symbol kbox{}(SortInt{}) : SortS{}
                 [function{}(), total{}(), injective{}(), no-evaluators{}()]
@@ -4743,6 +4747,10 @@ fn stack_exhaustion_definition() -> BackendDefinition {
                 \and{SortS{}}(startNest{}(N:SortInt{}), \top{SortS{}}()),
                 kbox{}(h{}(N:SortInt{}))
             ) [label{}("go-nest")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(startDown{}(N:SortInt{}), \top{SortS{}}()),
+                kbox{}(down{}(N:SortInt{}))
+            ) [label{}("go-down")]
             "#,
     )
 }
@@ -4828,6 +4836,31 @@ fn stack_exhaustion_in_an_equation_condition_ends_execution_with_the_error() {
 }
 
 #[test]
+fn divergent_ground_recursion_at_the_default_budget_ends_with_an_exhausted_stack() {
+    // Every step of `down(0)` is a determined ground function step, so the default iteration
+    // budget does not cut it into a `Stuck` state with `down` unevaluated; the thread's stack
+    // bounds the recursion and execution reports that as the state's error.
+    let result = on_thread_with_stack("down-default", 64 * 1024 * 1024, || {
+        let definition = stack_exhaustion_definition();
+        execute(
+            &definition,
+            Pattern {
+                term: int_application(&definition, "startDown", 0),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions::default(),
+        )
+    });
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::Simplification(SimplificationError::StackExhausted)
+    );
+}
+
+#[test]
 fn rule_requires_budget_exhaustion_is_not_a_simplification_error() {
     let definition = definition(
         r#"
@@ -4873,27 +4906,34 @@ fn rule_requires_budget_exhaustion_is_not_a_simplification_error() {
     assert_not_iteration_limit(&leaf.halt_reason);
 }
 
-/// A ground `cons` chain, `size` as function equations, and a function `prepare` whose two
+/// How `size` is defined in `equation_requires_budget_definition`.
+#[derive(Clone, Copy)]
+enum SizeEquations {
+    /// Function equations: each step over a ground chain is a determined step of the
+    /// definition's own computation, which the iteration budget does not count.
+    Function,
+    /// `simplification{}()` equations, which the iteration budget bounds.
+    Simplification,
+}
+
+/// The end of the `cons` chain in `equation_requires_budget_subject`.
+#[derive(Clone, Copy)]
+enum ChainTail {
+    /// `nil`: the chain is ground.
+    Nil,
+    /// The variable `WS:SortStack`: every `size` redex on the chain is symbolic.
+    Symbolic,
+}
+
+/// A `cons` chain, `size` as equations of the kind `size`, and a function `prepare` whose two
 /// equations carry `size(S) >=Int 1024` and `size(S) <Int 1024` in their `requires`; the rewrite
 /// rule `dispatch` exposes `prepare(S)` to the simplifier. Evaluating `size` over the chain is one
-/// lineage as long as the chain, so the budget decides whether either `requires` is decided.
-fn equation_requires_budget_definition() -> BackendDefinition {
-    definition(
-        r#"
-            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
-            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
-            sort SortStack{} []
-            symbol nil{}() : SortStack{} [constructor{}(), total{}()]
-            symbol cons{}(SortInt{}, SortStack{}) : SortStack{} [constructor{}(), total{}()]
-            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
-                [function{}(), total{}(), hook{}("INT.add")]
-            hooked-symbol intGe{}(SortInt{}, SortInt{}) : SortBool{}
-                [function{}(), total{}(), hook{}("INT.ge")]
-            hooked-symbol intLt{}(SortInt{}, SortInt{}) : SortBool{}
-                [function{}(), total{}(), hook{}("INT.lt")]
-            symbol size{}(SortStack{}) : SortInt{} [function{}(), total{}()]
-            symbol prepare{}(SortStack{}) : SortS{} [function{}()]
-            symbol stackState{}(SortStack{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+/// lineage as long as the chain, so whenever the budget counts its steps, the budget decides
+/// whether either `requires` is decided.
+fn equation_requires_budget_definition(size: SizeEquations) -> BackendDefinition {
+    let size_equations = match size {
+        SizeEquations::Function => {
+            r#"
             axiom{R} \implies{R}(
                 \and{R}(\top{R}(), \and{R}(\in{SortStack{}, R}(X0:SortStack{}, nil{}()), \top{R}())),
                 \equals{SortInt{}, R}(
@@ -4917,6 +4957,47 @@ fn equation_requires_budget_definition() -> BackendDefinition {
                     )
                 )
             ) [label{}("size-cons")]
+            "#
+        }
+        SizeEquations::Simplification => {
+            r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortInt{}, R}(
+                    size{}(nil{}()),
+                    \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+                )
+            ) [label{}("size-nil"), simplification{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortInt{}, R}(
+                    size{}(cons{}(H:SortInt{}, T:SortStack{})),
+                    \and{SortInt{}}(
+                        intAdd{}(\dv{SortInt{}}("1"), size{}(T:SortStack{})),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("size-cons"), simplification{}()]
+            "#
+        }
+    };
+    definition(
+        &r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            sort SortStack{} []
+            symbol nil{}() : SortStack{} [constructor{}(), total{}()]
+            symbol cons{}(SortInt{}, SortStack{}) : SortStack{} [constructor{}(), total{}()]
+            hooked-symbol intAdd{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            hooked-symbol intGe{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.ge")]
+            hooked-symbol intLt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.lt")]
+            symbol size{}(SortStack{}) : SortInt{} [function{}(), total{}()]
+            symbol prepare{}(SortStack{}) : SortS{} [function{}()]
+            symbol stackState{}(SortStack{}) : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            SIZE_EQUATIONS
             axiom{R} \implies{R}(
                 \and{R}(
                     \equals{SortBool{}, R}(
@@ -4947,12 +5028,22 @@ fn equation_requires_budget_definition() -> BackendDefinition {
                 \and{SortS{}}(stackState{}(S:SortStack{}), \top{SortS{}}()),
                 prepare{}(S:SortStack{})
             ) [label{}("dispatch")]
-            "#,
+            "#
+        .replace("SIZE_EQUATIONS", size_equations),
     )
 }
 
-fn equation_requires_budget_subject(definition: &BackendDefinition, depth: usize) -> Pattern {
-    let mut stack = Term::application(definition.symbols["nil"].clone(), Vec::new(), Vec::new());
+fn equation_requires_budget_subject(
+    definition: &BackendDefinition,
+    depth: usize,
+    tail: ChainTail,
+) -> Pattern {
+    let mut stack = match tail {
+        ChainTail::Nil => {
+            Term::application(definition.symbols["nil"].clone(), Vec::new(), Vec::new())
+        }
+        ChainTail::Symbolic => Term::variable(Variable::new("WS", Sort::simple("SortStack"))),
+    };
     for index in 0..depth {
         stack = Term::application(
             definition.symbols["cons"].clone(),
@@ -4973,31 +5064,44 @@ fn equation_requires_budget_subject(definition: &BackendDefinition, depth: usize
     }
 }
 
+/// The execution of `equation_requires_budget_definition` on a chain of `depth` elements, with
+/// the diagnostics it emitted and the counters it moved.
+struct EquationRequiresRun {
+    result: ExecutionResult,
+    diagnostics: Vec<BackendDiagnostic>,
+    counters: k_rust_kore::measure::Snapshot,
+}
+
 fn run_equation_requires_budget(
+    size: SizeEquations,
+    tail: ChainTail,
     depth: usize,
     max_simplification_iterations: usize,
-) -> (ExecutionResult, Vec<BackendDiagnostic>) {
-    // The chain is a deep constructor term; run on the 64 MiB stack the CLI and RPC workers use.
-    std::thread::Builder::new()
-        .name("equation-requires-budget".into())
-        .stack_size(64 * 1024 * 1024)
-        .spawn(move || {
-            let definition = equation_requires_budget_definition();
-            let subject = equation_requires_budget_subject(&definition, depth);
-            diagnostic::collect(|| {
-                execute(
-                    &definition,
-                    subject,
-                    ExecutionOptions {
-                        max_simplification_iterations,
-                        ..ExecutionOptions::default()
-                    },
-                )
-            })
-        })
-        .expect("execution thread should start")
-        .join()
-        .expect("execution thread should complete")
+) -> EquationRequiresRun {
+    // The chain is a deep constructor term and `size` recurses once per element. Run on the
+    // 64 MiB stack the CLI and RPC workers use, or more for chains whose recursion needs it in a
+    // debug build (about 16 KiB of stack per level).
+    let stack_size = (64 * 1024 * 1024).max(depth * 32 * 1024);
+    on_thread_with_stack("equation-requires-budget", stack_size, move || {
+        let definition = equation_requires_budget_definition(size);
+        let subject = equation_requires_budget_subject(&definition, depth, tail);
+        let before = snapshot();
+        let (result, diagnostics) = diagnostic::collect(|| {
+            execute(
+                &definition,
+                subject,
+                ExecutionOptions {
+                    max_simplification_iterations,
+                    ..ExecutionOptions::default()
+                },
+            )
+        });
+        EquationRequiresRun {
+            result,
+            diagnostics,
+            counters: snapshot().delta(&before),
+        }
+    })
 }
 
 fn assert_stuck_on_unevaluated_prepare(result: &ExecutionResult) {
@@ -5043,39 +5147,102 @@ fn assert_only_prepare_exhaustions(diagnostics: &[BackendDiagnostic], limit: usi
 
 #[test]
 fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
-    let (result, diagnostics) = run_equation_requires_budget(64, 1);
+    let run = run_equation_requires_budget(SizeEquations::Simplification, ChainTail::Nil, 64, 1);
 
-    assert_stuck_on_unevaluated_prepare(&result);
-    assert_only_prepare_exhaustions(&diagnostics, 1);
+    assert_stuck_on_unevaluated_prepare(&run.result);
+    assert_only_prepare_exhaustions(&run.diagnostics, 1);
 }
 
 #[test]
 fn equation_requires_exhaustion_at_the_default_budget_is_diagnosed() {
-    // A 1,024-element chain needs more than the default lineage budget to evaluate `size`, so
-    // neither `requires` is decided and `prepare` stays unevaluated; the diagnostic is the only
-    // observable difference from a genuinely open condition.
-    let (result, diagnostics) =
-        run_equation_requires_budget(1_024, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+    // With `size` as simplification rules, a 1,024-element chain needs more than the default
+    // lineage budget to evaluate `size`, so neither `requires` is decided and `prepare` stays
+    // unevaluated; the diagnostic is the only observable difference from a genuinely open
+    // condition.
+    let run = run_equation_requires_budget(
+        SizeEquations::Simplification,
+        ChainTail::Nil,
+        1_024,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+    );
 
-    assert_stuck_on_unevaluated_prepare(&result);
-    assert_only_prepare_exhaustions(&diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+    assert_stuck_on_unevaluated_prepare(&run.result);
+    assert_only_prepare_exhaustions(&run.diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
 }
 
 #[test]
 fn equation_requires_within_budget_emits_no_exhaustion() {
-    let (result, diagnostics) =
-        run_equation_requires_budget(64, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
+    let run = run_equation_requires_budget(
+        SizeEquations::Simplification,
+        ChainTail::Nil,
+        64,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+    );
 
+    assert_prepare_evaluates_to(&run.result, "ok");
+    assert_eq!(run.diagnostics, []);
+}
+
+fn assert_prepare_evaluates_to(result: &ExecutionResult, expected: &str) {
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one execution leaf, found {:?}", result.leaves);
     };
+    assert_eq!(leaf.depth, 1);
     assert_eq!(leaf.halt_reason, HaltReason::Stuck);
     assert!(
-        matches!(leaf.pattern.term.kind(), TermKind::DomainValue { value, .. } if value == "ok"),
-        "expected prepare to evaluate to ok, found {:?}",
+        matches!(leaf.pattern.term.kind(), TermKind::DomainValue { value, .. } if value == expected),
+        "expected prepare to evaluate to {expected}, found {:?}",
         leaf.pattern.term
     );
-    assert_eq!(diagnostics, []);
+}
+
+/// Ground function evaluation longer than the default budget runs to its value: the `requires`
+/// of both `prepare` equations are decided, no budget exhaustion is reported, and the work stays
+/// linear in the chain (a generous family bound, not a count).
+fn assert_ground_function_requires_run_to_their_value(depth: usize) {
+    let run = run_equation_requires_budget(
+        SizeEquations::Function,
+        ChainTail::Nil,
+        depth,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+    );
+
+    assert_prepare_evaluates_to(&run.result, "overflow");
+    assert_eq!(run.diagnostics, []);
+    let bound = 4 * depth as u64 + 64;
+    for counter in [Counter::SimplifyRounds, Counter::SimplifyEquationAttempts] {
+        let observed = run.counters.get(counter);
+        eprintln!("depth {depth}: {counter:?} = {observed} (bound {bound})");
+        assert!(
+            observed <= bound,
+            "{counter:?} = {observed} exceeds the linear bound {bound} at depth {depth}"
+        );
+    }
+}
+
+#[test]
+fn ground_function_requires_longer_than_the_default_budget_are_decided() {
+    assert_ground_function_requires_run_to_their_value(1_024);
+}
+
+#[test]
+fn ground_function_requires_far_longer_than_the_default_budget_are_decided() {
+    assert_ground_function_requires_run_to_their_value(8_192);
+}
+
+#[test]
+fn symbolic_function_recursion_still_stops_at_the_budget() {
+    // Over a symbolic tail every `size` redex has a variable, so its unfolding is the
+    // simplifier's own strategy and the budget still cuts it, with the diagnostic.
+    let run = run_equation_requires_budget(
+        SizeEquations::Function,
+        ChainTail::Symbolic,
+        1_024,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+    );
+
+    assert_stuck_on_unevaluated_prepare(&run.result);
+    assert_only_prepare_exhaustions(&run.diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
 }
 
 #[test]
@@ -5311,10 +5478,11 @@ fn tail_equation_loop_definition() -> BackendDefinition {
     )
 }
 
-/// Execute the tail-loop fixture with an unbounded iteration budget and a short step deadline.
+/// Execute the tail-loop fixture with the given iteration budget and a short step deadline.
 /// The run happens on a worker thread so that a regression, an unbounded loop, fails the test
 /// after a generous watchdog instead of hanging the suite.
 fn execute_tail_equation_loop(
+    max_simplification_iterations: usize,
     step_timeout: Duration,
     terminal_rules: BTreeSet<String>,
 ) -> ExecutionResult {
@@ -5332,7 +5500,7 @@ fn execute_tail_equation_loop(
                 &definition,
                 initial,
                 ExecutionOptions {
-                    max_simplification_iterations: usize::MAX,
+                    max_simplification_iterations,
                     step_timeout: Some(step_timeout),
                     terminal_rules,
                     ..ExecutionOptions::default()
@@ -5353,7 +5521,7 @@ fn step_deadline_interrupts_an_equation_loop_inside_a_step() {
     // the state it started from, as it does for a deadline observed between phases.
     let step_timeout = Duration::from_millis(50);
 
-    let result = execute_tail_equation_loop(step_timeout, BTreeSet::new());
+    let result = execute_tail_equation_loop(usize::MAX, step_timeout, BTreeSet::new());
 
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one execution leaf, found {:?}", result.leaves);
@@ -5374,12 +5542,38 @@ fn step_deadline_interrupts_an_equation_loop_inside_a_step() {
 }
 
 #[test]
+fn step_deadline_ends_a_ground_equation_loop_at_the_default_budget() {
+    // Each `spin` step is a determined ground function step, which the default budget does not
+    // count; the caller's step deadline is what ends the loop.
+    let step_timeout = Duration::from_millis(50);
+
+    let result = execute_tail_equation_loop(
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+        step_timeout,
+        BTreeSet::new(),
+    );
+
+    assert!(
+        matches!(
+            result.leaves.as_slice(),
+            [ExecutionLeaf {
+                halt_reason: HaltReason::Timeout(StepTimeoutMode::Manual(timeout)),
+                ..
+            }] if *timeout == step_timeout
+        ),
+        "leaves: {:?}",
+        result.leaves
+    );
+}
+
+#[test]
 fn step_deadline_ends_an_equation_loop_after_a_terminal_rule() {
     // With `go` terminal the step also simplifies the successor; the interruption is still the
     // step's timeout, not a simplification failure.
     let step_timeout = Duration::from_millis(50);
 
-    let result = execute_tail_equation_loop(step_timeout, BTreeSet::from(["go".to_owned()]));
+    let result =
+        execute_tail_equation_loop(usize::MAX, step_timeout, BTreeSet::from(["go".to_owned()]));
 
     assert!(
         matches!(

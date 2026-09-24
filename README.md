@@ -254,6 +254,7 @@ explore every applicable rule (kore-exec's default, and the mode every `--search
 while search reports that it is incomplete.
 
 Bounded execution, search, and proof operations allow 100 simplifier iterations per step by default.
+The bound counts simplification-rule, builtin, and symbolic rewriting; determined ground function evaluation (a function equation on a variable-free argument with no residual condition) runs to its value, bounded only by the step deadline (`--step-timeout`), cancellation or Ctrl-C, and the thread's stack, whose exhaustion is a typed error.
 Pass `--max-simplification-iterations N` to `krun`, `kore-exec`, or `kprove` to select a request-specific bound; exhaustion is reported as a simplification iteration-limit stop.
 The standalone `kore-simplify` command remains deliberately unbounded so it can serve as the complete Kore-style simplification fallback.
 

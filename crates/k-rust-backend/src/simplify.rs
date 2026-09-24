@@ -9,7 +9,7 @@
 //!
 //! [[cost]]
 //! mode = "one term lineage"
-//! bound = "O(r x |t| x c), with r bounded by max_iterations"
+//! bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
 //!
 //! [[cost]]
 //! mode = "rule condition"
@@ -32,7 +32,8 @@
 //!
 //! Innermost (bottom-up) equational rewriting to a budgeted fixed point with priority groups,
 //! builtin hooks, and evaluated-attribute memoisation (Booster ApplyEquations): cost O(rounds x
-//! |term| x candidates per node), rounds <= `max_iterations` per lineage;
+//! |term| x candidates per node), rounds that are not determined ground function-theory steps
+//! <= `max_iterations` per lineage (`RootStep`);
 //! `Counter::SimplifyInvocations`, `Counter::SimplifyRounds`,
 //! `Counter::SimplifyEquationAttempts`, `Counter::SimplifyBuiltinEvaluations`,
 //! `Counter::SimplifyNodesSkippedEvaluated`.
@@ -76,6 +77,12 @@ use crate::{
 };
 
 /// Default equation iterations allowed for each simplification fixed point.
+///
+/// The budget counts the rounds of one lineage whose root rewrite is a simplification rule, a
+/// builtin, or a function equation on a symbolic redex or with residual constraints. A function
+/// equation applied to a variable-free redex with a determined result is the definition's own
+/// computation and is not counted; its divergence ends through cancellation, the step deadline,
+/// or `SimplificationError::StackExhausted`.
 pub const DEFAULT_MAX_SIMPLIFICATION_ITERATIONS: usize = 100;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -2150,7 +2157,7 @@ fn simplify_with_budget(
             solver,
             execution.as_deref_mut(),
         )?;
-        let root = simplify_root(
+        let (root, root_step) = simplify_root(
             definition,
             &children.term,
             assumptions.predicates,
@@ -2182,7 +2189,10 @@ fn simplify_with_budget(
                 undefined_term,
             });
         }
-        if *remaining == 0 {
+        // A determined function step is the definition's own computation, not a rewrite the
+        // simplifier chose, so it neither needs nor consumes budget (`RootStep`).
+        let charged = root_step != RootStep::DeterminedFunctionStep;
+        if charged && *remaining == 0 {
             return match options.budget {
                 BudgetPolicy::Fail => Err(SimplificationError::IterationLimit {
                     limit: options.max_iterations,
@@ -2211,7 +2221,9 @@ fn simplify_with_budget(
                 undefined_term,
             });
         }
-        *remaining -= 1;
+        if charged {
+            *remaining -= 1;
+        }
         term = root.term;
     }
 }
@@ -2602,6 +2614,29 @@ fn simplify_children(
     })
 }
 
+/// What produced the result of `simplify_root`, as far as the iteration budget is concerned.
+///
+/// The budget bounds the simplifier's own fixed point: which simplification rules it orients
+/// and applies, and how far it unfolds a function over a symbolic argument. Whether that
+/// rewriting terminates is a property of the simplifier's strategy, and cutting it leaves a term
+/// equal to the input, a sound weaker result.
+/// A function equation applied to a variable-free redex whose conditions were decided and whose
+/// result carries no constraint (no open definedness or `ensures` obligation, no `\bottom`) is
+/// instead a step of the definition's own computation with a determined value. Cutting it can
+/// only leave the application unevaluated, which makes conditions over it undecidable and
+/// execution stop at a configuration the definition does not produce. Such a step is exempt from
+/// the budget; if the computation diverges, it ends through the caller's interrupt
+/// (cancellation or step deadline, checked at every round) or through the stack guard's
+/// `StackExhausted` error, as divergence of the definition's rewrite rules does.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RootStep {
+    /// A determined function-theory step on a ground redex.
+    DeterminedFunctionStep,
+    /// Any other result: a builtin, a simplification rule, a function step on a symbolic redex
+    /// or with residual constraints, or no rewrite.
+    Other,
+}
+
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
@@ -2610,7 +2645,7 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<Simplification, SimplificationError> {
+) -> Result<(Simplification, RootStep), SimplificationError> {
     let builtin = match execution {
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),
@@ -2640,21 +2675,24 @@ fn simplify_root(
                 ),
                 BuiltinResult::NotApplicable | BuiltinResult::Unsupported(_) => unreachable!(),
             };
-            return Ok(Simplification {
-                term,
-                constraints,
-                applied_rules: vec![format!(
-                    "builtin:{}",
-                    symbol
-                        .attributes
-                        .hook
-                        .as_deref()
-                        .expect("evaluated builtin has a hook")
-                )],
-                effects,
-                exhausted: None,
-                undefined_term,
-            });
+            return Ok((
+                Simplification {
+                    term,
+                    constraints,
+                    applied_rules: vec![format!(
+                        "builtin:{}",
+                        symbol
+                            .attributes
+                            .hook
+                            .as_deref()
+                            .expect("evaluated builtin has a hook")
+                    )],
+                    effects,
+                    exhausted: None,
+                    undefined_term,
+                },
+                RootStep::Other,
+            ));
         }
     };
     let function_scan = match apply_theory(
@@ -2666,7 +2704,14 @@ fn simplify_root(
         active_conditions,
         solver,
     )? {
-        TheoryScan::Applied(result) => return Ok(result),
+        TheoryScan::Applied(result) => {
+            let step = if term.attributes().variables.is_empty() && result.constraints.is_empty() {
+                RootStep::DeterminedFunctionStep
+            } else {
+                RootStep::Other
+            };
+            return Ok((result, step));
+        }
         scan => scan,
     };
     let simplification_scan = match apply_theory(
@@ -2681,7 +2726,7 @@ fn simplify_root(
         active_conditions,
         solver,
     )? {
-        TheoryScan::Applied(result) => return Ok(result),
+        TheoryScan::Applied(result) => return Ok((result, RootStep::Other)),
         scan => scan,
     };
     let TermKind::Application {
@@ -2689,14 +2734,17 @@ fn simplify_root(
     } = term.kind()
     else {
         debug_assert!(unsupported.is_none());
-        return Ok(Simplification {
-            term: term.clone(),
-            constraints: Vec::new(),
-            applied_rules: Vec::new(),
-            effects: Vec::new(),
-            exhausted: None,
-            undefined_term: None,
-        });
+        return Ok((
+            Simplification {
+                term: term.clone(),
+                constraints: Vec::new(),
+                applied_rules: Vec::new(),
+                effects: Vec::new(),
+                exhausted: None,
+                undefined_term: None,
+            },
+            RootStep::Other,
+        ));
     };
     let builtin_supported = unsupported.is_none();
     if let Some(hook) = symbol.attributes.hook.as_deref() {
@@ -2736,14 +2784,17 @@ fn simplify_root(
         } else {
             term.clone()
         };
-    Ok(Simplification {
-        term,
-        constraints: Vec::new(),
-        applied_rules: Vec::new(),
-        effects: Vec::new(),
-        exhausted: None,
-        undefined_term: None,
-    })
+    Ok((
+        Simplification {
+            term,
+            constraints: Vec::new(),
+            applied_rules: Vec::new(),
+            effects: Vec::new(),
+            exhausted: None,
+            undefined_term: None,
+        },
+        RootStep::Other,
+    ))
 }
 
 fn builtin_effect_result(

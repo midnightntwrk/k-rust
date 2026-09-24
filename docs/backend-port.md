@@ -95,14 +95,17 @@ No RPC or host surface applies a denial-of-service depth cap; process memory lim
 ## Simplification iteration budgets
 
 The backend limits simplification per fixed-point lineage rather than counting whole-pattern passes as Booster's `--equation-max-iterations` does.
+The budget bounds the simplifier's own fixed point: rounds that apply simplification rules or builtins, and function equations over symbolic redexes or with residual definedness or `ensures` obligations, where a cut leaves a term equal to the input.
+A function equation applied to a variable-free redex whose conditions are decided and whose result carries no constraint is a step of the definition's own computation with a determined value; it consumes no budget, because a cut there could only leave the application unevaluated and execution `Stuck` at a configuration the definition does not produce.
+Determined ground function evaluation therefore runs to its value, bounded only by the caller's step deadline or cancellation and by the thread's stack (the typed `StackExhausted` error below); no default option bounds it, as no default option bounds the rewrite depth.
 Execution, search, and proof configuration simplification follow Booster's exhaustion outcome: they retain the partial term or the original unsimplified constraints, record a `SimplificationBudgetExhausted` diagnostic, and continue.
 The standalone term simplifier retains typed `IterationLimit` errors.
 An equation's side conditions (its `requires`, the definedness obligations of its bindings, and its `ensures`) are decided in their unsimplified form when simplifying them exhausts the budget, which may leave the equation unapplied; that exhaustion is recorded as a `SimplificationBudgetExhausted` diagnostic over `Predicates` followed by a `RuleConditionUnsimplified { rule_id, limit }` diagnostic naming the rule, once per rule and limit in a request.
-The backend does not yet implement Booster's separate equation-loop detector, so a genuinely non-terminating equation set may produce a partial configuration with a diagnostic.
+The backend does not yet implement Booster's separate equation-loop detector, so a non-terminating set of simplification rules, or a function unfolding over a symbolic argument, may produce a partial configuration with a diagnostic; a non-terminating ground function computation runs until the caller's step deadline or cancellation ends it, or ends with `StackExhausted`.
 
 ## Simplification stack depth
 
-Simplification recursion depth is bounded by the native stack of the thread that runs it, not by a depth count or the iteration budget, which restarts for every equation condition.
+Simplification recursion depth is bounded by the native stack of the thread that runs it, not by a depth count or the iteration budget, which restarts for every equation condition and does not count determined ground function steps.
 The simplifier reads the current thread's stack bounds at every fixed-point round and predicate entry and stops with the typed error `SimplificationError::StackExhausted` when less than a 128 KiB red zone remains, instead of overflowing the stack, which would abort the process.
 The guard covers every native thread, whoever created it: CLI and RPC workers, Node-API calls on Node's JavaScript thread, and embedders' own threads.
 On wasm32 the engine's call-stack limit is invisible to the module, so the guard is absent and exhaustion is a trap reported to the JavaScript host.
