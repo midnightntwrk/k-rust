@@ -1190,6 +1190,16 @@ impl Grammar {
         // each root independently incorrectly rejects inputs whose winning interpretation is a
         // top-level rewrite (for example a rewrite inside a competing map-item parse).
         let forest = self.prepare_packed_forest(PackedTerm::ambiguity(parses), &priority_memos)?;
+        // Checked mode compares the engines on an ambiguous forest by what each lowers to.
+        #[cfg(feature = "z3-inference")]
+        if inference::checked_inference_requested()
+            && let Some(checked) =
+                self.checked_ambiguous_parse(&forest, start, is_anywhere, |tree| {
+                    self.lower_inferred(tree, start)
+                })
+        {
+            return checked;
+        }
         let inferred = self.infer_packed_sorts(forest, start, is_anywhere)?;
         self.lower_inferred(inferred, start)
     }

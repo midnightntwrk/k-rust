@@ -29,8 +29,8 @@
 //! is decided by typing each tree and keeping the trees whose typing no other tree's typing
 //! strictly exceeds (`Grammar::infer_ambiguous_sorts_portable`). Parametric forests, larger
 //! forests and trees without a greatest typing dispatch to Z3; checked mode runs both engines as
-//! oracles. `Counter::ParserPortableInferences` counts portable inference attempts, one per
-//! tree.
+//! oracles, comparing inferred trees on unambiguous forests and lowered terms on ambiguous
+//! ones. `Counter::ParserPortableInferences` counts portable inference attempts, one per tree.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -129,26 +129,47 @@ impl Grammar {
         explicitly_anywhere: bool,
     ) -> Result<ParsedTerm, ParseError> {
         if !self.packed_sort_inference_supported(&term) {
+            // Z3 stays the engine for ambiguous forests in the z3 build; checked mode compares
+            // the portable decision with it on lowered terms (`Grammar::checked_ambiguous_parse`).
             #[cfg(feature = "z3-inference")]
-            {
-                // Z3 stays the engine for ambiguous forests. Checked mode also runs the portable
-                // decision wherever it decides, so every checked run tests that the portable
-                // candidate set equals Z3's.
-                if checked_inference_requested() {
-                    let portable =
-                        self.infer_ambiguous_sorts_portable(&term, top_sort, explicitly_anywhere);
-                    if !matches!(portable, Err(ParseError::Z3InferenceRequired { .. })) {
-                        let z3 = self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere);
-                        return checked_ambiguous_inference_result(portable, z3);
-                    }
-                }
-                return self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere);
-            }
+            return self.infer_packed_sorts_z3(term, top_sort, explicitly_anywhere);
             #[cfg(not(feature = "z3-inference"))]
             return self.infer_ambiguous_sorts_portable(&term, top_sort, explicitly_anywhere);
         }
         let unpacked = term.unpack();
         self.infer_sorts(unpacked, top_sort, explicitly_anywhere)
+    }
+
+    /// Checked mode on an ambiguous forest in the z3 build: `None` unless the forest is outside
+    /// the unambiguous portable path and the portable decision decides it; otherwise both
+    /// engines' results are lowered by `lower` and compared. The caller runs it only under
+    /// `KRUST_TYPE_INFERENCE_MODE=checked` (`checked_inference_requested`).
+    ///
+    /// Two inferred trees that differ only in a bracket production or in the instantiation of a
+    /// formal sort parameter lower to one term, and the lowered term is what the rule means, so
+    /// the comparison is on lowered terms, including their compiler metadata
+    /// (`Term::identical`), or on both being errors. Z3's lowered result is returned, so
+    /// checked mode does not change the z3 build's output.
+    #[cfg(feature = "z3-inference")]
+    pub(super) fn checked_ambiguous_parse(
+        &self,
+        term: &Rc<PackedTerm>,
+        top_sort: &Sort,
+        explicitly_anywhere: bool,
+        lower: impl Fn(ParsedTerm) -> Result<Term, ParseError>,
+    ) -> Option<Result<Term, ParseError>> {
+        if self.packed_sort_inference_supported(term) {
+            return None;
+        }
+        let portable = self.infer_ambiguous_sorts_portable(term, top_sort, explicitly_anywhere);
+        if matches!(portable, Err(ParseError::Z3InferenceRequired { .. })) {
+            return None;
+        }
+        let z3 = self.infer_packed_sorts_z3(Rc::clone(term), top_sort, explicitly_anywhere);
+        Some(checked_lowered_result(
+            portable.and_then(&lower),
+            z3.and_then(&lower),
+        ))
     }
 
     /// Decide an ambiguous monomorphic forest without Z3.
@@ -1085,7 +1106,7 @@ fn is_real_ground_sort(sort: &Sort) -> bool {
 }
 
 #[cfg(feature = "z3-inference")]
-fn checked_inference_requested() -> bool {
+pub(super) fn checked_inference_requested() -> bool {
     std::env::var("KRUST_TYPE_INFERENCE_MODE").as_deref() == Ok("checked")
 }
 
@@ -1109,29 +1130,27 @@ fn checked_inference_result(
     }
 }
 
-/// Checked mode on an ambiguous forest: both engines must return the same set of complete
-/// typed trees. The factoring of that set into shared ambiguity nodes is not compared, since the
-/// post-inference passes factor it again. The Z3 result is returned, so checked mode does not
-/// change the Z3 build's output.
+/// The lowered-term comparison of `Grammar::checked_ambiguous_parse`; returns Z3's result.
 #[cfg(feature = "z3-inference")]
-fn checked_ambiguous_inference_result(
-    portable: Result<ParsedTerm, ParseError>,
-    z3: Result<ParsedTerm, ParseError>,
-) -> Result<ParsedTerm, ParseError> {
+fn checked_lowered_result(
+    portable: Result<Term, ParseError>,
+    z3: Result<Term, ParseError>,
+) -> Result<Term, ParseError> {
     match (portable, z3) {
-        (Ok(portable), Ok(z3)) => {
-            let portable_trees = expand_parsed_trees(&portable);
-            let z3_trees = expand_parsed_trees(&z3);
-            if portable_trees == z3_trees {
-                Ok(z3)
-            } else {
-                Err(inference_error(format!(
-                    "portable and Z3 sort inference kept different trees of an ambiguous parse: \
-                     portable {portable_trees:?}; Z3 {z3_trees:?}"
-                )))
-            }
-        }
-        (portable, z3) => checked_inference_result(portable, z3),
+        (Ok(portable), Ok(z3)) if portable.identical(&z3) => Ok(z3),
+        (Err(_), Err(z3)) => Err(z3),
+        (Ok(portable), Ok(z3)) => Err(inference_error(format!(
+            "portable and Z3 sort inference lowered an ambiguous parse to different terms: \
+             portable {portable:?}; Z3 {z3:?}"
+        ))),
+        (Ok(portable), Err(z3)) => Err(inference_error(format!(
+            "portable and Z3 sort inference disagree on an ambiguous parse: portable lowered to \
+             {portable:?}; Z3 rejected with {z3}"
+        ))),
+        (Err(portable), Ok(z3)) => Err(inference_error(format!(
+            "portable and Z3 sort inference disagree on an ambiguous parse: portable rejected \
+             with {portable}; Z3 lowered to {z3:?}"
+        ))),
     }
 }
 
@@ -1210,54 +1229,6 @@ fn expand_packed_trees(term: &Rc<PackedTerm>) -> Vec<ParsedTerm> {
         trees
     }
     expand(term, &mut HashMap::new()).as_ref().clone()
-}
-
-/// The complete trees of an owned tree whose ambiguity nodes may sit at any depth.
-#[cfg(feature = "z3-inference")]
-fn expand_parsed_trees(term: &ParsedTerm) -> BTreeSet<ParsedTerm> {
-    fn expand(term: &ParsedTerm) -> Vec<ParsedTerm> {
-        match term {
-            ParsedTerm::Term(_) => vec![term.clone()],
-            ParsedTerm::Ambiguity(alternatives) => alternatives.iter().flat_map(expand).collect(),
-            ParsedTerm::Production {
-                production,
-                children,
-                metadata,
-            } => child_combinations(
-                children
-                    .iter()
-                    .map(|child| Rc::new(expand(child)))
-                    .collect(),
-            )
-            .into_iter()
-            .map(|children| ParsedTerm::Production {
-                production: *production,
-                children,
-                metadata: metadata.clone(),
-            })
-            .collect(),
-            ParsedTerm::InstantiatedProduction {
-                production,
-                parameters,
-                children,
-                metadata,
-            } => child_combinations(
-                children
-                    .iter()
-                    .map(|child| Rc::new(expand(child)))
-                    .collect(),
-            )
-            .into_iter()
-            .map(|children| ParsedTerm::InstantiatedProduction {
-                production: *production,
-                parameters: parameters.clone(),
-                children,
-                metadata: metadata.clone(),
-            })
-            .collect(),
-        }
-    }
-    expand(term).into_iter().collect()
 }
 
 /// One term whose complete trees are exactly `trees`, with each ambiguity as deep as the trees
@@ -1721,6 +1692,187 @@ mod tests {
             checked_inference_result(Ok(x), Err(inference_error("Z3 rejection"))),
             Err(ParseError::SortInference { ref message })
                 if message.contains("portable accepted") && message.contains("Z3 rejected")
+        ));
+    }
+
+    /// `Item ::= Big` (`big`) and `Item ::= Small` (`small`) with `Small < Big`,
+    /// `Good ::= Item ... Item` with `arity` items, and the semantic casts that record an
+    /// inferred variable sort.
+    fn independent_ambiguity_grammar(arity: usize) -> (Grammar, usize, usize, usize) {
+        let mut grammar = Grammar::default();
+        let add = |grammar: &mut Grammar, result: &str, items, label: &str| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            index
+        };
+        let big = add(&mut grammar, "Item", vec![nonterminal("Big")], "big");
+        let small = add(&mut grammar, "Item", vec![nonterminal("Small")], "small");
+        let sequence = add(
+            &mut grammar,
+            "Good",
+            (0..arity).map(|_| nonterminal("Item")).collect(),
+            "sequence",
+        );
+        for sort in ["Big", "Small"] {
+            add(
+                &mut grammar,
+                sort,
+                vec![nonterminal("K")],
+                &format!("#SemanticCastTo{sort}"),
+            );
+        }
+        grammar.subsort_relations.extend([
+            (Sort::new("Small"), Sort::new("Big")),
+            (Sort::new("Big"), Sort::new("K")),
+            (Sort::new("Item"), Sort::new("K")),
+            (Sort::new("Good"), Sort::new("K")),
+        ]);
+        (grammar, big, small, sequence)
+    }
+
+    /// A forest of `arity` independent binary ambiguities, `2^arity` complete trees: item `i`
+    /// is `big(Yi)` or `small(Yi)`.
+    fn independent_ambiguities(arity: usize) -> (Grammar, Rc<PackedTerm>) {
+        let (grammar, big, small, sequence) = independent_ambiguity_grammar(arity);
+        let items = (0..arity)
+            .map(|index| {
+                let variable = || PackedTerm::leaf(Term::variable(format!("Y{index}")));
+                PackedTerm::ambiguity(BTreeSet::from([
+                    packed_production(big, vec![variable()]),
+                    packed_production(small, vec![variable()]),
+                ]))
+            })
+            .collect();
+        (grammar, packed_production(sequence, items))
+    }
+
+    #[test]
+    fn independent_ambiguities_are_decided_up_to_the_tree_limit_and_deferred_above_it() {
+        // The largest family within the limit has `PORTABLE_AMBIGUITY_TREE_LIMIT.ilog2()`
+        // independent binary ambiguities; one more doubles the tree count past it.
+        let within = PORTABLE_AMBIGUITY_TREE_LIMIT.ilog2() as usize;
+        let top = Sort::new("Good");
+
+        let (grammar, forest) = independent_ambiguities(within);
+        assert!(!grammar.packed_sort_inference_supported(&forest));
+        let decided = grammar
+            .infer_ambiguous_sorts_portable(&forest, &top, false)
+            .expect("the all-`big` tree's typing strictly exceeds every other tree's");
+        assert_eq!(
+            Grammar::ambiguity_count(&decided),
+            1,
+            "one tree survives: {decided:?}"
+        );
+
+        let (grammar, forest) = independent_ambiguities(within + 1);
+        assert_eq!(
+            grammar.infer_ambiguous_sorts_portable(&forest, &top, false),
+            Err(ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            })
+        );
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_accepts_trees_that_differ_only_in_a_bracket() {
+        // `(s)` read through the `Big` bracket or through the `Small` bracket: two well-sorted
+        // trees with one (empty) typing that lower to the one term `s`.
+        let mut grammar = Grammar::default();
+        let add = |grammar: &mut Grammar, result: &str, items, label: &str| {
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new(result),
+                    items,
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            index
+        };
+        let constant = add(
+            &mut grammar,
+            "Small",
+            vec![ProductionItem::Terminal("s".into())],
+            "s",
+        );
+        let bracket = |sort: &str| {
+            vec![
+                ProductionItem::Terminal("(".into()),
+                nonterminal(sort),
+                ProductionItem::Terminal(")".into()),
+            ]
+        };
+        let big_bracket = add(&mut grammar, "Big", bracket("Big"), "bracketBig");
+        let small_bracket = add(&mut grammar, "Small", bracket("Small"), "bracketSmall");
+        grammar.productions[big_bracket].bracket = true;
+        grammar.productions[small_bracket].bracket = true;
+        grammar.subsort_relations.extend([
+            (Sort::new("Small"), Sort::new("Big")),
+            (Sort::new("Big"), Sort::new("K")),
+        ]);
+        let forest = PackedTerm::ambiguity(BTreeSet::from([
+            packed_production(big_bracket, vec![packed_production(constant, vec![])]),
+            packed_production(small_bracket, vec![packed_production(constant, vec![])]),
+        ]));
+        let top = Sort::new("Big");
+
+        let portable = grammar
+            .infer_ambiguous_sorts_portable(&forest, &top, false)
+            .expect("both bracket readings are well-sorted");
+        assert_eq!(Grammar::ambiguity_count(&portable), 2, "{portable:?}");
+        let checked = grammar
+            .checked_ambiguous_parse(&forest, &top, false, |tree| {
+                grammar.lower_inferred(tree, &top)
+            })
+            .expect("the portable engine decides the forest");
+        assert_eq!(checked, Ok(Term::apply("s", Vec::new())));
+    }
+
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_on_ambiguous_forests_compares_lowered_terms_and_returns_z3s() {
+        let s = || Term::apply("s", Vec::new());
+        let annotated = || {
+            s().with_metadata(TermMetadata {
+                sort: Some(Sort::new("Small")),
+                ..TermMetadata::default()
+            })
+        };
+
+        assert_eq!(checked_lowered_result(Ok(s()), Ok(s())), Ok(s()));
+        assert!(matches!(
+            checked_lowered_result(
+                Err(inference_error("portable rejection")),
+                Err(inference_error("Z3 rejection")),
+            ),
+            Err(ParseError::SortInference { ref message }) if message == "Z3 rejection"
+        ));
+        assert!(matches!(
+            checked_lowered_result(Ok(s()), Ok(annotated())),
+            Err(ParseError::SortInference { ref message })
+                if message.contains("lowered an ambiguous parse to different terms")
+        ));
+        assert!(matches!(
+            checked_lowered_result(Ok(s()), Err(inference_error("Z3 rejection"))),
+            Err(ParseError::SortInference { ref message })
+                if message.contains("portable lowered") && message.contains("Z3 rejected")
+        ));
+        assert!(matches!(
+            checked_lowered_result(Err(inference_error("portable rejection")), Ok(s())),
+            Err(ParseError::SortInference { ref message })
+                if message.contains("portable rejected") && message.contains("Z3 lowered")
         ));
     }
 }
