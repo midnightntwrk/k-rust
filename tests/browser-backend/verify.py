@@ -48,13 +48,14 @@ from support import ROOT  # noqa: E402
 from support.checkouts import git_revision  # noqa: E402
 from support.hashing import json_sha256  # noqa: E402
 from support.process import run  # noqa: E402
+from support.tools import scratch_root  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 CASES = HERE / "cases"
 RUNNER = HERE / "runner"
-DEFAULT_PACK = Path("/var/tmp/krs-browser-pack/pack")
-DEFAULT_FORK_BUILD = Path("/var/tmp/krs-browser-fork/R-k")
-DEFAULT_FORK_SOURCE = ROOT.parent / "inspirations" / "AngelOnFira" / "rust-krs"
+DEFAULT_PACK = scratch_root() / "krs-browser-pack/pack"
+DEFAULT_FORK_BUILD = Path("/var/tmp/krs-browser-fork/R-22")
+DEFAULT_FORK_SOURCE = ROOT.parent / "inspirations" / "AngelOnFira" / "rust-22"
 LOAD_MAX = 40.0
 STEP_TIMEOUT_MS = 600_000
 STABLE_DEPS = {"itoa": "=1.0.18", "serde": "=1.0.229", "serde_json": "=1.0.151", "sha2": "=0.10.9"}
@@ -404,8 +405,8 @@ def main() -> int:
     parser.add_argument("--fork-build", type=Path, default=DEFAULT_FORK_BUILD, help="fork build root of the same commit as the pack (its stage1 twin is the reference)")
     parser.add_argument("--twin", type=Path, default=None, help="native twin rustc (default: FORK_BUILD/build/x86_64-unknown-linux-gnu/stage1/bin/rustc)")
     parser.add_argument("--fork-source", type=Path, default=DEFAULT_FORK_SOURCE, help="only its wasi-sdk wasm-ld is used (twin links)")
-    parser.add_argument("--scratch", type=Path, default=Path("/var/tmp/krs-backend-scratch"))
-    parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-backend-run"))
+    parser.add_argument("--scratch", type=Path, default=scratch_root() / "krs-backend-scratch")
+    parser.add_argument("--out", type=Path, default=scratch_root() / "krs-backend-run")
     parser.add_argument("--evidence", type=Path, default=None, help="also copy host records, matrix.toml, and expectations.toml here")
     args = parser.parse_args()
 

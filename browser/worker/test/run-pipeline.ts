@@ -10,13 +10,14 @@ import { join } from "node:path";
 import process from "node:process";
 import { parseArgs } from "node:util";
 import { loadVerifiedAssets } from "../src/pack.ts";
+import { scratchPath } from "./harness/environment.ts";
 import { createPipelineContext, runBuild } from "../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest } from "../src/protocol.ts";
 import { check, expectationFor, SCENARIOS } from "./scenarios.ts";
 
 const { values } = parseArgs({
   options: {
-    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
+    assets: { type: "string", default: scratchPath("krs-browser-assets") },
     out: { type: "string" },
     only: { type: "string" },
     repeat: { type: "string", default: "1" },

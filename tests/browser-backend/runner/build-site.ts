@@ -4,9 +4,10 @@
 //
 //   bun runner/build-site.ts --out DIR --suite SUITE_JSON --pack PACK_ROOT
 
-import { cpSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseArgs } from "node:util";
+import { buildSite } from "../../../browser/worker/test/harness/site.ts";
 
 const { values } = parseArgs({
   options: {
@@ -17,26 +18,14 @@ const { values } = parseArgs({
 });
 if (!values.out || !values.suite || !values.pack) throw new Error("usage: bun runner/build-site.ts --out DIR --suite FILE --pack DIR");
 const root = join(import.meta.dir, "..");
-const out = values.out;
-rmSync(out, { recursive: true, force: true });
-mkdirSync(out, { recursive: true });
-const result = await Bun.build({
-  entrypoints: [join(root, "page/page.ts"), join(root, "runner/shim-worker.ts")],
-  outdir: out,
-  target: "browser",
-  format: "esm",
-  naming: "[name].js",
-  minify: false,
-  sourcemap: "linked",
-});
-if (!result.success) {
-  for (const log of result.logs) console.error(log);
-  process.exit(1);
-}
-cpSync(join(root, "page/index.html"), join(out, "index.html"));
 const pack = realpathSync(values.pack);
-symlinkSync(dirname(pack), join(out, "assets"));
+const outputs = await buildSite({
+  out: values.out,
+  entrypoints: [join(root, "page/page.ts"), join(root, "runner/shim-worker.ts")],
+  copies: { "index.html": join(root, "page/index.html") },
+  links: { assets: dirname(pack) },
+});
 const suite = JSON.parse(readFileSync(values.suite, "utf8"));
 suite.pack.url_base = `assets/${basename(pack)}`;
-writeFileSync(join(out, "suite.json"), JSON.stringify(suite));
-console.log(JSON.stringify({ out, pack, outputs: result.outputs.map((o) => o.path) }));
+writeFileSync(join(values.out, "suite.json"), JSON.stringify(suite));
+console.log(JSON.stringify({ out: values.out, pack, outputs }));

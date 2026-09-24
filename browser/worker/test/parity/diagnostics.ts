@@ -27,19 +27,20 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import type { LessonManifest } from "../../src/protocol.ts";
 import { parseStderr, reportable, type RustcDiagnostic } from "../../src/rustc.ts";
-import { launch, type BrowserSession } from "../browser/drivers.ts";
+import { openSite, type SiteSession } from "../harness/browsers.ts";
+import { REPO, scratchPath, waitForLoad as waitForLoadAverage } from "../harness/environment.ts";
 import { FORK_195111DFF } from "../scenarios.ts";
 import { CASES, fixtureText, lessonManifest, resolveFault, type DiagnosticCase, type Stage } from "./cases.ts";
 
 const { values } = parseArgs({
   options: {
-    native: { type: "string", default: "/var/tmp/krs-diagnostics-native" },
-    assets: { type: "string", default: "/var/tmp/krs-diagnostics-assets" },
-    site: { type: "string", default: "/var/tmp/krs-diagnostics-site" },
-    out: { type: "string", default: "/var/tmp/krs-diagnostics-run/evidence" },
-    scratch: { type: "string", default: "/var/tmp/krs-diagnostics-run/scratch" },
+    native: { type: "string", default: scratchPath("krs-diagnostics-native") },
+    assets: { type: "string", default: scratchPath("krs-diagnostics-assets") },
+    site: { type: "string", default: scratchPath("krs-diagnostics-site") },
+    out: { type: "string", default: scratchPath("krs-diagnostics-run/evidence") },
+    scratch: { type: "string", default: scratchPath("krs-diagnostics-run/scratch") },
     browsers: { type: "string", default: "chromium,firefox" },
-    "krs-bin": { type: "string", default: "/var/tmp/krs-parity-cli-target/debug/krs" },
+    "krs-bin": { type: "string", default: scratchPath("krs-parity-cli-target/debug/krs") },
     "load-max": { type: "string", default: "40" },
     port: { type: "string", default: "4355" },
   },
@@ -53,18 +54,10 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 mkdirSync(scratch, { recursive: true });
 const sha256 = (bytes: Uint8Array | string) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
-const repo = Bun.spawnSync(["git", "-C", here, "rev-parse", "--show-toplevel"]).stdout.toString().trim();
+const repo = REPO;
 const head = Bun.spawnSync(["git", "-C", repo, "rev-parse", "HEAD"]).stdout.toString().trim();
 
-async function waitForLoad(): Promise<number> {
-  const max = Number(values["load-max"]);
-  for (;;) {
-    const load = Number(readFileSync("/proc/loadavg", "utf8").split(" ")[0]);
-    if (load <= max) return load;
-    process.stderr.write(`load ${load} > ${max}, waiting 60 s\n`);
-    await Bun.sleep(60_000);
-  }
-}
+const waitForLoad = () => waitForLoadAverage(Number(values["load-max"]));
 
 // ---------------------------------------------------------------- normalized diagnostics
 
@@ -278,13 +271,13 @@ interface CaseRun {
 
 async function runBrowser(browser: "chromium" | "firefox", port: number, tour: LessonManifest) {
   const runs: CaseRun[] = [];
-  let session: BrowserSession | null = null;
+  let session: SiteSession | null = null;
   let failure: string | null = null;
   const rawDir = join(out, browser);
   mkdirSync(rawDir, { recursive: true });
   const load = await waitForLoad();
   try {
-    session = await launch(browser, { site: values.site!, port, profilePrefix: "/var/tmp/krs-diagnostics-profile-" });
+    session = await openSite({ browser, site: values.site!, port, profilePrefix: scratchPath("krs-diagnostics-profile-"), chromiumArgs: ["--enable-precise-memory-info"] });
     await session.evaluate("return await window.krsWorker.init();");
     for (const c of CASES) {
       session.sampler.phase = c.id;

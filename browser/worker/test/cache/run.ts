@@ -15,18 +15,20 @@
 // browser runs every case in order; OUT/cache-tests-<browser>.json records each case's
 // observations and verdict.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, cpSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { launch, type BrowserSession } from "../browser/drivers.ts";
+import { openSite, type SiteSession } from "../harness/browsers.ts";
+import { REPO, scratchPath, waitForLoad as waitForLoadAverage } from "../harness/environment.ts";
+import { buildSite } from "../harness/site.ts";
 
 const { values } = parseArgs({
   options: {
     staged: { type: "string" },
     oracle: { type: "string" },
-    out: { type: "string", default: "/var/tmp/krs-browser-cache/evidence" },
-    work: { type: "string", default: "/var/tmp/krs-browser-cache" },
+    out: { type: "string", default: scratchPath("krs-browser-cache/evidence") },
+    work: { type: "string", default: scratchPath("krs-browser-cache") },
     browsers: { type: "string", default: "chromium,firefox" },
     port: { type: "string", default: "4371" },
     "asset-port": { type: "string", default: "4391" },
@@ -39,7 +41,7 @@ if (!values.staged || !values.oracle) {
 }
 const here = import.meta.dir;
 const workerRoot = join(here, "../..");
-const repo = Bun.spawnSync(["git", "-C", here, "rev-parse", "--show-toplevel"]).stdout.toString().trim();
+const repo = REPO;
 const releasePy = join(repo, "browser/release/release.py");
 const work = values.work!;
 const out = values.out!;
@@ -53,15 +55,7 @@ function run(command: string[], cwd = repo): string {
   return result.stdout.toString();
 }
 
-async function waitForLoad(): Promise<number> {
-  const max = Number(values["load-max"]);
-  for (;;) {
-    const load = Number(readFileSync("/proc/loadavg", "utf8").split(" ")[0]);
-    if (load <= max) return load;
-    process.stderr.write(`load ${load} > ${max}, waiting 60 s\n`);
-    await Bun.sleep(60_000);
-  }
-}
+const waitForLoad = () => waitForLoadAverage(Number(values["load-max"]));
 
 // ---------------------------------------------------------------- releases A and B
 
@@ -168,29 +162,18 @@ const host = {
 
 // ---------------------------------------------------------------- site
 
-rmSync(site, { recursive: true, force: true });
-mkdirSync(site, { recursive: true });
-const build = await Bun.build({
+await buildSite({
+  out: site,
   entrypoints: [join(workerRoot, "src/worker.ts"), join(here, "cache-page.ts")],
-  outdir: site,
-  target: "browser",
-  format: "esm",
-  naming: "[name].js",
-  minify: false,
-  sourcemap: "linked",
+  copies: { "index.html": join(here, "index.html") },
 });
-if (!build.success) {
-  for (const log of build.logs) console.error(log);
-  process.exit(1);
-}
-cpSync(join(here, "index.html"), join(site, "index.html"));
 writeFileSync(join(site, "config.json"), `${JSON.stringify({ base: `http://127.0.0.1:${values["asset-port"]}/` })}\n`);
 
 // ---------------------------------------------------------------- cases
 
 interface CaseResult { name: string; pass: boolean; checks: Record<string, boolean>; observed: Record<string, unknown> }
 
-async function reload(session: BrowserSession) {
+async function reload(session: SiteSession) {
   const before = (await session.evaluate("return performance.timeOrigin;")) as number;
   await session.evaluate("setTimeout(() => location.reload(), 50); return true;");
   for (let i = 0; i < 600; i += 1) {
@@ -211,7 +194,13 @@ async function runBrowser(browser: "chromium" | "firefox") {
   host.faults.clear();
   host.active = "A";
   await host.start();
-  const session = await launch(browser, { site, port: Number(values.port) + (browser === "firefox" ? 10 : 0), profilePrefix: `${work}/` });
+  const session = await openSite({
+    browser,
+    site,
+    port: Number(values.port) + (browser === "firefox" ? 10 : 0),
+    profilePrefix: `${work}/`,
+    chromiumArgs: ["--enable-precise-memory-info"],
+  });
   const results: CaseResult[] = [];
   const ev = async (body: string) => (await session.evaluate(body)) as any;
   const record = (name: string, checks: Record<string, boolean>, observed: Record<string, unknown>) => {

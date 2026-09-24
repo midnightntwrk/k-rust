@@ -1,7 +1,8 @@
 // tour-minimal bundle parity gate: real tour-minimal native/browser bundle parity.
 //
 //   bun test/parity/tour-minimal.ts [--regenerate-oracle] [--out DIR] [--repeats 2]
-//       [--browsers chromium,firefox] [--oracle-dir DIR] [--assets DIR] [--site DIR] [--load-max 40]
+//       [--browsers chromium,firefox] [--oracle-dir DIR] [--assets DIR] [--site DIR]
+//       [--bundles DIR] [--scratch DIR] [--load-max 40]
 //
 // Reads the editable lesson file tests/tour-minimal/src/lib.rs from the
 // checkout (not a pre-expanded copy) and E1 = edit-e1.patch applied
@@ -16,19 +17,21 @@
 // the hashes embedded in the oracle) or when the staged pack was built from
 // another crates/ tree, and prints the regeneration command.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { launch, type BrowserSession } from "../browser/drivers.ts";
+import { openSite, type SiteSession } from "../harness/browsers.ts";
+import { REPO, scratchPath, waitForLoad as waitForLoadAverage } from "../harness/environment.ts";
 
 const { values } = parseArgs({
   options: {
     "regenerate-oracle": { type: "boolean", default: false },
-    "oracle-dir": { type: "string", default: "/var/tmp/krs-parity-oracle" },
-    out: { type: "string", default: "/var/tmp/krs-parity-run/evidence" },
-    bundles: { type: "string", default: "/var/tmp/krs-parity-run/bundles" },
-    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
-    site: { type: "string", default: "/var/tmp/krs-parity-site" },
+    "oracle-dir": { type: "string", default: scratchPath("krs-parity-oracle") },
+    out: { type: "string", default: scratchPath("krs-parity-run/evidence") },
+    bundles: { type: "string", default: scratchPath("krs-parity-run/bundles") },
+    scratch: { type: "string", default: scratchPath("krs-parity-run/scratch") },
+    assets: { type: "string", default: scratchPath("krs-browser-assets") },
+    site: { type: "string", default: scratchPath("krs-parity-site") },
     repeats: { type: "string", default: "2" },
     browsers: { type: "string", default: "chromium,firefox" },
     "load-max": { type: "string", default: "40" },
@@ -37,7 +40,7 @@ const { values } = parseArgs({
 });
 const here = import.meta.dir;
 const workerRoot = join(here, "../..");
-const repo = new TextDecoder().decode(Bun.spawnSync(["git", "-C", here, "rev-parse", "--show-toplevel"]).stdout).trim();
+const repo = REPO;
 const oracleDir = values["oracle-dir"]!;
 const oracleToml = join(oracleDir, "oracle.toml");
 const regenerate = `browser/worker/test/parity/regenerate-oracle.sh ${oracleDir}`;
@@ -52,15 +55,7 @@ function sh(command: string[], cwd = repo): string {
 const git = (...args: string[]) => sh(["git", ...args]).trim();
 const sha256 = (bytes: Uint8Array | string) => new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
 
-async function waitForLoad(): Promise<number> {
-  const max = Number(values["load-max"]);
-  for (;;) {
-    const load = Number(readFileSync("/proc/loadavg", "utf8").split(" ")[0]);
-    if (load <= max) return load;
-    process.stderr.write(`load ${load} > ${max}, waiting 60 s\n`);
-    await Bun.sleep(60_000);
-  }
-}
+const waitForLoad = () => waitForLoadAverage(Number(values["load-max"]));
 
 if (values["regenerate-oracle"]) {
   await waitForLoad();
@@ -125,7 +120,8 @@ if (pack.modules.crates_tree !== current.crates_tree) problems.push(`staged modu
 if (problems.length > 0) refuse(problems);
 
 // E1 source: the patch applied to a scratch copy of the lesson file.
-const scratch = "/var/tmp/krs-parity-run/e1";
+const scratch = join(values.scratch!, "e1");
+rmSync(scratch, { recursive: true, force: true });
 mkdirSync(join(scratch, "tests/tour-minimal/src"), { recursive: true });
 writeFileSync(join(scratch, "tests/tour-minimal/src/lib.rs"), lessonText);
 sh(["patch", "-p1", "--quiet", "-i", patchPath], scratch);
@@ -198,13 +194,13 @@ async function runSession(browser: "chromium" | "firefox", repeat: number, port:
   const steps: unknown[] = [];
   let init: unknown = null;
   let failure: string | null = null;
-  let session: BrowserSession | null = null;
+  let session: SiteSession | null = null;
   const bundleDir = join(values.bundles!, `${browser}-r${repeat}`);
   mkdirSync(bundleDir, { recursive: true });
   const load = await waitForLoad();
   const started = performance.now();
   try {
-    session = await launch(browser, { site: values.site!, port, profilePrefix: "/var/tmp/krs-parity-profile-" });
+    session = await openSite({ browser, site: values.site!, port, profilePrefix: scratchPath("krs-parity-profile-"), chromiumArgs: ["--enable-precise-memory-info"] });
     session.sampler.phase = "init";
     init = await session.evaluate("return await window.krsWorker.init();");
     for (const spec of plan) {
@@ -291,7 +287,7 @@ async function runSession(browser: "chromium" | "firefox", repeat: number, port:
     load,
     wallMs: performance.now() - started,
     profile: session?.profile ?? null,
-    freshProfile: "mkdtemp under /var/tmp/krs-parity-profile-, removed after the session",
+    freshProfile: `mkdtemp under ${scratchPath("krs-parity-profile-")}, removed after the session`,
     ...(session?.details ?? {}),
     init,
     steps,

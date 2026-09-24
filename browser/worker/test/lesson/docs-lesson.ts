@@ -12,7 +12,7 @@
 // (a browser/release/release.py publication: index.json, releases/, blobs/) at /krs-pack/, so the build must use
 // VITE_KRS_BROWSER_PACK_BASE=/krs-pack/ (same origin). Every request that
 // reaches the front server is logged, and BiDi network.beforeRequestSent
-// events are recorded per browser. Fresh /var/tmp profiles; no visible window.
+// events are recorded per browser. Fresh profiles under the scratch root; no visible window.
 //
 // --pack-origin cross checks the documented local deployment instead (docs-site/README.md): the pack is
 // a second origin, http://127.0.0.1:<port + 70>/, so the build must use
@@ -26,23 +26,24 @@
 // --pack-base http://127.0.0.1:<port + 70>/ for --pack-origin cross). The logging front servers are the same;
 // --assets must be the directory those servers publish, and the servers are left running.
 
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { TreeSampler } from "../browser/common.ts";
+import { launch as launchBrowser, type BrowserSession } from "../harness/browsers.ts";
+import { firefoxBinary, REPO, scratchPath, waitForLoad as waitForLoadAverage } from "../harness/environment.ts";
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
     site: { type: "string" },
-    assets: { type: "string", default: "/var/tmp/krs-browser-pack-run/publish" },
+    assets: { type: "string", default: scratchPath("krs-browser-pack-run/publish") },
     out: { type: "string" },
-    oracle: { type: "string", default: "/var/tmp/krs-parity-oracle-final/native/descriptor-bundle.json" },
-    "oracle-e1": { type: "string", default: "/var/tmp/krs-parity-oracle-final/native-e1/descriptor-bundle.json" },
+    oracle: { type: "string", default: scratchPath("krs-browser-pack-run/oracle/native/descriptor-bundle.json") },
+    "oracle-e1": { type: "string", default: scratchPath("krs-browser-pack-run/oracle/native-e1/descriptor-bundle.json") },
     browsers: { type: "string", default: "chromium,firefox" },
     port: { type: "string", default: "5310" },
-    firefox: { type: "string", default: "/usr/lib/firefox/firefox" },
+    firefox: { type: "string", default: firefoxBinary() },
     expect: { type: "string", default: "configured" },
     "pack-origin": { type: "string", default: "same" },
     attach: { type: "boolean", default: false },
@@ -59,14 +60,7 @@ mkdirSync(OUT, { recursive: true });
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const log = (text: string) => process.stderr.write(`${new Date().toISOString().slice(11, 19)} ${text}\n`);
 
-async function waitForLoad(maximum: number) {
-  for (;;) {
-    const load = Number(readFileSync("/proc/loadavg", "utf8").split(" ")[0]);
-    if (load <= maximum) return load;
-    log(`1-minute load ${load} > ${maximum}; waiting`);
-    await Bun.sleep(15_000);
-  }
-}
+const waitForLoad = (maximum: number) => waitForLoadAverage(maximum, 15_000);
 
 // ---------------------------------------------------------------- servers
 
@@ -92,7 +86,7 @@ function startServers(browser: string) {
   const releasePort = PORT + 60;
   const releaseHost = ATTACH
     ? null
-    : Bun.spawn(["python3", join(import.meta.dir, "../../../release/release.py"), "serve", ASSETS, "--port", String(releasePort)], {
+    : Bun.spawn(["python3", join(REPO, "browser/release/release.py"), "serve", ASSETS, "--port", String(releasePort)], {
         env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
         stdout: "ignore",
         stderr: "ignore",
@@ -181,156 +175,23 @@ function startServers(browser: string) {
   };
 }
 
-// ---------------------------------------------------------------- BiDi
+// ---------------------------------------------------------------- browser
 
-interface NetworkEvent {
-  atMs: number;
-  url: string;
-  method: string;
-  bodySize: number | null;
-  headers: Array<{ name: string; value: string }>;
-  destination: string | null;
-  initiatorType: string | null;
-}
+// Both browsers are driven over WebDriver BiDi (Chromium through ChromeDriver's
+// webSocketUrl), which records every network request the page makes.
+type Session = BrowserSession;
 
-class Bidi {
-  private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  private nextId = 0;
-  network: NetworkEvent[] = [];
-  private started = performance.now();
-  constructor(private socket: WebSocket) {
-    socket.onmessage = (event) => {
-      const message = JSON.parse(String(event.data));
-      if (message.type === "event") {
-        if (message.method === "network.beforeRequestSent") {
-          const r = message.params.request;
-          this.network.push({
-            atMs: performance.now() - this.started,
-            url: r.url,
-            method: r.method,
-            bodySize: r.bodySize ?? null,
-            headers: (r.headers ?? []).map((h: any) => ({ name: h.name, value: h.value?.value ?? "" })),
-            destination: r.destination ?? null,
-            initiatorType: r.initiatorType ?? message.params.initiator?.type ?? null,
-          });
-        }
-        return;
-      }
-      const waiter = this.pending.get(message.id);
-      if (!waiter) return;
-      this.pending.delete(message.id);
-      if (message.type === "success") waiter.resolve(message.result);
-      else waiter.reject(new Error(JSON.stringify(message).slice(0, 2000)));
-    };
-  }
-  static async connect(url: string): Promise<Bidi> {
-    for (let i = 0; ; i += 1) {
-      try {
-        const socket = await new Promise<WebSocket>((ok, fail) => {
-          const ws = new WebSocket(url);
-          ws.onopen = () => ok(ws);
-          ws.onerror = () => fail(new Error("connect"));
-        });
-        return new Bidi(socket);
-      } catch {
-        if (i > 300) throw new Error(`BiDi endpoint ${url} did not open`);
-        await Bun.sleep(100);
-      }
-    }
-  }
-  command(method: string, params: Record<string, unknown> = {}): Promise<any> {
-    return new Promise((ok, fail) => {
-      const id = ++this.nextId;
-      this.pending.set(id, { resolve: ok, reject: fail });
-      this.socket.send(JSON.stringify({ id, method, params }));
-    });
-  }
-  close() {
-    this.socket.close();
-  }
-}
-
-interface Session {
-  browser: "chromium" | "firefox";
-  bidi: Bidi;
-  context: string;
-  sampler: TreeSampler;
-  version: string;
-  close(): Promise<void>;
-}
-
-async function launch(browser: "chromium" | "firefox"): Promise<Session> {
-  const profile = mkdtempSync(`/var/tmp/krs-docs-lesson-${browser}-profile.`);
-  const control = PORT + 1;
-  let proc: ReturnType<typeof Bun.spawn>;
-  let bidi: Bidi;
-  let version = "";
-  let deleteSession: () => Promise<void> = async () => {};
-  if (browser === "chromium") {
-    proc = Bun.spawn(["chromedriver", `--port=${control}`], { stdout: "ignore", stderr: "ignore" });
-    const base = `http://127.0.0.1:${control}`;
-    for (let i = 0; ; i += 1) {
-      try {
-        if ((await fetch(`${base}/status`)).ok) break;
-      } catch {}
-      if (i > 100) throw new Error("chromedriver did not start");
-      await Bun.sleep(100);
-    }
-    const response = await fetch(`${base}/session`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        capabilities: {
-          alwaysMatch: {
-            browserName: "chrome",
-            webSocketUrl: true,
-            "goog:chromeOptions": { args: ["--headless=new", "--disable-dev-shm-usage", "--no-first-run", `--user-data-dir=${profile}`, "--window-size=1280,1400"] },
-          },
-        },
-      }),
-    });
-    const payload = (await response.json()) as any;
-    if (!response.ok) throw new Error(JSON.stringify(payload).slice(0, 2000));
-    version = payload.value.capabilities.browserVersion;
-    const sessionId = payload.value.sessionId;
-    bidi = await Bidi.connect(payload.value.capabilities.webSocketUrl);
-    deleteSession = async () => {
-      await fetch(`${base}/session/${sessionId}`, { method: "DELETE" }).catch(() => {});
-    };
-  } else {
-    proc = Bun.spawn(
-      [values.firefox!, "--headless", "--new-instance", "--profile", profile, "--remote-debugging-port", String(control), "--remote-allow-hosts", "127.0.0.1,localhost", "about:blank"],
-      { stdout: "ignore", stderr: "ignore", env: { ...process.env, MOZ_HEADLESS: "1", DISPLAY: "", WAYLAND_DISPLAY: "" } },
-    );
-    bidi = await Bidi.connect(`ws://127.0.0.1:${control}/session`);
-    const session = await bidi.command("session.new", { capabilities: { alwaysMatch: { acceptInsecureCerts: false } } });
-    version = session.capabilities.browserVersion;
-    deleteSession = async () => {
-      await bidi.command("session.end").catch(() => {});
-    };
-  }
-  const sampler = new TreeSampler(() => proc.pid);
-  sampler.start();
-  await bidi.command("session.subscribe", { events: ["network.beforeRequestSent"] });
-  const tree = await bidi.command("browsingContext.getTree", {});
-  const context = tree.contexts[0].context as string;
-  await bidi.command("browsingContext.setViewport", { context, viewport: { width: 1280, height: 1400 } });
-  return {
+function launch(browser: "chromium" | "firefox"): Promise<Session> {
+  return launchBrowser({
     browser,
-    bidi,
-    context,
-    sampler,
-    version,
-    async close() {
-      await deleteSession();
-      bidi.close();
-      await Bun.sleep(300);
-      sampler.stop();
-      proc.kill();
-      await proc.exited;
-      rmSync(profile, { recursive: true, force: true });
-    },
-  };
+    controlPort: PORT + 1,
+    profilePrefix: scratchPath("krs-docs-lesson-"),
+    bidi: true,
+    network: true,
+    viewport: { width: 1280, height: 1400 },
+    chromiumArgs: ["--window-size=1280,1400"],
+    firefox: values.firefox!,
+  });
 }
 
 // Helpers injected into every evaluation.
@@ -382,23 +243,17 @@ const marks = () => $$('mark[data-diagnostic]').map((m) => ({ diagnostic: Number
 `;
 
 async function evaluate(session: Session, body: string): Promise<any> {
-  const expression = `(async () => { ${PRELUDE}\n${body} })().then((v) => JSON.stringify({ ok: v }), (e) => JSON.stringify({ error: String(e && e.stack || e) }))`;
-  const result = await session.bidi.command("script.evaluate", { expression, target: { context: session.context }, awaitPromise: true, resultOwnership: "none" });
-  if (result.type !== "success") throw new Error(`script exception: ${JSON.stringify(result).slice(0, 2000)}`);
-  const parsed = JSON.parse(result.result.value as string) as { ok?: unknown; error?: string };
-  if (parsed.error) throw new Error(parsed.error);
-  return parsed.ok;
+  return session.evaluate(`${PRELUDE}\n${body}`);
 }
 
 async function navigate(session: Session, url: string) {
-  await session.bidi.command("browsingContext.navigate", { context: session.context, url, wait: "complete" });
+  await session.navigate(url);
 }
 
 async function screenshot(session: Session, name: string) {
-  const result = await session.bidi.command("browsingContext.captureScreenshot", { context: session.context, origin: "viewport" });
   const file = join(OUT, "screenshots", `${session.browser}-${name}.png`);
   mkdirSync(join(OUT, "screenshots"), { recursive: true });
-  writeFileSync(file, Buffer.from(result.data, "base64"));
+  writeFileSync(file, await session.screenshot());
   return file;
 }
 
@@ -478,7 +333,7 @@ async function runBrowser(browser: "chromium" | "firefox") {
       await screenshot(s, "unconfigured");
       const packRequests = servers.entries.filter((e) => e.url.startsWith("/krs-pack/"));
       check("an unconfigured page requests nothing from a pack base", packRequests.length === 0, packRequests);
-      return { checks, steps, network: s.bidi.network, server: servers.entries, version: s.version, memory: s.sampler.summary() };
+      return { checks, steps, network: s.network, server: servers.entries, version: s.details.browserVersion, memory: s.sampler.summary() };
     }
     check("page hydrates to the download prompt", phase === "idle", phase);
     const beforeDownload = servers.entries.filter((e) => e.url.startsWith("/krs-pack/")).map((e) => e.url);
@@ -590,11 +445,11 @@ async function runBrowser(browser: "chromium" | "firefox") {
     check("the compile after cancel equals the oracle", recovery?.sha === sha256(oracle), recovery);
 
     const serverBeforeCanary = servers.entries.length;
-    const networkBeforeCanary = s.bidi.network.length;
+    const networkBeforeCanary = s.network.length;
     const canaryRun = await step("canary", () => evaluate(s, `setSource(${JSON.stringify(canarySource)}); await sleep(50); const r = await compileAndWait(); return { ...r, resources: performance.getEntriesByType('resource').map((e) => e.name) };`));
     check("canary compile succeeds", canaryRun?.status === "success", canaryRun?.status);
     const buildRequests = servers.entries.slice(serverBeforeCanary);
-    const buildNetwork = s.bidi.network.slice(networkBeforeCanary).filter((e) => !e.url.startsWith("blob:"));
+    const buildNetwork = s.network.slice(networkBeforeCanary).filter((e) => !e.url.startsWith("blob:"));
     check("a compile makes no network request (server log and BiDi)", buildRequests.length === 0 && buildNetwork.length === 0, { server: buildRequests, bidi: buildNetwork });
 
     const reload = await step("reload-from-cache", async () => {
@@ -642,7 +497,7 @@ async function runBrowser(browser: "chromium" | "firefox") {
     );
 
     // Network assertions over the whole session.
-    const events = s.bidi.network.filter((e) => !e.url.startsWith("blob:") && !e.url.startsWith("data:"));
+    const events = s.network.filter((e) => !e.url.startsWith("blob:") && !e.url.startsWith("data:"));
     const foreign = events.filter((e) => !e.url.startsWith(`${servers.origin}/`) && !(servers.packOrigin && e.url.startsWith(`${servers.packOrigin}/`)));
     const nonGet = events.filter((e) => e.method !== "GET").concat(servers.entries.filter((e) => e.method !== "GET") as any);
     const withBody = servers.entries.filter((e) => e.requestBodyBytes > 0);
@@ -653,10 +508,10 @@ async function runBrowser(browser: "chromium" | "firefox") {
     check("no request carries a body", withBody.length === 0, withBody);
     check("every pack request is index.json, the active release, or one of its required assets", unlisted.length === 0, unlisted);
     check("the canary in the edited source appears in no request", canaryHits.length === 0, { canary, hits: canaryHits.length });
-    return { checks, steps, canary, network: s.bidi.network, server: servers.entries, version: s.version, memory: s.sampler.summary() };
+    return { checks, steps, canary, network: s.network, server: servers.entries, version: s.details.browserVersion, memory: s.sampler.summary() };
   } catch (error) {
     check("session", false, String(error instanceof Error ? error.stack : error));
-    return { checks, steps, network: session?.bidi.network ?? [], server: servers.entries, version: session?.version ?? null, memory: session?.sampler.summary() ?? null };
+    return { checks, steps, network: session?.network ?? [], server: servers.entries, version: session?.details.browserVersion ?? null, memory: session?.sampler.summary() ?? null };
   } finally {
     await session?.close();
     await servers.stop();

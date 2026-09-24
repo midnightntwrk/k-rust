@@ -8,10 +8,10 @@ machine with those resources, and this runner is the regression gate over their 
 Local mode (a pack and the fork build that produced it; this machine):
 
   PYTHONDONTWRITEBYTECODE=1 python3 tests/browser-pack/run.py \\
-      --pack /var/tmp/krs-browser-pack-r26/pack \\
-      --fork-build /var/tmp/krs-browser-fork/R-26 \\
-      --fork-source ../inspirations/AngelOnFira/rust-fix \\
-      [--out /var/tmp/krs-browser-pack-run] [--rebuild] [--record-backend] [--steps a,b,...] [--keep-going]
+      --pack SCRATCH/krs-browser-pack-r22/pack \\
+      --fork-build /var/tmp/krs-browser-fork/R-22 \\
+      --fork-source ../inspirations/AngelOnFira/rust-22 \\
+      [--out SCRATCH/krs-browser-pack-run] [--rebuild] [--record-backend] [--steps a,b,...] [--keep-going]
 
 Hosted mode (a published release fetched by content address; no fork build, so the steps that need
 the native twin are skipped):
@@ -44,7 +44,9 @@ Hosted mode runs: fetch, expectations, oracle, check, pipeline, tour-minimal, ba
 Resource rules: the runner waits while the 1-minute load exceeds LOAD_MAX (default 40) before each step;
 cargo runs at nice -n 19 with -j JOBS (default 4); pack builds take the heavy-build flock (build.sh).
 Every step's output goes to OUT/logs/<step>.log; OUT/run.toml records the steps, exit codes, and wall times.
-Environment: KRS_Z3_LIB (default: the Nix store Z3 4.12.5), CARGO_TARGET_ROOT (default /var/tmp/krs-browser-pack-target).
+Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), KRS_Z3_LIB (default: the Nix store
+Z3 4.12.5), CARGO_TARGET_ROOT (default SCRATCH/krs-browser-pack-target). Every output location, including
+the steps' own scratch directories, is under OUT or CARGO_TARGET_ROOT.
 """
 
 from __future__ import annotations
@@ -66,7 +68,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT  # noqa: E402
 from support.checkouts import git, git_revision  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import z3_environment, z3_library_dir  # noqa: E402
+from support.tools import scratch_root, z3_environment, z3_library_dir  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 WORKER = ROOT / "browser/worker"
@@ -95,7 +97,7 @@ class Runner:
         self.logs = self.out / "logs"
         self.logs.mkdir(parents=True, exist_ok=True)
         self.results: list[dict[str, Any]] = []
-        self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", "/var/tmp/krs-browser-pack-target"))
+        self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", scratch_root() / "krs-browser-pack-target"))
         self.cli_target = self.target_root / "cli"
         self.krs_bin = self.cli_target / "debug/krs"
         self.env = {**os.environ, **z3_environment(), "KRS_Z3_LIB": str(z3_library_dir()),
@@ -203,11 +205,13 @@ class Runner:
         if (self.oracle_dir / "oracle.toml").is_file():
             command += ["--oracle", self.oracle_dir / "oracle.toml"]
         ok = self.step("check", command)
-        return self.step("falsify", ["python3", HERE / "verify.py", "--falsify", "--staged", self.assets, "--out", self.out / "falsify.json"]) and ok
+        return self.step("falsify", ["python3", HERE / "verify.py", "--falsify", "--staged", self.assets, "--scratch", self.out / "verify-scratch",
+                                     "--out", self.out / "falsify.json"]) and ok
 
     def tour_minimal(self) -> bool:
         return self.step("tour-minimal", ["bun", "test/parity/tour-minimal.ts", "--oracle-dir", self.oracle_dir, "--assets", self.assets,
-                                          "--out", self.out / "tour-minimal", "--bundles", self.out / "tour-minimal-bundles", "--site", self.out / "site-tour-minimal"], cwd=WORKER)
+                                          "--out", self.out / "tour-minimal", "--bundles", self.out / "tour-minimal-bundles", "--site", self.out / "site-tour-minimal",
+                                          "--scratch", self.out / "tour-minimal-scratch"], cwd=WORKER)
 
     def twin(self) -> Path:
         return self.args.fork_build.resolve() / "build/x86_64-unknown-linux-gnu/stage1/bin/rustc"
@@ -251,7 +255,7 @@ def main() -> int:
     parser.add_argument("--fork-source", type=Path, help="fork source checkout at the pack's fork commit (licenses, wasi-sdk wasm-ld)")
     parser.add_argument("--base-url", help="hosted mode: publication base URL")
     parser.add_argument("--release", help="hosted mode: release manifest sha256")
-    parser.add_argument("--out", type=Path, default=Path("/var/tmp/krs-browser-pack-run"))
+    parser.add_argument("--out", type=Path, default=scratch_root() / "krs-browser-pack-run")
     parser.add_argument("--steps", default="", help="comma-separated subset")
     parser.add_argument("--rebuild", action="store_true", help="also run the heavy two-build reproducibility gate")
     parser.add_argument("--record-backend", action="store_true", help="backend suite --record: new fork commit; review the expected.json diff by hand")

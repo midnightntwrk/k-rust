@@ -1,5 +1,6 @@
 // Unit tests over recorded fixtures (bun test). Tests that need the staged
-// Wasm modules skip when /var/tmp/krs-browser-assets is absent.
+// Wasm modules read them from KRS_BROWSER_ASSETS (default krs-browser-assets
+// under the scratch root) and skip when that directory holds no pack.json.
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
@@ -14,10 +15,11 @@ import { createBuild, injectMissingFactory, runBuild, stagePolicy, StageFailure 
 import type { CompileEvent, LessonManifest, PackManifest, VerifiedAssets } from "../../src/protocol.ts";
 import { classifyRustc, collectorInvocation, lessonInvocation, parseStderr, reportable } from "../../src/rustc.ts";
 import { parseSysrootBundle, readOnlyTree } from "../../src/vfs.ts";
+import { scratchPath } from "../harness/environment.ts";
 
 const FIXTURES = join(import.meta.dir, "../fixtures");
 const fixture = (name: string) => readFileSync(join(FIXTURES, name), "utf8");
-const ASSETS = "/var/tmp/krs-browser-assets";
+const ASSETS = process.env.KRS_BROWSER_ASSETS || scratchPath("krs-browser-assets");
 const haveAssets = existsSync(join(ASSETS, "pack.json"));
 
 const lesson: LessonManifest = {

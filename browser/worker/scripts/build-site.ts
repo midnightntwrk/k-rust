@@ -1,36 +1,24 @@
-// Builds the static test site: worker.js and page.js bundles, the page, the
-// scenario fixtures, and an `assets` link to the staged pack.
+// Builds the static worker test site: worker.js and page.js bundles, the page,
+// the scenario fixtures, and an `assets` link to the staged pack.
 //
 //   bun scripts/build-site.ts [--out DIR] [--assets DIR]
 
-import { cpSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import { scratchPath } from "../test/harness/environment.ts";
+import { buildSite } from "../test/harness/site.ts";
 
 const { values } = parseArgs({
   options: {
-    out: { type: "string", default: "/var/tmp/krs-browser-site" },
-    assets: { type: "string", default: "/var/tmp/krs-browser-assets" },
+    out: { type: "string", default: scratchPath("krs-browser-site") },
+    assets: { type: "string", default: scratchPath("krs-browser-assets") },
   },
 });
 const root = join(import.meta.dir, "..");
-const out = values.out!;
-rmSync(out, { recursive: true, force: true });
-mkdirSync(out, { recursive: true });
-const result = await Bun.build({
+const outputs = await buildSite({
+  out: values.out!,
   entrypoints: [join(root, "src/worker.ts"), join(root, "test/page/page.ts")],
-  outdir: out,
-  target: "browser",
-  format: "esm",
-  naming: "[name].js",
-  minify: false,
-  sourcemap: "linked",
+  copies: { "index.html": join(root, "test/page/index.html"), fixtures: join(root, "test/fixtures") },
+  links: { assets: values.assets! },
 });
-if (!result.success) {
-  for (const log of result.logs) console.error(log);
-  process.exit(1);
-}
-cpSync(join(root, "test/page/index.html"), join(out, "index.html"));
-cpSync(join(root, "test/fixtures"), join(out, "fixtures"), { recursive: true });
-symlinkSync(values.assets!, join(out, "assets"));
-console.log(JSON.stringify({ out, outputs: result.outputs.map((o) => o.path) }));
+console.log(JSON.stringify({ out: values.out, outputs }));

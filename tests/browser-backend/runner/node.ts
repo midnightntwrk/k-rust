@@ -14,6 +14,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Worker } from "node:worker_threads";
+import { scratchPath } from "../../../browser/worker/test/harness/environment.ts";
 import { computePackId, sha256Hex } from "../../../browser/worker/src/pack.ts";
 import { parseSysrootBundle } from "../../../browser/worker/src/vfs.ts";
 import type { Compiler, HostRecord, RustcRequest, StepResult, SuiteFile } from "./protocol.ts";
@@ -26,8 +27,8 @@ const { values } = parseArgs({
     out: { type: "string" },
     compiler: { type: "string", default: "fork" },
     only: { type: "string", default: "" },
-    scratch: { type: "string", default: "/var/tmp/krs-backend-node" },
-    twin: { type: "string", default: "/var/tmp/krs-browser-fork/R-k/build/x86_64-unknown-linux-gnu/stage1/bin/rustc" },
+    scratch: { type: "string", default: scratchPath("krs-backend-node") },
+    twin: { type: "string" },
     "wasm-ld": { type: "string", default: "" },
     "stable-deps": { type: "string", default: "" },
   },
@@ -35,6 +36,7 @@ const { values } = parseArgs({
 if (!values.suite || !values.out) throw new Error("usage: node runner/node.ts --suite FILE --out FILE --compiler fork|twin|stable");
 const kind = values.compiler as "fork" | "twin" | "stable";
 if (!["fork", "twin", "stable"].includes(kind)) throw new Error(`unknown compiler ${kind}`);
+if (kind === "twin" && !values.twin) throw new Error("--compiler twin needs --twin RUSTC");
 const suite = JSON.parse(readFileSync(values.suite, "utf8")) as SuiteFile;
 const scratch = resolve(values.scratch!);
 mkdirSync(scratch, { recursive: true });

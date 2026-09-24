@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Native diagnostic baseline for the diagnostic parity gate, and native-twin controls.
 #
-#   native-diagnostics.sh [OUT]      (default /var/tmp/krs-diagnostics-native)
+#   native-diagnostics.sh [OUT]      (default SCRATCH/krs-diagnostics-native)
 #
 # Writes OUT/cases/<ID>/ for every case in cases.ts:
 #   D001, D002+D004, D007   cargo +stable check --message-format=json of the diagnostic bins (cargo.jsonl, exit)
@@ -16,19 +16,23 @@
 #                           x86_64 twin of rustc.wasm (same fork commit) against the pack, mapped with
 #                           the worker's lookup (twin.stderr, twin-mapped.json)
 #
-# Environment: REPO (default: this checkout), KRS_BIN,
-# ORACLE_DIR (regenerate-oracle.sh output at this revision: collector binary and exports), ASSETS
-# (staged worker assets: expander module, pack), TWIN, KRS_Z3_LIB, LOAD_MAX (default 40).
+# Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), REPO (default: this
+# checkout), KRS_BIN, ORACLE_DIR (regenerate-oracle.sh output at this revision: collector binary and
+# exports), ASSETS (staged worker assets: expander module, pack), FORK_BUILD (the fork build of the
+# pack's fork commit, default /var/tmp/krs-browser-fork/R-22) or TWIN (its native rustc), KRS_Z3_LIB,
+# LOAD_MAX (default 40).
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 WORKER=$(cd "$HERE/../.." && pwd)
 REPO=${REPO:-$(git -C "$HERE" rev-parse --show-toplevel)}
-OUT=${1:-/var/tmp/krs-diagnostics-native}
-KRS_BIN=${KRS_BIN:-/var/tmp/krs-parity-cli-target/debug/krs}
-ORACLE_DIR=${ORACLE_DIR:-/var/tmp/krs-parity-oracle}
-ASSETS=${ASSETS:-/var/tmp/krs-diagnostics-assets}
-TWIN=${TWIN:-/var/tmp/krs-browser-fork/R-k/build/x86_64-unknown-linux-gnu/stage1/bin/rustc}
+SCRATCH=${KRS_GATE_SCRATCH:-/var/tmp}
+OUT=${1:-$SCRATCH/krs-diagnostics-native}
+KRS_BIN=${KRS_BIN:-$SCRATCH/krs-parity-cli-target/debug/krs}
+ORACLE_DIR=${ORACLE_DIR:-$SCRATCH/krs-parity-oracle}
+ASSETS=${ASSETS:-$SCRATCH/krs-diagnostics-assets}
+FORK_BUILD=${FORK_BUILD:-/var/tmp/krs-browser-fork/R-22}
+TWIN=${TWIN:-$FORK_BUILD/build/x86_64-unknown-linux-gnu/stage1/bin/rustc}
 LOAD_MAX=${LOAD_MAX:-40}
 Z3=${KRS_Z3_LIB:-$(find /nix/store -maxdepth 1 -name '*-z3-4.12.5-lib' -type d | head -1)/lib}
 REAL_CARGO=$(command -v cargo)
