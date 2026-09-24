@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from hashlib import sha256
 import os
 from pathlib import Path
 import shutil
 
-from support import GateError
+from support import ROOT, GateError
 from support.process import compact, run
 
 
@@ -27,6 +28,15 @@ def scratch_root() -> Path:
     root = Path(os.environ.get("KRS_GATE_SCRATCH", "/var/tmp"))
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def checkout_scratch() -> Path:
+    """The persistent scratch directory for this resolved repository checkout."""
+
+    key = sha256(os.fsencode(ROOT.resolve())).hexdigest()[:12]
+    directory = scratch_root() / f"krs-{ROOT.name}-{key}"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def executable(name: str) -> str:

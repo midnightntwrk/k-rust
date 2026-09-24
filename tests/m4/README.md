@@ -112,6 +112,10 @@ is not evidence.
 Use a filesystem with sufficient build space. Generated Cargo targets,
 kompiled directories, and proof workspaces are disposable and are never
 checked in.
+By default, the M4 Cargo target is under `KRS_GATE_SCRATCH/krs-<checkout>-<key>/m4-root-target`,
+where `KRS_GATE_SCRATCH` defaults to `/var/tmp` and `<key>` identifies the resolved checkout path.
+`--target-dir` and `KRS_M4_TARGET_DIR` select an explicit target instead.
+Compatibility probe targets are under the selected target's `probes/` directory.
 
 On a host without a memory envelope, run the oracle in parallel and leave
 Cargo, the test harness, and the JVM their default parallelism:

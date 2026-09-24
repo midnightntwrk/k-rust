@@ -179,6 +179,22 @@ class PinTests(unittest.TestCase):
 
 
 class ToolTests(unittest.TestCase):
+    def test_checkout_scratch_is_stable_and_distinct_by_repository_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            scratch = Path(temporary) / "scratch"
+            roots = [Path(temporary) / name / "repo" for name in ("a", "b")]
+            for root in roots:
+                root.mkdir(parents=True)
+            with mock.patch.dict(os.environ, {"KRS_GATE_SCRATCH": os.fspath(scratch)}):
+                paths = []
+                for root in roots:
+                    with mock.patch.object(tools, "ROOT", root):
+                        first = tools.checkout_scratch()
+                        self.assertEqual(tools.checkout_scratch(), first)
+                        self.assertTrue(first.is_dir())
+                        paths.append(first)
+            self.assertNotEqual(*paths)
+
     def test_z3_library_accepts_the_directory_or_its_package_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             library = Path(temporary, "lib")

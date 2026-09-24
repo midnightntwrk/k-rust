@@ -7,13 +7,14 @@
 //
 // Inputs:
 //   --pack               a dependency pack root (holds pack-manifest.toml; default SCRATCH/krs-browser-pack/pack)
-//   KRS_STAGE_POLICY     krs_lesson_policy.wasm built from the pack's crates/ tree
-//   KRS_STAGE_EXPANDER   krs_expand_wasm.wasm built from the pack's crates/ tree
+//   KRS_STAGE_POLICY     krs_lesson_policy.wasm built from the pack's crates/ tree (required)
+//   KRS_STAGE_EXPANDER   krs_expand_wasm.wasm built from the pack's crates/ tree (required)
 //   KRS_STAGE_REPO       KRS checkout holding --krs-rev (module revision and the tour-minimal lesson)
 // SCRATCH is the scratch root (test/harness/environment.ts). Build each module in
 // its own cargo invocation (a joint build unifies the policy crate's `abi`
-// feature into the expander), as tests/browser-pack/run.py does:
-//   CARGO_TARGET_DIR=SCRATCH/krs-browser-pack-target/<pkg> cargo +stable build -p <pkg> \
+// feature into the expander), as tests/browser-pack/run.py does. Set
+// CARGO_TARGET_ROOT to a checkout-specific directory when invoking the runner:
+//   CARGO_TARGET_DIR=$CARGO_TARGET_ROOT/<pkg> cargo +stable build -p <pkg> \
 //     --target wasm32-unknown-unknown --release --offline
 
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -34,11 +35,15 @@ const { values } = parseArgs({
 });
 const OUT = values.out!;
 const PACK = values.pack!;
-const env = (name: string, fallback: string) => process.env[name] ?? fallback;
+const requiredEnv = (name: string): string => {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} must name a built Wasm module`);
+  return value;
+};
 const inputs = {
-  policy: env("KRS_STAGE_POLICY", scratchPath("krs-browser-pack-target/krs-lesson-policy/wasm32-unknown-unknown/release/krs_lesson_policy.wasm")),
-  expander: env("KRS_STAGE_EXPANDER", scratchPath("krs-browser-pack-target/krs-expand-wasm/wasm32-unknown-unknown/release/krs_expand_wasm.wasm")),
-  repo: env("KRS_STAGE_REPO", join(import.meta.dir, "../../..")),
+  policy: requiredEnv("KRS_STAGE_POLICY"),
+  expander: requiredEnv("KRS_STAGE_EXPANDER"),
+  repo: process.env.KRS_STAGE_REPO ?? join(import.meta.dir, "../../.."),
 };
 
 function git(...args: string[]): Uint8Array {

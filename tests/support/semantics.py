@@ -30,7 +30,7 @@ from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split
 from support.lock import msrv
 from support.pins import Ledger
 from support.process import run
-from support.tools import rust_analyzer, scratch_root, z3_environment
+from support.tools import checkout_scratch, rust_analyzer, scratch_root, z3_environment
 
 
 LOCK = ROOT / "semantics/Cargo.lock"
@@ -84,10 +84,10 @@ class Port:
         return f"{self.module}-SPEC"
 
     def target(self, role: str) -> Path:
-        """A persistent Cargo target: `KRS_<PORT>_<ROLE>_TARGET`, else under the scratch root."""
+        """A persistent Cargo target: `KRS_<PORT>_<ROLE>_TARGET`, else under checkout scratch."""
 
         variable = f"KRS_{self.key.upper()}_{role.upper()}_TARGET"
-        default = scratch_root() / f"krs-{self.key}-gate-{role}-target"
+        default = checkout_scratch() / f"{self.key}-gate-{role}-target"
         return Path(os.environ.get(variable, os.fspath(default)))
 
 

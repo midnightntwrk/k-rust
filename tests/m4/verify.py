@@ -36,7 +36,7 @@ from support.kdefinition import split_claims  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -1085,7 +1085,11 @@ def phase_proofs(context: Context) -> str:
 def phase_compatibility(context: Context) -> str:
     if context.krs is None or context.artifacts is None:
         raise GateError("compatibility phase lacks CLI and deterministic artifacts")
-    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
+    env = {
+        **context.environment,
+        "CARGO_TARGET_DIR": os.fspath(context.target),
+        "KRS_M4_PROBE_TARGET_ROOT": os.fspath(context.target / "probes"),
+    }
     commands = [
         [context.tools["python"], HERE / "compatibility/stable-names/probe.py", "--krs", context.krs],
         [context.tools["python"], HERE / "compatibility/diagnostics/rust-expansion/probe.py"],
@@ -1152,7 +1156,7 @@ def main() -> int:
         default=Path(
             os.environ.get(
                 "KRS_M4_TARGET_DIR",
-                os.fspath(Path(tempfile.gettempdir()) / "krs-m4-root-target"),
+                os.fspath(checkout_scratch() / "m4-root-target"),
             )
         ),
     )

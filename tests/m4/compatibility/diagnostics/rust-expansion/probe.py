@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
 from support.process import run  # noqa: E402
+from support.tools import checkout_scratch  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -32,7 +34,12 @@ def main() -> int:
             "--message-format", "json",
         ],
         cwd=HERE,
-        environment={"CARGO_TARGET_DIR": "/tmp/krs-m4-diagnostics-rust-target"},
+        environment={
+            "CARGO_TARGET_DIR": os.fspath(
+                Path(os.environ.get("KRS_M4_PROBE_TARGET_ROOT", checkout_scratch()))
+                / "rust-expansion"
+            )
+        },
         timeout=180,
         check=False,
     )

@@ -45,7 +45,7 @@ Resource rules: the runner waits while the 1-minute load exceeds LOAD_MAX (defau
 cargo runs at nice -n 19 with -j JOBS (default 4); pack builds take the heavy-build flock (build.sh).
 Every step's output goes to OUT/logs/<step>.log; OUT/run.toml records the steps, exit codes, and wall times.
 Environment: KRS_GATE_SCRATCH (the scratch root SCRATCH, default /var/tmp), KRS_Z3_LIB (default: the Nix store
-Z3 4.12.5), CARGO_TARGET_ROOT (default SCRATCH/krs-browser-pack-target). Every output location, including
+Z3 4.12.5), CARGO_TARGET_ROOT (default SCRATCH/krs-<checkout>-<key>/browser-pack-target). Every output location, including
 the steps' own scratch directories, is under OUT or CARGO_TARGET_ROOT.
 """
 
@@ -68,7 +68,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT  # noqa: E402
 from support.checkouts import git, git_revision  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import scratch_root, z3_environment, z3_library_dir  # noqa: E402
+from support.tools import checkout_scratch, scratch_root, z3_environment, z3_library_dir  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 WORKER = ROOT / "browser/worker"
@@ -97,7 +97,7 @@ class Runner:
         self.logs = self.out / "logs"
         self.logs.mkdir(parents=True, exist_ok=True)
         self.results: list[dict[str, Any]] = []
-        self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", scratch_root() / "krs-browser-pack-target"))
+        self.target_root = Path(os.environ.get("CARGO_TARGET_ROOT", checkout_scratch() / "browser-pack-target"))
         self.cli_target = self.target_root / "cli"
         self.krs_bin = self.cli_target / "debug/krs"
         self.env = {**os.environ, **z3_environment(), "KRS_Z3_LIB": str(z3_library_dir()),

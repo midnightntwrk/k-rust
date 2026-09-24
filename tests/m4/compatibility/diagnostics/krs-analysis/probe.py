@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.process import run  # noqa: E402
+from support.tools import checkout_scratch  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -55,7 +57,12 @@ def main() -> int:
             "--package", "krs-m4-diagnostic-analysis", "--definition", "main",
             "--backend", "llvm",
         ],
-        environment={"CARGO_TARGET_DIR": "/tmp/krs-m4-diagnostics-analysis-target"},
+        environment={
+            "CARGO_TARGET_DIR": os.fspath(
+                Path(os.environ.get("KRS_M4_PROBE_TARGET_ROOT", checkout_scratch()))
+                / "krs-analysis"
+            )
+        },
         timeout=180,
         check=False,
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.process import run  # noqa: E402
+from support.tools import checkout_scratch  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -57,8 +59,9 @@ def report() -> dict[str, object]:
 
 
 def dynamic_report(krs: Path) -> dict[str, object]:
-    environment = {"CARGO_TARGET_DIR": "/tmp/krs-m4-backend-diagnostic-target"}
-    with tempfile.TemporaryDirectory(prefix="krs-m4-backend-diag-", dir="/tmp") as directory:
+    target = Path(os.environ.get("KRS_M4_PROBE_TARGET_ROOT", checkout_scratch())) / "backend-capability"
+    environment = {"CARGO_TARGET_DIR": os.fspath(target)}
+    with tempfile.TemporaryDirectory(prefix="krs-m4-backend-diag-") as directory:
         output_directory = Path(directory)
         process = run(
             [

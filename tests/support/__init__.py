@@ -17,7 +17,7 @@ The modules are:
 - `support.pins`: ledger loading, input and output pins, and `--record`;
 - `support.lock`: the `Krs.lock` toolchain and schema pins;
 - `support.tools`: executable, Z3 library, K tool, rustfmt, and rust-analyzer
-  discovery, and the scratch root for workspaces and Cargo targets;
+  discovery, plus the scratch root and checkout-specific Cargo target directory;
 - `support.checkouts`: pinned external checkout verification;
 - `support.kdefinition`: helpers over emitted K definitions and KORE;
 - `support.semantics`: the gate flow the KWasm, KMIR, and KEVM ports share;

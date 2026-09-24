@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -13,10 +14,15 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from support import ROOT, GateError  # noqa: E402
 from support.process import run  # noqa: E402
+from support.tools import checkout_scratch  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
-PROBE_TARGET = {"CARGO_TARGET_DIR": "/tmp/krs-m4-stable-probe-target"}
+PROBE_TARGET = {
+    "CARGO_TARGET_DIR": os.fspath(
+        Path(os.environ.get("KRS_M4_PROBE_TARGET_ROOT", checkout_scratch())) / "stable-names"
+    )
+}
 
 
 def capability_report(root: Path = ROOT) -> dict[str, object]:
@@ -77,7 +83,7 @@ def normalized_descriptor(descriptor: dict[str, object]) -> dict[str, object]:
 
 
 def descriptor_bundle_fixture(krs: Path, name: str) -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix=f"krs-m4-stable-{name}-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix=f"krs-m4-stable-{name}-") as temporary:
         output = Path(temporary) / "emit"
         process = run(
             [
@@ -192,7 +198,7 @@ def move_evidence(krs: Path) -> dict[str, object]:
         if key[0] == ("moved_api",) and declaration.get("explicit_symbol") is not None
     }
 
-    with tempfile.TemporaryDirectory(prefix="krs-m4-stable-", dir="/tmp") as temporary:
+    with tempfile.TemporaryDirectory(prefix="krs-m4-stable-") as temporary:
         temporary = Path(temporary)
         sidecars = {
             name: emit_fixture(krs, name, "llvm", temporary / f"{name}-llvm")

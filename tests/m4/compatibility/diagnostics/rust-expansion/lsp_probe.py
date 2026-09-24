@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
 from support.lsp import Client, version  # noqa: E402
+from support.tools import checkout_scratch  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent
@@ -30,7 +32,8 @@ def token_range() -> dict[str, dict[str, int]]:
 
 def main() -> None:
     analyzer = version()
-    client = Client(ROOT, {"CARGO_TARGET_DIR": "/tmp/krs-m4-diagnostics-ra-target"})
+    target = Path(os.environ.get("KRS_M4_PROBE_TARGET_ROOT", checkout_scratch())) / "rust-analyzer"
+    client = Client(ROOT, {"CARGO_TARGET_DIR": os.fspath(target)})
     try:
         client.request("initialize", {
             "processId": None, "rootUri": ROOT.as_uri(),
