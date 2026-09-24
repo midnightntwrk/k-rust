@@ -499,20 +499,27 @@ pub fn declaration_modules_from_resolved_with_options(
         if is_builtin_label(&label.name) {
             continue;
         }
-        let semantic_attributes = symbol_attributes(
-            attributes,
-            label,
-            id,
-            &productions,
-            &valued_attributes,
-            &overloaded_greater,
-            &anywhere_labels,
-            &impure_labels,
-            false,
-            items,
-            &syntax_relations,
-            hook_namespaces,
-        )?;
+        // A labelled bracket keeps its syntax-module declaration, which carries `bracket`,
+        // `format`, and the priority and associativity tags its label names; it gets no
+        // semantic-module declaration because no term contains it (`is_bracket_production`).
+        let semantic_attributes = if is_bracket_production(production) {
+            None
+        } else {
+            Some(symbol_attributes(
+                attributes,
+                label,
+                id,
+                &productions,
+                &valued_attributes,
+                &overloaded_greater,
+                &anywhere_labels,
+                &impure_labels,
+                false,
+                items,
+                &syntax_relations,
+                hook_namespaces,
+            )?)
+        };
         let syntax_attributes = symbol_attributes(
             attributes,
             label,
@@ -544,7 +551,9 @@ pub fn declaration_modules_from_resolved_with_options(
             result_sort: encode_kore_sort_with_formals(sort, parameters),
             attributes,
         };
-        semantic_sentences.push(declaration(semantic_attributes));
+        if let Some(semantic_attributes) = semantic_attributes {
+            semantic_sentences.push(declaration(semantic_attributes));
+        }
         syntax_sentences.push(declaration(syntax_attributes));
     }
     for (id, production) in productions.productions() {
@@ -1743,6 +1752,17 @@ fn is_real_hook(attributes: &KAttributes, hook_namespaces: &[String]) -> bool {
                 || hook_namespaces.iter().any(|admitted| admitted == namespace)
         })
     })
+}
+
+/// Whether `production` is a bracket, which only groups program or rule text.
+///
+/// Every parser erases a bracket node before a term exists, and the generated bison grammar
+/// reduces a bracket to its child, so no term the frontend builds contains a bracket's symbol,
+/// whatever its label. A bracket's label (or `bracketLabel` when it has none) names only its
+/// syntax-module declaration and its priority and associativity tag: it is never declared in
+/// the semantic module, and no generated axiom mentions it.
+fn is_bracket_production(production: &Sentence) -> bool {
+    production.attributes().has(AttributeKey::Bracket)
 }
 
 fn is_builtin_label(label: &str) -> bool {

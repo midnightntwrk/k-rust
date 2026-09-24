@@ -585,6 +585,10 @@ fn load_impl(
 /// `markdown_selector` therefore applies only to those implicit sources, never to the structured definition.
 /// If the authored graph has a visible configuration, the unused `DEFAULT-CONFIGURATION` module and its imports are removed before the shared configuration and rule pipeline runs.
 /// A structured definition without an authored configuration retains the ordinary fallback policy.
+///
+/// A `bracket` production may carry a label, as a source bracket with `symbol(...)` does.
+/// That label names the bracket's `syntaxDefinition.kore` symbol and the tag priority and associativity blocks refer to it by; it never names a term symbol, because every parser erases the bracket before a term exists.
+/// A bracket without a label may instead carry a `bracketLabel` attribute naming its syntax-module symbol.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,

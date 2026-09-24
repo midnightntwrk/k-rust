@@ -300,7 +300,12 @@ fn named_projections(
     else {
         return Vec::new();
     };
-    if attributes.has(AttributeKey::Function) || productions.macro_labels().contains(source_label) {
+    // A bracket builds no term (the parsers erase it), so a projection through it would
+    // mention a symbol that no term contains.
+    if attributes.has(AttributeKey::Function)
+        || attributes.has(AttributeKey::Bracket)
+        || productions.macro_labels().contains(source_label)
+    {
         return Vec::new();
     }
     let nonterminals = items
@@ -328,11 +333,9 @@ fn named_projections(
         .productions_for_sort(&SortHead::from(sort))
         .iter()
         .filter(|id| {
-            !main_productions
-                .production(**id)
-                .attributes()
-                .value(AttributeKey::Function)
-                .is_some()
+            let attributes = main_productions.production(**id).attributes();
+            attributes.value(AttributeKey::Function).is_none()
+                && !attributes.has(AttributeKey::Bracket)
         })
         .count()
         == 1;
