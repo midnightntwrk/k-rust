@@ -70,9 +70,13 @@ const REQUEST_COMPLETED: u8 = 2;
 ///   `tcp_retries2`). It also fails a live client whose receive window has stayed full for 25 s,
 ///   i.e. one that stopped reading a response larger than the socket buffers.
 ///
-/// On those systems a silent vanished peer is therefore detected about 25 s after it falls silent,
-/// whether or not a response is in flight to it; elsewhere the in-flight case waits for the OS
-/// retransmission limit.
+/// The two timers do not overlap: `TCP_USER_TIMEOUT` counts from the first transmission of the
+/// oldest unacknowledged segment, and keepalive stops probing once data is in flight. On those
+/// systems a silent vanished peer is therefore detected about 25 s after the later of its last
+/// segment and the first transmission of a response segment it has not acknowledged. Such a
+/// response can only be sent before keepalive has failed the connection, so the worst case is
+/// under 50 s after the peer falls silent (a response sent 20 s after it: about 45 s). Elsewhere
+/// the in-flight case waits for the OS retransmission limit.
 /// A live idle client costs one empty segment each way per `KEEPALIVE_IDLE`.
 const KEEPALIVE_IDLE: Duration = Duration::from_secs(10);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);

@@ -307,11 +307,13 @@ notification cooperatively interrupts the active request on that connection with
 `Request cancelled` error. A connection is one session: closing either direction of the socket,
 including a half-close of the client's sending side, ends it and cancels that connection's active
 and queued requests without answering them, so a client keeps its socket open until it has read
-every response it wants. A peer that vanishes without closing is detected within about 25 seconds
-of falling silent: TCP keepalive covers an idle connection, and on Linux a 25-second
-`TCP_USER_TIMEOUT` covers a connection with a response still unacknowledged (elsewhere that case
-waits for the OS retransmission limit, about 15 minutes by default). The same timeout ends the
-session of a client that stops reading a response larger than the socket buffers for 25 seconds.
+every response it wants. A peer that vanishes without closing is detected about 25 seconds after
+the later of its last segment and the first transmission of a response it has not acknowledged, so
+under 50 seconds after it falls silent: TCP keepalive covers an idle connection, and on Linux a
+25-second `TCP_USER_TIMEOUT` covers a connection with a response still unacknowledged (elsewhere
+that case waits for the OS retransmission limit, about 15 minutes by default). The same timeout
+ends the session of a client that stops reading a response larger than the socket buffers for 25
+seconds.
 The server binds to `127.0.0.1` by default; pass `--host 0.0.0.0` to expose it on every interface
 or `--server-port 0` to request an ephemeral port.
 
