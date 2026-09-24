@@ -95,6 +95,10 @@ pub struct ExecuteRequest {
     pub max_breadth: Option<usize>,
     /// Maximum simplifier iterations per rewrite step.
     ///
+    /// The bound counts simplification-rule, builtin, and symbolic rewriting. Determined ground
+    /// function evaluation (a function equation on a variable-free redex with no residual
+    /// condition) runs to its value, bounded only by the step deadline or cancellation and by
+    /// the thread's stack, whose exhaustion is a typed error.
     /// Execution keeps a partially simplified term or the original constraints after exhaustion
     /// and records a backend diagnostic before continuing.
     pub max_simplification_iterations: usize,
@@ -230,7 +234,9 @@ pub struct ProveRequest {
     pub min_depth: u64,
     pub breadth_limit: Option<usize>,
     pub max_counterexamples: usize,
-    /// Maximum simplifier iterations per proof step.
+    /// Maximum simplifier iterations per proof step, counted as for
+    /// `ExecuteRequest::max_simplification_iterations`: determined ground function evaluation
+    /// is not counted.
     /// Proof configuration simplification keeps partial terms or original constraints after
     /// exhaustion and records a backend diagnostic before continuing.
     pub max_simplification_iterations: usize,

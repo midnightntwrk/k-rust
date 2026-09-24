@@ -2071,7 +2071,7 @@ symbol = "apply_theory"
 
 [[node.cost]]
 mode = "one term lineage"
-bound = "O(r x |t| x c), with r bounded by max_iterations"
+bound = "O(r x |t| x c), with the rounds that are not determined ground function-theory steps bounded by max_iterations; determined ground steps are bounded only by the definition's own computation, the caller's interrupt, and the stack guard"
 
 [[node.cost]]
 mode = "rule condition"
