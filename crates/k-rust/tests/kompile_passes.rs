@@ -4120,6 +4120,130 @@ fn fresh_offsets_reuse_names_and_cover_the_counter_range() {
     );
 }
 
+fn claim_bodies_after_fresh_constants(definition: &Definition) -> Vec<(String, String)> {
+    let definition = resolve_semantic_casts(definition);
+    let definition = add_implicit_computation_cell(&definition).unwrap();
+    let transformed = resolve_fresh_constants(&definition, 0).unwrap();
+    transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Claim {
+                body, attributes, ..
+            } => Some((
+                attributes.get_str("label").unwrap_or_default().to_owned(),
+                Printer::new().print_term(body),
+            )),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn claims_over_declared_cells_leave_the_generated_counter_to_the_path() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+                       | "freshInt(" Int ")" [function, freshGenerator, symbol(freshInt)]
+          syntax Exp ::= Int | "start" | "st(" Int ")" [symbol(st)]
+                       | "pair(" Int "," Int ")" [symbol(pair)]
+          configuration <k> 0 </k>
+          rule start => st(!N:Int) [label(fresh)]
+          claim <k> start => st(X:Int) </k> [label(cells)]
+          claim <k> pair(_Gen0:Int, _Gen1:Int) => st(_Gen0:Int) </k> [label(uses-generated-names)]
+          claim <k> start => st(C:Int) </k> [label(names-counter)]
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    // A claim that writes the counter cell itself: the parser of a definition module does not see
+    // the counter cell yet, so the cell is attached to the parsed body as a spec module would carry it.
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    for sentence in &mut module.local_sentences {
+        if let Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } = &**sentence
+            && attributes.get_str("label") == Some("names-counter")
+        {
+            let counter = Term::Variable {
+                name: "C".into(),
+                sort: Some(Sort::new("Int")),
+            };
+            let no_dots = || Term::apply("#noDots", Vec::new());
+            let body = Term::apply(
+                "#cells",
+                vec![
+                    body.clone(),
+                    Term::apply(
+                        "<generatedCounter>",
+                        vec![
+                            no_dots(),
+                            Term::Rewrite {
+                                left: Box::new(counter.clone()),
+                                right: Box::new(counter),
+                            },
+                            no_dots(),
+                        ],
+                    ),
+                ],
+            );
+            *sentence = std::sync::Arc::new(Sentence::Claim {
+                body,
+                requires: requires.clone(),
+                ensures: ensures.clone(),
+                attributes: attributes.clone(),
+            });
+        }
+    }
+    assert_eq!(
+        claim_bodies_after_fresh_constants(&definition),
+        vec![
+            (
+                "cells".to_owned(),
+                "#cells(`<k>`(#noDots(.KList),`start_MAIN_Exp`(.KList)=>st(X),#noDots(.KList)),`<generatedCounter>`(#noDots(.KList),_Gen0=>?_Gen1,#noDots(.KList)))".to_owned(),
+            ),
+            (
+                "uses-generated-names".to_owned(),
+                "#cells(`<k>`(#noDots(.KList),pair(_Gen0,_Gen1)=>st(_Gen0),#noDots(.KList)),`<generatedCounter>`(#noDots(.KList),_Gen2=>?_Gen3,#noDots(.KList)))".to_owned(),
+            ),
+            (
+                "names-counter".to_owned(),
+                "#cells(`<k>`(#noDots(.KList),`start_MAIN_Exp`(.KList)=>st(C),#noDots(.KList)),`<generatedCounter>`(#noDots(.KList),C=>C,#noDots(.KList)))".to_owned(),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn claims_without_cells_keep_their_body() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= Int | "start" | "st(" Int ")" [symbol(st)]
+          claim start => st(X:Int) [label(no-cells)]
+          syntax K
+          syntax Map
+        endmodule
+    "#};
+    assert_eq!(
+        claim_bodies_after_fresh_constants(&parsed(source)),
+        vec![(
+            "no-cells".to_owned(),
+            "`start_MAIN_Exp`(.KList)=>st(X)".to_owned()
+        )]
+    );
+}
+
 #[test]
 fn expands_the_internally_generated_counter_configuration() {
     let source = indoc! {r#"

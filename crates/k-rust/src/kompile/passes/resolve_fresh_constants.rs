@@ -99,11 +99,12 @@ pub(crate) fn resolve_fresh_constants_pass(
             .local_labels()
             .contains(&LabelHead::new(GeneratedCell::Top.label()));
 
+        let cell_labels = std::cell::OnceCell::new();
         for sentence in &mut module.local_sentences {
             let sentence = crate::definition::sentence_mut(sentence);
             let before_identity = production_identity(sentence);
             let original = sentence.clone();
-            match transform_sentence(original, &productions, &generators) {
+            match transform_sentence(original, &productions, &generators, &cell_labels) {
                 Ok(transformed) => {
                     if let (Some(before), Some(after)) =
                         (before_identity, production_identity(&transformed))
@@ -192,6 +193,7 @@ fn transform_sentence(
     sentence: Sentence,
     productions: &ProductionCatalog<'_>,
     generators: &BTreeMap<Sort, Label>,
+    cell_labels: &std::cell::OnceCell<BTreeSet<String>>,
 ) -> Result<Sentence, String> {
     match sentence {
         Sentence::Rule {
@@ -253,8 +255,90 @@ fn transform_sentence(
             })
         }
         production @ Sentence::Production { .. } => Ok(add_counter_to_top_production(production)),
+        Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => {
+            // The counter cell is not part of the configuration a claim's author declares: this
+            // pass adds it to give `!` variables their values and advances it in every rule that
+            // uses one. A claim over the declared cells therefore says nothing about the counter
+            // except that it has some value before and some value after the path, which is
+            // `<generatedCounter> _GenN => ?_GenM </generatedCounter>`. Leaving the cell to the
+            // configuration's frame would instead claim that no `!` variable is instantiated.
+            let cell_labels = cell_labels.get_or_init(|| cell_labels_of(productions));
+            let body = if mentions_label(&body, |name| cell_labels.contains(name))
+                && !mentions_label(&body, |name| name == GeneratedCell::Counter.label())
+            {
+                let mut names =
+                    super::super::fresh_names::FreshNames::for_terms([&body, &requires, &ensures]);
+                let before = names.mint("_Gen");
+                let after = names.mint("?_Gen");
+                add_claim_counter_cell(body, before, after)
+            } else {
+                body
+            };
+            Ok(Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                attributes,
+            })
+        }
         sentence => Ok(sentence),
     }
+}
+
+/// Labels of the cell productions visible in a module.
+fn cell_labels_of(productions: &ProductionCatalog<'_>) -> BTreeSet<String> {
+    productions
+        .productions()
+        .filter_map(|(_, production)| match production {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if attributes.has(AttributeKey::Cell) => Some(label.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn mentions_label(body: &Term, mut matches: impl FnMut(&str) -> bool) -> bool {
+    let mut found = false;
+    body.visit_preorder(&mut |term| {
+        if !found
+            && let Term::Apply { label, .. } = term
+            && matches(&label.name)
+        {
+            found = true;
+        }
+    });
+    found
+}
+
+/// `#cells(body, <generatedCounter> before => after </generatedCounter>)` with `Int` variables.
+fn add_claim_counter_cell(body: Term, before: String, after: String) -> Term {
+    let variable = |name: String| Term::Variable {
+        name,
+        sort: Some(Sort::builtin(BuiltinSort::Int)),
+    };
+    Term::apply(
+        InternalLabel::Cells.as_str(),
+        vec![
+            body,
+            incomplete_cell(
+                GeneratedCell::Counter.label(),
+                false,
+                Term::Rewrite {
+                    left: Box::new(variable(before)),
+                    right: Box::new(variable(after)),
+                },
+                false,
+            ),
+        ],
+    )
 }
 
 fn fresh_variables<'a>(
