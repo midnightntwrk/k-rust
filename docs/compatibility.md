@@ -162,7 +162,7 @@ Reading it at the disjunct level instead would say only that some instance does 
 Under this reading three normalizations of [the register](../scripts/reference-normalisations.toml) are equivalences rather than tolerances:
 
 - N4 renames the result variables that are not free in the initial pattern bijectively, sort-preservingly, and per disjunct; that is renaming bound variables, while the initial pattern's variables are compared by name. This holds when the gate supplies the initial pattern (`K_DIFFERENTIAL_INITIAL_PATTERN`, set by the symbolic and MIR execution gates); without it, N4 selects the variables to rename by generated-name shape, compares every other variable by name, and does not check that no initial-pattern variable has such a shape.
-- N16 drops an outer `\exists` prefix of a disjunct, which denotes the same disjunct as its body when its binders are not variables of the initial pattern; k-rust prints no such prefix, and N16 does not check that its binders avoid the initial pattern's names.
+- N16 drops the outer `\exists` binders of a disjunct that bind generated variables (not free in the initial pattern; by the N4 name shapes when no initial pattern is given), which denotes the same disjunct as its body; it stops at a binder of an initial-pattern variable, which is kept and compared. k-rust prints no such prefix.
 - N22 adds, inside a negated existential, the binder of a generated variable that is free there and occurs nowhere else in the disjunct, which is where the reading above places it; k-rust already prints that binder, while the pinned Kore prints the unification's collection frame free in that position.
 
 ## CLI scope

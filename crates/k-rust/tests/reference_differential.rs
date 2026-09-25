@@ -1723,6 +1723,48 @@ fn execution_normalizer_drops_the_outer_existential_prefix() {
 }
 
 #[test]
+fn execution_normalizer_drops_an_outer_binder_of_a_variable_not_in_the_initial_pattern() {
+    let initial = parse_pattern(r"f{}(VarX:S{})").unwrap();
+    let quantified = parse_pattern(
+        r"\exists{S{}}(VarY:S{}, \and{S{}}(f{}(VarX:S{}), \equals{S{}, S{}}(VarY:S{}, VarX:S{})))",
+    )
+    .unwrap();
+    let body =
+        parse_pattern(r"\and{S{}}(f{}(VarX:S{}), \equals{S{}, S{}}(VarZ:S{}, VarX:S{}))").unwrap();
+
+    assert_eq!(
+        normalize_execution_pattern_fixing(quantified, &initial),
+        normalize_execution_pattern_fixing(body, &initial)
+    );
+}
+
+#[test]
+fn execution_normalizer_keeps_an_outer_binder_of_an_initial_pattern_variable() {
+    let initial = parse_pattern(r"f{}(VarX:S{})").unwrap();
+    let quantified =
+        parse_pattern(r"\exists{S{}}(VarX:S{}, \and{S{}}(a{}(), f{}(VarX:S{})))").unwrap();
+    let body = parse_pattern(r"\and{S{}}(a{}(), f{}(VarX:S{}))").unwrap();
+
+    assert_ne!(
+        normalize_execution_pattern_fixing(quantified, &initial),
+        normalize_execution_pattern_fixing(body, &initial)
+    );
+}
+
+#[test]
+fn execution_normalizer_keeps_an_outer_binder_of_a_non_generated_shape_without_an_initial_pattern()
+{
+    let quantified =
+        parse_pattern(r"\exists{S{}}(VarX:S{}, \and{S{}}(a{}(), f{}(VarX:S{})))").unwrap();
+    let body = parse_pattern(r"\and{S{}}(a{}(), f{}(VarX:S{}))").unwrap();
+
+    assert_ne!(
+        normalize_execution_pattern(quantified),
+        normalize_execution_pattern(body)
+    );
+}
+
+#[test]
 fn execution_normalizer_emits_reparseable_generated_variable_names() {
     let pattern = parse_pattern(
         r"\and{S{}}(f{}(Var'Unds'X1:S{}, Var'Unds'X2:S{}), \equals{S{}, S{}}(Var'Unds'X1:S{}, Var'Unds'X2:S{}))",
@@ -2262,9 +2304,13 @@ fn normalize_execution_pattern_with(pattern: Pattern, names: &GeneratedNames) ->
 
 fn normalize_execution_disjunct(mut pattern: Pattern, names: &GeneratedNames) -> Pattern {
     // N16: a variable not free in the initial pattern is existentially quantified over its
-    // disjunct (docs/compatibility.md#execution-results), so an outer prefix binding such
-    // variables denotes the same disjunct as its body.
-    while let Pattern::Exists { body, .. } = &mut pattern {
+    // disjunct (docs/compatibility.md#execution-results), so an outer binder of a generated
+    // variable denotes the same disjunct as its body. A binder of an initial-pattern variable
+    // cuts the result's link to the query's valuation of it, so stripping stops there and the
+    // rest of the prefix is compared as printed.
+    while let Pattern::Exists { variable, body, .. } = &mut pattern
+        && names.is_generated(variable)
+    {
         pattern = std::mem::replace(body.as_mut(), Pattern::String(String::new().into()));
     }
     normalize_conjunctions(&mut pattern);
