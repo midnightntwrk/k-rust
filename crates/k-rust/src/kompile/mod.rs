@@ -51,7 +51,7 @@ pub use search_pattern::{
     CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };
 pub use sort_injections::{
-    SortInjectionError, SortInjector, SortMismatch, add_sort_injections,
+    AmbiguousInstance, SortInjectionError, SortInjector, SortMismatch, add_sort_injections,
     add_sort_injections_from_resolved, add_sort_injections_to_definition,
 };
 pub use term_to_kore::{

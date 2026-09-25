@@ -430,8 +430,9 @@ fn parametric_argument_with_incomparable_least_instances_is_ambiguous() {
     assert!(
         matches!(
             &error,
-            SortInjectionError::AmbiguousInstance { argument, instances, .. }
-                if *argument == Sort::new("Byte") && *instances == vec![mint("16"), mint("8")]
+            SortInjectionError::AmbiguousInstance(ambiguity)
+                if ambiguity.argument == Sort::new("Byte")
+                    && ambiguity.instances == vec![mint("16"), mint("8")]
         ),
         "{error}"
     );

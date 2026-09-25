@@ -87,11 +87,19 @@ pub enum SortInjectionError {
     /// An argument of sort `argument` at a parametric argument sort `declared` that has several
     /// incomparable least declared instances above the argument, so no instantiation fits it most
     /// tightly.
-    AmbiguousInstance {
-        declared: Sort,
-        argument: Sort,
-        instances: Vec<Sort>,
-    },
+    AmbiguousInstance(Box<AmbiguousInstance>),
+}
+
+/// A parametric argument sort with several incomparable least declared instances above an
+/// argument's sort.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AmbiguousInstance {
+    /// The production's declared argument sort, with its sort parameters.
+    pub declared: Sort,
+    /// The argument's sort.
+    pub argument: Sort,
+    /// The minimal declared instances of `declared` above `argument`, in catalog order.
+    pub instances: Vec<Sort>,
 }
 
 /// A term and the two sorts a sort check found unrelated.
@@ -205,14 +213,13 @@ impl fmt::Display for SortInjectionError {
                 "semantic cast of {} to sort {} is not comparable with its sort {}: it is neither an upcast nor a downcast",
                 mismatch.term, mismatch.required, mismatch.found
             ),
-            Self::AmbiguousInstance {
-                declared,
-                argument,
-                instances,
-            } => write!(
+            Self::AmbiguousInstance(ambiguity) => write!(
                 formatter,
-                "an argument of sort {argument} fits {declared} at several incomparable least instances: {}",
-                instances
+                "an argument of sort {} fits {} at several incomparable least instances: {}",
+                ambiguity.argument,
+                ambiguity.declared,
+                ambiguity
+                    .instances
                     .iter()
                     .map(ToString::to_string)
                     .collect::<Vec<_>>()
@@ -1158,11 +1165,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                         instances,
                         matches,
                     ),
-                    (Some(first), Some(second)) => Err(SortInjectionError::AmbiguousInstance {
-                        declared: declared.clone(),
-                        argument: known.clone(),
-                        instances: [first, second].into_iter().chain(least).collect(),
-                    }),
+                    (Some(first), Some(second)) => Err(SortInjectionError::AmbiguousInstance(
+                        Box::new(AmbiguousInstance {
+                            declared: declared.clone(),
+                            argument: known.clone(),
+                            instances: [first, second].into_iter().chain(least).collect(),
+                        }),
+                    )),
                 }
             }
             Instances::AtOrBelow => {
