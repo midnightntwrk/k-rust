@@ -8,12 +8,14 @@ use indoc::indoc;
 #[cfg(feature = "z3-inference")]
 use k_rust::{
     builtin::embedded,
+    definition::AttributeKey,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::{
         ast::{Pattern as KorePattern, Sentence as KoreSentence},
         parser::{parse_definition, parse_pattern},
     },
     outer::{LoadOptions, load_with_options},
+    provenance::{InputAddress, InputSpace},
 };
 use k_rust::{
     definition::{
@@ -37,7 +39,9 @@ use k_rust::{
         resolve_strict, subsort_kitem, term_to_kore,
     },
     outer::{ResolvedSource, load},
-    provenance::{GeneratingPass, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId},
+    provenance::{
+        GeneratingPass, INPUT_ADDRESSES_ATTRIBUTE, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId,
+    },
 };
 #[cfg(feature = "z3-inference")]
 use serde::Deserialize;
@@ -512,6 +516,7 @@ fn snapshot_attributes(attributes: &Attributes) -> BTreeMap<String, Value> {
                 "contentStartOffset"
                     | "org.kframework.attributes.SourceId"
                     | ORIGIN_ATTRIBUTE
+                    | INPUT_ADDRESSES_ATTRIBUTE
                     | SENTENCE_START_OFFSET_ATTRIBUTE
                     | SENTENCE_END_OFFSET_ATTRIBUTE
             )
@@ -5959,6 +5964,170 @@ fn unchanged_rules_keep_their_own_origins_after_context_alias_removal() {
     }
     assert_eq!(authored, BTreeSet::from([6, 7, 8]));
     assert_eq!((heat, cool), (1, 1));
+}
+
+#[cfg(feature = "z3-inference")]
+fn load_main_with_prelude(source: &str) -> k_rust::outer::LoadedDefinition {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    load_with_options(
+        ResolvedSource::new("main.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap()
+}
+
+/// The compile address of the loaded MAIN sentence `select` picks.
+#[cfg(feature = "z3-inference")]
+fn main_address(
+    loaded: &k_rust::outer::LoadedDefinition,
+    select: impl Fn(&Sentence) -> bool,
+) -> InputAddress {
+    let main = loaded.definition.main_module().unwrap();
+    let indices = main
+        .local_sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| select(sentence))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [index] = indices.as_slice() else {
+        panic!("expected one loaded MAIN sentence, found {indices:?}");
+    };
+    InputAddress::new(InputSpace::Compile, "MAIN", u32::try_from(*index).unwrap())
+}
+
+#[cfg(feature = "z3-inference")]
+fn at_line(sentence: &Sentence, line: u32) -> bool {
+    matches!(sentence, Sentence::Rule { .. })
+        && sentence.attributes().source() == Some("main.k")
+        && sentence
+            .attributes()
+            .location()
+            .is_some_and(|location| location.start_line == line)
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
+    let source = "module MAIN\n  imports INT\n  syntax KResult ::= Int\n  syntax Exp ::= Int | foo(Exp) [strict(c)] | a() | b() | d()\n  context alias [c]: HERE\n  rule a() => 1\n  rule b() => 2\n  rule d() => 3\nendmodule\n";
+    let loaded = load_main_with_prelude(source);
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    let main = artifacts.execution_definition.main_module().unwrap();
+
+    // (a) Every authored rule carries exactly its own compile address, whatever the passes
+    // before it removed or inserted.
+    for line in 6..=8 {
+        let expected = main_address(&loaded, |sentence| at_line(sentence, line));
+        let rules = main
+            .local_sentences
+            .iter()
+            .filter(|sentence| at_line(sentence, line))
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1, "line {line}");
+        assert_eq!(
+            rules[0].attributes().input_addresses(),
+            [expected],
+            "line {line}"
+        );
+    }
+
+    // (b) Heating and cooling rules derive from the strict production and the alias its
+    // strict(c) names, in that order.
+    let production = main_address(&loaded, |sentence| {
+        matches!(sentence, Sentence::Production { items, .. }
+            if items.first() == Some(&ProductionItem::Terminal("foo".into())))
+    });
+    let alias = main_address(&loaded, |sentence| {
+        matches!(sentence, Sentence::ContextAlias { .. })
+    });
+    let strictness = main
+        .local_sentences
+        .iter()
+        .filter(|sentence| {
+            matches!(&***sentence, Sentence::Rule { .. })
+                && (sentence.attributes().has(AttributeKey::Heat)
+                    || sentence.attributes().has(AttributeKey::Cool))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(strictness.len(), 2);
+    for rule in strictness {
+        assert_eq!(
+            rule.attributes().input_addresses(),
+            [production.clone(), alias.clone()]
+        );
+    }
+
+    // Soundness over the whole execution definition: every named address exists in the
+    // compiled input, and a sentence with a source location names only sentences at that
+    // location or the strictness declarations it instantiates.
+    for module in &artifacts.execution_definition.modules {
+        for sentence in &module.local_sentences {
+            for address in sentence.attributes().input_addresses() {
+                assert_eq!(address.input, InputSpace::Compile);
+                let input = loaded
+                    .definition
+                    .modules
+                    .iter()
+                    .find(|candidate| candidate.name == address.module)
+                    .and_then(|module| module.local_sentences.get(address.index as usize))
+                    .unwrap_or_else(|| panic!("{address:?} names no input sentence"));
+                if matches!(&**sentence, Sentence::Rule { .. })
+                    && !sentence.attributes().has(AttributeKey::Heat)
+                    && !sentence.attributes().has(AttributeKey::Cool)
+                    && let Some(location) = sentence.attributes().location()
+                {
+                    assert_eq!(
+                        input.attributes().location(),
+                        Some(location),
+                        "rule at {location:?} names {address:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
+    // (c) Equal content at different positions is one backend transition identity with two
+    // authors.
+    let source = "module MAIN\n  imports INT\n  syntax Exp ::= Int | e()\n  rule e() => 5\n  rule e() => 5\nendmodule\n";
+    let loaded = load_main_with_prelude(source);
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    let main = artifacts.execution_definition.main_module().unwrap();
+    let rules = [4, 5].map(|line| {
+        let expected = main_address(&loaded, |sentence| at_line(sentence, line));
+        let rules = main
+            .local_sentences
+            .iter()
+            .filter(|sentence| at_line(sentence, line))
+            .collect::<Vec<_>>();
+        let [rule] = rules.as_slice() else {
+            panic!("line {line}: {rules:?}");
+        };
+        assert_eq!(rule.attributes().input_addresses(), [expected]);
+        rule.attributes()
+            .string(AttributeKey::UniqueId)
+            .unwrap()
+            .to_owned()
+    });
+    assert_eq!(rules[0], rules[1]);
+    assert_eq!(
+        artifacts
+            .execution_rewrite_order
+            .iter()
+            .filter(|id| **id == rules[0])
+            .count(),
+        1
+    );
 }
 
 #[test]

@@ -523,6 +523,9 @@ impl<'a> ProvenanceEncoder<'a> {
                 serde_json::to_value(receipt)?,
             );
         }
+        if let Some(inputs) = attributes.input_addresses_value() {
+            att.insert(AttributeKey::InputAddresses.as_str().into(), inputs.clone());
+        }
         Ok(JsonAttributes {
             node: AttributeNode::KAtt,
             att,
@@ -610,6 +613,12 @@ fn decode_attribute_sources(
     if let Some(origin) = attributes.value(AttributeKey::Origin) {
         let origin = decode_receipt(JsonOriginReceipt::deserialize(origin)?, origin_sets)?;
         attributes.set_origin_record(origin);
+    }
+    if attributes.has(AttributeKey::InputAddresses) && attributes.input_addresses().is_empty() {
+        return Err(Error::InvalidProvenance(
+            "input addresses are not a non-empty list of distinct {input, module, index} objects"
+                .into(),
+        ));
     }
     Ok(())
 }
@@ -1076,10 +1085,14 @@ enum AttributeNode {
 }
 
 impl From<&Attributes> for JsonAttributes {
+    /// KAST v4 is an interchange vocabulary: the input-address carrier names sentences of one
+    /// compilation's input and is not part of it.
     fn from(attributes: &Attributes) -> Self {
+        let mut att = attributes.wire_map();
+        att.remove(AttributeKey::InputAddresses.as_str());
         Self {
             node: AttributeNode::KAtt,
-            att: attributes.wire_map(),
+            att,
         }
     }
 }
@@ -1838,5 +1851,45 @@ mod tests {
                 distinct.iter().map(|set| set.len()).sum::<usize>()
             );
         }
+    }
+
+    #[test]
+    fn input_addresses_reach_krust_provenance_but_not_kast_v4() {
+        use crate::provenance::{INPUT_ADDRESSES_ATTRIBUTE, InputAddress, InputSpace};
+
+        let addresses = vec![
+            InputAddress::new(InputSpace::Structured, "MAIN", 3),
+            InputAddress::new(InputSpace::Compile, "MAIN", 0),
+        ];
+        let mut attributes = Attributes::default();
+        attributes.set_input_addresses(addresses.clone());
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: vec![Arc::new(Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Exp"),
+                    attributes,
+                })],
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        };
+
+        let kast = to_string(&definition).unwrap();
+        assert!(!kast.contains(INPUT_ADDRESSES_ATTRIBUTE), "{kast}");
+
+        let encoded = to_provenance_string(&definition, &SourceTable::default()).unwrap();
+        let decoded = from_provenance_str(&encoded).unwrap();
+        let sentence = &decoded.definition.modules[0].local_sentences[0];
+        assert_eq!(sentence.attributes().input_addresses(), addresses);
+
+        let malformed = encoded.replace("\"structured\"", "\"elsewhere\"");
+        assert!(matches!(
+            from_provenance_str(&malformed),
+            Err(Error::InvalidProvenance(_))
+        ));
     }
 }

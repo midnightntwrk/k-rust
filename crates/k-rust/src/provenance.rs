@@ -37,6 +37,32 @@
 //! The former linear `push_unique` union was the largest KEVM self frame at the audit base. Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
+//!
+//! Two compiler-only records ride on every sentence's attributes, both excluded from sentence
+//! equality, `UNIQUE_ID` digests, KORE, and KAST v4, and both written to KRUST-PROVENANCE.
+//!
+//! The input-address carrier ([`INPUT_ADDRESSES_ATTRIBUTE`]) is the ordered, duplicate-free list of
+//! [`InputAddress`]es a sentence derives from: a module name and a local sentence index in the
+//! definition the caller handed to k-rust, tagged with that definition's [`InputSpace`].
+//! `outer::load_structured` stamps each sentence of its `definition` argument with its
+//! [`InputSpace::Structured`] address before configurations are expanded;
+//! `kompile::compile_loaded_definition` stamps every sentence of `LoadedDefinition::definition`
+//! that carries no address yet with its [`InputSpace::Compile`] address, so a text-loaded
+//! sentence is addressed in the post-load definition and a hand-built `LoadedDefinition` that
+//! mixes both stays unambiguous.
+//! Passes derive sentences by copying attributes, which copies the carrier; a pass that builds a
+//! sentence with fresh attributes from input sentences adds their carriers, and a pass that merges
+//! equal sentences unites their carriers in first-occurrence order.
+//! A sentence with an empty carrier is generated without an input author (a sort predicate, a
+//! projection), never attributed to a guessed one.
+//!
+//! The origin receipt ([`OriginRecord`]) records the generating pass and the source spans or
+//! `UNIQUE_ID`s a changed sentence derives from. After each generating pass a sentence is paired
+//! with its counterpart before the pass by equality, then by a carrier value, `UNIQUE_ID`, or label
+//! that names exactly one sentence on each side, and never by position. An unpaired sentence is
+//! generated from its own stored receipt, else from the receipts of the sentences before the pass
+//! that share an input address with it, else from its source spans, else from the module-wide
+//! origin set.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -56,6 +82,7 @@ use crate::{
 };
 
 pub const ORIGIN_ATTRIBUTE: &str = AttributeKey::Origin.as_str();
+pub const INPUT_ADDRESSES_ATTRIBUTE: &str = AttributeKey::InputAddresses.as_str();
 
 /// Generated leaf categories whose derivation is represented by their nearest parent receipt.
 pub const DECLARED_ORIGIN_FREE_NODE_KINDS: [&str; 3] =
@@ -367,6 +394,185 @@ pub enum ProvenanceLink {
     Sentence { unique_id: String },
 }
 
+/// The definition whose sentences an [`InputAddress`] indexes.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InputSpace {
+    /// The `Definition` argument of `outer::load_structured`, before loading prepends the
+    /// implicit modules and expands configurations.
+    Structured,
+    /// `LoadedDefinition::definition` as passed to `kompile::compile_loaded_definition`.
+    Compile,
+}
+
+impl InputSpace {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Structured => "structured",
+            Self::Compile => "compile",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Structured, Self::Compile]
+            .into_iter()
+            .find(|space| space.as_str() == name)
+    }
+}
+
+/// One sentence of a caller's definition: its module and its index in that module's
+/// `local_sentences`, in the definition named by `input`.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InputAddress {
+    pub input: InputSpace,
+    pub module: String,
+    pub index: u32,
+}
+
+impl InputAddress {
+    pub fn new(input: InputSpace, module: impl Into<String>, index: u32) -> Self {
+        Self {
+            input,
+            module: module.into(),
+            index,
+        }
+    }
+
+    fn to_value(&self) -> Value {
+        json!({
+            "input": self.input.as_str(),
+            "module": self.module,
+            "index": self.index,
+        })
+    }
+
+    fn from_value(value: &Value) -> Option<Self> {
+        let object = value.as_object()?;
+        if object.len() != 3 {
+            return None;
+        }
+        Some(Self {
+            input: InputSpace::from_name(object.get("input")?.as_str()?)?,
+            module: object.get("module")?.as_str()?.to_owned(),
+            index: u32::try_from(object.get("index")?.as_u64()?).ok()?,
+        })
+    }
+}
+
+/// A sentence's compiler-only carrier: the ordered, duplicate-free input addresses it derives
+/// from.
+///
+/// Like the origin receipt it is held outside the semantic attribute map, shared between the
+/// clones the pipeline makes, and rendered to its wire form at most once.
+#[derive(Debug)]
+pub(crate) struct InputAddresses {
+    addresses: Box<[InputAddress]>,
+    value: OnceLock<Value>,
+}
+
+impl InputAddresses {
+    /// `None` for an empty list: a sentence without input addresses carries no carrier.
+    pub(crate) fn new(addresses: Vec<InputAddress>) -> Option<Self> {
+        (!addresses.is_empty()).then(|| Self {
+            addresses: unique_addresses(addresses).into_boxed_slice(),
+            value: OnceLock::new(),
+        })
+    }
+
+    /// Decode the wire form, a non-empty array of distinct `{input, module, index}` objects.
+    pub(crate) fn from_value(value: &Value) -> Option<Self> {
+        let values = value.as_array()?;
+        let addresses = values
+            .iter()
+            .map(InputAddress::from_value)
+            .collect::<Option<Vec<_>>>()?;
+        let carrier = Self::new(addresses)?;
+        (carrier.addresses.len() == values.len()).then(|| {
+            let _ = carrier.value.set(value.clone());
+            carrier
+        })
+    }
+
+    pub(crate) fn addresses(&self) -> &[InputAddress] {
+        &self.addresses
+    }
+
+    pub(crate) fn value(&self) -> &Value {
+        self.value.get_or_init(|| {
+            Value::Array(self.addresses.iter().map(InputAddress::to_value).collect())
+        })
+    }
+
+    /// The first-occurrence union of two carriers; `None` when `right` adds nothing to `left`.
+    pub(crate) fn union(left: &[InputAddress], right: &[InputAddress]) -> Option<Self> {
+        if right.iter().all(|address| left.contains(address)) {
+            return None;
+        }
+        Self::new(left.iter().chain(right).cloned().collect())
+    }
+}
+
+impl PartialEq for InputAddresses {
+    fn eq(&self, other: &Self) -> bool {
+        self.addresses == other.addresses
+    }
+}
+
+impl Eq for InputAddresses {}
+
+fn unique_addresses(addresses: Vec<InputAddress>) -> Vec<InputAddress> {
+    if addresses.len() < 2 {
+        return addresses;
+    }
+    addresses
+        .into_iter()
+        .collect::<IndexSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+/// Give every sentence of `definition` its own address in `input`.
+///
+/// With `overwrite` false a sentence that already carries addresses keeps them, so a definition
+/// loaded from structured input keeps its structured addresses when it is compiled.
+pub(crate) fn stamp_input_addresses(
+    definition: &mut Definition,
+    input: InputSpace,
+    overwrite: bool,
+) {
+    for module in &mut definition.modules {
+        for (index, sentence) in module.local_sentences.iter_mut().enumerate() {
+            if !overwrite && !sentence.attributes().input_addresses().is_empty() {
+                continue;
+            }
+            let address = InputAddress::new(
+                input,
+                module.name.clone(),
+                u32::try_from(index).expect("module sentence count fits u32"),
+            );
+            crate::definition::sentence_mut(sentence)
+                .attributes_mut()
+                .set_input_addresses(vec![address]);
+        }
+    }
+}
+
+/// Append each addition that no sentence of `target` equals; an addition equal to a retained
+/// sentence adds its input addresses to that sentence instead of being dropped with them.
+pub(crate) fn extend_unique_sentences(
+    target: &mut Vec<Sentence>,
+    additions: impl IntoIterator<Item = Sentence>,
+) {
+    // Invariant: `target` holds its original sentences plus each earlier addition it did not already contain, and every earlier addition's input addresses are carried by its equal in `target`; each iteration consumes one addition, and the linear `position` scan makes the loop O(`additions` * `target`).
+    for sentence in additions {
+        match target.iter().position(|existing| *existing == sentence) {
+            Some(index) => target[index]
+                .attributes_mut()
+                .union_input_addresses(sentence.attributes()),
+            None => target.push(sentence),
+        }
+    }
+}
+
 /// Stable location of a generated value in its destination sentence.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DestinationAnchor {
@@ -551,6 +757,7 @@ fn record_generated_origins_inner(
         let module_origins: Arc<[ProvenanceLink]> =
             module_origin_links(&before_sentences, pass).into();
         let counterparts = sentence_counterparts(&before_sentences, &after_snapshot);
+        let mut carrier_origins = CarrierOrigins::new(&before_sentences);
         for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
             let sentence_index =
                 u32::try_from(sentence_offset).expect("module sentence count fits u32");
@@ -559,7 +766,12 @@ fn record_generated_origins_inner(
             let sentence = crate::definition::sentence_mut(sentence);
             let generated = before_sentence.is_none_or(|candidate| candidate != sentence);
             let sentence_name = sentence_name(sentence, sentence_offset);
-            let origins = sentence_origins(before_sentence, sentence, &module_origins);
+            let origins = sentence_origins(
+                before_sentence,
+                sentence,
+                &mut carrier_origins,
+                &module_origins,
+            );
             if generated {
                 let record = OriginRecord {
                     pass,
@@ -588,11 +800,13 @@ fn record_generated_origins_inner(
 }
 
 /// The origin set of one sentence after a pass: its counterpart's derivation when there is one,
-/// else its own stored receipt, else its source spans, else the module-wide set. Stored sets are
+/// else its own stored receipt, else the origins of the sentences before the pass that its
+/// input-address carrier names, else its source spans, else the module-wide set. Stored sets are
 /// shared, not copied, so a receipt carried through many passes stays one allocation.
 fn sentence_origins(
     before: Option<&Sentence>,
     after: &Sentence,
+    carrier_origins: &mut CarrierOrigins<'_>,
     module_origins: &Arc<[ProvenanceLink]>,
 ) -> Arc<[ProvenanceLink]> {
     if let Some(shared) = before.and_then(stored_sentence_origins) {
@@ -604,6 +818,11 @@ fn sentence_origins(
             return shared;
         }
         origins = stored_sentence_origin_links(after);
+    }
+    if origins.is_empty()
+        && let Some(shared) = carrier_origins.origins(after.attributes().input_addresses())
+    {
+        return shared;
     }
     if origins.is_empty() {
         origins = sentence_source_links(after);
@@ -673,6 +892,30 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             }
         }
     }
+    // A carrier names the input sentences a sentence derives from. Two sentences with one carrier
+    // value unique on both sides are the same derivation before and after the pass, whatever the
+    // pass changed; this is the only key that survives a change before UNIQUE_ID exists.
+    let after_by_inputs = sentences_by_inputs(after);
+    let before_by_inputs = sentences_by_inputs(before);
+    for (after_index, sentence) in after.iter().enumerate() {
+        if counterparts[after_index].is_some() {
+            continue;
+        }
+        let inputs = sentence.attributes().input_addresses();
+        if inputs.is_empty()
+            || after_by_inputs
+                .get(inputs)
+                .is_none_or(|indices| indices.len() != 1)
+        {
+            continue;
+        }
+        if let Some([before_index]) = before_by_inputs.get(inputs).map(Vec::as_slice)
+            && !used[*before_index]
+        {
+            counterparts[after_index] = Some(*before_index);
+            used[*before_index] = true;
+        }
+    }
     // Invariant: counterparts already assigned by a stronger key remain fixed and each `before`
     // index marked in `used` is paired exactly once.
     for key in [AttributeKey::UniqueId, AttributeKey::Label] {
@@ -699,17 +942,99 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             }
         }
     }
-    for (index, sentence) in after.iter().enumerate() {
-        if counterparts[index].is_none()
-            && before.get(index).is_some_and(|candidate| {
-                !used[index] && sentence_kind(candidate) == sentence_kind(sentence)
-            })
-        {
-            counterparts[index] = Some(index);
-            used[index] = true;
+    // No rule pairs by position: a pass that removes or inserts a sentence shifts positions, and a
+    // positional pair would name a neighbour that did not contribute. An unpaired sentence is
+    // recorded as generated from the origins its own carrier names.
+    counterparts
+}
+
+fn sentences_by_inputs(sentences: &[Sentence]) -> HashMap<&[InputAddress], Vec<usize>> {
+    let mut by_inputs = HashMap::<&[InputAddress], Vec<usize>>::new();
+    for (index, sentence) in sentences.iter().enumerate() {
+        let inputs = sentence.attributes().input_addresses();
+        if !inputs.is_empty() {
+            by_inputs.entry(inputs).or_default().push(index);
         }
     }
-    counterparts
+    by_inputs
+}
+
+/// The origins of the sentences before a pass that share an input address with a sentence after
+/// it, computed once per carrier value and shared by every sentence that carries it.
+struct CarrierOrigins<'a> {
+    before: &'a [Sentence],
+    by_address: Option<HashMap<&'a InputAddress, Vec<usize>>>,
+    by_carrier: HashMap<Vec<InputAddress>, Option<Arc<[ProvenanceLink]>>>,
+}
+
+impl<'a> CarrierOrigins<'a> {
+    fn new(before: &'a [Sentence]) -> Self {
+        Self {
+            before,
+            by_address: None,
+            by_carrier: HashMap::new(),
+        }
+    }
+
+    fn origins(&mut self, inputs: &[InputAddress]) -> Option<Arc<[ProvenanceLink]>> {
+        if inputs.is_empty() {
+            return None;
+        }
+        if let Some(origins) = self.by_carrier.get(inputs) {
+            return origins.clone();
+        }
+        let before = self.before;
+        let by_address = self.by_address.get_or_insert_with(|| {
+            let mut by_address = HashMap::<&InputAddress, Vec<usize>>::new();
+            for (index, sentence) in before.iter().enumerate() {
+                for address in sentence.attributes().input_addresses() {
+                    by_address.entry(address).or_default().push(index);
+                }
+            }
+            by_address
+        });
+        let mut indices = inputs
+            .iter()
+            .filter_map(|address| by_address.get(address))
+            .flatten()
+            .copied()
+            .collect::<Vec<_>>();
+        indices.sort_unstable();
+        indices.dedup();
+        let origins = match indices.as_slice() {
+            [] => None,
+            [index] => {
+                let sentence = &before[*index];
+                stored_sentence_origins(sentence).or_else(|| {
+                    let links = sentence_origin_links(sentence);
+                    (!links.is_empty()).then(|| links.into())
+                })
+            }
+            indices => {
+                let mut links = IndexSet::new();
+                let mut shared = Vec::<Arc<[ProvenanceLink]>>::new();
+                for index in indices {
+                    let sentence = &before[*index];
+                    if let Some(stored) = stored_sentence_origins(sentence) {
+                        if shared.iter().any(|seen| Arc::ptr_eq(seen, &stored)) {
+                            continue;
+                        }
+                        for link in stored.iter() {
+                            insert_link(&mut links, link.clone());
+                        }
+                        shared.push(stored);
+                    } else {
+                        for link in sentence_origin_links(sentence) {
+                            insert_link(&mut links, link);
+                        }
+                    }
+                }
+                (!links.is_empty()).then(|| links.into_iter().collect::<Vec<_>>().into())
+            }
+        };
+        self.by_carrier.insert(inputs.to_vec(), origins.clone());
+        origins
+    }
 }
 
 #[derive(Eq, Hash, PartialEq)]
@@ -1325,9 +1650,9 @@ mod tests {
     }
 
     fn counterpart_sentence(
-        (unique_id, label, is_claim): (Option<u8>, Option<u8>, bool),
+        (unique_id, label, inputs, is_claim): (Option<u8>, Option<u8>, Option<u8>, bool),
     ) -> Sentence {
-        let attributes = Attributes::from_pairs(
+        let mut attributes = Attributes::from_pairs(
             unique_id
                 .map(|value| {
                     (
@@ -1343,6 +1668,13 @@ mod tests {
                     )
                 })),
         );
+        if let Some(value) = inputs {
+            attributes.set_input_addresses(vec![InputAddress::new(
+                InputSpace::Compile,
+                "MAIN",
+                u32::from(value % 4),
+            )]);
+        }
         let body = Term::apply("body", Vec::new());
         let truth = Term::Token {
             token: "true".into(),
@@ -1365,6 +1697,8 @@ mod tests {
         }
     }
 
+    type SentenceKey = dyn Fn(&Sentence) -> Option<String>;
+
     fn linear_sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
         let mut counterparts = vec![None; after.len()];
         let mut used = vec![false; before.len()];
@@ -1377,17 +1711,37 @@ mod tests {
                 }
             }
         }
-        for key in [AttributeKey::UniqueId, AttributeKey::Label] {
+        // Specification after equality: a carrier value, then UNIQUE_ID, then label, each only
+        // when the value names exactly one sentence on both sides; never position.
+        let keys: [&SentenceKey; 3] = [
+            &|sentence| {
+                let inputs = sentence.attributes().input_addresses();
+                (!inputs.is_empty()).then(|| format!("{inputs:?}"))
+            },
+            &|sentence| {
+                sentence
+                    .attributes()
+                    .string(AttributeKey::UniqueId)
+                    .map(str::to_owned)
+            },
+            &|sentence| {
+                sentence
+                    .attributes()
+                    .string(AttributeKey::Label)
+                    .map(str::to_owned)
+            },
+        ];
+        for key in keys {
             for (after_index, sentence) in after.iter().enumerate() {
                 if counterparts[after_index].is_some() {
                     continue;
                 }
-                let Some(value) = sentence.attributes().string(key) else {
+                let Some(value) = key(sentence) else {
                     continue;
                 };
                 if after
                     .iter()
-                    .filter(|candidate| candidate.attributes().string(key) == Some(value))
+                    .filter(|candidate| key(candidate).as_ref() == Some(&value))
                     .count()
                     != 1
                 {
@@ -1396,7 +1750,7 @@ mod tests {
                 let matching_before = before
                     .iter()
                     .enumerate()
-                    .filter(|(_, candidate)| candidate.attributes().string(key) == Some(value))
+                    .filter(|(_, candidate)| key(candidate).as_ref() == Some(&value))
                     .map(|(index, _)| index)
                     .collect::<Vec<_>>();
                 if let [before_index] = matching_before.as_slice()
@@ -1405,16 +1759,6 @@ mod tests {
                     counterparts[after_index] = Some(*before_index);
                     used[*before_index] = true;
                 }
-            }
-        }
-        for (index, sentence) in after.iter().enumerate() {
-            if counterparts[index].is_none()
-                && before.get(index).is_some_and(|candidate| {
-                    !used[index] && sentence_kind(candidate) == sentence_kind(sentence)
-                })
-            {
-                counterparts[index] = Some(index);
-                used[index] = true;
             }
         }
         counterparts
@@ -1429,7 +1773,7 @@ mod tests {
         };
         let first = rule(Term::apply("first", Vec::new()));
         let second = rule(Term::apply("second", Vec::new()));
-        let generated = counterpart_sentence((None, None, true));
+        let generated = counterpart_sentence((None, None, None, true));
         let before = vec![alias, first.clone(), second.clone()];
         let after = vec![first, second, generated];
         assert_eq!(
@@ -1454,12 +1798,181 @@ mod tests {
     fn reordered_sentences_pair_before_an_inserted_sentence() {
         let repeated = rule(Term::apply("repeated", Vec::new()));
         let other = rule(Term::apply("other", Vec::new()));
-        let inserted = counterpart_sentence((None, None, true));
+        let inserted = counterpart_sentence((None, None, None, true));
         let before = vec![repeated.clone(), other.clone(), repeated.clone()];
         let after = vec![other, inserted, repeated.clone(), repeated];
         assert_eq!(
             sentence_counterparts(&before, &after),
             [Some(1), None, Some(0), Some(2)]
+        );
+    }
+
+    fn address(index: u32) -> InputAddress {
+        InputAddress::new(InputSpace::Compile, "MAIN", index)
+    }
+
+    /// An unlabeled rule whose body `label` spans `start..start + 1`, carrying `inputs`.
+    fn addressed_rule(label: &str, start: usize, inputs: &[u32]) -> Sentence {
+        let truth = Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        };
+        let mut attributes = Attributes::default();
+        attributes.set_input_addresses(inputs.iter().copied().map(address).collect());
+        Sentence::Rule {
+            body: Term::apply(label, Vec::new()).with_metadata(TermMetadata {
+                span: Some(TermSpan {
+                    source: SourceId(0),
+                    start,
+                    end: start + 1,
+                }),
+                ..TermMetadata::default()
+            }),
+            requires: truth.clone(),
+            ensures: truth,
+            attributes,
+        }
+    }
+
+    fn receipt_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
+        sentence
+            .attributes()
+            .origin_record()
+            .expect("changed sentence has a receipt")
+            .origins
+            .to_vec()
+    }
+
+    #[test]
+    fn removing_the_first_of_three_changed_unlabeled_sentences_keeps_every_author() {
+        let before = [
+            addressed_rule("a", 10, &[0]),
+            addressed_rule("b", 20, &[1]),
+            addressed_rule("c", 30, &[2]),
+        ];
+        let after = [
+            addressed_rule("b2", 21, &[1]),
+            addressed_rule("c2", 31, &[2]),
+        ];
+        assert_eq!(sentence_counterparts(&before, &after), [Some(1), Some(2)]);
+
+        let recorded = record_generated_origins(
+            &definition_with_rules(before.to_vec()),
+            definition_with_rules(after.to_vec()),
+            GeneratingPass::MacroExpansion,
+        );
+        let sentences = &recorded.main_module().unwrap().local_sentences;
+        let span = |start| ProvenanceLink::Source {
+            span: TermSpan {
+                source: SourceId(0),
+                start,
+                end: start + 1,
+            },
+        };
+        assert_eq!(receipt_links(&sentences[0]), [span(20)]);
+        assert_eq!(receipt_links(&sentences[1]), [span(30)]);
+    }
+
+    #[test]
+    fn changed_sentences_without_a_key_are_never_paired_by_position() {
+        let before = [
+            addressed_rule("a", 10, &[]),
+            addressed_rule("b", 20, &[]),
+            addressed_rule("c", 30, &[]),
+        ];
+        let after = [addressed_rule("b2", 21, &[]), addressed_rule("c2", 31, &[])];
+        assert_eq!(sentence_counterparts(&before, &after), [None, None]);
+    }
+
+    #[test]
+    fn carrier_shared_by_several_sentences_does_not_pair_but_names_its_origins() {
+        let before = [addressed_rule("a", 10, &[0]), addressed_rule("b", 20, &[1])];
+        // A pass split the first rule in two; neither half is the rule's unique counterpart.
+        let after = [
+            addressed_rule("a1", 11, &[0]),
+            addressed_rule("a2", 12, &[0]),
+            addressed_rule("b", 20, &[1]),
+        ];
+        assert_eq!(
+            sentence_counterparts(&before, &after),
+            [None, None, Some(1)]
+        );
+        let recorded = record_generated_origins(
+            &definition_with_rules(before.to_vec()),
+            definition_with_rules(after.to_vec()),
+            GeneratingPass::GuardOrPatterns,
+        );
+        let sentences = &recorded.main_module().unwrap().local_sentences;
+        let origin = ProvenanceLink::Source {
+            span: TermSpan {
+                source: SourceId(0),
+                start: 10,
+                end: 11,
+            },
+        };
+        assert_eq!(receipt_links(&sentences[0]), std::slice::from_ref(&origin));
+        assert_eq!(receipt_links(&sentences[1]), [origin]);
+        assert!(sentences[2].attributes().origin_record().is_none());
+    }
+
+    #[test]
+    fn equal_additions_unite_their_input_addresses_in_first_occurrence_order() {
+        let mut target = vec![addressed_rule("a", 10, &[2])];
+        extend_unique_sentences(
+            &mut target,
+            [
+                addressed_rule("a", 10, &[0, 2]),
+                addressed_rule("b", 20, &[1]),
+                addressed_rule("b", 20, &[3]),
+            ],
+        );
+        assert_eq!(target.len(), 2);
+        assert_eq!(
+            target[0].attributes().input_addresses(),
+            [address(2), address(0)]
+        );
+        assert_eq!(
+            target[1].attributes().input_addresses(),
+            [address(1), address(3)]
+        );
+    }
+
+    #[test]
+    fn input_addresses_are_provenance_only_and_round_trip_their_wire_form() {
+        let mut attributes = Attributes::default();
+        attributes.set_input_addresses(vec![address(1), address(0)]);
+        assert_eq!(attributes, Attributes::default());
+        assert!(!attributes.identical(&Attributes::default()));
+        let wire = attributes.wire_map();
+        assert_eq!(
+            wire[INPUT_ADDRESSES_ATTRIBUTE],
+            json!([
+                {"input": "compile", "module": "MAIN", "index": 1},
+                {"input": "compile", "module": "MAIN", "index": 0},
+            ])
+        );
+        let decoded = Attributes::new(wire);
+        assert_eq!(decoded.input_addresses(), [address(1), address(0)]);
+        assert!(decoded.identical(&attributes));
+
+        let merged = Attributes::merge([&attributes, &{
+            let mut other = Attributes::default();
+            other.set_input_addresses(vec![address(0), address(2)]);
+            other
+        }])
+        .unwrap();
+        assert_eq!(
+            merged.input_addresses(),
+            [address(1), address(0), address(2)]
+        );
+
+        // A malformed carrier names no input and keeps its wire value.
+        let malformed =
+            Attributes::new([(INPUT_ADDRESSES_ATTRIBUTE.to_owned(), json!([{"index": 0}]))].into());
+        assert!(malformed.input_addresses().is_empty());
+        assert_eq!(
+            malformed.get(INPUT_ADDRESSES_ATTRIBUTE),
+            Some(&json!([{"index": 0}]))
         );
     }
 
@@ -1546,11 +2059,21 @@ mod tests {
         #[test]
         fn indexed_sentence_counterparts_match_the_linear_oracle(
             before_specs in prop::collection::vec(
-                (prop::option::of(any::<u8>()), prop::option::of(any::<u8>()), any::<bool>()),
+                (
+                    prop::option::of(any::<u8>()),
+                    prop::option::of(any::<u8>()),
+                    prop::option::of(any::<u8>()),
+                    any::<bool>(),
+                ),
                 0..24,
             ),
             after_specs in prop::collection::vec(
-                (prop::option::of(any::<u8>()), prop::option::of(any::<u8>()), any::<bool>()),
+                (
+                    prop::option::of(any::<u8>()),
+                    prop::option::of(any::<u8>()),
+                    prop::option::of(any::<u8>()),
+                    any::<bool>(),
+                ),
                 0..24,
             ),
         ) {

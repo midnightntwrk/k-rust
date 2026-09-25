@@ -16,6 +16,7 @@
 //!
 //! Java-compatible resolution of configuration cells marked with `stream`.
 
+use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{fmt, sync::Arc};
 
 use crate::definition::AttributeKey;
@@ -743,15 +744,6 @@ fn stream_module<'a>(
         diagnostics.push(plain_error(format!("no such module: {name}")));
     }
     module
-}
-
-fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
-    // Invariant: `sentences` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `sentences.contains` makes the loop O(`additions` * `sentences`).
-    for sentence in additions {
-        if !sentences.contains(&sentence) {
-            sentences.push(sentence);
-        }
-    }
 }
 
 fn capitalize(value: &str) -> String {

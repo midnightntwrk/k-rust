@@ -29,7 +29,7 @@ use super::{
     Attributes, Definition, EquivalenceAccumulator, LabelHead, ProductionCatalog, ProductionItem,
     ResolveError, ResolvedDefinition, Sentence,
     attribute_keys::{KeyParameter, builtin_key},
-    dedup_by_equivalence, push_if_inequivalent,
+    dedup_by_equivalence, push_if_inequivalent, sentence_equivalent,
 };
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
@@ -868,10 +868,22 @@ impl Generator<'_, '_> {
             })
     }
 
-    fn push(&mut self, sentence: Sentence) {
+    /// Every sentence generated from a configuration derives from that configuration sentence.
+    fn push(&mut self, mut sentence: Sentence) {
+        sentence
+            .attributes_mut()
+            .union_input_addresses(self.attributes);
         let mut generated = EquivalenceAccumulator::from_sentences(self.generated.iter());
         if push_if_inequivalent(&mut generated, &sentence) {
             self.generated.push(sentence);
+        } else if let Some(existing) = self
+            .generated
+            .iter_mut()
+            .find(|existing| sentence_equivalent(existing, &sentence))
+        {
+            existing
+                .attributes_mut()
+                .union_input_addresses(sentence.attributes());
         }
     }
 
@@ -1198,6 +1210,8 @@ fn merge_attributes(base: &Attributes, overlay: &Attributes) -> Attributes {
     let mut attributes = Attributes::new(entries);
     attributes.inherit_origin(base);
     attributes.inherit_origin(overlay);
+    attributes.union_input_addresses(base);
+    attributes.union_input_addresses(overlay);
     attributes
 }
 

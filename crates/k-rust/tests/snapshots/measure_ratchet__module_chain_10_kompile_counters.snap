@@ -3,19 +3,19 @@ source: crates/k-rust/tests/measure_ratchet.rs
 description: kompile of the 10-module chain
 ---
 kompile.resolve_calls = 7
-kompile.resolve_updates = 39
-kompile.resolve_update_sentence_visits = 63715
+kompile.resolve_updates = 40
+kompile.resolve_update_sentence_visits = 63790
 kompile.rule_bubbles_parsed = 257
 kompile.sentences_transformed = 3414
-kompile.sentence_equivalence_checks = 698032
-kompile.production_catalogs_built = 701
+kompile.sentence_equivalence_checks = 698797
+kompile.production_catalogs_built = 735
 kompile.partial_orders_built = 1626
 kompile.injections_inserted = 448
 kompile.owise_competitor_scans = 17765
-provenance.link_dedup_probes = 318332
+provenance.link_dedup_probes = 318288
 provenance.receipt_renders = 15
-kompile.sentence_copies = 57200
-kompile.production_identity_digests = 72312
+kompile.sentence_copies = 58128
+kompile.production_identity_digests = 76087
 parser.parse_attempts = 261
 parser.prediction_analysis_builds = 38
 parser.chart_prediction_attempts = 146955

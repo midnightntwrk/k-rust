@@ -907,6 +907,7 @@ pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
                         | AttributeKey::SourceId
                         | AttributeKey::SentenceStartOffset
                         | AttributeKey::SentenceEndOffset
+                        | AttributeKey::InputAddresses
                 )
             )
         })

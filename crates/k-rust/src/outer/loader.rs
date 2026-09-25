@@ -47,7 +47,7 @@ use crate::{
     },
     kast::WellKnownModule,
     kompile::pipeline::load_phase,
-    provenance::{LogicalSourceId, SourceTable},
+    provenance::{InputSpace, LogicalSourceId, SourceTable, stamp_input_addresses},
     timings::PhaseTimings,
 };
 
@@ -589,10 +589,16 @@ fn load_impl(
 /// A `bracket` production may carry a label, as a source bracket with `symbol(...)` does.
 /// That label names the bracket's `syntaxDefinition.kore` symbol and the tag priority and associativity blocks refer to it by; it never names a term symbol, because every parser erases the bracket before a term exists.
 /// A bracket without a label may instead carry a `bracketLabel` attribute naming its syntax-module symbol.
+///
+/// Every sentence of `definition` is stamped with its [`InputAddress`](crate::provenance::InputAddress)
+/// in [`InputSpace::Structured`](crate::provenance::InputSpace::Structured) (its module and index in `definition`, replacing any address it
+/// already carried) before configurations are expanded, so compilation relates what it emits to
+/// the caller's own sentence positions.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
+    stamp_input_addresses(&mut definition, InputSpace::Structured, true);
     let mut resolver = |_: &str, required: &str| {
         builtin::embedded(required)
             .ok_or_else(|| format!("embedded builtin source {required:?} was not found"))

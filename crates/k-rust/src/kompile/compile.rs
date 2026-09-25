@@ -31,8 +31,8 @@ use k_rust_kore::measure::{self, Counter};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
-        AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolveError,
-        ResolvedDefinition, Sentence, StructuralCheckBackend, StructuralCheckOptions,
+        AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolvedDefinition,
+        Sentence, StructuralCheckBackend, StructuralCheckOptions,
         checks::{check_definition_with_options, check_singleton_overloads},
         expand_configurations_with_diagnostics,
     },
@@ -40,6 +40,7 @@ use crate::{
     kast::{GeneratedLabel, Sort, Term},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
+    provenance::{InputSpace, stamp_input_addresses},
     timings::PhaseTimings,
 };
 
@@ -637,6 +638,14 @@ fn transform_loaded_definition(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
+    // Every sentence the caller handed over is an input sentence: give each one not already
+    // stamped by `load_structured` its address in `loaded.definition` before any pass moves,
+    // merges, or derives from it.
+    let stamped = || {
+        let mut definition = loaded.definition.clone();
+        stamp_input_addresses(&mut definition, InputSpace::Compile, false);
+        definition
+    };
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
     let (definition, configuration_diagnostics, resolved) = if loaded
@@ -649,7 +658,7 @@ fn transform_loaded_definition(
         let (definition, configuration_diagnostics) = stage(
             timings,
             prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
-            || expand_configurations_with_diagnostics(&loaded.definition),
+            || expand_configurations_with_diagnostics(&stamped()),
         )?;
         let resolved = stage(
             timings,
@@ -661,12 +670,15 @@ fn transform_loaded_definition(
         let definition = stage(
             timings,
             prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
-            || Ok::<_, ConfigurationError>(loaded.definition.clone()),
+            || Ok::<_, ConfigurationError>(stamped()),
         )?;
+        // The stamped modules differ from the loaded ones only in their carriers; the update
+        // replaces the resolved modules so passes reading sentences through the resolution see
+        // the carriers too.
         let resolved = stage(
             timings,
             prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
-            || Ok::<_, ResolveError>(loaded.resolved.clone()),
+            || loaded.resolved.update(&loaded.definition, &definition),
         )?;
         (definition, Vec::new(), resolved)
     };

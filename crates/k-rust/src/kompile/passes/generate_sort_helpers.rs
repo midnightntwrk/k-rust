@@ -228,12 +228,17 @@ pub(crate) fn generate_sort_projections_pass(
         }
         // Invariant: `generated` also holds the named field projections of every production of `local_productions` before `production`; each iteration consumes one production.
         for production in &local_productions {
-            generated.extend(named_projections(
-                production,
-                productions,
-                main_productions,
-                &defined_labels,
-            ));
+            // A field projection derives from the one production that names the field.
+            generated.extend(
+                named_projections(production, productions, main_productions, &defined_labels)
+                    .into_iter()
+                    .map(|mut projection| {
+                        projection
+                            .attributes_mut()
+                            .union_input_addresses(production.attributes());
+                        projection
+                    }),
+            );
         }
         let generated =
             retain_new_sentences(module.local_sentences.iter().map(Arc::as_ref), generated);

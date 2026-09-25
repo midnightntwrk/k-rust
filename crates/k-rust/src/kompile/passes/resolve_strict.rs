@@ -16,6 +16,7 @@
 //!
 //! Generate evaluation contexts from `strict`, `seqstrict`, and `hybrid` productions.
 
+use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use serde_json::Value;
@@ -290,7 +291,13 @@ fn resolve_production(
     }
 
     let origins = sentence_origin_links(production);
+    // Every generated sentence derives from the production; a context also derives from the
+    // context alias it instantiates, whose addresses `merge_attributes` already added after the
+    // production's.
     for sentence in &mut generated {
+        sentence
+            .attributes_mut()
+            .union_input_addresses(production.attributes());
         seed_generated_sentence_origin(sentence, GeneratingPass::ResolveStrict, origins.clone());
     }
     Ok(generated)
@@ -408,7 +415,7 @@ fn resolve_aliases(
     production: &Sentence,
     labeled: &BTreeMap<String, Vec<&Sentence>>,
 ) -> Result<Vec<Alias>, Vec<Diagnostic>> {
-    let mut aliases = Vec::new();
+    let mut aliases = Vec::<Alias>::new();
     // Invariant: `aliases` holds, without duplicates and in order, the context aliases named by every label of `text` before `raw_label`; each iteration consumes one comma-separated label, and the inner loop over its `sentences` checks each alias against `aliases`, quadratic in the number of aliases.
     for raw_label in java_split(text, ',') {
         let label = raw_label.trim();
@@ -439,12 +446,14 @@ fn resolve_aliases(
                 requires: requires.clone(),
                 attributes: attributes.clone(),
             };
-            if !aliases.iter().any(|existing: &Alias| {
+            match aliases.iter_mut().find(|existing| {
                 existing.body == alias.body
                     && existing.requires == alias.requires
                     && existing.attributes == alias.attributes
             }) {
-                aliases.push(alias);
+                // Equal aliases instantiate to one context, which derives from both.
+                Some(existing) => existing.attributes.union_input_addresses(&alias.attributes),
+                None => aliases.push(alias),
             }
         }
     }
@@ -526,6 +535,7 @@ fn merge_attributes(left: &Attributes, right: &Attributes) -> Attributes {
         result.insert(key, value.clone());
     }
     result.inherit_origin(right);
+    result.union_input_addresses(right);
     result
 }
 
@@ -550,15 +560,6 @@ fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
         sort: Sort::builtin(BuiltinSort::Bool),
-    }
-}
-
-fn extend_unique(target: &mut Vec<Sentence>, additions: impl IntoIterator<Item = Sentence>) {
-    // Invariant: `target` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `target.contains` makes the loop O(`additions` * `target`).
-    for sentence in additions {
-        if !target.contains(&sentence) {
-            target.push(sentence);
-        }
     }
 }
 
