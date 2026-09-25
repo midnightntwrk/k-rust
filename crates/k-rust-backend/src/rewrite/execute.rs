@@ -602,15 +602,6 @@ impl<'a> Execution<'a> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
             for simplification in &applied.remainder_simplifications {
-                state.observation = self.observation_log.append_simplification(
-                    state.observation,
-                    self.definition,
-                    simplification.before.clone(),
-                    &simplification.after,
-                    &simplification.applied_rules,
-                    &simplification.effects,
-                    self.observation,
-                );
                 state.effects.commit(simplification.effects.iter().cloned());
                 state.trace.extend(
                     simplification
@@ -629,12 +620,18 @@ impl<'a> Execution<'a> {
             // The cut-point rule is proposed, not committed: the `CutPointRule` leaf stays at
             // this state's depth and branch position and carries the successor in
             // `next_states`, with the successor's diagnostics and with the events it would add
-            // to this branch (its transition and its normalization), recorded on its own head.
-            // A leaf that reports the successor's pattern instead (a failed normalization or a
-            // bottom successor) is the successor's, so it takes that head.
-            let mut candidate_observation =
-                self.observation_log
-                    .append_applied(state.observation, &applied, self.observation);
+            // to this branch, recorded on its own head: the evaluations of the higher-priority
+            // remainder it was applied to (a restriction of this state that only the successor
+            // derives from), its transition, and its normalization. A leaf that reports the
+            // successor's pattern instead (a failed normalization or a bottom successor) is the
+            // successor's, so it takes that head.
+            let mut candidate_observation = applied_observation(
+                self.definition,
+                state.observation,
+                &applied,
+                &mut self.observation_log,
+                self.observation,
+            );
             let (simplified, diagnostics) = diagnostic::collect(|| {
                 simplify_result_pattern(
                     self.definition,

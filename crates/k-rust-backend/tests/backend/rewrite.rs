@@ -7141,6 +7141,53 @@ fn a_bottom_cut_point_successor_leaf_observes_the_rule_that_produced_it() {
     );
 }
 
+/// A cut-point candidate owns the work done for it: the diagnostics and the evaluations of its
+/// normalization land on the same candidate, and the parent leaf carries neither.
+#[test]
+fn a_cut_point_candidate_owns_both_the_diagnostics_and_the_evaluations_of_its_work() {
+    let definition = growing_equation_definition(false);
+    let result = execute_observed(
+        &definition,
+        Pattern {
+            term: internal_term(&definition, "start{}()"),
+            constraints: Vec::new(),
+        },
+        ExecutionOptions {
+            max_simplification_iterations: 3,
+            cut_point_rules: BTreeSet::from(["to-g".into()]),
+            ..ExecutionOptions::default()
+        },
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cut-point leaf: {:?}", result.leaves);
+    };
+    let HaltReason::CutPointRule { next_states, .. } = &leaf.halt_reason else {
+        panic!("expected a cut-point leaf: {:?}", leaf.halt_reason);
+    };
+    let [next] = next_states.as_slice() else {
+        panic!("expected one proposed successor");
+    };
+    assert!(leaf.diagnostics.is_empty(), "{:?}", leaf.diagnostics);
+    assert!(leaf.observations.is_empty(), "{:?}", leaf.observations);
+    assert!(leaf.branch.is_empty());
+    assert_eq!(next.diagnostics, [term_budget_exhausted(3)]);
+    let stream = observed_stream(&next.observations);
+    assert_eq!(
+        stream.first(),
+        Some(&Observed::Transition("to-g", TransitionClass::Rewrite))
+    );
+    assert!(
+        stream.contains(&Observed::Evaluation(
+            "grow",
+            EvaluationClass::Simplification,
+            1
+        )),
+        "{stream:?}"
+    );
+}
+
 /// An observed result with every observation output removed: the leaves' `branch` and
 /// `observations`, the observations of the candidates their halts report, and `discarded`.
 fn without_observations(mut result: ExecutionResult) -> ExecutionResult {
