@@ -264,9 +264,10 @@ impl ObservationOptions {
         Self { rules: None }
     }
 
-    /// Construct an immutable rewrite-rule allowlist.
+    /// Construct an immutable executable-rule allowlist.
     ///
-    /// Validation is atomic: every id must identify exactly one executable rewrite rule.
+    /// Validation is atomic: every id must identify one executable rewrite, function equation,
+    /// simplification, or definedness rule. `builtin:<hook>` ids are observable only with `all`.
     pub fn with_rules<I, S>(
         definition: &BackendDefinition,
         rules: I,
@@ -285,6 +286,21 @@ impl ObservationOptions {
                             rule.rule.lhs_alternative,
                         ))
                         .or_default() += 1;
+                }
+            }
+        }
+        for theory in [
+            &definition.function_theory,
+            &definition.simplification_theory,
+            &definition.ceil_theory,
+        ] {
+            for priorities in theory.values() {
+                for rules in priorities.values() {
+                    for rule in rules {
+                        *available
+                            .entry((rule.attributes.unique_id.clone(), rule.lhs_alternative))
+                            .or_default() += 1;
+                    }
                 }
             }
         }
@@ -523,8 +539,6 @@ fn theory_contains_rule(theory: &crate::rule::Theory, rule_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
     use super::{
@@ -537,8 +551,7 @@ mod tests {
     };
 
     /// A filtered-out rewrite is still a committed transition of the branch, so the evaluation
-    /// of its successor is anchored after it. The filter is built directly because the public
-    /// allowlist admits rewrite identities only.
+    /// of its successor is anchored after it.
     #[test]
     fn evaluation_anchor_counts_transitions_the_filter_excludes() {
         let syntax = parse_definition(
@@ -569,9 +582,7 @@ mod tests {
                 .unwrap(),
             constraints: Vec::new(),
         };
-        let options = ObservationOptions {
-            rules: Some(BTreeSet::from(["value".to_owned()])),
-        };
+        let options = ObservationOptions::with_rules(&definition, ["value"]).unwrap();
 
         let result = execute_observed(&definition, initial, ExecutionOptions::default(), &options);
 

@@ -6001,6 +6001,59 @@ fn observation_filter_installation_is_atomic() {
         Err(ObservationFilterError::UnknownRule("missing".into()))
     );
     assert!(ObservationOptions::with_rules(&definition, ["left", "right"]).is_ok());
+    assert_eq!(
+        ObservationOptions::with_rules(&definition, ["left", "left"]),
+        Err(ObservationFilterError::DuplicateRule("left".into()))
+    );
+    assert_eq!(
+        ObservationOptions::with_rules(&definition, ["builtin:IO.logString"]),
+        Err(ObservationFilterError::UnknownRule(
+            "builtin:IO.logString".into()
+        ))
+    );
+}
+
+#[test]
+fn observation_filter_rejects_identity_shared_across_theories() {
+    let definition = definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("one"), \top{SortS{}}())
+                )
+            ) [label{}("shared")]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("two"), \top{SortS{}}())
+                )
+            ) [label{}("shared"), simplification{}()]
+            "#,
+    );
+    assert_eq!(
+        ObservationOptions::with_rules(&definition, ["shared"]),
+        Err(ObservationFilterError::AmbiguousRule("shared".into()))
+    );
+}
+
+#[test]
+fn observation_filter_accepts_definedness_identity() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{R, R}(
+                    \ceil{SortS{}, R}(wrap{}(X:SortS{})),
+                    \top{R}()
+                )
+            ) [label{}("defined-wrap")]
+            "#,
+    );
+    assert!(ObservationOptions::with_rules(&definition, ["defined-wrap"]).is_ok());
 }
 
 /// A leaf's observation stream without payloads.
@@ -6373,6 +6426,25 @@ fn terminal_result_simplification_is_observed_in_order() {
         ]
     );
     assert_observations_anchor_into_branch(&result.leaves[0]);
+
+    let filtered = execute_observed(
+        &definition,
+        subject(&definition, "value"),
+        ExecutionOptions {
+            terminal_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        &ObservationOptions::with_rules(&definition, ["identity"]).unwrap(),
+    );
+    assert_eq!(
+        observed(&filtered.leaves[0]),
+        [Observed::Evaluation(
+            "identity",
+            EvaluationClass::Simplification,
+            1
+        )]
+    );
+    assert_eq!(filtered.leaves[0].branch.len(), 1);
 }
 
 #[test]
