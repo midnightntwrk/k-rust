@@ -864,8 +864,8 @@ impl<'a> Execution<'a> {
         Ok(self.breadth_checked())
     }
 
-    /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound drains it
-    /// into leaves), else `Queued`.
+    /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends
+    /// its live frontier to leaves already reached), else `Queued`.
     fn breadth_checked(&mut self) -> Expansion {
         if execution_breadth_exceeded(
             &mut self.pending,
@@ -1002,7 +1002,6 @@ fn execution_breadth_exceeded(
     if !max_breadth.is_some_and(|bound| pending.len() > bound) {
         return false;
     }
-    leaves.clear();
     leaves.extend(
         pending
             .drain(..)

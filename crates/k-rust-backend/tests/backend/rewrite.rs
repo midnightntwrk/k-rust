@@ -7704,6 +7704,58 @@ fn breadth_bound_returns_the_live_execution_frontier() {
 }
 
 #[test]
+fn breadth_bound_keeps_leaves_finished_before_the_frontier_exceeds_the_bound() {
+    let definition = definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("start")), \top{SortS{}}()),
+                \dv{SortS{}}("s1")
+            ) [label{}("start-s1")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("start")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("s2"))
+            ) [label{}("start-s2")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("s2")), \top{SortS{}}()),
+                \dv{SortS{}}("x")
+            ) [label{}("s2-x")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("s2")), \top{SortS{}}()),
+                \dv{SortS{}}("y")
+            ) [label{}("s2-y")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("s2")), \top{SortS{}}()),
+                \dv{SortS{}}("z")
+            ) [label{}("s2-z")]
+            "#,
+    );
+
+    let result = execute(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions {
+            max_breadth: Some(2),
+            ..ExecutionOptions::default()
+        },
+    );
+
+    assert_eq!(result.leaves.len(), 4, "{result:?}");
+    for (leaf, (value, reason, depth)) in result.leaves.iter().zip([
+        ("s1", HaltReason::Stuck, 1),
+        ("x", HaltReason::BreadthBound, 2),
+        ("y", HaltReason::BreadthBound, 2),
+        ("z", HaltReason::BreadthBound, 2),
+    ]) {
+        assert_eq!(
+            leaf.pattern.term,
+            internal_term(&definition, &format!(r#"\dv{{SortS{{}}}}("{value}")"#))
+        );
+        assert_eq!(leaf.halt_reason, reason);
+        assert_eq!(leaf.depth, depth);
+    }
+}
+
+#[test]
 fn zero_breadth_returns_the_initial_configuration() {
     let definition = unconditional_branch_definition();
     let initial = subject(&definition, "value");

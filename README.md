@@ -255,8 +255,8 @@ by priority, then definition order; the choice among equal-priority rules is uns
 several unevaluated arguments is heated in one order, not every order. Pass `--strategy all` to
 explore every applicable rule (kore-exec's default, and the mode every `--search-*` run uses), and
 `--execute-to-branch` to return the configuration at the first branch point instead. Pass
-`--breadth N` to cap the live frontier: execution returns that frontier when the bound is exceeded,
-while search reports that it is incomplete.
+`--breadth N` to cap the live frontier: when the bound is exceeded, execution returns the leaves
+reached so far and the live frontier as breadth-bound leaves, while search reports that it is incomplete.
 
 Bounded execution, search, and proof operations allow 100 simplifier iterations per step by default.
 The bound counts simplification-rule, builtin, and symbolic rewriting; determined ground function evaluation (a function equation on a variable-free argument with no residual condition) runs to its value, bounded only by the step deadline (`--step-timeout`), cancellation or Ctrl-C, and the thread's stack, whose exhaustion is a typed error.
