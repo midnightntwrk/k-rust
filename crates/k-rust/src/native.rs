@@ -122,8 +122,7 @@ pub fn write_runnable_artifact(
     let mut runtime_frontend = frontend_definition.clone();
     for module in &mut runtime_frontend.modules {
         // Context aliases have already affected the transformed execution definition and KORE.
-        // External KAST v4 represents them as an undecodable KBadsentence, and the runtime parser
-        // does not consume them.
+        // The runtime parser does not consume them, so omit them from its pruned frontend payload.
         module
             .local_sentences
             .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));

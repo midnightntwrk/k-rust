@@ -8,5 +8,4 @@ duplicate_keys = "typed-rejection"
 source_order = "canonical-key-order"
 value_kinds = ["null", "boolean", "number", "string", "array", "object"]
 
-# KAST JSON version 4 has no KContextAlias representation.
-unsupported_sentence_forms = ["context-alias"]
+unsupported_sentence_forms = []

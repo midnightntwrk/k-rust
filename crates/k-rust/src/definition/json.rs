@@ -15,7 +15,7 @@
 //! Complexity: O(N + L): each receipt is encoded once and names its origin set by index into the provenance envelope's table, which holds each distinct set once; a set shared by many receipts is looked up by its allocation after its first encounter, so its links are hashed and written once.
 //! Cost is linear in visited syntax unless its local documentation states another bound; `ProvenanceReceiptRenders` counts origin receipts rendered during provenance encoding.
 //!
-//! KAST JSON version 4 serialization for flat K definitions.
+//! KAST JSON version 4 and KRUST-PROVENANCE serialization for flat K definitions.
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -48,8 +48,14 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// Current [`PROVENANCE_FORMAT`] schema version.
 ///
 /// Version 3 writes each distinct origin set once, in the envelope's `originSets` table, and a
-/// receipt's `origins` is an index into that table.
-pub const PROVENANCE_VERSION: u32 = 3;
+/// receipt's `origins` is an index into that table. Version 4 adds `KContextAlias` sentences.
+pub const PROVENANCE_VERSION: u32 = 4;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum DefinitionEnvelopeKind {
+    KastV4,
+    Provenance,
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -124,7 +130,7 @@ pub fn from_str(input: &str) -> Result<Definition, Error> {
         return Err(Error::UnsupportedVersion(envelope.version));
     }
 
-    let definition: Definition = envelope.term.try_into()?;
+    let definition = envelope.term.decode(DefinitionEnvelopeKind::KastV4)?;
     let main_module_count = definition
         .modules
         .iter()
@@ -152,7 +158,11 @@ fn serialize(
     serializer(&Envelope {
         format: term_json::FORMAT.into(),
         version: term_json::VERSION,
-        term: definition.try_into()?,
+        term: JsonDefinition::encode(
+            definition,
+            DefinitionEnvelopeKind::KastV4,
+            &mut |attributes| Ok(attributes.into()),
+        )?,
     })
     .map_err(Into::into)
 }
@@ -321,8 +331,11 @@ fn serialize_provenance(
     // The wire definition is built from the borrowed definition: attributes are encoded as they
     // are visited, so no receipt is rendered into the in-memory JSON form and no copy of the
     // definition is made.
-    let term =
-        JsonDefinition::encode(definition, &mut |attributes| encoder.attributes(attributes))?;
+    let term = JsonDefinition::encode(
+        definition,
+        DefinitionEnvelopeKind::Provenance,
+        &mut |attributes| encoder.attributes(attributes),
+    )?;
     let mut term_metadata = Vec::new();
     collect_definition_metadata(definition, &mut encoder, &mut term_metadata)?;
     let sources = source_table
@@ -377,7 +390,7 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
         }
     }
     let origin_sets = decode_origin_sets(envelope.origin_sets, &source_table)?;
-    let mut definition: Definition = envelope.term.try_into()?;
+    let mut definition = envelope.term.decode(DefinitionEnvelopeKind::Provenance)?;
     map_definition_attributes(&mut definition, |attributes| {
         decode_attribute_sources(attributes, &source_table, &origin_sets)
     })?;
@@ -1108,17 +1121,10 @@ enum DefinitionNode {
 /// rewrites source identities and origin receipts.
 type EncodeAttributes<'a> = dyn FnMut(&Attributes) -> Result<JsonAttributes, Error> + 'a;
 
-impl TryFrom<&Definition> for JsonDefinition {
-    type Error = Error;
-
-    fn try_from(definition: &Definition) -> Result<Self, Self::Error> {
-        Self::encode(definition, &mut |attributes| Ok(attributes.into()))
-    }
-}
-
 impl JsonDefinition {
     fn encode(
         definition: &Definition,
+        kind: DefinitionEnvelopeKind,
         attributes: &mut EncodeAttributes<'_>,
     ) -> Result<Self, Error> {
         Ok(Self {
@@ -1127,23 +1133,19 @@ impl JsonDefinition {
             modules: definition
                 .modules
                 .iter()
-                .map(|module| JsonFlatModule::encode(module, attributes))
+                .map(|module| JsonFlatModule::encode(module, kind, attributes))
                 .collect::<Result<_, _>>()?,
             att: attributes(&definition.attributes)?,
         })
     }
-}
-
-impl TryFrom<JsonDefinition> for Definition {
-    type Error = Error;
-
-    fn try_from(definition: JsonDefinition) -> Result<Self, Self::Error> {
-        Ok(Self {
+    fn decode(self, kind: DefinitionEnvelopeKind) -> Result<Definition, Error> {
+        let definition = self;
+        Ok(Definition {
             main_module: definition.main_module,
             modules: definition
                 .modules
                 .into_iter()
-                .map(TryInto::try_into)
+                .map(|module| module.decode(kind))
                 .collect::<Result<_, _>>()?,
             attributes: definition.att.into(),
         })
@@ -1166,7 +1168,11 @@ enum FlatModuleNode {
 }
 
 impl JsonFlatModule {
-    fn encode(module: &FlatModule, attributes: &mut EncodeAttributes<'_>) -> Result<Self, Error> {
+    fn encode(
+        module: &FlatModule,
+        kind: DefinitionEnvelopeKind,
+        attributes: &mut EncodeAttributes<'_>,
+    ) -> Result<Self, Error> {
         Ok(Self {
             node: FlatModuleNode::KFlatModule,
             name: module.name.clone(),
@@ -1174,25 +1180,24 @@ impl JsonFlatModule {
             local_sentences: module
                 .local_sentences
                 .iter()
-                .map(|sentence| JsonSentence::encode(sentence, attributes))
+                .map(|sentence| JsonSentence::encode(sentence, kind, attributes))
                 .collect::<Result<_, _>>()?,
             att: attributes(&module.attributes)?,
         })
     }
-}
-
-impl TryFrom<JsonFlatModule> for FlatModule {
-    type Error = Error;
-
-    fn try_from(module: JsonFlatModule) -> Result<Self, Self::Error> {
-        Ok(Self {
+    fn decode(self, kind: DefinitionEnvelopeKind) -> Result<FlatModule, Error> {
+        let module = self;
+        Ok(FlatModule {
             name: module.name,
             imports: module.imports.into_iter().map(Into::into).collect(),
             local_sentences: module
                 .local_sentences
                 .into_iter()
-                .filter(|sentence| !matches!(sentence, JsonSentence::KBadsentence))
-                .map(|sentence| sentence.try_into().map(Arc::new))
+                .filter(|sentence| {
+                    kind != DefinitionEnvelopeKind::KastV4
+                        || !matches!(sentence, JsonSentence::KBadsentence)
+                })
+                .map(|sentence| sentence.decode(kind).map(Arc::new))
                 .collect::<Result<_, _>>()?,
             attributes: module.att.into(),
         })
@@ -1263,7 +1268,7 @@ impl From<JsonAssociativity> for Associativity {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "node")]
-#[allow(clippy::enum_variant_names)] // Variant names mirror the external KAST schema.
+#[allow(clippy::enum_variant_names)] // Variant names match the serialized sentence tags.
 enum JsonProductionItem {
     KNonTerminal {
         sort: JsonSort,
@@ -1380,6 +1385,11 @@ enum JsonSentence {
         requires: JsonTerm,
         att: JsonAttributes,
     },
+    KContextAlias {
+        body: JsonTerm,
+        requires: JsonTerm,
+        att: JsonAttributes,
+    },
     KRule {
         body: JsonTerm,
         requires: JsonTerm,
@@ -1406,7 +1416,11 @@ enum JsonSentence {
 }
 
 impl JsonSentence {
-    fn encode(sentence: &Sentence, att: &mut EncodeAttributes<'_>) -> Result<Self, Error> {
+    fn encode(
+        sentence: &Sentence,
+        kind: DefinitionEnvelopeKind,
+        att: &mut EncodeAttributes<'_>,
+    ) -> Result<Self, Error> {
         Ok(match sentence {
             Sentence::SyntaxSort {
                 parameters,
@@ -1464,7 +1478,18 @@ impl JsonSentence {
                 priorities: priorities.clone(),
                 att: att(attributes)?,
             },
-            Sentence::ContextAlias { .. } => Self::KBadsentence,
+            Sentence::ContextAlias {
+                body,
+                requires,
+                attributes,
+            } => match kind {
+                DefinitionEnvelopeKind::KastV4 => Self::KBadsentence,
+                DefinitionEnvelopeKind::Provenance => Self::KContextAlias {
+                    body: body.into(),
+                    requires: requires.into(),
+                    att: att(attributes)?,
+                },
+            },
             Sentence::Context {
                 body,
                 requires,
@@ -1518,15 +1543,19 @@ impl JsonSentence {
     }
 }
 
-impl TryFrom<JsonSentence> for Sentence {
-    type Error = Error;
-
-    fn try_from(sentence: JsonSentence) -> Result<Self, Self::Error> {
+impl JsonSentence {
+    fn decode(self, kind: DefinitionEnvelopeKind) -> Result<Sentence, Error> {
+        let sentence = self;
         Ok(match sentence {
             JsonSentence::KBadsentence => {
-                return Err(Error::UnsupportedSentence("badsentence"));
+                return Err(match kind {
+                    DefinitionEnvelopeKind::KastV4 => Error::UnsupportedSentence("badsentence"),
+                    DefinitionEnvelopeKind::Provenance => Error::InvalidProvenance(
+                        "badsentence is not a KRUST-PROVENANCE sentence".into(),
+                    ),
+                });
             }
-            JsonSentence::KSyntaxSort { sort, params, att } => Self::SyntaxSort {
+            JsonSentence::KSyntaxSort { sort, params, att } => Sentence::SyntaxSort {
                 parameters: params.into_iter().map(Into::into).collect(),
                 sort: sort.into(),
                 attributes: att.into(),
@@ -1535,12 +1564,12 @@ impl TryFrom<JsonSentence> for Sentence {
                 new_sort,
                 old_sort,
                 att,
-            } => Self::SortSynonym {
+            } => Sentence::SortSynonym {
                 new_sort: new_sort.into(),
                 old_sort: old_sort.into(),
                 attributes: att.into(),
             },
-            JsonSentence::KSyntaxLexical { name, regex, att } => Self::SyntaxLexical {
+            JsonSentence::KSyntaxLexical { name, regex, att } => Sentence::SyntaxLexical {
                 name,
                 regex,
                 attributes: att.into(),
@@ -1551,19 +1580,21 @@ impl TryFrom<JsonSentence> for Sentence {
                 params,
                 sort,
                 att,
-            } => Self::Production {
+            } => Sentence::Production {
                 label: klabel.map(Into::into),
                 parameters: params.into_iter().map(Into::into).collect(),
                 sort: sort.into(),
                 items: production_items.into_iter().map(Into::into).collect(),
                 attributes: att.into(),
             },
-            JsonSentence::KSyntaxAssociativity { assoc, tags, att } => Self::SyntaxAssociativity {
-                associativity: assoc.into(),
-                tags,
-                attributes: att.into(),
-            },
-            JsonSentence::KSyntaxPriority { priorities, att } => Self::SyntaxPriority {
+            JsonSentence::KSyntaxAssociativity { assoc, tags, att } => {
+                Sentence::SyntaxAssociativity {
+                    associativity: assoc.into(),
+                    tags,
+                    attributes: att.into(),
+                }
+            }
+            JsonSentence::KSyntaxPriority { priorities, att } => Sentence::SyntaxPriority {
                 priorities,
                 attributes: att.into(),
             },
@@ -1571,17 +1602,31 @@ impl TryFrom<JsonSentence> for Sentence {
                 body,
                 requires,
                 att,
-            } => Self::Context {
+            } => Sentence::Context {
                 body: body.try_into()?,
                 requires: requires.try_into()?,
                 attributes: att.into(),
             },
+            JsonSentence::KContextAlias {
+                body,
+                requires,
+                att,
+            } => {
+                if kind == DefinitionEnvelopeKind::KastV4 {
+                    return Err(Error::UnsupportedSentence("KContextAlias"));
+                }
+                Sentence::ContextAlias {
+                    body: body.try_into()?,
+                    requires: requires.try_into()?,
+                    attributes: att.into(),
+                }
+            }
             JsonSentence::KRule {
                 body,
                 requires,
                 ensures,
                 att,
-            } => Self::Rule {
+            } => Sentence::Rule {
                 body: body.try_into()?,
                 requires: requires.try_into()?,
                 ensures: ensures.try_into()?,
@@ -1592,13 +1637,13 @@ impl TryFrom<JsonSentence> for Sentence {
                 requires,
                 ensures,
                 att,
-            } => Self::Claim {
+            } => Sentence::Claim {
                 body: body.try_into()?,
                 requires: requires.try_into()?,
                 ensures: ensures.try_into()?,
                 attributes: att.into(),
             },
-            JsonSentence::KConfiguration { body, ensures, att } => Self::Configuration {
+            JsonSentence::KConfiguration { body, ensures, att } => Sentence::Configuration {
                 body: body.try_into()?,
                 ensures: ensures.try_into()?,
                 attributes: att.into(),
@@ -1607,7 +1652,7 @@ impl TryFrom<JsonSentence> for Sentence {
                 sentence_type,
                 contents,
                 att,
-            } => Self::Bubble {
+            } => Sentence::Bubble {
                 sentence_type,
                 contents,
                 attributes: att.into(),

@@ -5,6 +5,7 @@ use k_rust::definition::{
     Associativity, Attributes, Definition, FlatImport, FlatModule, ProductionItem, Sentence,
 };
 use k_rust::kast::{Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan};
+use k_rust::outer::{LoadOptions, ResolvedSource, load_with_options};
 use k_rust::provenance::{
     DestinationAnchor, GeneratingPass, LogicalSourceId, ORIGIN_ATTRIBUTE, OriginRecord,
     ProvenanceLink, SourceOffsetMap, SourceTable,
@@ -48,6 +49,51 @@ fn complete_definition(sentences: Vec<Sentence>) -> Definition {
             attributes: empty_attributes(),
         }],
         attributes: empty_attributes(),
+    }
+}
+
+fn assert_term_metadata_equal(expected: &Term, actual: &Term) {
+    assert_eq!(actual.metadata(), expected.metadata());
+    match (expected.unannotated(), actual.unannotated()) {
+        (
+            Term::Rewrite {
+                left: expected_left,
+                right: expected_right,
+            },
+            Term::Rewrite {
+                left: actual_left,
+                right: actual_right,
+            },
+        )
+        | (
+            Term::As {
+                pattern: expected_left,
+                alias: expected_right,
+            },
+            Term::As {
+                pattern: actual_left,
+                alias: actual_right,
+            },
+        ) => {
+            assert_term_metadata_equal(expected_left, actual_left);
+            assert_term_metadata_equal(expected_right, actual_right);
+        }
+        (Term::Sequence(expected), Term::Sequence(actual))
+        | (
+            Term::Apply {
+                arguments: expected,
+                ..
+            },
+            Term::Apply {
+                arguments: actual, ..
+            },
+        ) => {
+            assert_eq!(actual.len(), expected.len());
+            for (expected, actual) in expected.iter().zip(actual) {
+                assert_term_metadata_equal(expected, actual);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -153,7 +199,8 @@ fn every_java_json_sentence_has_a_round_trip() {
         },
     ];
 
-    let encoded = assert_definition_round_trip!(complete_definition(sentences));
+    let mut definition = complete_definition(sentences);
+    let encoded = assert_definition_round_trip!(definition.clone());
     let sentence_nodes = encoded["term"]["modules"][0]["localSentences"]
         .as_array()
         .unwrap()
@@ -175,6 +222,19 @@ fn every_java_json_sentence_has_a_round_trip() {
             "KConfiguration",
             "KBubble",
         ]
+    );
+
+    definition.modules[0]
+        .local_sentences
+        .push(Arc::new(Sentence::ContextAlias {
+            body: variable(),
+            requires: truth(),
+            attributes: empty(),
+        }));
+    let provenance = json::to_provenance_string(&definition, &SourceTable::default()).unwrap();
+    assert_eq!(
+        json::from_provenance_str(&provenance).unwrap().definition,
+        definition
     );
 }
 
@@ -461,7 +521,7 @@ fn provenance_attribute_manifest_matches_the_enforced_round_trip_subset() {
         manifest.value_kinds,
         ["null", "boolean", "number", "string", "array", "object"]
     );
-    assert_eq!(manifest.unsupported_sentence_forms, ["context-alias"]);
+    assert!(manifest.unsupported_sentence_forms.is_empty());
 
     let attributes = Attributes::new(BTreeMap::from([
         ("".into(), Value::Null),
@@ -501,8 +561,86 @@ fn provenance_attribute_manifest_matches_the_enforced_round_trip_subset() {
     let wire: Value = serde_json::from_str(&encoded).unwrap();
     assert_eq!(
         wire["term"]["modules"][0]["localSentences"][0]["node"],
-        "badsentence"
+        "KContextAlias"
     );
+    assert_eq!(
+        json::from_provenance_str(&encoded).unwrap().definition,
+        context_alias
+    );
+    let mut provenance_with_placeholder = wire.clone();
+    provenance_with_placeholder["term"]["modules"][0]["localSentences"][0] =
+        value!({"node": "badsentence"});
+    assert!(matches!(
+        json::from_provenance_str(&provenance_with_placeholder.to_string()),
+        Err(json::Error::InvalidProvenance(_))
+    ));
+    let old_version = encoded.replace("\"version\":4", "\"version\":3");
+    assert!(matches!(
+        json::from_provenance_str(&old_version),
+        Err(json::Error::UnsupportedVersion(3))
+    ));
+    let kast: Value = serde_json::from_str(&json::to_string(&context_alias).unwrap()).unwrap();
+    let mut kast_with_alias = kast;
+    kast_with_alias["term"]["modules"][0]["localSentences"][0] =
+        wire["term"]["modules"][0]["localSentences"][0].clone();
+    assert!(matches!(
+        json::from_str(&kast_with_alias.to_string()),
+        Err(json::Error::UnsupportedSentence("KContextAlias"))
+    ));
+}
+
+#[test]
+fn loaded_context_alias_preserves_later_rule_term_metadata() {
+    let source = "module MAIN\n  imports INT\n  syntax KResult ::= Int\n  syntax Exp ::= Int | foo(Exp) [strict(c)] | a() | b()\n  context alias [c]: HERE\n  rule a() => 1\n  rule b() => 2\nendmodule\n";
+    let prelude = k_rust::builtin::embedded("prelude.md").unwrap();
+    let mut resolver = |_: &str, required: &str| {
+        k_rust::builtin::embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("main.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let encoded = json::to_provenance_string(&loaded.definition, &loaded.source_table).unwrap();
+    let decoded = json::from_provenance_str(&encoded).unwrap();
+    assert_eq!(decoded.definition, loaded.definition);
+    assert_eq!(decoded.source_table, loaded.source_table);
+    let expected = &loaded.definition.main_module().unwrap().local_sentences;
+    let actual = &decoded.definition.main_module().unwrap().local_sentences;
+    let alias_index = expected
+        .iter()
+        .position(|sentence| matches!(&**sentence, Sentence::ContextAlias { .. }))
+        .expect("loaded definition contains the context alias");
+    let mut later_rules = 0;
+    for (expected, actual) in expected.iter().zip(actual).skip(alias_index + 1) {
+        if let (
+            Sentence::Rule {
+                body: expected_body,
+                requires: expected_requires,
+                ensures: expected_ensures,
+                ..
+            },
+            Sentence::Rule {
+                body: actual_body,
+                requires: actual_requires,
+                ensures: actual_ensures,
+                ..
+            },
+        ) = (&**expected, &**actual)
+        {
+            later_rules += 1;
+            assert!(expected_body.metadata().is_some());
+            assert_term_metadata_equal(expected_body, actual_body);
+            assert_term_metadata_equal(expected_requires, actual_requires);
+            assert_term_metadata_equal(expected_ensures, actual_ensures);
+        }
+    }
+    assert!(later_rules >= 2);
 }
 
 #[test]
