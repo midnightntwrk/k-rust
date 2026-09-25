@@ -89,9 +89,9 @@ pub(crate) fn resolve_function_with_config_pass(
             .defined_heads()
             .contains(&SortHead::new(BuiltinSort::GeneratedTopCell.k_name(), 0));
         let mut changed_production = false;
-        let mut sentences = Vec::with_capacity(module.local_sentences.len() + 1);
+        let mut sentences = Vec::<Sentence>::with_capacity(module.local_sentences.len() + 1);
 
-        // Invariant: `sentences` holds, without duplicates, the transformed form of every sentence of `module.local_sentences` before `sentence`, `replacements` their changed production identities, and `changed_production` whether one of them was a production in `with_config`; each iteration consumes one sentence, and `sentences.contains` makes the loop quadratic in the module's sentence count.
+        // Invariant: `sentences` holds, without duplicates, the transformed form of every sentence of `module.local_sentences` before `sentence`, `replacements` their changed production identities, and `changed_production` whether one of them was a production in `with_config`; each iteration consumes one sentence, and the `sentences` equality scan makes the loop quadratic in the module's sentence count.
         for sentence in &module.local_sentences {
             let transformed = match &**sentence {
                 Sentence::Rule {
@@ -186,8 +186,15 @@ pub(crate) fn resolve_function_with_config_pass(
             {
                 replacements.insert(before, after);
             }
-            if !sentences.contains(&transformed) {
-                sentences.push(transformed);
+            match sentences
+                .iter()
+                .position(|existing| *existing == transformed)
+            {
+                // Equal sentences become one, which derives from both inputs.
+                Some(index) => sentences[index]
+                    .attributes_mut()
+                    .union_input_addresses(transformed.attributes()),
+                None => sentences.push(transformed),
             }
         }
         if changed_production && !top_sort_defined {

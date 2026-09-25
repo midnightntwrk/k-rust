@@ -48,7 +48,7 @@ use crate::{
     },
     kast::WellKnownModule,
     kompile::pipeline::load_phase,
-    provenance::{LogicalSourceId, SourceTable},
+    provenance::{InputSpace, LogicalSourceId, SourceTable, stamp_input_addresses},
     timings::PhaseTimings,
 };
 
@@ -274,6 +274,13 @@ impl fmt::Display for LoadError {
 impl Error for LoadError {}
 
 /// A completely loaded and import-resolved source graph.
+///
+/// Contract: `resolved` is the resolution of `definition`. A caller that edits `definition`
+/// must re-resolve it (`ResolvedDefinition::resolve`, or `update` from the unedited
+/// definition) before compiling. The structured input addresses a [`load_structured`] result
+/// carries are trusted only while `resolved` is the resolution that call returned, that is, for
+/// an unedited result; any re-resolution makes compilation address every sentence by its
+/// position in the definition being compiled.
 #[derive(Clone, Debug)]
 pub struct LoadedDefinition {
     /// Parsed files in dependency-first `requires` order.
@@ -564,10 +571,18 @@ fn load_impl(
 /// A `bracket` production may carry a label, as a source bracket with `symbol(...)` does.
 /// That label names the bracket's `syntaxDefinition.kore` symbol and the tag priority and associativity blocks refer to it by; it never names a term symbol, because every parser erases the bracket before a term exists.
 /// A bracket without a label may instead carry a `bracketLabel` attribute naming its syntax-module symbol.
+///
+/// Every sentence of `definition` is stamped with its [`InputAddress`](crate::provenance::InputAddress)
+/// in [`InputSpace::Structured`](crate::provenance::InputSpace::Structured) (its module and index in `definition`, replacing any address it
+/// already carried) before configurations are expanded, so compilation relates what it emits to
+/// the caller's own sentence positions.
+/// Compilation trusts those addresses only while `resolved` is the one this call returned; a
+/// `LoadedDefinition` whose resolution was rebuilt or updated is addressed in the compile space.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
+    stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let mut resolver = |_: &str, required: &str| {
         builtin::embedded(required)
             .ok_or_else(|| format!("embedded builtin source {required:?} was not found"))
@@ -617,7 +632,10 @@ pub fn load_structured(
         None,
         &mut timings,
     )
-    .map(|(loaded, _)| loaded)
+    .map(|(mut loaded, _)| {
+        loaded.resolved.structured_input = true;
+        loaded
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

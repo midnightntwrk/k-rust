@@ -32,6 +32,7 @@
 //! K sentence equality for deduplication, including `Production`'s custom equality override.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use k_rust_kore::measure::{self, Counter};
 use sha2::{Digest, Sha256};
@@ -387,18 +388,25 @@ impl<'a> EquivalenceAccumulator<'a> {
     }
 
     pub(crate) fn push(&mut self, sentence: &'a Sentence) -> bool {
+        self.push_or_find(sentence).is_none()
+    }
+
+    /// Append `sentence` and return `None`, or return the index of the retained sentence it is
+    /// equivalent to.
+    pub(crate) fn push_or_find(&mut self, sentence: &'a Sentence) -> Option<usize> {
         let key = SentenceKey::of(sentence);
-        if self.by_key.get(&key).is_some_and(|candidates| {
+        if let Some(existing) = self.by_key.get(&key).and_then(|candidates| {
             candidates
                 .iter()
-                .any(|&index| sentence_equivalent(self.sentences[index], sentence))
+                .copied()
+                .find(|&index| sentence_equivalent(self.sentences[index], sentence))
         }) {
-            return false;
+            return Some(existing);
         }
         let index = self.sentences.len();
         self.sentences.push(sentence);
         self.by_key.entry(key).or_default().push(index);
-        true
+        None
     }
 
     fn into_sentences(self) -> Vec<&'a Sentence> {
@@ -412,6 +420,71 @@ pub(crate) fn push_if_inequivalent<'a>(
     sentence: &'a Sentence,
 ) -> bool {
     sentences.push(sentence)
+}
+
+/// Append to `sentences` the candidates absent by exact structural equality from it and from
+/// earlier candidates. A discarded candidate adds its input addresses to the sentence it equals,
+/// which derives from both.
+pub(crate) fn extend_with_new_sentences(
+    sentences: &mut Vec<Arc<Sentence>>,
+    candidates: Vec<Sentence>,
+) {
+    enum Equal {
+        Existing(usize),
+        Candidate(usize),
+    }
+    let equals = {
+        let mut existing_by_key = BTreeMap::<SentenceKey<'_>, Vec<usize>>::new();
+        for (index, sentence) in sentences.iter().enumerate() {
+            existing_by_key
+                .entry(SentenceKey::of(sentence))
+                .or_default()
+                .push(index);
+        }
+        let mut accepted_by_key = BTreeMap::<SentenceKey<'_>, Vec<usize>>::new();
+        let mut equals = Vec::with_capacity(candidates.len());
+        for (index, candidate) in candidates.iter().enumerate() {
+            let key = SentenceKey::of(candidate);
+            let equal = existing_by_key
+                .get(&key)
+                .and_then(|bucket| bucket.iter().find(|&&i| *sentences[i] == *candidate))
+                .map(|&i| Equal::Existing(i))
+                .or_else(|| {
+                    accepted_by_key
+                        .get(&key)
+                        .and_then(|bucket| bucket.iter().find(|&&i| candidates[i] == *candidate))
+                        .map(|&i| Equal::Candidate(i))
+                });
+            if equal.is_none() {
+                accepted_by_key.entry(key).or_default().push(index);
+            }
+            equals.push(equal);
+        }
+        equals
+    };
+    let mut position = vec![0; candidates.len()];
+    for ((index, candidate), equal) in candidates.into_iter().enumerate().zip(equals) {
+        let target = match equal {
+            None => {
+                position[index] = sentences.len();
+                sentences.push(Arc::new(candidate));
+                continue;
+            }
+            Some(Equal::Existing(existing)) => existing,
+            Some(Equal::Candidate(earlier)) => position[earlier],
+        };
+        let carried = sentences[target].attributes().input_addresses();
+        if !candidate
+            .attributes()
+            .input_addresses()
+            .iter()
+            .all(|address| carried.contains(address))
+        {
+            super::sentence_mut(&mut sentences[target])
+                .attributes_mut()
+                .union_input_addresses(candidate.attributes());
+        }
+    }
 }
 
 /// Retain candidates absent by exact structural equality from `existing` and earlier candidates.

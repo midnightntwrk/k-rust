@@ -31,8 +31,8 @@ use k_rust_kore::measure::{self, Counter};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::{
     definition::{
-        AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolveError,
-        ResolvedDefinition, Sentence, StructuralCheckBackend, StructuralCheckOptions,
+        AttributeKey, CheckMode, ConfigurationError, Definition, FlatModule, ResolvedDefinition,
+        Sentence, StructuralCheckBackend, StructuralCheckOptions,
         checks::{check_definition_with_options, check_singleton_overloads},
         expand_configurations_with_diagnostics,
     },
@@ -40,6 +40,7 @@ use crate::{
     kast::{GeneratedLabel, Sort, Term},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
+    provenance::{InputSpace, stamp_input_addresses},
     timings::PhaseTimings,
 };
 
@@ -637,6 +638,32 @@ fn transform_loaded_definition(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
+    // Every sentence the caller handed over is an input sentence: give each one its address in
+    // `loaded.definition` before any pass moves, merges, or derives from it. Only the structured
+    // addresses of an unchanged `load_structured` result are kept.
+    // The structured addresses are trusted only for an unedited `load_structured` result; a
+    // flagged resolution must at least describe the same modules, each with no more sentences
+    // than the definition (the resolution keeps one of each class of equivalent sentences).
+    debug_assert!(
+        !loaded.resolved.structured_input
+            || (loaded.resolved.modules().count() == loaded.definition.modules.len()
+                && loaded.definition.modules.iter().all(|module| {
+                    loaded.resolved.module_id(&module.name).is_some_and(|id| {
+                        loaded.resolved.module(id).local_sentences.len()
+                            <= module.local_sentences.len()
+                    })
+                })),
+        "LoadedDefinition::resolved is not the resolution of LoadedDefinition::definition"
+    );
+    let stamped = || {
+        let mut definition = loaded.definition.clone();
+        stamp_input_addresses(
+            &mut definition,
+            InputSpace::Compile,
+            loaded.resolved.structured_input,
+        );
+        definition
+    };
     // Loader-produced definitions are already expanded, while structured embedders can construct
     // the public LoadedDefinition fields directly. Normalize both entry paths before checks.
     let (definition, configuration_diagnostics, resolved) = if loaded
@@ -649,7 +676,7 @@ fn transform_loaded_definition(
         let (definition, configuration_diagnostics) = stage(
             timings,
             prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
-            || expand_configurations_with_diagnostics(&loaded.definition),
+            || expand_configurations_with_diagnostics(&stamped()),
         )?;
         let resolved = stage(
             timings,
@@ -661,12 +688,15 @@ fn transform_loaded_definition(
         let definition = stage(
             timings,
             prologue_phase::EXPAND_STRUCTURED_CONFIGURATIONS,
-            || Ok::<_, ConfigurationError>(loaded.definition.clone()),
+            || Ok::<_, ConfigurationError>(stamped()),
         )?;
+        // The stamped modules differ from the loaded ones only in their carriers; the update
+        // replaces the resolved modules so passes reading sentences through the resolution see
+        // the carriers too.
         let resolved = stage(
             timings,
             prologue_phase::RESOLVE_STRUCTURED_CONFIGURATIONS,
-            || Ok::<_, ResolveError>(loaded.resolved.clone()),
+            || loaded.resolved.update(&loaded.definition, &definition),
         )?;
         (definition, Vec::new(), resolved)
     };

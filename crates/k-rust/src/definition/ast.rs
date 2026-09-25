@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::attribute_keys::AttributeKey;
 use crate::kast::json::JsonLabel;
 use crate::kast::{Label, Sort, Term};
-use crate::provenance::{OriginReceipt, OriginRecord, SourceId};
+use crate::provenance::{InputAddress, InputAddresses, OriginReceipt, OriginRecord, SourceId};
 
 // String aliases of registry rows, kept for callers that index the map by name.
 pub const LOCATION_ATTRIBUTE: &str = AttributeKey::Location.as_str();
@@ -35,8 +35,8 @@ pub struct Location {
 ///
 /// Values remain JSON values because the Java frontend emits a mixture of
 /// strings and typed values, and unknown internal attributes must round-trip.
-/// Semantic equality ignores the reserved origin receipt while [`Self::entries`]
-/// continues to expose it to provenance consumers.
+/// Semantic equality ignores the reserved origin receipt and input-address carrier while
+/// [`Self::entries`] continues to expose both to provenance consumers.
 #[derive(Default)]
 pub struct Attributes {
     entries: BTreeMap<String, Value>,
@@ -44,6 +44,8 @@ pub struct Attributes {
     // through the definition clones made by the kompile pipeline; the structured receipt shares
     // that set and renders its JSON form only for consumers of the public map view.
     origin: Option<Arc<OriginReceipt>>,
+    // The input sentences this sentence derives from; shared by clones like the receipt.
+    inputs: Option<Arc<InputAddresses>>,
 }
 
 /// One attribute key whose distinct values cannot be represented by the semantic map.
@@ -96,6 +98,7 @@ impl Clone for Attributes {
         Self {
             entries: self.entries.clone(),
             origin: self.origin.as_ref().map(Arc::clone),
+            inputs: self.inputs.as_ref().map(Arc::clone),
         }
     }
 }
@@ -114,10 +117,22 @@ impl Attributes {
         let origin = entries
             .remove(AttributeKey::Origin.as_str())
             .map(|value| Arc::new(OriginReceipt::from_value(value)));
-        Self { entries, origin }
+        let mut attributes = Self {
+            entries,
+            origin,
+            inputs: None,
+        };
+        if let Some(value) = attributes
+            .entries
+            .remove(AttributeKey::InputAddresses.as_str())
+        {
+            attributes.insert(AttributeKey::InputAddresses.as_str(), value);
+        }
+        attributes
     }
 
-    /// Iterate over the wire representation, including the compiler-only origin receipt.
+    /// Iterate over the wire representation, including the compiler-only origin receipt and
+    /// input-address carrier.
     ///
     /// The temporary vector is deliberately scoped to this call; unlike the former cached map,
     /// rendering a receipt never becomes part of the sentence's retained state.
@@ -133,6 +148,13 @@ impl Attributes {
                 .binary_search_by(|(candidate, _)| (*candidate).cmp(key))
                 .unwrap_or_else(|index| index);
             entries.insert(index, (key, origin.value()));
+        }
+        if let Some(inputs) = &self.inputs {
+            let key = AttributeKey::InputAddresses.as_str();
+            let index = entries
+                .binary_search_by(|(candidate, _)| (*candidate).cmp(key))
+                .unwrap_or_else(|index| index);
+            entries.insert(index, (key, inputs.value()));
         }
         entries.into_iter()
     }
@@ -153,6 +175,8 @@ impl Attributes {
     pub fn get(&self, key: &str) -> Option<&Value> {
         if key == AttributeKey::Origin.as_str() {
             self.origin.as_deref().map(OriginReceipt::value)
+        } else if key == AttributeKey::InputAddresses.as_str() && self.inputs.is_some() {
+            self.inputs.as_deref().map(InputAddresses::value)
         } else {
             self.entries.get(key)
         }
@@ -198,6 +222,21 @@ impl Attributes {
             self.origin
                 .replace(Arc::new(OriginReceipt::from_value(value)))
                 .map(receipt_into_value)
+        } else if key == AttributeKey::InputAddresses.as_str() {
+            // A malformed carrier stays an ordinary entry so the wire form still round-trips;
+            // it names no input address.
+            let previous = self
+                .inputs
+                .take()
+                .map(|inputs| inputs.value().clone())
+                .or_else(|| self.entries.remove(&key));
+            match InputAddresses::from_value(&value) {
+                Some(inputs) => self.inputs = Some(Arc::new(inputs)),
+                None => {
+                    self.entries.insert(key, value);
+                }
+            }
+            previous
         } else {
             self.entries.insert(key, value)
         }
@@ -206,6 +245,8 @@ impl Attributes {
     pub fn remove(&mut self, key: &str) -> Option<Value> {
         if key == AttributeKey::Origin.as_str() {
             self.origin.take().map(receipt_into_value)
+        } else if key == AttributeKey::InputAddresses.as_str() && self.inputs.is_some() {
+            self.inputs.take().map(|inputs| inputs.value().clone())
         } else {
             self.entries.remove(key)
         }
@@ -247,14 +288,17 @@ impl Attributes {
     /// Equal key/value entries survive deduplication. If one key has multiple
     /// distinct values, every value for that key is omitted from the result.
     /// The compiler-only origin receipt is retained only when all present receipts agree and never
-    /// creates a semantic merge conflict.
+    /// creates a semantic merge conflict; the merged attributes carry the union of every input
+    /// address in first-occurrence order.
     pub fn merge<'a>(
         attributes: impl IntoIterator<Item = &'a Self>,
     ) -> Result<Self, AttributeMergeError> {
         let mut values = BTreeMap::<String, Vec<Value>>::new();
         let mut origin = None::<Arc<OriginReceipt>>;
         let mut conflicting_origin = false;
+        let mut inputs = Self::default();
         for attributes in attributes {
+            inputs.union_input_addresses(attributes);
             // Invariant: `values` maps every key of the earlier attribute sets and of the entries before `key` to its distinct values in first-occurrence order; each iteration consumes one entry of `attributes.entries` and scans that key's `candidates` once.
             for (key, value) in &attributes.entries {
                 let candidates = values.entry(key.clone()).or_default();
@@ -285,6 +329,7 @@ impl Attributes {
         if !conflicting_origin {
             merged.origin = origin;
         }
+        merged.inputs = inputs.inputs;
         if conflicts.is_empty() {
             Ok(merged)
         } else {
@@ -338,11 +383,52 @@ impl Attributes {
                 (None, None) => true,
                 _ => false,
             }
+            && match (&self.inputs, &other.inputs) {
+                (Some(left), Some(right)) => Arc::ptr_eq(left, right) || left == right,
+                (None, None) => true,
+                _ => false,
+            }
     }
 
     /// The structured receipt written by a kompile pass, if this sentence carries one.
     pub fn origin_record(&self) -> Option<&OriginRecord> {
         self.origin_receipt().and_then(OriginReceipt::record)
+    }
+
+    /// The input sentences these attributes' sentence derives from, in first-occurrence order;
+    /// empty for a sentence generated without an input author.
+    pub fn input_addresses(&self) -> &[InputAddress] {
+        self.inputs
+            .as_deref()
+            .map(InputAddresses::addresses)
+            .unwrap_or_default()
+    }
+
+    /// The wire form of the input-address carrier, if there is one.
+    pub(crate) fn input_addresses_value(&self) -> Option<&Value> {
+        self.inputs.as_deref().map(InputAddresses::value)
+    }
+
+    /// Replace the input-address carrier; an empty list removes it.
+    pub(crate) fn set_input_addresses(&mut self, addresses: Vec<InputAddress>) {
+        self.inputs = InputAddresses::new(addresses).map(Arc::new);
+    }
+
+    /// Append the input addresses of `source` that these attributes do not carry yet.
+    pub(crate) fn union_input_addresses(&mut self, source: &Self) {
+        let Some(added) = &source.inputs else {
+            return;
+        };
+        match &self.inputs {
+            None => self.inputs = Some(Arc::clone(added)),
+            Some(existing) if Arc::ptr_eq(existing, added) => {}
+            Some(existing) => {
+                if let Some(union) = InputAddresses::union(existing.addresses(), added.addresses())
+                {
+                    self.inputs = Some(Arc::new(union));
+                }
+            }
+        }
     }
 
     pub(crate) fn inherit_origin(&mut self, source: &Self) {

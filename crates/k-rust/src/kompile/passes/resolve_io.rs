@@ -16,12 +16,13 @@
 //!
 //! Java-compatible resolution of configuration cells marked with `stream`.
 
+use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{fmt, sync::Arc};
 
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Definition, FlatImport, LabelHead, Sentence},
+    definition::{Attributes, Definition, FlatImport, LabelHead, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, WellKnownModule},
     provenance::GeneratingPass,
@@ -354,12 +355,18 @@ fn stream_module_sentences(
                 requires,
                 ensures,
                 attributes,
-            } if attributes.has(AttributeKey::Stream) => Some(Sentence::Rule {
-                body: rename_label(body.clone(), &builtin_label, &stream.label),
-                requires: requires.clone(),
-                ensures: ensures.clone(),
-                attributes: attributes.clone(),
-            }),
+            } if attributes.has(AttributeKey::Stream) => {
+                // The specialized rule instantiates the builtin template for the user's stream
+                // cell, so it derives from both.
+                let mut attributes = attributes.clone();
+                attributes.union_input_addresses(stream.sentence.attributes());
+                Some(Sentence::Rule {
+                    body: rename_label(body.clone(), &builtin_label, &stream.label),
+                    requires: requires.clone(),
+                    ensures: ensures.clone(),
+                    attributes,
+                })
+            }
             Sentence::Rule { attributes, .. } if attributes.has(AttributeKey::Projection) => {
                 Some((**sentence).clone())
             }
@@ -381,7 +388,9 @@ fn stdin_unblocking_rules(
     sentences: &[Sentence],
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Vec<Sentence> {
-    let Some(template) = stdin_unblock_template(definition, stream, diagnostics) else {
+    let Some((template, template_attributes)) =
+        stdin_unblock_template(definition, stream, diagnostics)
+    else {
         return Vec::new();
     };
     let mut generated = Vec::new();
@@ -421,11 +430,16 @@ fn stdin_unblocking_rules(
             &sort,
             &format!("<{}>", stream.stream),
         );
+        // The unblocking rule instantiates the builtin template on the user's rule for the
+        // user's stream cell: it derives from all three.
+        let mut attributes = attributes.clone();
+        attributes.union_input_addresses(&template_attributes);
+        attributes.union_input_addresses(stream.sentence.attributes());
         generated.push(Sentence::Rule {
             body: drop_rhs_and_replace_cell(body.clone(), &stream.label.name, &replacement),
             requires: requires.clone(),
             ensures: ensures.clone(),
-            attributes: attributes.clone(),
+            attributes,
         });
     }
     generated
@@ -435,7 +449,7 @@ fn stdin_unblock_template(
     definition: &Definition,
     stream: &StreamProduction,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Option<Term> {
+) -> Option<(Term, Attributes)> {
     let module = stream_module(definition, "stdin", diagnostics)?;
     let templates = module
         .local_sentences
@@ -444,7 +458,10 @@ fn stdin_unblock_template(
             Sentence::Rule {
                 body, attributes, ..
             } if attributes.string(AttributeKey::Label) == Some("STDIN-STREAM.stdinUnblock") => {
-                Some(without_production_metadata(body.clone()))
+                Some((
+                    without_production_metadata(body.clone()),
+                    attributes.clone(),
+                ))
             }
             _ => None,
         })
@@ -743,15 +760,6 @@ fn stream_module<'a>(
         diagnostics.push(plain_error(format!("no such module: {name}")));
     }
     module
-}
-
-fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
-    // Invariant: `sentences` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `sentences.contains` makes the loop O(`additions` * `sentences`).
-    for sentence in additions {
-        if !sentences.contains(&sentence) {
-            sentences.push(sentence);
-        }
-    }
 }
 
 fn capitalize(value: &str) -> String {

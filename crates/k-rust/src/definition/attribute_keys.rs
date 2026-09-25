@@ -255,6 +255,7 @@ attribute_keys! {
     Origin = "org.krust.provenance.Origin" (Krust, false),
     SentenceStartOffset = "org.krust.provenance.SentenceStartOffset" (Krust, false),
     SentenceEndOffset = "org.krust.provenance.SentenceEndOffset" (Krust, false),
+    InputAddresses = "org.krust.provenance.InputAddresses" (Krust, false),
     GeneratedRuleSyntax = "generatedRuleSyntax" (Krust, false),
     BisonParsingOnlySubsort = "#bisonParsingOnlySubsort" (Krust, false),
 }
@@ -267,7 +268,10 @@ impl AttributeKey {
     pub(crate) const fn is_provenance_only(self) -> bool {
         matches!(
             self,
-            Self::Origin | Self::SentenceStartOffset | Self::SentenceEndOffset
+            Self::Origin
+                | Self::SentenceStartOffset
+                | Self::SentenceEndOffset
+                | Self::InputAddresses
         )
     }
 }

@@ -16,6 +16,7 @@
 //!
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.
 
+use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use crate::definition::AttributeKey;
@@ -104,7 +105,18 @@ pub(crate) fn resolve_fun_pass(
         let mut sentences = Vec::with_capacity(module.local_sentences.len());
         // Invariant: `sentences` holds the transformed form of every sentence of `module.local_sentences` before `sentence`, and `resolver.productions` and `resolver.rules` the lambdas generated from them; each iteration consumes one sentence.
         for sentence in &module.local_sentences {
-            sentences.push(resolver.transform_sentence((**sentence).clone()));
+            let (productions, rules) = (resolver.productions.len(), resolver.rules.len());
+            let transformed = resolver.transform_sentence((**sentence).clone());
+            // The lambda productions and rules lifted out of a sentence derive from it.
+            for generated in resolver.productions[productions..]
+                .iter_mut()
+                .chain(&mut resolver.rules[rules..])
+            {
+                generated
+                    .attributes_mut()
+                    .union_input_addresses(transformed.attributes());
+            }
+            sentences.push(transformed);
         }
         extend_unique(&mut sentences, resolver.productions);
         extend_unique(&mut sentences, resolver.rules);
@@ -802,15 +814,6 @@ fn bool_token(value: bool) -> Term {
 
 fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
-}
-
-fn extend_unique(sentences: &mut Vec<Sentence>, additions: Vec<Sentence>) {
-    // Invariant: `sentences` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `sentences.contains` makes the loop O(`additions` * `sentences`).
-    for sentence in additions {
-        if !sentences.contains(&sentence) {
-            sentences.push(sentence);
-        }
-    }
 }
 
 fn sort_error(error: SortInjectionError) -> Diagnostic {

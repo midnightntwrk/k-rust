@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::{
     builtin::embedded,
@@ -6,13 +6,14 @@ use k_rust::{
 };
 use k_rust::{
     definition::{
-        Attributes, Definition, FlatImport, FlatModule, ProductionItem, ResolvedDefinition,
-        Sentence,
+        AttributeKey, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
+        ResolvedDefinition, Sentence,
     },
     kast::{Label, Sort, Term},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::parser::parse_definition,
     outer::LoadedDefinition,
+    provenance::{InputAddress, InputSpace},
 };
 use serde_json::json;
 
@@ -101,6 +102,202 @@ fn load_structured_compiles_an_authored_instrs_configuration() {
         .unwrap_or_else(|error| panic!("{backend} rejected structured input: {error:#?}"));
         assert!(artifacts.definition_kore.contains("instrs"));
         assert!(!artifacts.definition_kore.contains("Lbl'-LT-'k'-GT-'"));
+    }
+}
+
+/// (d) A structured definition without spans or labels: after configuration expansion and every
+/// pass, each authored rule names its own structured address, and (c) two equal authored rules
+/// keep both addresses under their one UNIQUE_ID.
+#[test]
+fn structured_rules_carry_their_structured_addresses_through_every_pass() {
+    let mut definition = structured_definition_with_configuration_cell("k");
+    let constant = |name: &str| Sentence::Production {
+        label: Some(Label::new(name)),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![
+            ProductionItem::Terminal(name.into()),
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: Attributes::default(),
+    };
+    let rule = |name: &str| Sentence::Rule {
+        body: Term::Rewrite {
+            left: Box::new(Term::apply(name, Vec::new())),
+            right: Box::new(Term::Token {
+                token: "1".into(),
+                sort: Sort::new("Int"),
+            }),
+        },
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    let main = &mut definition.modules[0].local_sentences;
+    main.extend(
+        [
+            constant("a"),
+            constant("b"),
+            rule("a"),
+            rule("b"),
+            rule("a"),
+        ]
+        .map(std::sync::Arc::new),
+    );
+    let first = u32::try_from(main.len() - 3).unwrap();
+    let address = |index| InputAddress::new(InputSpace::Structured, "MAIN", index);
+    let (a_first, b, a_second) = (address(first), address(first + 1), address(first + 2));
+
+    let loaded = load_structured(
+        definition,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("structured loading failed: {error}"));
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("structured compilation failed: {error:#?}"));
+
+    let authored = [a_first.clone(), b.clone(), a_second.clone()];
+    let mut ids = BTreeMap::<InputAddress, Vec<String>>::new();
+    let mut a_addresses = Vec::new();
+    for module in &artifacts.execution_definition.modules {
+        for sentence in &module.local_sentences {
+            let Sentence::Rule { attributes, .. } = &**sentence else {
+                continue;
+            };
+            let addresses = attributes.input_addresses();
+            if !addresses.iter().any(|address| authored.contains(address)) {
+                continue;
+            }
+            assert!(
+                addresses.iter().all(|address| authored.contains(address)),
+                "an authored rule names another sentence: {addresses:?}"
+            );
+            if addresses.contains(&b) {
+                assert_eq!(addresses, std::slice::from_ref(&b));
+            } else {
+                a_addresses.extend(addresses.iter().cloned());
+            }
+            for address in addresses {
+                ids.entry(address.clone())
+                    .or_default()
+                    .push(attributes.string(AttributeKey::UniqueId).unwrap().into());
+            }
+        }
+    }
+    assert_eq!(a_addresses, [a_first.clone(), a_second.clone()]);
+    assert_eq!(ids[&b].len(), 1);
+    let a_ids = ids[&a_first]
+        .iter()
+        .chain(&ids[&a_second])
+        .collect::<BTreeSet<_>>();
+    assert_eq!(a_ids.len(), 1, "equal rules share one UNIQUE_ID");
+    assert!(!a_ids.contains(&ids[&b][0]));
+}
+
+/// Review round 1: structured addresses are trusted only in the loaded definition
+/// `load_structured` returned. Relinked with a rebuilt resolution after its rules were
+/// rearranged, every sentence is addressed by its position in the definition being compiled.
+#[test]
+fn rearranged_structured_input_is_addressed_in_the_compiled_definition() {
+    let mut definition = structured_definition_with_configuration_cell("k");
+    let constant = |name: &str| Sentence::Production {
+        label: Some(Label::new(name)),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![
+            ProductionItem::Terminal(name.into()),
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: Attributes::default(),
+    };
+    let rule = |name: &str, value: &str| Sentence::Rule {
+        body: Term::Rewrite {
+            left: Box::new(Term::apply(name, Vec::new())),
+            right: Box::new(Term::Token {
+                token: value.into(),
+                sort: Sort::new("Int"),
+            }),
+        },
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    definition.modules[0].local_sentences.extend(
+        [constant("a"), constant("b"), rule("a", "1"), rule("b", "2")].map(std::sync::Arc::new),
+    );
+    let loaded = load_structured(
+        definition,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("structured loading failed: {error}"));
+    let mut rearranged = loaded.definition.clone();
+    let main = rearranged
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    let rules = main
+        .local_sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| matches!(&***sentence, Sentence::Rule { .. }))
+        .filter(|(_, sentence)| {
+            sentence
+                .attributes()
+                .input_addresses()
+                .iter()
+                .all(|address| address.input == InputSpace::Structured)
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [.., first, second] = rules.as_slice() else {
+        panic!("expected the two authored rules: {rules:?}");
+    };
+    main.local_sentences.swap(*first, *second);
+    let authored = [*first, *second]
+        .map(|index| InputAddress::new(InputSpace::Compile, "MAIN", u32::try_from(index).unwrap()));
+    let resolved = ResolvedDefinition::resolve(&rearranged).unwrap();
+    let relinked = LoadedDefinition {
+        files: loaded.files.clone(),
+        source_table: loaded.source_table.clone(),
+        definition: rearranged,
+        resolved,
+        diagnostics: loaded.diagnostics.clone(),
+    };
+    let artifacts = compile_loaded_definition(&relinked, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("relinked compilation failed: {error:#?}"));
+    for module in &artifacts.execution_definition.modules {
+        for sentence in &module.local_sentences {
+            assert!(
+                sentence
+                    .attributes()
+                    .input_addresses()
+                    .iter()
+                    .all(|address| address.input == InputSpace::Compile),
+                "{sentence:?}"
+            );
+        }
+    }
+    for address in authored {
+        let carriers = artifacts
+            .execution_definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+            .filter(|sentence| sentence.attributes().input_addresses().contains(&address))
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(carriers.as_slice(), [rule] if matches!(&***rule, Sentence::Rule { .. })),
+            "{address:?}: {carriers:?}"
+        );
     }
 }
 

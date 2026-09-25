@@ -16,6 +16,7 @@
 //!
 //! Lower evaluation contexts into heat/cool rules and freezer productions.
 
+use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeMap, collections::BTreeSet, fmt, sync::Arc};
 
 use serde_json::Value;
@@ -241,7 +242,9 @@ fn resolve_context(
         },
     ];
     let origins = sentence_origin_links(context);
+    // The freezer, heating, and cooling sentences all derive from this context alone.
     for sentence in &mut generated {
+        sentence.attributes_mut().union_input_addresses(attributes);
         seed_generated_sentence_origin(sentence, GeneratingPass::ResolveContexts, origins.clone());
     }
     Ok(generated)
@@ -587,15 +590,6 @@ fn bool_token(value: bool) -> Term {
     Term::Token {
         token: value.to_string(),
         sort: Sort::builtin(BuiltinSort::Bool),
-    }
-}
-
-fn extend_unique(target: &mut Vec<Sentence>, additions: impl IntoIterator<Item = Sentence>) {
-    // Invariant: `target` holds its original sentences plus each earlier element of `additions` it did not already contain; each iteration consumes one element of `additions`, and the linear `target.contains` makes the loop O(`additions` * `target`).
-    for sentence in additions {
-        if !target.contains(&sentence) {
-            target.push(sentence);
-        }
     }
 }
 

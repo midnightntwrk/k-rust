@@ -51,7 +51,10 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// receipt's `origins` is an index into that table. Version 4 adds `KContextAlias` sentences.
 /// Version 5 lets the source table hold one logical source once per distinct offset map (one
 /// entry per Markdown extraction), and a source reference names its entry by `extraction`.
-pub const PROVENANCE_VERSION: u32 = 5;
+/// Version 6 writes each sentence's input-address carrier under
+/// `org.krust.provenance.InputAddresses`; a version 5 reader would take that key for an ordinary
+/// attribute.
+pub const PROVENANCE_VERSION: u32 = 6;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum DefinitionEnvelopeKind {
@@ -564,6 +567,9 @@ impl ProvenanceEncoder {
                 serde_json::to_value(receipt)?,
             );
         }
+        if let Some(inputs) = attributes.input_addresses_value() {
+            att.insert(AttributeKey::InputAddresses.as_str().into(), inputs.clone());
+        }
         Ok(JsonAttributes {
             node: AttributeNode::KAtt,
             att,
@@ -651,6 +657,12 @@ fn decode_attribute_sources(
     if let Some(origin) = attributes.value(AttributeKey::Origin) {
         let origin = decode_receipt(JsonOriginReceipt::deserialize(origin)?, origin_sets)?;
         attributes.set_origin_record(origin);
+    }
+    if attributes.has(AttributeKey::InputAddresses) && attributes.input_addresses().is_empty() {
+        return Err(Error::InvalidProvenance(
+            "input addresses are not a non-empty list of distinct {input, module, index} objects"
+                .into(),
+        ));
     }
     Ok(())
 }
@@ -1119,10 +1131,14 @@ enum AttributeNode {
 }
 
 impl From<&Attributes> for JsonAttributes {
+    /// KAST v4 is an interchange vocabulary: the input-address carrier names sentences of one
+    /// compilation's input and is not part of it.
     fn from(attributes: &Attributes) -> Self {
+        let mut att = attributes.wire_map();
+        att.remove(AttributeKey::InputAddresses.as_str());
         Self {
             node: AttributeNode::KAtt,
-            att: attributes.wire_map(),
+            att,
         }
     }
 }
@@ -1909,5 +1925,87 @@ mod tests {
                 distinct.iter().map(|set| set.len()).sum::<usize>()
             );
         }
+    }
+
+    #[test]
+    fn input_addresses_and_extraction_ordinals_round_trip_together() {
+        use crate::provenance::{InputAddress, InputSpace, LogicalSourceId, SourceOffsetMap};
+
+        let logical = LogicalSourceId::new("test.md", b"ab");
+        let mut source_table = SourceTable::default();
+        let first =
+            source_table.intern_extraction(logical.clone(), Some(SourceOffsetMap::identity(1)));
+        let second = source_table.intern_extraction(logical, Some(SourceOffsetMap::identity(2)));
+        assert_ne!(first, second);
+        let addresses = vec![
+            InputAddress::new(InputSpace::Compile, "MAIN", 1),
+            InputAddress::new(InputSpace::Structured, "MAIN", 0),
+        ];
+        let mut attributes = Attributes::default();
+        attributes.set(AttributeKey::SourceId, serde_json::json!(second.0));
+        attributes.set_input_addresses(addresses.clone());
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: vec![Arc::new(Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Exp"),
+                    attributes,
+                })],
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        };
+
+        let encoded = to_provenance_string(&definition, &source_table).unwrap();
+        let wire: Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(wire["version"], PROVENANCE_VERSION);
+        let decoded = from_provenance_str(&encoded).unwrap();
+        assert_eq!(decoded.source_table, source_table);
+        let sentence = &decoded.definition.modules[0].local_sentences[0];
+        assert_eq!(sentence.attributes().source_id(), Some(second));
+        assert_eq!(sentence.attributes().input_addresses(), addresses);
+    }
+
+    #[test]
+    fn input_addresses_reach_krust_provenance_but_not_kast_v4() {
+        use crate::provenance::{INPUT_ADDRESSES_ATTRIBUTE, InputAddress, InputSpace};
+
+        let addresses = vec![
+            InputAddress::new(InputSpace::Structured, "MAIN", 3),
+            InputAddress::new(InputSpace::Compile, "MAIN", 0),
+        ];
+        let mut attributes = Attributes::default();
+        attributes.set_input_addresses(addresses.clone());
+        let definition = Definition {
+            main_module: "MAIN".into(),
+            modules: vec![FlatModule {
+                name: "MAIN".into(),
+                imports: Vec::new(),
+                local_sentences: vec![Arc::new(Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Exp"),
+                    attributes,
+                })],
+                attributes: Attributes::default(),
+            }],
+            attributes: Attributes::default(),
+        };
+
+        let kast = to_string(&definition).unwrap();
+        assert!(!kast.contains(INPUT_ADDRESSES_ATTRIBUTE), "{kast}");
+
+        let encoded = to_provenance_string(&definition, &SourceTable::default()).unwrap();
+        let decoded = from_provenance_str(&encoded).unwrap();
+        let sentence = &decoded.definition.modules[0].local_sentences[0];
+        assert_eq!(sentence.attributes().input_addresses(), addresses);
+
+        let malformed = encoded.replace("\"structured\"", "\"elsewhere\"");
+        assert!(matches!(
+            from_provenance_str(&malformed),
+            Err(Error::InvalidProvenance(_))
+        ));
     }
 }
