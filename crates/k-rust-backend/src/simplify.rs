@@ -1345,7 +1345,7 @@ fn apply_ceil_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Predicate>, SimplificationError> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables) {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_ceil_equation(
             definition,
             &renamed,
@@ -1475,7 +1475,7 @@ fn apply_predicate_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Predicate>, SimplificationError> {
-    if let Some((renamed, _)) = rename_predicate_rule_apart(rule, &predicate.free_variables()) {
+    if let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates) {
         return apply_predicate_equation(
             definition,
             &renamed,
@@ -1700,13 +1700,35 @@ enum PredicateMatch {
     Indeterminate,
 }
 
+/// Match a predicate equation's left-hand side against a predicate.
+///
+/// The two predicates must have one logical shape; their terms are matched as one problem.
+/// Corresponding quantifiers relate their bound variables: the rule's bound variable (renamed
+/// apart from every subject variable beforehand) is matched as a pattern variable and must be
+/// bound exactly to the subject's bound variable, and no other binding may mention a subject
+/// bound variable, which would move it out of its quantifier. The bound variables' bindings
+/// are not part of the result.
 fn match_predicate(
     definition: &BackendDefinition,
     pattern: &Predicate,
     subject: &Predicate,
 ) -> PredicateMatch {
     let mut pairs = Vec::new();
-    if !collect_predicate_term_pairs(pattern, subject, &mut pairs) {
+    let mut binders = Vec::new();
+    if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
+        return PredicateMatch::Failed;
+    }
+    let pattern_binders = binders
+        .iter()
+        .map(|(bound, _)| *bound)
+        .collect::<BTreeSet<_>>();
+    let subject_binders = binders
+        .iter()
+        .map(|(_, bound)| *bound)
+        .collect::<BTreeSet<_>>();
+    // Shadowing on either side would make the correspondence depend on scope; such a pair is
+    // not matched.
+    if pattern_binders.len() != binders.len() || subject_binders.len() != binders.len() {
         return PredicateMatch::Failed;
     }
     match match_term_pairs_in_definition(
@@ -1716,7 +1738,23 @@ fn match_predicate(
             .into_iter()
             .map(|(pattern, subject)| (pattern.clone(), subject.clone())),
     ) {
-        MatchResult::Success(substitution) => PredicateMatch::Success(substitution),
+        MatchResult::Success(mut substitution) => {
+            for (pattern_bound, subject_bound) in &binders {
+                match substitution.remove(*pattern_bound) {
+                    None => {}
+                    Some(bound) if bound == Term::variable((*subject_bound).clone()) => {}
+                    Some(_) => return PredicateMatch::Failed,
+                }
+            }
+            if substitution.values().any(|value| {
+                subject_binders
+                    .iter()
+                    .any(|bound| value.attributes().variables.contains(*bound))
+            }) {
+                return PredicateMatch::Failed;
+            }
+            PredicateMatch::Success(substitution)
+        }
         MatchResult::Failed(_) => PredicateMatch::Failed,
         MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
     }
@@ -1726,6 +1764,7 @@ fn collect_predicate_term_pairs<'a>(
     pattern: &'a Predicate,
     subject: &'a Predicate,
     pairs: &mut Vec<(&'a Term, &'a Term)>,
+    binders: &mut Vec<(&'a Variable, &'a Variable)>,
 ) -> bool {
     match (pattern, subject) {
         (Predicate::True, Predicate::True) | (Predicate::False, Predicate::False) => true,
@@ -1742,7 +1781,7 @@ fn collect_predicate_term_pairs<'a>(
             true
         }
         (Predicate::Not(left), Predicate::Not(right)) => {
-            collect_predicate_term_pairs(left, right, pairs)
+            collect_predicate_term_pairs(left, right, pairs, binders)
         }
         (Predicate::And(left), Predicate::And(right))
         | (Predicate::Or(left), Predicate::Or(right))
@@ -1750,18 +1789,19 @@ fn collect_predicate_term_pairs<'a>(
         {
             left.iter()
                 .zip(right)
-                .all(|(left, right)| collect_predicate_term_pairs(left, right, pairs))
+                .all(|(left, right)| collect_predicate_term_pairs(left, right, pairs, binders))
         }
         (Predicate::Implies(left_a, left_b), Predicate::Implies(right_a, right_b))
         | (Predicate::Iff(left_a, left_b), Predicate::Iff(right_a, right_b)) => {
-            collect_predicate_term_pairs(left_a, right_a, pairs)
-                && collect_predicate_term_pairs(left_b, right_b, pairs)
+            collect_predicate_term_pairs(left_a, right_a, pairs, binders)
+                && collect_predicate_term_pairs(left_b, right_b, pairs, binders)
         }
         (Predicate::Exists(left_var, left), Predicate::Exists(right_var, right))
         | (Predicate::Forall(left_var, left), Predicate::Forall(right_var, right))
-            if left_var == right_var =>
+            if left_var.kind == right_var.kind && left_var.sort == right_var.sort =>
         {
-            collect_predicate_term_pairs(left, right, pairs)
+            binders.push((left_var, right_var));
+            collect_predicate_term_pairs(left, right, pairs, binders)
         }
         _ => false,
     }
@@ -2398,7 +2438,7 @@ fn matches_top_equation(
             if !matches!(rule.rhs, RuleRhs::Top) {
                 continue;
             }
-            let renamed = rename_apart(rule, &term.attributes().variables);
+            let renamed = rename_apart(rule, &term.attributes().variables, known_predicates);
             let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
             let substitution =
                 match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
@@ -3081,7 +3121,7 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Simplification>, SimplificationError> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables) {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_equation(
             definition,
             &renamed,

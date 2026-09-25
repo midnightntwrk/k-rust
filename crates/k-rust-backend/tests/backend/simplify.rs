@@ -3721,6 +3721,156 @@ fn concreteness_constraint_survives_renaming_the_equation_apart() {
 }
 
 #[test]
+fn an_equation_requirement_on_a_variable_the_match_leaves_unbound_is_not_captured_by_the_path() {
+    // `f(X) = d requires Y = c`: `Y` is the rule's own variable. The subject mentions variables
+    // spelled like the rule's, and the path condition constrains variables spelled like the
+    // rule's `Y` and like names a renaming could pick; none of them is the rule's `Y`.
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(Y:SortS{}, \dv{SortS{}}("c")),
+                    \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("d"), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-d")]
+            "#,
+    );
+    let rules = definition
+        .function_theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one equation");
+    };
+    let lhs_variables = rule.lhs.attributes().variables.iter().collect::<Vec<_>>();
+    let [lhs_variable] = lhs_variables.as_slice() else {
+        panic!("expected one lhs variable");
+    };
+    let sort = Sort::simple("SortS");
+    let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+    let rule_y = "Eq#Y";
+    let input = k_rust_backend::substitution::substitute(
+        &term(&definition, "f{}(budgetPair{}(A:SortS{}, B:SortS{}))"),
+        &Substitution::from([
+            (
+                Variable::new("A", sort.clone()),
+                Term::variable((*lhs_variable).clone()),
+            ),
+            (Variable::new("B", sort.clone()), variable(rule_y)),
+        ]),
+    );
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let path = [
+        rule_y,
+        "Eq#Y!0",
+        "Eq#Y!1",
+        "Eq#X!0",
+        "Eq#Y!apart0",
+        "Eq#Y!apart1",
+    ]
+    .map(|name| Predicate::Equals(variable(name), c.clone()));
+
+    let result = simplify_with_solver(
+        &definition,
+        &input,
+        &path,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("an undecided requirement leaves the term");
+
+    // The path condition may rewrite the subject's own `Eq#Y` to `c`, but `f` is not evaluated.
+    assert!(
+        matches!(result.term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "f"),
+        "{:?}",
+        result.term
+    );
+}
+
+/// `∃Y. add(X, Y) = 3` simplifies to `\top`.
+fn quantified_predicate_equation() -> (BackendDefinition, Variable) {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol add{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \exists{Q}(Y:SortInt{},
+                            \equals{SortInt{}, Q}(add{}(X:SortInt{}, Y:SortInt{}), \dv{SortInt{}}("3"))
+                        ),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("solvable"), simplification{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let rules = definition
+        .predicate_simplification_theory
+        .values()
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one predicate equation: {rules:?}");
+    };
+    let Predicate::Exists(bound, _) = &rule.lhs else {
+        panic!("expected a quantified left-hand side: {:?}", rule.lhs);
+    };
+    let bound = bound.clone();
+    (definition, bound)
+}
+
+#[test]
+fn predicate_equation_matches_a_quantifier_that_binds_a_variable_of_the_same_name() {
+    let (definition, bound) = quantified_predicate_equation();
+    let body = |first: Term| {
+        Predicate::Equals(
+            k_rust_backend::substitution::substitute(
+                &term(&definition, "add{}(P:SortInt{}, Q:SortInt{})"),
+                &Substitution::from([
+                    (Variable::new("P", Sort::simple("SortInt")), first),
+                    (
+                        Variable::new("Q", Sort::simple("SortInt")),
+                        Term::variable(bound.clone()),
+                    ),
+                ]),
+            ),
+            term(&definition, r#"\dv{SortInt{}}("3")"#),
+        )
+    };
+    let simplify = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    // `∃Y. add(Z, Y) = 3` with the rule's own spelling of `Y`.
+    let matching = Predicate::Exists(
+        bound.clone(),
+        Box::new(body(term(&definition, "Z:SortInt{}"))),
+    );
+    assert_eq!(simplify(&matching), Predicate::True);
+
+    // `∃Y. add(Y, Y) = 3`: binding `X` to the bound `Y` would move it out of its quantifier.
+    let escaping = Predicate::Exists(bound.clone(), Box::new(body(Term::variable(bound.clone()))));
+    assert_ne!(simplify(&escaping), Predicate::True);
+}
+
+#[test]
 fn alpha_equal_equations_collapse_and_still_evaluate_a_subject_sharing_their_variable_names() {
     // `f(X) = c` and `f(Y) = c` with one identity are one rule; the subject mentions the
     // kept copy's variable, which rule application renames apart before matching.
