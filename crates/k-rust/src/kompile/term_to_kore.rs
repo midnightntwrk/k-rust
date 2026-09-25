@@ -278,10 +278,23 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             Term::Variable { name, sort } => Ok(Pattern::Variable(self.variable(name, sort))),
             Term::Sequence(items) => self.sequence(items),
             Term::Apply { label, arguments } => self.application(label, arguments),
-            Term::Token { token, sort } => Ok(Pattern::DomainValue {
-                sort: self.kore_sort(sort),
-                value: self.token_value(token, sort)?,
-            }),
+            Term::Token { token, sort } => {
+                if !self.sorts.admits_domain_value(sort)
+                    && !self
+                        .token_sorts
+                        .as_ref()
+                        .is_some_and(|sorts| sorts.admits_domain_value(sort))
+                {
+                    return Err(TermConversionError::InvalidToken {
+                        sort: sort.clone(),
+                        message: "the sort has no visible token declaration or domain hook".into(),
+                    });
+                }
+                Ok(Pattern::DomainValue {
+                    sort: self.kore_sort(sort),
+                    value: self.token_value(token, sort)?,
+                })
+            }
             Term::Annotated { .. } => unreachable!(),
         }
     }

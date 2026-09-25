@@ -136,6 +136,7 @@ pub enum DiagnosticCode {
     InconsistentFunctionRuleAttributes,
     MultipleTopSorts,
     InvalidTokenProduction,
+    InvalidDomainValue,
     MarkdownWarning,
     MissingSyntaxModule,
     ProofModuleRule,

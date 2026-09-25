@@ -856,7 +856,14 @@ fn module_runner_includes_term_structure_checks() {
         modules: vec![FlatModule {
             name: "MAIN".into(),
             imports: Vec::new(),
-            local_sentences: vec![Arc::new(rule_with_body(token("0")))],
+            local_sentences: vec![
+                Arc::new(Sentence::SyntaxSort {
+                    parameters: Vec::new(),
+                    sort: Sort::new("Int"),
+                    attributes: attrs(&[("token", json!(""))]),
+                }),
+                Arc::new(rule_with_body(token("0"))),
+            ],
             attributes: Attributes::default(),
         }],
         attributes: Attributes::default(),
@@ -1493,6 +1500,11 @@ fn module_runner_uses_visible_function_metadata() {
         name: "BASE".into(),
         imports: Vec::new(),
         local_sentences: vec![
+            Arc::new(Sentence::SyntaxSort {
+                parameters: Vec::new(),
+                sort: Sort::new("Int"),
+                attributes: attrs(&[("token", json!(""))]),
+            }),
             Arc::new(production(
                 Some("f"),
                 "Int",

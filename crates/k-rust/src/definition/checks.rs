@@ -2,18 +2,18 @@
 //! id = "definition.checks.run"
 //! name = "structural checking of resolved definitions"
 //! sites = ["check_definition_with_options", "check_module_with_options"]
-//! variable = "M = modules; S = visited sentences and terms plus catalog work"
+//! variable = "M = modules; S = visited sentences and terms; P = visible parametric token declarations"
 //! counters = []
 //! no_counter = "structural definition checks have no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(M x S)"
+//! bound = "O(M x (S x (P + 1) + catalog work))"
 //! ```
 //!
 //! Structural definition checking composes Java-compatible per-module checks over resolved catalogs.
-//! Complexity: O(M(S + catalog work)) over modules and their sentences.
-//! Checks are linear in visited sentences and terms unless a submodule states another bound; no dedicated counter.
+//! Complexity: O(M(S(P + 1) + catalog work)) over modules and their sentences.
+//! Token admission can match each token against visible parametric token declarations; no dedicated counter.
 //!
 //! Dependency-light structural checks ported from the Java frontend.
 
@@ -143,6 +143,7 @@ fn check_module_with_options_and_catalog(
             sort_catalog.token_sorts(),
             &macro_labels,
         ))
+        .chain(check_domain_value_tokens(&sentences, sort_catalog))
         .chain(check_k_terms(&sentences))
         .chain(check_rewrites(&sentences))
         .chain(check_anonymous_variables(&sentences))
@@ -499,6 +500,28 @@ fn checked_terms(sentence: &Sentence) -> Vec<&Term> {
         | Sentence::ContextAlias { body, requires, .. } => vec![body, requires],
         _ => Vec::new(),
     }
+}
+
+fn check_domain_value_tokens(sentences: &[&Sentence], sorts: &SortCatalog<'_>) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for sentence in sentences {
+        for root in checked_terms(sentence) {
+            root.visit_preorder(&mut |term| {
+                if let Term::Token { token, sort } = term
+                    && !sorts.admits_domain_value(sort)
+                {
+                    diagnostics.push(Diagnostic::error(
+                        DiagnosticCode::InvalidDomainValue,
+                        format!(
+                            "Token {token:?} of sort {sort} has no visible token declaration or domain hook in {sentence:?}"
+                        ),
+                        sentence,
+                    ));
+                }
+            });
+        }
+    }
+    diagnostics
 }
 
 fn valid_as_alias(alias: &Term) -> bool {

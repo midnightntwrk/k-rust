@@ -25,6 +25,7 @@ use super::catalog::SortHead;
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::definition::AttributeKey;
 use crate::kast::Sort;
+use crate::names::BuiltinSort;
 
 #[derive(Clone, Debug)]
 pub struct SortCatalog<'a> {
@@ -39,6 +40,7 @@ pub struct SortCatalog<'a> {
     attributes_by_head: BTreeMap<SortHead, Attributes>,
     hooks: BTreeMap<String, String>,
     token_sorts: BTreeSet<Sort>,
+    parametric_token_sorts: Vec<(Sort, Vec<Sort>)>,
     list_sorts: BTreeSet<Sort>,
 }
 
@@ -133,6 +135,26 @@ impl<'a> SortCatalog<'a> {
                 _ => None,
             })
             .collect();
+        let parametric_token_sorts = sentences
+            .iter()
+            .filter_map(|sentence| match sentence {
+                Sentence::Production {
+                    sort,
+                    parameters,
+                    attributes,
+                    ..
+                }
+                | Sentence::SyntaxSort {
+                    sort,
+                    parameters,
+                    attributes,
+                    ..
+                } if !parameters.is_empty() && attributes.has(AttributeKey::Token) => {
+                    Some((sort.clone(), parameters.clone()))
+                }
+                _ => None,
+            })
+            .collect();
         let list_sorts = sentences
             .iter()
             .filter_map(|sentence| match sentence {
@@ -155,6 +177,7 @@ impl<'a> SortCatalog<'a> {
             attributes_by_head,
             hooks,
             token_sorts,
+            parametric_token_sorts,
             list_sorts,
         }
     }
@@ -225,9 +248,43 @@ impl<'a> SortCatalog<'a> {
         &self.token_sorts
     }
 
+    /// Whether a term of this sort can denote a domain value in this module.
+    pub fn admits_domain_value(&self, sort: &Sort) -> bool {
+        self.token_sorts.contains(sort)
+            || self.parametric_token_sorts.iter().any(|(declared, formals)| {
+                matches_token_sort(declared, sort, formals, &mut BTreeMap::new())
+            })
+            || self.hooks.contains_key(&sort.name)
+            // Truth values and configuration-map keys have intrinsic domains even in a
+            // minimal structured definition without their usual syntax declarations.
+            || sort.is_builtin(BuiltinSort::Bool)
+            || sort.is_builtin(BuiltinSort::KConfigVar)
+    }
+
     pub fn list_sorts(&self) -> &BTreeSet<Sort> {
         &self.list_sorts
     }
+}
+
+fn matches_token_sort(
+    declared: &Sort,
+    actual: &Sort,
+    formals: &[Sort],
+    substitution: &mut BTreeMap<Sort, Sort>,
+) -> bool {
+    if formals.contains(declared) {
+        return substitution
+            .entry(declared.clone())
+            .or_insert_with(|| actual.clone())
+            == actual;
+    }
+    declared.name == actual.name
+        && declared.parameters.len() == actual.parameters.len()
+        && declared
+            .parameters
+            .iter()
+            .zip(&actual.parameters)
+            .all(|(declared, actual)| matches_token_sort(declared, actual, formals, substitution))
 }
 
 impl ResolvedDefinition {
