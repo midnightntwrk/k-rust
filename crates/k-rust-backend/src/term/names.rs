@@ -67,6 +67,11 @@ pub enum FreshMarker {
     Claim,
     /// `{base}!exists{counter}`: consequent existentials of an implication check.
     Exists,
+    /// `{base}!apart{counter}`: rule variables renamed apart from the scope of an application.
+    Apart,
+    /// `{base}!binder{counter}`: quantifier variables renamed for the duration of one predicate
+    /// match; they never leave it.
+    Binder,
 }
 
 impl FreshMarker {
@@ -75,6 +80,8 @@ impl FreshMarker {
             Self::Rewrite => "",
             Self::Claim => "claim",
             Self::Exists => "exists",
+            Self::Apart => "apart",
+            Self::Binder => "binder",
         }
     }
 }

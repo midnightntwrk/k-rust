@@ -279,6 +279,7 @@ fn simplify_with_optional_execution(
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
+    let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
@@ -562,6 +563,7 @@ fn simplify_predicates_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
+    let _apart = crate::rule::ApartScope::enter();
     let mut conjuncts = Vec::new();
     let mut conjunct_index = FxHashSet::default();
     for predicate in predicates {
@@ -974,6 +976,7 @@ fn simplify_predicate_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
+    let _apart = crate::rule::ApartScope::enter();
     if interruption_requested() {
         return Err(interruption_error());
     }
@@ -1345,7 +1348,7 @@ fn apply_ceil_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Predicate>, SimplificationError> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables) {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_ceil_equation(
             definition,
             &renamed,
@@ -1475,7 +1478,7 @@ fn apply_predicate_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Predicate>, SimplificationError> {
-    if let Some((renamed, _)) = rename_predicate_rule_apart(rule, &predicate.free_variables()) {
+    if let Some((renamed, _)) = rename_predicate_rule_apart(rule, predicate, known_predicates) {
         return apply_predicate_equation(
             definition,
             &renamed,
@@ -1700,13 +1703,42 @@ enum PredicateMatch {
     Indeterminate,
 }
 
+/// Match a predicate equation's left-hand side against a predicate.
+///
+/// The two predicates must have one logical shape; their terms are matched as one problem.
+/// Quantifiers are matched by scope. First every quantifier of either side gets its own fresh
+/// variable (`rename_binders_apart`), distinct from every other variable of both sides, so a
+/// bound variable shares its name with no free variable and no other binder, and an occurrence
+/// of it is exactly an occurrence under its quantifier. Corresponding quantifiers relate their
+/// variables: the rule's is matched as a pattern variable and must be bound to the subject's
+/// exactly, and a binding of a free rule variable may not mention a subject quantifier's
+/// variable, which would move that variable out of its scope. The quantifier variables'
+/// bindings are not part of the result.
 fn match_predicate(
     definition: &BackendDefinition,
     pattern: &Predicate,
     subject: &Predicate,
 ) -> PredicateMatch {
+    let renamed;
+    let (pattern, subject) = if has_quantifier(pattern) || has_quantifier(subject) {
+        let mut variables = BTreeSet::new();
+        crate::rule::collect_all_variables(&[pattern.clone(), subject.clone()], &mut variables);
+        let mut avoid = variables
+            .into_iter()
+            .map(|variable| variable.name)
+            .collect::<BTreeSet<_>>();
+        let mut counter = 0;
+        renamed = (
+            rename_binders_apart(pattern, &mut avoid, &mut counter, &mut Vec::new()),
+            rename_binders_apart(subject, &mut avoid, &mut counter, &mut Vec::new()),
+        );
+        (&renamed.0, &renamed.1)
+    } else {
+        (pattern, subject)
+    };
     let mut pairs = Vec::new();
-    if !collect_predicate_term_pairs(pattern, subject, &mut pairs) {
+    let mut binders = Vec::new();
+    if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
         return PredicateMatch::Failed;
     }
     match match_term_pairs_in_definition(
@@ -1716,9 +1748,112 @@ fn match_predicate(
             .into_iter()
             .map(|(pattern, subject)| (pattern.clone(), subject.clone())),
     ) {
-        MatchResult::Success(substitution) => PredicateMatch::Success(substitution),
+        MatchResult::Success(mut substitution) => {
+            for (pattern_bound, subject_bound) in &binders {
+                match substitution.remove(*pattern_bound) {
+                    None => {}
+                    Some(bound) if bound == Term::variable((*subject_bound).clone()) => {}
+                    Some(_) => return PredicateMatch::Failed,
+                }
+            }
+            if substitution.values().any(|value| {
+                binders
+                    .iter()
+                    .any(|(_, bound)| value.attributes().variables.contains(*bound))
+            }) {
+                return PredicateMatch::Failed;
+            }
+            PredicateMatch::Success(substitution)
+        }
         MatchResult::Failed(_) => PredicateMatch::Failed,
         MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
+    }
+}
+
+fn has_quantifier(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Exists(..) | Predicate::Forall(..) => true,
+        Predicate::Not(inner) => has_quantifier(inner),
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().any(has_quantifier),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            has_quantifier(left) || has_quantifier(right)
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..) => false,
+    }
+}
+
+/// `predicate` with each quantifier's variable renamed to `{name}!binder{counter}`, a name not
+/// in `avoid` (which receives it), at the quantifier and at the occurrences it binds; `scope`
+/// holds the renamings of the enclosing quantifiers, innermost last.
+fn rename_binders_apart(
+    predicate: &Predicate,
+    avoid: &mut BTreeSet<crate::term::Name>,
+    counter: &mut u64,
+    scope: &mut Vec<(Variable, Variable)>,
+) -> Predicate {
+    let term = |term: &Term, scope: &[(Variable, Variable)]| {
+        if scope.is_empty() {
+            return term.clone();
+        }
+        let renaming = scope
+            .iter()
+            .map(|(bound, fresh)| (bound.clone(), Term::variable(fresh.clone())))
+            .collect::<Substitution>();
+        substitute(term, &renaming)
+    };
+    let mut recurse = |inner: &Predicate, scope: &mut Vec<(Variable, Variable)>| {
+        Box::new(rename_binders_apart(inner, avoid, counter, scope))
+    };
+    match predicate {
+        Predicate::True => Predicate::True,
+        Predicate::False => Predicate::False,
+        Predicate::Term(inner) => Predicate::Term(term(inner, scope)),
+        Predicate::Ceil(inner) => Predicate::Ceil(term(inner, scope)),
+        Predicate::Floor(inner) => Predicate::Floor(term(inner, scope)),
+        Predicate::Equals(left, right) => Predicate::Equals(term(left, scope), term(right, scope)),
+        Predicate::In(left, right) => Predicate::In(term(left, scope), term(right, scope)),
+        Predicate::Not(inner) => Predicate::Not(recurse(inner, scope)),
+        Predicate::And(inner) => {
+            Predicate::And(inner.iter().map(|inner| *recurse(inner, scope)).collect())
+        }
+        Predicate::Or(inner) => {
+            Predicate::Or(inner.iter().map(|inner| *recurse(inner, scope)).collect())
+        }
+        Predicate::Implies(left, right) => {
+            Predicate::Implies(recurse(left, scope), recurse(right, scope))
+        }
+        Predicate::Iff(left, right) => Predicate::Iff(recurse(left, scope), recurse(right, scope)),
+        Predicate::Exists(bound, inner) | Predicate::Forall(bound, inner) => {
+            // Invariant: `counter` only grows, so at most |avoid| + 1 names are tried.
+            let name = loop {
+                let name = crate::term::names::with_fresh_marker(
+                    &bound.name,
+                    crate::term::names::FreshMarker::Binder,
+                    *counter,
+                );
+                *counter += 1;
+                if avoid.insert(name.as_str().into()) {
+                    break name;
+                }
+            };
+            let fresh = bound.with_name(name);
+            // The innermost binding of a name wins: `term` collects `scope` in order, so a
+            // shadowing quantifier's entry overrides an enclosing one for its body only.
+            scope.push((bound.clone(), fresh.clone()));
+            let body = Box::new(rename_binders_apart(inner, avoid, counter, scope));
+            scope.pop();
+            if matches!(predicate, Predicate::Exists(..)) {
+                Predicate::Exists(fresh, body)
+            } else {
+                Predicate::Forall(fresh, body)
+            }
+        }
     }
 }
 
@@ -1726,6 +1861,7 @@ fn collect_predicate_term_pairs<'a>(
     pattern: &'a Predicate,
     subject: &'a Predicate,
     pairs: &mut Vec<(&'a Term, &'a Term)>,
+    binders: &mut Vec<(&'a Variable, &'a Variable)>,
 ) -> bool {
     match (pattern, subject) {
         (Predicate::True, Predicate::True) | (Predicate::False, Predicate::False) => true,
@@ -1742,7 +1878,7 @@ fn collect_predicate_term_pairs<'a>(
             true
         }
         (Predicate::Not(left), Predicate::Not(right)) => {
-            collect_predicate_term_pairs(left, right, pairs)
+            collect_predicate_term_pairs(left, right, pairs, binders)
         }
         (Predicate::And(left), Predicate::And(right))
         | (Predicate::Or(left), Predicate::Or(right))
@@ -1750,18 +1886,19 @@ fn collect_predicate_term_pairs<'a>(
         {
             left.iter()
                 .zip(right)
-                .all(|(left, right)| collect_predicate_term_pairs(left, right, pairs))
+                .all(|(left, right)| collect_predicate_term_pairs(left, right, pairs, binders))
         }
         (Predicate::Implies(left_a, left_b), Predicate::Implies(right_a, right_b))
         | (Predicate::Iff(left_a, left_b), Predicate::Iff(right_a, right_b)) => {
-            collect_predicate_term_pairs(left_a, right_a, pairs)
-                && collect_predicate_term_pairs(left_b, right_b, pairs)
+            collect_predicate_term_pairs(left_a, right_a, pairs, binders)
+                && collect_predicate_term_pairs(left_b, right_b, pairs, binders)
         }
         (Predicate::Exists(left_var, left), Predicate::Exists(right_var, right))
         | (Predicate::Forall(left_var, left), Predicate::Forall(right_var, right))
-            if left_var == right_var =>
+            if left_var.kind == right_var.kind && left_var.sort == right_var.sort =>
         {
-            collect_predicate_term_pairs(left, right, pairs)
+            binders.push((left_var, right_var));
+            collect_predicate_term_pairs(left, right, pairs, binders)
         }
         _ => false,
     }
@@ -2398,7 +2535,7 @@ fn matches_top_equation(
             if !matches!(rule.rhs, RuleRhs::Top) {
                 continue;
             }
-            let renamed = rename_apart(rule, &term.attributes().variables);
+            let renamed = rename_apart(rule, &term.attributes().variables, known_predicates);
             let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
             let substitution =
                 match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
@@ -3081,7 +3218,7 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Simplification>, SimplificationError> {
-    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables) {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables, known_predicates) {
         return apply_equation(
             definition,
             &renamed,

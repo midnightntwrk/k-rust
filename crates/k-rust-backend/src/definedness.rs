@@ -262,7 +262,7 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
                 if !rule.requires.is_empty() {
                     continue;
                 }
-                let renamed = rename_apart(rule, &term.attributes().variables);
+                let renamed = rename_apart(rule, &term.attributes().variables, &[]);
                 let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
                 let MatchResult::Success(substitution) =
                     match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term)
