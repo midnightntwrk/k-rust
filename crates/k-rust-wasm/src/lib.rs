@@ -128,6 +128,17 @@ impl WasmBackend {
         serialize(&self.inner.capabilities()).map_err(js_error)
     }
 
+    #[wasm_bindgen(js_name = ruleCatalog)]
+    pub fn rule_catalog(&self, module_name: Option<String>) -> Result<String, JsError> {
+        serialize(
+            &self
+                .inner
+                .rule_catalog(module_name.as_deref())
+                .map_err(js_error)?,
+        )
+        .map_err(js_error)
+    }
+
     pub fn execute(&mut self, options: &str) -> Result<String, JsError> {
         let request = deserialize_backend_request::<ExecuteRequest>(options).map_err(js_error)?;
         serialize(&self.inner.execute(request).map_err(js_error)?).map_err(js_error)

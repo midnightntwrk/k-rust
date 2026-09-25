@@ -273,7 +273,8 @@ impl ObservationOptions {
     /// Construct an immutable executable-rule allowlist.
     ///
     /// Validation is atomic: every id must identify one executable rewrite, function equation,
-    /// simplification, or definedness rule. `builtin:<hook>` ids are observable only with `all`.
+    /// simplification, or definedness rule, and exactly one classified axiom of any kind in the
+    /// selected definition. `builtin:<hook>` ids are observable only with `all`.
     /// Written axioms that are equal up to their origins and a renaming of variables were
     /// internalized as one rule, so an id is ambiguous only when the axioms carrying it differ.
     pub fn with_rules<I, S>(
@@ -285,6 +286,12 @@ impl ObservationOptions {
         S: Into<String>,
     {
         let mut available = BTreeMap::<(String, Option<usize>), usize>::new();
+        let mut identity_counts = BTreeMap::<&str, usize>::new();
+        for axiom in &definition.classified_axioms {
+            *identity_counts
+                .entry(axiom.attributes().unique_id.as_str())
+                .or_default() += 1;
+        }
         for priorities in definition.rewrite_theory.values() {
             for rules in priorities.values() {
                 for rule in rules {
@@ -325,7 +332,11 @@ impl ObservationOptions {
             if counts.is_empty() {
                 return Err(ObservationFilterError::UnknownRule(rule));
             }
-            if counts.iter().any(|count| *count > 1) {
+            if counts.iter().any(|count| *count > 1)
+                || identity_counts
+                    .get(rule.as_str())
+                    .is_some_and(|count| *count > 1)
+            {
                 return Err(ObservationFilterError::AmbiguousRule(rule));
             }
         }
