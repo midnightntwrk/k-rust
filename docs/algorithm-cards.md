@@ -486,7 +486,7 @@ reason = "lowers heat and cool attributes into side conditions; one pass over ru
 stage = "resolve semantic casts"
 call = "resolve_semantic_casts"
 file = "crates/k-rust/src/kompile/passes/resolve_semantic_casts.rs"
-reason = "removes semantic-cast applications keeping their sorts; one pass over terms"
+reason = "checks each sentence's variable sorts against its cast bounds and removes semantic-cast applications; one pass over terms plus comparisons among bounds of each variable"
 
 [[phase_only_stage]]
 stage = "propagate macro attributes"

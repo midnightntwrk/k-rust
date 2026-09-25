@@ -13,7 +13,9 @@ use std::{fmt, sync::Arc};
 
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Attributes, Definition, ProductionItem, Sentence, retain_new_sentences},
+    definition::{
+        Attributes, Definition, PartialOrder, ProductionItem, Sentence, retain_new_sentences,
+    },
     kast::{FrontendSort, Sort},
     provenance::GeneratingPass,
 };
@@ -85,9 +87,43 @@ pub(crate) fn subsort_kitem_pass(
     Ok(output)
 }
 
+/// Whether `actual <= expected` in the module's declared subsort order `subsorts` extended with
+/// K's implicit sort structure: every sort that is not a parser sort is below `KItem` (the edges
+/// this stage adds), and `KItem` is below `K`; the extension is transitive.
+///
+/// Semantic-cast resolution runs before this stage and sort injection may serve callers that never
+/// ran it, so both compare sorts with this one relation rather than relying on the materialized
+/// edges. A path through an implicit edge reaches `KItem` from `actual` (as `KItem` itself, a
+/// declared subsort of `KItem`, a non-parser sort, or a sort declared below a non-parser sort)
+/// and continues from `KItem` or `K` to `expected` along the declared order.
+pub(crate) fn implicit_less_than_eq(
+    actual: &Sort,
+    expected: &Sort,
+    subsorts: &PartialOrder<Sort>,
+) -> bool {
+    if actual == expected || subsorts.less_than_eq(actual, expected) {
+        return true;
+    }
+    let k_item = Sort::builtin(BuiltinSort::KItem);
+    let k = Sort::builtin(BuiltinSort::K);
+    let from_k_item = expected == &k_item
+        || expected == &k
+        || subsorts.less_than_eq(&k_item, expected)
+        || subsorts.less_than_eq(&k, expected);
+    if !from_k_item {
+        return false;
+    }
+    actual == &k_item
+        || subsorts.less_than_eq(actual, &k_item)
+        || !is_parser_sort(actual)
+        || subsorts
+            .relations_from(actual)
+            .is_some_and(|supersorts| supersorts.iter().any(|sort| !is_parser_sort(sort)))
+}
+
 /// A sort of K's own term syntax (`K`, `KItem`, `KConfigVar`, `KBott`, `KLabel`, `KList`, `KString`,
 /// a `#`-prefixed sort, or a numeric sort argument), which this stage does not place below `KItem`.
-pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
+pub(super) fn is_parser_sort(sort: &Sort) -> bool {
     [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
         .iter()
         .any(|builtin| sort.name == builtin.k_name())

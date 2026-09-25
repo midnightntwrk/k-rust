@@ -30,7 +30,7 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
-use super::passes::is_parser_sort;
+use super::passes::implicit_less_than_eq;
 use super::view::View;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -480,8 +480,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     }
 
     /// Whether a term of sort `actual` may stand at a position of sort `expected`: `actual <=
-    /// expected` in the module's subsort order, extended with every sort other than a parser sort
-    /// below `KItem`, and `KItem` below `K`.
+    /// expected` in the module's subsort order, extended transitively with every sort other than a
+    /// parser sort below `KItem`, and `KItem` below `K` ([`implicit_less_than_eq`], the relation
+    /// semantic-cast resolution also uses).
     ///
     /// Every non-parser sort is a `KItem` by K's sort structure; the `add KItem subsorts` stage
     /// materializes that fact as declared subsorts, but the injector also serves callers that never
@@ -492,14 +493,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// sentence's sort parameters are universally quantified, so the relation must hold for every
     /// instantiation. The order has no parametric subsort declarations (a production with sort
     /// parameters declares no subsort), so that holds only reflexively (the same sort, variables
-    /// included), or below `KItem` when the sort's head is not a parser sort, or below `K` when
-    /// it is below `KItem`; the test below therefore applies unchanged to such sorts.
+    /// included), or through `KItem` when the sort's head is not a parser sort; the relation
+    /// therefore applies unchanged to such sorts.
     fn below(&self, actual: &Sort, expected: &Sort) -> bool {
-        let kitem = Sort::builtin(BuiltinSort::KItem);
-        actual == expected
-            || self.subsorts.less_than_eq(actual, expected)
-            || (*expected == kitem && !is_parser_sort(actual))
-            || (expected.is_builtin(BuiltinSort::K) && self.below(actual, &kitem))
+        implicit_less_than_eq(actual, expected, &self.subsorts)
     }
 
     /// Reject a term of sort `actual` at a position of sort `expected` unless `actual` is below it.

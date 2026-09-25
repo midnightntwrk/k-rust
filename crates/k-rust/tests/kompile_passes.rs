@@ -703,6 +703,18 @@ fn module(name: &str, sentences: Vec<Sentence>) -> FlatModule {
     }
 }
 
+fn semantic_cast_sentence_subsorts() -> k_rust::definition::PartialOrder<Sort> {
+    let resolved = ResolvedDefinition::resolve(&Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module("MAIN", Vec::new())],
+        attributes: Attributes::default(),
+    })
+    .unwrap();
+    resolved
+        .subsorts(resolved.module_id("MAIN").unwrap())
+        .unwrap()
+}
+
 fn incomplete_cell(label: &str, body: Term) -> Term {
     application(
         label,
@@ -2195,7 +2207,7 @@ fn removes_semantic_casts_and_retains_inferred_variable_sorts() {
           rule f(X:Exp) => X:Exp
         endmodule
     "#};
-    let transformed = resolve_semantic_casts(&parsed(source));
+    let transformed = resolve_semantic_casts(&parsed(source)).unwrap();
     let rule = transformed
         .main_module()
         .unwrap()
@@ -2241,7 +2253,7 @@ fn semantic_cast_sort_metadata_disambiguates_manually_built_applications() {
         )],
         attributes: Attributes::default(),
     };
-    let transformed = resolve_semantic_casts(&definition);
+    let transformed = resolve_semantic_casts(&definition).unwrap();
     let body = transformed
         .main_module()
         .unwrap()
@@ -2315,7 +2327,7 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
             requires eq(add(1, 1), 2)
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = constant_fold(&definition).unwrap();
     let output = transformed
         .main_module()
@@ -2346,7 +2358,7 @@ fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
     let control =
         include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/control.k");
     let folded_right = |source: &str| {
-        let transformed = constant_fold(&resolve_semantic_casts(&parsed(source))).unwrap();
+        let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
         transformed
             .main_module()
             .unwrap()
@@ -2380,7 +2392,7 @@ fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
         include_str!("fixtures/reference/kompile/constant-folding-integer-bounds/test.k");
     for value in ["-1", "2147483648", "4294967295", "4294967296"] {
         let source = negative.replace("2147483648", value);
-        let error = constant_fold(&resolve_semantic_casts(&parsed(&source))).unwrap_err();
+        let error = constant_fold(&resolve_semantic_casts(&parsed(&source)).unwrap()).unwrap_err();
         assert_eq!(error.diagnostics.len(), 1, "bound {value}");
         assert_eq!(
             error.diagnostics[0].message,
@@ -2408,7 +2420,7 @@ fn folds_mpfr_float_constants_with_their_declared_contexts() {
           rule intResult => exponent(1.40129846e-45p24x8)
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = constant_fold(&definition).unwrap();
     let output = transformed
         .main_module()
@@ -2511,7 +2523,8 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
         )
     };
     let folded = |value: &str| {
-        let transformed = constant_fold(&resolve_semantic_casts(&parsed(&source(value)))).unwrap();
+        let transformed =
+            constant_fold(&resolve_semantic_casts(&parsed(&source(value))).unwrap()).unwrap();
         let right = transformed
             .main_module()
             .unwrap()
@@ -2549,8 +2562,8 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
     }
 
     for codepoint in ["-1", "1114112"] {
-        let error =
-            constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint)))).unwrap_err();
+        let error = constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint))).unwrap())
+            .unwrap_err();
         assert_eq!(error.diagnostics.len(), 1, "code point {codepoint}");
         assert_eq!(
             error.diagnostics[0].message,
@@ -2559,8 +2572,8 @@ fn folds_string_chr_only_for_unicode_scalar_values() {
         );
     }
     for codepoint in ["55296", "57343"] {
-        let error =
-            constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint)))).unwrap_err();
+        let error = constant_fold(&resolve_semantic_casts(&parsed(&source(codepoint))).unwrap())
+            .unwrap_err();
         assert_eq!(error.diagnostics.len(), 1, "code point {codepoint}");
         assert_eq!(
             error.diagnostics[0].message,
@@ -2927,7 +2940,7 @@ fn allocates_shared_and_anonymous_fresh_configuration_constants() {
         endmodule
     "#};
     let definition = resolve_anon_vars(&parsed(source));
-    let definition = resolve_semantic_casts(&definition);
+    let definition = resolve_semantic_casts(&definition).unwrap();
     let (transformed, next_fresh) = resolve_fresh_config_constants(&definition).unwrap();
     let bodies = transformed
         .main_module()
@@ -3104,7 +3117,7 @@ fn expands_nested_macros_child_first_in_priority_order() {
           rule pair(m(a), n(b)) => pair(n(a), m(b)) [label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = propagate_macro_attributes(&definition).unwrap();
     let transformed = expand_macros(&definition).unwrap();
     let output = transformed
@@ -3146,7 +3159,7 @@ fn simplification_rules_do_not_inherit_macro_kinds_during_expansion() {
                 endmodule
             "#,
         );
-        let definition = resolve_semantic_casts(&parsed(&source));
+        let definition = resolve_semantic_casts(&parsed(&source)).unwrap();
         let definition = propagate_macro_attributes(&definition).unwrap();
 
         let error = expand_macros(&definition).unwrap_err();
@@ -3180,7 +3193,7 @@ fn ordinary_rules_still_inherit_every_macro_kind_during_term_expansion() {
                 endmodule
             "#,
         );
-        let definition = resolve_semantic_casts(&parsed(&source));
+        let definition = resolve_semantic_casts(&parsed(&source)).unwrap();
 
         assert_eq!(
             expand_macros_in_term(
@@ -3256,7 +3269,7 @@ fn prepared_macro_definition_matches_whole_definition_preparation() {
         endmodule
     "#};
     let definition = parsed(source);
-    let whole = propagate_macro_attributes(&resolve_semantic_casts(&definition)).unwrap();
+    let whole = propagate_macro_attributes(&resolve_semantic_casts(&definition).unwrap()).unwrap();
     let restricted = MacroExpansionDefinition::prepare(&definition).unwrap();
     let reference = MacroExpansionDefinition::prepare(&whole).unwrap();
     let leaf = |label| application(label, Vec::new());
@@ -3307,7 +3320,7 @@ fn explicit_simplification_macro_does_not_inherit_recursive_kind() {
           rule m(pair(X:Exp, Y:Exp)) => m(X:Exp) [macro, simplification]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let term = application(
         "m",
         vec![application(
@@ -3343,7 +3356,7 @@ fn macro_expansion_preserves_an_unrelated_simplification_equation() {
           rule f(a) => a [simplification, label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = expand_macros(&definition).unwrap();
     let body = transformed
         .main_module()
@@ -3384,7 +3397,7 @@ fn imported_macro_expansion_preserves_template_and_caller_production_identity() 
           rule box(m(caller)) => a [label(imported)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = propagate_macro_attributes(&definition).unwrap();
     let transformed = expand_macros(&definition).unwrap();
     let resolved = ResolvedDefinition::resolve(&transformed).unwrap();
@@ -3457,7 +3470,7 @@ fn macro_expansion_combines_call_site_and_macro_rule_sources() {
     let subject = source.find("rule m(a)").unwrap();
     let call_site = span("m(a)", subject);
     let macro_rhs = span("b", macro_rule);
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = propagate_macro_attributes(&definition).unwrap();
     let transformed = expand_macros(&definition).unwrap();
     let body = transformed
@@ -3534,7 +3547,7 @@ fn macro_matching_reuses_repeated_variables_and_freshens_unbound_rhs_variables()
           rule pair(same(a, a), choose(a)) => pair(a, a) [label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = propagate_macro_attributes(&definition).unwrap();
     let transformed = expand_macros(&definition).unwrap();
     let body = transformed
@@ -3564,7 +3577,7 @@ fn reports_a_macro_symbol_when_repeated_variable_matching_fails() {
           rule same(a, b) [label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = propagate_macro_attributes(&definition).unwrap();
     let error = expand_macros(&definition).unwrap_err();
     assert_eq!(
@@ -3583,7 +3596,7 @@ fn expands_sort_constrained_variable_macros_over_tokens() {
           rule wrap(foo) [label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = expand_macros(&definition).unwrap();
     let output = transformed
         .main_module()
@@ -3620,7 +3633,7 @@ fn rejects_macro_side_conditions_and_invalid_priorities() {
           rule m(a) [label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(side_condition));
+    let definition = resolve_semantic_casts(&parsed(side_condition)).unwrap();
     let mut definition = propagate_macro_attributes(&definition).unwrap();
     let main_module = definition.main_module.clone();
     let module = definition
@@ -3665,7 +3678,7 @@ fn rejects_macro_side_conditions_and_invalid_priorities() {
           rule m(a) [label(subject)]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(invalid_priority));
+    let definition = resolve_semantic_casts(&parsed(invalid_priority)).unwrap();
     let mut definition = propagate_macro_attributes(&definition).unwrap();
     let main_module = definition.main_module.clone();
     let module = definition
@@ -4031,7 +4044,7 @@ fn resolves_fresh_variables_and_generates_the_counter_configuration() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let transformed = resolve_fresh_constants(&definition, 7).unwrap();
     let output = transformed
@@ -4100,7 +4113,7 @@ fn fresh_offsets_reuse_names_and_cover_the_counter_range() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let transformed = resolve_fresh_constants(&definition, 7).unwrap();
     let body = transformed
@@ -4123,7 +4136,7 @@ fn fresh_offsets_reuse_names_and_cover_the_counter_range() {
 }
 
 fn claim_bodies_after_fresh_constants(definition: &Definition) -> Vec<(String, String)> {
-    let definition = resolve_semantic_casts(definition);
+    let definition = resolve_semantic_casts(definition).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let transformed = resolve_fresh_constants(&definition, 0).unwrap();
     transformed
@@ -4286,7 +4299,7 @@ fn preserves_explicit_cell_variables_while_sorting_cell_fragments() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -4327,7 +4340,7 @@ fn reports_missing_generators_for_fresh_variables() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let error = resolve_fresh_constants(&definition, 0).unwrap_err();
     assert!(
@@ -4427,7 +4440,7 @@ fn concretizes_nested_cells_to_declared_fixed_arities() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -4478,7 +4491,7 @@ fn concretizes_main_configuration_with_an_auxiliary_initializer() {
     "#}
         .replace("AUXILIARY", auxiliary);
         let definition = parsed(&source);
-        let definition = resolve_semantic_casts(&definition);
+        let definition = resolve_semantic_casts(&definition).unwrap();
         let definition = add_implicit_computation_cell(&definition).unwrap();
         let definition = resolve_fresh_constants(&definition, 0).unwrap();
         let transformed = concretize_cells(&definition).unwrap();
@@ -4553,7 +4566,7 @@ fn preserves_already_complete_nested_cells() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let mut definition = resolve_fresh_constants(&definition, 0).unwrap();
     let complete_top = application(
@@ -4651,7 +4664,7 @@ fn complete_cells_are_rejected_with_a_typed_error() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let child = || application("<k>", vec![Term::variable("K")]);
@@ -4719,7 +4732,7 @@ fn drops_a_shallower_misnested_sibling_when_completing_parent_cells() {
             </left>
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -4768,7 +4781,7 @@ fn omitted_thread_parent_fixture(rule: &str) -> Definition {
         endmodule
         "#,
     );
-    let definition = resolve_semantic_casts(&parsed(&source));
+    let definition = resolve_semantic_casts(&parsed(&source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     resolve_fresh_constants(&definition, 0).unwrap()
 }
@@ -4848,7 +4861,7 @@ fn omitted_parents_check_conflicts_on_each_rewrite_side() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     // These are parser-shaped cell rewrites. Empty sides carry no cell sort;
@@ -4936,7 +4949,7 @@ fn concretizes_cells_inside_generated_simplification_rules() {
             </top>
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -4978,7 +4991,7 @@ fn concretizes_authored_simplification_cell_bodies_without_root_wrapping() {
           rule <batch> 0 => 1 </batch> [simplification]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5022,7 +5035,7 @@ fn does_not_wrap_matching_logic_simplifications_in_the_generated_top_cell() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5068,7 +5081,7 @@ fn splits_fragment_variables_on_both_sides_of_a_parent_cell_rewrite() {
         endmodule
     "#};
     let definition = resolve_anon_vars(&parsed(source));
-    let definition = resolve_semantic_casts(&definition);
+    let definition = resolve_semantic_casts(&definition).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5115,7 +5128,7 @@ fn lifts_one_sided_repeated_cell_rewrites_through_missing_parents() {
           rule (.Bag => <item> <id> 1 </id> </item>)
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5158,7 +5171,7 @@ fn clears_repeated_cell_contents_without_removing_the_parent() {
         endmodule
     "#};
     let definition = resolve_anon_vars(&parsed(source));
-    let definition = resolve_semantic_casts(&definition);
+    let definition = resolve_semantic_casts(&definition).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5200,7 +5213,7 @@ fn splits_cell_fragment_variables_on_both_sides_of_a_rewrite() {
           rule <callState> _ => CALLSTATE </callState>
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
     let body = transformed
         .main_module()
@@ -5239,7 +5252,7 @@ fn concretizes_cells_inside_simplification_rules_without_adding_a_top_cell() {
             [simplification]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
     let output = transformed
         .main_module()
@@ -5335,7 +5348,7 @@ fn fills_absent_optional_and_repeated_cells_with_their_units() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5380,7 +5393,7 @@ fn equal_concretized_defaults_have_distinct_destination_paths() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let mut definition = resolve_fresh_constants(&definition, 0).unwrap();
     let open_thread = incomplete_cell("<thread>", application("#cells", Vec::new()));
@@ -5487,7 +5500,7 @@ fn preserves_repeated_cell_initializers_for_every_collection_shape() {
                 endmodule
                 "#
             );
-            let definition = resolve_semantic_casts(&parsed(&source));
+            let definition = resolve_semantic_casts(&parsed(&source)).unwrap();
             let definition = add_implicit_computation_cell(&definition).unwrap();
             let definition = resolve_fresh_constants(&definition, 0).unwrap();
             let transformed = concretize_cells(&definition).unwrap_or_else(|error| {
@@ -5542,7 +5555,7 @@ fn splits_cell_fragment_variables_and_rebuilds_external_occurrences() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();
@@ -5637,7 +5650,7 @@ fn marks_variable_headed_main_cell_sequences_as_cool_like() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let definition = concretize_cells(&definition).unwrap();
@@ -5693,7 +5706,7 @@ fn marks_cool_like_rules_of_imported_modules_through_the_main_module() {
           configuration <k> 0 </k>
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let definition = concretize_cells(&definition).unwrap();
@@ -6069,7 +6082,8 @@ fn pattern01a_semantic_cast_sentence_shares_sorts_across_rule_roots() {
         attributes: Attributes::default(),
     };
 
-    let transformed = resolve_semantic_casts_in_sentence(sentence);
+    let subsorts = semantic_cast_sentence_subsorts();
+    let transformed = resolve_semantic_casts_in_sentence(&subsorts, sentence).unwrap();
     let mut sorts = Vec::new();
     if let Sentence::Rule {
         body,
@@ -6127,7 +6141,9 @@ fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metad
         attributes: Attributes::default(),
     };
 
-    let transformed = resolve_semantic_casts_with_predicates_in_sentence(sentence);
+    let subsorts = semantic_cast_sentence_subsorts();
+    let transformed =
+        resolve_semantic_casts_with_predicates_in_sentence(&subsorts, sentence).unwrap();
     let Sentence::Rule {
         body,
         requires,
@@ -6212,7 +6228,9 @@ fn semantic_cast_predicates_are_suppressed_for_macro_and_alias_rules() {
             ensures: truth(),
             attributes: attributes(&[(attribute, json!(""))]),
         };
-        let transformed = resolve_semantic_casts_with_predicates_in_sentence(sentence);
+        let subsorts = semantic_cast_sentence_subsorts();
+        let transformed =
+            resolve_semantic_casts_with_predicates_in_sentence(&subsorts, sentence).unwrap();
         let Sentence::Rule { body, requires, .. } = transformed else {
             unreachable!()
         };
@@ -7001,7 +7019,7 @@ fn alias_names_avoid_every_sort_of_an_existing_name() {
           rule root(cell, _Gen0:Int) => root(cell, _Gen0:Int)
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let transformed = minimize_term_construction(&definition).unwrap();
     let body = transformed
         .main_module()
@@ -7250,7 +7268,7 @@ fn validates_smt_lemmas_after_expanding_aliases() {
           rule chop(I:Int) => I mod pow256 [smt-lemma]
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();
     assert!(
         check_definition(&resolved).unwrap().iter().all(
@@ -7358,7 +7376,7 @@ fn rebuilds_cell_fragments_used_as_data_inside_leaf_cells() {
           syntax Map
         endmodule
     "#};
-    let definition = resolve_semantic_casts(&parsed(source));
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
     let definition = add_implicit_computation_cell(&definition).unwrap();
     let definition = resolve_fresh_constants(&definition, 0).unwrap();
     let transformed = concretize_cells(&definition).unwrap();

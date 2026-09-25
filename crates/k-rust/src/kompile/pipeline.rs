@@ -160,6 +160,7 @@ diagnostics_error!(
     super::ResolveStrictError,
     super::ResolveContextsError,
     super::ResolveHeatCoolError,
+    super::ResolveSemanticCastsError,
     super::ConstantFoldingError,
     super::ResolveFreshConfigConstantsError,
     super::ResolveFreshConstantsError,
