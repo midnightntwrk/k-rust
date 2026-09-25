@@ -5974,7 +5974,7 @@ id = "parser.inference.z3"
 provenance = "declared"
 area = "parser"
 name = "Z3-backed maximal-model sort inference"
-variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256"
+variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = ambiguity alternatives of the term constraint (one live-tree indicator each); L = inclusion-maximal live sets of one maximal typing"
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "ParserInferenceZ3"
@@ -6058,17 +6058,27 @@ symbol = "Encoding::seed_model"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
-symbol = "Encoding::prefer_parameters"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/z3_inference.rs"
 symbol = "Encoding::maximal_models"
 
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/z3_inference.rs"
 symbol = "Encoding::admissible_parameters"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::maximal_live_set"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "Encoding::enumerate_parameters"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/z3_inference.rs"
+symbol = "LivenessGraph::indicators"
 
 [[node.sites]]
 crate = "k-rust"
@@ -6094,7 +6104,11 @@ bound = "O(U) when a side is closed, O(P) otherwise"
 
 [[node.cost]]
 mode = "admissible parameter enumeration of one recorded model with formal parameters"
-bound = "A solver checks, and A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
+bound = "O(L x I + A) solver checks (each maximal live set grows by at most I checks), and A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
+
+[[node.cost]]
+mode = "live-tree indicators of one term constraint"
+bound = "O(N + I) formula nodes over the recorded node constraints, built once per inference"
 
 [[node.cost]]
 mode = "cached encoding base that does not cover the term sorts"

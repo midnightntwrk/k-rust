@@ -60,6 +60,11 @@ namespace KRust.MaximalModels
   pinned to `a`" (:1633-1678): `b` satisfies the hard constraints and reaches the maximal
   overload count, then the maximal top-preference count, or both counts are 0 and `b` is the
   climb's own model (:1658-1660, :1667, :1674-1676). How Z3 picks among such `b` is not opened.
+  The Rust now defines the admissible vectors in `Encoding::admissible_parameters`
+  instead: `b` reaches the maximal overload count, its set of live ambiguity alternatives is
+  maximal under inclusion among those vectors, and it reaches the maximal top-preference count
+  among the vectors with the same live set. `pref` stays opaque here, so no statement changes;
+  `tests::admissible_parameters_conform_to_brute_force` checks the Rust against that definition.
 * `enc a` is what the Rust asserts for a model value `a` it has read: `read_model` decodes each
   value into a `Sort` (:1801-1811, `decode_sort` :596-620), and the climb, the distinctness
   assertion and the blocking clause re-encode it with `sort_value` (:1721-1726, :1739-1744,

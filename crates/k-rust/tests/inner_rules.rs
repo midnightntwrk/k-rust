@@ -741,12 +741,12 @@ fn cgascap_without_the_prelude_agrees_under_checked_inference() {
 /// `lam(0 => 0)(0)` reads as `lam1` over a rewrite or as `lam2` over a pattern and a body
 /// (the shape of the prelude's `#fun2` and `#fun3`). The rule has no variable, so both trees
 /// share the empty typing; they instantiate different parametric productions and lower to
-/// different terms. `prefer` on `lam1` would resolve the whole group, but a preference over
-/// parameter instantiations can remove the `lam1` tree before that pass runs (the z3 build
-/// takes `lam2`), so the portable decision must not decide the group by `prefer`: it leaves the
-/// rule to Z3. A portable rule grammar that offers only the `lam2` reading (one that does not
-/// parse a rewrite as the argument of `lam1`) gives the portable engine a single tree and the
-/// z3 build's reading; either way the portable build never takes `lam1`.
+/// different terms. The z3 build keeps every tree that some parameter vector types, so both
+/// readings reach `prefer`, which takes `lam1{Int}`. The portable decision does not model the
+/// choice among parameter instantiations and leaves the rule to Z3. A portable rule grammar
+/// that offers only the `lam2` reading (one that does not parse a rewrite as the argument of
+/// `lam1`) gives the portable engine a single tree, which it may decide; either way the
+/// portable build never takes `lam1` over `lam2` by itself.
 #[test]
 fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     let source = indoc! {r#"
@@ -779,8 +779,8 @@ fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     #[cfg(feature = "z3-inference")]
     {
         let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert!(body.contains("lam2"), "{body}");
-        assert!(!body.contains("lam1"), "{body}");
+        assert!(body.contains("lam1{Int}"), "{body}");
+        assert!(!body.contains("lam2"), "{body}");
     }
 }
 
@@ -794,11 +794,11 @@ fn preferred_reading_among_parameter_instantiations_agrees_under_checked_inferen
 
 /// `pick(pick(0))` over `pick1 [prefer]` (`{S} S ::= pick(S)`) and `pick2` (`{S1, S2} S1 ::=
 /// pick(S2)`): every reading shares the empty typing and the readings differ only in which
-/// parametric production each `pick` instantiates and at which sort. Resolving the group by
-/// `prefer` gives `pick1{Int}(pick1{Int}(0))`, while a preference over parameter instantiations
-/// (placing `pick2`'s free argument parameter at `K`) keeps `pick2{Int, K}(pick1{K}(0))`, a
-/// different term. The portable decision cannot tell which trees such a preference keeps, so it
-/// leaves the rule to Z3 rather than returning the `prefer` reading.
+/// parametric production each `pick` instantiates and at which sort. One parameter vector
+/// (`pick2`'s argument parameter at `Int`) types all four readings, so the z3 build does not
+/// trade a reading for a parameter at `K` (which gave `pick2{Int, K}(pick1{K}(0))`), and
+/// `prefer` resolves the group to `pick1{Int}(pick1{Int}(0))`. The portable decision does not
+/// model the choice among parameter instantiations, so it leaves the rule to Z3.
 #[test]
 fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     let source = indoc! {r#"
@@ -830,9 +830,10 @@ fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     #[cfg(feature = "z3-inference")]
     {
         let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert!(body.contains("pick2{Int"), "{body}");
-        assert!(body.contains("pick1{K}"), "{body}");
-        assert!(!body.contains("pick1{Int}"), "{body}");
+        assert_eq!(
+            body,
+            r#"trigger(.KList)=>pick1{Int}(pick1{Int}(#token("0","Int")))"#
+        );
     }
 }
 
@@ -841,6 +842,82 @@ fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
 fn nested_preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
     assert_test_passes_under_checked_inference(
         "nested_preferred_reading_among_parameter_instantiations_is_left_to_z3",
+    );
+}
+
+/// `pick(0)` over `pick1 [prefer]` and `pick2`: `pick1{Int}(0)` and `pick2{Int, S2}(0)` share
+/// the empty typing. Placing `pick2`'s free argument parameter at `K` keeps both readings, so
+/// the parameter preference chooses only `pick2`'s instantiation and `prefer` takes `pick1`.
+#[test]
+fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Int ::= "trigger" [symbol(trigger), function]
+          syntax {S} S ::= "pick" "(" S ")" [symbol(pick1), prefer]
+          syntax {S1, S2} S1 ::= "pick" "(" S2 ")" [symbol(pick2)]
+
+          rule trigger => pick(0)
+        endmodule
+    "#};
+    let resolved = resolve_rule_bubbles(&lowered(source));
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let error = resolved.expect_err("the portable build does not choose within one typing");
+        let RuleError::Parse(error) = error else {
+            panic!("expected a parse error, got {error:?}")
+        };
+        assert_eq!(
+            error.error,
+            ParseError::Z3InferenceRequired {
+                ambiguity: true,
+                parametric_sorts: false,
+            }
+        );
+    }
+    #[cfg(feature = "z3-inference")]
+    {
+        let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
+        assert_eq!(body, r#"trigger(.KList)=>pick1{Int}(#token("0","Int"))"#);
+    }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn flat_preferred_reading_among_parameter_instantiations_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading",
+    );
+}
+
+/// `pickB [prefer]` has the result sort `Bool`, which no parameter vector places under the
+/// `Int` the rule's right-hand side expects, so its reading is ill-sorted under every vector
+/// and is dropped before `prefer` could take it; `pick2{Int, K}(0)` is the rule.
+#[test]
+fn preferred_reading_ill_sorted_under_every_parameter_vector_is_dropped() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [symbol(true)]
+          syntax Int ::= "trigger" [symbol(trigger), function]
+          syntax {S} Bool ::= "pick" "(" S ")" [symbol(pickB), prefer]
+          syntax {S1, S2} S1 ::= "pick" "(" S2 ")" [symbol(pick2)]
+
+          rule trigger => pick(0)
+        endmodule
+    "#};
+    let body = only_rule_body(
+        &resolve_rule_bubbles(&lowered(source)).expect("the well-sorted reading is the rule"),
+    );
+    assert_eq!(body, r#"trigger(.KList)=>pick2{Int,K}(#token("0","Int"))"#);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn preferred_reading_ill_sorted_under_every_parameter_vector_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "preferred_reading_ill_sorted_under_every_parameter_vector_is_dropped",
     );
 }
 
@@ -3185,20 +3262,56 @@ fn load_with_prelude(
 
 #[cfg(feature = "z3-inference")]
 #[test]
-fn rejects_parametric_completion_without_a_unique_least_upper_bound() {
+fn preferred_fun2_reading_needs_no_fun3_completion() {
     // reference: k/result/bin/kompile test.k --backend haskell
     //   --main-module PARAMETRIC-COMPLETION-LUB
     //   --syntax-module PARAMETRIC-COMPLETION-LUB (exit 113 before parsed.txt)
-    // AddEmptyLists asks AddSortInjections to complete #fun3's Sort2 parameter from its two
+    // The rule reads as `#fun2` over a rewrite or as `#fun3`. Both readings are well-sorted
+    // (the parser-layer `#KToken` children have sort KBott), so `#fun2 [prefer]` is the rule
+    // and `#fun3`'s `Sort2` is never completed from its two KBott children. The pinned
+    // reference completes `#fun3` and rejects the rule for want of a unique least upper bound;
+    // that is a recorded divergence. The completion error itself is covered by
+    // `rejects_parametric_completion_without_a_unique_least_upper_bound`.
+    let source = include_str!("fixtures/reference/inner/parametric-completion-lub/test.k");
+    let loaded = load_with_prelude(
+        source,
+        "parametric-completion-lub.k",
+        "PARAMETRIC-COMPLETION-LUB",
+    )
+    .expect("the preferred #fun2 reading is well-sorted");
+    let bodies = rule_bodies(&loaded);
+    assert!(
+        bodies.iter().any(|body| body.contains("#fun2")),
+        "{bodies:?}"
+    );
+    assert!(
+        !bodies.iter().any(|body| body.contains("#fun3")),
+        "{bodies:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn rejects_parametric_completion_without_a_unique_least_upper_bound() {
+    // AddEmptyLists asks AddSortInjections to complete `lam3`'s `S2` parameter from its two
     // parser-layer #KToken children. Both are KBott until TreeNodesToKORE materializes their
     // semantic Missing sort, and filtering KBott's upper bounds leaves no unique admissible LUB.
-    let source = include_str!("fixtures/reference/inner/parametric-completion-lub/test.k");
+    // `lam3` has the shape of the prelude's `#fun3` without a preferred `#fun2` reading.
+    let source = indoc! {r#"
+        module PARAMETRIC-COMPLETION-LUB
+          imports INT
+
+          syntax {S1, S2} S1 ::= "lam" "(" S2 "=>" S1 ")" "(" S2 ")" [symbol(lam3)]
+          syntax Int ::= trigger() [function]
+          rule trigger() => lam(#token("pattern", "Missing") => 0)(#token("argument", "Missing"))
+        endmodule
+    "#};
     let Err(error) = load_with_prelude(
         source,
         "parametric-completion-lub.k",
         "PARAMETRIC-COMPLETION-LUB",
     ) else {
-        panic!("the reference rejects a parametric production without a unique completion LUB");
+        panic!("a parametric production without a unique completion LUB is rejected");
     };
     assert!(
         matches!(&error, k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error))
@@ -3211,13 +3324,52 @@ fn rejects_parametric_completion_without_a_unique_least_upper_bound() {
 #[cfg(feature = "z3-inference")]
 #[test]
 fn accepts_parametric_completion_with_an_admissible_singleton_bound() {
-    let source = include_str!("fixtures/reference/inner/parametric-completion-lub/control.k");
-    load_with_prelude(
+    // The control of `rejects_parametric_completion_without_a_unique_least_upper_bound`: equal
+    // semantic Int children give `lam3`'s `S2` the unique admissible completion bound Int.
+    let source = indoc! {r#"
+        module PARAMETRIC-COMPLETION-LUB-CONTROL
+          imports INT
+
+          syntax {S1, S2} S1 ::= "lam" "(" S2 "=>" S1 ")" "(" S2 ")" [symbol(lam3)]
+          syntax Int ::= trigger() [function]
+          rule trigger() => lam(0 => 0)(0)
+        endmodule
+    "#};
+    let loaded = load_with_prelude(
         source,
         "parametric-completion-lub-control.k",
         "PARAMETRIC-COMPLETION-LUB-CONTROL",
     )
     .expect("equal Int bounds have the unique admissible completion LUB Int");
+    let bodies = rule_bodies(&loaded);
+    assert!(
+        bodies.iter().any(|body| body.contains("lam3")),
+        "{bodies:?}"
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn fun_over_an_inner_rewrite_takes_the_preferred_fun2() {
+    // `#fun(0 => 0)(0)` reads as `#fun2{Int}` over the rewrite `0 => 0` or as `#fun3{Int, S}`
+    // with pattern `0` and body `0`. Some parameter vector types each reading (`#fun3`'s
+    // pattern parameter at `Int` types both), so both reach `prefer`, which takes `#fun2`.
+    let source = include_str!("fixtures/reference/inner/parametric-completion-lub/control.k");
+    let loaded = load_with_prelude(
+        source,
+        "parametric-completion-lub-control.k",
+        "PARAMETRIC-COMPLETION-LUB-CONTROL",
+    )
+    .expect("the preferred #fun2 reading is well-sorted");
+    let bodies = rule_bodies(&loaded);
+    assert!(
+        bodies.iter().any(|body| body.contains("#fun2{Int}")),
+        "{bodies:?}"
+    );
+    assert!(
+        !bodies.iter().any(|body| body.contains("#fun3")),
+        "{bodies:?}"
+    );
 }
 
 #[cfg(feature = "z3-inference")]

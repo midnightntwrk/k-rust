@@ -23,6 +23,7 @@ Snapshots are an assertion format within these homes, not a separate test system
 Tests must declare the capabilities their fixtures require.
 Frontend tests that load the full standard prelude or require parametric inference belong to the native `z3-inference` feature, even when their final assertion concerns another subsystem.
 An ambiguous forest is portable when every tree is monomorphic and has a greatest typing and the forest has at most `PORTABLE_AMBIGUITY_TREE_LIMIT` trees (`inner/parser/inference.rs`), unless trees of one typing instantiate formal parameters differently and do not all lower to one term; other ambiguous forests also need the native feature.
+The native engine keeps every tree that some formal-parameter vector types, so `prefer`/`avoid` decides among such trees (`Encoding::admissible_parameters` in `inner/parser/z3_inference.rs`); the portable engine still leaves them to it.
 Portable tests must cover the supported subset and explicit `Z3InferenceRequired` boundary.
 Use a reduced fixture when the contract can be exercised without native inference; do not require the full prelude merely for convenience.
 Feature selection changes which contracts can run, not their subsystem ownership.

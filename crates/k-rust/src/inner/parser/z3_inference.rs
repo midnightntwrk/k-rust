@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
-//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::prefer_parameters", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256"
+//! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators", "Encoding::read_model", "or_all"]
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = ambiguity alternatives of the term constraint (one live-tree indicator each); L = inclusion-maximal live sets of one maximal typing"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -23,7 +23,11 @@
 //!
 //! [[cost]]
 //! mode = "admissible parameter enumeration of one recorded model with formal parameters"
-//! bound = "A solver checks, and A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
+//! bound = "O(L x I + A) solver checks (each maximal live set grows by at most I checks), and A model applications of O(N) nodes each, whose candidates join the one ambiguity the post-inference passes resolve; the inference fails when A exceeds 256"
+//!
+//! [[cost]]
+//! mode = "live-tree indicators of one term constraint"
+//! bound = "O(N + I) formula nodes over the recorded node constraints, built once per inference"
 //!
 //! [[cost]]
 //! mode = "cached encoding base that does not cover the term sorts"
@@ -149,6 +153,12 @@ struct Encoding<'a> {
     parameters: BTreeSet<String>,
     /// Soft per-ambiguity preferences for the overload-minimal function-LHS branches.
     packed_overload_preferences: Vec<Bool>,
+    /// The node constraints of the term constraint and the nodes that use each of them.
+    liveness: LivenessGraph,
+    /// One indicator per alternative of each ambiguity of the term constraint
+    /// (`LivenessGraph::indicators`): it holds exactly when a well-sorted tree of the whole
+    /// term passes through that alternative.
+    alternative_indicators: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
     anywhere: bool,
     top_rewrite_paths: HashSet<String>,
@@ -206,11 +216,78 @@ const UNSAT_MESSAGE: &str = "no well-sorted parse or variable assignment exists"
 /// recorded variable typing; it fails instead of keeping a subset when there are more.
 const PARAMETER_CHOICE_LIMIT: usize = 256;
 
-/// The maximal preference counts `Encoding::prefer_parameters` asserts.
-#[derive(Clone, Copy, Default)]
-struct PreferenceCounts {
-    overloads: usize,
-    tops: usize,
+/// The constraint of each node of one term constraint, recorded while it is built
+/// (`Encoding::constraint_packed_node`, `Encoding::constraint_node`), with the nodes that use it:
+/// a production node uses its children and an ambiguity node its alternatives. A node is
+/// completed after every node it uses, so node indexes are a topological order, users last.
+#[derive(Default)]
+struct LivenessGraph {
+    constraints: Vec<Bool>,
+    users: Vec<Vec<usize>>,
+    /// `(ambiguity, alternative)` for every alternative of every ambiguity node.
+    alternatives: Vec<(usize, usize)>,
+}
+
+impl LivenessGraph {
+    fn node(&mut self, constraint: Bool, children: &[usize]) -> usize {
+        let node = self.constraints.len();
+        self.constraints.push(constraint);
+        self.users.push(Vec::new());
+        for child in children {
+            self.users[*child].push(node);
+        }
+        node
+    }
+
+    fn ambiguity(&mut self, constraint: Bool, alternatives: &[usize]) -> usize {
+        let node = self.node(constraint, alternatives);
+        self.alternatives
+            .extend(alternatives.iter().map(|alternative| (node, *alternative)));
+        node
+    }
+
+    /// One indicator per recorded ambiguity alternative, for the term constraint whose root is
+    /// `root`. A node is live when its constraint holds and some user of it is live (the root:
+    /// when its constraint holds), so a node is live exactly when some tree of the whole term
+    /// that passes through it is well-sorted. The indicator of alternative `a` of ambiguity `n`
+    /// is `constraint(a) and live(n)`: a parameter vector keeps a tree through `a` at `n` exactly
+    /// when it holds. Constraints of nodes that only an ill-sorted tree reaches therefore cannot
+    /// make an indicator true.
+    fn indicators(&self, root: usize) -> Vec<Bool> {
+        if self.alternatives.is_empty() {
+            return Vec::new();
+        }
+        let mut live: Vec<Option<Bool>> = vec![None; self.constraints.len()];
+        // Invariant: every node above `node` has its liveness, and users are above their nodes.
+        for node in (0..=root).rev() {
+            let reached = if node == root {
+                None
+            } else {
+                let users = self.users[node]
+                    .iter()
+                    .filter_map(|user| live[*user].clone())
+                    .collect::<Vec<_>>();
+                if users.is_empty() {
+                    continue;
+                }
+                Some(or_all(&users))
+            };
+            live[node] = Some(match reached {
+                Some(reached) => Bool::and(&[self.constraints[node].clone(), reached]),
+                None => self.constraints[node].clone(),
+            });
+        }
+        self.alternatives
+            .iter()
+            .filter_map(|(ambiguity, alternative)| {
+                let reached = live[*ambiguity].clone()?;
+                Some(Bool::and(&[
+                    self.constraints[*alternative].clone(),
+                    reached,
+                ]))
+            })
+            .collect()
+    }
 }
 
 /// One constraint of the incremental replay (`TypeInferencer.Constraint`).
@@ -236,7 +313,7 @@ enum ReplaySubject {
 
 type PackedConstraintKey = (*const PackedTerm, Datatype, CastContext);
 type PackedConstraintMemo =
-    HashMap<PackedConstraintKey, (Rc<PackedTerm>, Result<Bool, ParseError>)>;
+    HashMap<PackedConstraintKey, (Rc<PackedTerm>, Result<(Bool, usize), ParseError>)>;
 type PackedModelKey = (*const PackedTerm, Sort, CastContext);
 type PackedModelMemo =
     BTreeMap<PackedModelKey, (Rc<PackedTerm>, Result<Rc<PackedTerm>, ParseError>)>;
@@ -460,7 +537,9 @@ impl Grammar {
         } else {
             CastContext::None
         };
-        let constraint = encoding.constraint(&term, &expected, root_context, "root")?;
+        let (constraint, root) =
+            encoding.constraint_node(&term, &expected, root_context, "root")?;
+        encoding.alternative_indicators = encoding.liveness.indicators(root);
         if encoding.variables.is_empty() && !encoding.ill_sorted_ground {
             return Ok(term);
         }
@@ -838,8 +917,9 @@ impl<'a> Encoding<'a> {
         } else {
             CastContext::None
         };
-        let constraint =
-            self.constraint_packed(term, &expected, root_context, &mut HashMap::new())?;
+        let (constraint, root) =
+            self.constraint_packed_node(term, &expected, root_context, &mut HashMap::new())?;
+        self.alternative_indicators = self.liveness.indicators(root);
         solver.assert(&constraint);
         self.exclude_klabel_parameters(solver)?;
         self.restrict_to_real_sorts(solver);
@@ -858,6 +938,8 @@ impl<'a> Encoding<'a> {
             variables: BTreeMap::new(),
             parameters: BTreeSet::new(),
             packed_overload_preferences: Vec::new(),
+            liveness: LivenessGraph::default(),
+            alternative_indicators: Vec::new(),
             packed_ids: HashMap::new(),
             anywhere,
             top_rewrite_paths: HashSet::new(),
@@ -875,6 +957,18 @@ impl<'a> Encoding<'a> {
         cast_context: CastContext,
         path: &str,
     ) -> Result<Bool, ParseError> {
+        self.constraint_node(term, expected, cast_context, path)
+            .map(|(constraint, _)| constraint)
+    }
+
+    /// The constraint of `term` at `expected` and its node in `self.liveness`.
+    fn constraint_node(
+        &mut self,
+        term: &ParsedTerm,
+        expected: &Datatype,
+        cast_context: CastContext,
+        path: &str,
+    ) -> Result<(Bool, usize), ParseError> {
         match term {
             ParsedTerm::Ambiguity(alternatives) => {
                 // Incremental mode explains one branch of an ambiguity, as the reference does.
@@ -883,33 +977,41 @@ impl<'a> Encoding<'a> {
                 } else {
                     alternatives.len()
                 };
-                let constraints = alternatives
+                let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives
                     .iter()
                     .take(considered)
                     .enumerate()
                     .map(|(index, alternative)| {
-                        self.constraint(
+                        self.constraint_node(
                             alternative,
                             expected,
                             cast_context,
                             &format!("{path}_a{index}"),
                         )
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(or_all(&constraints))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .unzip();
+                let constraint = or_all(&constraints);
+                let node = self.liveness.ambiguity(constraint.clone(), &nodes);
+                Ok((constraint, node))
             }
-            ParsedTerm::Term(term) => match (inferred_variable_name(term), term.unannotated()) {
-                (Some(name), _) => {
-                    let variable = self.term_variable(term, name, path);
-                    self.variable_constraint(variable, name, expected, cast_context)
-                }
-                (None, Term::Token { sort, .. }) => {
-                    self.token_constraint(term, sort, expected, cast_context)
-                }
-                (None, _) => Err(z3_error(
-                    "unexpected lowered KAST node in the concrete parse forest",
-                )),
-            },
+            ParsedTerm::Term(term) => {
+                let constraint = match (inferred_variable_name(term), term.unannotated()) {
+                    (Some(name), _) => {
+                        let variable = self.term_variable(term, name, path);
+                        self.variable_constraint(variable, name, expected, cast_context)
+                    }
+                    (None, Term::Token { sort, .. }) => {
+                        self.token_constraint(term, sort, expected, cast_context)
+                    }
+                    (None, _) => Err(z3_error(
+                        "unexpected lowered KAST node in the concrete parse forest",
+                    )),
+                }?;
+                let node = self.liveness.node(constraint.clone(), &[]);
+                Ok((constraint, node))
+            }
             ParsedTerm::Production {
                 production,
                 children,
@@ -947,6 +1049,7 @@ impl<'a> Encoding<'a> {
                 }
 
                 let expected_children = production_nonterminals(descriptor);
+                let mut nodes = Vec::with_capacity(children.len());
                 if expected_children.len() != children.len() {
                     return Err(z3_error(format!(
                         "production {:?} has {} nonterminals but its parse node has {} children",
@@ -993,14 +1096,14 @@ impl<'a> Encoding<'a> {
                         }
                         context => context,
                     };
-                    constraints.push(self.constraint(
-                        child,
-                        &child_expected,
-                        child_context,
-                        &child_path,
-                    )?);
+                    let (constraint, node) =
+                        self.constraint_node(child, &child_expected, child_context, &child_path)?;
+                    constraints.push(constraint);
+                    nodes.push(node);
                 }
-                Ok(and_all(&constraints))
+                let constraint = and_all(&constraints);
+                let node = self.liveness.node(constraint.clone(), &nodes);
+                Ok((constraint, node))
             }
             ParsedTerm::InstantiatedProduction { .. } => {
                 unreachable!("Z3 constraints are generated before model substitution")
@@ -1015,6 +1118,19 @@ impl<'a> Encoding<'a> {
         cast_context: CastContext,
         memo: &mut PackedConstraintMemo,
     ) -> Result<Bool, ParseError> {
+        self.constraint_packed_node(term, expected, cast_context, memo)
+            .map(|(constraint, _)| constraint)
+    }
+
+    /// The constraint of `term` at `expected` and its node in `self.liveness`; one node per memo
+    /// key, so a packed subterm shared by several parents is one node with several users.
+    fn constraint_packed_node(
+        &mut self,
+        term: &Rc<PackedTerm>,
+        expected: &Datatype,
+        cast_context: CastContext,
+        memo: &mut PackedConstraintMemo,
+    ) -> Result<(Bool, usize), ParseError> {
         let identity = Rc::as_ptr(term);
         let key = (identity, expected.clone(), cast_context);
         if let Some((_, constraint)) = memo.get(&key) {
@@ -1027,12 +1143,14 @@ impl<'a> Encoding<'a> {
                     // Incremental mode explains one branch of an ambiguity, as the reference does.
                     alternatives.truncate(1);
                 }
-                let constraints = alternatives
+                let (constraints, nodes): (Vec<_>, Vec<_>) = alternatives
                     .iter()
                     .map(|alternative| {
-                        self.constraint_packed(alternative, expected, cast_context, memo)
+                        self.constraint_packed_node(alternative, expected, cast_context, memo)
                     })
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .unzip();
                 let overloads = alternatives
                     .iter()
                     .map(|alternative| {
@@ -1059,20 +1177,26 @@ impl<'a> Encoding<'a> {
                         self.packed_overload_preferences.push(or_all(&preferred));
                     }
                 }
-                Ok(or_all(&constraints))
+                let constraint = or_all(&constraints);
+                let node = self.liveness.ambiguity(constraint.clone(), &nodes);
+                Ok((constraint, node))
             }
-            PackedNode::Term(leaf) => match (inferred_variable_name(leaf), leaf.unannotated()) {
-                (Some(name), _) => {
-                    let variable = self.packed_term_variable(leaf, name, identity);
-                    self.variable_constraint(variable, name, expected, cast_context)
-                }
-                (None, Term::Token { sort, .. }) => {
-                    self.token_constraint(leaf, sort, expected, cast_context)
-                }
-                (None, _) => Err(z3_error(
-                    "unexpected lowered KAST node in the packed parse forest",
-                )),
-            },
+            PackedNode::Term(leaf) => {
+                let constraint = match (inferred_variable_name(leaf), leaf.unannotated()) {
+                    (Some(name), _) => {
+                        let variable = self.packed_term_variable(leaf, name, identity);
+                        self.variable_constraint(variable, name, expected, cast_context)
+                    }
+                    (None, Term::Token { sort, .. }) => {
+                        self.token_constraint(leaf, sort, expected, cast_context)
+                    }
+                    (None, _) => Err(z3_error(
+                        "unexpected lowered KAST node in the packed parse forest",
+                    )),
+                }?;
+                let node = self.liveness.node(constraint.clone(), &[]);
+                Ok((constraint, node))
+            }
             PackedNode::Production {
                 production,
                 children,
@@ -1109,6 +1233,7 @@ impl<'a> Encoding<'a> {
                     constraints.push(constraint);
                 }
                 let expected_children = production_nonterminals(descriptor);
+                let mut nodes = Vec::with_capacity(children.len());
                 if expected_children.len() != children.len() {
                     return Err(z3_error(format!(
                         "production {:?} has {} nonterminals but its packed node has {} children",
@@ -1151,14 +1276,14 @@ impl<'a> Encoding<'a> {
                         }
                         context => context,
                     };
-                    constraints.push(self.constraint_packed(
-                        child,
-                        &child_expected,
-                        child_context,
-                        memo,
-                    )?);
+                    let (constraint, node) =
+                        self.constraint_packed_node(child, &child_expected, child_context, memo)?;
+                    constraints.push(constraint);
+                    nodes.push(node);
                 }
-                Ok(and_all(&constraints))
+                let constraint = and_all(&constraints);
+                let node = self.liveness.node(constraint.clone(), &nodes);
+                Ok((constraint, node))
             }
             PackedNode::InstantiatedProduction { .. } => {
                 unreachable!("constraints are generated before model application")
@@ -1611,7 +1736,7 @@ impl<'a> Encoding<'a> {
     /// problems, order and preference counts (`KRust.MaximalModels.Equivalent`, Rust test
     /// `tests::order_constraints_are_equivalent_at_every_call_site`).
     /// `maximal_models` then records the same maximal real typings, each with a parameter
-    /// vector that `prefer_parameters` admits under either formula
+    /// vector that `admissible_parameters` admits under either formula
     /// (`KRust.MaximalModels.runs_agree_up_to_pref`). Every admissible vector is applied, so
     /// the candidate parses are the same (`KRust.MaximalModels.runs_agree_candidates`). What
     /// may change is what depends on the particular models
@@ -1808,74 +1933,8 @@ impl<'a> Encoding<'a> {
         Ok(low)
     }
 
-    /// Re-select the formal parameters of a maximal model: first so that as many
-    /// overload-minimal function-LHS branches as possible stay well-sorted, then so that as many
-    /// parameters as possible sit at the seed's `K`/`KItem`/`Bag` preferences.
-    ///
-    /// A packed ambiguity can share a formal parameter between overload branches that bind it to
-    /// different sorts. Model application discards the branch the arbitrary Z3 value contradicts
-    /// before the post-inference overload filter can select it. The maximality climb over the
-    /// real variables likewise re-reads every parameter from an unconstrained model, so a
-    /// parameter the seed placed at `K` (a top rewrite over a bare variable) can come back at any
-    /// satisfying sort. The real variables are pinned to their maximal values, so only formal
-    /// parameters move, and the assertions are popped before enumeration continues with hard
-    /// constraints alone.
-    ///
-    /// Returns the maximal overload and top-preference counts; together with the hard
-    /// constraints and the pinned real variables they define the admissible parameter vectors
-    /// that [`Encoding::admissible_parameters`] enumerates.
-    fn prefer_parameters(
-        &self,
-        solver: &Solver,
-        values: &mut BTreeMap<String, Sort>,
-    ) -> Result<PreferenceCounts, ParseError> {
-        let top_preferences = self.top_preferences(|name| self.parameters.contains(name))?;
-        let mut counts = PreferenceCounts::default();
-        if self.packed_overload_preferences.is_empty() && top_preferences.is_empty() {
-            return Ok(counts);
-        }
-        solver.push();
-        let preferred = (|| {
-            for (name, variable) in &self.variables {
-                if self.parameters.contains(name) {
-                    continue;
-                }
-                let current = self.sort_value(
-                    values
-                        .get(name)
-                        .expect("all inference variables have model values"),
-                    &BTreeMap::new(),
-                )?;
-                solver.assert(variable.eq(&current));
-            }
-            let overloads = self.assert_preferred(solver, &self.packed_overload_preferences)?;
-            let tops = self.assert_preferred(solver, &top_preferences)?;
-            counts = PreferenceCounts { overloads, tops };
-            if overloads == 0 && tops == 0 {
-                return Ok(None);
-            }
-            match check(solver) {
-                SatResult::Sat => self
-                    .read_model(&solver.get_model().ok_or_else(|| {
-                        z3_error("Z3 returned sat without an overload branch model")
-                    })?)
-                    .map(Some),
-                SatResult::Unsat => Ok(None),
-                SatResult::Unknown => Err(z3_error(
-                    "Z3 returned unknown while selecting overload branch parameters",
-                )),
-            }
-        })();
-        solver.pop(1);
-        if let Some(preferred) = preferred? {
-            *values = preferred;
-        }
-        Ok(counts)
-    }
-
     /// Enumerate the maximal real-variable typings, each with every admissible parameter vector
-    /// ([`Encoding::admissible_parameters`]); the first model of each group is the one
-    /// `prefer_parameters` kept.
+    /// ([`Encoding::admissible_parameters`]).
     fn maximal_models(
         &self,
         solver: &Solver,
@@ -1969,8 +2028,7 @@ impl<'a> Encoding<'a> {
                     }
                 }
             }
-            let counts = self.prefer_parameters(solver, &mut values)?;
-            let admissible = self.admissible_parameters(solver, &values, counts)?;
+            let admissible = self.admissible_parameters(solver, &values)?;
             let dominated = real_variables
                 .iter()
                 .map(|name| {
@@ -1998,35 +2056,52 @@ impl<'a> Encoding<'a> {
         Ok(models)
     }
 
-    /// Every admissible parameter vector of a recorded variable typing, `chosen` first.
+    /// Every admissible parameter vector of the recorded variable typing `chosen`.
     ///
     /// The hard constraints fix the variable typing `chosen` records, but not always its formal
-    /// parameters: several vectors can reach the maximal preference counts that
-    /// `prefer_parameters` asserts, and no inference criterion orders them, since they share
-    /// the typing and the counts. Each of them types a well-sorted parse of the sentence, so each
-    /// is returned, and the caller applies each one as a candidate. The post-inference passes
-    /// then see every such parse as an alternative of one ambiguity, exactly as they see the
-    /// parses of two incomparable maximal typings: they resolve it (overloads, `prefer`/`avoid`,
-    /// alternatives that lower to the same term) or report it as `ParseError::Ambiguous`. The
-    /// parse is therefore a function of the admissible set, not of the vector Z3 returned.
+    /// parameters. A formal parameter is not a variable of the sentence: maximality does not
+    /// order its values, and a parameter vector can only decide which trees of an ambiguity are
+    /// well-sorted and at which sorts their parametric productions are instantiated. So the
+    /// vectors are chosen in three ranked steps, with the real variables pinned to `chosen`:
     ///
-    /// With the real variables pinned to `chosen` and both maximal counts asserted, the
-    /// constraints are exactly those that define an admissible vector: the blocking clauses of
-    /// earlier records name only real variables and hold at `chosen`, which is unblocked. Each
-    /// step excludes exactly the last vector found, so an `Unsat` answer means that the whole
-    /// admissible set has been returned; a singleton set costs one check. A parameter linked by
-    /// the order constraints to no ground sort and no real variable can range over infinitely
-    /// many values of the datatype's parametric heads; when there are more than
-    /// `PARAMETER_CHOICE_LIMIT` vectors the inference fails instead of keeping a subset.
+    /// 1. as many overload-minimal function-LHS branches as possible stay well-sorted (the
+    ///    maximal count of `packed_overload_preferences`), so a branch that an arbitrary value
+    ///    of a shared parameter contradicts is not lost before the overload filter sees it;
+    /// 2. the set of live ambiguity alternatives (`alternative_indicators`) is maximal under
+    ///    inclusion: no vector keeps a well-sorted tree only by giving up another one, since a
+    ///    vector whose live set another vector strictly contains is not admissible. Every
+    ///    maximal live set is kept (`Encoding::maximal_live_set`); two of them are
+    ///    incomparable, for instance when a parameter shared by a packed subterm must take
+    ///    different sorts under two alternatives that use it;
+    /// 3. among the vectors of one maximal live set, as many parameters as possible sit at the
+    ///    `K`/`KItem`/`Bag` preferences of `seed_model`, which chooses the instantiation of a
+    ///    parameter the kept trees leave free. It compares only vectors that keep the same
+    ///    trees, so it never removes a tree.
+    ///
+    /// Every vector that reaches these criteria is returned, and the caller applies each one as a
+    /// candidate. The post-inference passes then see every such parse as an alternative of one
+    /// ambiguity, exactly as they see the parses of two incomparable maximal typings: they
+    /// resolve it (overloads, `prefer`/`avoid`, alternatives that lower to the same term) or
+    /// report it as `ParseError::Ambiguous`. So a tree that some vector types reaches
+    /// `prefer`/`avoid`, and the parse is a function of the admissible set, not of the vector Z3
+    /// returned. A tree that no vector types is still dropped.
+    ///
+    /// With the real variables pinned, the overload count, one maximal live set and its top
+    /// count asserted, the constraints are exactly those that define that set's admissible
+    /// vectors: the blocking clauses of earlier records name only real variables and hold at
+    /// `chosen`, which is unblocked. Each step excludes exactly the last vector found, so an
+    /// `Unsat` answer means that the whole set has been returned; the live sets are disjoint, so
+    /// no vector is returned twice. A parameter linked by the order constraints to no ground sort
+    /// and no real variable can range over infinitely many values of the datatype's parametric
+    /// heads; when there are more than `PARAMETER_CHOICE_LIMIT` vectors the inference fails
+    /// instead of keeping a subset.
     fn admissible_parameters(
         &self,
         solver: &Solver,
         chosen: &BTreeMap<String, Sort>,
-        counts: PreferenceCounts,
     ) -> Result<Vec<BTreeMap<String, Sort>>, ParseError> {
-        let mut admissible = vec![chosen.clone()];
         if self.parameters.is_empty() {
-            return Ok(admissible);
+            return Ok(vec![chosen.clone()]);
         }
         solver.push();
         let result = (|| {
@@ -2042,68 +2117,162 @@ impl<'a> Encoding<'a> {
                 )?;
                 solver.assert(variable.eq(&current));
             }
-            let top_preferences = if counts.tops > 0 {
-                self.top_preferences(|name| self.parameters.contains(name))?
-            } else {
-                Vec::new()
-            };
-            for (preferences, count) in [
-                (&self.packed_overload_preferences, counts.overloads),
-                (&top_preferences, counts.tops),
-            ] {
-                if count > 0 {
-                    let weighted = preferences
-                        .iter()
-                        .map(|constraint| (constraint, 1))
-                        .collect::<Vec<_>>();
-                    solver.assert(Bool::pb_ge(&weighted, count as i32));
-                }
-            }
-            // Invariant: `admissible` holds distinct admissible vectors, each excluded on the
-            // solver once found; each iteration excludes the last one and finds a further one,
-            // stops, or fails at the limit.
+            self.assert_preferred(solver, &self.packed_overload_preferences)?;
+            let top_preferences = self.top_preferences(|name| self.parameters.contains(name))?;
+            let mut admissible = Vec::new();
+            // Invariant: `admissible` holds the vectors of the maximal live sets found so far,
+            // and the solver excludes every live set that one of them contains; each iteration
+            // finds a further maximal live set and adds its vectors, or stops.
             loop {
-                let last = admissible.last().expect("`chosen` is the first vector");
-                let blocked = self
-                    .parameters
-                    .iter()
-                    .map(|name| {
-                        let value = self.sort_value(
-                            last.get(name)
-                                .expect("all inference variables have model values"),
-                            &BTreeMap::new(),
-                        )?;
-                        Ok(self
-                            .variables
-                            .get(name)
-                            .expect("parameters are also inference variables")
-                            .ne(&value))
-                    })
-                    .collect::<Result<Vec<_>, ParseError>>()?;
-                solver.assert(or_all(&blocked));
                 match check(solver) {
-                    SatResult::Unsat => return Ok(()),
+                    SatResult::Unsat => return Ok(admissible),
                     SatResult::Unknown => {
                         return Err(z3_error(
-                            "Z3 returned unknown while enumerating admissible sort parameters",
+                            "Z3 returned unknown while enumerating live sort-inference trees",
                         ));
                     }
                     SatResult::Sat => {}
                 }
-                if admissible.len() == PARAMETER_CHOICE_LIMIT {
-                    return Err(z3_error(format!(
-                        "sort inference found more than {PARAMETER_CHOICE_LIMIT} admissible sort \
-                         parameter choices for one variable typing and cannot enumerate the \
-                         parses of the sentence"
-                    )));
+                let model = solver
+                    .get_model()
+                    .ok_or_else(|| z3_error("Z3 returned sat without a live-tree model"))?;
+                let live = self.maximal_live_set(solver, &model)?;
+                let (kept, dropped): (Vec<_>, Vec<_>) = self
+                    .alternative_indicators
+                    .iter()
+                    .zip(&live)
+                    .partition(|(_, live)| **live);
+                solver.push();
+                let enumerated = (|| {
+                    for (indicator, _) in &kept {
+                        solver.assert(*indicator);
+                    }
+                    self.assert_preferred(solver, &top_preferences)?;
+                    self.enumerate_parameters(solver, &mut admissible)
+                })();
+                solver.pop(1);
+                enumerated?;
+                if dropped.is_empty() {
+                    return Ok(admissible);
                 }
-                admissible.push(self.read_model(&solver.get_model().ok_or_else(|| {
-                    z3_error("Z3 returned sat without an admissible parameter model")
-                })?)?);
+                // Every later live set has an alternative outside this one.
+                let dropped = dropped
+                    .into_iter()
+                    .map(|(indicator, _)| indicator.clone())
+                    .collect::<Vec<_>>();
+                solver.assert(or_all(&dropped));
             }
         })();
         solver.pop(1);
-        result.map(|()| admissible)
+        result
+    }
+
+    /// The live set of `model` (which alternative indicators hold), grown to a live set that no
+    /// satisfying assignment of the current assertions strictly contains.
+    fn maximal_live_set(&self, solver: &Solver, model: &Model) -> Result<Vec<bool>, ParseError> {
+        let evaluate = |model: &Model| {
+            self.alternative_indicators
+                .iter()
+                .map(|indicator| {
+                    model
+                        .eval(indicator, true)
+                        .and_then(|value| value.as_bool())
+                        .ok_or_else(|| z3_error("Z3 did not evaluate a live-tree indicator"))
+                })
+                .collect::<Result<Vec<_>, ParseError>>()
+        };
+        let mut live = evaluate(model)?;
+        // Invariant: `live` is the live set of a satisfying assignment, and each successful
+        // iteration strictly grows it.
+        loop {
+            let (kept, dropped): (Vec<_>, Vec<_>) = self
+                .alternative_indicators
+                .iter()
+                .zip(&live)
+                .partition(|(_, live)| **live);
+            if dropped.is_empty() {
+                return Ok(live);
+            }
+            solver.push();
+            for (indicator, _) in &kept {
+                solver.assert(*indicator);
+            }
+            let dropped = dropped
+                .into_iter()
+                .map(|(indicator, _)| indicator.clone())
+                .collect::<Vec<_>>();
+            solver.assert(or_all(&dropped));
+            let status = check(solver);
+            let grown = match status {
+                SatResult::Sat => {
+                    Some(evaluate(&solver.get_model().ok_or_else(|| {
+                        z3_error("Z3 returned sat without a live-tree model")
+                    })?))
+                }
+                _ => None,
+            };
+            solver.pop(1);
+            match status {
+                SatResult::Sat => live = grown.expect("a sat check was evaluated")?,
+                SatResult::Unsat => return Ok(live),
+                SatResult::Unknown => {
+                    return Err(z3_error(
+                        "Z3 returned unknown while maximizing live sort-inference trees",
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Append every parameter vector that satisfies the current assertions to `admissible`,
+    /// excluding each one once found.
+    fn enumerate_parameters(
+        &self,
+        solver: &Solver,
+        admissible: &mut Vec<BTreeMap<String, Sort>>,
+    ) -> Result<(), ParseError> {
+        // Invariant: every vector found in this call is in `admissible` and excluded on the
+        // solver; each iteration finds a further one, stops, or fails at the limit.
+        loop {
+            match check(solver) {
+                SatResult::Unsat => return Ok(()),
+                SatResult::Unknown => {
+                    return Err(z3_error(
+                        "Z3 returned unknown while enumerating admissible sort parameters",
+                    ));
+                }
+                SatResult::Sat => {}
+            }
+            if admissible.len() == PARAMETER_CHOICE_LIMIT {
+                return Err(z3_error(format!(
+                    "sort inference found more than {PARAMETER_CHOICE_LIMIT} admissible sort \
+                     parameter choices for one variable typing and cannot enumerate the parses \
+                     of the sentence"
+                )));
+            }
+            let vector = self.read_model(&solver.get_model().ok_or_else(|| {
+                z3_error("Z3 returned sat without an admissible parameter model")
+            })?)?;
+            let blocked = self
+                .parameters
+                .iter()
+                .map(|name| {
+                    let value = self.sort_value(
+                        vector
+                            .get(name)
+                            .expect("all inference variables have model values"),
+                        &BTreeMap::new(),
+                    )?;
+                    Ok(self
+                        .variables
+                        .get(name)
+                        .expect("parameters are also inference variables")
+                        .ne(&value))
+                })
+                .collect::<Result<Vec<_>, ParseError>>()?;
+            solver.assert(or_all(&blocked));
+            admissible.push(vector);
+        }
     }
 
     fn read_model(&self, model: &Model) -> Result<BTreeMap<String, Sort>, ParseError> {
@@ -3601,6 +3770,12 @@ mod tests {
     /// over productions `p{k} : R ::= "p{k}" A B` applied to the variables `X`, `Y`, `Z`,
     /// optionally under a unary production `w : R ::= "w" A`, and optionally under a parametric
     /// production `q : {P} R ::= "q" P P` whose second child is one of the variables.
+    /// Optionally (`shared`), the first child of each alternative is `id(V)` over
+    /// `id : {Q} Q ::= "id" Q`, one packed node per variable `V` shared by every alternative
+    /// that uses it, so its parameter `Q` must equal the first child sort of each alternative it
+    /// is live under; `Some(true)` also gives `p0` the first child sort `K` when `K` exists, so
+    /// that a vector can place `Q` at `K` only by dropping the alternatives over other
+    /// productions.
     struct ConformanceProblem {
         grammar: Grammar,
         term: Rc<PackedTerm>,
@@ -3619,6 +3794,7 @@ mod tests {
         alternatives: &[(usize, usize, usize)],
         wrapper: Option<(usize, usize)>,
         parametric: Option<(usize, usize)>,
+        shared: Option<bool>,
     ) -> ConformanceProblem {
         // Sorts `S0..S{n-1}`, and `K` above all of them when `top` is `None`, which also turns
         // on the `K` preferences of `seed_model`.
@@ -3658,12 +3834,17 @@ mod tests {
         let mut indexes = Vec::new();
         for (k, (result, first, second)) in productions.iter().enumerate() {
             indexes.push(grammar.productions.len());
+            let first = if k == 0 && shared == Some(true) && top.is_none() {
+                Sort::new("K")
+            } else {
+                sort(*first)
+            };
             grammar
                 .add(
                     sort(*result),
                     vec![
                         ProductionItem::Terminal(format!("p{k}")),
-                        nonterminal(sort(*first).name.as_str()),
+                        nonterminal(first.name.as_str()),
                         nonterminal(sort(*second).name.as_str()),
                     ],
                     Some(Label::new(format!("p{k}"))),
@@ -3673,13 +3854,57 @@ mod tests {
                 .unwrap();
         }
         let variable = |index: usize| PackedTerm::leaf(Term::variable(["X", "Y", "Z"][index % 3]));
+        let identity = shared.map(|_| {
+            // `{Q} Q ::= "id" Q`, instantiated at `S0` in the grammar.
+            let index = grammar.productions.len();
+            grammar
+                .add(
+                    sort(0),
+                    vec![
+                        ProductionItem::Terminal("id".into()),
+                        nonterminal(sort(0).name.as_str()),
+                    ],
+                    Some(Label::new("id")),
+                    false,
+                    false,
+                )
+                .unwrap();
+            let parameter = Sort::new("Q");
+            grammar.productions[index].parametric_origin = Some(ParametricOrigin {
+                label: Some(Label::new("id")),
+                parameters: vec![parameter.clone()],
+                result: parameter.clone(),
+                items: vec![
+                    ProductionItem::Terminal("id".into()),
+                    ProductionItem::NonTerminal {
+                        sort: parameter.clone(),
+                        name: None,
+                    },
+                ],
+                attributes: Default::default(),
+                substitution: BTreeMap::from([(parameter, sort(0))]),
+            });
+            (0..3)
+                .map(|variable_index| {
+                    PackedTerm::production(
+                        index,
+                        vec![variable(variable_index)],
+                        Default::default(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+        let first_child = |index: usize| match &identity {
+            Some(nodes) => Rc::clone(&nodes[index % 3]),
+            None => variable(index),
+        };
         let mut term = PackedTerm::ambiguity(
             alternatives
                 .iter()
                 .map(|(production, first, second)| {
                     PackedTerm::production(
                         indexes[production % indexes.len()],
-                        vec![variable(*first), variable(*second)],
+                        vec![first_child(*first), variable(*second)],
                         Default::default(),
                     )
                 })
@@ -3839,12 +4064,62 @@ mod tests {
         Ok(Some((encoding.parameters.clone(), models)))
     }
 
+    /// The trees of a recorded term constraint, each as the set of `LivenessGraph` nodes it
+    /// uses: a production node uses all its children, an ambiguity node one alternative. A tree
+    /// is well-sorted under an assignment exactly when every node constraint of the set holds.
+    fn graph_trees(graph: &LivenessGraph, root: usize) -> Vec<BTreeSet<usize>> {
+        fn trees(
+            node: usize,
+            children: &[Vec<usize>],
+            ambiguities: &BTreeSet<usize>,
+        ) -> Vec<BTreeSet<usize>> {
+            let mut result = if ambiguities.contains(&node) {
+                children[node]
+                    .iter()
+                    .flat_map(|child| trees(*child, children, ambiguities))
+                    .collect::<Vec<_>>()
+            } else {
+                let mut result = vec![BTreeSet::new()];
+                for child in &children[node] {
+                    let options = trees(*child, children, ambiguities);
+                    result = result
+                        .iter()
+                        .flat_map(|prefix| {
+                            options
+                                .iter()
+                                .map(|option| prefix.union(option).copied().collect())
+                        })
+                        .collect();
+                }
+                result
+            };
+            for tree in &mut result {
+                tree.insert(node);
+            }
+            result
+        }
+        let mut children = vec![Vec::new(); graph.constraints.len()];
+        for (child, users) in graph.users.iter().enumerate() {
+            for user in users {
+                children[*user].push(child);
+            }
+        }
+        let ambiguities = graph
+            .alternatives
+            .iter()
+            .map(|(ambiguity, _)| *ambiguity)
+            .collect();
+        trees(root, &children, &ambiguities)
+    }
+
     /// `Pref(a)` by brute force for the real typing `real`: every assignment of the formal
     /// parameters to the nullary real sorts is checked against the hard constraints with every
-    /// variable pinned; the satisfiable ones with the largest number of true overload
-    /// preferences, then among those the largest number of true top preferences, are kept, as
-    /// `prefer_parameters` orders them. The counts are read by evaluating each preference in the
-    /// model of the pinned check.
+    /// variable pinned. Of the satisfiable ones with the largest number of true overload
+    /// preferences, those are kept whose set of well-sorted trees (`graph_trees`, read from the
+    /// node constraints and not from `alternative_indicators`) no other such assignment
+    /// strictly contains, and among the assignments that keep one set of trees, those with the
+    /// largest number of true top preferences, as `admissible_parameters` orders them. The
+    /// counts and the node constraints are evaluated in the model of the pinned check.
     fn brute_force_admissible(
         problem: &ConformanceProblem,
         real: &BTreeMap<String, Sort>,
@@ -3855,6 +4130,7 @@ mod tests {
         })?;
         let solver = Solver::new();
         encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
+        let trees = graph_trees(&encoding.liveness, encoding.liveness.constraints.len() - 1);
         let top_preferences =
             encoding.top_preferences(|name| encoding.parameters.contains(name))?;
         // As in `brute_force_maximal`: no generated sort has a parametric head, so every value a
@@ -3897,11 +4173,24 @@ mod tests {
             let status = solver.check();
             if status == SatResult::Sat {
                 let model = solver.get_model().expect("sat has a model");
+                let holds = |constraint: &Bool| {
+                    model
+                        .eval(constraint, true)
+                        .and_then(|value| value.as_bool())
+                        .expect("a pinned model evaluates every node constraint")
+                };
+                let live = trees
+                    .iter()
+                    .filter(|tree| {
+                        tree.iter()
+                            .all(|node| holds(&encoding.liveness.constraints[*node]))
+                    })
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
                 satisfiable.push((
-                    (
-                        count(&model, &encoding.packed_overload_preferences),
-                        count(&model, &top_preferences),
-                    ),
+                    count(&model, &encoding.packed_overload_preferences),
+                    live,
+                    count(&model, &top_preferences),
                     assignment,
                 ));
             }
@@ -3917,11 +4206,27 @@ mod tests {
                 *index = 0;
             }
         }
-        let best = satisfiable.iter().map(|(counts, _)| *counts).max();
+        let overloads = satisfiable.iter().map(|(overloads, ..)| *overloads).max();
+        satisfiable.retain(|(count, ..)| Some(*count) == overloads);
+        let live_sets = satisfiable
+            .iter()
+            .map(|(_, live, ..)| live.clone())
+            .collect::<BTreeSet<_>>();
+        let maximal = |live: &BTreeSet<BTreeSet<usize>>| {
+            !live_sets
+                .iter()
+                .any(|other| other != live && other.is_superset(live))
+        };
         Ok(satisfiable
-            .into_iter()
-            .filter(|(counts, _)| Some(*counts) == best)
-            .map(|(_, assignment)| assignment)
+            .iter()
+            .filter(|(_, live, tops, _)| {
+                maximal(live)
+                    && satisfiable
+                        .iter()
+                        .filter(|(_, other, ..)| other == live)
+                        .all(|(_, _, other_tops, _)| other_tops <= tops)
+            })
+            .map(|(.., assignment)| assignment.clone())
             .collect())
     }
 
@@ -4064,6 +4369,7 @@ mod tests {
                 &alternatives,
                 wrapper,
                 parametric,
+                None,
             );
             let expected = brute_force_maximal(&problem).unwrap();
             let perturbation = |random_seed, reverse_disjuncts, full_disjunction| Perturbation {
@@ -4111,10 +4417,10 @@ mod tests {
         /// Rust side of the enumeration-conformance hypothesis of
         /// `KRust.MaximalModels.runs_agree_candidates`: for each recorded variable typing `a`,
         /// `maximal_models` returns exactly the brute-force admissible set `Pref(a)`, without a
-        /// duplicate and with `prefer_parameters`'s own vector first, so the candidate set the
-        /// inference applies is `Problem.candidates`. Checked on the generated problems of
+        /// duplicate, so the candidate set the inference applies is `Problem.candidates`. Checked on the generated problems of
         /// `maximal_models_conform_to_brute_force_maximum` that carry the parametric production,
-        /// under the same perturbations.
+        /// and optionally the shared `id` subterm whose parameter decides which alternatives
+        /// are live, under the same perturbations.
         #[test]
         fn admissible_parameters_conform_to_brute_force(
             sort_count in 3usize..6,
@@ -4125,6 +4431,7 @@ mod tests {
             alternatives in proptest::collection::vec((0usize..8, 0usize..3, 0usize..3), 1..5),
             wrapper in proptest::option::of((0usize..8, 0usize..8)),
             parametric in (0usize..8, 0usize..3),
+            shared in proptest::option::of(proptest::bool::ANY),
             seeds in (1u32..1000, 1u32..1000),
         ) {
             let problem = conformance_problem(
@@ -4136,6 +4443,7 @@ mod tests {
                 &alternatives,
                 wrapper,
                 Some(parametric),
+                shared,
             );
             for perturbation in [
                 Perturbation { random_seed: None, reverse_disjuncts: false, full_disjunction: false },
@@ -4185,13 +4493,75 @@ mod tests {
         }
     }
 
+    /// A formal parameter shared through a packed subterm by two alternatives that need it at
+    /// different sorts: `p0(id(X), X)` over `p0 : S0 ::= "p0" K S0` needs `Q = K`, and
+    /// `p1(id(X), X)` over `p1 : S0 ::= "p1" S1 S0` needs `Q = S1`, with `S0 < S1` and the one
+    /// maximal typing `X = S0`. No vector keeps both readings, and neither live set contains the
+    /// other, so both are admissible: the `K` preference on `Q` only chooses within the vectors
+    /// that keep `p0`, and does not remove `p1`.
+    #[test]
+    fn shared_parameter_keeps_both_incomparable_live_sets() {
+        let problem = conformance_problem(
+            3,
+            &[(0, 1)],
+            &[],
+            None,
+            &[(0, 0, 0), (0, 1, 0)],
+            &[(0, 0, 0), (1, 0, 0)],
+            None,
+            None,
+            Some(true),
+        );
+        let (parameters, models) = recorded_models(
+            &problem,
+            Perturbation {
+                random_seed: None,
+                reverse_disjuncts: false,
+                full_disjunction: false,
+            },
+        )
+        .unwrap()
+        .expect("the problem is satisfiable");
+        assert_eq!(parameters.len(), 1, "{parameters:?}");
+        let [admissible] = models.as_slice() else {
+            panic!("expected one maximal typing, got {models:?}");
+        };
+        let real = BTreeMap::from([("variable_X".to_owned(), Sort::new("S0"))]);
+        let vectors = admissible
+            .iter()
+            .map(|model| {
+                assert_eq!(model.get("variable_X"), Some(&Sort::new("S0")), "{model:?}");
+                model
+                    .iter()
+                    .filter(|(name, _)| parameters.contains(*name))
+                    .map(|(_, sort)| sort.name.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            vectors,
+            BTreeSet::from([vec!["K".to_owned()], vec!["S1".to_owned()]])
+        );
+        assert_eq!(
+            brute_force_admissible(&problem, &real)
+                .unwrap()
+                .into_iter()
+                .map(|vector| vector
+                    .into_values()
+                    .map(|sort| sort.name)
+                    .collect::<Vec<_>>())
+                .collect::<BTreeSet<_>>(),
+            vectors
+        );
+    }
+
     /// The call sites of `Encoding::less_than_eq` in one packed inference.
     #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
     enum OrderSite {
         /// The term constraint and the variable and token constraints under it
         /// (`Encoding::assert_packed_hard_constraints`).
         HardConstraint,
-        /// `top_preferences`, read by `seed_model` and `prefer_parameters`.
+        /// `top_preferences`, read by `seed_model` and `admissible_parameters`.
         Preference,
         /// The climb of `maximal_models`: `current <= variable`.
         Climbing,
@@ -4218,7 +4588,7 @@ mod tests {
     /// The `less_than_eq` calls of the inference path of `Grammar::infer_packed_sorts_z3` up
     /// to `maximal_models`, each with its call site. Inside `maximal_models` a syntactic call is the climb when its greater side
     /// is an inference variable and the blocking clause when its lesser side is; its semantic
-    /// calls are `prefer_parameters`'s preferences.
+    /// calls are `admissible_parameters`'s preferences.
     fn order_constraint_calls(
         problem: &ConformanceProblem,
     ) -> Result<OrderConstraintCalls<'_>, ParseError> {
@@ -4288,7 +4658,7 @@ mod tests {
         /// bounds) of these formulas, so equivalence of every call gives equivalent hard
         /// constraints, climbing order and preferences: the same `sat`, `le` and `pref`.
         /// The problems are those of `maximal_models_conform_to_brute_force_maximum`, whose
-        /// optional parametric production gives `prefer_parameters` a formal parameter; each
+        /// optional parametric production gives `admissible_parameters` a formal parameter; each
         /// case also checks that every call site its shape reaches was recorded.
         #[test]
         fn order_constraints_are_equivalent_at_every_call_site(
@@ -4310,6 +4680,7 @@ mod tests {
                 &alternatives,
                 wrapper,
                 parametric,
+                None,
             );
             let OrderConstraintCalls {
                 encoding,
