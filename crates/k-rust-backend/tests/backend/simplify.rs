@@ -3617,3 +3617,105 @@ fn inconsistent_path_condition_is_indeterminate_not_an_error() {
         }] if rule_id == "conditional" && predicates.len() == 1
     ));
 }
+
+/// `f{}(wrap{}(V))`, where `V` is the variable that the only `f` equation binds, so the subject
+/// mentions a variable of the same name and sort as the rule.
+fn subject_sharing_the_equation_variable(definition: &BackendDefinition) -> Term {
+    let rules = definition
+        .function_theory
+        .values()
+        .chain(definition.simplification_theory.values())
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one equation: {rules:?}");
+    };
+    let variables = rule.lhs.attributes().variables.iter().collect::<Vec<_>>();
+    let [variable] = variables.as_slice() else {
+        panic!("expected one equation variable: {variables:?}");
+    };
+    let variable = (*variable).clone();
+    let placeholder = Variable::new("Y", Sort::simple("SortS"));
+    k_rust_backend::substitution::substitute(
+        &term(definition, "f{}(wrap{}(Y:SortS{}))"),
+        &Substitution::from([(placeholder, Term::variable(variable))]),
+    )
+}
+
+#[test]
+fn function_equation_applies_to_a_subject_that_mentions_its_variable_names() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("c"), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-c")]
+            "#,
+    );
+    let input = subject_sharing_the_equation_variable(&definition);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the equation applies");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("c")"#));
+}
+
+#[test]
+fn simplification_rule_applies_to_a_subject_that_mentions_its_variable_names() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-wrap"), simplification{}()]
+            "#,
+    );
+    let input = subject_sharing_the_equation_variable(&definition);
+    let TermKind::Application { arguments, .. } = input.kind() else {
+        panic!("the subject is an application");
+    };
+    let argument = arguments[0].clone();
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the simplification applies");
+
+    // The rule's `X` is bound to the subject's `wrap(V)`; the subject's `V` is not captured.
+    assert_eq!(
+        result.term,
+        k_rust_backend::substitution::substitute(
+            &term(&definition, "wrap{}(Y:SortS{})"),
+            &Substitution::from([(Variable::new("Y", Sort::simple("SortS")), argument)]),
+        )
+    );
+}
+
+#[test]
+fn concreteness_constraint_survives_renaming_the_equation_apart() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("c"), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-c"), simplification{}(), concrete{}(X:SortS{})]
+            "#,
+    );
+    let input = subject_sharing_the_equation_variable(&definition);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("a symbolic argument leaves the concrete equation unapplied");
+
+    assert_eq!(result.term, input);
+}

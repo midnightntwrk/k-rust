@@ -67,7 +67,7 @@ use crate::{
     },
     rule::{
         Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, Theory, applicable_groups,
-        term_index,
+        rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
@@ -1345,6 +1345,17 @@ fn apply_ceil_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Predicate>, SimplificationError> {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables) {
+        return apply_ceil_equation(
+            definition,
+            &renamed,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        );
+    }
     let substitution =
         match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
             MatchResult::Failed(_) => return Ok(EquationAttempt::NotApplicable),
@@ -1464,6 +1475,17 @@ fn apply_predicate_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Predicate>, SimplificationError> {
+    if let Some((renamed, _)) = rename_predicate_rule_apart(rule, &predicate.free_variables()) {
+        return apply_predicate_equation(
+            definition,
+            &renamed,
+            predicate,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        );
+    }
     let substitution = match match_predicate(definition, &rule.lhs, predicate) {
         PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable),
         PredicateMatch::Indeterminate => {
@@ -2376,6 +2398,8 @@ fn matches_top_equation(
             if !matches!(rule.rhs, RuleRhs::Top) {
                 continue;
             }
+            let renamed = rename_apart(rule, &term.attributes().variables);
+            let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
             let substitution =
                 match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {
                     MatchResult::Failed(_) => continue,
@@ -3057,6 +3081,17 @@ fn apply_equation(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EquationAttempt<Simplification>, SimplificationError> {
+    if let Some((renamed, _)) = rename_apart(rule, &term.attributes().variables) {
+        return apply_equation(
+            definition,
+            &renamed,
+            term,
+            known_predicates,
+            options,
+            active_conditions,
+            solver,
+        );
+    }
     measure::bump(Counter::SimplifyEquationAttempts);
     let substitution =
         match match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term) {

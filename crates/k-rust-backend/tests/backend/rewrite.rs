@@ -6141,6 +6141,65 @@ fn axioms_sharing_an_identity_but_not_a_label_stay_ambiguous() {
 }
 
 #[test]
+fn rewrite_rule_applies_to_a_subject_that_mentions_its_variable_names() {
+    let definition = definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                injectiveFunction{}(X:SortS{})
+            ) [label{}("unwrap")]
+            "#,
+    );
+    let rules = definition
+        .rewrite_theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one rewrite rule");
+    };
+    let variables = rule.lhs.attributes().variables.iter().collect::<Vec<_>>();
+    let [rule_variable] = variables.as_slice() else {
+        panic!("expected one rule variable");
+    };
+    let placeholder = Variable::new("Y", Sort::simple("SortS"));
+    let shared = Substitution::from([(placeholder, Term::variable((*rule_variable).clone()))]);
+    let instantiate = |source: &str| {
+        let syntax = parse_pattern(source).expect("term should parse");
+        k_rust_backend::substitution::substitute(
+            &definition
+                .internalize_term(&syntax, &[])
+                .expect("term should internalize"),
+            &shared,
+        )
+    };
+    let subject = Pattern {
+        term: instantiate("wrap{}(wrap{}(Y:SortS{}))"),
+        constraints: Vec::new(),
+    };
+
+    let result = execute(
+        &definition,
+        subject,
+        ExecutionOptions {
+            max_depth: 1,
+            ..ExecutionOptions::default()
+        },
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one successor: {:?}", result.leaves);
+    };
+    assert_eq!(leaf.depth, 1);
+    // The rule's `X` is bound to the subject's `wrap(V)`; the subject's `V` is not captured.
+    assert_eq!(
+        leaf.pattern.term,
+        instantiate("injectiveFunction{}(wrap{}(Y:SortS{}))")
+    );
+}
+
+#[test]
 fn single_rewrite_emits_one_committed_observation() {
     let definition = definition(
         r#"

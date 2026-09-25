@@ -32,7 +32,7 @@ use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::substitute_predicates,
-    rule::{Predicate, RewriteRule, RuleRhs, TermIndex, term_index},
+    rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver},
     smt::NoSolver,
     term::{FunctionType, SymbolType, Term, TermKind, VariableKind},
@@ -262,6 +262,8 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
                 if !rule.requires.is_empty() {
                     continue;
                 }
+                let renamed = rename_apart(rule, &term.attributes().variables);
+                let rule = renamed.as_ref().map_or(&**rule, |(renamed, _)| renamed);
                 let MatchResult::Success(substitution) =
                     match_terms_in_definition(MatchMode::Evaluate, definition, &rule.lhs, term)
                 else {
