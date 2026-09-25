@@ -1,0 +1,45 @@
+[]
+module MAIN
+    sort SortS{} []
+    symbol start{}() : SortS{} [constructor{}(), functional{}()]
+    symbol a{}() : SortS{} [constructor{}(), functional{}()]
+    symbol b{}() : SortS{} [constructor{}(), functional{}()]
+    symbol c{}() : SortS{} [constructor{}(), functional{}()]
+    symbol ok{}() : SortS{} [constructor{}(), functional{}()]
+    symbol g{}(SortS{}) : SortS{} [function{}(), functional{}()]
+    symbol norm{}(SortS{}) : SortS{} [function{}()]
+    symbol check{}(SortS{}) : SortS{} [function{}()]
+    axiom{R} \implies{R}(
+        \top{R}(),
+        \equals{SortS{}, R}(
+            g{}(X:SortS{}),
+            \and{SortS{}}(g{}(g{}(X:SortS{})), \top{SortS{}}())
+        )
+    ) [label{}("grow"), simplification{}()]
+    axiom{R} \implies{R}(
+        \and{R}(
+            \equals{SortS{}, R}(g{}(X:SortS{}), g{}(X:SortS{})),
+            \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+        ),
+        \equals{SortS{}, R}(norm{}(X0:SortS{}), \and{SortS{}}(c{}(), \top{SortS{}}()))
+    ) [label{}("norm-c")]
+    axiom{R} \implies{R}(
+        \and{R}(
+            \equals{SortS{}, R}(g{}(X:SortS{}), g{}(X:SortS{})),
+            \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+        ),
+        \equals{SortS{}, R}(check{}(X0:SortS{}), \and{SortS{}}(ok{}(), \top{SortS{}}()))
+    ) [label{}("check-ok")]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(start{}(), \top{SortS{}}()),
+        \and{SortS{}}(g{}(a{}()), \top{SortS{}}())
+    ) [label{}("to-g")]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(start{}(), \top{SortS{}}()),
+        \and{SortS{}}(b{}(), \top{SortS{}}())
+    ) [label{}("to-b")]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(start{}(), \top{SortS{}}()),
+        \and{SortS{}}(norm{}(b{}()), \top{SortS{}}())
+    ) [label{}("to-norm")]
+endmodule []

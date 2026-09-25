@@ -72,6 +72,42 @@ test('exposes the diagnostic on only the branch candidate that emitted it', () =
   assert.equal(leaf.candidates.find(({ label }) => label === 'to-b').diagnostics, undefined)
 })
 
+const termExhausted = [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }]
+const conditionExhausted = (ruleId) => [
+  { kind: 'simplification-budget-exhausted', limit: 3, subject: 'predicates' },
+  { kind: 'rule-condition-unsimplified', ruleId, limit: 3 },
+]
+const ending = (entries, field, symbol) =>
+  entries.find((entry) => JSON.stringify(entry[field]).includes(`"name":"${symbol}"`))
+
+test('exposes each search state, witness and match its own diagnostics', () => {
+  const definitionKore = readFileSync(
+    new URL('../../k-rust/tests/fixtures/search-diagnostics.kore', import.meta.url),
+    'utf8',
+  )
+  const backend = createBackend({ definitionKore, moduleName: 'MAIN' })
+  const search = { state: parseKore('start{}()').kore, maxSimplificationIterations: 3 }
+  const states = backend.search(search).states.map((state) => ({ state }))
+  assert.deepEqual(ending(states, 'state', 'g').state.diagnostics, termExhausted)
+  assert.equal(ending(states, 'state', 'b').state.diagnostics, undefined)
+  assert.deepEqual(ending(states, 'state', 'c').state.diagnostics, conditionExhausted('norm-c'))
+  const witnesses = backend.searchPaths(search).witnesses.map((witness) => ({ witness }))
+  assert.deepEqual(ending(witnesses, 'witness', 'g').witness.diagnostics, termExhausted)
+  assert.equal(ending(witnesses, 'witness', 'b').witness.diagnostics, undefined)
+
+  const pattern = parseKore(
+    '\\and{SortS{}}(X:SortS{}, \\equals{SortS{}, SortS{}}(check{}(X:SortS{}), ok{}()))',
+  ).kore
+  const matches = backend.searchPattern({ ...search, pattern }).matches
+  assert.equal(ending(matches, 'state', 'b').state.diagnostics, undefined)
+  assert.deepEqual(ending(matches, 'state', 'b').diagnostics, conditionExhausted('check-ok'))
+  assert.deepEqual(ending(matches, 'state', 'c').state.diagnostics, conditionExhausted('norm-c'))
+  assert.deepEqual(ending(matches, 'state', 'c').diagnostics, conditionExhausted('check-ok'))
+  const pathMatches = backend.searchPatternPaths({ ...search, pattern }).matches
+  assert.equal(ending(pathMatches, 'witness', 'b').witness.diagnostics, undefined)
+  assert.deepEqual(ending(pathMatches, 'witness', 'b').diagnostics, conditionExhausted('check-ok'))
+})
+
 // Without associativity or priorities, a+a+a has two well-sorted trees that denote different terms,
 // so no sort decision can pick one: the error must name the ambiguity and list both readings.
 const bothAdditionReadings =

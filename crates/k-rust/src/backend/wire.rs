@@ -169,6 +169,10 @@ pub struct TransitionIdOutput {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SearchStateOutput {
     pub state: Value,
+    /// The backend diagnostics of the path in `trace`, each distinct diagnostic once, in the
+    /// order the path first met them; omitted when the path emitted none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -182,6 +186,9 @@ pub struct SearchStateOutput {
 pub struct PathWitnessOutput {
     pub id: Vec<TransitionIdOutput>,
     pub state: Value,
+    /// The backend diagnostics of this witness's path, as for `SearchStateOutput::diagnostics`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -559,6 +566,10 @@ pub struct SearchMatchOutput {
     pub bindings: Vec<BindingOutput>,
     pub constraints: Vec<Value>,
     pub state: SearchStateOutput,
+    /// The backend diagnostics of matching `state` against the target pattern, apart from the
+    /// state's own path diagnostics (`state.diagnostics`); omitted when the match emitted none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -577,6 +588,10 @@ pub struct PathSearchMatchOutput {
     pub bindings: Vec<BindingOutput>,
     pub constraints: Vec<Value>,
     pub witness: PathWitnessOutput,
+    /// The backend diagnostics of matching `witness` against the target pattern, apart from the
+    /// witness path's own (`witness.diagnostics`); omitted when the match emitted none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -734,8 +749,10 @@ fn observations_output(
 }
 
 fn search_state_output(state: SearchState) -> Result<SearchStateOutput, BackendError> {
+    let result_sort = state.pattern.term.sort();
     Ok(SearchStateOutput {
         state: encode_pattern(&externalize::constrained_pattern(&state.pattern))?,
+        diagnostics: diagnostics_output(state.diagnostics, &result_sort)?,
         depth: state.depth,
         trace: state.trace.into_iter().map(trace_entry).collect(),
         branch: state.branch.into_iter().map(transition_id_output).collect(),
@@ -744,9 +761,11 @@ fn search_state_output(state: SearchState) -> Result<SearchStateOutput, BackendE
 }
 
 fn path_witness_output(witness: PathWitness) -> Result<PathWitnessOutput, BackendError> {
+    let result_sort = witness.pattern.term.sort();
     Ok(PathWitnessOutput {
         id: witness.id.into_iter().map(transition_id_output).collect(),
         state: encode_pattern(&externalize::constrained_pattern(&witness.pattern))?,
+        diagnostics: diagnostics_output(witness.diagnostics, &result_sort)?,
         depth: witness.depth,
         trace: witness.trace.into_iter().map(trace_entry).collect(),
         observations: observations_output(witness.observations)?,
@@ -952,17 +971,23 @@ fn diagnostic_output(
     })
 }
 
+fn diagnostics_output(
+    diagnostics: Vec<BackendDiagnostic>,
+    result_sort: &Sort,
+) -> Result<Vec<BackendDiagnosticOutput>, BackendError> {
+    diagnostics
+        .into_iter()
+        .map(|diagnostic| diagnostic_output(diagnostic, result_sort))
+        .collect()
+}
+
 fn candidate_output(candidate: AppliedRule) -> Result<ExecutionCandidateOutput, BackendError> {
     let result_sort = candidate.pattern.term.sort();
     Ok(ExecutionCandidateOutput {
         state: encode_pattern(&externalize::constrained_pattern(&candidate.pattern))?,
         unique_id: candidate.unique_id,
         label: candidate.label,
-        diagnostics: candidate
-            .diagnostics
-            .into_iter()
-            .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
-            .collect::<Result<_, _>>()?,
+        diagnostics: diagnostics_output(candidate.diagnostics, &result_sort)?,
     })
 }
 
@@ -971,11 +996,7 @@ fn remainder_output(remainder: RemainderBranch) -> Result<ExecutionRemainderOutp
     Ok(ExecutionRemainderOutput {
         state: encode_pattern(&externalize::constrained_pattern(&remainder.pattern))?,
         rule_ids: remainder.rule_ids,
-        diagnostics: remainder
-            .diagnostics
-            .into_iter()
-            .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
-            .collect::<Result<_, _>>()?,
+        diagnostics: diagnostics_output(remainder.diagnostics, &result_sort)?,
     })
 }
 
@@ -1238,11 +1259,7 @@ pub(super) fn execution_response(
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
                     state: encode_pattern(&externalize::constrained_pattern(&leaf.pattern))?,
-                    diagnostics: leaf
-                        .diagnostics
-                        .into_iter()
-                        .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
-                        .collect::<Result<_, _>>()?,
+                    diagnostics: diagnostics_output(leaf.diagnostics, &result_sort)?,
                     candidates,
                     remainder,
                     depth: leaf.depth,
@@ -1314,6 +1331,7 @@ pub(super) fn pattern_search_response(
                     bindings: bindings_output(found.substitution)?,
                     constraints: predicates_output(found.constraints, &result_sort)?,
                     state: search_state_output(found.state)?,
+                    diagnostics: diagnostics_output(found.diagnostics, &result_sort)?,
                 })
             })
             .collect::<Result<_, BackendError>>()?,
@@ -1338,6 +1356,7 @@ pub(super) fn path_pattern_search_response(
                     bindings: bindings_output(found.substitution)?,
                     constraints: predicates_output(found.constraints, &result_sort)?,
                     witness: path_witness_output(found.witness)?,
+                    diagnostics: diagnostics_output(found.diagnostics, &result_sort)?,
                 })
             })
             .collect::<Result<_, BackendError>>()?,

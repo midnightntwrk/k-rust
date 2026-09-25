@@ -11,6 +11,8 @@ mod properties;
 mod rewrite;
 #[path = "backend/rule_index.rs"]
 mod rule_index;
+#[path = "backend/search.rs"]
+mod search;
 #[path = "backend/simplify.rs"]
 mod simplify;
 #[path = "backend/support.rs"]

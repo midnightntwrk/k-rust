@@ -77,6 +77,7 @@ use crate::{
     builtin::{BuiltinEffect, BuiltinError},
     cancellation::cancellation_requested,
     definition::BackendDefinition,
+    diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
@@ -146,6 +147,19 @@ pub struct SearchState {
     pub branch: Vec<TransitionId>,
     /// Ordered structured events retained for this search path.
     pub observations: Vec<ObservationEvent>,
+    /// The backend diagnostics of the work the path in `trace` went through, in the order the
+    /// path first met them, each distinct diagnostic once: the simplification of every state on
+    /// the path, the rewrite-step work each successor was derived from
+    /// (`AppliedRule::diagnostics`, `RemainderBranch::diagnostics`), and for a reported state its
+    /// externalisation; for a state recorded as an incomplete entry because its step halted (an
+    /// indeterminate or failed step, a cancellation), that step's work. A state reported before
+    /// its step runs (`Star`/`Plus` results) does not carry that step's work: when the step emits
+    /// and returns `Stuck`, no entry derives from it. When converging paths are deduplicated, the
+    /// recorded path's list is kept, like its trace. A non-empty list means the state may not be
+    /// the normal form a larger budget would reach, or that a condition on its path was left
+    /// undecided; a caller collecting with `diagnostic::collect` around the search still receives
+    /// every diagnostic.
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -197,6 +211,9 @@ pub struct PathWitness {
     pub trace: Vec<TraceEntry>,
     /// Ordered structured events retained for this witness.
     pub observations: Vec<ObservationEvent>,
+    /// The backend diagnostics of the work this path went through, as for
+    /// [`SearchState::diagnostics`]; each witness carries its own path's list.
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -217,6 +234,11 @@ pub struct SearchMatch {
     pub substitution: Substitution,
     pub constraints: Vec<Predicate>,
     pub state: SearchState,
+    /// The backend diagnostics of matching `state` against the target pattern (the match
+    /// condition's simplification), each distinct diagnostic once, in emission order. They are
+    /// facts about this match, kept apart from the diagnostics of the state's path
+    /// (`state.diagnostics`).
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 /// The condition under which a subject is an instance of a search pattern.
@@ -255,6 +277,9 @@ pub struct PathSearchMatch {
     pub substitution: Substitution,
     pub constraints: Vec<Predicate>,
     pub witness: PathWitness,
+    /// The backend diagnostics of matching the witness against the target pattern, kept apart
+    /// from the witness path's own (`witness.diagnostics`), as for [`SearchMatch::diagnostics`].
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -431,6 +456,7 @@ fn search_graph_collecting(
 ) -> SearchResult {
     let _span = measure::algorithm_span(Algorithm::BackendSearchConfigurations);
     let mut observation_log = ObservationLog::default();
+    let request_diagnostics = PathDiagnostics::new_request();
     let mut pending = initial
         .into_iter()
         .map(|pattern| SearchWorkState {
@@ -440,8 +466,10 @@ fn search_graph_collecting(
                 trace: Vec::new(),
                 branch: Vec::new(),
                 observations: Vec::new(),
+                diagnostics: Vec::new(),
             },
             observation: None,
+            diagnostics: request_diagnostics.empty_like(),
             kind: QueuedStateKind::Rewritable,
         })
         .collect::<VecDeque<_>>();
@@ -508,40 +536,56 @@ fn search_graph_collecting(
         let SearchWorkState {
             mut state,
             observation: mut observation_head,
+            mut diagnostics,
             kind,
         } = work;
         let is_rewritable = matches!(kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(
-                materialize_search_state(state, observation_head, &observation_log),
+                materialize_search_state(state, observation_head, &diagnostics, &observation_log),
                 IndeterminateReason::SurvivingMacroOrAlias { symbol },
             ));
             continue;
         }
-        match simplify_predicates_with_solver(
-            definition,
-            &state.pattern.constraints,
-            &[],
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        ) {
+        // The state's own constraint and term simplification is on its path: every result,
+        // incomplete entry and successor derived from this state carries it.
+        let (simplified_constraints, emitted) = diagnostic::collect(|| {
+            simplify_predicates_with_solver(
+                definition,
+                &state.pattern.constraints,
+                &[],
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            )
+        });
+        diagnostics.extend(&emitted);
+        match simplified_constraints {
             Ok(constraints) => state.pattern.constraints = constraints,
             Err(error) => {
                 incomplete.push(simplification_incomplete(
-                    materialize_search_state(state, observation_head, &observation_log),
+                    materialize_search_state(
+                        state,
+                        observation_head,
+                        &diagnostics,
+                        &observation_log,
+                    ),
                     error,
                 ));
                 continue;
             }
         }
         let pattern_before_simplification = state.pattern.clone();
-        match simplify_with_solver(
-            definition,
-            &state.pattern.term,
-            &state.pattern.constraints,
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        ) {
+        let (simplified_term, emitted) = diagnostic::collect(|| {
+            simplify_with_solver(
+                definition,
+                &state.pattern.term,
+                &state.pattern.constraints,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            )
+        });
+        diagnostics.extend(&emitted);
+        match simplified_term {
             Ok(simplified) => {
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
@@ -575,7 +619,12 @@ fn search_graph_collecting(
             }
             Err(error) => {
                 incomplete.push(simplification_incomplete(
-                    materialize_search_state(state, observation_head, &observation_log),
+                    materialize_search_state(
+                        state,
+                        observation_head,
+                        &diagnostics,
+                        &observation_log,
+                    ),
                     error,
                 ));
                 continue;
@@ -587,6 +636,8 @@ fn search_graph_collecting(
         if predicates_truth(&state.pattern.constraints) == Truth::False {
             continue;
         }
+        // A duplicate takes its own path's diagnostics with it: the state kept for this key
+        // reports the path recorded first, like its trace.
         if !expanded.insert((state.depth, state.pattern.clone(), is_rewritable)) {
             measure::bump(Counter::SearchStatesDeduplicated);
             continue;
@@ -599,6 +650,7 @@ fn search_graph_collecting(
                 definition,
                 state.clone(),
                 observation_head,
+                diagnostics.clone(),
                 options.max_simplification_iterations,
                 solver,
                 &mut effects,
@@ -660,32 +712,33 @@ fn search_graph_collecting(
             incomplete.push(IncompleteSearch::DepthBound(materialize_search_state(
                 state,
                 observation_head,
+                &diagnostics,
                 &observation_log,
             )));
             continue;
         }
 
-        let rewrite = match kind {
-            QueuedStateKind::Rewritable => rewrite_step_with_options(
-                definition,
-                &state.pattern,
-                &mut fresh_counter,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
-            ),
-            QueuedStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
-            QueuedStateKind::Remaining(Some(undecided)) => {
-                undecided.into_result(state.pattern.clone())
-            }
-        };
+        let (rewrite, step_diagnostics) = step_search_state(
+            definition,
+            &state.pattern,
+            kind,
+            &mut fresh_counter,
+            options,
+            solver,
+        );
         // See `step_observed_cancellation`.
         if step_observed_cancellation() {
+            diagnostics.extend(&step_diagnostics);
             incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
                 state,
                 observation_head,
+                &diagnostics,
                 &observation_log,
             )));
             continue;
+        }
+        if halts(&rewrite) {
+            diagnostics.extend(&step_diagnostics);
         }
         match rewrite {
             RewriteResult::Stuck(pattern) => {
@@ -697,6 +750,7 @@ fn search_graph_collecting(
                     definition,
                     state,
                     observation_head,
+                    diagnostics,
                     options.max_simplification_iterations,
                     solver,
                     &mut effects,
@@ -732,14 +786,24 @@ fn search_graph_collecting(
             RewriteResult::Indeterminate { pattern, reason } => {
                 state.pattern = pattern;
                 incomplete.push(rewrite_incomplete(
-                    materialize_search_state(state, observation_head, &observation_log),
+                    materialize_search_state(
+                        state,
+                        observation_head,
+                        &diagnostics,
+                        &observation_log,
+                    ),
                     reason,
                 ));
             }
             RewriteResult::Simplification { pattern, error } => {
                 state.pattern = pattern;
                 incomplete.push(simplification_incomplete(
-                    materialize_search_state(state, observation_head, &observation_log),
+                    materialize_search_state(
+                        state,
+                        observation_head,
+                        &diagnostics,
+                        &observation_log,
+                    ),
                     error,
                 ));
             }
@@ -750,6 +814,7 @@ fn search_graph_collecting(
                     state.depth,
                     state.trace,
                     observation_head,
+                    diagnostics,
                     applied,
                     &mut observation_log,
                     observation,
@@ -775,6 +840,7 @@ fn search_graph_collecting(
                         state.depth,
                         state.trace.clone(),
                         observation_head,
+                        diagnostics.clone(),
                         applied,
                         &mut observation_log,
                         observation,
@@ -791,6 +857,7 @@ fn search_graph_collecting(
                         state.depth,
                         state.trace,
                         observation_head,
+                        diagnostics,
                         state.pattern,
                         remainder,
                         &mut observation_log,
@@ -821,6 +888,9 @@ fn search_graph_collecting(
 struct SearchWorkState {
     state: SearchState,
     observation: ObservationHead,
+    /// The diagnostics of this state's path so far, shared with the paths it forks into;
+    /// materialised into `SearchState::diagnostics` when the state is reported.
+    diagnostics: PathDiagnostics,
     kind: QueuedStateKind,
 }
 
@@ -832,17 +902,58 @@ enum QueuedStateKind {
 
 impl SearchWorkState {
     fn materialize(self, observation_log: &ObservationLog) -> SearchState {
-        materialize_search_state(self.state, self.observation, observation_log)
+        materialize_search_state(
+            self.state,
+            self.observation,
+            &self.diagnostics,
+            observation_log,
+        )
     }
 }
 
 fn materialize_search_state(
     mut state: SearchState,
     observation: ObservationHead,
+    diagnostics: &PathDiagnostics,
     observation_log: &ObservationLog,
 ) -> SearchState {
     (state.branch, state.observations) = observation_log.materialize(observation);
+    state.diagnostics = diagnostics.to_vec();
     state
+}
+
+/// One rewrite step of a work state, with the diagnostics it emitted: a `Finished` or `Branch`
+/// step has already attributed them to its candidates (`AppliedRule::diagnostics`,
+/// `RemainderBranch::diagnostics`), so the collection is for a step that ends the state's
+/// exploration ([`halts`]) or is cut off by a cancellation, whose entry carries the whole step.
+fn step_search_state(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    kind: QueuedStateKind,
+    fresh_counter: &mut u64,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> (RewriteResult, Vec<BackendDiagnostic>) {
+    diagnostic::collect(|| match kind {
+        QueuedStateKind::Rewritable => rewrite_step_with_options(
+            definition,
+            pattern,
+            fresh_counter,
+            SimplificationOptions::keep_partial(options.max_simplification_iterations),
+            solver,
+        ),
+        QueuedStateKind::Remaining(None) => RewriteResult::Stuck(pattern.clone()),
+        QueuedStateKind::Remaining(Some(undecided)) => undecided.into_result(pattern.clone()),
+    })
+}
+
+/// Whether a step result ends the state's exploration without a successor, so that the step's
+/// work belongs to the state's own path.
+const fn halts(rewrite: &RewriteResult) -> bool {
+    !matches!(
+        rewrite,
+        RewriteResult::Finished(_) | RewriteResult::Branch { .. }
+    )
 }
 
 /// Externalise a search result in the simplifier's normal form
@@ -859,11 +970,16 @@ fn materialize_search_state(
 /// have been kept only because of the cancellation. Publishing that copy would report a state
 /// that is not known to be reachable as part of a complete answer; the state's exploration is
 /// reported as cancelled instead.
+///
+/// The externalisation's diagnostics are on the reported entry only (the result, or the
+/// incomplete entry that replaces it), not on `diagnostics`' path, which the work state that
+/// continues the search keeps: its successors are not derived from the reported copy.
 #[allow(clippy::too_many_arguments)]
 fn externalise_result(
     definition: &BackendDefinition,
     mut state: SearchState,
     mut observation: ObservationHead,
+    mut diagnostics: PathDiagnostics,
     max_iterations: usize,
     solver: &dyn SmtSolver,
     effects: &mut Vec<BuiltinEffect>,
@@ -872,17 +988,21 @@ fn externalise_result(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> Option<SearchState> {
-    match simplify_result_pattern(
-        definition,
-        &state.pattern,
-        max_iterations,
-        solver,
-        state.depth,
-        &mut state.trace,
-        Some(&mut observation),
-        observation_log,
-        observation_options,
-    ) {
+    let (simplified, emitted) = diagnostic::collect(|| {
+        simplify_result_pattern(
+            definition,
+            &state.pattern,
+            max_iterations,
+            solver,
+            state.depth,
+            &mut state.trace,
+            Some(&mut observation),
+            observation_log,
+            observation_options,
+        )
+    });
+    diagnostics.extend(&emitted);
+    match simplified {
         Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             record_effects(effects, simplified.effects, observe);
             None
@@ -892,6 +1012,7 @@ fn externalise_result(
             incomplete.push(IncompleteSearch::Cancelled(materialize_search_state(
                 state,
                 observation,
+                &diagnostics,
                 observation_log,
             )));
             None
@@ -902,12 +1023,13 @@ fn externalise_result(
             Some(materialize_search_state(
                 state,
                 observation,
+                &diagnostics,
                 observation_log,
             ))
         }
         Err(error) => {
             incomplete.push(simplification_incomplete(
-                materialize_search_state(state, observation, observation_log),
+                materialize_search_state(state, observation, &diagnostics, observation_log),
                 error,
             ));
             None
@@ -915,15 +1037,18 @@ fn externalise_result(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn next_search_work_state(
     definition: &BackendDefinition,
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
+    mut diagnostics: PathDiagnostics,
     applied: AppliedRule,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> SearchWorkState {
+    diagnostics.extend(&applied.diagnostics);
     let mut observation = observation;
     for simplification in &applied.remainder_simplifications {
         observation = observation_log.append_simplification(
@@ -940,6 +1065,7 @@ fn next_search_work_state(
     SearchWorkState {
         state: next_state(depth, trace, applied),
         observation,
+        diagnostics,
         kind: QueuedStateKind::Rewritable,
     }
 }
@@ -950,11 +1076,13 @@ fn remaining_search_work_state(
     depth: u64,
     trace: Vec<TraceEntry>,
     observation: ObservationHead,
+    mut diagnostics: PathDiagnostics,
     before: Pattern,
     remainder: RemainderBranch,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> SearchWorkState {
+    diagnostics.extend(&remainder.diagnostics);
     let (observation, kind) = replay_search_remainder(
         definition,
         observation,
@@ -966,6 +1094,7 @@ fn remaining_search_work_state(
     SearchWorkState {
         state: remaining_state(depth, trace, remainder),
         observation,
+        diagnostics,
         kind,
     }
 }
@@ -1058,10 +1187,12 @@ fn search_paths_collecting(
             trace: Vec::new(),
             branch: Vec::new(),
             observations: Vec::new(),
+            diagnostics: Vec::new(),
         },
         id: Vec::new(),
         visited: Vec::new(),
         observation: None,
+        diagnostics: PathDiagnostics::new_request(),
         kind: QueuedStateKind::Rewritable,
     }]);
     let mut witnesses = Vec::new();
@@ -1123,13 +1254,19 @@ fn search_paths_collecting(
             ));
             continue;
         }
-        match simplify_predicates_with_solver(
-            definition,
-            &path.state.pattern.constraints,
-            &[],
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        ) {
+        // The path's own simplification of this state is on the path: every witness, incomplete
+        // entry and extension derived from it carries it.
+        let (simplified_constraints, emitted) = diagnostic::collect(|| {
+            simplify_predicates_with_solver(
+                definition,
+                &path.state.pattern.constraints,
+                &[],
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            )
+        });
+        path.diagnostics.extend(&emitted);
+        match simplified_constraints {
             Ok(constraints) => path.state.pattern.constraints = constraints,
             Err(error) => {
                 incomplete.push(simplification_incomplete(
@@ -1140,13 +1277,17 @@ fn search_paths_collecting(
             }
         }
         let pattern_before_simplification = path.state.pattern.clone();
-        match simplify_with_solver(
-            definition,
-            &path.state.pattern.term,
-            &path.state.pattern.constraints,
-            SimplificationOptions::keep_partial(options.max_simplification_iterations),
-            solver,
-        ) {
+        let (simplified_term, emitted) = diagnostic::collect(|| {
+            simplify_with_solver(
+                definition,
+                &path.state.pattern.term,
+                &path.state.pattern.constraints,
+                SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                solver,
+            )
+        });
+        path.diagnostics.extend(&emitted);
+        match simplified_term {
             Ok(simplified) => {
                 path.state.pattern.term = simplified.term;
                 path.state
@@ -1247,25 +1388,24 @@ fn search_paths_collecting(
             continue;
         }
 
-        let rewrite = match path.kind.clone() {
-            QueuedStateKind::Rewritable => rewrite_step_with_options(
-                definition,
-                &path.state.pattern,
-                &mut fresh_counter,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
-            ),
-            QueuedStateKind::Remaining(None) => RewriteResult::Stuck(path.state.pattern.clone()),
-            QueuedStateKind::Remaining(Some(undecided)) => {
-                undecided.into_result(path.state.pattern.clone())
-            }
-        };
+        let (rewrite, step_diagnostics) = step_search_state(
+            definition,
+            &path.state.pattern,
+            path.kind.clone(),
+            &mut fresh_counter,
+            options,
+            solver,
+        );
         // See `step_observed_cancellation`.
         if step_observed_cancellation() {
+            path.diagnostics.extend(&step_diagnostics);
             incomplete.push(IncompleteSearch::Cancelled(
                 path.materialize_state(&observation_log),
             ));
             continue;
+        }
+        if halts(&rewrite) {
+            path.diagnostics.extend(&step_diagnostics);
         }
         match rewrite {
             RewriteResult::Stuck(pattern) => {
@@ -1392,12 +1532,19 @@ struct PathSearchState {
     id: Vec<TransitionId>,
     visited: Vec<(Pattern, bool)>,
     observation: ObservationHead,
+    /// The diagnostics of this path so far, shared with the paths that extend it.
+    diagnostics: PathDiagnostics,
     kind: QueuedStateKind,
 }
 
 impl PathSearchState {
     fn materialize_state(self, observation_log: &ObservationLog) -> SearchState {
-        materialize_search_state(self.state, self.observation, observation_log)
+        materialize_search_state(
+            self.state,
+            self.observation,
+            &self.diagnostics,
+            observation_log,
+        )
     }
 }
 
@@ -1435,6 +1582,7 @@ fn retain_witness(
         definition,
         path.state.clone(),
         path.observation,
+        path.diagnostics.clone(),
         options.max_simplification_iterations,
         solver,
         effects,
@@ -1449,6 +1597,7 @@ fn retain_witness(
             depth: state.depth,
             trace: state.trace,
             observations: state.observations,
+            diagnostics: state.diagnostics,
         };
         let pattern_bound_reached = pattern_bound_reached(&witness);
         witnesses.push(witness);
@@ -1466,6 +1615,7 @@ fn next_path_state(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> PathSearchState {
+    path.diagnostics.extend(&applied.diagnostics);
     path.id.push(TransitionId {
         rule: applied.unique_id.clone(),
         target: PatternDigest::of(&applied.pattern),
@@ -1495,6 +1645,7 @@ fn remaining_path_state(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> PathSearchState {
+    path.diagnostics.extend(&remainder.diagnostics);
     path.id.push(TransitionId {
         rule: format!("remainder:{}", remainder.rule_ids.join(",")),
         target: PatternDigest::of(&remainder.pattern),
@@ -1627,19 +1778,22 @@ fn search_pattern_using(
     let mut match_incomplete = Vec::new();
     let output_variables = pattern_variables(target);
     let mut collect_match = |state: &SearchState| {
-        let found = match match_pattern_with_variables(
+        let (found, diagnostics) = match_search_result(
             definition,
             target,
             &state.pattern,
             &output_variables,
-            simplification_options(options),
+            options,
             solver,
-            false,
-        ) {
+        );
+        let found = match found {
             Ok(Some(found)) => found,
             Ok(None) => return false,
             Err(error) => {
-                match_incomplete.push(pattern_match_incomplete(state.clone(), error));
+                match_incomplete.push(pattern_match_incomplete(
+                    undecided_match_state(state.clone(), &diagnostics),
+                    error,
+                ));
                 return false;
             }
         };
@@ -1648,6 +1802,7 @@ fn search_pattern_using(
             substitution: found.substitution,
             constraints: found.constraints,
             state: state.clone(),
+            diagnostics,
         };
         retain_pattern_match(&mut matches, found, requested_bound)
     };
@@ -1752,20 +1907,20 @@ fn search_pattern_paths_using(
     let mut match_incomplete = Vec::new();
     let output_variables = pattern_variables(target);
     let mut collect_match = |witness: &PathWitness| {
-        let found = match match_pattern_with_variables(
+        let (found, diagnostics) = match_search_result(
             definition,
             target,
             &witness.pattern,
             &output_variables,
-            simplification_options(options),
+            options,
             solver,
-            false,
-        ) {
+        );
+        let found = match found {
             Ok(Some(found)) => found,
             Ok(None) => return false,
             Err(error) => {
                 match_incomplete.push(pattern_match_incomplete(
-                    witness_search_state(witness.clone()),
+                    undecided_match_state(witness_search_state(witness.clone()), &diagnostics),
                     error,
                 ));
                 return false;
@@ -1776,6 +1931,7 @@ fn search_pattern_paths_using(
             substitution: found.substitution,
             constraints: found.constraints,
             witness: witness.clone(),
+            diagnostics,
         });
         requested_bound.is_some_and(|bound| matches.len() >= bound)
     };
@@ -1796,6 +1952,44 @@ fn search_pattern_paths_using(
     }
 }
 
+/// Match one search result against the target pattern, with the diagnostics the match emitted
+/// (each distinct diagnostic once, in emission order). They concern the match, not the result's
+/// path: a match entry records them apart from its state's or witness's list.
+fn match_search_result(
+    definition: &BackendDefinition,
+    target: &Pattern,
+    subject: &Pattern,
+    output_variables: &BTreeSet<crate::term::Variable>,
+    options: SearchOptions,
+    solver: &dyn SmtSolver,
+) -> (
+    Result<Option<PatternMatch>, PatternMatchError>,
+    Vec<BackendDiagnostic>,
+) {
+    let (found, emitted) = diagnostic::collect(|| {
+        match_pattern_with_variables(
+            definition,
+            target,
+            subject,
+            output_variables,
+            simplification_options(options),
+            solver,
+            false,
+        )
+    });
+    let mut diagnostics = Vec::new();
+    extend_distinct(&mut diagnostics, &emitted);
+    (found, diagnostics)
+}
+
+/// The state an undecided match reports: its path's diagnostics followed by those of the
+/// match that could not be decided. An incomplete entry has no match entry of its own, and the
+/// undecided match is the work that entry reports, so its diagnostics travel with the entry.
+fn undecided_match_state(mut state: SearchState, diagnostics: &[BackendDiagnostic]) -> SearchState {
+    extend_distinct(&mut state.diagnostics, diagnostics);
+    state
+}
+
 fn witness_search_state(witness: PathWitness) -> SearchState {
     SearchState {
         pattern: witness.pattern,
@@ -1803,6 +1997,7 @@ fn witness_search_state(witness: PathWitness) -> SearchState {
         trace: witness.trace,
         branch: witness.id,
         observations: witness.observations,
+        diagnostics: witness.diagnostics,
     }
 }
 
@@ -2157,6 +2352,7 @@ fn next_state(depth: u64, mut trace: Vec<TraceEntry>, applied: AppliedRule) -> S
         trace,
         branch: Vec::new(),
         observations: Vec::new(),
+        diagnostics: Vec::new(),
     }
 }
 
@@ -2191,6 +2387,7 @@ fn remaining_state(
         trace,
         branch: Vec::new(),
         observations: Vec::new(),
+        diagnostics: Vec::new(),
     }
 }
 
@@ -2603,6 +2800,7 @@ mod tests {
             trace: Vec::new(),
             branch: Vec::new(),
             observations: Vec::new(),
+            diagnostics: Vec::new(),
         };
 
         for error in [
@@ -2627,6 +2825,7 @@ mod tests {
             trace: Vec::new(),
             branch: Vec::new(),
             observations: Vec::new(),
+            diagnostics: Vec::new(),
         };
         let unknown = || SmtError::Unknown("request cancelled".into());
         let smt = || IndeterminateReason::Smt {
