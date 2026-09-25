@@ -11,12 +11,16 @@ name = "krs"
 path = "src/main.rs"
 doc = false
 
+[features]
+default = ["z3-inference"]
+z3-inference = ["krs-k-rust/z3-inference"]
+
 [dependencies]
 krs = { path = "../krs" }
 krs-compiler = { path = "../krs-compiler" }
 krs-fmt = { path = "../krs-fmt" }
 krs-ir = { path = "../krs-ir" }
-krs-k-rust = { path = "../krs-k-rust" }
+krs-k-rust = { path = "../krs-k-rust", default-features = false }
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"

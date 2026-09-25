@@ -126,7 +126,11 @@ const SUPPORTED_BACKENDS: &[Backend] = &[Backend::Llvm, Backend::Haskell];
 /// Capabilities compiled into the pinned frontend and supplied by this adapter.
 pub const FRONTEND_CAPABILITIES: FrontendCapabilities = FrontendCapabilities {
     backends: SUPPORTED_BACKENDS,
-    z3_inference: CapabilityAvailability::Available,
+    z3_inference: if cfg!(feature = "z3-inference") {
+        CapabilityAvailability::Available
+    } else {
+        CapabilityAvailability::Unavailable("the z3-inference feature is disabled")
+    },
     mpfr_folding: CapabilityAvailability::Unavailable(
         "the pinned k-rust dependency is built without mpfr-folding",
     ),
