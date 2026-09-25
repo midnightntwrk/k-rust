@@ -174,7 +174,35 @@ fn differential_special_case_schema_is_complete() {
                 .is_some_and(|claim| !claim.trim().is_empty()),
             "{name} must declare a failure claim"
         );
+        let verdict = entry
+            .get("failure-verdict")
+            .map(|verdict| verdict.as_str().expect("failure-verdict string"))
+            .unwrap_or("disproved");
+        let reason = entry
+            .get("failure-verdict-reason")
+            .map(|reason| reason.as_str().expect("failure-verdict-reason string"));
+        match verdict {
+            "disproved" => assert!(
+                reason.is_none(),
+                "{name} gives a failure-verdict-reason for the default disproved verdict"
+            ),
+            "failed" => assert!(
+                reason.is_some_and(|reason| !reason.trim().is_empty()),
+                "{name} expects failed and must say why its failure claim is not refuted"
+            ),
+            other => panic!("{name} has unknown failure-verdict {other}"),
+        }
     }
+    // TRIVIAL-SPEC.ct2 starts from `t1`, which `rule t1 => t2 ensures false` makes empty: the
+    // claim is vacuous, so the gate must not demand a refutation for it.
+    assert_eq!(
+        case("proof", "trivial-proof")["failure-verdict"].as_str(),
+        Some("failed")
+    );
+    assert!(
+        PROOF_SCRIPT.contains(r#".["failure-verdict"] // "disproved""#),
+        "the proof gate must read each case's expected failure verdict"
+    );
 
     for name in ["imp", "bounded-search", "trivial-result-rpc"] {
         let entry = manifest["rpc"]

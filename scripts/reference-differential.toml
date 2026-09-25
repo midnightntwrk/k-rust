@@ -1493,6 +1493,12 @@ definition-module = "SPLIT"
 depth = 10
 claims = []
 failure-claim = "TRIVIAL-SPEC.ct2"
+# The rule `t1 => t2 ensures false` states that `t1` has a successor in the empty set, so no
+# configuration `t1` exists: the all-path claim `t1 => t3` has an empty left-hand side and is
+# vacuous, not false. k-rust's Trivial leaf is rejected by the vacuity policy and reported
+# `failed`; a `disproved` verdict here would claim a refutation that does not exist.
+failure-verdict = "failed"
+failure-verdict-reason = "the claim's left-hand side t1 is empty (rule t1 => t2 ensures false), so the claim is vacuous rather than refuted; without --allow-vacuous the Trivial leaf is failed"
 
 [[rpc]]
 name = "imp"

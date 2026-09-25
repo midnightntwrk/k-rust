@@ -122,7 +122,7 @@ gate = "proof"
 anchor = "scripts/reference-proof-differential.sh:failure-claim"
 anchor_symbol = "failure_claim"
 rule = "Compare failure verdicts without comparing backend-specific counterexample framing."
-justification = "Generated counter cells differ while the disproved verdict is the contract."
+justification = "Generated counter cells differ while the k-rust verdict word is the contract: disproved by default, or the manifest entry's failure-verdict with its failure-verdict-reason when the claim is not false (a vacuous claim is failed)."
 
 [[normalisation]]
 id = "N13"
