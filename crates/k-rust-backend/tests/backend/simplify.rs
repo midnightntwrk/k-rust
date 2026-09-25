@@ -3719,3 +3719,39 @@ fn concreteness_constraint_survives_renaming_the_equation_apart() {
 
     assert_eq!(result.term, input);
 }
+
+#[test]
+fn alpha_equal_equations_collapse_and_still_evaluate_a_subject_sharing_their_variable_names() {
+    // `f(X) = c` and `f(Y) = c` with one identity are one rule; the subject mentions the
+    // kept copy's variable, which rule application renames apart before matching.
+    let equation = |variable: &str, line: usize| {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(\in{{SortS{{}}, R}}({variable}0:SortS{{}}, {variable}:SortS{{}}), \top{{R}}())
+                ),
+                \equals{{SortS{{}}, R}}(
+                    f{{}}({variable}0:SortS{{}}),
+                    \and{{SortS{{}}}}(\dv{{SortS{{}}}}("c"), \top{{SortS{{}}}}())
+                )
+            ) [UNIQUE'Unds'ID{{}}("f-c"),
+               org'Stop'kframework'Stop'attributes'Stop'Location{{}}("Location({line},3,{line},20)")]"#
+        )
+    };
+    let definition = definition(&format!("{}\n{}", equation("X", 1), equation("Y", 2)));
+    let origins = definition
+        .function_theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|rule| rule.attributes.origins.len())
+        .collect::<Vec<_>>();
+    assert_eq!(origins, [2]);
+    let input = subject_sharing_the_equation_variable(&definition);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the collapsed equation applies");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("c")"#));
+}
