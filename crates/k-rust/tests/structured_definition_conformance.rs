@@ -68,7 +68,62 @@ fn structured_configuration_compiles_through_the_public_pipeline() {
             "{}",
             artifacts.definition_kore
         );
+        // The initializer's `$PGM` key is injected into `KItem` along a declared subsort.
+        assert!(
+            artifacts
+                .definition_kore
+                .contains("[subsort{SortKConfigVar{}, SortKItem{}}()]"),
+            "{}",
+            artifacts.definition_kore
+        );
     });
+}
+
+// The configuration initializer looks `$PGM` up in the configuration map, whose keys are `KItem`s,
+// so the lookup injects the `KConfigVar` token into `KItem`. A definition that does not declare
+// `KConfigVar` below `KItem` has no such embedding, and the initializer is rejected as ill-sorted
+// instead of being emitted with an injection outside the subsort order.
+#[test]
+fn structured_configuration_without_the_config_variable_subsort_is_rejected() {
+    let mut definition = structured_definition(true);
+    let declares_config_variable = |sentence: &Sentence| {
+        match sentence {
+        Sentence::SyntaxSort { sort, .. } => sort.name == "KConfigVar",
+        Sentence::Production { items, .. } => items.iter().any(|item| {
+            matches!(item, ProductionItem::NonTerminal { sort, .. } if sort.name == "KConfigVar")
+        }),
+        _ => false,
+    }
+    };
+    definition.modules[0]
+        .local_sentences
+        .retain(|sentence| !declares_config_variable(sentence));
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let loaded = LoadedDefinition {
+        files: Vec::new(),
+        source_table: Default::default(),
+        definition,
+        resolved,
+        diagnostics: Vec::new(),
+    };
+
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let error = compile_loaded_definition(
+            &loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .expect_err("the $PGM lookup has no KConfigVar-to-KItem embedding");
+        assert_eq!(error.stage, "add sort injections", "{error}");
+        assert!(
+            error
+                .message
+                .contains("has sort KConfigVar, which is not a subsort of the sort KItem"),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -847,9 +902,25 @@ fn structured_definition_with_optional_configuration_cell(
         },
     ];
     if declare_map_lookup {
-        // Configuration initializers read their variables from the configuration map. Structured
-        // callers currently supply that builtin closure themselves; this minimal declaration is
-        // the only prelude contract this fixture needs.
+        // Configuration initializers read their variables from the configuration map, keyed by
+        // the configuration variable as a `KItem`. Structured callers currently supply that
+        // builtin closure themselves; these minimal declarations (the `KConfigVar` sort below
+        // `KItem`, `Map`, and `Map:lookup`) are the only prelude contract this fixture needs.
+        local_sentences.push(Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new("KConfigVar"),
+            attributes: Attributes::new(BTreeMap::from([("token".into(), json!(""))])),
+        });
+        local_sentences.push(Sentence::Production {
+            label: None,
+            parameters: Vec::new(),
+            sort: Sort::new("KItem"),
+            items: vec![ProductionItem::NonTerminal {
+                sort: Sort::new("KConfigVar"),
+                name: None,
+            }],
+            attributes: Attributes::default(),
+        });
         local_sentences.push(Sentence::SyntaxSort {
             parameters: Vec::new(),
             sort: Sort::new("Map"),
