@@ -127,8 +127,12 @@ Backend error `data` is compared by class: code, message, and the `error` senten
 
 ## Definition verification
 
-The acceptance boundary includes KORE validity as the KORE language specification states it, [`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity).
+The acceptance boundary includes the sentence, declaration and pattern conditions of KORE validity as the KORE language specification states them, [`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity).
 Among its conditions, every sort, symbol and alias an axiom uses is declared, each application agrees with its declaration in sort parameters, arity and argument sorts, and each bound variable agrees in sort with its binder.
+It does not include the two module-order conditions on import sentences: an imported module need not appear earlier in the definition (condition 6a), and an import need not precede the other declarations of its module (6b).
+Modules are resolved by name, so a definition that violates either condition is accepted and means the same theory as its reordered form.
+The reason: imports determine which declarations are in scope, and textual order adds nothing to that scope, as the specification already states for the non-import sentences of a module.
+The part of 6a that a topological order implies, that imports form no cycle, is still enforced.
 A definition is a matching-logic theory, and every axiom belongs to that theory whether or not the backend later classifies it as a rewrite, an equation or an attribute axiom.
 An axiom that is not a valid pattern has no meaning, so a definition containing one does not define a theory, even when execution would never consult that axiom.
 Verification therefore checks every sentence of the modules in scope before classification, including axioms that classification ignores.
