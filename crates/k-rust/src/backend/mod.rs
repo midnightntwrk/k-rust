@@ -161,12 +161,20 @@ pub struct ExecutionResult {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionLeaf {
     pub state: Value,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    /// Successors reported by a branch or cut-point halt, including each successor's diagnostics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidates: Option<Vec<ExecutionCandidateOutput>>,
+    /// The branch's remaining path candidate, when one remains.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remainder: Option<ExecutionRemainderOutput>,
     pub depth: u64,
     pub reason: HaltReasonOutput,
     /// Legacy human-readable diagnostic context.
     ///
     /// This field is not a stable semantic encoding. Consumers must branch on `reason` and use
-    /// `branch` / `observations` when they need structured transition evidence.
+    /// `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub trace: Vec<TraceEntry>,
@@ -174,6 +182,26 @@ pub struct ExecutionLeaf {
     pub branch: Vec<TransitionIdOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<ObservationEventOutput>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ExecutionCandidateOutput {
+    pub state: Value,
+    pub unique_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ExecutionRemainderOutput {
+    pub state: Value,
+    pub rule_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1496,6 +1524,11 @@ mod tests {
             .unwrap();
         assert_eq!(execution.leaves.len(), 1);
         assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+        assert!(
+            serde_json::to_value(&execution).unwrap()["leaves"][0]
+                .get("diagnostics")
+                .is_none()
+        );
 
         let implication = backend
             .implies(ImplicationRequest {
@@ -1514,6 +1547,111 @@ mod tests {
             })
             .unwrap();
         assert_eq!(proof.status, "proven");
+    }
+
+    #[test]
+    fn execution_exposes_the_leaf_budget_diagnostic_on_the_wire() {
+        let mut backend = Backend::new(
+            include_str!("../../tests/fixtures/execution-budget.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                state: json("start{}()"),
+                max_simplification_iterations: 3,
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        assert_eq!(result.leaves.len(), 1);
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            value["leaves"][0]["diagnostics"],
+            serde_json::json!([{
+                "kind": "simplification-budget-exhausted",
+                "limit": 3,
+                "subject": "term"
+            }])
+        );
+    }
+
+    #[test]
+    fn branch_candidates_expose_only_their_own_diagnostics_on_the_wire() {
+        let mut backend = Backend::new(
+            include_str!("../../tests/fixtures/execution-candidates.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                state: json("start{}()"),
+                max_simplification_iterations: 3,
+                stop_at_branch: true,
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        let value = serde_json::to_value(result).unwrap();
+        let [leaf] = value["leaves"].as_array().unwrap().as_slice() else {
+            panic!("expected one branch leaf: {value}");
+        };
+        assert_eq!(leaf["reason"], "branch");
+        assert!(leaf.get("diagnostics").is_none());
+        let candidates = leaf["candidates"].as_array().unwrap();
+        assert_eq!(candidates.len(), 2);
+        let diagnosed = candidates
+            .iter()
+            .find(|candidate| candidate["label"] == "to-g")
+            .unwrap();
+        assert_eq!(
+            diagnosed["diagnostics"],
+            serde_json::json!([{
+                "kind": "simplification-budget-exhausted",
+                "limit": 3,
+                "subject": "term"
+            }])
+        );
+        let plain = candidates
+            .iter()
+            .find(|candidate| candidate["label"] == "to-b")
+            .unwrap();
+        assert!(plain.get("diagnostics").is_none());
+        assert_eq!(text(plain["state"].clone()), "b{}()");
+    }
+
+    #[test]
+    fn cut_point_candidates_expose_their_diagnostics_on_the_wire() {
+        let mut backend = Backend::new(
+            include_str!("../../tests/fixtures/execution-budget.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                state: json("start{}()"),
+                max_simplification_iterations: 3,
+                cut_point_rules: vec!["to-g".into()],
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        let value = serde_json::to_value(result).unwrap();
+        let [leaf] = value["leaves"].as_array().unwrap().as_slice() else {
+            panic!("expected one cut-point leaf: {value}");
+        };
+        assert_eq!(leaf["reason"], "cut-point");
+        assert!(leaf.get("diagnostics").is_none());
+        assert_eq!(leaf["candidates"].as_array().unwrap().len(), 1);
+        assert_eq!(leaf["candidates"][0]["label"], "to-g");
+        assert_eq!(
+            leaf["candidates"][0]["diagnostics"],
+            serde_json::json!([{
+                "kind": "simplification-budget-exhausted",
+                "limit": 3,
+                "subject": "term"
+            }])
+        );
     }
 
     #[test]

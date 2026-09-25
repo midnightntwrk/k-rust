@@ -1,0 +1,18 @@
+[]
+module MAIN
+    sort SortS{} []
+    symbol start{}() : SortS{} [constructor{}(), functional{}()]
+    symbol a{}() : SortS{} [constructor{}(), functional{}()]
+    symbol g{}(SortS{}) : SortS{} [function{}(), functional{}()]
+    axiom{R} \implies{R}(
+        \top{R}(),
+        \equals{SortS{}, R}(
+            g{}(X:SortS{}),
+            \and{SortS{}}(g{}(g{}(X:SortS{})), \top{SortS{}}())
+        )
+    ) [label{}("grow"), simplification{}()]
+    axiom{} \rewrites{SortS{}}(
+        \and{SortS{}}(start{}(), \top{SortS{}}()),
+        \and{SortS{}}(g{}(a{}()), \top{SortS{}}())
+    ) [label{}("to-g")]
+endmodule []

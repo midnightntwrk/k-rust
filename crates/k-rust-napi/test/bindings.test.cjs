@@ -36,6 +36,38 @@ module MAIN
   ) [label{}("reaches-c")]
 endmodule []`
 
+test('exposes a simplification budget diagnostic on its execution leaf', () => {
+  const definitionKore = fs.readFileSync(
+    path.join(__dirname, '../../k-rust/tests/fixtures/execution-budget.kore'),
+    'utf8',
+  )
+  const backend = createBackend({ definitionKore, moduleName: 'MAIN' })
+  const leaf = backend.execute({ state: parseKore('start{}()').kore, maxSimplificationIterations: 3 }).leaves[0]
+  assert.deepEqual(leaf.diagnostics, [
+    { kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' },
+  ])
+})
+
+test('exposes the diagnostic on only the branch candidate that emitted it', () => {
+  const definitionKore = fs.readFileSync(
+    path.join(__dirname, '../../k-rust/tests/fixtures/execution-candidates.kore'),
+    'utf8',
+  )
+  const backend = createBackend({ definitionKore, moduleName: 'MAIN' })
+  const leaf = backend.execute({
+    state: parseKore('start{}()').kore,
+    maxSimplificationIterations: 3,
+    stopAtBranch: true,
+  }).leaves[0]
+  assert.equal(leaf.reason, 'branch')
+  assert.equal(leaf.diagnostics, undefined)
+  assert.deepEqual(
+    leaf.candidates.find(({ label }) => label === 'to-g').diagnostics,
+    [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }],
+  )
+  assert.equal(leaf.candidates.find(({ label }) => label === 'to-b').diagnostics, undefined)
+})
+
 const koreSortS = { tag: 'SortApp', name: 'SortS', args: [] }
 
 function deeplyNestedKore(depth) {
