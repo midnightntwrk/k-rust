@@ -6,13 +6,14 @@
 
 use indoc::indoc;
 #[cfg(feature = "z3-inference")]
+use k_rust::definition::AttributeKey;
+#[cfg(feature = "z3-inference")]
 use k_rust::kore::{
     ast::{Pattern as KorePattern, Sentence as KoreSentence},
     parser::{parse_definition, parse_pattern},
 };
 use k_rust::{
     builtin::embedded,
-    definition::AttributeKey,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     outer::{LoadOptions, load_with_options},
 };
