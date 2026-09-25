@@ -615,15 +615,11 @@ fn local_sort_check_rejects_what_k_rust_compiles() {
         baseline: &counter,
         expected: None,
     };
-    // The former M2 row `last-occurrence-signature-drift` is structural and
-    // has no port. The portable model derived a symbol's signature from its
-    // occurrences, so replacing the sentence that held a symbol's last
-    // occurrence could change the signature. Here signatures come from the
-    // baseline's productions (k-rust `ProductionCatalog`), and
+    // Signatures come from the baseline's productions (`ProductionCatalog`).
     // `ReplaceSentence` accepts only rule-like sentences, which declare no
-    // production, so no edit changes a signature: a relabelled application
-    // is checked against its declared signature, as `arity-drift` and
-    // `unknown-label` are.
+    // productions, so an edit cannot change a signature. A relabelled
+    // application is checked against its declared signature in the
+    // `arity-drift` and `unknown-label` rows.
     // (row, path, replacement, whether k-rust itself compiles the raw edit)
     let rows: &[(&str, &[u32], Term, bool)] = &[
         (

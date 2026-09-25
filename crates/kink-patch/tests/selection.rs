@@ -255,7 +255,7 @@ const ROWS: &[Row] = &[
         failed(CandidateFailureKind::InvalidJoin),
     ),
     // A derivation is already in canonical order; the supplied reversal of
-    // `discovery_authority_adversaries_publish_no_scored_generation` is not.
+    // `forged_or_foreign_discoveries_publish_no_scored_generation` is not.
     row(
         "each-canonical-order",
         SelectionPolicy::Each,
@@ -678,11 +678,10 @@ fn no_change_patch_is_a_rejected_disposition_never_a_mutant() {
     );
 }
 
-/// Plan row S2 (edit authorization), the edit-receipt half of the former
-/// `discovery_authority_and_edit_receipt_adversaries_publish_nothing`: every
-/// edit must target a sentence of the origin it was built from, and one
-/// foreign edit publishes no generation at all. The discovery-authority half
-/// is `discovery_authority_adversaries_publish_no_scored_generation`.
+/// Plan row S2: every edit must target a sentence of its origin, and one
+/// foreign edit prevents the entire generation from being published.
+/// Discovery authority is covered by
+/// `forged_or_foreign_discoveries_publish_no_scored_generation`.
 #[test]
 fn edits_outside_their_origin_publish_nothing() {
     let memory = Memory::new();
@@ -752,15 +751,13 @@ fn edits_outside_their_origin_publish_nothing() {
     );
 }
 
-/// The discovery-authority half of the former
-/// `discovery_authority_and_edit_receipt_adversaries_publish_nothing`. The
-/// registry digests are gone, so each adversary becomes a typing rule: a
-/// claimant's tuple order is replaced by canonical order, a hand-supplied
-/// discovery (forged, or missing a member) is never exhaustive and so never
-/// scored, and neither is one narrowed by a closure; a stale site is
-/// rejected, and discoveries of another baseline do not join or unite.
+/// Supplied tuple order is replaced by canonical order. A hand-supplied
+/// discovery is never exhaustive and cannot be scored, even when it includes
+/// every derived site. A closure-narrowed discovery is also never exhaustive.
+/// Stale sites are rejected, and discoveries of another baseline cannot join
+/// or unite with this baseline's discoveries.
 #[test]
-fn discovery_authority_adversaries_publish_no_scored_generation() {
+fn forged_or_foreign_discoveries_publish_no_scored_generation() {
     let memory = Memory::new();
     let supplied = |names: &[&[&str]]| {
         Discovery::supplied(
@@ -1039,8 +1036,7 @@ fn sites_are_derived_from_selector_clauses_with_bindings() {
     let memory = support::load("memory.k");
     #[rustfmt::skip]
     let rows: [DerivationRow<'_>; 10] = [
-        // The former `counter-mutation-site-registry.json`, over `counter.k`'s
-        // `s(N)` where the portable counter had `plusOne(N)`.
+        // The counter increment site is the `s(N)` argument of `counter`.
         ("counter-increment-expression", &counter, vec![path(&[0, 1, 0]), sort("Nat"), head("s"), bind("E")], &[("COUNTER.increment", &[0, 1, 0])], &["E"]),
         // Without a label clause, labelled rules match too.
         ("no-label-clause-matches-labelled-rules", &counter, vec![path(&[0, 1]), sort("Control")], &[("COUNTER.branch", &[0, 1]), ("COUNTER.fallback", &[0, 1])], &[]),

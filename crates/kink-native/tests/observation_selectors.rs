@@ -2,10 +2,9 @@
 //! selectors choose exactly the matching written rules, in definition order, and publish
 //! nothing on failure.
 //!
-//! The three structural rows are the former `structural-observation-cases.json`, rewritten
-//! for `counter.k`: its `increment` right-hand side is `counter(s(N), L)` where the portable
-//! counter had `counter(plusOne(N))`, and it has a `fallback` rule with the same right-hand
-//! side as `branch`, which is what the label clause of `labeled-branch-rhs` now excludes.
+//! The structural rows use `counter.k`: the `increment` right-hand side is
+//! `counter(s(N), L)`, and the `fallback` rule has the same right-hand side as
+//! `branch`. The label clause of `labeled-branch-rhs` excludes `fallback`.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;

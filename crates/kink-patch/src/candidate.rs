@@ -14,12 +14,12 @@
 //! which only declarative derivation gives: [`derive_sites`] and its unions
 //! and joins. Exhaustive means every match of the declared selector
 //! expression, whose rule labels and label-and-path references must resolve.
-//! A [`Discovery::supplied`] or [`Discovery::filter`]ed one never
-//! is. Each stage borrows the baseline it was derived from, and a campaign
-//! compares that borrow with its own baseline by address. Address identity needs no digest: the borrow keeps
-//! the baseline alive, so no other live baseline can share its address. An
-//! equal clone is a different baseline to this check, which refuses it
-//! conservatively.
+//! A [`Discovery::supplied`] or [`Discovery::filter`]ed one never is. Each stage
+//! borrows the baseline it was derived from, and a campaign compares that
+//! borrow with its own baseline by address. Address identity needs no digest:
+//! the borrow keeps the baseline alive, so no other live baseline can share
+//! its address. An equal clone is a different baseline to this check, which
+//! refuses it conservatively.
 
 use crate::sort::Typing;
 use crate::{
@@ -42,7 +42,8 @@ pub enum CandidateFailureKind {
     InvalidBinding,
     /// An operator built an edit outside the sentences of its origin.
     UnauthorizedEdit,
-    /// A supplied site, or a selector's rule label or label-and-path, is not a term position of the baseline.
+    /// A supplied site, or a selector's rule label or label-and-path, is not a
+    /// term position of the baseline.
     UnknownSite,
 }
 

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-/// Campaign scheduling policy. It never participates in raw attempt identity.
+/// Campaign scheduling policy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScheduleMode {
     /// Stop after the first killing test in manifest order.
@@ -26,8 +26,6 @@ pub enum OracleOutcome {
     Unknown,
     /// Untrustworthy worker/backend/infrastructure result.
     Error,
-    /// Slot was not selected because first-kill stopped earlier.
-    Skipped,
 }
 
 /// Final candidate classification. There is deliberately no equivalence status.
@@ -221,8 +219,6 @@ const fn slot_status(outcome: OracleOutcome) -> MutantStatus {
         OracleOutcome::Incomparable | OracleOutcome::Error => MutantStatus::Error,
         OracleOutcome::Timeout => MutantStatus::Timeout,
         OracleOutcome::Unknown => MutantStatus::Unknown,
-        // Rejected as input before the fold.
-        OracleOutcome::Skipped => MutantStatus::Error,
     }
 }
 
@@ -295,12 +291,6 @@ fn check_plan(
                         "compared outcomes differ from the declared oracle slots",
                     ));
                 }
-                if outcomes.contains(&OracleOutcome::Skipped) {
-                    return Err(CampaignFailure::new(
-                        CampaignFailureKind::FabricatedSkip,
-                        "input outcomes may not pre-mark a selected oracle as skipped",
-                    ));
-                }
             }
             TestRun::Failed(_) => {}
             TestRun::SkippedAfterKill => {
@@ -334,7 +324,8 @@ fn check_plan(
 /// the one the same plan with those tests executed derives. The status is one
 /// fold with a single precedence: a mutant-scope failure, then any
 /// distinguishing slot (killed), then error (including incomparable slots and
-/// failed infrastructure runs), timeout and unknown, and complete agreement (survived) only when nothing else was seen.
+/// failed infrastructure runs), timeout and unknown, and complete agreement
+/// (survived) only when nothing else was seen.
 pub fn derive_mutant_report(
     plan: &MutantPlan,
     manifest: &[ManifestTest],

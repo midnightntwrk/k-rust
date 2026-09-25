@@ -26,7 +26,7 @@ use kink_patch::{
 };
 
 use MutantStatus::{Error, Invalid, Killed, Survived, Timeout, Unknown};
-use OracleOutcome::{Agree, Distinguish, Skipped};
+use OracleOutcome::{Agree, Distinguish};
 
 const KINDS: [OracleKind; 3] = [
     OracleKind::ExitStop,
@@ -564,10 +564,9 @@ type RejectionRow = (
 /// rejected or not lowered cannot carry executed tests.
 #[test]
 fn plans_that_differ_from_the_manifest_are_rejected() {
-    use CampaignFailureKind::{FabricatedSkip, InvalidManifest};
+    use CampaignFailureKind::InvalidManifest;
     use ExecutionFailureKind as E;
     use MutantScopeFailure as S;
-    use OracleOutcome as O;
     let agree = |id| compared(id, &[Agree]);
     let failed = |id: &str, kind| TestPlan {
         test_id: id.to_owned(),
@@ -575,7 +574,7 @@ fn plans_that_differ_from_the_manifest_are_rejected() {
     };
     let t1_t2: &[(&str, usize)] = &[("t1", 1), ("t2", 1)];
     #[rustfmt::skip]
-    let rows: [RejectionRow; 16] = [
+    let rows: [RejectionRow; 15] = [
         ("missing-test", None, vec![agree("t1")], t1_t2, InvalidManifest),
         ("extra-test", None, vec![agree("t1"), agree("t2")], &[("t1", 1)], InvalidManifest),
         ("reordered-tests", None, vec![agree("t2"), agree("t1")], t1_t2, InvalidManifest),
@@ -586,7 +585,6 @@ fn plans_that_differ_from_the_manifest_are_rejected() {
         ("empty-manifest", Some(MutantScopeFailure::Rejected), Vec::new(), &[], InvalidManifest),
         ("duplicate-manifest-test", None, vec![agree("t1"), agree("t1")], &[("t1", 1), ("t1", 1)], InvalidManifest),
         ("manifest-test-without-slots", Some(MutantScopeFailure::Rejected), Vec::new(), &[("t1", 0)], InvalidManifest),
-        ("fabricated-skip", None, vec![compared("t1", &[O::Timeout, Skipped])], &[("t1", 2)], FabricatedSkip),
         ("rejected-with-executed-tests", Some(S::Rejected), vec![agree("t1"), agree("t2")], t1_t2, InvalidManifest),
         ("rejected-with-failed-test", Some(S::Rejected), vec![failed("t1", E::Infrastructure), agree("t2")], t1_t2, InvalidManifest),
         ("lowering-nontermination-with-kill", Some(S::LoweringNontermination), vec![compared("t1", &[Distinguish]), agree("t2")], t1_t2, InvalidManifest),
@@ -939,8 +937,8 @@ fn terminal_comparison_truth_table() {
     use Side::{Crash, Failure, Normal};
     // "semantic-crash-distinguishes" is `CrashPolicy::Distinguish`;
     // "semantic-crash-incomparable" is `CrashPolicy::CompareIdentity`.
-    // different-crashes-incomparable keeps `CompareIdentity`'s Distinguish for
-    // two unequal crash terms; the former Python checker expected incomparable.
+    // `CompareIdentity` distinguishes two unequal crash terms, including the
+    // `different-crashes-incomparable` row.
     #[rustfmt::skip]
     let rows = [
         ("normal-normal-equal", Normal('a'), Normal('a'), Distinguishes, Agree),

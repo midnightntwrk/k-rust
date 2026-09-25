@@ -984,8 +984,7 @@ fn inline_occurrence_and_adjacency_rows_report_every_witness() {
 }
 
 // P8: unkeyed mode has no schedule-independent way to tell identical branches apart,
-// so it rejects them instead of reporting two occurrences (the former BAG-16 did) or
-// coalescing them.
+// so it rejects them instead of reporting two occurrences or coalescing them.
 #[test]
 fn identical_unkeyed_branches_are_rejected() {
     let id = "identical-unkeyed-branches-are-rejected";
@@ -1332,8 +1331,7 @@ struct ExistentialRow {
 fn inline_existential_first_rows_keep_absence_and_missing_evidence() {
     let table = side_table();
     let rows = [
-        // Absence under exhaustion does not depend on the stop policy. Backed only by
-        // BAG-16: the v1 vectors hold no existential-first absence case.
+        // Absence under exhaustion does not depend on the stop policy.
         ExistentialRow {
             id: "existential-first-exhausted-absence-is-no-match",
             plan: "write-eventually-load",
@@ -1345,8 +1343,7 @@ fn inline_existential_first_rows_keep_absence_and_missing_evidence() {
             failure: None,
         },
         // A match stop whose only candidate has no side-condition row is missing
-        // evidence, not a dishonest stop; BAG-16 raised here instead. The cause is the
-        // indeterminate candidate, not the match stop.
+        // evidence. The indeterminate candidate causes Unknown.
         ExistentialRow {
             id: "existential-first-indeterminate-match-stop-is-unknown",
             plan: "write-then-load-side-condition",
