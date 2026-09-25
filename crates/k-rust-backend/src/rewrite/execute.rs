@@ -629,9 +629,10 @@ impl<'a> Execution<'a> {
                 );
             }
             state.effects.commit(applied.effects.iter().cloned());
-            state.observation =
-                self.observation_log
-                    .append_applied(state.observation, &applied, self.observation);
+            // The cut-point rule is proposed, not committed: the leaf stays at this state's depth
+            // and branch position and carries the successor in `next_states`. Neither the
+            // rewrite nor the successor's normalization belongs to this branch's observations;
+            // the successor's diagnostics belong to the candidate.
             let (simplified, diagnostics) = diagnostic::collect(|| {
                 simplify_result_pattern(
                     self.definition,
@@ -640,7 +641,7 @@ impl<'a> Execution<'a> {
                     self.solver,
                     state.depth,
                     &mut state.trace,
-                    Some(&mut state.observation),
+                    None,
                     &mut self.observation_log,
                     self.observation,
                 )

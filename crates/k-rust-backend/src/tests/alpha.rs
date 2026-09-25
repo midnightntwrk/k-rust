@@ -18,8 +18,8 @@ use crate::{
         names::VariableProvenance,
     },
     transition::{
-        ExecutionIoState, ObservationEvent, PatternDigest, TransitionClass, TransitionId,
-        TransitionObservation,
+        EvaluationObservation, ExecutionIoState, ObservationEvent, PatternDigest, TransitionClass,
+        TransitionId, TransitionObservation,
     },
 };
 
@@ -1218,10 +1218,41 @@ impl AlphaComparable for TransitionObservation {
     }
 }
 
+impl AlphaComparable for EvaluationObservation {
+    fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
+        self.before.collect_alpha(&other.before, context)?;
+        self.after.collect_alpha(&other.after, context)?;
+        if self.rule != other.rule
+            || self.class != other.class
+            || self.rule_label != other.rule_label
+            || self.anchor != other.anchor
+            || self.effects != other.effects
+        {
+            return Err("evaluation observation metadata differs".into());
+        }
+        Ok(())
+    }
+
+    fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
+        Ok(Self {
+            rule: self.rule.clone(),
+            class: self.class,
+            rule_label: self.rule_label.clone(),
+            anchor: self.anchor,
+            before: self.before.rename_alpha(context)?,
+            after: self.after.rename_alpha(context)?,
+            effects: self.effects.clone(),
+        })
+    }
+}
+
 impl AlphaComparable for ObservationEvent {
     fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
         match (self, other) {
             (Self::Transition(left), Self::Transition(right)) => {
+                left.collect_alpha(right, context)
+            }
+            (Self::Evaluation(left), Self::Evaluation(right)) => {
                 left.collect_alpha(right, context)
             }
             (Self::Uncommitted(left), Self::Uncommitted(right)) if left == right => Ok(()),
@@ -1236,6 +1267,7 @@ impl AlphaComparable for ObservationEvent {
     fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
         Ok(match self {
             Self::Transition(observation) => Self::Transition(observation.rename_alpha(context)?),
+            Self::Evaluation(observation) => Self::Evaluation(observation.rename_alpha(context)?),
             Self::Uncommitted(observation) => Self::Uncommitted(observation.clone()),
         })
     }
