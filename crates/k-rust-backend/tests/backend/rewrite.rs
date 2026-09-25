@@ -15,6 +15,7 @@ use k_rust_backend::{
     diagnostic::{self, BackendDiagnostic},
     rewrite::*,
     rule::Predicate,
+    search::ResultModality,
     simplify::{
         BudgetSubject, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
         SimplificationOptions,
@@ -2757,7 +2758,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "a35579acc1f5e824cf717ad1205e11d3e61c779cca6b8ee5fc1bbc1d7fe801c6",
+        "2695ba87bdd51be28faac28f1ae0c5b83dd1f234529c3285135141bcd96ee84a",
     );
 }
 
@@ -2798,7 +2799,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "ea380a26a24994f8f20363e3daf30dff00542a67a52ff66f865fe0600e33deb5",
+        "d9b4b5035f446250be611653cf2f3dcbe3279d975c78d6d69f96805f7cf517ee",
     );
 }
 
@@ -2855,7 +2856,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "e859e1363abecd5d7c0435e6487107409af0790d00d68cf339ddc603441eb254",
+        "c9273eafc6cee744f8f6d3ab62f315db10f6ad54c627557e4c65ce8e1bbf7f8b",
     );
 }
 
@@ -2916,7 +2917,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "5e2d1522e27fcbdcfaed3393ffad649d3f4f916a8b15610428fc4774741a5949",
+        "d652f8e0ddc5e9444692fe12370f3ce8334e879c63b413a21de1a94b55134063",
     );
 }
 
@@ -2989,7 +2990,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "d7eacc2c8d9892ec1c23364660bdd9afe834e0a50e418872a3ee9843f40d1be8",
+        "865bfc530d5798d36f956abb351cbef6b4637e998838882183b36b1e1a956f94",
     );
 }
 
@@ -3059,7 +3060,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "6f3edcdc9cee1d5526a977bbe8aeb730f64713c350a67fc707724247aa31c067",
+        "3fee63a3357adfd25084a9f7e04d7360c4489c84d0f91bd4e37fdbfe5cae04a8",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3194,7 +3195,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "66bc024d90dbebe65c5463cc12e597e46592bfd652c5035bd9f3e3123af1b813",
+        "2fb893fd5c8673767cfcda3e0e55a54a6df3e5da15649f6d7896997868c8ae70",
     );
 }
 
@@ -3258,7 +3259,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "14a896d829e9c3d23c27f0a0d569f12a4b8b72b382040754a3e7ca08272aae0c",
+        "68326278df442747f3d502c0eb9340e794f94b61b2942f17f1d5b274e98470eb",
     );
 }
 
@@ -3320,7 +3321,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "4d0dfcea473c4dbf87ce626639145e48fccd12daad459f2d594f5f79dc73278f",
+        "c2129622454989116efb5140c4113532ed707d1750c08875e9ca64410cf0be34",
     );
 }
 
@@ -3375,7 +3376,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "1ee774e100f1ef533d0e6f83ee0472ff6db36ae982eb6a510fa0caeb8746bf4e",
+        "59243aa23e41552d7dd643ef1daed8f0a0ae1727262130a3339905c32630d7cc",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -5894,6 +5895,57 @@ fn converging_branches_yield_one_final_leaf() {
     );
 }
 
+fn transition_labels(leaf: &ExecutionLeaf) -> Vec<&str> {
+    leaf.observations
+        .iter()
+        .filter_map(|event| match event {
+            ObservationEvent::Transition(observation) => observation.rule_label.as_deref(),
+            ObservationEvent::Uncommitted(_) => None,
+        })
+        .collect()
+}
+
+#[test]
+fn path_set_keeps_each_converging_path_with_its_own_observations() {
+    let definition = converging_execution_definition();
+    let run = |result_modality| {
+        execute_observed(
+            &definition,
+            subject(&definition, "initial"),
+            ExecutionOptions {
+                result_modality,
+                ..ExecutionOptions::default()
+            },
+            &ObservationOptions::all(),
+        )
+    };
+
+    let state_set = run(ResultModality::StateSet);
+    assert_eq!(state_set.modality, ResultModality::StateSet);
+    let [merged] = state_set.leaves.as_slice() else {
+        panic!("expected one merged configuration: {:?}", state_set.leaves);
+    };
+    assert_eq!(transition_labels(merged), ["initial-left", "left-merged"]);
+
+    let path_set = run(ResultModality::PathSet);
+    assert_eq!(path_set.modality, ResultModality::PathSet);
+    let [left, right] = path_set.leaves.as_slice() else {
+        panic!("expected one leaf per path: {:?}", path_set.leaves);
+    };
+    for leaf in [left, right] {
+        assert_eq!(leaf.pattern, subject(&definition, "merged"));
+        assert_eq!(leaf.depth, 2);
+        assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+        assert_eq!(leaf.branch.len(), 2);
+    }
+    assert_ne!(left.branch, right.branch);
+    assert_eq!(transition_labels(left), ["initial-left", "left-merged"]);
+    assert_eq!(transition_labels(right), ["initial-right", "right-merged"]);
+    // The state-set leaf is the first path's leaf, unchanged.
+    assert_eq!(merged, left);
+    assert_eq!(path_set.discarded, state_set.discarded);
+}
+
 #[test]
 fn equal_configurations_with_different_halt_reasons_merge_to_the_first() {
     let definition = definition(
@@ -6101,21 +6153,28 @@ fn observation_on_preserves_non_observation_outputs() {
             ) [label{}("step")]
             "#,
     );
-    let initial = subject(&definition, "value");
-    let expected = execute(&definition, initial.clone(), ExecutionOptions::default());
-    let mut actual = execute_observed(
-        &definition,
-        initial,
-        ExecutionOptions::default(),
-        &ObservationOptions::all(),
-    );
+    for (definition, initial) in [
+        (definition, "value"),
+        (converging_execution_definition(), "initial"),
+    ] {
+        for result_modality in [ResultModality::StateSet, ResultModality::PathSet] {
+            let options = ExecutionOptions {
+                result_modality,
+                ..ExecutionOptions::default()
+            };
+            let initial = subject(&definition, initial);
+            let expected = execute(&definition, initial.clone(), options.clone());
+            let mut actual =
+                execute_observed(&definition, initial, options, &ObservationOptions::all());
 
-    assert!(!actual.leaves[0].observations.is_empty());
-    for leaf in &mut actual.leaves {
-        leaf.branch.clear();
-        leaf.observations.clear();
+            assert!(!actual.leaves[0].observations.is_empty());
+            for leaf in &mut actual.leaves {
+                leaf.branch.clear();
+                leaf.observations.clear();
+            }
+            assert_eq!(actual, expected, "{result_modality:?}");
+        }
     }
-    assert_eq!(actual, expected);
 }
 
 #[test]
@@ -7788,56 +7847,108 @@ fn explore_all_covers_the_distinct_final_states_of_generated_reachability_graphs
         }
         let definition = definition(&axioms);
 
-        let expected = |max_depth: Option<usize>| {
-            let mut pending = VecDeque::from([(String::from("start-0"), 0)]);
-            let mut stuck = BTreeSet::new();
-            let mut bounded = BTreeSet::new();
-            while let Some((node, depth)) = pending.pop_front() {
-                if max_depth.is_some_and(|limit| depth == limit) {
-                    bounded.insert(node);
+        // Every root-to-leaf path of the rule table, as (node, halted at the depth bound, labels).
+        // The worklist has no visited set, so a node reached by several routes is one entry per
+        // route.
+        let expected_paths = |max_depth: Option<usize>| {
+            let mut pending = VecDeque::from([(String::from("start-0"), Vec::<String>::new())]);
+            let mut paths = BTreeSet::new();
+            while let Some((node, labels)) = pending.pop_front() {
+                if max_depth.is_some_and(|limit| labels.len() == limit) {
+                    assert!(paths.insert((node, true, labels)), "paths are distinct");
                 } else if let Some(destinations) = rules.get(&node) {
-                    pending.extend(destinations.iter().cloned().map(|next| (next, depth + 1)));
+                    for (edge, next) in destinations.iter().enumerate() {
+                        let mut labels = labels.clone();
+                        labels.push(format!("{node}-{edge}"));
+                        pending.push_back((next.clone(), labels));
+                    }
                 } else {
-                    stuck.insert(node);
+                    assert!(paths.insert((node, false, labels)), "paths are distinct");
                 }
             }
-            (stuck, bounded)
+            paths
         };
 
         for max_depth in [None, Some(2 * levels - 1)] {
-            let options = ExecutionOptions {
-                max_depth: max_depth.map_or(u64::MAX, |depth| depth as u64),
-                ..ExecutionOptions::default()
-            };
-            let result = execute(&definition, subject(&definition, "start-0"), options);
-            let (expected_stuck, expected_bounded) = expected(max_depth);
-            let mut actual_stuck = BTreeSet::new();
-            let mut actual_bounded = BTreeSet::new();
-            for leaf in &result.leaves {
-                let node = match leaf.pattern.term.kind() {
-                    TermKind::Application { arguments, .. } => match arguments[0].kind() {
-                        TermKind::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
-                        other => panic!("expected a domain value, found {other:?}"),
-                    },
-                    other => panic!("expected a wrapped node, found {other:?}"),
+            let paths = expected_paths(max_depth);
+            let expected_states = paths
+                .iter()
+                .map(|(node, bounded, _)| (node.clone(), *bounded))
+                .collect::<BTreeSet<_>>();
+            let mut state_set_configurations = Vec::new();
+            for result_modality in [ResultModality::StateSet, ResultModality::PathSet] {
+                let options = ExecutionOptions {
+                    max_depth: max_depth.map_or(u64::MAX, |depth| depth as u64),
+                    result_modality,
+                    ..ExecutionOptions::default()
                 };
-                assert_eq!(leaf.pattern, subject(&definition, &node));
-                match leaf.halt_reason {
-                    HaltReason::Stuck => assert!(actual_stuck.insert(node), "duplicate stuck leaf"),
-                    HaltReason::DepthBound => {
-                        assert!(actual_bounded.insert(node), "duplicate depth-bound leaf")
+                let result = execute(&definition, subject(&definition, "start-0"), options);
+                assert_eq!(result.modality, result_modality);
+                let mut actual_states = BTreeSet::new();
+                let mut actual_paths = BTreeSet::new();
+                for leaf in &result.leaves {
+                    let node = match leaf.pattern.term.kind() {
+                        TermKind::Application { arguments, .. } => match arguments[0].kind() {
+                            TermKind::DomainValue { value, .. } => {
+                                value.as_utf8().unwrap().to_owned()
+                            }
+                            other => panic!("expected a domain value, found {other:?}"),
+                        },
+                        other => panic!("expected a wrapped node, found {other:?}"),
+                    };
+                    assert_eq!(leaf.pattern, subject(&definition, &node));
+                    let bounded = match leaf.halt_reason {
+                        HaltReason::Stuck => false,
+                        HaltReason::DepthBound => true,
+                        ref other => panic!("unexpected halt reason: {other:?}"),
+                    };
+                    let labels = leaf
+                        .trace
+                        .iter()
+                        .map(|entry| entry.label.clone().unwrap())
+                        .collect::<Vec<_>>();
+                    if result_modality == ResultModality::StateSet {
+                        assert!(
+                            actual_states.insert((node.clone(), bounded)),
+                            "duplicate state-set leaf"
+                        );
+                    } else {
+                        actual_states.insert((node.clone(), bounded));
                     }
-                    ref other => panic!("unexpected halt reason: {other:?}"),
+                    assert!(
+                        actual_paths.insert((node, bounded, labels)),
+                        "two leaves share a path"
+                    );
+                }
+                let context = format!(
+                    "levels={levels}, max_depth={max_depth:?}, modality={result_modality:?}"
+                );
+                assert_eq!(actual_states, expected_states, "{context}");
+                match result_modality {
+                    // Each state-set leaf is the first path in depth-first order to its state.
+                    ResultModality::StateSet => {
+                        assert!(actual_paths.is_subset(&paths), "{context}");
+                        state_set_configurations = result
+                            .leaves
+                            .iter()
+                            .map(|leaf| leaf.pattern.clone())
+                            .collect::<Vec<_>>();
+                    }
+                    // One leaf per explored path, and the deduplicated configurations are the
+                    // state-set result's.
+                    ResultModality::PathSet => {
+                        assert_eq!(result.leaves.len(), paths.len(), "{context}");
+                        assert_eq!(actual_paths, paths, "{context}");
+                        let mut deduplicated = Vec::new();
+                        for leaf in &result.leaves {
+                            if !deduplicated.contains(&leaf.pattern) {
+                                deduplicated.push(leaf.pattern.clone());
+                            }
+                        }
+                        assert_eq!(deduplicated, state_set_configurations, "{context}");
+                    }
                 }
             }
-            assert_eq!(
-                actual_stuck, expected_stuck,
-                "levels={levels}, max_depth={max_depth:?}"
-            );
-            assert_eq!(
-                actual_bounded, expected_bounded,
-                "levels={levels}, max_depth={max_depth:?}"
-            );
         }
     }
 }

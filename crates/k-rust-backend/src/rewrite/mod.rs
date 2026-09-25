@@ -46,6 +46,7 @@ use crate::{
     definition::BackendDefinition,
     matching::SortGraph,
     rule::Predicate,
+    search::ResultModality,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     substitution::{Substitution, extract_substitution, substitute, substitution_binding},
@@ -273,6 +274,16 @@ pub struct ExecutionOptions {
     pub moving_average_timeout: bool,
     /// Treat the current configuration and its partial subterms as defined while matching rules.
     pub assume_initial_defined: bool,
+    /// How the result reads its leaves.
+    ///
+    /// `StateSet` (the default) is a disjunction of configurations: structurally equal final
+    /// configurations collapse into the first leaf in depth-first order. `PathSet` keeps one leaf
+    /// per explored path, so paths that converge on one configuration keep their own trace,
+    /// branch identity, and observations. Exploration is the same under both; only the final
+    /// merge differs. `ExecutionMode::Any` commits one rule per step but keeps that rule's
+    /// right-hand-side alternatives and a symbolic remainder, so it can yield several leaves;
+    /// the two readings coincide only when no two leaves share a configuration.
+    pub result_modality: ResultModality,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -300,6 +311,7 @@ impl Default for ExecutionOptions {
             step_timeout: None,
             moving_average_timeout: false,
             assume_initial_defined: false,
+            result_modality: ResultModality::StateSet,
         }
     }
 }
@@ -413,6 +425,8 @@ pub struct ExecutionLeaf {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionResult {
+    /// The reading of `leaves` selected by `ExecutionOptions::result_modality`.
+    pub modality: ResultModality,
     pub leaves: Vec<ExecutionLeaf>,
     /// The committed transcript when final selection retained exactly one leaf.
     ///

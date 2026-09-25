@@ -1322,6 +1322,9 @@ impl AlphaComparable for ExecutionResult {
             context,
             ExecutionLeaf::collect_alpha,
         )?;
+        if self.modality != other.modality {
+            return Err("execution result modalities differ".into());
+        }
         if self.effects != other.effects || self.discarded != other.discarded {
             return Err(
                 "execution effects or discarded transitions differ; discarded targets are not retained"
@@ -1333,6 +1336,7 @@ impl AlphaComparable for ExecutionResult {
 
     fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
         Ok(Self {
+            modality: self.modality,
             leaves: self.leaves.rename_alpha(context)?,
             effects: self.effects.clone(),
             discarded: self.discarded.clone(),
@@ -1380,6 +1384,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         target: PatternDigest::of(&after),
     };
     ExecutionResult {
+        modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),
             depth: 1,

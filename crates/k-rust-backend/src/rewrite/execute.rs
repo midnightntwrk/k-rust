@@ -42,6 +42,7 @@ use crate::{
     cancellation::cancellation_requested,
     definition::BackendDefinition,
     rule::Predicate,
+    search::ResultModality,
     simplify::{
         PatternSimplification, SimplificationError, SimplificationOptions,
         simplify_in_execution_with_solver, simplify_pattern_details_with_solver,
@@ -194,9 +195,11 @@ impl<'a> Execution<'a> {
                 .drain(..)
                 .map(|state| execution_state_at_breadth_bound(state, &self.observation_log)),
         );
-        let leaves = merge_equal_final_leaves(leaves);
+        let modality = self.options.result_modality;
+        let leaves = final_leaves(modality, leaves);
         (
             ExecutionResult {
+                modality,
                 leaves,
                 effects: Vec::new(),
                 discarded: self.discarded,
@@ -879,13 +882,15 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// E8: leaves pass `merge_equal_final_leaves`. A `DepthBound` leaf is kept whatever halt
+    /// E8: under `StateSet` leaves pass `merge_equal_final_leaves`; under `PathSet` every leaf
+    /// is kept, one per explored path. A `DepthBound` leaf is kept whatever halt
     /// reason other leaves carry: a depth-bounded result covers every path up to the bound, so a
     /// configuration reached at the bound is a result independently of other branches.
     /// `simplified_to_bottom` holds iff every initial input completed E2 and E3 and ended
     /// `Vacuous`.
     fn collect(self) -> (ExecutionResult, InitialSimplificationStatus) {
-        let leaves = merge_equal_final_leaves(self.leaves);
+        let modality = self.options.result_modality;
+        let leaves = final_leaves(modality, self.leaves);
         // The legacy observer is a single-stream interface. It receives a transcript only when
         // final selection retained one leaf; callers consume multi-leaf transcripts from each leaf.
         let effects = match leaves.as_slice() {
@@ -897,6 +902,7 @@ impl<'a> Execution<'a> {
         }
         (
             ExecutionResult {
+                modality,
                 leaves,
                 effects,
                 discarded: self.discarded,
@@ -912,6 +918,16 @@ impl<'a> Execution<'a> {
 
 fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
     pattern.constraints.is_empty() && pattern.term.attributes().variables.is_empty()
+}
+
+/// The leaves a result reports under `modality`. A path-set result is the per-path leaves as
+/// exploration produced them; a state-set result is their disjunction, where merging equal
+/// configurations loses no state.
+fn final_leaves(modality: ResultModality, leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
+    match modality {
+        ResultModality::StateSet => merge_equal_final_leaves(leaves),
+        ResultModality::PathSet => leaves,
+    }
 }
 
 /// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342), extended with branch-local

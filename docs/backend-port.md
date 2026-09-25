@@ -123,11 +123,17 @@ The host backend retains `DepthBound` as an incompleteness signal for accepted f
 
 Under strategy `all` without `stop_at_branch`, every path explored within `max_depth` and `max_breadth` ends in exactly one leaf before final merging.
 A rule application with an empty result beside other applications of the same step ends no configuration; when observed, it is recorded in `discarded`.
-The result contains exactly those leaves' configurations, merging structurally equal configurations, including depth- and breadth-bounded frontiers.
+The result has one of two readings, selected by `result_modality` and reported on the result as `modality`.
+A `state-set` result (the default) is the disjunction of those leaves' configurations, merging structurally equal configurations, including depth- and breadth-bounded frontiers.
+Merging loses no state: two leaves with one term, one constraint set, one effect journal, and one console state have the same future.
 The first leaf in depth-first order retains its trace and halt reason.
 Whole-state trivial and vacuous leaves carry no final configuration and are never merged.
+A `path-set` result is those leaves unmerged: every explored path is exactly one leaf, with the same empty-result exception, and paths that converge on one configuration each keep their own trace, branch identity, observations, and halt reason.
+The deduplicated configurations of a path-set result are the configurations of the state-set result, and exploration is identical under both.
+`ExecutionResult.effects` holds the transcript only when exactly one leaf remains, which under `path-set` means one explored path.
+The CLI and KORE RPC `execute` produce state-set results.
 A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
-Strategy `any` follows one successor per step and makes no coverage claim.
+Strategy `any` commits the first applicable rule of a step and makes no coverage claim, but it keeps that rule's right-hand-side alternatives and passes a symbolic remainder to later rules, so it can produce several leaves; `result_modality` applies to whatever leaves it produces, and the two readings coincide whenever no two of those leaves share a configuration.
 With `stop_at_branch`, execution stops at the first branch point and reports its successors inside the branch halt.
 
 Printed execution, search, and pattern-match disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
