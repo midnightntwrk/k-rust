@@ -1,7 +1,7 @@
 //! Atomic exact-label observation installation and branch-local event adaptation.
 //!
-//! The adapter deliberately retains backend identities as sidecar evidence. A rule label or
-//! transition ID is not emitting-sentence provenance.
+//! Events carry backend identities only; a rule label or transition ID is not
+//! emitting-sentence provenance.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -10,8 +10,6 @@ use k_rust::backend::{
     TransitionIdOutput, UncommittedReasonOutput,
 };
 use serde_json::Value;
-
-use crate::ProvenanceStatus;
 
 /// One exact frontend rule-label selection and its manifest-ordered emissions.
 #[derive(Clone, Debug, PartialEq)]
@@ -175,7 +173,6 @@ pub struct RuleAppliedEvent {
     pub before: Value,
     pub after: Value,
     pub effects: Vec<EffectOutput>,
-    pub provenance: ProvenanceStatus,
 }
 
 /// Manifest-derived domain event retaining its complete committed transition context.
@@ -188,7 +185,6 @@ pub struct DomainEvent {
     pub transition: TransitionIdOutput,
     pub rule_label: String,
     pub payload: Vec<DomainPayload>,
-    pub provenance: ProvenanceStatus,
 }
 
 /// Closed domain payload values.
@@ -281,7 +277,6 @@ pub(crate) fn adapt_branch(
                         before: before.clone(),
                         after: after.clone(),
                         effects: effects.clone(),
-                        provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
                     }));
                     emission_ordinal += 1;
                 }
@@ -309,7 +304,6 @@ pub(crate) fn adapt_branch(
                         transition: id.clone(),
                         rule_label: selected.spec.label.clone(),
                         payload,
-                        provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
                     }));
                     emission_ordinal += 1;
                 }
@@ -803,23 +797,5 @@ mod tests {
         assert!(branch.events.is_empty());
         assert_eq!(branch.rollbacks.len(), 1);
         assert_eq!(branch.erase_observations().state, Value::from(7));
-    }
-
-    #[test]
-    fn backend_ids_never_promote_provenance() {
-        let manifest = installed();
-        let branch = adapt_branch(
-            Some(&manifest),
-            vec![transition_id("first-id", 0)],
-            Value::Null,
-            1,
-            Vec::new(),
-            vec![transition("first-id", "first", 0)],
-        )
-        .unwrap();
-        let NativeEvent::RuleApplied(event) = &branch.events[0] else {
-            panic!("expected generic event")
-        };
-        assert_eq!(event.provenance, ProvenanceStatus::SidecarOnlyMissingBridge);
     }
 }

@@ -31,7 +31,7 @@ kind = "correctness"
 status = "partial"
 status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (provenance lib tests 14/14 and provenance integration tests pass)"
 blocking = false
-needed_by = ["provenance-complete receipts"]
+needed_by = ["emitting-sentence provenance"]
 summary = """
 crates/k-rust/src/provenance.rs provides logical source identities, absolute spans, 25 generating passes, origin records, and destination anchors.
 Sentence::ContextAlias is still exported as a lossy badsentence node without an error (definition/json.rs:1467), and the module decoder filters it silently (json.rs:1194).

@@ -436,7 +436,6 @@ mod tests {
     };
     use serde_json::Value;
 
-    use crate::ProvenanceStatus;
     use crate::execution::AdaptedLeaf;
     use crate::observation::DomainEvent;
 
@@ -493,7 +492,6 @@ mod tests {
                 transition,
                 rule_label: "M.fired".to_owned(),
                 payload: Vec::new(),
-                provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
             })],
             rollbacks: Vec::new(),
         }
@@ -808,7 +806,6 @@ mod tests {
             payload: vec![DomainPayload::Effect(EffectOutput::UserLog {
                 message: "hello".to_owned(),
             })],
-            provenance: ProvenanceStatus::SidecarOnlyMissingBridge,
         })];
         assert_eq!(
             paths_from_execution(

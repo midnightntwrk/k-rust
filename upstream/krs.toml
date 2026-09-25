@@ -15,13 +15,13 @@ kind = "missing-feature"
 status = "open"
 status_basis = "static screen of source at e0ba404 on 2026-09-24"
 blocking = true
-needed_by = ["provenance-complete receipts", "emitting-sentence provenance"]
+needed_by = ["emitting-sentence provenance"]
 summary = """
 KRS keeps an OriginMapping sidecar for authored nodes, and k-rust exposes OriginRecord, ProvenanceLink, and DestinationAnchor (crates/k-rust/src/provenance.rs).
 krs-k-rust never uses k_rust::provenance; CompiledArtifacts returns only KORE and diagnostics (crates/krs-k-rust/src/lib.rs:408-417), and the only link is the #krs-source-map= attribute (:2719).
 KRS assigns provenance conversion to itself as a local_boundary (draft/upstream/k-rust.toml), so no request exists on either side.
 """
-local_workaround = "kink-native keeps the sidecar and reports ProvenanceStatus::SidecarOnlyMissingBridge."
+local_workaround = "kink-native reports no emitting-sentence provenance; events carry backend transition identities only."
 requested_action = """
 Bind every selected OriginMapping entry to the applicable k-rust source, term, production, sentence, or generated-origin carrier, or return an equivalent relation in CompiledArtifacts.
 One-to-many expansion must be explicit and ordered; unsupported, ambiguous, and lossy mappings must reject; relocation and duplicate identities must preserve the relation.

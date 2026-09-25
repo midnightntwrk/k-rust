@@ -54,12 +54,6 @@ impl PatchFailure {
     pub const fn kind(&self) -> PatchFailureKind {
         self.kind
     }
-
-    /// Failed transactions always publish zero applied edits.
-    #[must_use]
-    pub const fn applied_edit_count(&self) -> usize {
-        0
-    }
 }
 
 impl fmt::Display for PatchFailure {

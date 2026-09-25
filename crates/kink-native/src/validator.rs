@@ -15,10 +15,30 @@ use k_rust::{
 };
 use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
 
-use crate::NativeFailure;
 use crate::observation::{
     DomainEventSpec, InstalledObservationManifest, ObservationFailure, RuleObservationSpec,
 };
+
+/// Typed failure to compile the native baseline. No staged output is published.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NativeFailure {
+    Compilation { stage: &'static str, detail: String },
+}
+
+impl fmt::Display for NativeFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Compilation { stage, detail } => {
+                write!(
+                    formatter,
+                    "native compilation stage {stage:?} failed: {detail}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for NativeFailure {}
 
 /// An immutable loaded baseline and the compile options every side uses.
 #[derive(Clone, Debug)]

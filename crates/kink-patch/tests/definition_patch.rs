@@ -501,13 +501,11 @@ fn patch_rows_apply_or_fail_atomically() {
             baseline,
             expected: expected.as_ref(),
         });
-        let edit_count = edits.len();
         let patch = Patch::new(edits).expect("non-empty patch");
         match expect {
             Expect::File => {
                 let mutant =
                     apply(baseline, &patch).unwrap_or_else(|failure| panic!("{id}: {failure}"));
-                assert_eq!(mutant.applied_edit_count(), edit_count, "{id}");
                 let expected = expected.as_ref().expect("loaded above");
                 for module in modules(fixture) {
                     support::assert_same_authored_rules(
@@ -526,7 +524,6 @@ fn patch_rows_apply_or_fail_atomically() {
             Expect::Failure(kind) => {
                 let failure = apply(baseline, &patch).expect_err(id);
                 assert_eq!(failure.kind(), *kind, "{id}: {failure}");
-                assert_eq!(failure.applied_edit_count(), 0, "{id}");
             }
         }
     }

@@ -42,7 +42,6 @@ pub struct Mutant {
     definition: Definition,
     resolved: ResolvedDefinition,
     origins: BTreeMap<SentenceRef, SentenceOrigin>,
-    applied_edit_count: usize,
 }
 
 /// Where an output sentence came from.
@@ -71,11 +70,6 @@ impl Mutant {
     #[must_use]
     pub const fn origins(&self) -> &BTreeMap<SentenceRef, SentenceOrigin> {
         &self.origins
-    }
-
-    #[must_use]
-    pub const fn applied_edit_count(&self) -> usize {
-        self.applied_edit_count
     }
 
     /// Relinks the mutant for `compile_loaded_definition`.
@@ -126,7 +120,6 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
         definition,
         resolved,
         origins,
-        applied_edit_count: patch.edits().len(),
     })
 }
 
