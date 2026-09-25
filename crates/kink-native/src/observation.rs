@@ -1,7 +1,7 @@
 //! Atomic source-position observation installation and branch-local event adaptation.
 //!
-//! Events carry backend identities only; a rule label or transition ID is not
-//! emitting-sentence provenance.
+//! Events name the written baseline rule that emitted them and retain the backend
+//! identity of its committed transition.
 
 use std::collections::{BTreeMap, BTreeSet};
 

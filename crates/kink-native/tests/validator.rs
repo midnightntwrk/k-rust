@@ -139,7 +139,7 @@ fn patch_failure_never_reaches_compilation() {
 /// `UNIQUE_ID` is content-derived: a mutated rule has a different identity
 /// on each compiled side, and an untouched rule keeps it.
 #[test]
-fn rule_identities_resolve_by_label_per_compiled_side() {
+fn rule_identities_resolve_by_source_position_per_compiled_side() {
     let validator = validator();
     let baseline = validator.compile_baseline().expect("counter.k compiles");
     let mutant = validator

@@ -847,8 +847,8 @@ fn replacement_sentence_keeps_variant_label_and_position_attributes() {
     .expect("the unchanged attributes apply");
 }
 
-/// Observation resolves rules by label on each compiled side, so a patch
-/// that relabels or unlabels a rule would silently retarget it.
+/// Observation resolves a written baseline position on each compiled side.
+/// Edits cannot change its source position or the label checked against backend events.
 #[test]
 fn identity_and_position_attributes_are_never_edited() {
     let counter = support::load("counter.k");

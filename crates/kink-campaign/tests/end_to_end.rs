@@ -481,10 +481,10 @@ fn contains(term: &Pattern, symbol: &str) -> bool {
 
 /// Critique C6 and C7: the baseline gate runs before any mutant. A baseline crash its
 /// declaration rejects fails admission, one it admits is a crash side carrying its
-/// terminal term, and an observed label the baseline does not have is a declaration
+/// terminal term, and an observed position outside the baseline is a declaration
 /// error.
 #[test]
-fn baseline_admission_gates_crashes_and_unknown_labels() {
+fn baseline_admission_gates_crashes_and_unknown_rules() {
     with_stack(|| {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
@@ -534,8 +534,8 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
         let rejected = run(CrashPolicy::Reject, &[]).expect_err("crash rejected");
         assert_eq!(rejected.kind(), CampaignFailureKind::BaselineOracleFailed);
 
-        let unknown = run(CrashPolicy::CompareIdentity, &rules("COUNTER.nothing"))
-            .expect_err("unknown label");
+        let unknown =
+            run(CrashPolicy::CompareIdentity, &rules("COUNTER.nothing")).expect_err("unknown rule");
         assert_eq!(unknown.kind(), CampaignFailureKind::InvalidDeclaration);
 
         let admitted = run(CrashPolicy::CompareIdentity, &rules("COUNTER.branch"))

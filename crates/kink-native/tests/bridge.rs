@@ -548,8 +548,8 @@ fn nonterminating_execution_is_timeout() {
     assert_eq!(result.outcome, PatternOutcome::Unknown);
 }
 
-/// Critique C7: a mutant side omits an observed label only when the patch deleted the
-/// labelled baseline rule; a label the baseline does not have is a declaration error.
+/// Critique C7: a mutant side omits an observed position only when the patch deleted
+/// its baseline rule; a position outside the authored baseline is a declaration error.
 #[test]
 fn deleted_observed_rule_is_omitted_from_the_mutant_manifest() {
     let validator = counter_validator();
