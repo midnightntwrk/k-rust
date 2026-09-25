@@ -842,6 +842,7 @@ fn normalize_definition_value(
                     }
                 }
                 Some("KApply") => {
+                    canonicalize_local_function(object);
                     let Some(label) = object["label"]["name"].as_str() else {
                         return;
                     };
@@ -881,6 +882,38 @@ fn normalize_definition_value(
         }
         _ => {}
     }
+}
+
+/// Rewrites a parsed `#fun3(L, R, A)` into `#fun2(L => R, A)`.
+///
+/// Both labels are local-function applications that kompile lowers through one path
+/// (`resolve_fun.rs`, `resolve_application`): `#fun3(L, R, A)` becomes the body `L => R`
+/// applied to `A`, and `#fun2(B, A)` becomes the body `B` applied to `A`. The lambda it builds
+/// depends only on that `(body, argument)` pair and never reads the label's sort parameters,
+/// which `normalize_definition_value` already erases on every label. So the two parse trees
+/// denote the same definition and differ only in which of two equivalent productions the
+/// parser chose. A `#fun2` over a non-rewrite body, `#let`, any other label, and a `#fun3`
+/// without exactly three arguments are left unchanged; a difference in `L`, `R` or `A` stays
+/// visible after the rewrite.
+fn canonicalize_local_function(object: &mut serde_json::Map<String, serde_json::Value>) {
+    if object["label"]["name"].as_str() != Some("#fun3") {
+        return;
+    }
+    let Some(serde_json::Value::Array(arguments)) = object.get_mut("args") else {
+        return;
+    };
+    let [left, right, argument] = arguments.as_mut_slice() else {
+        return;
+    };
+    let body = serde_json::json!({
+        "node": "KRewrite",
+        "lhs": std::mem::take(left),
+        "rhs": std::mem::take(right),
+    });
+    let argument = std::mem::take(argument);
+    object.insert("args".into(), serde_json::json!([body, argument]));
+    object.insert("arity".into(), 2.into());
+    object["label"]["name"] = "#fun2".into();
 }
 
 fn json_sort_key(value: &serde_json::Value) -> String {
@@ -1021,6 +1054,149 @@ fn definition_normalizer_flattens_user_lists_and_generated_variables() {
     normalize_definition_value(&mut actual, &units);
 
     assert_eq!(reference, actual);
+}
+
+fn parsed_variable(name: &str) -> serde_json::Value {
+    serde_json::json!({ "node": "KVariable", "name": name })
+}
+
+fn parsed_application(
+    label: &str,
+    params: serde_json::Value,
+    args: Vec<serde_json::Value>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "node": "KApply",
+        "label": { "node": "KLabel", "name": label, "params": params },
+        "arity": args.len(),
+        "args": args,
+    })
+}
+
+fn parsed_rewrite(lhs: serde_json::Value, rhs: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "node": "KRewrite", "lhs": lhs, "rhs": rhs })
+}
+
+fn normalized_parsed_term(mut value: serde_json::Value) -> serde_json::Value {
+    normalize_definition_value(&mut value, &BTreeMap::new());
+    value
+}
+
+fn fun3(left: &str, right: &str, argument: &str) -> serde_json::Value {
+    parsed_application(
+        "#fun3",
+        serde_json::json!([{ "name": "Map" }, { "name": "Type" }]),
+        vec![
+            parsed_variable(left),
+            parsed_variable(right),
+            parsed_variable(argument),
+        ],
+    )
+}
+
+fn fun2_over_rewrite(left: &str, right: &str, argument: &str) -> serde_json::Value {
+    parsed_application(
+        "#fun2",
+        serde_json::json!([{ "name": "KItem" }]),
+        vec![
+            parsed_rewrite(parsed_variable(left), parsed_variable(right)),
+            parsed_variable(argument),
+        ],
+    )
+}
+
+#[test]
+fn definition_normalizer_identifies_fun3_with_fun2_over_a_rewrite() {
+    let reference = normalized_parsed_term(fun3("L", "R", "A"));
+    let actual = normalized_parsed_term(fun2_over_rewrite("L", "R", "A"));
+    assert_eq!(reference, actual);
+
+    // Nested under another application, including inside the rewritten #fun3 itself.
+    let nested = |inner: serde_json::Value| {
+        parsed_application(
+            "#fun3",
+            serde_json::json!([]),
+            vec![parsed_variable("X"), inner, parsed_variable("Y")],
+        )
+    };
+    assert_eq!(
+        normalized_parsed_term(nested(fun3("L", "R", "A"))),
+        normalized_parsed_term(parsed_application(
+            "#fun2",
+            serde_json::json!([]),
+            vec![
+                parsed_rewrite(parsed_variable("X"), fun2_over_rewrite("L", "R", "A")),
+                parsed_variable("Y"),
+            ],
+        )),
+    );
+}
+
+#[test]
+fn definition_normalizer_keeps_differences_inside_local_functions() {
+    let reference = normalized_parsed_term(fun3("L", "R", "A"));
+    for actual in [
+        fun2_over_rewrite("M", "R", "A"),
+        fun2_over_rewrite("L", "S", "A"),
+        fun2_over_rewrite("L", "R", "B"),
+        fun3("L", "R", "B"),
+    ] {
+        assert_ne!(reference, normalized_parsed_term(actual));
+    }
+}
+
+#[test]
+fn definition_normalizer_leaves_other_local_function_shapes_unchanged() {
+    let unchanged = [
+        // #fun2 over a body that is not a rewrite.
+        parsed_application(
+            "#fun2",
+            serde_json::json!([]),
+            vec![parsed_variable("B"), parsed_variable("A")],
+        ),
+        // #let(L, A, R) keeps its own argument order.
+        parsed_application(
+            "#let",
+            serde_json::json!([]),
+            vec![
+                parsed_variable("L"),
+                parsed_variable("A"),
+                parsed_variable("R"),
+            ],
+        ),
+        // A #fun3 without three arguments is not a local-function application.
+        parsed_application(
+            "#fun3",
+            serde_json::json!([]),
+            vec![parsed_variable("L"), parsed_variable("R")],
+        ),
+        // Any other three-argument label.
+        parsed_application(
+            "ite",
+            serde_json::json!([]),
+            vec![
+                parsed_variable("C"),
+                parsed_variable("T"),
+                parsed_variable("E"),
+            ],
+        ),
+    ];
+    for term in unchanged {
+        assert_eq!(normalized_parsed_term(term.clone()), term);
+    }
+    // #fun3(L, R, A) and #let(L, A, R) stay distinct.
+    assert_ne!(
+        normalized_parsed_term(fun3("L", "R", "A")),
+        normalized_parsed_term(parsed_application(
+            "#let",
+            serde_json::json!([]),
+            vec![
+                parsed_variable("L"),
+                parsed_variable("A"),
+                parsed_variable("R"),
+            ],
+        )),
+    );
 }
 
 #[test]
