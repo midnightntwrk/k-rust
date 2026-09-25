@@ -405,59 +405,6 @@ pub fn load_for_compilation_timed(
     ))
 }
 
-/// Load a new source graph against an already parsed definition.
-///
-/// Requirements whose paths identify `provided_sources` are satisfied by `base`. The legacy API
-/// does not carry declaration identities, so callers that need selector-sensitive validation use
-/// [`load_with_prepared_base`].
-///
-/// `base` comes without the source table its term spans and origin receipts index, so the loaded
-/// definition interprets any [`SourceId`](crate::provenance::SourceId) in `base` against the new
-/// load's table. A base that carries source-indexed metadata is loaded with
-/// [`load_with_prepared_base`], which extends the base's own table instead.
-pub fn load_with_base(
-    entry: ResolvedSource,
-    main_module: impl Into<String>,
-    resolver: &mut impl SourceResolver,
-    options: &LoadOptions,
-    base: &Definition,
-    provided_sources: &[String],
-) -> Result<LoadedDefinition, LoadError> {
-    load_with_base_timed(
-        entry,
-        main_module,
-        resolver,
-        options,
-        base,
-        provided_sources,
-    )
-    .map(|(loaded, _)| loaded)
-}
-
-/// [`load_with_base`] that also returns the wall-clock duration of every load phase in
-/// execution order.
-pub fn load_with_base_timed(
-    entry: ResolvedSource,
-    main_module: impl Into<String>,
-    resolver: &mut impl SourceResolver,
-    options: &LoadOptions,
-    base: &Definition,
-    provided_sources: &[String],
-) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
-    load_impl(
-        entry,
-        main_module,
-        resolver,
-        options,
-        Some(base),
-        &SourceTable::default(),
-        provided_sources,
-        &[],
-        None,
-    )
-    .map(|(loaded, _, timings)| (loaded, timings))
-}
-
 /// Load a new source graph against a prepared definition and validate any re-read declarations.
 ///
 /// `base` carries the source table that its term spans and origin receipts index. The loaded
