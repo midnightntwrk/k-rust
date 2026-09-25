@@ -703,13 +703,16 @@ fn module(name: &str, sentences: Vec<Sentence>) -> FlatModule {
     }
 }
 
-fn semantic_cast_sentence_context() -> ResolvedDefinition {
-    ResolvedDefinition::resolve(&Definition {
+fn semantic_cast_sentence_subsorts() -> k_rust::definition::PartialOrder<Sort> {
+    let resolved = ResolvedDefinition::resolve(&Definition {
         main_module: "MAIN".into(),
         modules: vec![module("MAIN", Vec::new())],
         attributes: Attributes::default(),
     })
-    .unwrap()
+    .unwrap();
+    resolved
+        .subsorts(resolved.module_id("MAIN").unwrap())
+        .unwrap()
 }
 
 fn incomplete_cell(label: &str, body: Term) -> Term {
@@ -6079,8 +6082,8 @@ fn pattern01a_semantic_cast_sentence_shares_sorts_across_rule_roots() {
         attributes: Attributes::default(),
     };
 
-    let context = semantic_cast_sentence_context();
-    let transformed = resolve_semantic_casts_in_sentence(&context, "MAIN", sentence).unwrap();
+    let subsorts = semantic_cast_sentence_subsorts();
+    let transformed = resolve_semantic_casts_in_sentence(&subsorts, sentence).unwrap();
     let mut sorts = Vec::new();
     if let Sentence::Rule {
         body,
@@ -6138,9 +6141,9 @@ fn semantic_cast_predicates_share_sorts_across_roots_and_preserve_compound_metad
         attributes: Attributes::default(),
     };
 
-    let context = semantic_cast_sentence_context();
+    let subsorts = semantic_cast_sentence_subsorts();
     let transformed =
-        resolve_semantic_casts_with_predicates_in_sentence(&context, "MAIN", sentence).unwrap();
+        resolve_semantic_casts_with_predicates_in_sentence(&subsorts, sentence).unwrap();
     let Sentence::Rule {
         body,
         requires,
@@ -6225,9 +6228,9 @@ fn semantic_cast_predicates_are_suppressed_for_macro_and_alias_rules() {
             ensures: truth(),
             attributes: attributes(&[(attribute, json!(""))]),
         };
-        let context = semantic_cast_sentence_context();
+        let subsorts = semantic_cast_sentence_subsorts();
         let transformed =
-            resolve_semantic_casts_with_predicates_in_sentence(&context, "MAIN", sentence).unwrap();
+            resolve_semantic_casts_with_predicates_in_sentence(&subsorts, sentence).unwrap();
         let Sentence::Rule { body, requires, .. } = transformed else {
             unreachable!()
         };

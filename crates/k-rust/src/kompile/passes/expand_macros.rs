@@ -225,17 +225,25 @@ impl MacroExpansionDefinition {
             let module_id = original
                 .module_id(&module.name)
                 .expect("resolved definition contains every source module");
+            let mut subsorts = None;
             for sentence in &mut module.local_sentences {
                 if !may_become_macro_rule(sentence, &macro_labels) {
                     continue;
                 }
+                let order = match subsorts {
+                    Some(order) => order,
+                    None => {
+                        let order = views
+                            .subsorts(module_id)
+                            .map_err(|error| error.to_string())?;
+                        subsorts = Some(order);
+                        order
+                    }
+                };
                 // Same order as the pipeline: propagation reads the cast-free left side.
-                let mut rule = super::resolve_semantic_casts_in_sentence(
-                    &original,
-                    &module.name,
-                    Sentence::clone(sentence),
-                )
-                .map_err(|error| error.to_string())?;
+                let mut rule =
+                    super::resolve_semantic_casts_in_sentence(order, Sentence::clone(sentence))
+                        .map_err(|error| error.to_string())?;
                 super::propagate_macro_attribute(&mut rule, views.production_catalog(module_id));
                 *sentence = std::sync::Arc::new(rule);
             }

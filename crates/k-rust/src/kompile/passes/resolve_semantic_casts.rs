@@ -11,7 +11,7 @@ use std::{
 use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
-    definition::{Definition, DefinitionViews, PartialOrder, ResolvedDefinition, Sentence},
+    definition::{Definition, PartialOrder, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode},
     kast::{Label, Sort, Term},
     provenance::GeneratingPass,
@@ -28,10 +28,20 @@ struct VariableBounds {
 fn below(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
     let k_item = Sort::builtin(BuiltinSort::KItem);
     let k = Sort::builtin(BuiltinSort::K);
-    subsorts.less_than_eq(actual, expected)
-        || (expected == &k && (actual == &k_item || subsorts.less_than_eq(actual, &k_item)))
-        || (!super::subsort_kitem::is_parser_sort(actual)
-            && (expected == &k_item || expected == &k || subsorts.less_than_eq(&k_item, expected)))
+    if subsorts.less_than_eq(actual, expected) {
+        return true;
+    }
+    if expected != &k_item && expected != &k && !subsorts.less_than_eq(&k_item, expected) {
+        return false;
+    }
+    actual == &k_item
+        || subsorts.less_than_eq(actual, &k_item)
+        || !super::subsort_kitem::is_parser_sort(actual)
+        || subsorts.relations_from(actual).is_some_and(|supertypes| {
+            supertypes
+                .iter()
+                .any(|sort| !super::subsort_kitem::is_parser_sort(sort))
+        })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,18 +79,16 @@ fn sentence_error(message: impl Into<String>, sentence: &Sentence) -> ResolveSem
     error(format!("sentence {label}: {}", message.into()), sentence)
 }
 
-fn subsorts_for<'a>(
-    views: &'a DefinitionViews<'_>,
-    resolved: &ResolvedDefinition,
-    module: &str,
-    sentence: &Sentence,
-) -> Result<&'a PartialOrder<Sort>, ResolveSemanticCastsError> {
-    let module_id = resolved
-        .module_id(module)
-        .ok_or_else(|| sentence_error(format!("module {module} is not defined"), sentence))?;
-    views
-        .subsorts(module_id)
-        .map_err(|cycle| sentence_error(format!("cannot determine subsorts: {cycle}"), sentence))
+fn unlocated_error(message: impl Into<String>) -> ResolveSemanticCastsError {
+    ResolveSemanticCastsError {
+        diagnostics: vec![Diagnostic {
+            severity: crate::diagnostic::Severity::Error,
+            code: DiagnosticCode::InvalidSemanticCast,
+            message: message.into(),
+            source: None,
+            location: None,
+        }],
+    }
 }
 
 /// Apply the KORE backend form of Java's `ResolveSemanticCasts` pass.
@@ -104,32 +112,20 @@ pub(crate) fn resolve_semantic_casts_pass(
 ) -> Result<Definition, ResolveSemanticCastsError> {
     let resolved = input
         .resolved_raw()
-        .map_err(|error| ResolveSemanticCastsError {
-            diagnostics: vec![Diagnostic {
-                severity: crate::diagnostic::Severity::Error,
-                code: DiagnosticCode::InvalidSemanticCast,
-                message: error.to_string(),
-                source: None,
-                location: None,
-            }],
-        })?;
+        .map_err(|error| unlocated_error(error.to_string()))?;
     let views = resolved.views();
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let subsorts = views
-            .subsorts(module_id)
-            .map_err(|cycle| ResolveSemanticCastsError {
-                diagnostics: vec![Diagnostic {
-                    severity: crate::diagnostic::Severity::Error,
-                    code: DiagnosticCode::InvalidSemanticCast,
-                    message: format!("module {} has cyclic subsorts: {cycle}", module.name),
-                    source: None,
-                    location: None,
-                }],
-            })?;
+        let subsorts = views.subsorts(module_id).map_err(|cycle| {
+            let message = format!("module {} has cyclic subsorts: {cycle}", module.name);
+            module.local_sentences.first().map_or_else(
+                || unlocated_error(&message),
+                |sentence| sentence_error(&message, sentence),
+            )
+        })?;
         for sentence in &mut module.local_sentences {
             resolve_semantic_casts_in_sentence_mut(
                 crate::definition::sentence_mut(sentence),
@@ -142,13 +138,13 @@ pub(crate) fn resolve_semantic_casts_pass(
 }
 
 /// Resolve semantic casts across all term-bearing roots of one sentence.
+///
+/// `subsorts` must be the visible subsort order of the sentence's module. Callers resolving
+/// several sentences from one module should obtain it once from the same `DefinitionViews`.
 pub fn resolve_semantic_casts_in_sentence(
-    resolved: &ResolvedDefinition,
-    module: &str,
+    subsorts: &PartialOrder<Sort>,
     mut sentence: Sentence,
 ) -> Result<Sentence, ResolveSemanticCastsError> {
-    let views = resolved.views();
-    let subsorts = subsorts_for(&views, resolved, module, &sentence)?;
     resolve_semantic_casts_in_sentence_mut(&mut sentence, false, subsorts)?;
     Ok(sentence)
 }
@@ -157,14 +153,11 @@ pub fn resolve_semantic_casts_in_sentence(
 ///
 /// This is Java's `ResolveSemanticCasts(false)` mode used for standalone patterns. Macro and
 /// alias sentences suppress predicates because their casts describe matching syntax rather than
-/// runtime side conditions.
+/// runtime side conditions. `subsorts` is the visible order of the sentence's module.
 pub fn resolve_semantic_casts_with_predicates_in_sentence(
-    resolved: &ResolvedDefinition,
-    module: &str,
+    subsorts: &PartialOrder<Sort>,
     mut sentence: Sentence,
 ) -> Result<Sentence, ResolveSemanticCastsError> {
-    let views = resolved.views();
-    let subsorts = subsorts_for(&views, resolved, module, &sentence)?;
     resolve_semantic_casts_in_sentence_mut(&mut sentence, true, subsorts)?;
     Ok(sentence)
 }
@@ -174,7 +167,6 @@ fn resolve_semantic_casts_in_sentence_mut(
     add_predicates: bool,
     subsorts: &PartialOrder<Sort>,
 ) -> Result<(), ResolveSemanticCastsError> {
-    let sentence_attributes = sentence.attributes().clone();
     let roots = match sentence {
         Sentence::Rule {
             body,
@@ -272,34 +264,37 @@ fn resolve_semantic_casts_in_sentence_mut(
         }) {
             typed_variables.insert(name, least.clone());
         } else {
-            let ((left, left_occurrence), (right, right_occurrence)) = bounds
-                .casts
-                .iter()
-                .enumerate()
-                .find_map(|(index, left)| {
+            if let Some(((left, left_occurrence), (right, right_occurrence))) =
+                bounds.casts.iter().enumerate().find_map(|(index, left)| {
                     bounds.casts[index + 1..].iter().find_map(|right| {
                         (!below(&left.0, &right.0, subsorts) && !below(&right.0, &left.0, subsorts))
                             .then_some((left, right))
                     })
                 })
-                .expect("a finite set with no least cast bound has incomparable members");
-            errors.push(format!(
-                "variable {name} has incomparable cast bounds {left} and {right} at {left_occurrence} and {right_occurrence}"
-            ));
+            {
+                errors.push(format!(
+                    "variable {name} has incomparable cast bounds {left} and {right} at {left_occurrence} and {right_occurrence}"
+                ));
+            } else {
+                let bounds = bounds
+                    .casts
+                    .iter()
+                    .map(|(sort, _)| sort.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                errors.push(format!(
+                    "variable {name} has no least cast bound among {bounds}"
+                ));
+            }
         }
     }
-    if let Some(message) = errors.into_iter().next() {
+    if !errors.is_empty() {
+        drop(roots);
         return Err(ResolveSemanticCastsError {
-            diagnostics: vec![Diagnostic::error_at(
-                DiagnosticCode::InvalidSemanticCast,
-                format!(
-                    "sentence {}: {message}",
-                    sentence_attributes
-                        .string(AttributeKey::Label)
-                        .unwrap_or("<unlabelled>")
-                ),
-                &sentence_attributes,
-            )],
+            diagnostics: errors
+                .into_iter()
+                .flat_map(|message| sentence_error(message, sentence).diagnostics)
+                .collect(),
         });
     }
     for root in roots {

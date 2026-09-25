@@ -144,13 +144,22 @@ pub fn compile_search_pattern(
     attributes: Attributes,
 ) -> Result<CompiledSearchPattern, CompileSearchPatternError> {
     let sentence = parse_rule_content(parsing_definition, module, contents, attributes)?;
-    execution_definition
+    let module_id = execution_definition
         .module_id(module)
         .ok_or_else(|| CompileSearchPatternError::MissingExecutionModule(module.to_owned()))?;
+    let views = execution_definition.views();
+    let subsorts = views.subsorts(module_id).map_err(|cycle| {
+        CompileSearchPatternError::SemanticCasts(ResolveSemanticCastsError {
+            diagnostics: vec![crate::diagnostic::Diagnostic::error(
+                crate::diagnostic::DiagnosticCode::InvalidSemanticCast,
+                format!("cannot determine subsorts for module {module}: {cycle}"),
+                &sentence,
+            )],
+        })
+    })?;
 
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
-    let sentence =
-        resolve_semantic_casts_with_predicates_in_sentence(execution_definition, module, sentence)?;
+    let sentence = resolve_semantic_casts_with_predicates_in_sentence(subsorts, sentence)?;
     let (sentence, cell_generated) =
         concretize_cells_in_sentence(execution_definition, module, sentence)?;
     generated.extend(cell_generated);

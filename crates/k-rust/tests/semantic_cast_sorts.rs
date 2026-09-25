@@ -1,6 +1,6 @@
 use k_rust::{
     builtin,
-    definition::{AttributeKey, Definition, ResolvedDefinition, Sentence},
+    definition::{AttributeKey, Definition, PartialOrder, ResolvedDefinition, Sentence},
     kast::{Sort, Term},
     kompile::{
         CompilationBackend, CompileOptions, compile_loaded_definition,
@@ -88,6 +88,12 @@ fn relink(base: &LoadedDefinition, definition: Definition) -> LoadedDefinition {
         definition,
         diagnostics: base.diagnostics.clone(),
     }
+}
+
+fn subsorts(resolved: &ResolvedDefinition, module: &str) -> k_rust::definition::PartialOrder<Sort> {
+    resolved
+        .subsorts(resolved.module_id(module).unwrap())
+        .unwrap()
 }
 
 fn compile(
@@ -236,7 +242,7 @@ fn standalone_resolution_treats_anonymous_occurrences_independently() {
         },
         attributes: Default::default(),
     };
-    resolve_semantic_casts_in_sentence(&base.resolved, "COUNTER", sentence).unwrap();
+    resolve_semantic_casts_in_sentence(&subsorts(&base.resolved, "COUNTER"), sentence).unwrap();
 }
 
 #[test]
@@ -251,8 +257,8 @@ fn standalone_resolution_checks_body_and_conditions_together() {
         },
         attributes: Default::default(),
     };
-    let error =
-        resolve_semantic_casts_in_sentence(&base.resolved, "COUNTER", sentence).unwrap_err();
+    let error = resolve_semantic_casts_in_sentence(&subsorts(&base.resolved, "COUNTER"), sentence)
+        .unwrap_err();
     assert!(
         error
             .to_string()
@@ -287,7 +293,7 @@ endmodule
         attributes: Default::default(),
     };
     let resolved_sentence =
-        resolve_semantic_casts_in_sentence(&resolved, "SORTS", sentence).unwrap();
+        resolve_semantic_casts_in_sentence(&subsorts(&resolved, "SORTS"), sentence).unwrap();
     let Sentence::Rule { body, .. } = resolved_sentence else {
         unreachable!()
     };
@@ -329,7 +335,7 @@ endmodule
         attributes: Default::default(),
     };
     let resolved_sentence =
-        resolve_semantic_casts_in_sentence(&resolved, "SORTS", sentence).unwrap();
+        resolve_semantic_casts_in_sentence(&subsorts(&resolved, "SORTS"), sentence).unwrap();
     let Sentence::Rule { body, .. } = resolved_sentence else {
         unreachable!()
     };
@@ -365,7 +371,8 @@ fn exists_binder_uses_the_bound_occurrences_narrower_sort() {
         },
         attributes: Default::default(),
     };
-    let resolved = resolve_semantic_casts_in_sentence(&base.resolved, "COUNTER", sentence).unwrap();
+    let resolved =
+        resolve_semantic_casts_in_sentence(&subsorts(&base.resolved, "COUNTER"), sentence).unwrap();
     let Sentence::Rule { body, .. } = resolved else {
         unreachable!()
     };
@@ -378,4 +385,67 @@ fn exists_binder_uses_the_bound_occurrences_narrower_sort() {
         }
     });
     assert_eq!(sorts, vec![Some(Sort::new("Bool")); 2]);
+}
+
+#[test]
+fn parser_subsort_reaches_kitem_through_a_user_sort() {
+    let order = PartialOrder::new([(Sort::new("#P"), Sort::new("U"))]).unwrap();
+    let sentence = Sentence::Rule {
+        body: cast("#P", variable("X", None)),
+        requires: cast("KItem", variable("X", None)),
+        ensures: cast("U", variable("X", None)),
+        attributes: Default::default(),
+    };
+    let resolved = resolve_semantic_casts_in_sentence(&order, sentence).unwrap();
+    let mut sorts = Vec::new();
+    if let Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        ..
+    } = resolved
+    {
+        for root in [&body, &requires, &ensures] {
+            root.visit_preorder(&mut |term| {
+                if let Term::Variable { name, sort } = term.unannotated()
+                    && name == "X"
+                {
+                    sorts.push(sort.clone());
+                }
+            });
+        }
+    } else {
+        unreachable!();
+    }
+    assert_eq!(sorts, vec![Some(Sort::new("#P")); 3]);
+}
+
+#[test]
+fn reports_each_independent_variable_conflict() {
+    let order = PartialOrder::new([]).unwrap();
+    let sentence = Sentence::Rule {
+        body: rewrite(
+            cast("Bool", variable("B", None)),
+            cast("Nat", variable("B", None)),
+        ),
+        requires: rewrite(
+            cast("Bool", variable("C", None)),
+            cast("Nat", variable("C", None)),
+        ),
+        ensures: Term::Token {
+            token: "true".into(),
+            sort: Sort::new("Bool"),
+        },
+        attributes: Default::default(),
+    };
+    let error = resolve_semantic_casts_in_sentence(&order, sentence).unwrap_err();
+    assert_eq!(error.diagnostics.len(), 2);
+    assert!(error.diagnostics[0].message.contains("variable B"));
+    assert!(error.diagnostics[1].message.contains("variable C"));
+    assert!(error.diagnostics.iter().all(|diagnostic| {
+        diagnostic.message.contains("sentence <unlabelled>")
+            && diagnostic
+                .message
+                .contains("incomparable cast bounds Bool and Nat")
+    }));
 }
