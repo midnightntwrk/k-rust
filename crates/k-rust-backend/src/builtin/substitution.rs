@@ -97,7 +97,9 @@ pub(crate) struct KVarSorts {
 }
 
 impl KVarSorts {
-    /// One worklist pass over the dependency edges, O(sorts + symbols x arity + subsort pairs).
+    /// One worklist pass over the dependency edges,
+    /// O((sorts + symbols x arity + subsort pairs) x log sorts): every edge insert, reach test and
+    /// sort lookup is an ordered-map operation keyed by sort name.
     pub(crate) fn of(definition: &BackendDefinition) -> Self {
         let tokens = definition
             .sorts
