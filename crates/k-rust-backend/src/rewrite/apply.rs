@@ -39,6 +39,7 @@ use crate::{
     builtin::BuiltinEffect,
     definedness::ceil_term,
     definition::BackendDefinition,
+    diagnostic::{self, Sequenced},
     fresh::freshen_existential,
     ite::SplitSide,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
@@ -80,11 +81,17 @@ pub(super) enum RuleAttempt {
 pub(super) struct RuleApplicationGroup {
     pub(super) applied: Vec<RuleApplication>,
     pub(super) trivial: Vec<TrivialApplication>,
+    /// The diagnostics of the right-hand-side alternatives that simplified to bottom: work on
+    /// a refuted candidate, which no other candidate of the rule shares.
+    pub(super) refuted: Vec<Sequenced>,
 }
 
 pub(super) struct RuleApplication {
     pub(super) applied: AppliedRule,
     pub(super) remainder: Predicate,
+    /// The diagnostics of this right-hand-side alternative's own construction; the attempt's
+    /// work common to all its alternatives is not in it.
+    pub(super) diagnostics: Vec<Sequenced>,
 }
 
 impl RuleApplication {
@@ -785,6 +792,7 @@ fn definedness(
                     Predicate::False,
                     Vec::new(),
                 )],
+                refuted: Vec::new(),
             }],
         });
     }
@@ -1007,6 +1015,7 @@ fn instantiate(
                         Predicate::False,
                         Vec::new(),
                     )],
+                    refuted: Vec::new(),
                 }],
             });
         }
@@ -1014,30 +1023,38 @@ fn instantiate(
     };
     let mut applications = Vec::new();
     let mut trivial = Vec::new();
+    let mut refuted = Vec::new();
     for (rhs, alternative_ensures) in alternatives {
         let mut ensures = rule.ensures.clone();
         extend_unique(&mut ensures, alternative_ensures.iter().cloned());
-        match apply_rhs_alternative(
-            context.definition,
-            rule,
-            pattern,
-            rhs,
-            &ensures,
-            &substitution,
-            &existential_substitution,
-            &condition_knowledge,
-            &match_conditions,
-            &unclear_requires,
-            &applicability,
-            context.simplification_options,
-            context.solver,
-            context.io,
-        ) {
-            RhsAlternativeAttempt::Applied(application) => applications.push(application),
+        let (attempt, own_diagnostics) = diagnostic::collect_sequenced(|| {
+            apply_rhs_alternative(
+                context.definition,
+                rule,
+                pattern,
+                rhs,
+                &ensures,
+                &substitution,
+                &existential_substitution,
+                &condition_knowledge,
+                &match_conditions,
+                &unclear_requires,
+                &applicability,
+                context.simplification_options,
+                context.solver,
+                context.io,
+            )
+        });
+        match attempt {
+            RhsAlternativeAttempt::Applied(mut application) => {
+                application.diagnostics = own_diagnostics;
+                applications.push(application);
+            }
             RhsAlternativeAttempt::Trivial {
                 obligation,
                 effects,
             } => {
+                refuted.extend(own_diagnostics);
                 trivial.push(trivial_application(
                     rule,
                     &applicability,
@@ -1057,6 +1074,7 @@ fn instantiate(
         groups: vec![RuleApplicationGroup {
             applied: applications,
             trivial,
+            refuted,
         }],
     })
 }
@@ -1285,6 +1303,7 @@ fn apply_rhs_alternative(
             diagnostics: Vec::new(),
         },
         remainder: remainder_of(applicability),
+        diagnostics: Vec::new(),
     })
 }
 

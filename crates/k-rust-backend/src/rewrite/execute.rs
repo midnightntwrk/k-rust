@@ -41,7 +41,7 @@ use crate::{
     builtin::BuiltinEffect,
     cancellation::cancellation_requested,
     definition::BackendDefinition,
-    diagnostic::{self, PathDiagnostics, extend_distinct},
+    diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     rule::Predicate,
     simplify::{
         PatternSimplification, SimplificationError, SimplificationOptions,
@@ -217,11 +217,13 @@ impl<'a> Execution<'a> {
     /// each unit is collected and attributed to the paths it concerns (`ExecutionLeaf::diagnostics`):
     /// the state's own constraint and term simplification (E2, E3) to the state's path, so to
     /// every successor and to its leaf; the rewrite step to the candidates it produces, per
-    /// candidate (`AppliedRule::diagnostics`, `RemainderBranch::diagnostics`; step work that
-    /// decides which candidates exist goes to all of them), or to the state's leaf when the step
-    /// halts it; the simplification of a candidate or leaf pattern to that candidate or leaf.
-    /// Work on a candidate that is dropped (refuted, or cut off by an interruption) is on no
-    /// path. Every collection forwards to any collector the caller holds around the execution.
+    /// candidate (`AppliedRule::diagnostics`, `RemainderBranch::diagnostics`): a right-hand-side
+    /// alternative's construction to its candidate, a rule's matching and conditions to all its
+    /// alternatives, and step work that decides which candidates exist to all of them, merged in
+    /// emission order; or to the state's leaf when the step halts it; the simplification of a candidate or leaf pattern to that candidate or leaf.
+    /// Work on a refuted candidate is on no path; a leaf cut off by a cancellation or timeout
+    /// after the step carries all the work of the step and of its candidates done before it.
+    /// Every collection forwards to any collector the caller holds around the execution.
     fn run(&mut self, timeout_controller: &StepTimeoutController) {
         // `pending` is a stack: `enqueue_execution_states` pushes successors to the front, so a
         // state's children are expanded before its siblings (depth-first). Each push either
@@ -269,7 +271,10 @@ impl<'a> Execution<'a> {
                 undecided.clone().into_result(state.pattern.clone())
             }
         });
-        let mut state = self.check_interrupted(state, step_timer)?;
+        let mut state = match self.check_interrupted(state, step_timer) {
+            Ok(state) => state,
+            Err(leaf) => return Err(interrupted_with(leaf, &[&step_diagnostics])),
+        };
         match rewritten {
             RewriteResult::Stuck(_)
             | RewriteResult::Trivial(_, _)
@@ -279,13 +284,22 @@ impl<'a> Execution<'a> {
                 state.diagnostics.extend(&step_diagnostics);
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
-            RewriteResult::Finished(applied) => self.finished(state, applied, step_timer),
+            RewriteResult::Finished(applied) => {
+                let (expanded, diagnostics) =
+                    diagnostic::collect(|| self.finished(state, applied, step_timer));
+                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+            }
             RewriteResult::Branch {
                 original,
                 branches,
                 remainder,
                 trivial,
-            } => self.branch(state, original, branches, remainder, trivial, step_timer),
+            } => {
+                let (expanded, diagnostics) = diagnostic::collect(|| {
+                    self.branch(state, original, branches, remainder, trivial, step_timer)
+                });
+                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+            }
         }
     }
 
@@ -955,6 +969,22 @@ impl<'a> Execution<'a> {
             },
         )
     }
+}
+
+/// A leaf that a cancellation or timeout cut off after the step: it carries the work its state's
+/// expansion did before the interruption (`lists`, in emission order), which was on that path
+/// although the candidates it was building are not reported. Any other leaf is returned as is,
+/// its diagnostics already attributed.
+fn interrupted_with(mut leaf: ExecutionLeaf, lists: &[&[BackendDiagnostic]]) -> ExecutionLeaf {
+    if matches!(
+        leaf.halt_reason,
+        HaltReason::Cancelled | HaltReason::Timeout(_)
+    ) {
+        for diagnostics in lists {
+            extend_distinct(&mut leaf.diagnostics, diagnostics);
+        }
+    }
+    leaf
 }
 
 fn pattern_supports_execution_io(pattern: &Pattern) -> bool {

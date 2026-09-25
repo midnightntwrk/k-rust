@@ -1,6 +1,10 @@
 //! Request-local diagnostics emitted by backend operations.
 
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 
 use crate::{
     builtin::UnsupportedHookReason,
@@ -38,9 +42,16 @@ pub enum BackendDiagnostic {
 }
 
 /// One emission recorded in a collection, kept in the form it was emitted in so that forwarding
-/// it to an enclosing collection applies exactly the rule a direct emission would meet there.
+/// it to an enclosing collection applies exactly the rule a direct emission would meet there,
+/// with its position in the thread's emission order.
 #[derive(Clone, Debug)]
-enum Emission {
+struct Emission {
+    position: u64,
+    kind: EmissionKind,
+}
+
+#[derive(Clone, Debug)]
+enum EmissionKind {
     /// `emit(diagnostic)`.
     Single(BackendDiagnostic),
     /// `emit_rule_condition_budget_exhausted(rule_id, limit)`: the budget exhaustion over
@@ -48,7 +59,7 @@ enum Emission {
     RuleConditionBudgetExhausted { rule_id: String, limit: usize },
 }
 
-impl Emission {
+impl EmissionKind {
     fn records_rule_condition(&self, rule_id: &str, limit: usize) -> bool {
         match self {
             Self::Single(BackendDiagnostic::RuleConditionUnsimplified {
@@ -66,11 +77,20 @@ impl Emission {
 
 thread_local! {
     static SINK: RefCell<Option<Vec<Emission>>> = const { RefCell::new(None) };
+    static NEXT_POSITION: Cell<u64> = const { Cell::new(0) };
+}
+
+/// A collected diagnostic with its position in the thread's emission order, so that lists
+/// collected separately can be merged in the order their diagnostics were emitted.
+#[derive(Clone, Debug)]
+pub(crate) struct Sequenced {
+    pub(crate) position: u64,
+    pub(crate) diagnostic: BackendDiagnostic,
 }
 
 /// Record a diagnostic when the current thread has an active collector.
 pub fn emit(diagnostic: BackendDiagnostic) {
-    record_in_sink(Emission::Single(diagnostic));
+    record_in_sink(EmissionKind::Single(diagnostic));
 }
 
 /// Record that simplifying the side conditions of `rule_id` exhausted the budget `limit`: a
@@ -79,16 +99,17 @@ pub fn emit(diagnostic: BackendDiagnostic) {
 /// The simplifier re-attempts a rule each time it meets the same redex, so the pair is recorded
 /// once per rule and limit in a collection; repeated attempts report the same fact.
 pub(crate) fn emit_rule_condition_budget_exhausted(rule_id: &str, limit: usize) {
-    record_in_sink(Emission::RuleConditionBudgetExhausted {
+    record_in_sink(EmissionKind::RuleConditionBudgetExhausted {
         rule_id: rule_id.to_owned(),
         limit,
     });
 }
 
-fn record_in_sink(emission: Emission) {
+fn record_in_sink(kind: EmissionKind) {
     SINK.with(|sink| {
         if let Some(emissions) = sink.borrow_mut().as_mut() {
-            record(emissions, emission);
+            let position = NEXT_POSITION.with(|next| next.replace(next.get() + 1));
+            record(emissions, Emission { position, kind });
         }
     });
 }
@@ -98,39 +119,48 @@ fn record_in_sink(emission: Emission) {
 /// exhaustion once per rule and limit (a `RuleConditionUnsimplified` already in the collection,
 /// however emitted, reports it); every other diagnostic is appended as emitted.
 fn record(emissions: &mut Vec<Emission>, emission: Emission) {
-    let duplicate = match &emission {
-        Emission::Single(BackendDiagnostic::UnsupportedHookUnevaluated { hook, .. }) => {
+    let duplicate = match &emission.kind {
+        EmissionKind::Single(BackendDiagnostic::UnsupportedHookUnevaluated { hook, .. }) => {
             emissions.iter().any(|existing| {
                 matches!(
-                    existing,
-                    Emission::Single(BackendDiagnostic::UnsupportedHookUnevaluated {
+                    &existing.kind,
+                    EmissionKind::Single(BackendDiagnostic::UnsupportedHookUnevaluated {
                         hook: existing_hook,
                         ..
                     }) if existing_hook == hook
                 )
             })
         }
-        Emission::RuleConditionBudgetExhausted { rule_id, limit } => emissions
+        EmissionKind::RuleConditionBudgetExhausted { rule_id, limit } => emissions
             .iter()
-            .any(|existing| existing.records_rule_condition(rule_id, *limit)),
-        Emission::Single(_) => false,
+            .any(|existing| existing.kind.records_rule_condition(rule_id, *limit)),
+        EmissionKind::Single(_) => false,
     };
     if !duplicate {
         emissions.push(emission);
     }
 }
 
-fn diagnostics_of(emissions: Vec<Emission>) -> Vec<BackendDiagnostic> {
+fn sequenced(emissions: Vec<Emission>) -> Vec<Sequenced> {
     let mut diagnostics = Vec::with_capacity(emissions.len());
-    for emission in emissions {
-        match emission {
-            Emission::Single(diagnostic) => diagnostics.push(diagnostic),
-            Emission::RuleConditionBudgetExhausted { rule_id, limit } => {
-                diagnostics.push(BackendDiagnostic::SimplificationBudgetExhausted {
-                    limit,
-                    subject: BudgetSubject::Predicates,
+    for Emission { position, kind } in emissions {
+        match kind {
+            EmissionKind::Single(diagnostic) => diagnostics.push(Sequenced {
+                position,
+                diagnostic,
+            }),
+            EmissionKind::RuleConditionBudgetExhausted { rule_id, limit } => {
+                diagnostics.push(Sequenced {
+                    position,
+                    diagnostic: BackendDiagnostic::SimplificationBudgetExhausted {
+                        limit,
+                        subject: BudgetSubject::Predicates,
+                    },
                 });
-                diagnostics.push(BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit });
+                diagnostics.push(Sequenced {
+                    position,
+                    diagnostic: BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit },
+                });
             }
         }
     }
@@ -144,9 +174,37 @@ fn diagnostics_of(emissions: Vec<Emission>) -> Vec<BackendDiagnostic> {
 /// under its own rules, so a caller collecting around an operation sees every diagnostic
 /// whatever the operation collects inside, in emission order.
 pub fn collect<T>(action: impl FnOnce() -> T) -> (T, Vec<BackendDiagnostic>) {
+    let (result, diagnostics) = collect_sequenced(action);
+    (
+        result,
+        diagnostics
+            .into_iter()
+            .map(|sequenced| sequenced.diagnostic)
+            .collect(),
+    )
+}
+
+/// `collect`, keeping each diagnostic's position in the thread's emission order.
+pub(crate) fn collect_sequenced<T>(action: impl FnOnce() -> T) -> (T, Vec<Sequenced>) {
     let collection = Collection::open();
     let result = action();
-    (result, diagnostics_of(collection.close()))
+    (result, sequenced(collection.close()))
+}
+
+/// The diagnostics of several separately collected lists in the order they were emitted, each
+/// distinct diagnostic once.
+pub(crate) fn in_emission_order<'a>(
+    lists: impl IntoIterator<Item = &'a [Sequenced]>,
+) -> Vec<BackendDiagnostic> {
+    let mut merged = lists.into_iter().flatten().collect::<Vec<_>>();
+    // Stable: the two diagnostics of one rule-condition emission share a position.
+    merged.sort_by_key(|sequenced| sequenced.position);
+    let mut seen = std::collections::HashSet::with_capacity(merged.len());
+    merged
+        .into_iter()
+        .filter(|sequenced| seen.insert(&sequenced.diagnostic))
+        .map(|sequenced| sequenced.diagnostic.clone())
+        .collect()
 }
 
 /// An open collection; closing it, or dropping it while unwinding, restores the enclosing
@@ -505,6 +563,35 @@ mod tests {
             collect(|| emit_rule_condition_budget_exhausted("r1", 3));
         });
         assert_eq!(forwarded, expected);
+    }
+
+    #[test]
+    fn separately_collected_lists_merge_in_emission_order() {
+        let ((first, second), _) = collect(|| {
+            let ((), first) = collect_sequenced(|| {
+                emit(term_exhausted(1));
+                collect_sequenced(|| emit(term_exhausted(2)));
+                emit_rule_condition_budget_exhausted("r1", 3);
+            });
+            let ((), second) = collect_sequenced(|| emit(hook("H", out_of_range())));
+            (first, second)
+        });
+        // `first` holds 1, 2 and the pair in order; `second` was emitted after all of them.
+        let owned_second = first
+            .iter()
+            .filter(|sequenced| sequenced.diagnostic == term_exhausted(2))
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            in_emission_order([second.as_slice(), first.as_slice(), owned_second.as_slice()]),
+            vec![
+                term_exhausted(1),
+                term_exhausted(2),
+                predicates_exhausted(3),
+                rule_condition("r1", 3),
+                hook("H", out_of_range()),
+            ]
+        );
     }
 
     #[test]
