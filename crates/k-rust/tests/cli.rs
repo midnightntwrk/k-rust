@@ -54,6 +54,63 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
+#[test]
+fn kore_exec_warns_when_a_returned_leaf_exhausts_its_simplification_budget() {
+    let (root, definition) = fixture();
+    fs::write(&definition, include_str!("fixtures/execution-budget.kore")).unwrap();
+    let initial = root.join("initial.kore");
+    fs::write(&initial, "start{}()\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            initial.to_str().unwrap(),
+            "--max-simplification-iterations",
+            "3",
+        ])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(
+        stdout,
+        include_str!("fixtures/execution-budget-stdout.kore")
+    );
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "warning: simplification budget 3 exhausted while simplifying the term at depth 1; the result may not be fully simplified\n"
+    );
+
+    let search = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            initial.to_str().unwrap(),
+            "--max-simplification-iterations",
+            "3",
+            "--search-final",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(search.status.code(), Some(0));
+    assert!(
+        String::from_utf8(search.stdout).unwrap().contains("g{}("),
+        "search must still print its result"
+    );
+    assert_eq!(
+        String::from_utf8(search.stderr).unwrap(),
+        "warning: simplification budget 3 exhausted while simplifying the term at depth 1; the result may not be fully simplified\n"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// Compiles `rule` over the semcast grammar and returns `definition.kore`.
 fn compiled_semcast_kore(rule: &str, checked: bool) -> String {
     let (root, definition) = fixture();
