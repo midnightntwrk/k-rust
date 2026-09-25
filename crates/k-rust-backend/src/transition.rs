@@ -274,6 +274,8 @@ impl ObservationOptions {
     ///
     /// Validation is atomic: every id must identify one executable rewrite, function equation,
     /// simplification, or definedness rule. `builtin:<hook>` ids are observable only with `all`.
+    /// Written axioms that are equal up to their origins and a renaming of variables were
+    /// internalized as one rule, so an id is ambiguous only when the axioms carrying it differ.
     pub fn with_rules<I, S>(
         definition: &BackendDefinition,
         rules: I,

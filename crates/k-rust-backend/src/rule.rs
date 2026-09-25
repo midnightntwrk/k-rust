@@ -36,6 +36,7 @@ use std::{
 };
 
 use k_rust_kore::kore::ast::{self as kore, KoreString};
+use k_rust_kore::kore::walk;
 use k_rust_kore::measure::{self, Algorithm};
 use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
@@ -287,6 +288,20 @@ pub struct RuleAttributes {
     pub concreteness: Concreteness,
     pub smt_lemma: bool,
     pub executable: bool,
+    /// Every written axiom sentence this rule was internalized from, in declaration order.
+    ///
+    /// Parsing one sentence yields one origin. Internalization collapses axioms that are equal
+    /// up to their origins and a renaming of variables into one rule
+    /// (`collapse_equal_axioms`); the collapsed rule lists each collapsed sentence once, the
+    /// first being the representative whose variable names the rule keeps. The list is never
+    /// empty, and no other field of these attributes is provenance.
+    pub origins: Vec<RuleOrigin>,
+}
+
+/// The written position of one axiom sentence: its KORE `Source` and `Location` attributes,
+/// each absent when the sentence does not carry it.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct RuleOrigin {
     pub source: Option<String>,
     pub location: Option<String>,
 }
@@ -496,6 +511,494 @@ pub fn classify_axiom(
         }
         _ => Err(AxiomError::Unexpected),
     }
+}
+
+impl ClassifiedAxiom {
+    pub fn attributes(&self) -> &RuleAttributes {
+        match self {
+            Self::Rewrite { attributes, .. }
+            | Self::Function { attributes, .. }
+            | Self::Simplification { attributes, .. }
+            | Self::Ceil { attributes, .. } => attributes,
+        }
+    }
+
+    fn attributes_mut(&mut self) -> &mut RuleAttributes {
+        match self {
+            Self::Rewrite { attributes, .. }
+            | Self::Function { attributes, .. }
+            | Self::Simplification { attributes, .. }
+            | Self::Ceil { attributes, .. } => attributes,
+        }
+    }
+}
+
+/// Identity of one KORE axiom sentence: the module that declares it and its index among that
+/// module's sentences. A sentence reached through two import paths has one key.
+pub(crate) type SentenceKey = (Name, usize);
+
+/// ```toml algorithm-site
+/// id = "backend.definition.internalize"
+/// role = "part"
+/// sites = ["collapse_equal_axioms"]
+/// ```
+///
+/// Collapses classified axioms that denote one rule into one axiom that lists every origin.
+///
+/// Two axioms denote one rule when they are equal after erasing their origins and renaming
+/// variables: the same variant with the same sort parameters, every other attribute equal
+/// (priority, label, `UNIQUE_ID`, simplification, preserves-definedness, concreteness,
+/// smt-lemma, executability), and patterns that coincide under one bijection between variable
+/// names applied to the whole axiom at once. The one bijection covers the left-hand side, the
+/// right-hand side with its ensures, the requires, function argument binders, existentials and
+/// the variables that `concrete`/`symbolic` name, so a variable shared between the left-hand
+/// side and a side condition or a concreteness constraint is renamed identically in each, and
+/// binders keep the variables they capture because the renaming is injective. A `concrete` or
+/// `symbolic` entry that names no variable of the patterns constrains nothing and is dropped
+/// before the comparison (`VariableRenaming::concreteness`). Sorts, sort
+/// parameters, symbols and domain values are compared literally. Under such a renaming the
+/// two axioms have the same instances: the same matches, substitutions, side conditions,
+/// results and applicability constraints, so no execution fact tells an application of one
+/// from an application of the other, and storing both only makes one rule apply twice. The
+/// declaring module is not compared because no later stage reads it.
+///
+/// The first axiom of a class in declaration order is kept with its variable names, and the
+/// origins of the others are appended to its origin list in declaration order. A sentence
+/// visited again through another import path adds no origin. Axioms that share a `UNIQUE_ID`
+/// but differ in anything compared above stay separate rules. Each axiom is hashed once by its
+/// `UNIQUE_ID` and a shape that ignores variable names (`axiom_shape`), and comparisons, each
+/// one traversal of the smaller axiom, run only between axioms with one hash key, so a
+/// definition without `UNIQUE_ID`s does not compare every pair of its axioms.
+pub(crate) fn collapse_equal_axioms(
+    axioms: impl IntoIterator<Item = (ClassifiedAxiom, SentenceKey)>,
+) -> Vec<ClassifiedAxiom> {
+    let mut collapsed = Vec::<ClassifiedAxiom>::new();
+    let mut sentences = Vec::<Vec<SentenceKey>>::new();
+    let mut classes = BTreeMap::<(String, u64), Vec<usize>>::new();
+    for (mut axiom, sentence) in axioms {
+        let candidates = classes
+            .entry((axiom.attributes().unique_id.clone(), axiom_shape(&axiom)))
+            .or_default();
+        match candidates
+            .iter()
+            .copied()
+            .find(|&class| equal_axioms(&collapsed[class], &axiom))
+        {
+            Some(class) => {
+                if !sentences[class].contains(&sentence) {
+                    sentences[class].push(sentence);
+                    let origins = std::mem::take(&mut axiom.attributes_mut().origins);
+                    collapsed[class].attributes_mut().origins.extend(origins);
+                }
+            }
+            None => {
+                candidates.push(collapsed.len());
+                sentences.push(vec![sentence]);
+                collapsed.push(axiom);
+            }
+        }
+    }
+    collapsed
+}
+
+fn equal_axioms(left: &ClassifiedAxiom, right: &ClassifiedAxiom) -> bool {
+    use ClassifiedAxiom::{Ceil, Function, Rewrite, Simplification};
+    let mut renaming = VariableRenaming::default();
+    let patterns = match (left, right) {
+        (
+            Rewrite {
+                module: _,
+                sort_parameters: left_parameters,
+                lhs: left_lhs,
+                rhs: left_rhs,
+                existentials: left_existentials,
+                attributes: _,
+            },
+            Rewrite {
+                module: _,
+                sort_parameters: right_parameters,
+                lhs: right_lhs,
+                rhs: right_rhs,
+                existentials: right_existentials,
+                attributes: _,
+            },
+        ) => {
+            left_parameters == right_parameters
+                && left_existentials.len() == right_existentials.len()
+                && left_existentials
+                    .iter()
+                    .zip(right_existentials)
+                    .all(|(left, right)| renaming.variable(left, right))
+                && renaming.pattern(left_lhs, right_lhs)
+                && renaming.pattern(left_rhs, right_rhs)
+        }
+        (
+            Function {
+                module: _,
+                sort_parameters: left_parameters,
+                requires: left_requires,
+                binders: left_binders,
+                lhs: left_lhs,
+                rhs: left_rhs,
+                attributes: _,
+            },
+            Function {
+                module: _,
+                sort_parameters: right_parameters,
+                requires: right_requires,
+                binders: right_binders,
+                lhs: right_lhs,
+                rhs: right_rhs,
+                attributes: _,
+            },
+        ) => {
+            left_parameters == right_parameters
+                && left_binders.len() == right_binders.len()
+                && left_binders.iter().zip(right_binders).all(|(left, right)| {
+                    renaming.variable(&left.variable, &right.variable)
+                        && renaming.pattern(&left.pattern, &right.pattern)
+                })
+                && renaming.pattern(left_requires, right_requires)
+                && renaming.pattern(left_lhs, right_lhs)
+                && renaming.pattern(left_rhs, right_rhs)
+        }
+        (
+            Simplification {
+                module: _,
+                sort_parameters: left_parameters,
+                requires: left_requires,
+                lhs: left_lhs,
+                rhs: left_rhs,
+                attributes: _,
+            },
+            Simplification {
+                module: _,
+                sort_parameters: right_parameters,
+                requires: right_requires,
+                lhs: right_lhs,
+                rhs: right_rhs,
+                attributes: _,
+            },
+        )
+        | (
+            Ceil {
+                module: _,
+                sort_parameters: left_parameters,
+                requires: left_requires,
+                lhs: left_lhs,
+                rhs: left_rhs,
+                attributes: _,
+            },
+            Ceil {
+                module: _,
+                sort_parameters: right_parameters,
+                requires: right_requires,
+                lhs: right_lhs,
+                rhs: right_rhs,
+                attributes: _,
+            },
+        ) => {
+            left_parameters == right_parameters
+                && renaming.pattern(left_requires, right_requires)
+                && renaming.pattern(left_lhs, right_lhs)
+                && renaming.pattern(left_rhs, right_rhs)
+        }
+        _ => false,
+    };
+    patterns && renaming.attributes(left.attributes(), right.attributes())
+}
+
+/// One bijection between the variable names of two axioms, grown while they are compared.
+///
+/// It is keyed by name alone, and kinds and sorts are compared at every occurrence, so it is a
+/// bijection both between names and between `(name, sort)` variables.
+#[derive(Default)]
+struct VariableRenaming<'a> {
+    forward: BTreeMap<&'a str, &'a str>,
+    backward: BTreeMap<&'a str, &'a str>,
+}
+
+impl<'a> VariableRenaming<'a> {
+    fn variable(&mut self, left: &'a kore::Variable, right: &'a kore::Variable) -> bool {
+        left.kind == right.kind && left.sort == right.sort && self.name(&left.name, &right.name)
+    }
+
+    fn name(&mut self, left: &'a str, right: &'a str) -> bool {
+        match (self.forward.get(left), self.backward.get(right)) {
+            (None, None) => {
+                self.forward.insert(left, right);
+                self.backward.insert(right, left);
+                true
+            }
+            (Some(&image), Some(&preimage)) => image == right && preimage == left,
+            _ => false,
+        }
+    }
+
+    fn pattern(&mut self, left: &'a kore::Pattern, right: &'a kore::Pattern) -> bool {
+        let mut work = vec![(left, right)];
+        // Invariant: every popped pair had equal node scalars under the renaming and equal
+        // child counts, and `work` holds the child pairs still to compare; each pair of nodes
+        // is pushed once, so the loop ends after at most min(|left|, |right|) pops.
+        while let Some((left, right)) = work.pop() {
+            if !self.node(left, right) {
+                return false;
+            }
+            let (left, right) = (walk::children(left), walk::children(right));
+            if left.len() != right.len() {
+                return false;
+            }
+            work.extend(left.into_iter().zip(right));
+        }
+        true
+    }
+
+    fn node(&mut self, left: &'a kore::Pattern, right: &'a kore::Pattern) -> bool {
+        use kore::Pattern as P;
+        match (left, right) {
+            (P::String(left), P::String(right)) => left == right,
+            (P::Variable(left), P::Variable(right)) => self.variable(left, right),
+            (P::Application { symbol: left, .. }, P::Application { symbol: right, .. }) => {
+                left == right
+            }
+            (P::Top { sort: left }, P::Top { sort: right })
+            | (P::Bottom { sort: left }, P::Bottom { sort: right })
+            | (P::And { sort: left, .. }, P::And { sort: right, .. })
+            | (P::Or { sort: left, .. }, P::Or { sort: right, .. })
+            | (P::Not { sort: left, .. }, P::Not { sort: right, .. })
+            | (P::Next { sort: left, .. }, P::Next { sort: right, .. })
+            | (P::Implies { sort: left, .. }, P::Implies { sort: right, .. })
+            | (P::Iff { sort: left, .. }, P::Iff { sort: right, .. })
+            | (P::Rewrites { sort: left, .. }, P::Rewrites { sort: right, .. }) => left == right,
+            (
+                P::Exists {
+                    sort: left_sort,
+                    variable: left,
+                    ..
+                },
+                P::Exists {
+                    sort: right_sort,
+                    variable: right,
+                    ..
+                },
+            )
+            | (
+                P::Forall {
+                    sort: left_sort,
+                    variable: left,
+                    ..
+                },
+                P::Forall {
+                    sort: right_sort,
+                    variable: right,
+                    ..
+                },
+            ) => left_sort == right_sort && self.variable(left, right),
+            (
+                P::Mu { variable: left, .. },
+                P::Mu {
+                    variable: right, ..
+                },
+            )
+            | (
+                P::Nu { variable: left, .. },
+                P::Nu {
+                    variable: right, ..
+                },
+            ) => self.variable(left, right),
+            (
+                P::Ceil {
+                    operand_sort: left_operand,
+                    result_sort: left_result,
+                    ..
+                },
+                P::Ceil {
+                    operand_sort: right_operand,
+                    result_sort: right_result,
+                    ..
+                },
+            )
+            | (
+                P::Floor {
+                    operand_sort: left_operand,
+                    result_sort: left_result,
+                    ..
+                },
+                P::Floor {
+                    operand_sort: right_operand,
+                    result_sort: right_result,
+                    ..
+                },
+            )
+            | (
+                P::Equals {
+                    operand_sort: left_operand,
+                    result_sort: left_result,
+                    ..
+                },
+                P::Equals {
+                    operand_sort: right_operand,
+                    result_sort: right_result,
+                    ..
+                },
+            )
+            | (
+                P::In {
+                    operand_sort: left_operand,
+                    result_sort: left_result,
+                    ..
+                },
+                P::In {
+                    operand_sort: right_operand,
+                    result_sort: right_result,
+                    ..
+                },
+            ) => left_operand == right_operand && left_result == right_result,
+            (
+                P::DomainValue {
+                    sort: left_sort,
+                    value: left,
+                },
+                P::DomainValue {
+                    sort: right_sort,
+                    value: right,
+                },
+            ) => left_sort == right_sort && left == right,
+            (
+                P::AssociativeApplication {
+                    associativity: left_associativity,
+                    symbol: left,
+                    ..
+                },
+                P::AssociativeApplication {
+                    associativity: right_associativity,
+                    symbol: right,
+                    ..
+                },
+            ) => left_associativity == right_associativity && left == right,
+            _ => false,
+        }
+    }
+
+    /// Every attribute except the origins, with concreteness constraints read through the
+    /// renaming because they name variables.
+    fn attributes(&self, left: &RuleAttributes, right: &RuleAttributes) -> bool {
+        let RuleAttributes {
+            priority,
+            label,
+            unique_id,
+            simplification,
+            preserves_definedness,
+            concreteness,
+            smt_lemma,
+            executable,
+            origins: _,
+        } = left;
+        *priority == right.priority
+            && *label == right.label
+            && *unique_id == right.unique_id
+            && *simplification == right.simplification
+            && *preserves_definedness == right.preserves_definedness
+            && *smt_lemma == right.smt_lemma
+            && *executable == right.executable
+            && self.concreteness(concreteness, &right.concreteness)
+    }
+
+    /// Concreteness constraints compared after dropping the vacuous ones.
+    ///
+    /// Application reads a `concrete`/`symbolic` entry only for a left-hand-side variable with
+    /// the entry's name and sort (`check_concreteness`), and every internalized rule variable is
+    /// a variable of the axiom's patterns under a provenance marker. An entry naming no pattern
+    /// variable therefore constrains nothing, and a set of such entries is the same as no
+    /// constraint. The live entries name pattern variables, which the renaming already relates.
+    fn concreteness(&self, left: &Concreteness, right: &Concreteness) -> bool {
+        match (left, right) {
+            (Concreteness::All(left), Concreteness::All(right)) => left == right,
+            (Concreteness::All(_), _) | (_, Concreteness::All(_)) => false,
+            (left, right) => {
+                let left = live_constraints(left, &self.forward);
+                let right = live_constraints(right, &self.backward);
+                left.len() == right.len()
+                    && left.iter().all(|((name, sort), kind)| {
+                        right.get(&(Name::from(self.forward[name.as_ref()]), sort.clone()))
+                            == Some(kind)
+                    })
+            }
+        }
+    }
+}
+
+/// The entries of `concreteness` that name a variable of the axiom's patterns, whose names are
+/// the keys of `pattern_names`.
+fn live_constraints<'c>(
+    concreteness: &'c Concreteness,
+    pattern_names: &BTreeMap<&str, &str>,
+) -> BTreeMap<&'c (Name, Name), &'c ConstraintKind> {
+    match concreteness {
+        Concreteness::Some(constrained) => constrained
+            .iter()
+            .filter(|((name, _), _)| pattern_names.contains_key(name.as_ref()))
+            .collect(),
+        Concreteness::Unconstrained | Concreteness::All(_) => BTreeMap::new(),
+    }
+}
+
+/// A hash of what [`equal_axioms`] compares literally: the variant, and for every pattern node
+/// its variant, symbol, domain value and child count, with variables reduced to their kind.
+/// Equal axioms have equal shapes, so only axioms with one shape are compared.
+fn axiom_shape(axiom: &ClassifiedAxiom) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::mem::discriminant(axiom).hash(&mut hasher);
+    let mut patterns = Vec::new();
+    match axiom {
+        ClassifiedAxiom::Rewrite {
+            lhs,
+            rhs,
+            existentials,
+            ..
+        } => {
+            existentials.len().hash(&mut hasher);
+            patterns.extend([lhs, rhs]);
+        }
+        ClassifiedAxiom::Function {
+            requires,
+            binders,
+            lhs,
+            rhs,
+            ..
+        } => {
+            binders.len().hash(&mut hasher);
+            patterns.extend(binders.iter().map(|binder| &binder.pattern));
+            patterns.extend([requires, lhs, rhs]);
+        }
+        ClassifiedAxiom::Simplification {
+            requires, lhs, rhs, ..
+        }
+        | ClassifiedAxiom::Ceil {
+            requires, lhs, rhs, ..
+        } => patterns.extend([requires, lhs, rhs]),
+    }
+    for pattern in patterns {
+        walk::for_each_post_order(pattern, |node| {
+            std::mem::discriminant(node).hash(&mut hasher);
+            walk::children(node).len().hash(&mut hasher);
+            match node {
+                kore::Pattern::String(value) | kore::Pattern::DomainValue { value, .. } => {
+                    value.hash(&mut hasher);
+                }
+                kore::Pattern::Variable(variable) => {
+                    matches!(variable.kind, kore::VariableKind::Set).hash(&mut hasher);
+                }
+                kore::Pattern::Application { symbol, .. }
+                | kore::Pattern::AssociativeApplication { symbol, .. } => {
+                    symbol.name.hash(&mut hasher);
+                }
+                _ => {}
+            }
+        });
+    }
+    hasher.finish()
 }
 
 /// ```toml algorithm-site
@@ -2013,10 +2516,12 @@ impl RuleAttributes {
             concreteness: parse_concreteness(attributes)?,
             smt_lemma: attributes.has(KoreAttribute::SmtLemma),
             executable: !attributes.has(KoreAttribute::NonExecutable),
-            source: attributes.string(KoreAttribute::Source)?.map(str::to_owned),
-            location: attributes
-                .string(KoreAttribute::Location)?
-                .map(str::to_owned),
+            origins: vec![RuleOrigin {
+                source: attributes.string(KoreAttribute::Source)?.map(str::to_owned),
+                location: attributes
+                    .string(KoreAttribute::Location)?
+                    .map(str::to_owned),
+            }],
         })
     }
 }
@@ -2472,12 +2977,11 @@ mod tests {
         assert_eq!(first.attributes.priority, 17);
         assert_eq!(first.attributes.unique_id, "disjunctive-binder");
         assert_eq!(
-            first.attributes.source.as_deref(),
-            Some("Source(fixture.k)")
-        );
-        assert_eq!(
-            first.attributes.location.as_deref(),
-            Some("Location(3,1,7,2)")
+            first.attributes.origins,
+            [RuleOrigin {
+                source: Some("Source(fixture.k)".into()),
+                location: Some("Location(3,1,7,2)".into()),
+            }]
         );
     }
 
@@ -2611,6 +3115,231 @@ mod tests {
                 ) [priority{}("10"), owise{}()]"#
             ),
             Err(AxiomError::ConflictingPriorities(vec!["priority", "owise"]))
+        );
+    }
+
+    fn collapse(sources: &[(&str, usize)]) -> Vec<ClassifiedAxiom> {
+        collapse_equal_axioms(sources.iter().map(|&(source, sentence)| {
+            let axiom = classify(source)
+                .expect("axiom should classify")
+                .expect("axiom should be a rule");
+            (axiom, (Name::from("MAIN"), sentence))
+        }))
+    }
+
+    fn origin_locations(axiom: &ClassifiedAxiom) -> Vec<&str> {
+        axiom
+            .attributes()
+            .origins
+            .iter()
+            .map(|origin| {
+                origin
+                    .location
+                    .as_deref()
+                    .expect("fixture origins have a location")
+            })
+            .collect()
+    }
+
+    /// `pair(L0, L1) /\ C = a() => R`, with the side condition inside the left-hand side.
+    fn guarded_rewrite(left: [&str; 2], condition: &str, result: &str, attributes: &str) -> String {
+        let [first, second] = left;
+        format!(
+            r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(
+                    pair{{}}({first}:SortS{{}}, {second}:SortS{{}}),
+                    \equals{{SortS{{}}, SortS{{}}}}({condition}:SortS{{}}, a{{}}())
+                ),
+                \and{{SortS{{}}}}({result}:SortS{{}}, \top{{SortS{{}}}}())
+            ) [UNIQUE'Unds'ID{{}}("shared"), {attributes}]"#
+        )
+    }
+
+    fn location(line: usize) -> String {
+        format!(
+            r#"org'Stop'kframework'Stop'attributes'Stop'Location{{}}("Location({line},1,{line},9)")"#
+        )
+    }
+
+    #[test]
+    fn equal_axioms_collapse_under_one_renaming_of_the_whole_axiom() {
+        let first = guarded_rewrite(["X", "Y"], "X", "Y", &location(1));
+        let alpha = guarded_rewrite(["Y", "X"], "Y", "X", &location(2));
+        // Equal to `first` if the left-hand side and the side condition were renamed separately.
+        let other_guard = guarded_rewrite(["X", "Y"], "Y", "Y", &location(3));
+        // `Z` would have to be the image of both `X` and `Y`.
+        let merged_variables = guarded_rewrite(["Z", "Z"], "Z", "Z", &location(4));
+        let relabelled = guarded_rewrite(
+            ["X", "Y"],
+            "X",
+            "Y",
+            &format!(r#"label{{}}("other"), {}"#, location(5)),
+        );
+        let alpha_again = guarded_rewrite(["A", "B"], "A", "B", &location(6));
+
+        let collapsed = collapse(&[
+            (&first, 0),
+            (&alpha, 1),
+            (&other_guard, 2),
+            (&merged_variables, 3),
+            (&relabelled, 4),
+            (&alpha_again, 5),
+        ]);
+
+        assert_eq!(
+            collapsed.iter().map(origin_locations).collect::<Vec<_>>(),
+            [
+                vec![
+                    "Location(1,1,1,9)",
+                    "Location(2,1,2,9)",
+                    "Location(6,1,6,9)"
+                ],
+                vec!["Location(3,1,3,9)"],
+                vec!["Location(4,1,4,9)"],
+                vec!["Location(5,1,5,9)"],
+            ]
+        );
+        assert!(
+            collapsed
+                .iter()
+                .all(|axiom| axiom.attributes().unique_id == "shared")
+        );
+        // The first occurrence is the representative and keeps its variable names.
+        let classified_first = classify(&first).unwrap().unwrap();
+        let ClassifiedAxiom::Rewrite { lhs, .. } = &collapsed[0] else {
+            panic!("expected a rewrite");
+        };
+        let ClassifiedAxiom::Rewrite { lhs: expected, .. } = &classified_first else {
+            panic!("expected a rewrite");
+        };
+        assert_eq!(lhs, expected);
+    }
+
+    #[test]
+    fn a_sentence_reached_twice_is_one_origin() {
+        let rule = guarded_rewrite(["X", "Y"], "X", "Y", &location(1));
+        let copy = guarded_rewrite(["X", "Y"], "X", "Y", &location(2));
+
+        let collapsed = collapse(&[(&rule, 0), (&copy, 1), (&rule, 0)]);
+
+        let [axiom] = collapsed.as_slice() else {
+            panic!("expected one rule: {collapsed:?}");
+        };
+        assert_eq!(
+            origin_locations(axiom),
+            ["Location(1,1,1,9)", "Location(2,1,2,9)"]
+        );
+    }
+
+    /// `unary(Arg) = Result` for `Arg` in `Result`, with `concrete(Constrained)`.
+    fn concrete_equation(argument: &str, result: &str, constrained: &str, line: usize) -> String {
+        format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(\in{{SortS{{}}, R}}({argument}:SortS{{}}, {result}:SortS{{}}), \top{{R}}())
+                ),
+                \equals{{SortS{{}}, R}}(
+                    unary{{}}({argument}:SortS{{}}),
+                    \and{{SortS{{}}}}({result}:SortS{{}}, \top{{SortS{{}}}}())
+                )
+            ) [UNIQUE'Unds'ID{{}}("equation"), concrete{{}}({constrained}:SortS{{}}), {}]"#,
+            location(line)
+        )
+    }
+
+    #[test]
+    fn concreteness_constraints_are_compared_through_the_renaming() {
+        let first = concrete_equation("X0", "VarA", "VarA", 1);
+        let alpha = concrete_equation("Y0", "VarB", "VarB", 2);
+        let constrains_the_argument = concrete_equation("Y0", "VarB", "Y0", 3);
+        let constrains_no_variable = concrete_equation("X0", "VarA", "VarB", 4);
+
+        let collapsed = collapse(&[
+            (&first, 0),
+            (&alpha, 1),
+            (&constrains_the_argument, 2),
+            (&constrains_no_variable, 3),
+        ]);
+
+        assert!(matches!(collapsed[0], ClassifiedAxiom::Function { .. }));
+        assert_eq!(
+            collapsed.iter().map(origin_locations).collect::<Vec<_>>(),
+            [
+                vec!["Location(1,1,1,9)", "Location(2,1,2,9)"],
+                vec!["Location(3,1,3,9)"],
+                vec!["Location(4,1,4,9)"],
+            ]
+        );
+    }
+
+    #[test]
+    fn concreteness_entries_naming_no_pattern_variable_are_vacuous() {
+        let constrained_u = guarded_rewrite(
+            ["X", "Y"],
+            "X",
+            "Y",
+            &format!("concrete{{}}(U:SortS{{}}), {}", location(1)),
+        );
+        let constrained_v = guarded_rewrite(
+            ["X", "Y"],
+            "X",
+            "Y",
+            &format!("concrete{{}}(V:SortS{{}}), {}", location(2)),
+        );
+        let unconstrained = guarded_rewrite(["X", "Y"], "X", "Y", &location(3));
+        // `X` is a pattern variable, so this constraint is live and keeps the rule apart.
+        let constrained_x = guarded_rewrite(
+            ["X", "Y"],
+            "X",
+            "Y",
+            &format!("concrete{{}}(X:SortS{{}}), {}", location(4)),
+        );
+
+        let collapsed = collapse(&[
+            (&constrained_u, 0),
+            (&constrained_v, 1),
+            (&unconstrained, 2),
+            (&constrained_x, 3),
+        ]);
+
+        assert_eq!(
+            collapsed.iter().map(origin_locations).collect::<Vec<_>>(),
+            [
+                vec![
+                    "Location(1,1,1,9)",
+                    "Location(2,1,2,9)",
+                    "Location(3,1,3,9)"
+                ],
+                vec!["Location(4,1,4,9)"],
+            ]
+        );
+    }
+
+    #[test]
+    fn axioms_without_unique_ids_collapse_by_content_within_one_shape() {
+        let rewrite = |left: [&str; 2], condition: &str, result: &str, line: usize| {
+            guarded_rewrite(left, condition, result, &location(line))
+                .replace(r#"UNIQUE'Unds'ID{}("shared"), "#, "")
+        };
+        let first = rewrite(["X", "Y"], "X", "Y", 1);
+        let alpha = rewrite(["A", "B"], "A", "B", 2);
+        let other = rewrite(["X", "Y"], "Y", "X", 3);
+        let shape = |source: &str| axiom_shape(&classify(source).unwrap().unwrap());
+        assert_eq!(shape(&first), shape(&alpha));
+        assert_eq!(
+            classify(&first).unwrap().unwrap().attributes().unique_id,
+            "UNKNOWN"
+        );
+
+        let collapsed = collapse(&[(&first, 0), (&other, 1), (&alpha, 2)]);
+
+        assert_eq!(
+            collapsed.iter().map(origin_locations).collect::<Vec<_>>(),
+            [
+                vec!["Location(1,1,1,9)", "Location(2,1,2,9)"],
+                vec!["Location(3,1,3,9)"],
+            ]
         );
     }
 

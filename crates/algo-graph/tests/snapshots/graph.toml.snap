@@ -1154,11 +1154,16 @@ symbol = "classify_axiom"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
+symbol = "collapse_equal_axioms"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
 symbol = "internalize_axiom"
 
 [[node.cost]]
 mode = "one definition load"
-bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus verify_definition, backend.definition.closure and backend.definedness.discharge"
 
 [[node.cost]]
 mode = "one term or pattern request (internalize_term, internalize_pattern)"

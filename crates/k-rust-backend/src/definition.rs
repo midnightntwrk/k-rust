@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus verify_definition, backend.definition.closure and backend.definedness.discharge"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(P x a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus verify_definition, backend.definition.closure and backend.definedness.discharge"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -74,8 +74,9 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RewriteTheory, RuleKind,
-        RulePatternError, Theory, classify_axiom, insert_rewrite_theory, insert_theory,
-        internalize_axiom, internalize_model_predicate as internalize_rule_model_predicate,
+        RulePatternError, Theory, classify_axiom, collapse_equal_axioms, insert_rewrite_theory,
+        insert_theory, internalize_axiom,
+        internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern, rule_index,
     },
     smt::{SExpr, SmtType},
@@ -662,6 +663,7 @@ impl BackendDefinition {
             .iter()
             .map(|module| (module.name.as_str(), import_sentence_indices(module)))
             .collect::<BTreeMap<_, _>>();
+        let mut axiom_sentences = Vec::new();
         let mut axiom_modules = Vec::new();
         visit_modules_preorder(main_module, &module_map, &import_orders, &mut axiom_modules)?;
         for module in axiom_modules {
@@ -687,6 +689,9 @@ impl BackendDefinition {
                 if let Some(overload) = overload_attribute(attributes)? {
                     overloads.push(overload);
                 }
+                if expand {
+                    axiom_sentences.push((Name::from(module.name.as_str()), index));
+                }
                 target.push(PendingAxiom {
                     module: module.name.as_str().into(),
                     parameters: parameters.iter().cloned().map(Into::into).collect(),
@@ -700,19 +705,23 @@ impl BackendDefinition {
             }
         }
 
-        let classified_axioms = axioms
-            .iter()
-            .filter_map(|axiom| {
-                classify_axiom(
-                    axiom.module.clone(),
-                    axiom.parameters.clone(),
-                    &axiom.pattern,
-                    &axiom.attributes,
-                )
-                .transpose()
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(DefinitionError::Axiom)?;
+        let classified_axioms = collapse_equal_axioms(
+            axioms
+                .iter()
+                .zip(axiom_sentences)
+                .filter_map(|(axiom, sentence)| {
+                    classify_axiom(
+                        axiom.module.clone(),
+                        axiom.parameters.clone(),
+                        &axiom.pattern,
+                        &axiom.attributes,
+                    )
+                    .map(|classified| classified.map(|classified| (classified, sentence)))
+                    .transpose()
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(DefinitionError::Axiom)?,
+        );
         let sort_graph = build_sort_graph(sorts.keys().cloned(), subsorts);
         for (greater, lesser) in &overloads {
             if !symbols.contains_key(greater) {
@@ -2211,9 +2220,15 @@ mod tests {
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
 
+        // `BASE` is reached through `A` and through `B`; its one sentence is one rule, kept at
+        // its first position, with one origin.
         assert_eq!(
             classified_rule_labels(&definition),
-            ["main", "a", "base", "b", "base"]
+            ["main", "a", "base", "b"]
+        );
+        assert_eq!(
+            definition.classified_axioms[2].attributes().origins.len(),
+            1
         );
     }
 

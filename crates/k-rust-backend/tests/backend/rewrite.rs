@@ -7976,6 +7976,144 @@ fn observed_search_anchors_evaluations_into_each_result_branch() {
     }));
 }
 
+/// `wrap("x") => wrap("y")` written once per location, all copies sharing one `UNIQUE_ID`.
+fn x_to_y_definition(copies: &[(&str, &str)]) -> BackendDefinition {
+    let axioms = copies
+        .iter()
+        .map(|(label, location)| {
+            let label = if label.is_empty() {
+                String::new()
+            } else {
+                format!(r#"label{{}}("{label}"), "#)
+            };
+            format!(
+                r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(wrap{{}}(\dv{{SortS{{}}}}("x")), \top{{SortS{{}}}}()),
+                    wrap{{}}(\dv{{SortS{{}}}}("y"))
+                ) [{label}UNIQUE'Unds'ID{{}}("x-to-y"),
+                   org'Stop'kframework'Stop'attributes'Stop'Location{{}}("{location}"),
+                   org'Stop'kframework'Stop'attributes'Stop'Source{{}}("Source(dup.k)")]"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    definition(&axioms)
+}
+
+fn stored_rewrite_origins(definition: &BackendDefinition) -> Vec<Vec<Option<&str>>> {
+    definition
+        .rewrite_theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .map(|stored| {
+            stored
+                .rule
+                .attributes
+                .origins
+                .iter()
+                .map(|origin| origin.location.as_deref())
+                .collect()
+        })
+        .collect()
+}
+
+fn observed_rules(leaf: &ExecutionLeaf) -> Vec<&str> {
+    leaf.observations
+        .iter()
+        .map(|event| match event {
+            ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+            ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
+            ObservationEvent::Evaluation(_) => panic!("the definition has no equations"),
+        })
+        .collect()
+}
+
+#[test]
+fn equal_rewrite_axioms_are_one_rule_that_lists_every_origin() {
+    let single = x_to_y_definition(&[("", "Location(12,3,12,14)")]);
+    let duplicated =
+        x_to_y_definition(&[("", "Location(12,3,12,14)"), ("", "Location(13,3,13,14)")]);
+
+    assert_eq!(
+        stored_rewrite_origins(&single),
+        [vec![Some("Location(12,3,12,14)")]]
+    );
+    assert_eq!(
+        stored_rewrite_origins(&duplicated),
+        [vec![
+            Some("Location(12,3,12,14)"),
+            Some("Location(13,3,13,14)")
+        ]]
+    );
+    assert_eq!(duplicated.classified_axioms.len(), 1);
+}
+
+#[test]
+fn equal_rewrite_axioms_report_no_branch_and_execute_as_one_copy() {
+    let single = x_to_y_definition(&[("", "Location(12,3,12,14)")]);
+    let duplicated =
+        x_to_y_definition(&[("", "Location(12,3,12,14)"), ("", "Location(13,3,13,14)")]);
+    for branch_mode in [
+        ExecutionBranchMode::StopAtBranch,
+        ExecutionBranchMode::ExploreAll,
+    ] {
+        let options = ExecutionOptions {
+            branch_mode,
+            ..ExecutionOptions::default()
+        };
+        let expected = execute(&single, subject(&single, "x"), options.clone());
+        let actual = execute(&duplicated, subject(&duplicated, "x"), options);
+
+        let [leaf] = actual.leaves.as_slice() else {
+            panic!("expected one successor: {:?}", actual.leaves);
+        };
+        assert_eq!(leaf.pattern, subject(&duplicated, "y"));
+        assert_eq!(leaf.depth, 1);
+        assert!(!matches!(leaf.halt_reason, HaltReason::Branch { .. }));
+        assert_eq!(actual, expected);
+    }
+}
+
+#[test]
+fn the_identity_of_equal_rewrite_axioms_is_observable() {
+    let single = x_to_y_definition(&[("", "Location(12,3,12,14)")]);
+    let duplicated =
+        x_to_y_definition(&[("", "Location(12,3,12,14)"), ("", "Location(13,3,13,14)")]);
+    let mut streams = Vec::new();
+    for definition in [&single, &duplicated] {
+        let options = ObservationOptions::with_rules(definition, ["x-to-y"])
+            .expect("one stored rule carries the identity");
+        let result = execute_observed(
+            definition,
+            subject(definition, "x"),
+            ExecutionOptions::default(),
+            &options,
+        );
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one successor: {:?}", result.leaves);
+        };
+        assert_eq!(observed_rules(leaf), ["x-to-y"]);
+        assert_eq!(leaf.branch.len(), 1);
+        streams.push(leaf.observations.clone());
+    }
+    assert_eq!(streams[0], streams[1]);
+}
+
+#[test]
+fn axioms_sharing_an_identity_but_not_a_label_stay_ambiguous() {
+    let definition = x_to_y_definition(&[
+        ("first", "Location(12,3,12,14)"),
+        ("second", "Location(13,3,13,14)"),
+    ]);
+
+    assert_eq!(stored_rewrite_origins(&definition).len(), 2);
+    assert_eq!(
+        ObservationOptions::with_rules(&definition, ["x-to-y"]),
+        Err(ObservationFilterError::AmbiguousRule("x-to-y".into()))
+    );
+}
+
 #[test]
 fn rewrite_rule_applies_to_a_subject_that_mentions_its_variable_names() {
     let definition = definition(

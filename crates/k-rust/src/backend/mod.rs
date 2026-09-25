@@ -2420,6 +2420,150 @@ mod tests {
         ));
     }
 
+    /// Two written copies of one rule, in the shape K-in-K2's `duplicate_unlabelled.k` fixture has.
+    const DUPLICATE_UNLABELLED: &str = "module DUPLICATE_UNLABELLED-SYNTAX
+  syntax S ::= \"x\" [symbol(x)]
+             | \"y\" [symbol(y)]
+endmodule
+
+module DUPLICATE_UNLABELLED
+  imports DUPLICATE_UNLABELLED-SYNTAX
+  imports BASIC-K
+  imports INT-SYNTAX
+  configuration <k> .K </k>
+
+  rule x => y
+  rule x => y
+endmodule
+";
+
+    /// `<k> x </k>` in the generated configuration of [`DUPLICATE_UNLABELLED`].
+    const DUPLICATE_UNLABELLED_STATE: &str = r#"Lbl'-LT-'generatedTop'-GT-'{}(
+        Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(Lblx{}()), dotk{}())),
+        Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+    )"#;
+
+    /// The source-compiled execution definition, internalized as `krust krun` does.
+    fn source_definition(source: &str, module: &str) -> BackendDefinition {
+        use crate::{
+            builtin::embedded,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_with_options},
+        };
+
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("duplicate.k", source),
+            module,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        let syntax = parse_definition(&compiled.definition_kore).unwrap();
+        // The main module is emitted last, under its KORE-encoded name.
+        let main_module = syntax.modules.last().unwrap().name.clone();
+        Backend::internalize_source_definition(
+            &syntax,
+            &main_module,
+            &compiled.execution_rewrite_order,
+        )
+        .unwrap()
+    }
+
+    /// The `UNIQUE_ID` and origin locations of the rewrite rule whose first origin is on `line`.
+    fn rule_on_line(definition: &BackendDefinition, line: usize) -> (String, Vec<String>) {
+        let prefix = format!("Location({line},");
+        let rules = definition
+            .rewrite_theory
+            .values()
+            .flat_map(|priorities| priorities.values())
+            .flatten()
+            .filter(|stored| {
+                stored.rule.attributes.origins[0]
+                    .location
+                    .as_deref()
+                    .is_some_and(|location| location.starts_with(&prefix))
+            })
+            .collect::<Vec<_>>();
+        let [stored] = rules.as_slice() else {
+            panic!("expected one stored rule written on line {line}: {rules:?}");
+        };
+        let attributes = &stored.rule.attributes;
+        (
+            attributes.unique_id.clone(),
+            attributes
+                .origins
+                .iter()
+                .map(|origin| origin.location.clone().unwrap())
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn source_duplicated_rule_executes_and_is_observed_as_one_rule() {
+        let single_source = DUPLICATE_UNLABELLED.replacen("  rule x => y\n", "", 1);
+        let single = source_definition(&single_source, "DUPLICATE_UNLABELLED");
+        let duplicated = source_definition(DUPLICATE_UNLABELLED, "DUPLICATE_UNLABELLED");
+
+        let (single_id, single_origins) = rule_on_line(&single, 12);
+        let (id, origins) = rule_on_line(&duplicated, 12);
+        assert_eq!(single_origins, ["Location(12,3,12,14)"]);
+        assert_eq!(origins, ["Location(12,3,12,14)", "Location(13,3,13,14)"]);
+        assert_eq!(id, single_id);
+
+        let request = ExecuteRequest {
+            state: json(DUPLICATE_UNLABELLED_STATE),
+            stop_at_branch: true,
+            ..ExecuteRequest::default()
+        };
+        let mut outcomes = Vec::new();
+        for definition in [single, duplicated] {
+            let mut backend =
+                Backend::from_internalized(definition, BackendOptions::default()).expect("backend");
+            let result = backend.execute(request.clone()).unwrap();
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("expected one leaf: {:?}", result.leaves);
+            };
+            assert_ne!(leaf.reason, HaltReasonOutput::Branch);
+            assert!(text(leaf.state.clone()).contains("Lbly{}()"));
+            assert_eq!(leaf.depth, 1);
+
+            let observed = backend
+                .execute_observed(ObservedRequest {
+                    request: request.clone(),
+                    rules: Some(vec![id.clone()]),
+                })
+                .unwrap();
+            let [observed_leaf] = observed.leaves.as_slice() else {
+                panic!("expected one observed leaf: {:?}", observed.leaves);
+            };
+            let [ObservationEventOutput::Transition { id: transition, .. }] =
+                observed_leaf.observations.as_slice()
+            else {
+                panic!(
+                    "expected one rule application: {:?}",
+                    observed_leaf.observations
+                );
+            };
+            assert_eq!(transition.rule, id);
+            outcomes.push((
+                text(leaf.state.clone()),
+                leaf.reason.clone(),
+                serde_json::to_value(&observed_leaf.observations).unwrap(),
+            ));
+        }
+        assert_eq!(outcomes[0], outcomes[1]);
+    }
+
     #[test]
     fn capabilities_advertise_search_and_observation() {
         let capabilities = backend().capabilities();
