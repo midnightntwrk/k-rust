@@ -741,6 +741,22 @@ mod tests {
                 PatternOutcome::Match,
             ),
             (
+                "explore-all-reports-the-least-severe-incomplete-stop",
+                execution(
+                    ExecutionRoute::ExploreAll,
+                    vec![
+                        leaf(0, H::Cancelled),
+                        leaf(1, H::Indeterminate),
+                        leaf(2, H::Trivial),
+                    ],
+                    Vec::new(),
+                    false,
+                ),
+                CollectionStop::SolverUnknown,
+                3,
+                PatternOutcome::Unknown,
+            ),
+            (
                 "a-diagnostic-makes-the-single-path-incomplete",
                 execution(
                     ExecutionRoute::SinglePath,

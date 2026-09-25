@@ -217,6 +217,7 @@ fn request(
         cut_point_rules: Vec::new(),
         terminal_rules: Vec::new(),
         step_timeout_ms: None,
+        moving_average_timeout: false,
         ..ExecuteRequest::default()
     }
 }

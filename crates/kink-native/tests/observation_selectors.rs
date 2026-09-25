@@ -16,12 +16,12 @@ use k_rust::definition::{Sentence, sentence_mut};
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
-use k_rust::kore::ast::Pattern;
+use k_rust::kore::{ast::Pattern, parser::parse_definition};
+use k_rust_backend::transition::{ObservationFilterError, ObservationOptions};
 use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget};
 use kink_native::observation::NativeEvent;
 use kink_native::{
-    MutantRejection, NativeValidator, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
-    select_rules,
+    NativeValidator, RewriteRules, RuleSelection, RuleSelector, SelectionFailure, select_rules,
 };
 use kink_patch::{Baseline, CandidateFailureKind, Edit, Patch, SentenceRef};
 use serde_json::Value;
@@ -260,18 +260,30 @@ fn selected_rewrite_reclassified_as_equation_fails_closed() {
     .expect("four rewrite rules");
     let patch = Patch::new(vec![Edit::AddAttribute {
         at: support::rule(validator.baseline(), "UNDECIDED.step"),
-        key: "simplification".to_owned(),
+        key: "anywhere".to_owned(),
         value: Value::String(String::new()),
     }])
     .expect("patch");
-    let mutant = match validator.validate(&patch) {
-        Ok(mutant) => mutant,
-        Err(MutantRejection::Compilation(error)) => {
-            assert_eq!(error.stage, "check simplification rules");
-            return;
-        }
-        Err(error) => panic!("unexpected rejection: {error}"),
-    };
+    let mutant = validator
+        .validate(&patch)
+        .expect("anywhere equation compiles");
+    let attributes = validator
+        .baseline()
+        .sentence(&support::rule(validator.baseline(), "UNDECIDED.step"))
+        .expect("step")
+        .attributes();
+    let id = mutant
+        .rule_identity(
+            attributes.source().expect("source"),
+            attributes.location().expect("location"),
+        )
+        .expect("mutant rule identity");
+    let syntax = parse_definition(&mutant.artifacts().definition_kore).expect("KORE");
+    let definition = Backend::internalize_definition(&syntax, "UNDECIDED").expect("definition");
+    assert!(matches!(
+        ObservationOptions::with_rules(&definition, [id]),
+        Err(ObservationFilterError::UnknownRule(rule)) if rule == id
+    ));
     let manifest = validator
         .observation_manifest(&mutant, &rules)
         .expect("manifest");
