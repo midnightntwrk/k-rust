@@ -276,7 +276,7 @@ fn differential_special_case_schema_is_complete() {
         "only the measured IMP implication payload diverges from Booster",
     );
     for exception in rpc_exceptions {
-        for field in ["oracle", "response", "expected", "reason"] {
+        for field in ["oracle", "response", "expected", "reference", "reason"] {
             assert!(
                 exception[field]
                     .as_str()
@@ -284,6 +284,7 @@ fn differential_special_case_schema_is_complete() {
                 "RPC oracle exception lacks {field}"
             );
         }
+        assert_ne!(exception["expected"], exception["reference"]);
         assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
         assert_eq!(exception["response"].as_str(), Some("implies"));
         // N19: the payload is claimed equal to the oracle's, so the gate must check that claim

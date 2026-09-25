@@ -575,12 +575,27 @@ for reference_oracle in "${reference_oracles[@]}"; do
        select(.oracle == $oracle and .response == $response)' <<<"$rpc")
     if [[ -n "$oracle_exception" ]]; then
       expected=$(jq -r '.expected' <<<"$oracle_exception")
+      recorded_reference=$(jq -r '.reference' <<<"$oracle_exception")
       reason=$(jq -r '.reason' <<<"$oracle_exception")
       echo "[$name:rpc:$oracle_name:$response] oracle-exception: $reason"
+      if [[ ! -f "$expected" || ! -f "$recorded_reference" ]]; then
+        echo "error: RPC oracle exception for $name:$response needs committed expected and reference files" >&2
+        exit 2
+      fi
+      if diff -q <(jq -S . "$expected") <(jq -S . "$recorded_reference") >/dev/null; then
+        echo "error: committed RPC oracle exception expectations for $name:$response are equal" >&2
+        exit 2
+      fi
       if ! diff -u \
         <(jq -S . "$expected") \
         <(jq -S . "$work/rust-$response.json"); then
         echo "error: Rust RPC response no longer matches the adjudicated expectation for $response" >&2
+        exit 1
+      fi
+      if ! diff -u \
+        <(jq -S . "$recorded_reference") \
+        <(jq -S . "$work/reference-$rpc_flavour-$response.json"); then
+        echo "error: $oracle_name response no longer matches the recorded deviation for $response" >&2
         exit 1
       fi
       if diff -q \
