@@ -153,6 +153,8 @@ pub struct ExecutionResult {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionLeaf {
     pub state: Value,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub depth: u64,
     pub reason: HaltReasonOutput,
     /// Legacy human-readable diagnostic context.
@@ -1487,6 +1489,11 @@ mod tests {
             .unwrap();
         assert_eq!(execution.leaves.len(), 1);
         assert_eq!(text(execution.leaves[0].state.clone()), "c{}()");
+        assert!(
+            serde_json::to_value(&execution).unwrap()["leaves"][0]
+                .get("diagnostics")
+                .is_none()
+        );
 
         let implication = backend
             .implies(ImplicationRequest {
@@ -1505,6 +1512,33 @@ mod tests {
             })
             .unwrap();
         assert_eq!(proof.status, "proven");
+    }
+
+    #[test]
+    fn execution_exposes_the_leaf_budget_diagnostic_on_the_wire() {
+        let mut backend = Backend::new(
+            include_str!("../../tests/fixtures/execution-budget.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                state: json("start{}()"),
+                max_simplification_iterations: 3,
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        assert_eq!(result.leaves.len(), 1);
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(
+            value["leaves"][0]["diagnostics"],
+            serde_json::json!([{
+                "kind": "simplification-budget-exhausted",
+                "limit": 3,
+                "subject": "term"
+            }])
+        );
     }
 
     #[test]

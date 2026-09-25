@@ -36,6 +36,18 @@ module MAIN
   ) [label{}("reaches-c")]
 endmodule []`
 
+test('exposes a simplification budget diagnostic on its execution leaf', () => {
+  const definitionKore = fs.readFileSync(
+    path.join(__dirname, '../../k-rust/tests/fixtures/execution-budget.kore'),
+    'utf8',
+  )
+  const backend = createBackend({ definitionKore, moduleName: 'MAIN' })
+  const leaf = backend.execute({ state: parseKore('start{}()').kore, maxSimplificationIterations: 3 }).leaves[0]
+  assert.deepEqual(leaf.diagnostics, [
+    { kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' },
+  ])
+})
+
 const koreSortS = { tag: 'SortApp', name: 'SortS', args: [] }
 
 function deeplyNestedKore(depth) {

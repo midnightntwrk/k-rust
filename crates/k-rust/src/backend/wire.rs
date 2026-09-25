@@ -9,6 +9,7 @@ use super::{
 };
 use k_rust_backend::{
     builtin::{BuiltinEffect, BuiltinError},
+    diagnostic::BackendDiagnostic,
     externalize,
     rewrite::IndeterminateReason,
     search::{
@@ -17,7 +18,10 @@ use k_rust_backend::{
         PatternSearchResult as BackendPatternSearchResult, SearchResult as BackendSearchResult,
         SearchState,
     },
-    simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
+    simplify::{
+        BudgetSubject, ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
+        SimplificationError,
+    },
     smt::{Satisfiability, SmtError, TranslationError},
     substitution::Substitution,
     term::{Sort, Term},
@@ -257,6 +261,52 @@ pub enum TranslationFailureOutput {
     MissingSmtLemmaVariable {
         rule: String,
         variable: Value,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
+pub enum ConditionIndeterminacyOutput {
+    NoSolver,
+    ImplicationIndeterminate,
+    SmtUnknown { reason: String },
+    InconsistentPathCondition,
+    Untranslatable { error: TranslationFailureOutput },
+    NonFunctionalBinding,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BudgetSubjectOutput {
+    Term,
+    Predicates,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
+pub enum BackendDiagnosticOutput {
+    UndecidedCondition {
+        #[serde(rename = "ruleId")]
+        rule_id: String,
+        reason: ConditionIndeterminacyOutput,
+        predicates: Vec<Value>,
+    },
+    UndecidedPredicate {
+        predicate: Value,
+        reason: ConditionIndeterminacyOutput,
+    },
+    SimplificationBudgetExhausted {
+        limit: usize,
+        subject: BudgetSubjectOutput,
+    },
+    RuleConditionUnsimplified {
+        #[serde(rename = "ruleId")]
+        rule_id: String,
+        limit: usize,
+    },
+    UnsupportedHookUnevaluated {
+        hook: String,
+        reason: String,
     },
 }
 
@@ -755,6 +805,73 @@ fn translation_failure_output(
     })
 }
 
+fn condition_indeterminacy_output(
+    reason: ConditionIndeterminacy,
+    result_sort: &Sort,
+) -> Result<ConditionIndeterminacyOutput, BackendError> {
+    Ok(match reason {
+        ConditionIndeterminacy::NoSolver => ConditionIndeterminacyOutput::NoSolver,
+        ConditionIndeterminacy::ImplicationIndeterminate => {
+            ConditionIndeterminacyOutput::ImplicationIndeterminate
+        }
+        ConditionIndeterminacy::SmtUnknown(reason) => {
+            ConditionIndeterminacyOutput::SmtUnknown { reason }
+        }
+        ConditionIndeterminacy::InconsistentPathCondition => {
+            ConditionIndeterminacyOutput::InconsistentPathCondition
+        }
+        ConditionIndeterminacy::Untranslatable(error) => {
+            ConditionIndeterminacyOutput::Untranslatable {
+                error: translation_failure_output(error, result_sort)?,
+            }
+        }
+        ConditionIndeterminacy::NonFunctionalBinding => {
+            ConditionIndeterminacyOutput::NonFunctionalBinding
+        }
+    })
+}
+
+fn diagnostic_output(
+    diagnostic: BackendDiagnostic,
+    result_sort: &Sort,
+) -> Result<BackendDiagnosticOutput, BackendError> {
+    Ok(match diagnostic {
+        BackendDiagnostic::UndecidedCondition {
+            rule_id,
+            reason,
+            predicates,
+        } => BackendDiagnosticOutput::UndecidedCondition {
+            rule_id,
+            reason: condition_indeterminacy_output(reason, result_sort)?,
+            predicates: predicates_output(predicates, result_sort)?,
+        },
+        BackendDiagnostic::UndecidedPredicate { predicate, reason } => {
+            BackendDiagnosticOutput::UndecidedPredicate {
+                predicate: encode_predicate(&predicate, result_sort)?,
+                reason: condition_indeterminacy_output(reason, result_sort)?,
+            }
+        }
+        BackendDiagnostic::SimplificationBudgetExhausted { limit, subject } => {
+            BackendDiagnosticOutput::SimplificationBudgetExhausted {
+                limit,
+                subject: match subject {
+                    BudgetSubject::Term => BudgetSubjectOutput::Term,
+                    BudgetSubject::Predicates => BudgetSubjectOutput::Predicates,
+                },
+            }
+        }
+        BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => {
+            BackendDiagnosticOutput::RuleConditionUnsimplified { rule_id, limit }
+        }
+        BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => {
+            BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+                hook,
+                reason: reason.to_string(),
+            }
+        }
+    })
+}
+
 fn smt_failure_output(
     error: SmtError,
     result_sort: &Sort,
@@ -974,8 +1091,14 @@ pub(super) fn execution_response(
             .into_iter()
             .map(|leaf| {
                 let (reason, detail) = halt_reason(&leaf.halt_reason);
+                let result_sort = leaf.pattern.term.sort();
                 Ok(ExecutionLeaf {
                     state: encode_pattern(&externalize::constrained_pattern(&leaf.pattern))?,
+                    diagnostics: leaf
+                        .diagnostics
+                        .into_iter()
+                        .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
+                        .collect::<Result<_, _>>()?,
                     depth: leaf.depth,
                     reason,
                     detail,
@@ -1079,6 +1202,75 @@ pub(super) fn path_pattern_search_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnostic_wire_variants_round_trip_and_reject_unknown_fields() {
+        let predicate = serde_json::json!({"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"SortS","args":[]}}});
+        let reasons = [
+            serde_json::json!({"kind":"no-solver"}),
+            serde_json::json!({"kind":"implication-indeterminate"}),
+            serde_json::json!({"kind":"smt-unknown","reason":"timeout"}),
+            serde_json::json!({"kind":"inconsistent-path-condition"}),
+            serde_json::json!({"kind":"untranslatable","error":{"kind":"unsupported-predicate","predicate":"p"}}),
+            serde_json::json!({"kind":"non-functional-binding"}),
+        ];
+        let mut variants = vec![
+            serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"term"}),
+            serde_json::json!({"kind":"simplification-budget-exhausted","limit":3,"subject":"predicates"}),
+            serde_json::json!({"kind":"rule-condition-unsimplified","ruleId":"r","limit":3}),
+            serde_json::json!({"kind":"unsupported-hook-unevaluated","hook":"H.f","reason":"no evaluator"}),
+        ];
+        for reason in reasons {
+            variants.push(serde_json::json!({"kind":"undecided-condition","ruleId":"r","reason":reason,"predicates":[predicate]}));
+            variants.push(serde_json::json!({"kind":"undecided-predicate","reason":reason,"predicate":predicate}));
+        }
+        for expected in variants {
+            let decoded: BackendDiagnosticOutput =
+                serde_json::from_value(expected.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), expected);
+        }
+        assert!(
+            serde_json::from_value::<BackendDiagnosticOutput>(serde_json::json!({
+                "kind":"simplification-budget-exhausted","limit":3,"subject":"term","extra":true
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn diagnostic_predicates_use_kore_json_patterns() {
+        use k_rust_backend::rule::Predicate;
+
+        let sort = Sort::simple("SortS");
+        let expected = encode_predicate(&Predicate::True, &sort).unwrap();
+        let condition = diagnostic_output(
+            BackendDiagnostic::UndecidedCondition {
+                rule_id: "r".into(),
+                reason: ConditionIndeterminacy::NoSolver,
+                predicates: vec![Predicate::True],
+            },
+            &sort,
+        )
+        .unwrap();
+        let predicate = diagnostic_output(
+            BackendDiagnostic::UndecidedPredicate {
+                predicate: Predicate::True,
+                reason: ConditionIndeterminacy::NoSolver,
+            },
+            &sort,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(condition).unwrap()["predicates"][0],
+            expected
+        );
+        assert_eq!(
+            serde_json::to_value(predicate).unwrap()["predicate"],
+            expected
+        );
+        assert_eq!(expected["format"], "KORE");
+        assert_eq!(expected["term"]["tag"], "Top");
+    }
 
     #[test]
     fn instantiation_failure_preserves_rule_and_missing_variables_on_the_wire() {

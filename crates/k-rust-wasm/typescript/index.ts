@@ -197,6 +197,7 @@ export interface BackendTraceEntry {
 
 export interface ExecutionLeaf {
   state: Kore
+  diagnostics?: BackendDiagnostic[]
   depth: number
   reason:
     | 'cancelled'
@@ -346,6 +347,21 @@ export type TranslationFailure =
   | { kind: 'smt-lemma-surplus-mappings'; rule: string; terms: Kore[] }
   | { kind: 'smt-lemma-surplus-predicates'; rule: string; predicates: Kore[] }
   | { kind: 'missing-smt-lemma-variable'; rule: string; variable: Kore }
+
+export type ConditionIndeterminacy =
+  | { kind: 'no-solver' }
+  | { kind: 'implication-indeterminate' }
+  | { kind: 'smt-unknown'; reason: string }
+  | { kind: 'inconsistent-path-condition' }
+  | { kind: 'untranslatable'; error: TranslationFailure }
+  | { kind: 'non-functional-binding' }
+
+export type BackendDiagnostic =
+  | { kind: 'undecided-condition'; ruleId: string; reason: ConditionIndeterminacy; predicates: Kore[] }
+  | { kind: 'undecided-predicate'; predicate: Kore; reason: ConditionIndeterminacy }
+  | { kind: 'simplification-budget-exhausted'; limit: number; subject: 'term' | 'predicates' }
+  | { kind: 'rule-condition-unsimplified'; ruleId: string; limit: number }
+  | { kind: 'unsupported-hook-unevaluated'; hook: string; reason: string }
 
 export type SmtFailure =
   | { kind: 'translation'; error: TranslationFailure }
