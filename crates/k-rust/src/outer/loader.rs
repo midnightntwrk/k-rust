@@ -188,6 +188,9 @@ pub enum LoadError {
     Configuration(ConfigError),
     ConfigurationExpansion(ConfigurationError),
     RuleParsing(RuleError),
+    /// A structured rule-like sentence whose labels carry sort parameters, which are inferred;
+    /// the error names the sentence by its module and index in the caller's definition.
+    LabelParameters(crate::kompile::SortInjectionError),
 }
 
 impl fmt::Display for LoadError {
@@ -269,6 +272,7 @@ impl fmt::Display for LoadError {
             Self::Configuration(error) => error.fmt(formatter),
             Self::ConfigurationExpansion(error) => error.fmt(formatter),
             Self::RuleParsing(error) => error.fmt(formatter),
+            Self::LabelParameters(error) => error.fmt(formatter),
         }
     }
 }
@@ -584,6 +588,10 @@ pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
+    // Configuration expansion recognizes cell wrappers by name, so a parameter on one would be
+    // dropped before compilation's own check: reject on exactly the caller's sentences.
+    crate::kompile::reject_label_parameters_in_definition(&definition)
+        .map_err(LoadError::LabelParameters)?;
     stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let kinds = input_sentence_kinds(&definition, InputSpace::Structured);
     let mut resolver = |_: &str, required: &str| {

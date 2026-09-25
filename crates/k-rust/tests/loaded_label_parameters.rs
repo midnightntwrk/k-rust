@@ -11,11 +11,10 @@ use k_rust::definition::{Definition, FlatModule, Sentence};
 use k_rust::inner::parse_rule_content;
 use k_rust::kast::{Label, Sort, Term};
 use k_rust::kompile::{
-    CompilationBackend, CompileError, CompileOptions, REJECT_LABEL_PARAMETERS,
-    compile_loaded_definition,
+    CompilationBackend, CompileOptions, SortInjectionError, compile_loaded_definition,
 };
 use k_rust::outer::{
-    LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation, load_structured,
+    LoadError, LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation, load_structured,
 };
 
 /// A user parametric production (`wrap`), `ite` through `#if`, and `#Equals` in a
@@ -344,39 +343,38 @@ fn load_structured_for(definition: Definition, backend: CompilationBackend) -> L
     .unwrap_or_else(|error| panic!("{backend}: structured loading: {error}"))
 }
 
-fn try_compile(
-    loaded: &LoadedDefinition,
+/// `load_structured` rejects `definition` before expanding anything, naming the first
+/// parameterised label's sentence by its module and index in the caller's definition.
+fn assert_structured_load_rejects(
+    definition: Definition,
     backend: CompilationBackend,
-) -> Result<[String; 3], CompileError> {
-    compile_loaded_definition(
-        loaded,
-        CompileOptions {
-            backend,
-            ..CompileOptions::default()
+    module: &str,
+    label: &str,
+    parameters: &[&str],
+) {
+    let error = load_structured(
+        definition,
+        &LoadOptions {
+            excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+            ..LoadOptions::default()
         },
     )
-    .map(|artifacts| {
-        [
-            artifacts.definition_kore,
-            artifacts.syntax_definition_kore,
-            artifacts.macros_kore,
-        ]
-    })
-}
-
-fn assert_rejects_label_parameters(error: &CompileError, label: &str, parameters: &str) {
-    assert_eq!(error.stage, REJECT_LABEL_PARAMETERS, "{error}");
-    assert!(
-        error.message.contains(&format!(
-            "KLabel {label:?} carries the sort parameters {{{parameters}}}"
-        )),
-        "{error}"
-    );
-    assert!(
-        error
-            .message
-            .contains("remove them, or use a cast to fix an instance"),
-        "{error}"
+    .expect_err("a written label parameter is rejected at load_structured");
+    let LoadError::LabelParameters(SortInjectionError::Sentence {
+        module: rejected_module,
+        error,
+        ..
+    }) = &error
+    else {
+        panic!("{backend}: {error}")
+    };
+    assert_eq!(rejected_module, module, "{error}");
+    assert_eq!(
+        **error,
+        SortInjectionError::LabelParameters {
+            label: label.to_owned(),
+            parameters: parameters.iter().map(|sort| Sort::new(*sort)).collect(),
+        }
     );
 }
 
@@ -409,9 +407,7 @@ fn structured_parameters_the_parser_used_to_write_are_rejected() {
             });
         }
         assert_eq!(written, 4, "{backend}: wrap, ite, #Equals x2");
-        let error = try_compile(&load_structured_for(structured, backend), backend)
-            .expect_err("a written label parameter is rejected");
-        assert_rejects_label_parameters(&error, "wrap", "K");
+        assert_structured_load_rejects(structured, backend, "PARAMS", "wrap", &["K"]);
     }
 }
 
@@ -421,7 +417,45 @@ fn structured_parameters_the_parser_used_to_write_are_rejected() {
 mod native {
     use super::*;
     use k_rust::definition::ResolvedDefinition;
-    use k_rust::kompile::{SentenceTypingError, SortInjectionError, sentence_typing};
+    use k_rust::kompile::{
+        CompileError, REJECT_LABEL_PARAMETERS, SentenceTypingError, sentence_typing,
+    };
+
+    fn try_compile(
+        loaded: &LoadedDefinition,
+        backend: CompilationBackend,
+    ) -> Result<[String; 3], CompileError> {
+        compile_loaded_definition(
+            loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .map(|artifacts| {
+            [
+                artifacts.definition_kore,
+                artifacts.syntax_definition_kore,
+                artifacts.macros_kore,
+            ]
+        })
+    }
+
+    fn assert_rejects_label_parameters(error: &CompileError, label: &str, parameters: &str) {
+        assert_eq!(error.stage, REJECT_LABEL_PARAMETERS, "{error}");
+        assert!(
+            error.message.contains(&format!(
+                "KLabel {label:?} carries the sort parameters {{{parameters}}}"
+            )),
+            "{error}"
+        );
+        assert!(
+            error
+                .message
+                .contains("remove them, or use a cast to fix an instance"),
+            "{error}"
+        );
+    }
 
     /// A user parametric production whose parameter occurs in an argument (`wrap`, `use`), and one
     /// whose parameter occurs in neither an argument nor the result (`size`).
@@ -541,9 +575,7 @@ mod native {
             let (edited, sentence) =
                 with_written_parameters(&source.definition, rule, name, parameters);
 
-            let structured = load_structured_for(edited.clone(), backend);
-            let error = try_compile(&structured, backend).expect_err(rule);
-            assert_rejects_label_parameters(&error, name, rendered);
+            assert_structured_load_rejects(edited.clone(), backend, "REJECT", name, &[rendered]);
 
             let hand_built = LoadedDefinition {
                 files: source.files.clone(),

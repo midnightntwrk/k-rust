@@ -52,6 +52,7 @@ pub use passes::{
 pub use search_pattern::{
     CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };
+pub(crate) use sort_injections::reject_label_parameters_in_definition;
 pub use sort_injections::{
     AmbiguousInstance, BranchTyping, PositionTyping, SentenceTyper, SentenceTyping,
     SentenceTypingError, SortInjectionError, SortInjector, SortMismatch, add_sort_injections,
