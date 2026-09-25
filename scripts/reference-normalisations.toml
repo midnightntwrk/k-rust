@@ -155,8 +155,8 @@ id = "N16"
 gate = "execution and symbolic execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:normalize_execution_disjunct"
 anchor_symbol = "normalize_execution_disjunct"
-rule = "Drop only the outer existential prefix of each result disjunct before generated-variable renaming."
-justification = "A result variable that is not free in the initial pattern is existentially quantified over its disjunct, so an outer existential prefix over such variables denotes the same disjunct as its body; k-rust leaves that binder implicit. The rule does not check that the dropped binders avoid the initial pattern's names. See docs/compatibility.md#execution-results."
+rule = "Drop the outer existential binders of a result disjunct that bind generated variables, stopping at the first binder of an initial-pattern variable, before generated-variable renaming."
+justification = "A result variable that is not free in the initial pattern is existentially quantified over its disjunct, so an outer binder of such a variable denotes the same disjunct as its body; k-rust leaves that binder implicit. A binder of an initial-pattern variable changes the result's relation to the query's valuation, so it is kept and compared. Without an initial pattern, generated variables are recognized by the N4 name shapes. See docs/compatibility.md#execution-results."
 
 [[normalisation]]
 id = "N17"
