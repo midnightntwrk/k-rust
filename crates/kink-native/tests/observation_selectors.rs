@@ -19,8 +19,11 @@ use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
 use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget};
 use kink_native::observation::NativeEvent;
-use kink_native::{NativeValidator, RuleSelection, RuleSelector, SelectionFailure, select_rules};
-use kink_patch::{Baseline, SentenceRef};
+use kink_native::{
+    MutantRejection, NativeValidator, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
+    select_rules,
+};
+use kink_patch::{Baseline, Edit, Patch, SentenceRef};
 use serde_json::Value;
 
 fn structural(label: Option<&str>, path: &[u32], sort: &str, head: Option<&str>) -> RuleSelector {
@@ -68,7 +71,21 @@ fn labels(
     baseline: &Baseline,
     selections: &[RuleSelection],
 ) -> Result<Vec<String>, SelectionFailure> {
-    select_rules(baseline, selections).map(|rules| {
+    let classification = selections
+        .iter()
+        .any(|selection| matches!(selection.selector, RuleSelector::AllTransitions))
+        .then(|| {
+            let module = baseline
+                .authored_sentences()
+                .find(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+                .expect("an authored rule")
+                .0
+                .module;
+            let validator = NativeValidator::bind(baseline.clone(), CompileOptions::default());
+            let side = validator.compile_baseline().expect("baseline compiles");
+            RewriteRules::classify(&validator, &side, &module).expect("rewrite classification")
+        });
+    select_rules(baseline, classification.as_ref(), selections).map(|rules| {
         rules
             .into_iter()
             .map(|rule| {
@@ -146,13 +163,21 @@ fn selection_failures_publish_no_rule() {
 }
 
 #[test]
-fn all_written_undecided_rules_are_selected_in_definition_order() {
+fn all_undecided_rewrite_rules_are_selected_in_definition_order() {
     let baseline = support::load("undecided.k");
-    let rules = select_rules(&baseline, &[selection(RuleSelector::AllTransitions, 8)])
-        .expect("all eight written rules are selectable");
+    let validator = NativeValidator::bind(baseline.clone(), CompileOptions::default());
+    let side = validator.compile_baseline().expect("baseline");
+    let classification =
+        RewriteRules::classify(&validator, &side, "UNDECIDED").expect("classification");
+    let rules = select_rules(
+        &baseline,
+        Some(&classification),
+        &[selection(RuleSelector::AllTransitions, 4)],
+    )
+    .expect("four rewrite rules are selectable");
     assert_eq!(
         rules.into_iter().map(|rule| rule.rule).collect::<Vec<_>>(),
-        (0..8)
+        (4..8)
             .map(|index| SentenceRef::new("UNDECIDED", index))
             .collect::<Vec<_>>()
     );
@@ -161,8 +186,16 @@ fn all_written_undecided_rules_are_selected_in_definition_order() {
 #[test]
 fn unlabelled_rules_are_selected_in_definition_order() {
     let baseline = support::load("unlabelled.k");
-    let rules = select_rules(&baseline, &[selection(RuleSelector::AllTransitions, 3)])
-        .expect("all three written rules are selectable");
+    let validator = NativeValidator::bind(baseline.clone(), CompileOptions::default());
+    let side = validator.compile_baseline().expect("baseline");
+    let classification =
+        RewriteRules::classify(&validator, &side, "UNLABELLED").expect("classification");
+    let rules = select_rules(
+        &baseline,
+        Some(&classification),
+        &[selection(RuleSelector::AllTransitions, 3)],
+    )
+    .expect("all three written rules are selectable");
     assert_eq!(
         rules.into_iter().map(|rule| rule.rule).collect::<Vec<_>>(),
         (0..3)
@@ -172,11 +205,82 @@ fn unlabelled_rules_are_selected_in_definition_order() {
 }
 
 #[test]
+fn all_transitions_without_classification_publishes_no_rule() {
+    let baseline = support::load("counter.k");
+    #[rustfmt::skip]
+    let rows = [
+        (vec![selection(RuleSelector::AllTransitions, 3)], 0),
+        (vec![selection(RuleSelector::Label("COUNTER.increment".to_owned()), 1), selection(RuleSelector::AllTransitions, 3)], 1),
+    ];
+    for (selections, failing_selection) in rows {
+        assert_eq!(
+            select_rules(&baseline, None, &selections),
+            Err(SelectionFailure::Unclassified {
+                selection: failing_selection
+            })
+        );
+    }
+}
+
+#[test]
+fn selected_rewrite_reclassified_as_equation_fails_closed() {
+    let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
+    let baseline = validator.compile_baseline().expect("baseline");
+    let classification = RewriteRules::classify(&validator, &baseline, "UNDECIDED")
+        .expect("baseline classification");
+    let rules = select_rules(
+        validator.baseline(),
+        Some(&classification),
+        &[selection(RuleSelector::AllTransitions, 4)],
+    )
+    .expect("four rewrite rules");
+    let patch = Patch::new(vec![Edit::AddAttribute {
+        at: support::rule(validator.baseline(), "UNDECIDED.step"),
+        key: "simplification".to_owned(),
+        value: Value::String(String::new()),
+    }])
+    .expect("patch");
+    let mutant = match validator.validate(&patch) {
+        Ok(mutant) => mutant,
+        Err(MutantRejection::Compilation(error)) => {
+            assert_eq!(error.stage, "check simplification rules");
+            return;
+        }
+        Err(error) => panic!("unexpected rejection: {error}"),
+    };
+    let manifest = validator
+        .observation_manifest(&mutant, &rules)
+        .expect("manifest");
+    let mut backend = Backend::new(
+        &mutant.artifacts().definition_kore,
+        "UNDECIDED",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let state = support::initial_state(
+        kore_application("Lblvacuous", Vec::new(), Vec::new()),
+        "SortS",
+    );
+    assert!(matches!(
+        ExecutionAdapter::new(manifest).execute(
+            &mut backend,
+            &state,
+            ExecutionBudget {
+                time: Duration::from_secs(30),
+                max_simplification_iterations: 1000,
+            },
+        ),
+        Err(ExecutionAdapterFailure::Backend(_))
+    ));
+}
+
+#[test]
 fn function_equations_are_not_observable() {
     let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
     let side = validator.compile_baseline().expect("baseline");
     let rules = select_rules(
         validator.baseline(),
+        None,
         &[selection(
             structural(None, &[0, 0], "Bool", Some("isZero")),
             2,
@@ -266,8 +370,14 @@ fn s(pattern: Pattern) -> Pattern {
 fn observed(selector: RuleSelector, cardinality: usize, state: &Pattern) -> Vec<Vec<String>> {
     let validator = NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
     let side = validator.compile_baseline().expect("counter.k compiles");
-    let rules =
-        select_rules(validator.baseline(), &[selection(selector, cardinality)]).expect("selection");
+    let classification = matches!(selector, RuleSelector::AllTransitions)
+        .then(|| RewriteRules::classify(&validator, &side, "COUNTER").expect("classification"));
+    let rules = select_rules(
+        validator.baseline(),
+        classification.as_ref(),
+        &[selection(selector, cardinality)],
+    )
+    .expect("selection");
     let manifest = validator
         .observation_manifest(&side, &rules)
         .expect("manifest installs");

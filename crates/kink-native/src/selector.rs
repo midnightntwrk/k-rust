@@ -10,14 +10,17 @@
 use std::{collections::BTreeSet, fmt};
 
 use k_rust::{
+    backend::Backend,
     definition::{AttributeKey, Sentence},
     kast::Sort,
+    kore::parser::parse_definition,
 };
+use k_rust_backend::transition::ObservationOptions;
 use kink_patch::{Baseline, SentenceRef, SiteSelector, derive_sites};
 use serde_json::Value;
 
-use crate::ObservedRule;
 use crate::observation::DomainEventSpec;
+use crate::{IdentityError, NativeValidator, ObservedRule, ValidatedDefinition};
 
 /// Which written rules of the baseline one selection observes.
 #[derive(Clone, Debug, PartialEq)]
@@ -36,8 +39,103 @@ pub enum RuleSelector {
         sort: Sort,
         head: Option<String>,
     },
-    /// Every written rule. Function equations are rules too, and are included.
+    /// Every written rule that k-rust executes as a rewrite rule, as classified by the
+    /// compiled baseline's `rewrite_theory`. Function equations, simplification and anywhere
+    /// rules are left out; an explicit selection of one fails closed.
     AllTransitions,
+}
+
+/// Written baseline rules present in k-rust's executable rewrite theory.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RewriteRules(BTreeSet<SentenceRef>);
+
+/// Why a compiled baseline cannot be classified without guessing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ClassificationFailure {
+    MutantBaseline,
+    Parse(String),
+    Internalize(String),
+    ObservationFilter(String),
+    MissingSource(SentenceRef),
+    AmbiguousRule(SentenceRef),
+}
+
+impl fmt::Display for ClassificationFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MutantBaseline => {
+                formatter.write_str("rewrite classification requires a compiled baseline")
+            }
+            Self::Parse(error) => write!(formatter, "could not parse compiled KORE: {error}"),
+            Self::Internalize(error) => {
+                write!(formatter, "could not internalize compiled KORE: {error}")
+            }
+            Self::ObservationFilter(error) => write!(
+                formatter,
+                "rewrite theory does not install as an observation filter: {error}"
+            ),
+            Self::MissingSource(rule) => {
+                write!(formatter, "{rule:?} has no written source position")
+            }
+            Self::AmbiguousRule(rule) => {
+                write!(formatter, "{rule:?} has ambiguous compiled identities")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ClassificationFailure {}
+
+impl RewriteRules {
+    /// Classifies authored rules by k-rust's compiled rewrite theory for `module`.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a mutant, failed KORE parse or internalization, or an ambiguous position.
+    pub fn classify(
+        validator: &NativeValidator,
+        baseline: &ValidatedDefinition,
+        module: &str,
+    ) -> Result<Self, ClassificationFailure> {
+        if baseline.origins().is_some() {
+            return Err(ClassificationFailure::MutantBaseline);
+        }
+        let syntax = parse_definition(&baseline.artifacts().definition_kore)
+            .map_err(|error| ClassificationFailure::Parse(error.to_string()))?;
+        let definition = Backend::internalize_definition(&syntax, module)
+            .map_err(|error| ClassificationFailure::Internalize(error.to_string()))?;
+        // This is the same theory traversal ObservationOptions::with_rules uses.
+        let ids = definition
+            .rewrite_theory
+            .values()
+            .flat_map(|priorities| priorities.values())
+            .flat_map(|rules| rules.iter())
+            .map(|rule| rule.rule.attributes.unique_id.as_str())
+            .collect::<BTreeSet<_>>();
+        ObservationOptions::with_rules(&definition, ids.iter().copied())
+            .map_err(|error| ClassificationFailure::ObservationFilter(format!("{error:?}")))?;
+        let mut selected = BTreeSet::new();
+        for (at, sentence) in validator.baseline().authored_sentences() {
+            if !matches!(sentence, Sentence::Rule { .. }) {
+                continue;
+            }
+            let attributes = sentence.attributes();
+            let (Some(source), Some(location)) = (attributes.source(), attributes.location())
+            else {
+                return Err(ClassificationFailure::MissingSource(at));
+            };
+            match baseline.rule_identity(source, location) {
+                Ok(id) if ids.contains(id) => {
+                    selected.insert(at);
+                }
+                Ok(_) | Err(IdentityError::Missing) => {}
+                Err(IdentityError::Ambiguous) => {
+                    return Err(ClassificationFailure::AmbiguousRule(at));
+                }
+            }
+        }
+        Ok(Self(selected))
+    }
 }
 
 /// One selector with the number of rules it must match and what each matched rule emits.
@@ -53,6 +151,8 @@ pub struct RuleSelection {
 /// selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectionFailure {
+    /// `AllTransitions` needs the compiled baseline's rewrite classification.
+    Unclassified { selection: usize },
     /// The selection matched `actual` rules, not `expected`, or matched none.
     CardinalityMismatch {
         selection: usize,
@@ -68,6 +168,10 @@ pub enum SelectionFailure {
 impl fmt::Display for SelectionFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Unclassified { selection } => write!(
+                formatter,
+                "selection {selection} has no rewrite classification"
+            ),
             Self::CardinalityMismatch {
                 selection,
                 expected,
@@ -93,19 +197,24 @@ impl fmt::Display for SelectionFailure {
 impl std::error::Error for SelectionFailure {}
 
 /// Resolves `selections` over `baseline`: the matched rules of each selection in definition
-/// order, selections in the order given, each with its selection's emissions.
+/// order, selections in the order given, each with its selection's emissions. `AllTransitions`
+/// requires `rewrite_rules` from that compiled baseline; other selectors ignore it.
 ///
 /// # Errors
 ///
 /// Returns the first failing selection's [`SelectionFailure`]; no rule is published then.
 pub fn select_rules(
     baseline: &Baseline,
+    rewrite_rules: Option<&RewriteRules>,
     selections: &[RuleSelection],
 ) -> Result<Vec<ObservedRule>, SelectionFailure> {
     let mut seen = BTreeSet::new();
     let mut rules = Vec::new();
     for (index, selection) in selections.iter().enumerate() {
-        let matched = matched_rules(baseline, &selection.selector)
+        if matches!(selection.selector, RuleSelector::AllTransitions) && rewrite_rules.is_none() {
+            return Err(SelectionFailure::Unclassified { selection: index });
+        }
+        let matched = matched_rules(baseline, rewrite_rules, &selection.selector)
             .ok_or(SelectionFailure::UndecidedSort { selection: index })?;
         if matched.len() != selection.expected_cardinality || matched.is_empty() {
             return Err(SelectionFailure::CardinalityMismatch {
@@ -133,7 +242,11 @@ pub fn select_rules(
 
 /// The written rules `selector` matches, in definition order; `None` when
 /// a structural selector met a position of undecided sort.
-fn matched_rules(baseline: &Baseline, selector: &RuleSelector) -> Option<Vec<SentenceRef>> {
+fn matched_rules(
+    baseline: &Baseline,
+    rewrite_rules: Option<&RewriteRules>,
+    selector: &RuleSelector,
+) -> Option<Vec<SentenceRef>> {
     let structural = match selector {
         RuleSelector::Structural {
             label,
@@ -184,7 +297,9 @@ fn matched_rules(baseline: &Baseline, selector: &RuleSelector) -> Option<Vec<Sen
                         RuleSelector::Structural { .. } => structural
                             .as_ref()
                             .is_some_and(|matched| matched.contains(at)),
-                        RuleSelector::AllTransitions => true,
+                        RuleSelector::AllTransitions => {
+                            rewrite_rules.is_some_and(|rules| rules.0.contains(at))
+                        }
                     }
             })
             .map(|(at, _)| at)
