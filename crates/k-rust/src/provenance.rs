@@ -2,12 +2,16 @@
 //! id = "definition.provenance.record"
 //! name = "recording of generation-origin receipts"
 //! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "insert_link"]
-//! variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared"
+//! variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
 //! counters = ["ProvenanceLinkDedupProbes", "KompileSentenceCopies"]
 //!
 //! [[cost]]
-//! mode = "one generating pass over a definition"
-//! bound = "O(M^2 + D + N log N + sum k)"
+//! mode = "one order-preserving generating pass with distinct fallback bucket keys"
+//! bound = "O(M^2 + D + N + sum k) expected"
+//!
+//! [[cost]]
+//! mode = "one generating pass with adversarial fallback buckets"
+//! bound = "O(M^2 + D + N^2 x s + sum k)"
 //! ```
 //!
 //! ```toml algorithm
@@ -28,14 +32,14 @@
 //! ```
 //!
 //! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
-//! Complexity: receipt diff O(N log N) per module per pass; origin unions O(k) expected per visited node after CQ-12b.
+//! Complexity: the ordered equality walk is linear in sentence size; fallback buckets are linear with distinct keys and O(N^2 x s) in the worst case when equal-key sentences differ; origin unions O(k) expected per visited node after CQ-12b.
 //! Annotation is linear in visited nodes and link insertions; `ProvenanceLinkDedupProbes` measures those insertions.
 //! The former linear `push_unique` union was the largest KEVM self frame at the audit base. Source identities hash each source once, intern it by a linear scan of the table, and validate offset-map segments in one pass.
 //!
 //! Stable source identities and provenance shared by the semantic frontend.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -613,6 +617,62 @@ fn sentence_origins(
 fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
     let mut counterparts = vec![None; after.len()];
     let mut used = vec![false; before.len()];
+    let mut before_index = 0;
+    let mut after_index = 0;
+    let mut first_gap = None;
+    // Most passes preserve order. Compare each aligned pair once, stepping over a single
+    // insertion or removal when an adjacent sentence restores alignment.
+    while before_index < before.len() && after_index < after.len() {
+        if before[before_index] == after[after_index] {
+            counterparts[after_index] = Some(before_index);
+            used[before_index] = true;
+            before_index += 1;
+            after_index += 1;
+        } else {
+            first_gap.get_or_insert(after_index);
+            if before
+                .get(before_index + 1)
+                .is_some_and(|candidate| candidate == &after[after_index])
+            {
+                before_index += 1;
+            } else {
+                after_index += 1;
+            }
+        }
+    }
+    if after_index < after.len() {
+        first_gap.get_or_insert(after_index);
+    }
+    if let Some(first_gap) = first_gap {
+        // Release the suffix found by the walk: a skipped earlier duplicate may belong to
+        // an earlier after-sentence. Reassigning the suffix in after order preserves the
+        // first-occurrence pairing of equal duplicates on both sides.
+        for counterpart in &mut counterparts[first_gap..] {
+            if let Some(index) = counterpart.take() {
+                used[index] = false;
+            }
+        }
+        let mut buckets = HashMap::<SentenceBucketKey, Vec<usize>>::new();
+        for (index, sentence) in before.iter().enumerate() {
+            if !used[index] {
+                buckets
+                    .entry(sentence_bucket_key(sentence))
+                    .or_default()
+                    .push(index);
+            }
+        }
+        for (index, sentence) in after.iter().enumerate().skip(first_gap) {
+            if let Some(candidates) = buckets.get_mut(&sentence_bucket_key(sentence))
+                && let Some(position) = candidates
+                    .iter()
+                    .position(|candidate| before[*candidate] == *sentence)
+            {
+                let before_index = candidates.remove(position);
+                counterparts[index] = Some(before_index);
+                used[before_index] = true;
+            }
+        }
+    }
     // Invariant: counterparts already assigned by a stronger key remain fixed and each `before`
     // index marked in `used` is paired exactly once.
     for key in [AttributeKey::UniqueId, AttributeKey::Label] {
@@ -650,6 +710,43 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
         }
     }
     counterparts
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct SentenceBucketKey {
+    kind: &'static str,
+    unique_id: Option<String>,
+    label: Option<String>,
+    discriminator: Option<String>,
+}
+
+fn sentence_bucket_key(sentence: &Sentence) -> SentenceBucketKey {
+    // Equality implies an equal key; collisions are resolved by Sentence equality in the bucket.
+    let discriminator = match sentence {
+        Sentence::ContextAlias { body, .. }
+        | Sentence::Context { body, .. }
+        | Sentence::Rule { body, .. }
+        | Sentence::Claim { body, .. }
+        | Sentence::Configuration { body, .. } => Some(body.to_string()),
+        Sentence::Production { sort, label, .. } => Some(format!("{sort:?}:{label:?}")),
+        Sentence::SyntaxSort { sort, .. } => Some(format!("{sort:?}")),
+        Sentence::SortSynonym { new_sort, .. } => Some(format!("{new_sort:?}")),
+        Sentence::SyntaxLexical { name, .. } => Some(name.clone()),
+        Sentence::Bubble { sentence_type, .. } => Some(sentence_type.clone()),
+        Sentence::SyntaxAssociativity { .. } | Sentence::SyntaxPriority { .. } => None,
+    };
+    SentenceBucketKey {
+        kind: sentence_kind(sentence),
+        unique_id: sentence
+            .attributes()
+            .string(AttributeKey::UniqueId)
+            .map(str::to_owned),
+        label: sentence
+            .attributes()
+            .string(AttributeKey::Label)
+            .map(str::to_owned),
+        discriminator,
+    }
 }
 
 fn sentences_by_attribute(sentences: &[Sentence], key: AttributeKey) -> BTreeMap<&str, Vec<usize>> {
@@ -1271,6 +1368,15 @@ mod tests {
     fn linear_sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
         let mut counterparts = vec![None; after.len()];
         let mut used = vec![false; before.len()];
+        for (after_index, sentence) in after.iter().enumerate() {
+            for (before_index, candidate) in before.iter().enumerate() {
+                if !used[before_index] && sentence == candidate {
+                    counterparts[after_index] = Some(before_index);
+                    used[before_index] = true;
+                    break;
+                }
+            }
+        }
         for key in [AttributeKey::UniqueId, AttributeKey::Label] {
             for (after_index, sentence) in after.iter().enumerate() {
                 if counterparts[after_index].is_some() {
@@ -1312,6 +1418,49 @@ mod tests {
             }
         }
         counterparts
+    }
+
+    #[test]
+    fn unchanged_sentences_pair_across_removed_alias_before_generated_sentence() {
+        let alias = Sentence::ContextAlias {
+            body: Term::variable("HERE"),
+            requires: Term::apply("true", Vec::new()),
+            attributes: Attributes::default(),
+        };
+        let first = rule(Term::apply("first", Vec::new()));
+        let second = rule(Term::apply("second", Vec::new()));
+        let generated = counterpart_sentence((None, None, true));
+        let before = vec![alias, first.clone(), second.clone()];
+        let after = vec![first, second, generated];
+        assert_eq!(
+            sentence_counterparts(&before, &after),
+            [Some(1), Some(2), None]
+        );
+    }
+
+    #[test]
+    fn equal_duplicate_sentences_pair_in_occurrence_order() {
+        let repeated = rule(Term::apply("repeated", Vec::new()));
+        let other = rule(Term::apply("other", Vec::new()));
+        let before = vec![repeated.clone(), other.clone(), repeated.clone()];
+        let after = vec![other, repeated.clone(), repeated];
+        assert_eq!(
+            sentence_counterparts(&before, &after),
+            [Some(1), Some(0), Some(2)]
+        );
+    }
+
+    #[test]
+    fn reordered_sentences_pair_before_an_inserted_sentence() {
+        let repeated = rule(Term::apply("repeated", Vec::new()));
+        let other = rule(Term::apply("other", Vec::new()));
+        let inserted = counterpart_sentence((None, None, true));
+        let before = vec![repeated.clone(), other.clone(), repeated.clone()];
+        let after = vec![other, inserted, repeated.clone(), repeated];
+        assert_eq!(
+            sentence_counterparts(&before, &after),
+            [Some(1), None, Some(0), Some(2)]
+        );
     }
 
     proptest! {

@@ -5867,6 +5867,100 @@ fn strictness_contexts_link_to_their_source_production() {
     }
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn unchanged_rules_keep_their_own_origins_after_context_alias_removal() {
+    let source = "module MAIN\n  imports INT\n  syntax KResult ::= Int\n  syntax Exp ::= Int | foo(Exp) [strict(c)] | a() | b() | d()\n  context alias [c]: HERE\n  rule a() => 1\n  rule b() => 2\n  rule d() => 3\nendmodule\n";
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("main.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let source_id = SourceId(
+        loaded
+            .source_table
+            .iter()
+            .position(|candidate| candidate.logical == "main.k")
+            .expect("the input source is registered"),
+    );
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    let main = artifacts.execution_definition.main_module().unwrap();
+    let production_start = source.find("foo(Exp) [strict(c)]").unwrap();
+    let production_end = production_start + "foo(Exp) [strict(c)]".len();
+    let mut authored = BTreeSet::new();
+    let mut heat = 0;
+    let mut cool = 0;
+    for sentence in &main.local_sentences {
+        let Sentence::Rule { .. } = &**sentence else {
+            continue;
+        };
+        let attributes = sentence.attributes();
+        if attributes.source() != Some("main.k") {
+            continue;
+        }
+        let (expected, authored_rule) = if let Some(location) = attributes.location()
+            && (6..=8).contains(&location.start_line)
+        {
+            let line = location.start_line;
+            let marker = match line {
+                6 => "rule a() => 1",
+                7 => "rule b() => 2",
+                8 => "rule d() => 3",
+                _ => unreachable!(),
+            };
+            authored.insert(line);
+            let start = source.find(marker).unwrap();
+            (start..start + marker.len(), true)
+        } else if attributes.has(k_rust::definition::AttributeKey::Heat) {
+            heat += 1;
+            (production_start..production_end, false)
+        } else if attributes.has(k_rust::definition::AttributeKey::Cool) {
+            cool += 1;
+            (production_start..production_end, false)
+        } else {
+            continue;
+        };
+        if let Some(record) = attributes.origin_record() {
+            assert!(!record.origins.is_empty());
+            for origin in record.origins.iter() {
+                match origin {
+                    ProvenanceLink::Source { span } => {
+                        assert_eq!(span.source, source_id);
+                        assert!(
+                            expected.start <= span.start && span.end <= expected.end,
+                            "rule at {:?} has origin {span:?} outside {expected:?}",
+                            attributes.location()
+                        );
+                    }
+                    ProvenanceLink::Sentence { unique_id } if authored_rule => {
+                        assert_eq!(
+                            Some(unique_id.as_str()),
+                            attributes.string(k_rust::definition::AttributeKey::UniqueId),
+                            "authored rule at {:?} links another sentence",
+                            attributes.location()
+                        );
+                    }
+                    _ => panic!("strictness rule has non-source origin {origin:?}"),
+                }
+            }
+        } else if attributes.has(k_rust::definition::AttributeKey::Heat)
+            || attributes.has(k_rust::definition::AttributeKey::Cool)
+        {
+            panic!("generated strictness rule has no origin receipt");
+        }
+    }
+    assert_eq!(authored, BTreeSet::from([6, 7, 8]));
+    assert_eq!((heat, cool), (1, 1));
+}
+
 #[test]
 fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
     let alias = Sentence::ContextAlias {
