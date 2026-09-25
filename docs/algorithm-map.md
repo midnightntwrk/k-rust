@@ -128,7 +128,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.alias.unfold — O(o + b x (p + r)) +1 mode
 - backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +1 mode — in: [match result]
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode
-- backend.fresh.object_language — O(s + (k + b + 1) x t + k x r + m^2 per map) plus…
+- backend.fresh.object_language — O(t + r) opacity pre-pass, then O((k + b + 1) x t… +1 mode
 - backend.fresh.variables — O(c) per name, amortized O(1) +3 modes
 - backend.implication.check — O(r) matching problems and antecedent… +1 mode — in: [match result], [extracted substitution]
 - backend.matching.relation_query — O(g x log |S|) +2 modes
