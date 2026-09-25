@@ -1006,9 +1006,7 @@ impl<R: SourceResolver> Loader<'_, R> {
             .as_deref()
             .and_then(|root| logical_below(root, &source.source))
             .unwrap_or_else(|| source.logical.clone());
-        let source_id = self
-            .source_table
-            .intern(LogicalSourceId::new(logical, source.text.as_bytes()));
+        let identity = LogicalSourceId::new(logical, source.text.as_bytes());
         let (text, offset_map) = if source.source.ends_with(".md") {
             let extracted =
                 extract_fenced_k_code_with_map(&source.text, &self.options.markdown_selector)
@@ -1029,17 +1027,10 @@ impl<R: SourceResolver> Loader<'_, R> {
         } else {
             (source.text, None)
         };
-        // A prepared base's table may already hold this source with the offset map its spans were
-        // recorded under. A prepared source is re-read only to validate its declarations and its
-        // modules are not lowered again, while another Markdown selector can extract other blocks,
-        // so the map the base's spans were recorded under stays.
-        if let Some(offset_map) = offset_map
-            && self.source_table.offset_map(source_id).is_none()
-        {
-            self.source_table
-                .set_offset_map(source_id, offset_map)
-                .expect("the source was interned immediately before its offset map");
-        }
+        // Spans index the extracted text, so the identity is the raw source together with its
+        // extraction: a prepared base may hold the same file extracted under another Markdown
+        // selector, and that entry keeps describing the base's spans.
+        let source_id = self.source_table.intern_extraction(identity, offset_map);
         let mut parsed = parse(source.source.clone(), &text).map_err(|error| LoadError::Parse {
             source: source.source.clone(),
             error,

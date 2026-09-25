@@ -1356,6 +1356,12 @@ enum PreparedDefinitionError {
     MissingDefinition { directory: PathBuf, file: PathBuf },
     /// The manifest names a definition outside the prepared directory.
     InvalidDefinitionName { manifest: PathBuf, name: String },
+    /// The named definition resolves, through symbolic links, outside the prepared directory.
+    DefinitionOutsideDirectory {
+        file: PathBuf,
+        resolved: PathBuf,
+        directory: PathBuf,
+    },
 }
 
 impl fmt::Display for PreparedDefinitionError {
@@ -1382,6 +1388,17 @@ impl fmt::Display for PreparedDefinitionError {
                 "prepared definition manifest {} names definition {name:?}, which is not a file \
                  name in its directory",
                 manifest.display()
+            ),
+            Self::DefinitionOutsideDirectory {
+                file,
+                resolved,
+                directory,
+            } => write!(
+                formatter,
+                "prepared definition {} resolves to {}, outside the prepared directory {}",
+                file.display(),
+                resolved.display(),
+                directory.display()
             ),
         }
     }
@@ -3259,13 +3276,23 @@ fn load_prepared_definition(
         .into());
     }
     let file = directory.join(name);
-    let text = match fs::read_to_string(&file) {
-        Ok(text) => text,
+    let resolved = match fs::canonicalize(&file) {
+        Ok(resolved) => resolved,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Err(PreparedDefinitionError::MissingDefinition { directory, file }.into());
         }
         Err(error) => return Err(error.into()),
     };
+    // The bundle is the directory: a symbolic link may not make it read a definition elsewhere.
+    if !resolved.starts_with(fs::canonicalize(&directory)?) {
+        return Err(PreparedDefinitionError::DefinitionOutsideDirectory {
+            file,
+            resolved,
+            directory,
+        }
+        .into());
+    }
+    let text = fs::read_to_string(&resolved)?;
     definition_json::from_provenance_str(&text)
         .map_err(|error| format!("could not decode {}: {error}", file.display()).into())
 }
