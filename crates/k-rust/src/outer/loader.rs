@@ -40,6 +40,7 @@ use crate::{
     definition::{
         ConfigurationError, Definition, FlatImport, Location, ResolveError, ResolvedDefinition,
         Sentence, apply_sort_synonyms_with_resolved, check_outer_modules, check_sorts,
+        json::ProvenanceDefinition,
     },
     diagnostic::{Diagnostic, DiagnosticCode, DiagnosticPolicy, Severity},
     inner::{
@@ -345,8 +346,18 @@ pub fn load_with_options_timed(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
 ) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
-    load_impl(entry, main_module, resolver, options, None, &[], &[], None)
-        .map(|(loaded, _, timings)| (loaded, timings))
+    load_impl(
+        entry,
+        main_module,
+        resolver,
+        options,
+        None,
+        &SourceTable::default(),
+        &[],
+        &[],
+        None,
+    )
+    .map(|(loaded, _, timings)| (loaded, timings))
 }
 
 /// Load a fresh compilation using the semantic/syntax import closures, frontend utility
@@ -382,6 +393,7 @@ pub fn load_for_compilation_timed(
         resolver,
         options,
         None,
+        &SourceTable::default(),
         &[],
         &[],
         Some(selection::CompilationSelection { syntax_module }),
@@ -398,6 +410,11 @@ pub fn load_for_compilation_timed(
 /// Requirements whose paths identify `provided_sources` are satisfied by `base`. The legacy API
 /// does not carry declaration identities, so callers that need selector-sensitive validation use
 /// [`load_with_prepared_base`].
+///
+/// `base` comes without the source table its term spans and origin receipts index, so the loaded
+/// definition interprets any [`SourceId`](crate::provenance::SourceId) in `base` against the new
+/// load's table. A base that carries source-indexed metadata is loaded with
+/// [`load_with_prepared_base`], which extends the base's own table instead.
 pub fn load_with_base(
     entry: ResolvedSource,
     main_module: impl Into<String>,
@@ -406,14 +423,13 @@ pub fn load_with_base(
     base: &Definition,
     provided_sources: &[String],
 ) -> Result<LoadedDefinition, LoadError> {
-    load_with_prepared_base_timed(
+    load_with_base_timed(
         entry,
         main_module,
         resolver,
         options,
         base,
         provided_sources,
-        &[],
     )
     .map(|(loaded, _)| loaded)
 }
@@ -428,24 +444,32 @@ pub fn load_with_base_timed(
     base: &Definition,
     provided_sources: &[String],
 ) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
-    load_with_prepared_base_timed(
+    load_impl(
         entry,
         main_module,
         resolver,
         options,
-        base,
+        Some(base),
+        &SourceTable::default(),
         provided_sources,
         &[],
+        None,
     )
+    .map(|(loaded, _, timings)| (loaded, timings))
 }
 
 /// Load a new source graph against a prepared definition and validate any re-read declarations.
+///
+/// `base` carries the source table that its term spans and origin receipts index. The loaded
+/// definition's table starts as a copy of that table and interns the new graph's sources after it,
+/// so every source identity of `base` keeps its meaning and a re-read source that is byte-identical
+/// under the same logical name keeps its identity.
 pub fn load_with_prepared_base(
     entry: ResolvedSource,
     main_module: impl Into<String>,
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
-    base: &Definition,
+    base: &ProvenanceDefinition,
     provided_sources: &[String],
     prepared_modules: &[PreparedModuleDeclaration],
 ) -> Result<LoadedDefinition, LoadError> {
@@ -467,7 +491,7 @@ pub fn load_with_prepared_base_timed(
     main_module: impl Into<String>,
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
-    base: &Definition,
+    base: &ProvenanceDefinition,
     provided_sources: &[String],
     prepared_modules: &[PreparedModuleDeclaration],
 ) -> Result<(LoadedDefinition, PhaseTimings), LoadError> {
@@ -476,7 +500,8 @@ pub fn load_with_prepared_base_timed(
         main_module,
         resolver,
         options,
-        Some(base),
+        Some(&base.definition),
+        &base.source_table,
         provided_sources,
         prepared_modules,
         None,
@@ -491,6 +516,7 @@ fn load_impl(
     resolver: &mut impl SourceResolver,
     options: &LoadOptions,
     base: Option<&Definition>,
+    base_sources: &SourceTable,
     provided_sources: &[String],
     prepared_modules: &[PreparedModuleDeclaration],
     compilation: Option<selection::CompilationSelection<'_>>,
@@ -505,7 +531,9 @@ fn load_impl(
         required_prepared_sources: BTreeSet::new(),
         states: BTreeMap::new(),
         files: Vec::new(),
-        source_table: SourceTable::default(),
+        // The base's spans and receipts index its own table; new sources are interned after it,
+        // so those identities need no remapping.
+        source_table: base_sources.clone(),
         diagnostics: Vec::new(),
     };
     timings.time(load_phase::PARSE_SOURCES, || {
@@ -978,9 +1006,7 @@ impl<R: SourceResolver> Loader<'_, R> {
             .as_deref()
             .and_then(|root| logical_below(root, &source.source))
             .unwrap_or_else(|| source.logical.clone());
-        let source_id = self
-            .source_table
-            .intern(LogicalSourceId::new(logical, source.text.as_bytes()));
+        let identity = LogicalSourceId::new(logical, source.text.as_bytes());
         let (text, offset_map) = if source.source.ends_with(".md") {
             let extracted =
                 extract_fenced_k_code_with_map(&source.text, &self.options.markdown_selector)
@@ -1001,11 +1027,10 @@ impl<R: SourceResolver> Loader<'_, R> {
         } else {
             (source.text, None)
         };
-        if let Some(offset_map) = offset_map {
-            self.source_table
-                .set_offset_map(source_id, offset_map)
-                .expect("the source was interned immediately before its offset map");
-        }
+        // Spans index the extracted text, so the identity is the raw source together with its
+        // extraction: a prepared base may hold the same file extracted under another Markdown
+        // selector, and that entry keeps describing the base's spans.
+        let source_id = self.source_table.intern_extraction(identity, offset_map);
         let mut parsed = parse(source.source.clone(), &text).map_err(|error| LoadError::Parse {
             source: source.source.clone(),
             error,

@@ -3148,7 +3148,7 @@ symbol = "LogicalSourceId::new"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
-symbol = "SourceTable::intern"
+symbol = "SourceTable::intern_extraction"
 
 [[node.sites]]
 crate = "k-rust"
@@ -3160,8 +3160,8 @@ mode = "one source"
 bound = "O(B + S)"
 
 [[node.cost]]
-mode = "SourceTable::intern"
-bound = "O(F) LogicalSourceId comparisons"
+mode = "SourceTable::intern_extraction"
+bound = "O(F) LogicalSourceId and offset-map comparisons"
 
 [[node]]
 kind = "algorithm"
@@ -7806,7 +7806,7 @@ kind = "constrains"
 from = "kompile.kore.declarations"
 to = "definition.outer.requires"
 provenance = "declared"
-detail = "the SyntaxModule attribute and PreparedDefinitionManifest module digests cross the process boundary in parsed.json and krust.json"
+detail = "the SyntaxModule attribute, the base definition with the source table its spans index, and PreparedDefinitionManifest module digests cross the process boundary in the KRUST-PROVENANCE parsed definition and krust.json"
 
 [edge.consumer_site]
 crate = "k-rust"

@@ -5151,6 +5151,203 @@ fn kprove_rejects_unsupported_prepared_manifest_versions() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Proof preparation for a semantics whose strictness names a context alias.
+fn prepared_context_alias_semantics() -> (PathBuf, PathBuf, PathBuf) {
+    let (root, _) = fixture();
+    let semantics = root.join("semantics.k");
+    let specification = root.join("spec.k");
+    let compiled = root.join("compiled");
+    fs::write(
+        &semantics,
+        r#"
+module SEMANTICS
+  imports INT
+  syntax KResult ::= Int
+  syntax Exp ::= Int | foo(Exp) [strict(c), symbol(foo)] | a() [symbol(a)]
+  context alias [c]: HERE
+  configuration <k> $PGM:Exp </k>
+  rule <k> a() => 1 ... </k>
+  rule <k> foo(I:Int) => I +Int 1 ... </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &specification,
+        r#"
+requires "semantics.k"
+module SPEC
+  imports SEMANTICS
+  claim <k> foo(a()) => 2 </k> [label(heats-a)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            semantics.to_str().unwrap(),
+            "--main-module",
+            "SEMANTICS",
+            "--for-proving",
+            "--output-directory",
+            compiled.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    (root, specification, compiled)
+}
+
+fn kprove_spec_against(specification: &Path, compiled: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+        ])
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn kprove_against_prepared_semantics_keeps_context_aliases_named_by_strictness() {
+    let (root, specification, compiled) = prepared_context_alias_semantics();
+    // The claim holds only through the heating and cooling rules that `strict(c)` generates from
+    // the context alias, so the alias must reach the specification's compilation.
+    let proof = kprove_spec_against(&specification, &compiled);
+    assert!(
+        proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&proof.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&proof.stdout).contains("claim heats-a: proven"),
+        "{}",
+        String::from_utf8_lossy(&proof.stdout)
+    );
+
+    // A specification prepared against the semantics is itself a base for later specifications.
+    let prepared_spec = root.join("prepared-spec");
+    let compile_spec = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kcompile",
+            specification.to_str().unwrap(),
+            "--compiled-definition",
+            compiled.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "SEMANTICS",
+            "--for-proving",
+            "--output-directory",
+            prepared_spec.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        compile_spec.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile_spec.stderr)
+    );
+    let later = root.join("later-spec.k");
+    fs::write(
+        &later,
+        r#"
+requires "spec.k"
+module LATER
+  imports SPEC
+  claim <k> foo(foo(a())) => 3 </k> [label(heats-twice)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let later_proof = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            later.to_str().unwrap(),
+            "--compiled-definition",
+            prepared_spec.to_str().unwrap(),
+            "--main-module",
+            "LATER",
+            "--definition-module",
+            "SEMANTICS",
+            "--claim",
+            "heats-twice",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        later_proof.status.success(),
+        "{}",
+        String::from_utf8_lossy(&later_proof.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&later_proof.stdout).contains("claim heats-twice: proven"),
+        "{}",
+        String::from_utf8_lossy(&later_proof.stdout)
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kprove_rejects_a_prepared_directory_without_its_lossless_definition() {
+    let (root, specification, compiled) = prepared_context_alias_semantics();
+    let manifest_path = compiled.join("krust.json");
+    let manifest: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    let definition = compiled.join(manifest["definition"].as_str().unwrap());
+    assert!(definition.is_file(), "{manifest}");
+
+    // The named file is a symbolic link to a definition outside the bundle.
+    let outside = root.join("outside.provenance.json");
+    fs::rename(&definition, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &definition).unwrap();
+    let escaped = kprove_spec_against(&specification, &compiled);
+    assert!(!escaped.status.success());
+    let stderr = String::from_utf8_lossy(&escaped.stderr);
+    assert!(
+        stderr.contains("outside the prepared directory")
+            && stderr.contains(definition.to_str().unwrap()),
+        "{stderr}"
+    );
+
+    fs::remove_file(&definition).unwrap();
+    let missing = kprove_spec_against(&specification, &compiled);
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.contains("lacks its lossless parsed definition")
+            && stderr.contains(definition.to_str().unwrap()),
+        "{stderr}"
+    );
+
+    // A directory prepared before the manifest named the lossless definition holds only the
+    // interchange `parsed.json`, which cannot denote every definition; it is not read.
+    let mut older = manifest.clone();
+    older["version"] = 1.into();
+    older.as_object_mut().unwrap().remove("definition");
+    fs::write(&manifest_path, older.to_string()).unwrap();
+    let older_output = kprove_spec_against(&specification, &compiled);
+    assert!(!older_output.status.success());
+    let stderr = String::from_utf8_lossy(&older_output.stderr);
+    assert!(
+        stderr.contains("lacks its lossless parsed definition")
+            && stderr.contains(definition.to_str().unwrap()),
+        "{stderr}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kprove_loads_a_new_spec_module_from_the_semantics_entry_file() {
     let (root, definition) = fixture();

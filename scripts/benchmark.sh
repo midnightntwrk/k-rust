@@ -740,7 +740,7 @@ benchmark_single() {
     cat "$result_dir/commands.txt"
     return
   fi
-  if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.json" ]]; then
+  if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.provenance.json" ]]; then
     echo "[$suite] preparing proof-ready krust definition"
     "$script" __prepare-krust-proof "$suite" "$work"
   fi
@@ -809,7 +809,7 @@ benchmark_pair() {
     echo "[$suite] preparing canonical Haskell definition"
     "$script" __prepare-proof "$suite" "$work"
   fi
-  if [[ "$phase" == prove && ( ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.json" ) ]]; then
+  if [[ "$phase" == prove && ( ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.provenance.json" ) ]]; then
     echo "[$suite] preparing proof-ready krust definition"
     "$script" __prepare-krust-proof "$suite" "$work"
   fi

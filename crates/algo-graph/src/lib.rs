@@ -1850,7 +1850,7 @@ mod tests {
                 (
                     ("kompile.kore.declarations", "definition.outer.requires"),
                     Some(
-                        "the SyntaxModule attribute and PreparedDefinitionManifest module digests cross the process boundary in parsed.json and krust.json",
+                        "the SyntaxModule attribute, the base definition with the source table its spans index, and PreparedDefinitionManifest module digests cross the process boundary in the KRUST-PROVENANCE parsed definition and krust.json",
                     ),
                 ),
                 (
