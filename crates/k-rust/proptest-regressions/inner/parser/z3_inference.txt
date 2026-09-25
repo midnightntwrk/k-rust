@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc bcde43ed1597056d068c9122c53a1c520832febaccb8a10a234c85500097fced # shrinks to sort_count = 2, pairs = [(0, 0)]
+cc 1e8d9e81de926b90ea0411cefbfe7d300384624e9811b8fe9577377c2e8d7286 # shrinks to sort_count = 3, semantic = [], extra_syntactic = [], top = None, productions = [(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0)], alternatives = [(4, 0, 0)], wrapper = None, parametric = (0, 0), shared = Some(true), bracketed = [(0, 0)], seeds = (1, 1)
