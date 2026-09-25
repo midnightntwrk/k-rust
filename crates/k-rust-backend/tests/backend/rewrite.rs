@@ -9,7 +9,7 @@ use std::{
 #[cfg(feature = "z3")]
 use k_rust_backend::substitution::substitute;
 use k_rust_backend::{
-    builtin::BuiltinEffect,
+    builtin::{BuiltinEffect, UnsupportedHookReason},
     cancellation::CancellationToken,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
@@ -2758,7 +2758,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "2695ba87bdd51be28faac28f1ae0c5b83dd1f234529c3285135141bcd96ee84a",
+        "fa4df5976c0373b7b96c6009006544857b1e0e43ad3bb248161a232187915853",
     );
 }
 
@@ -2799,7 +2799,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "d9b4b5035f446250be611653cf2f3dcbe3279d975c78d6d69f96805f7cf517ee",
+        "b4c7188c17175ebfc6e37073d0088b47b13c1a83c2e820748251b6acecd82171",
     );
 }
 
@@ -2856,7 +2856,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "c9273eafc6cee744f8f6d3ab62f315db10f6ad54c627557e4c65ce8e1bbf7f8b",
+        "a310892d9b34c8808500d60c108990a0d4798e2922e0f74028bbe298badcd793",
     );
 }
 
@@ -2917,7 +2917,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "d652f8e0ddc5e9444692fe12370f3ce8334e879c63b413a21de1a94b55134063",
+        "fff44be69beb2bfd3bc5bb0f4e120f641eff316a85c2e05f75e4f3a0ed48ab67",
     );
 }
 
@@ -2990,7 +2990,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "865bfc530d5798d36f956abb351cbef6b4637e998838882183b36b1e1a956f94",
+        "ee82d2926435ad44d5ca5fd1014b8eaff1bbe3b4c65b9a04935049848092f97e",
     );
 }
 
@@ -3060,7 +3060,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "3fee63a3357adfd25084a9f7e04d7360c4489c84d0f91bd4e37fdbfe5cae04a8",
+        "4f10b71714a7353751fbdf3d9aaad34d3e663ff41f64358112b1703e40c5fbf0",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3192,10 +3192,25 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
             subject: BudgetSubject::Term,
         }]
     );
+    // The branch leaf is the parent state, whose own work emitted nothing; the diagnostic
+    // belongs to the lower-priority candidate whose right-hand side exhausted the budget.
+    let leaf = &result.leaves[0];
+    assert_eq!(leaf.diagnostics, []);
+    let HaltReason::Branch { branches, .. } = &leaf.halt_reason else {
+        panic!("expected a branch leaf: {leaf:#?}");
+    };
+    let candidate_diagnostics = branches
+        .iter()
+        .map(|branch| (branch.label.as_deref().unwrap(), branch.diagnostics.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        candidate_diagnostics,
+        [("lower-budget", diagnostics.clone()), ("first", Vec::new()),]
+    );
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "2fb893fd5c8673767cfcda3e0e55a54a6df3e5da15649f6d7896997868c8ae70",
+        "35d334736aa2ccdf1797c71b5db905e312d349a9f4b781bc893ef84eb597f811",
     );
 }
 
@@ -3259,7 +3274,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "68326278df442747f3d502c0eb9340e794f94b61b2942f17f1d5b274e98470eb",
+        "6a6cc992ffcbccc3bbee4a72f3e86a4ba6174a4d322ea9ad65ea5bb238cb0085",
     );
 }
 
@@ -3321,7 +3336,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "c2129622454989116efb5140c4113532ed707d1750c08875e9ca64410cf0be34",
+        "56c71da18c4a4163b0fef8a4f6fee21d86d0846e7a351fb62785d657402b2066",
     );
 }
 
@@ -3376,7 +3391,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "59243aa23e41552d7dd643ef1daed8f0a0ae1727262130a3339905c32630d7cc",
+        "c27222b51afefbc8e622551c2e38574b0bfa603f7fdfe46387d9390052ee4792",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -4561,6 +4576,814 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
     )
 }
 
+/// `start => g(a)` (and `start => b` when `branching`), with the simplification equation
+/// `g(X) = g(g(X))`: simplifying any `g` application exhausts every budget, and nothing else
+/// in the definition simplifies.
+fn growing_equation_definition(branching: bool) -> BackendDefinition {
+    let right_rule = if branching {
+        r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(), \top{SortS{}}()),
+                    \and{SortS{}}(b{}(), \top{SortS{}}())
+                ) [label{}("to-b")]"#
+    } else {
+        ""
+    };
+    let source = format!(
+        r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol start{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol b{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), functional{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        g{{}}(X:SortS{{}}),
+                        \and{{SortS{{}}}}(g{{}}(g{{}}(X:SortS{{}})), \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("grow"), simplification{{}}()]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(start{{}}(), \top{{SortS{{}}}}()),
+                    \and{{SortS{{}}}}(g{{}}(a{{}}()), \top{{SortS{{}}}}())
+                ) [label{{}}("to-g")]
+                {right_rule}
+            endmodule []"#
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+fn execute_growing_equation(definition: &BackendDefinition) -> ExecutionResult {
+    execute(
+        definition,
+        Pattern {
+            term: internal_term(definition, "start{}()"),
+            constraints: Vec::new(),
+        },
+        ExecutionOptions {
+            max_simplification_iterations: 3,
+            ..ExecutionOptions::default()
+        },
+    )
+}
+
+fn term_budget_exhausted(limit: usize) -> BackendDiagnostic {
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit,
+        subject: BudgetSubject::Term,
+    }
+}
+
+fn leaf_ending_in<'a>(result: &'a ExecutionResult, head: &str) -> &'a ExecutionLeaf {
+    result
+        .leaves
+        .iter()
+        .find(|leaf| {
+            matches!(
+                leaf.pattern.term.kind(),
+                TermKind::Application { symbol, .. } if symbol.name.as_ref() == head
+            )
+        })
+        .unwrap_or_else(|| panic!("no leaf headed by {head}: {:?}", result.leaves))
+}
+
+/// The leaf of a path that exhausted the simplification budget carries the diagnostic itself,
+/// with no collector around the call; the path met the exhaustion at every simplification of
+/// `g(a)` and records it once.
+#[test]
+fn execution_leaf_carries_the_budget_exhaustion_of_its_path_without_a_collector() {
+    let definition = growing_equation_definition(false);
+
+    let result = execute_growing_equation(&definition);
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(leaf.diagnostics, [term_budget_exhausted(3)]);
+}
+
+/// Only the path that reaches the exhausting equation carries its diagnostic: the sibling that
+/// rewrote to a constructor shares the parent state, which emitted nothing, and no later state.
+#[test]
+fn execution_attributes_a_diagnostic_to_the_branch_that_emitted_it_only() {
+    let definition = growing_equation_definition(true);
+
+    let result = execute_growing_equation(&definition);
+
+    assert_eq!(result.leaves.len(), 2, "{:?}", result.leaves);
+    let exhausted = leaf_ending_in(&result, "g");
+    let normal = leaf_ending_in(&result, "b");
+    assert_eq!(exhausted.halt_reason, HaltReason::Stuck);
+    assert_eq!(exhausted.diagnostics, [term_budget_exhausted(3)]);
+    assert_eq!(normal.halt_reason, HaltReason::Stuck);
+    assert_eq!(normal.diagnostics, []);
+}
+
+/// A caller collecting around the whole execution, as a same-thread adapter does, still receives
+/// every diagnostic in emission order under the collection's rules, although the execution now
+/// collects per state inside. The expected list is the one this collection returned before
+/// execution collected per state (d4a50b3f): one exhaustion for each simplification of a `g`
+/// state (the term simplification before the step and the externalisation of the stuck leaf).
+#[test]
+fn a_collector_around_execution_sees_every_diagnostic_of_every_path() {
+    let definition = growing_equation_definition(true);
+
+    let (result, diagnostics) = diagnostic::collect(|| execute_growing_equation(&definition));
+
+    assert_eq!(diagnostics, COLLECTED_AROUND_GROWING_BRANCHES);
+    assert_eq!(
+        leaf_ending_in(&result, "g").diagnostics,
+        [term_budget_exhausted(3)]
+    );
+    assert_eq!(leaf_ending_in(&result, "b").diagnostics, []);
+}
+
+const COLLECTED_AROUND_GROWING_BRANCHES: &[BackendDiagnostic] = &[
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit: 3,
+        subject: BudgetSubject::Term,
+    },
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit: 3,
+        subject: BudgetSubject::Term,
+    },
+];
+
+/// A higher-priority rule `first` (`X < 0`, to `tag(10)`) and a lower-priority rule applied to
+/// its remainder; `grow` is a partial function whose simplification equation never terminates,
+/// so constructing the lower candidate's right-hand side exhausts the budget.
+const LOWER_GROW_RULES: &str = r#"
+    symbol grow{}(SortK{}) : SortK{} [function{}()]
+    axiom{R} \implies{R}(
+        \top{R}(),
+        \equals{SortK{}, R}(
+            grow{}(X:SortK{}),
+            \and{SortK{}}(grow{}(grow{}(X:SortK{})), \top{SortK{}}())
+        )
+    ) [label{}("grow"), simplification{}()]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            state{}(X:SortInt{}),
+            \equals{SortBool{}, SortK{}}(
+                lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                \dv{SortBool{}}("true")
+            )
+        ),
+        tag{}(\dv{SortInt{}}("10"))
+    ) [label{}("first"), priority{}("10")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+        grow{}(tag{}(\dv{SortInt{}}("50")))
+    ) [label{}("lower-grow"), priority{}("50")]
+"#;
+
+/// `first` as above and a lower-priority rule whose condition `kpred(expand(dotk))` exhausts
+/// the budget whenever it is simplified: in the lower candidate's own condition and in the
+/// remainder the lower group leaves, `X >= 0` and the negated condition.
+const LOWER_CONDITION_RULES: &str = r#"
+    symbol kpred{}(SortK{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            state{}(X:SortInt{}),
+            \equals{SortBool{}, SortK{}}(
+                lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                \dv{SortBool{}}("true")
+            )
+        ),
+        tag{}(\dv{SortInt{}}("10"))
+    ) [label{}("first"), priority{}("10")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            state{}(X:SortInt{}),
+            \equals{SortBool{}, SortK{}}(
+                kpred{}(expand{}(dotk{}())),
+                \dv{SortBool{}}("true")
+            )
+        ),
+        tag{}(\dv{SortInt{}}("50"))
+    ) [label{}("lower-condition"), priority{}("50")]
+"#;
+
+fn satisfiable_solver() -> FixedSolver {
+    FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Indeterminate),
+    }
+}
+
+fn budget_one(branch_mode: ExecutionBranchMode, max_breadth: Option<usize>) -> ExecutionOptions {
+    ExecutionOptions {
+        branch_mode,
+        max_breadth,
+        max_simplification_iterations: 1,
+        ..ExecutionOptions::default()
+    }
+}
+
+fn predicates_budget_exhausted(limit: usize) -> BackendDiagnostic {
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit,
+        subject: BudgetSubject::Predicates,
+    }
+}
+
+/// What constructing the `lower-grow` candidate emits: the definedness obligation of
+/// `grow(tag(50))` exhausts the budget through the `grow` equation's condition, and so does
+/// the right-hand side itself.
+fn lower_grow_diagnostics() -> Vec<BackendDiagnostic> {
+    vec![
+        predicates_budget_exhausted(1),
+        BackendDiagnostic::RuleConditionUnsimplified {
+            rule_id: "grow".to_owned(),
+            limit: 1,
+        },
+        term_budget_exhausted(1),
+    ]
+}
+
+fn leaf_with_term<'a>(
+    definition: &BackendDefinition,
+    result: &'a ExecutionResult,
+    term: &str,
+) -> &'a ExecutionLeaf {
+    let term = internal_term(definition, term);
+    result
+        .leaves
+        .iter()
+        .find(|leaf| leaf.pattern.term == term)
+        .unwrap_or_else(|| panic!("no leaf with term {term:?}: {:#?}", result.leaves))
+}
+
+/// Diagnostics emitted while the step builds one candidate belong to that candidate's path
+/// only, although the parent's expansion emitted them: the sibling `first` path carries none.
+#[test]
+fn a_step_attributes_a_candidates_own_work_to_that_candidate_only() {
+    let definition = be08_portable_definition(LOWER_GROW_RULES);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
+    let lower = leaf_ending_in(&result, "grow");
+    let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    assert_eq!(lower.halt_reason, HaltReason::Stuck);
+    assert_eq!(lower.diagnostics, lower_grow_diagnostics());
+    assert_eq!(first.halt_reason, HaltReason::Stuck);
+    assert_eq!(first.diagnostics, []);
+}
+
+/// A state cut off by the breadth bound is never expanded; its leaf carries what its path
+/// accumulated up to it, including its share of the parent's step.
+#[test]
+fn a_breadth_bound_frontier_state_carries_the_diagnostics_of_its_derivation() {
+    let definition = be08_portable_definition(LOWER_GROW_RULES);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, Some(1)),
+        &satisfiable_solver(),
+    );
+
+    assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
+    let lower = leaf_ending_in(&result, "grow");
+    let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    assert_eq!(lower.halt_reason, HaltReason::BreadthBound);
+    assert_eq!(lower.diagnostics, lower_grow_diagnostics());
+    assert_eq!(first.halt_reason, HaltReason::BreadthBound);
+    assert_eq!(first.diagnostics, []);
+}
+
+/// A branch leaf is the parent state: it carries the parent path's diagnostics, and each
+/// candidate it reports carries the diagnostics of its own construction and simplification.
+#[test]
+fn a_branch_leaf_reports_each_candidates_diagnostics_on_that_candidate() {
+    let definition = be08_portable_definition(LOWER_GROW_RULES);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::StopAtBranch, None),
+        &satisfiable_solver(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:#?}", result.leaves);
+    };
+    assert_eq!(leaf.diagnostics, []);
+    let HaltReason::Branch {
+        branches,
+        remainder: None,
+    } = &leaf.halt_reason
+    else {
+        panic!("expected a branch without a remainder: {leaf:#?}");
+    };
+    let candidates = branches
+        .iter()
+        .map(|branch| (branch.label.as_deref().unwrap(), branch.diagnostics.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        candidates,
+        [
+            ("lower-grow", lower_grow_diagnostics()),
+            ("first", Vec::new())
+        ]
+    );
+}
+
+/// Work on the remainder a lower-priority group leaves (the simplification of its negated
+/// condition) belongs to the remainder path, and the lower candidate's condition to that
+/// candidate; the higher-priority branch retained before them carries neither.
+#[test]
+fn remainder_work_is_attributed_to_the_remainder_path() {
+    let definition = be08_portable_definition(LOWER_CONDITION_RULES);
+
+    let explored = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    assert_eq!(explored.leaves.len(), 3, "{:#?}", explored.leaves);
+    let lower = leaf_with_term(&definition, &explored, r#"tag{}(\dv{SortInt{}}("50"))"#);
+    let first = leaf_with_term(&definition, &explored, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    let remainder = leaf_ending_in(&explored, "state");
+    assert_eq!(lower.diagnostics, [predicates_budget_exhausted(1)]);
+    assert_eq!(first.diagnostics, []);
+    assert_eq!(remainder.diagnostics, [predicates_budget_exhausted(1)]);
+
+    // The sequential step feeds `lower-condition` what `first` left and attributes alike.
+    let sequential = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        ExecutionOptions {
+            mode: ExecutionMode::Any,
+            ..budget_one(ExecutionBranchMode::ExploreAll, None)
+        },
+        &satisfiable_solver(),
+    );
+    let attributed = |result: &ExecutionResult| {
+        [
+            r#"tag{}(\dv{SortInt{}}("50"))"#,
+            r#"tag{}(\dv{SortInt{}}("10"))"#,
+        ]
+        .map(|term| {
+            leaf_with_term(&definition, result, term)
+                .diagnostics
+                .clone()
+        })
+    };
+    assert_eq!(attributed(&sequential), attributed(&explored));
+    assert_eq!(
+        leaf_ending_in(&sequential, "state").diagnostics,
+        [predicates_budget_exhausted(1)]
+    );
+
+    let stopped = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::StopAtBranch, None),
+        &satisfiable_solver(),
+    );
+    let [leaf] = stopped.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:#?}", stopped.leaves);
+    };
+    let HaltReason::Branch {
+        branches,
+        remainder: Some(remainder),
+    } = &leaf.halt_reason
+    else {
+        panic!("expected a branch with a remainder: {leaf:#?}");
+    };
+    assert_eq!(leaf.diagnostics, []);
+    assert_eq!(remainder.diagnostics, [predicates_budget_exhausted(1)]);
+    let candidates = branches
+        .iter()
+        .map(|branch| (branch.label.as_deref().unwrap(), branch.diagnostics.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        candidates,
+        [
+            ("lower-condition", vec![predicates_budget_exhausted(1)]),
+            ("first", Vec::new())
+        ]
+    );
+}
+
+/// A state whose term exhausts the budget, then is cancelled during its rewrite step after
+/// the step's own work emitted a diagnostic: the cancelled leaf carries both, the state's
+/// simplification and the step work done on its path before the interruption.
+#[test]
+fn a_cancelled_expansion_keeps_the_diagnostics_of_the_work_done_before_it() {
+    let definition = be08_portable_definition(
+        r#"
+        symbol hold{}(SortK{}, SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+        symbol kpred{}(SortK{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                hold{}(K:SortK{}, X:SortInt{}),
+                \and{SortK{}}(
+                    \equals{SortBool{}, SortK{}}(
+                        kpred{}(expand{}(dotk{}())),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{SortBool{}, SortK{}}(
+                        lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                )
+            ),
+            tag{}(\dv{SortInt{}}("10"))
+        ) [label{}("guarded"), priority{}("10")]
+        "#,
+    );
+    let subject = definition
+        .internalize_pattern(
+            &parse_pattern(r#"hold{}(expand{}(dotk{}()), X:SortInt{})"#).unwrap(),
+            &[],
+        )
+        .unwrap();
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        (0..4).map(|_| Ok(Satisfiability::Sat)),
+        (0..4).map(|_| Ok(Validity::Indeterminate)),
+    )
+    .cancelling_at(0, token.clone());
+
+    let (result, collected) = diagnostic::collect(|| {
+        token.scope(|| {
+            execute_with_solver(
+                &definition,
+                subject,
+                budget_one(ExecutionBranchMode::ExploreAll, None),
+                &solver,
+            )
+        })
+    });
+
+    assert!(
+        !solver.transcript.borrow().is_empty(),
+        "the step queried the solver"
+    );
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cancelled leaf: {:#?}", result.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
+    assert_eq!(leaf.depth, 0);
+    assert_eq!(
+        leaf.diagnostics,
+        [term_budget_exhausted(1), predicates_budget_exhausted(1)]
+    );
+    assert_eq!(
+        collected,
+        [term_budget_exhausted(1), predicates_budget_exhausted(1)]
+    );
+}
+
+/// One rule whose right-hand side has two alternatives: exhaustion while constructing one
+/// alternative belongs to that alternative's candidate, not to its sibling.
+#[test]
+fn a_right_hand_side_alternatives_own_work_stays_on_its_candidate() {
+    let definition = be08_portable_definition(
+        r#"
+        symbol grow{}(SortK{}) : SortK{} [function{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortK{}, R}(
+                grow{}(X:SortK{}),
+                \and{SortK{}}(grow{}(grow{}(X:SortK{})), \top{SortK{}}())
+            )
+        ) [label{}("grow"), simplification{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            \or{SortK{}}(grow{}(tag{}(\dv{SortInt{}}("50"))), tag{}(\dv{SortInt{}}("10")))
+        ) [label{}("either")]
+        "#,
+    );
+
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let explored = execute_with_solver(
+            &definition,
+            be08_portable_subject(&definition),
+            ExecutionOptions {
+                mode,
+                ..budget_one(ExecutionBranchMode::ExploreAll, None)
+            },
+            &satisfiable_solver(),
+        );
+        assert_eq!(explored.leaves.len(), 2, "{mode:?}: {:#?}", explored.leaves);
+        assert_eq!(
+            leaf_ending_in(&explored, "grow").diagnostics,
+            lower_grow_diagnostics(),
+            "{mode:?}"
+        );
+        assert_eq!(
+            leaf_with_term(&definition, &explored, r#"tag{}(\dv{SortInt{}}("10"))"#).diagnostics,
+            [],
+            "{mode:?}"
+        );
+    }
+
+    let stopped = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::StopAtBranch, None),
+        &satisfiable_solver(),
+    );
+    let [leaf] = stopped.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:#?}", stopped.leaves);
+    };
+    let HaltReason::Branch { branches, .. } = &leaf.halt_reason else {
+        panic!("expected a branch leaf: {leaf:#?}");
+    };
+    let candidates = branches
+        .iter()
+        .map(|branch| branch.diagnostics.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(candidates, [lower_grow_diagnostics(), Vec::new()]);
+}
+
+const GROW_AND_MISSING: &str = r#"
+    symbol grow{}(SortK{}) : SortK{} [function{}()]
+    hooked-symbol missing{}(SortInt{}) : SortBool{}
+        [function{}(), total{}(), hook{}("TEST.missing")]
+    axiom{R} \implies{R}(
+        \top{R}(),
+        \equals{SortK{}, R}(
+            grow{}(X:SortK{}),
+            \and{SortK{}}(grow{}(grow{}(X:SortK{})), \top{SortK{}}())
+        )
+    ) [label{}("grow"), simplification{}()]
+"#;
+
+fn missing_hook() -> BackendDiagnostic {
+    BackendDiagnostic::UnsupportedHookUnevaluated {
+        hook: "TEST.missing".to_owned(),
+        reason: UnsupportedHookReason::NotImplemented,
+    }
+}
+
+/// A rule attempt that does not apply derives no successor, so its work is on no leaf, although
+/// an enclosing collector sees it; a same-priority rule's candidate does not inherit it.
+#[test]
+fn a_non_applicable_attempts_work_is_on_no_path() {
+    let definition = be08_portable_definition(&format!(
+        "{GROW_AND_MISSING}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            grow{}(tag{}(\dv{SortInt{}}("50")))
+        ) [label{}("earlier"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \and{SortK{}}(
+                    \equals{SortBool{}, SortK{}}(missing{}(X:SortInt{}), \dv{SortBool{}}("true")),
+                    \equals{SortBool{}, SortK{}}(\dv{SortBool{}}("false"), \dv{SortBool{}}("true"))
+                )
+            ),
+            done{}()
+        ) [label{}("later"), priority{}("10")]
+        "#
+    ));
+
+    let (result, collected) = diagnostic::collect(|| {
+        execute_with_solver(
+            &definition,
+            be08_portable_subject(&definition),
+            budget_one(ExecutionBranchMode::ExploreAll, None),
+            &satisfiable_solver(),
+        )
+    });
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one leaf: {:#?}", result.leaves);
+    };
+    assert_eq!(leaf.diagnostics, lower_grow_diagnostics());
+    assert!(collected.contains(&missing_hook()), "{collected:?}");
+}
+
+/// A rule (for `X < 0`) whose only right-hand side is refuted by its ensures after its
+/// construction exhausted the budget produces no candidate: that work is on no path, in
+/// particular not on a same-priority rule's candidate, nor, in the sequential step, on the
+/// candidate the rule's remainder `X >= 0` feeds.
+#[test]
+fn a_refuted_rules_work_is_not_shared_with_other_candidates() {
+    let definition = be08_portable_definition(&format!(
+        "{GROW_AND_MISSING}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            \and{SortK{}}(
+                grow{}(tag{}(\dv{SortInt{}}("50"))),
+                \equals{SortBool{}, SortK{}}(\dv{SortBool{}}("false"), \dv{SortBool{}}("true"))
+            )
+        ) [label{}("refuted"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            tag{}(\dv{SortInt{}}("10"))
+        ) [label{}("survivor"), priority{}("10")]
+        "#
+    ));
+
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let (result, collected) = diagnostic::collect(|| {
+            execute_with_solver(
+                &definition,
+                be08_portable_subject(&definition),
+                ExecutionOptions {
+                    mode,
+                    ..budget_one(ExecutionBranchMode::ExploreAll, None)
+                },
+                &satisfiable_solver(),
+            )
+        });
+        let survivor = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+        assert_eq!(survivor.diagnostics, [], "{mode:?}: {:#?}", result.leaves);
+        assert!(
+            collected.contains(&term_budget_exhausted(1)),
+            "{mode:?}: the refuted construction did exhaust: {collected:?}"
+        );
+    }
+}
+
+/// A match split (a symbolic `KEQUAL.ite` in the subject) yields one application group per
+/// branch, each with its own condition; only the branch whose condition exhausts the budget
+/// carries the diagnostic, in the exploring and in the sequential step.
+#[test]
+fn a_match_splits_groups_carry_only_their_own_condition_work() {
+    let definition = be08_portable_definition(
+        r#"
+        symbol hold{}(SortK{}, SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+        symbol kpred{}(SortK{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+        symbol mk{}(SortInt{}) : SortK{} [function{}(), total{}()]
+        hooked-symbol ite{}(SortBool{}, SortK{}, SortK{}) : SortK{}
+            [function{}(), total{}(), hook{}("KEQUAL.ite")]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortK{}, R}(
+                mk{}(\dv{SortInt{}}("1")),
+                \and{SortK{}}(dotk{}(), \top{SortK{}}())
+            )
+        ) [label{}("mk-one"), simplification{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortK{}, R}(
+                mk{}(\dv{SortInt{}}("2")),
+                \and{SortK{}}(expand{}(dotk{}()), \top{SortK{}}())
+            )
+        ) [label{}("mk-two"), simplification{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                hold{}(tag{}(N:SortInt{}), X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    kpred{}(mk{}(N:SortInt{})),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            tag{}(N:SortInt{})
+        ) [label{}("guarded"), priority{}("10")]
+        "#,
+    );
+    let subject = definition
+        .internalize_pattern(
+            &parse_pattern(
+                r#"hold{}(ite{}(B:SortBool{}, tag{}(\dv{SortInt{}}("1")), tag{}(\dv{SortInt{}}("2"))), X:SortInt{})"#,
+            )
+            .unwrap(),
+            &[],
+        )
+        .unwrap();
+
+    let term = |source: &str| internal_term(&definition, source);
+    let one = term(r#"tag{}(\dv{SortInt{}}("1"))"#);
+    let two = term(r#"tag{}(\dv{SortInt{}}("2"))"#);
+    let run = |mode| {
+        let result = execute_with_solver(
+            &definition,
+            subject.clone(),
+            ExecutionOptions {
+                mode,
+                ..budget_one(ExecutionBranchMode::ExploreAll, None)
+            },
+            &satisfiable_solver(),
+        );
+        result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let name = if leaf.pattern.term == one {
+                    "one"
+                } else if leaf.pattern.term == two {
+                    "two"
+                } else {
+                    "remainder"
+                };
+                (name, leaf.diagnostics.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // The remainder is built from both groups' conditions, so it depends on both.
+    assert_eq!(
+        run(ExecutionMode::All),
+        [
+            ("one", Vec::new()),
+            ("two", vec![predicates_budget_exhausted(1)]),
+            ("remainder", vec![predicates_budget_exhausted(1)]),
+        ]
+    );
+    // The sequential step follows the first group only: the second group's work is on no path.
+    assert_eq!(
+        run(ExecutionMode::Any),
+        [("one", Vec::new()), ("remainder", Vec::new())]
+    );
+}
+
+/// A candidate's own list keeps emission order across the units it depends on: the rule's
+/// condition (an unevaluated hook) before its right-hand side's construction.
+#[test]
+fn a_candidates_diagnostics_keep_emission_order_across_units() {
+    let definition = be08_portable_definition(&format!(
+        "{GROW_AND_MISSING}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(missing{}(X:SortInt{}), \dv{SortBool{}}("true"))
+            ),
+            grow{}(tag{}(\dv{SortInt{}}("50")))
+        ) [label{}("guarded-grow"), priority{}("10")]
+        "#
+    ));
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    let grown = leaf_ending_in(&result, "grow");
+    let mut expected = vec![missing_hook()];
+    expected.extend(lower_grow_diagnostics());
+    assert_eq!(grown.diagnostics, expected);
+}
+
+/// A remainder a lower-priority group could not decide ends as a leaf with the simplification
+/// error; the leaf carries the diagnostics of the remainder's path, which the higher-priority
+/// branch does not share.
+#[test]
+fn an_undecided_remainder_leaf_carries_its_paths_diagnostics() {
+    let rules = format!(
+        "{LOWER_CONDITION_RULES}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    isIOInt{}(getc{}(\dv{SortInt{}}("0"))),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            done{}()
+        ) [label{}("lower-error"), priority{}("60")]
+        "#
+    );
+    let definition = be08_portable_definition(&rules);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    let remainder = leaf_ending_in(&result, "state");
+    assert!(
+        matches!(remainder.halt_reason, HaltReason::Simplification(_)),
+        "{remainder:#?}"
+    );
+    assert_eq!(remainder.diagnostics, [predicates_budget_exhausted(1)]);
+    let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    assert_eq!(first.diagnostics, []);
+}
+
 #[test]
 fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
     let definition = definition(&long_requires_chain());
@@ -4592,6 +5415,7 @@ fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
             subject: BudgetSubject::Predicates,
         }]
     );
+    assert_eq!(leaf.diagnostics, diagnostics);
 }
 
 /// Stack bytes that one nesting level of the `size` recursion may use.
@@ -5218,6 +6042,16 @@ fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
 
     assert_stuck_on_unevaluated_prepare(&run.result);
     assert_only_prepare_exhaustions(&run.diagnostics, 1);
+    // The single leaf's path emitted every diagnostic; it records each distinct one once, so the
+    // budget exhaustion the two qualified rules share appears once, before both qualifiers.
+    let mut path = Vec::new();
+    for diagnostic in &run.diagnostics {
+        if !path.contains(diagnostic) {
+            path.push(diagnostic.clone());
+        }
+    }
+    assert_eq!(path.len(), 3, "{path:?}");
+    assert_eq!(run.result.leaves[0].diagnostics, path);
 }
 
 #[test]
@@ -5675,6 +6509,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
             effects: Vec::new(),
             io: k_rust_backend::transition::ExecutionIoState::default(),
             halt_reason: HaltReason::Cancelled,
+            diagnostics: Vec::new(),
         }]
     );
 }

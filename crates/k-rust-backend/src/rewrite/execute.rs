@@ -41,6 +41,7 @@ use crate::{
     builtin::BuiltinEffect,
     cancellation::cancellation_requested,
     definition::BackendDefinition,
+    diagnostic::{self, BackendDiagnostic, PathDiagnostics, extend_distinct},
     rule::Predicate,
     search::ResultModality,
     simplify::{
@@ -97,7 +98,7 @@ pub(super) fn execute_using(
 /// A phase either hands the state on or ends it as a leaf.
 type Phase<T> = Result<T, ExecutionLeaf>;
 
-/// What expanding one state did to the worklist.
+/// What enqueueing the successors of one state did to the worklist.
 enum Expansion {
     /// Successors (or none) were enqueued; the loop goes on.
     Queued,
@@ -138,6 +139,7 @@ impl<'a> Execution<'a> {
         let initial_input_count = initial.len();
         let has_execution_io = initial_io.is_some();
         let initial_io = initial_io.unwrap_or_default();
+        let diagnostics = PathDiagnostics::new_request();
         let mut pending = initial
             .into_iter()
             .map(|pattern| {
@@ -152,6 +154,7 @@ impl<'a> Execution<'a> {
                     io: initial_io.clone(),
                     io_enabled,
                     is_initial_input: true,
+                    diagnostics: diagnostics.empty_like(),
                 }
             })
             .collect::<VecDeque<_>>();
@@ -210,7 +213,28 @@ impl<'a> Execution<'a> {
         )
     }
 
-    /// E1: pop each unexpanded state, count the step, time it, and expand it.
+    /// E1: pop each unexpanded state, count the step, time it, expand it, and enqueue its
+    /// successors or record its leaf.
+    ///
+    /// Diagnostics. Every backend diagnostic is emitted by a unit of work of one expansion; each
+    /// unit is collected separately and attached to exactly the paths derived from its result
+    /// (`ExecutionLeaf::diagnostics`), in emission order:
+    /// - the state's own constraint and term simplification (E2, E3): the state's path, so every
+    ///   successor and its leaf;
+    /// - in the rewrite step (`step.rs`, `apply.rs`), per candidate (`AppliedRule::diagnostics`,
+    ///   `RemainderBranch::diagnostics`): a right-hand-side alternative's construction to its
+    ///   candidate; one application group's matching, recovery and condition work (a match split
+    ///   yields one group per sub-case) to the group's candidates and to the remainder, whose
+    ///   constraint negates the group's applicability; the remainder's own simplification and the
+    ///   lower-priority work on it to the remainder and the candidates derived from it;
+    /// - a step that halts the state: its leaf; the simplification of a leaf or candidate pattern:
+    ///   that leaf or candidate.
+    ///
+    /// Work no reported successor is derived from is on no path: a rule attempt that does not
+    /// apply, an alternative refuted to bottom, a group the sequential step does not follow. A
+    /// leaf cut off by a cancellation or timeout after the step carries all the work of the step
+    /// and of its candidates done before it. Every collection forwards to any collector the
+    /// caller holds around the execution, which therefore sees every diagnostic.
     fn run(&mut self, timeout_controller: &StepTimeoutController) {
         // `pending` is a stack: `enqueue_execution_states` pushes successors to the front, so a
         // state's children are expanded before its siblings (depth-first). Each push either
@@ -221,8 +245,12 @@ impl<'a> Execution<'a> {
             measure::bump(Counter::RewriteSteps);
             let mut step_timer = timeout_controller.begin_step();
             match self.expand(state, &mut step_timer) {
-                Ok(Expansion::Queued) => {}
-                Ok(Expansion::BreadthBound) => break,
+                Ok(successors) => {
+                    enqueue_execution_states(&mut self.pending, successors);
+                    if let Expansion::BreadthBound = self.breadth_checked() {
+                        break;
+                    }
+                }
                 Err(leaf) => self.leaves.push(leaf),
             }
         }
@@ -230,12 +258,12 @@ impl<'a> Execution<'a> {
 
     /// The per-state pipeline E2 to E7; the interruption checks sit where the loop body had
     /// them (before constraint simplification, after it, after term simplification, after the
-    /// rewrite step, and inside E6 and E7).
+    /// rewrite step, and inside E6 and E7). Returns the successors `run` enqueues.
     fn expand(
         &mut self,
         state: ExecutionState,
         step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Expansion> {
+    ) -> Phase<Vec<ExecutionState>> {
         let state = self.check_interrupted(state, step_timer)?;
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             return Err(state.leaf(
@@ -245,29 +273,44 @@ impl<'a> Execution<'a> {
         }
         let (state, deferred_initial_vacuity) = self.normalise_constraints(state, step_timer)?;
         let state = self.simplify_term(state, step_timer, deferred_initial_vacuity.is_some())?;
-        let rewritten = match &state.kind {
+        // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
+        // result halts the state, whose leaf takes the step's whole collection.
+        let (rewritten, step_diagnostics) = diagnostic::collect(|| match &state.kind {
             ExecutionStateKind::Rewritable => self.step(&state),
             ExecutionStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
             ExecutionStateKind::Remaining(Some(undecided)) => {
                 undecided.clone().into_result(state.pattern.clone())
             }
+        });
+        let mut state = match self.check_interrupted(state, step_timer) {
+            Ok(state) => state,
+            Err(leaf) => return Err(interrupted_with(leaf, &[&step_diagnostics])),
         };
-        let state = self.check_interrupted(state, step_timer)?;
         match rewritten {
             RewriteResult::Stuck(_)
             | RewriteResult::Trivial(_, _)
             | RewriteResult::Vacuous(_)
             | RewriteResult::Indeterminate { .. }
             | RewriteResult::Simplification { .. } => {
+                state.diagnostics.extend(&step_diagnostics);
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
-            RewriteResult::Finished(applied) => self.finished(state, applied, step_timer),
+            RewriteResult::Finished(applied) => {
+                let (expanded, diagnostics) =
+                    diagnostic::collect(|| self.finished(state, applied, step_timer));
+                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+            }
             RewriteResult::Branch {
                 original,
                 branches,
                 remainder,
                 trivial,
-            } => self.branch(state, original, branches, remainder, trivial, step_timer),
+            } => {
+                let (expanded, diagnostics) = diagnostic::collect(|| {
+                    self.branch(state, original, branches, remainder, trivial, step_timer)
+                });
+                expanded.map_err(|leaf| interrupted_with(leaf, &[&step_diagnostics, &diagnostics]))
+            }
         }
     }
 
@@ -302,13 +345,16 @@ impl<'a> Execution<'a> {
             normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
         let pattern_before_constraint_simplification = state.pattern.clone();
         let mut deferred_initial_vacuity = None;
-        let simplified_constraints = simplify_predicates_with_solver(
-            self.definition,
-            &state.pattern.constraints,
-            &[],
-            SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
-            self.solver,
-        );
+        let (simplified_constraints, diagnostics) = diagnostic::collect(|| {
+            simplify_predicates_with_solver(
+                self.definition,
+                &state.pattern.constraints,
+                &[],
+                SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
+                self.solver,
+            )
+        });
+        state.diagnostics.extend(&diagnostics);
         let mut state = self.check_interrupted(state, step_timer)?;
         match simplified_constraints {
             Ok(mut constraints) => {
@@ -372,7 +418,7 @@ impl<'a> Execution<'a> {
         let pattern_before_term_simplification = state.pattern.clone();
         state.io_enabled &= pattern_supports_execution_io(&state.pattern);
         let mut io_evaluation = state.io_enabled.then(|| state.io.begin_evaluation());
-        let simplified = match io_evaluation.as_mut() {
+        let (simplified, diagnostics) = diagnostic::collect(|| match io_evaluation.as_mut() {
             Some(execution) => simplify_in_execution_with_solver(
                 self.definition,
                 &state.pattern.term,
@@ -388,7 +434,8 @@ impl<'a> Execution<'a> {
                 SimplificationOptions::keep_partial(self.options.max_simplification_iterations),
                 self.solver,
             ),
-        };
+        });
+        state.diagnostics.extend(&diagnostics);
         let mut state = self.check_interrupted(state, step_timer)?;
         let undefined_term = match simplified {
             Ok(simplified) => {
@@ -548,13 +595,13 @@ impl<'a> Execution<'a> {
 
     /// E6: one rule applied. A cut-point rule ends the state as a `CutPointRule` leaf with the
     /// simplified successor; a terminal rule ends the successor as a `TerminalRule` (or
-    /// `Trivial`) leaf; otherwise the successor is pushed and the breadth bound checked.
+    /// `Trivial`) leaf; otherwise the successor is returned.
     fn finished(
         &mut self,
         mut state: ExecutionState,
         applied: AppliedRule,
         step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Expansion> {
+    ) -> Phase<Vec<ExecutionState>> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
             for simplification in &applied.remainder_simplifications {
@@ -585,23 +632,29 @@ impl<'a> Execution<'a> {
             state.observation =
                 self.observation_log
                     .append_applied(state.observation, &applied, self.observation);
-            applied.pattern = match simplify_result_pattern(
-                self.definition,
-                &applied.pattern,
-                self.options.max_simplification_iterations,
-                self.solver,
-                state.depth,
-                &mut state.trace,
-                Some(&mut state.observation),
-                &mut self.observation_log,
-                self.observation,
-            ) {
+            let (simplified, diagnostics) = diagnostic::collect(|| {
+                simplify_result_pattern(
+                    self.definition,
+                    &applied.pattern,
+                    self.options.max_simplification_iterations,
+                    self.solver,
+                    state.depth,
+                    &mut state.trace,
+                    Some(&mut state.observation),
+                    &mut self.observation_log,
+                    self.observation,
+                )
+            });
+            extend_distinct(&mut applied.diagnostics, &diagnostics);
+            applied.pattern = match simplified {
                 Ok(simplified) => {
                     state.effects.commit(simplified.effects);
                     simplified.pattern
                 }
                 Err(error) => {
-                    let state = self.check_interrupted(state, step_timer)?;
+                    let mut state = self.check_interrupted(state, step_timer)?;
+                    // The leaf reports the successor's pattern, so the successor's diagnostics.
+                    state.diagnostics.extend(&applied.diagnostics);
                     return Err(state.leaf_with_pattern(
                         applied.pattern,
                         HaltReason::Simplification(error),
@@ -609,8 +662,9 @@ impl<'a> Execution<'a> {
                     ));
                 }
             };
-            let state = self.check_interrupted(state, step_timer)?;
+            let mut state = self.check_interrupted(state, step_timer)?;
             if predicates_truth(&applied.pattern.constraints) == Truth::False {
+                state.diagnostics.extend(&applied.diagnostics);
                 let halt_reason = trivial_halt(state.depth + 1, &applied.pattern);
                 return Err(state.leaf_with_pattern(
                     applied.pattern,
@@ -635,17 +689,21 @@ impl<'a> Execution<'a> {
             self.observation,
         );
         if let Some(rule) = terminal_rule {
-            next.pattern = match simplify_result_pattern(
-                self.definition,
-                &next.pattern,
-                self.options.max_simplification_iterations,
-                self.solver,
-                next.depth,
-                &mut next.trace,
-                Some(&mut next.observation),
-                &mut self.observation_log,
-                self.observation,
-            ) {
+            let (simplified, diagnostics) = diagnostic::collect(|| {
+                simplify_result_pattern(
+                    self.definition,
+                    &next.pattern,
+                    self.options.max_simplification_iterations,
+                    self.solver,
+                    next.depth,
+                    &mut next.trace,
+                    Some(&mut next.observation),
+                    &mut self.observation_log,
+                    self.observation,
+                )
+            });
+            next.diagnostics.extend(&diagnostics);
+            next.pattern = match simplified {
                 Ok(simplified) => {
                     next.effects.commit(simplified.effects);
                     simplified.pattern
@@ -664,13 +722,12 @@ impl<'a> Execution<'a> {
             };
             return Err(next.leaf(halt_reason, &self.observation_log));
         }
-        enqueue_execution_states(&mut self.pending, vec![next]);
-        Ok(self.breadth_checked())
+        Ok(vec![next])
     }
 
     /// E7: several rules applied, or one with a complete remainder. Under `StopAtBranch`, the
     /// original and every child are simplified and reported together. Under `ExploreAll`, applied
-    /// branches and the remainder become queued successors.
+    /// branches and the remainder become the returned successors.
     fn branch(
         &mut self,
         mut state: ExecutionState,
@@ -679,20 +736,26 @@ impl<'a> Execution<'a> {
         mut remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
         step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Expansion> {
+    ) -> Phase<Vec<ExecutionState>> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
-            let original = match simplify_result_pattern(
-                self.definition,
-                &original,
-                self.options.max_simplification_iterations,
-                self.solver,
-                state.depth,
-                &mut state.trace,
-                Some(&mut state.observation),
-                &mut self.observation_log,
-                self.observation,
-            ) {
+            // The branch leaf is the parent state: its diagnostics are the parent path's and its
+            // pattern's simplification; each candidate it reports carries its own.
+            let (simplified_original, diagnostics) = diagnostic::collect(|| {
+                simplify_result_pattern(
+                    self.definition,
+                    &original,
+                    self.options.max_simplification_iterations,
+                    self.solver,
+                    state.depth,
+                    &mut state.trace,
+                    Some(&mut state.observation),
+                    &mut self.observation_log,
+                    self.observation,
+                )
+            });
+            state.diagnostics.extend(&diagnostics);
+            let original = match simplified_original {
                 Ok(simplified) => {
                     state.effects.commit(simplified.effects);
                     simplified.pattern
@@ -721,17 +784,21 @@ impl<'a> Execution<'a> {
                     rule: applied.unique_id.clone(),
                     target: PatternDigest::of(&applied.pattern),
                 };
-                match simplify_result_pattern(
-                    self.definition,
-                    &applied.pattern,
-                    self.options.max_simplification_iterations,
-                    self.solver,
-                    state.depth + 1,
-                    &mut state.trace,
-                    None,
-                    &mut self.observation_log,
-                    self.observation,
-                ) {
+                let (simplified, diagnostics) = diagnostic::collect(|| {
+                    simplify_result_pattern(
+                        self.definition,
+                        &applied.pattern,
+                        self.options.max_simplification_iterations,
+                        self.solver,
+                        state.depth + 1,
+                        &mut state.trace,
+                        None,
+                        &mut self.observation_log,
+                        self.observation,
+                    )
+                });
+                extend_distinct(&mut applied.diagnostics, &diagnostics);
+                match simplified {
                     Ok(simplified) => {
                         applied.pattern = simplified.pattern;
                         applied.effects.extend(simplified.effects);
@@ -750,6 +817,9 @@ impl<'a> Execution<'a> {
                         }
                     }
                     Err(error) => {
+                        // The failure is reported on the parent's leaf, with the diagnostics of
+                        // the work on the candidate that failed.
+                        state.diagnostics.extend(&applied.diagnostics);
                         failed_branch = Some(error);
                         break;
                     }
@@ -765,22 +835,27 @@ impl<'a> Execution<'a> {
             }
             branches = simplified_branches;
             if let Some(candidate) = &mut remainder {
-                candidate.pattern = match simplify_result_pattern(
-                    self.definition,
-                    &candidate.pattern,
-                    self.options.max_simplification_iterations,
-                    self.solver,
-                    state.depth,
-                    &mut state.trace,
-                    None,
-                    &mut self.observation_log,
-                    self.observation,
-                ) {
+                let (simplified, diagnostics) = diagnostic::collect(|| {
+                    simplify_result_pattern(
+                        self.definition,
+                        &candidate.pattern,
+                        self.options.max_simplification_iterations,
+                        self.solver,
+                        state.depth,
+                        &mut state.trace,
+                        None,
+                        &mut self.observation_log,
+                        self.observation,
+                    )
+                });
+                extend_distinct(&mut candidate.diagnostics, &diagnostics);
+                candidate.pattern = match simplified {
                     Ok(simplified) => {
                         candidate.effects.extend(simplified.effects);
                         simplified.pattern
                     }
                     Err(error) => {
+                        state.diagnostics.extend(&candidate.diagnostics);
                         let state = self.check_interrupted(state, step_timer)?;
                         return Err(state.leaf_with_pattern(
                             original,
@@ -804,29 +879,25 @@ impl<'a> Execution<'a> {
                 }
                 (1, false) => {
                     let applied = branches.pop().expect("one branch remains");
-                    enqueue_execution_states(
-                        &mut self.pending,
-                        vec![next_state(
-                            self.definition,
-                            state,
-                            applied,
-                            &mut self.observation_log,
-                            self.observation,
-                        )],
-                    );
+                    return Ok(vec![next_state(
+                        self.definition,
+                        state,
+                        applied,
+                        &mut self.observation_log,
+                        self.observation,
+                    )]);
                 }
                 (0, true) => {
                     let remainder = remainder.take().expect("one remainder remains");
                     let before = state.pattern.clone();
-                    let remaining = remaining_state(
+                    return Ok(vec![remaining_state(
                         self.definition,
                         state,
                         before,
                         remainder,
                         &mut self.observation_log,
                         self.observation,
-                    );
-                    enqueue_execution_states(&mut self.pending, vec![remaining]);
+                    )]);
                 }
                 _ => {
                     return Err(state.leaf_with_pattern(
@@ -839,7 +910,6 @@ impl<'a> Execution<'a> {
                     ));
                 }
             }
-            return Ok(self.breadth_checked());
         }
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         for applied in branches {
@@ -863,8 +933,7 @@ impl<'a> Execution<'a> {
             );
             next.push(remaining);
         }
-        enqueue_execution_states(&mut self.pending, next);
-        Ok(self.breadth_checked())
+        Ok(next)
     }
 
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends
@@ -916,6 +985,22 @@ impl<'a> Execution<'a> {
     }
 }
 
+/// A leaf that a cancellation or timeout cut off after the step: it carries the work its state's
+/// expansion did before the interruption (`lists`, in emission order), which was on that path
+/// although the candidates it was building are not reported. Any other leaf is returned as is,
+/// its diagnostics already attributed.
+fn interrupted_with(mut leaf: ExecutionLeaf, lists: &[&[BackendDiagnostic]]) -> ExecutionLeaf {
+    if matches!(
+        leaf.halt_reason,
+        HaltReason::Cancelled | HaltReason::Timeout(_)
+    ) {
+        for diagnostics in lists {
+            extend_distinct(&mut leaf.diagnostics, diagnostics);
+        }
+    }
+    leaf
+}
+
 fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
     pattern.constraints.is_empty() && pattern.term.attributes().variables.is_empty()
 }
@@ -933,7 +1018,9 @@ fn final_leaves(modality: ResultModality, leaves: Vec<ExecutionLeaf>) -> Vec<Exe
 /// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342), extended with branch-local
 /// observable state: leaves collapse only when their structural term, constraint set, committed
 /// effects, and console state agree. Bottom leaves carry no configuration, so whole-state trivial
-/// and vacuous outcomes remain distinct.
+/// and vacuous outcomes remain distinct. The retained leaf keeps its own trace, branch, and
+/// diagnostics: they describe the one path the leaf reports, and the merged paths ended in the
+/// same configuration, so whether that configuration is normalized is the same for each.
 fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
     let mut seen = Vec::new();
     leaves
@@ -1136,17 +1223,21 @@ fn externalise_leaf(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionLeaf {
-    match simplify_result_pattern(
-        definition,
-        &pattern,
-        max_iterations,
-        solver,
-        state.depth,
-        &mut state.trace,
-        Some(&mut state.observation),
-        observation_log,
-        observation_options,
-    ) {
+    let (simplified, diagnostics) = diagnostic::collect(|| {
+        simplify_result_pattern(
+            definition,
+            &pattern,
+            max_iterations,
+            solver,
+            state.depth,
+            &mut state.trace,
+            Some(&mut state.observation),
+            observation_log,
+            observation_options,
+        )
+    });
+    state.diagnostics.extend(&diagnostics);
+    match simplified {
         Ok(simplified) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             state.effects.commit(simplified.effects);
             let halt_reason = trivial_halt(state.depth, &simplified.pattern);
@@ -1175,6 +1266,7 @@ fn next_state(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
+    state.diagnostics.extend(&applied.diagnostics);
     for simplification in &applied.remainder_simplifications {
         state.observation = observation_log.append_simplification(
             state.observation,
@@ -1225,6 +1317,7 @@ fn remaining_state(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
+    state.diagnostics.extend(&remainder.diagnostics);
     let transition_pattern = remainder
         .simplifications
         .first()
@@ -1293,6 +1386,9 @@ struct ExecutionState {
     /// Whether the console capability remains available on this concrete execution prefix.
     io_enabled: bool,
     is_initial_input: bool,
+    /// The backend diagnostics of the work this path went through so far, shared with the
+    /// paths it forked from.
+    diagnostics: PathDiagnostics,
 }
 
 impl ExecutionState {
@@ -1307,6 +1403,7 @@ impl ExecutionState {
             effects: self.effects.into_committed(),
             io: self.io,
             halt_reason,
+            diagnostics: self.diagnostics.to_vec(),
         }
     }
 
@@ -1365,6 +1462,7 @@ mod tests {
             effects: Vec::new(),
             io: ExecutionIoState::default(),
             halt_reason,
+            diagnostics: Vec::new(),
         };
 
         let leaves = merge_equal_final_leaves(vec![
@@ -1409,6 +1507,7 @@ mod tests {
             effects: Vec::new(),
             io,
             halt_reason: HaltReason::Stuck,
+            diagnostics: Vec::new(),
         };
 
         let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);

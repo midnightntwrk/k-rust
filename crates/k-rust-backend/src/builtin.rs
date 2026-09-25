@@ -85,7 +85,7 @@ pub enum BuiltinResult {
     Unsupported(UnsupportedHookReason),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum UnsupportedHookReason {
     NotImplemented,
     ArgumentOutOfRange { detail: String },
