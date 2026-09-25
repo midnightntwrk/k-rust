@@ -151,8 +151,10 @@ pub struct SearchState {
     /// path first met them, each distinct diagnostic once: the simplification of every state on
     /// the path, the rewrite-step work each successor was derived from
     /// (`AppliedRule::diagnostics`, `RemainderBranch::diagnostics`), and for a reported state its
-    /// externalisation; for a state ending in a halting step (`Stuck`, an indeterminate or failed
-    /// step, a cancellation), that step's work. When converging paths are deduplicated, the
+    /// externalisation; for a state recorded as an incomplete entry because its step halted (an
+    /// indeterminate or failed step, a cancellation), that step's work. A state reported before
+    /// its step runs (`Star`/`Plus` results) does not carry that step's work: when the step emits
+    /// and returns `Stuck`, no entry derives from it. When converging paths are deduplicated, the
     /// recorded path's list is kept, like its trace. A non-empty list means the state may not be
     /// the normal form a larger budget would reach, or that a condition on its path was left
     /// undecided; a caller collecting with `diagnostic::collect` around the search still receives
