@@ -123,14 +123,15 @@ mapfile -t cases < <(
     ((.comparisons // []) | join(" ")),
     ((.pairings // ["kore/llvm", "haskell/rust"]) | join(" ")),
     (.expect // "accept"),
-    (.reason // "")
+    (.reason // ""),
+    (.["reference-error"] // "")
   ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
-    comparisons pairings expect reason <<<"$fixture"
+    comparisons pairings expect reason reference_error <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -261,11 +262,17 @@ for fixture in "${cases[@]}"; do
       continue
     fi
     if [[ "$expect" == port-accepts ]]; then
-      # A recorded divergence: both sides are run and pinned, so it fails when either moves.
+      # A recorded divergence: both sides are run and pinned (the reference by its recorded
+      # diagnostic, not only its exit status), so it fails when either moves.
       echo "[$name:$pairing] recorded divergence: $reason"
       echo "[$name:$pairing] reference rejection: $(grep -m1 -E '\[Error\]|error:' "$work/$name/$pairing_key/reference.log" || head -n1 "$work/$name/$pairing_key/reference.log")"
       if ((reference_status == 0)); then
         echo "error: reference frontend accepted port-accepts case $name for $pairing; the recorded divergence is gone" >&2
+        exit 1
+      fi
+      if ! grep -qF -- "$reference_error" "$work/$name/$pairing_key/reference.log"; then
+        cat "$work/$name/$pairing_key/reference.log" >&2
+        echo "error: reference frontend rejection of port-accepts case $name for $pairing changed: its output lacks the recorded reference-error \"$reference_error\"" >&2
         exit 1
       fi
       if ((rust_status != 0)); then

@@ -49,7 +49,8 @@ This is a recorded divergence from the pinned K frontend.
 In `semcast3` (`rule bar(X:Big) => foo(X) ~> a(X)`) and `semcast4` (`rule bar(X:Big) ~> foo(X) => a(X)`), `a(X)` is ambiguous between `aS` over `Small` and `aF` over `Foo`.
 Under the manual's bound `X` may be any sort at most `Big`, and `foo(X)` requires it to be at most `Small`; `aF` would also need it at most `Foo`, and no sort lies below both, so exactly one reading is well-sorted: `aS`, with `X` at `Small`.
 Rust accepts both rules with that reading; the pinned frontend rejects them.
-The compile manifest records both as `expect = "port-accepts"` with this reason, and the compile gate runs both compilers on them: it requires the reference to reject and Rust to accept with a definition `kore-parser` accepts, and fails when either side changes.
+The compile manifest records both as `expect = "port-accepts"` with this reason and with `reference-error = "Unexpected sort Big for variable X"`, the reference diagnostic the divergence is about.
+The compile gate runs both compilers on them: it requires the reference to reject with output containing that diagnostic, so a rejection for any other cause (a crash, a failed heap reservation, a different error) fails the gate, and requires Rust to accept with a definition `kore-parser` accepts; it fails when either side changes.
 
 ## Compiler-resolved fresh constants
 

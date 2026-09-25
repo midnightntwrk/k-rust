@@ -73,6 +73,13 @@ fn differential_manifest_schema_is_complete() {
             );
             assert!(
                 entry
+                    .get("reference-error")
+                    .and_then(Value::as_str)
+                    .is_some_and(|diagnostic| !diagnostic.trim().is_empty()),
+                "port-accepts case {name} must pin the reference diagnostic it diverges on"
+            );
+            assert!(
+                entry
                     .get("comparisons")
                     .and_then(Value::as_array)
                     .is_none_or(Vec::is_empty),
@@ -83,6 +90,10 @@ fn differential_manifest_schema_is_complete() {
         assert!(
             entry.get("reason").is_none(),
             "reason on {expect} case {name} is only read for port-accepts"
+        );
+        assert!(
+            entry.get("reference-error").is_none(),
+            "reference-error on {expect} case {name} is only read for port-accepts"
         );
         if expect == "reject" {
             assert!(
@@ -1147,16 +1158,32 @@ fn differential_manifest_requires_a_reason_for_port_accepts() {
         ("", true),
         ("expect = \"reject\"\n", true),
         (
-            "expect = \"port-accepts\"\nreason = \"the manual's rule\"\n",
+            "expect = \"port-accepts\"\nreason = \"the manual's rule\"\nreference-error = \"Unexpected sort\"\n",
             true,
         ),
-        ("expect = \"port-accepts\"\n", false),
-        ("expect = \"port-accepts\"\nreason = \"  \"\n", false),
         (
-            "expect = \"port-accepts\"\nreason = \"why\"\ncomparisons = [\"semantic-kore\"]\n",
+            "expect = \"port-accepts\"\nreference-error = \"Unexpected sort\"\n",
+            false,
+        ),
+        (
+            "expect = \"port-accepts\"\nreason = \"  \"\nreference-error = \"Unexpected sort\"\n",
+            false,
+        ),
+        ("expect = \"port-accepts\"\nreason = \"why\"\n", false),
+        (
+            "expect = \"port-accepts\"\nreason = \"why\"\nreference-error = \" \"\n",
+            false,
+        ),
+        (
+            "expect = \"port-accepts\"\nreason = \"why\"\nreference-error = \"Unexpected sort\"\ncomparisons = [\"semantic-kore\"]\n",
             false,
         ),
         ("expect = \"reject\"\nreason = \"why\"\n", false),
+        (
+            "expect = \"reject\"\nreference-error = \"Unexpected sort\"\n",
+            false,
+        ),
+        ("reference-error = \"Unexpected sort\"\n", false),
         ("expect = \"port-rejects\"\n", false),
     ] {
         fs::write(
@@ -1194,7 +1221,7 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
     let fake_cargo = fixture.join("cargo");
     fs::write(
         &fake_kompile,
-        "#!/usr/bin/env bash\necho '[Error] Inner Parser: fake rejection'\nexit \"$FAKE_KOMPILE_STATUS\"\n",
+        "#!/usr/bin/env bash\necho \"$FAKE_KOMPILE_MESSAGE\"\nexit \"$FAKE_KOMPILE_STATUS\"\n",
     )
     .unwrap();
     fs::write(
@@ -1220,7 +1247,9 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
         std::env::var("PATH").expect("PATH")
     );
     let script = workspace.join("scripts/reference-differential.sh");
-    let run = |reference: u8, krust: u8, parser: u8| {
+    const PINNED: &str =
+        "[Error] Inner Parser: Unexpected sort Big for variable X. Expected: Small";
+    let run = |reference: u8, message: &str, krust: u8, parser: u8| {
         let output = Command::new("bash")
             .arg(&script)
             .arg("semcast3")
@@ -1229,6 +1258,7 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
             .env("K_KOMPILE", &fake_kompile)
             .env("K_KORE_PARSER", &fake_kore_parser)
             .env("FAKE_KOMPILE_STATUS", reference.to_string())
+            .env("FAKE_KOMPILE_MESSAGE", message)
             .env("FAKE_KRUST_STATUS", krust.to_string())
             .env("FAKE_PARSER_STATUS", parser.to_string())
             .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
@@ -1242,7 +1272,7 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
         )
     };
 
-    let (status, stdout, stderr) = run(1, 0, 0);
+    let (status, stdout, stderr) = run(1, PINNED, 0, 0);
     assert_eq!(
         status,
         Some(0),
@@ -1253,7 +1283,7 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
         "{stdout}"
     );
     assert!(
-        stdout.contains("reference rejection: [Error] Inner Parser"),
+        stdout.contains("reference rejection: [Error] Inner Parser: Unexpected sort Big"),
         "{stdout}"
     );
     assert!(
@@ -1262,17 +1292,38 @@ fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
     );
     assert!(stdout.contains("corpus passed"), "{stdout}");
 
-    for (reference, krust, parser, diagnostic) in [
+    for (reference, message, krust, parser, diagnostic) in [
         (
             0,
+            PINNED,
             0,
             0,
             "reference frontend accepted port-accepts case semcast3",
         ),
-        (1, 1, 0, "k-rust rejected port-accepts case semcast3"),
-        (1, 0, 1, "k-rust definition rejected by kore-parser"),
+        (
+            1,
+            "Error: Could not reserve enough space for object heap",
+            0,
+            0,
+            "reference frontend rejection of port-accepts case semcast3 for haskell/rust changed",
+        ),
+        (
+            1,
+            "[Error] Inner Parser: Parse error: unexpected token 'a'",
+            0,
+            0,
+            "lacks the recorded reference-error \"Unexpected sort Big for variable X\"",
+        ),
+        (
+            1,
+            PINNED,
+            1,
+            0,
+            "k-rust rejected port-accepts case semcast3",
+        ),
+        (1, PINNED, 0, 1, "k-rust definition rejected by kore-parser"),
     ] {
-        let (status, stdout, stderr) = run(reference, krust, parser);
+        let (status, stdout, stderr) = run(reference, message, krust, parser);
         assert_eq!(status, Some(1), "{diagnostic}: {stdout}\n{stderr}");
         assert!(stderr.contains(diagnostic), "{stderr}");
         assert!(!stdout.contains("corpus passed"), "{stdout}");

@@ -561,6 +561,7 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast3/tes
 main-module = "TEST"
 pairings = ["haskell/rust"]
 expect = "port-accepts"
+reference-error = "Unexpected sort Big for variable X"
 reason = "The K user manual defines the semantic cast t:S as requiring the sort of t to be less than or equal to S (\"Semantic casts\"), with exactness reserved for the strict cast t::S. Under that bound X:Big admits X at Small, and the ambiguous a(X) has exactly one well-sorted reading, aS with X at Small, since aF would also need X at most Foo and foo(X) already needs it at most Small, and no sort lies below both. k-rust accepts the rule with that reading; the pinned frontend rejects it. docs/compatibility.md#variable-sort-annotations."
 
 [[compile]]
@@ -571,6 +572,7 @@ source = "${workspace}/crates/k-rust/tests/fixtures/reference/inner/semcast4/tes
 main-module = "TEST"
 pairings = ["haskell/rust"]
 expect = "port-accepts"
+reference-error = "Unexpected sort Big for variable X"
 reason = "The K user manual defines the semantic cast t:S as requiring the sort of t to be less than or equal to S (\"Semantic casts\"), with exactness reserved for the strict cast t::S. Under that bound X:Big admits X at Small, and the ambiguous a(X) has exactly one well-sorted reading, aS with X at Small, since aF would also need X at most Foo and foo(X) already needs it at most Small, and no sort lies below both. k-rust accepts the rule with that reading; the pinned frontend rejects it. docs/compatibility.md#variable-sort-annotations."
 
 [[compile]]
