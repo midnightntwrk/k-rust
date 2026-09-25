@@ -31,7 +31,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering as AtomicOrdering},
+    },
 };
 
 use k_rust_kore::kore::ast::{self as kore, KoreString};
@@ -121,6 +124,11 @@ impl Predicate {
 pub struct ComputedRuleAttributes {
     pub contains_ac_symbols: bool,
     pub undefined_symbols: BTreeSet<Name>,
+    /// Every variable of the rule, free or bound by a quantifier of a condition.
+    pub variables: BTreeSet<Variable>,
+    /// The free variables of the right-hand side, requires and ensures that the left-hand side
+    /// does not bind and that are not existentials.
+    pub unbound_variables: BTreeSet<Variable>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -724,13 +732,18 @@ pub fn internalize_axiom(
             let lhs = rename_term(&lhs, rename);
             let requires = rename_predicates(&requires, rename);
             let rhs = rename_predicates(&rhs, rename);
-            let computed_attributes = computed_attributes([&lhs]);
+            let mut computed_attributes = computed_attributes([&lhs]);
+            let rhs = RuleRhs::Predicates(rhs);
+            (
+                computed_attributes.variables,
+                computed_attributes.unbound_variables,
+            ) = rule_variable_sets(&lhs, &rhs, &requires, &[], &BTreeSet::new());
             Ok(vec![InternalizedRule::Term(
                 RuleKind::Ceil,
                 RewriteRule {
                     lhs,
                     lhs_alternative: None,
-                    rhs: RuleRhs::Predicates(rhs),
+                    rhs,
                     requires,
                     ensures: Vec::new(),
                     attributes: attributes.clone(),
@@ -1460,6 +1473,10 @@ fn make_rule(
     if attributes.preserves_definedness {
         computed_attributes.undefined_symbols.clear();
     }
+    (
+        computed_attributes.variables,
+        computed_attributes.unbound_variables,
+    ) = rule_variable_sets(&lhs, &rhs, &requires, &ensures, &existentials);
     RewriteRule {
         lhs,
         lhs_alternative,
@@ -1623,23 +1640,36 @@ fn rename_predicate(
     }
 }
 
-/// A rule whose variables that a subject also mentions were renamed to fresh names, with the
+/// A rule whose variables that its scope also mentions were renamed to fresh names, with the
 /// renaming it applied (original rule variable to fresh variable).
 pub(crate) type RenamedApart<R> = (R, BTreeMap<Variable, Variable>);
 
-/// `rule` with every variable it shares with `subject` renamed to a fresh name, or `None` when
-/// its left-hand side shares no variable with `subject`.
+/// The counter of every `{name}!apart{counter}` name. It is shared by all renamings, nested or
+/// not, in every thread, so two renamings never mint the same name.
+static APART_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// `rule` with every variable that its scope also mentions renamed to a fresh name, or `None`
+/// when no rule variable can meet a scope variable.
 ///
-/// A rule's variables are bound by the rule, so renaming them injectively gives the same rule;
-/// the matcher, whose bindings are composed into the subject terms they bind, needs the rule's
-/// variables and the subject's to be distinct. Every occurrence of a renamed variable is
-/// renamed, in the left-hand side, the right-hand side with its ensures, the requires, the
-/// existentials, under a quantifier of a condition, and in a `concrete`/`symbolic` constraint.
-/// A fresh name is `{name}!{counter}` (keeping the provenance marker) chosen outside the names
-/// of every variable of the rule, bound or free, and of `subject`, so it captures nothing.
+/// A rule's variables are bound by the rule, so renaming them injectively gives the same rule.
+/// The scope of one application is the subject term (`subject`, its variables) and the path
+/// conditions it is applied under (`constraints`). Two meetings would identify a rule variable
+/// with a scope variable of the same name and sort:
+/// - any rule variable, free or bound, against a subject variable: the matcher composes its
+///   bindings into the subject terms it binds, and a binding's value, which mentions subject
+///   variables, is substituted under the rule's quantifiers and next to its other variables;
+/// - a free rule variable that the left-hand side does not bind (`unbound_variables`: a
+///   variable only of the requires, the right-hand side or the ensures) against a variable of
+///   the path conditions, under which the instantiated conditions are then decided.
 ///
-/// Only the left-hand side is tested for the clash: it is what the matcher compares with the
-/// subject. When it clashes, every shared variable of the whole rule is renamed.
+/// Every rule variable that the scope mentions is renamed, at every occurrence: left-hand side,
+/// right-hand side with its ensures, requires, quantifier binders, existentials, and
+/// `concrete`/`symbolic` constraints. The fresh name is `{name}!apart{counter}`: the `apart`
+/// marker is spelled by no other name source (KORE identifiers contain no `!`, and the other
+/// backend-minted names use `!{counter}`, `!claim` and `!exists`), the counter is global, and the
+/// name is still checked against every rule variable and every scope variable. So a fresh name
+/// captures nothing in scope and is not reused by a later renaming, including a nested one
+/// while a condition of this rule is evaluated.
 ///
 /// ```toml algorithm-site
 /// id = "backend.fresh.variables"
@@ -1649,26 +1679,24 @@ pub(crate) type RenamedApart<R> = (R, BTreeMap<Variable, Variable>);
 pub(crate) fn rename_apart(
     rule: &RewriteRule,
     subject: &BTreeSet<Variable>,
+    constraints: &[Predicate],
 ) -> Option<RenamedApart<RewriteRule>> {
-    if rule.lhs.attributes().variables.is_disjoint(subject) {
+    let computed = &rule.computed_attributes;
+    let term_clash = !computed.variables.is_disjoint(subject);
+    if !term_clash && computed.unbound_variables.is_empty() {
         return None;
     }
-    let mut variables = rule.lhs.attributes().variables.clone();
-    match &rule.rhs {
-        RuleRhs::Term(term) => variables.extend(term.attributes().variables.iter().cloned()),
-        RuleRhs::Disjunction(alternatives) => {
-            for alternative in alternatives {
-                variables.extend(alternative.term.attributes().variables.iter().cloned());
-                collect_all_variables(&alternative.ensures, &mut variables);
-            }
-        }
-        RuleRhs::Predicates(predicates) => collect_all_variables(predicates, &mut variables),
-        RuleRhs::Top | RuleRhs::Bottom => {}
+    let constraint_variables = free_variables_of(constraints);
+    if !term_clash
+        && computed
+            .unbound_variables
+            .is_disjoint(&constraint_variables)
+    {
+        return None;
     }
-    collect_all_variables(&rule.requires, &mut variables);
-    collect_all_variables(&rule.ensures, &mut variables);
-    variables.extend(rule.existentials.iter().cloned());
-    let renaming = fresh_renaming(&variables, subject);
+    let mut scope = constraint_variables;
+    scope.extend(subject.iter().cloned());
+    let renaming = fresh_renaming(&computed.variables, &scope);
     let rename = |variable: &Variable| {
         renaming
             .get(variable)
@@ -1681,6 +1709,7 @@ pub(crate) fn rename_apart(
         }
         rhs => rename_rhs(rhs.clone(), rename),
     };
+    let rename_set = |variables: &BTreeSet<Variable>| variables.iter().map(rename).collect();
     let renamed = RewriteRule {
         lhs: rename_term(&rule.lhs, rename),
         lhs_alternative: rule.lhs_alternative,
@@ -1688,25 +1717,47 @@ pub(crate) fn rename_apart(
         requires: rename_predicates(&rule.requires, rename),
         ensures: rename_predicates(&rule.ensures, rename),
         attributes: rename_concreteness(&rule.attributes, &renaming),
-        computed_attributes: rule.computed_attributes.clone(),
-        existentials: rule.existentials.iter().map(rename).collect(),
+        computed_attributes: ComputedRuleAttributes {
+            contains_ac_symbols: computed.contains_ac_symbols,
+            undefined_symbols: computed.undefined_symbols.clone(),
+            variables: rename_set(&computed.variables),
+            unbound_variables: rename_set(&computed.unbound_variables),
+        },
+        existentials: rename_set(&rule.existentials),
     };
     Some((renamed, renaming))
 }
 
-/// [`rename_apart`] for a predicate equation, whose left-hand side is a predicate.
+/// [`rename_apart`] for a predicate equation. Its left-hand side is a predicate that is matched
+/// under quantifiers, so the subject's bound variables are in scope too: a rule variable must
+/// not meet any variable of `subject`, free or bound.
 pub(crate) fn rename_predicate_rule_apart(
     rule: &PredicateRewriteRule,
-    subject: &BTreeSet<Variable>,
+    subject: &Predicate,
+    constraints: &[Predicate],
 ) -> Option<RenamedApart<PredicateRewriteRule>> {
-    if rule.lhs.free_variables().is_disjoint(subject) {
-        return None;
-    }
     let mut variables = BTreeSet::new();
     collect_all_variables(std::slice::from_ref(&rule.lhs), &mut variables);
     collect_all_variables(&rule.rhs, &mut variables);
     collect_all_variables(&rule.requires, &mut variables);
-    let renaming = fresh_renaming(&variables, subject);
+    let mut scope = BTreeSet::new();
+    collect_all_variables(std::slice::from_ref(subject), &mut scope);
+    let term_clash = !variables.is_disjoint(&scope);
+    let bound = rule.lhs.free_variables();
+    let unbound = free_variables_of(&rule.rhs)
+        .into_iter()
+        .chain(free_variables_of(&rule.requires))
+        .filter(|variable| !bound.contains(variable))
+        .collect::<BTreeSet<_>>();
+    if !term_clash && unbound.is_empty() {
+        return None;
+    }
+    let constraint_variables = free_variables_of(constraints);
+    if !term_clash && unbound.is_disjoint(&constraint_variables) {
+        return None;
+    }
+    scope.extend(constraint_variables);
+    let renaming = fresh_renaming(&variables, &scope);
     let rename = |variable: &Variable| {
         renaming
             .get(variable)
@@ -1722,30 +1773,83 @@ pub(crate) fn rename_predicate_rule_apart(
     Some((renamed, renaming))
 }
 
-/// Each variable of `rule_variables` that `subject` also has, mapped to a variable of the same
-/// kind and sort whose name no variable of either has.
+fn free_variables_of(predicates: &[Predicate]) -> BTreeSet<Variable> {
+    predicates
+        .iter()
+        .flat_map(Predicate::free_variables)
+        .collect()
+}
+
+/// Each variable of `rule_variables` that `scope` also has, mapped to a variable of the same
+/// kind and sort named `{name}!apart{counter}`, a name no variable of either has.
 fn fresh_renaming(
     rule_variables: &BTreeSet<Variable>,
-    subject: &BTreeSet<Variable>,
+    scope: &BTreeSet<Variable>,
 ) -> BTreeMap<Variable, Variable> {
     let mut avoid = rule_variables
         .iter()
-        .chain(subject)
+        .chain(scope)
         .map(|variable| variable.name.clone())
         .collect::<BTreeSet<_>>();
-    let mut counter = 0;
     rule_variables
-        .intersection(subject)
+        .intersection(scope)
         .map(|variable| {
-            let name = crate::fresh::fresh_name(
-                &variable.name,
-                crate::term::names::FreshMarker::Rewrite,
-                &mut counter,
-                &mut avoid,
-            );
+            // Invariant: the counter only grows, so at most |avoid| + 1 names are tried.
+            let name = loop {
+                let counter = APART_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+                let name = crate::term::names::with_fresh_marker(
+                    &variable.name,
+                    crate::term::names::FreshMarker::Apart,
+                    counter,
+                );
+                if avoid.insert(name.as_str().into()) {
+                    break name;
+                }
+            };
             (variable.clone(), variable.with_name(name))
         })
         .collect()
+}
+
+/// Every variable a rule mentions, free or bound, and those of its free variables that its
+/// left-hand side does not bind and that are not existentials: the sets `rename_apart` tests.
+pub(crate) fn rule_variable_sets(
+    lhs: &Term,
+    rhs: &RuleRhs,
+    requires: &[Predicate],
+    ensures: &[Predicate],
+    existentials: &BTreeSet<Variable>,
+) -> (BTreeSet<Variable>, BTreeSet<Variable>) {
+    let mut free = BTreeSet::new();
+    let mut all = BTreeSet::new();
+    match rhs {
+        RuleRhs::Term(term) => free.extend(term.attributes().variables.iter().cloned()),
+        RuleRhs::Disjunction(alternatives) => {
+            for alternative in alternatives {
+                free.extend(alternative.term.attributes().variables.iter().cloned());
+                free.extend(free_variables_of(&alternative.ensures));
+                collect_all_variables(&alternative.ensures, &mut all);
+            }
+        }
+        RuleRhs::Predicates(predicates) => {
+            free.extend(free_variables_of(predicates));
+            collect_all_variables(predicates, &mut all);
+        }
+        RuleRhs::Top | RuleRhs::Bottom => {}
+    }
+    free.extend(free_variables_of(requires));
+    free.extend(free_variables_of(ensures));
+    collect_all_variables(requires, &mut all);
+    collect_all_variables(ensures, &mut all);
+    all.extend(free.iter().cloned());
+    all.extend(lhs.attributes().variables.iter().cloned());
+    all.extend(existentials.iter().cloned());
+    let bound = &lhs.attributes().variables;
+    let unbound = free
+        .into_iter()
+        .filter(|variable| !bound.contains(variable) && !existentials.contains(variable))
+        .collect();
+    (all, unbound)
 }
 
 /// Every variable of `predicates`, free or bound by a quantifier.
@@ -2496,22 +2600,93 @@ mod tests {
         assert!(rule.lhs.attributes().variables.contains(&x));
         let subject = BTreeSet::from([x.clone(), Variable::new("Eq#X!0", sort.clone())]);
 
-        let (renamed, renaming) = rename_apart(rule, &subject).expect("the rules share Eq#X");
+        let (renamed, renaming) =
+            rename_apart(rule, &subject, &[]).expect("the rule shares Eq#X with the subject");
 
-        let fresh = Variable::new("Eq#X!1", sort.clone());
-        assert_eq!(renaming, BTreeMap::from([(x.clone(), fresh.clone())]));
+        let [(original, fresh)] = renaming.iter().collect::<Vec<_>>()[..] else {
+            panic!("only the shared variable is renamed: {renaming:?}");
+        };
+        assert_eq!(original, &x);
+        assert_eq!((fresh.kind, &fresh.sort), (x.kind, &x.sort));
+        let (base, counter) = fresh
+            .name
+            .split_once("!apart")
+            .expect("the fresh name carries the apart marker");
+        assert_eq!(base, "Eq#X");
+        assert!(counter.bytes().all(|byte| byte.is_ascii_digit()));
         assert_eq!(
             renamed.lhs.attributes().variables,
-            BTreeSet::from([fresh.clone(), z])
+            BTreeSet::from([fresh.clone(), z.clone()])
         );
-        assert_eq!(renamed.rhs, RuleRhs::Term(Term::variable(fresh)));
+        assert_eq!(renamed.rhs, RuleRhs::Term(Term::variable(fresh.clone())));
         assert_eq!(
             renamed.attributes.concreteness,
             Concreteness::Some(BTreeMap::from([(
-                (Name::from("X!1"), Name::from("SortS")),
+                (Name::from(&fresh.name["Eq#".len()..]), Name::from("SortS")),
                 ConstraintKind::Concrete
             )]))
         );
-        assert!(rename_apart(&renamed, &subject).is_none());
+        assert_eq!(
+            renamed.computed_attributes.variables,
+            BTreeSet::from([fresh.clone(), z])
+        );
+        assert!(rename_apart(&renamed, &subject, &[]).is_none());
+
+        // A second renaming, as a nested evaluation would make, mints a different name.
+        let (_, again) = rename_apart(rule, &subject, &[]).expect("still shared");
+        assert_ne!(again[&x], *fresh);
+    }
+
+    #[test]
+    fn a_requires_only_variable_is_renamed_apart_from_the_path_condition() {
+        let classified = classify(
+            r#"axiom{R} \implies{R}(
+                \equals{SortBool{}, R}(g{}(Y:SortS{}), \dv{SortBool{}}("true")),
+                \equals{SortS{}, R}(
+                    unary{}(X:SortS{}),
+                    \and{SortS{}}(a{}(), \top{SortS{}}())
+                )
+            ) [simplification{}()]"#,
+        )
+        .expect("axiom should classify")
+        .expect("axiom should be a rule");
+        let definition = BackendDefinition::internalize(
+            &parse_definition(
+                r#"[]
+                module MAIN
+                    sort SortS{} []
+                    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                    symbol unary{}(SortS{}) : SortS{} [function{}()]
+                    symbol g{}(SortS{}) : SortBool{} [function{}()]
+                    symbol a{}() : SortS{} [constructor{}()]
+                endmodule []"#,
+            )
+            .unwrap(),
+            "MAIN",
+        )
+        .unwrap();
+        let [InternalizedRule::Term(_, rule)] =
+            &internalize_axiom(&definition, &classified).unwrap()[..]
+        else {
+            panic!("expected one term rule");
+        };
+        let sort = crate::term::Sort::simple("SortS");
+        let y = Variable::new("Eq#Y", sort.clone());
+        assert_eq!(
+            rule.computed_attributes.unbound_variables,
+            BTreeSet::from([y.clone()])
+        );
+        let subject = BTreeSet::new();
+        assert!(rename_apart(rule, &subject, &[]).is_none());
+        let path = [Predicate::Equals(
+            Term::variable(y.clone()),
+            Term::variable(y.clone()),
+        )];
+
+        let (renamed, renaming) =
+            rename_apart(rule, &subject, &path).expect("the path mentions the rule's Eq#Y");
+
+        assert_eq!(renaming.keys().collect::<Vec<_>>(), [&y]);
+        assert!(!renamed.requires[0].free_variables().contains(&y));
     }
 }

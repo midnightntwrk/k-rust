@@ -32,7 +32,9 @@
 //! claim variables, `exists` for implication existentials), so emitted names are byte-identical
 //! to the three per-site loops this replaces. Existentials introduced by a rule's right-hand
 //! side follow Booster instead: strip the `Ex#` marker, keep the original name when it is free,
-//! and increment a trailing decimal counter only while the name collides.
+//! and increment a trailing decimal counter only while the name collides. Rule variables renamed
+//! apart from an application's scope (`rule::rename_apart`) use marker `apart` with one
+//! process-wide counter, so no two renamings mint the same name.
 
 use std::collections::BTreeSet;
 

@@ -220,7 +220,11 @@ pub(super) fn apply_rule_with_match(
     // A partial match was computed against the rule this attempt already applies, which is
     // renamed apart from the subject when it had to be.
     if matched.is_none()
-        && let Some((renamed, _)) = rename_apart(rule, &pattern.term.attributes().variables)
+        && let Some((renamed, _)) = rename_apart(
+            rule,
+            &pattern.term.attributes().variables,
+            &pattern.constraints,
+        )
     {
         return apply_rule_with_match(
             definition,
