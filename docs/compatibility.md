@@ -78,9 +78,11 @@ The `fresh-variables` compilation differential checks a case where the permutati
 
 ## Anywhere rules
 
-Rust accepts and executes anywhere rules, including inputs K's Haskell frontend rejects or removes.
-Kore represents them with an `anywhere` symbol attribute and admits them in `kore/src/Kore/Equation/Validate.hs`; its equation evaluation supplies the semantic reference.
-K's frontend restriction originated in the emission defect discussed in [K issue #2909](https://github.com/runtimeverification/k/issues/2909) and [PR #2998](https://github.com/runtimeverification/k/pull/2998), rather than a backend inability to evaluate the equations.
+Rust accepts and executes anywhere rules.
+This differs from K's Haskell frontend, which rejects them (`checkAnywhereRules` in `k-frontend/src/main/java/org/kframework/kompile/Kompile.java`) or, under `--allow-anywhere-haskell`, removes them (`removeAnywhereRules` in `k-frontend/src/main/java/org/kframework/backend/kore/KoreBackend.java`).
+The reason is the language specification: the [`anywhere` attribute](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md?plain=1#L1322-L1340) instructs "the backends" to apply the rule wherever it matches in the entire configuration, and it names no backend for which the attribute is unavailable.
+A definition that uses the attribute is therefore a K definition whose meaning is specified, and a backend implementing that meaning must not reject or silently drop its rules.
+Rust emits each anywhere rule as a KORE equation whose left-hand-side symbol carries the `anywhere` attribute, and the backend evaluates it during simplification like a function equation, as the manual's "simplified similarly to a `function`" describes.
 
 The `supported-superset` exclusion applies to expectations that demand frontend rejection or removal of anywhere rules.
 It does not exempt their execution from verification or equation tests.
@@ -98,7 +100,10 @@ The most specific successful lowering supplies sort membership; a concrete appli
 After compatible lowering, equation matching treats different productions in an overload family as distinct rigid heads when the subject is concrete after normalization.
 An ambiguous lowering, a variable, or an ordinary function argument remains symbolic.
 Structural equality rejects distinct normalized concrete terms only when their rigid heads differ or an injective equal head contains structurally distinct arguments.
-This ground-program rule follows LLVM's executable semantics: K's Haskell frontend rejects these definitions, so Kore supplies no execution oracle for them.
+These rules follow from what the manual makes of the two symbol families.
+An anywhere rule leaves its symbol ["still a constructor, even though it is simplified similarly to a `function`"](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md?plain=1#L1338-L1340): once no anywhere equation applies to a normalized application, the application is a constructor value, so it is concrete when its arguments are, and two such values with different heads are different.
+A symbol that also carries the `function` attribute is excluded because a function application denotes the value of its equations, not a value of its own.
+An [`overload(_)` family](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md?plain=1#L352-L388) groups constructors in which a more specific production is a restriction of a less specific one; after lowering has placed a concrete application at its most specific successful production, different productions of the family are different constructors.
 
 ## Concrete rewrite instantiation
 
@@ -110,6 +115,7 @@ Rust reports this unsupported instantiation as typed indeterminacy, so execution
 
 The boundary is concreteness of the whole normalized term.
 This includes Kore constructor-like terms and extends them for the supported anywhere superset, so a variable-free normalized anywhere or overloaded application does not make a ground configuration symbolic.
+Such an application is a constructor value, as [Anywhere rules](#anywhere-rules) explains.
 A variable below such an application keeps the configuration symbolic.
 A ground function-headed term can still narrow, and symbolic configurations retain fresh rule arguments and their existentially quantified complementary conditions.
 Anywhere equation evaluation, overload lowering, and covered function-equality matching remain supported before this boundary is applied.
