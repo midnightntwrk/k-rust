@@ -210,7 +210,7 @@ impl<'de> Deserialize<'de> for KoreJson {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct ExecuteParams {
     state: KoreJson,
     #[serde(default)]
@@ -241,7 +241,7 @@ struct ExecuteParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct SimplifyParams {
     // Standalone simplify deliberately remains unbounded for Kore fallback parity.
     state: KoreJson,
@@ -254,7 +254,7 @@ struct SimplifyParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct ImpliesParams {
     antecedent: KoreJson,
     consequent: KoreJson,
@@ -269,7 +269,7 @@ struct ImpliesParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct AddModuleParams {
     module: String,
     #[serde(default)]
@@ -279,7 +279,7 @@ struct AddModuleParams {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct GetModelParams {
     state: KoreJson,
     #[serde(default)]
@@ -2335,18 +2335,73 @@ mod tests {
     }
 
     #[test]
-    fn unknown_param_keys_are_accepted_and_ignored() {
-        // This is serde's compatibility disposition and is cross-checked against kore-rpc by the
-        // differential RPC corpus.
-        let mut service = service();
+    fn unknown_param_keys_are_invalid_params() {
         let state = encode_kore(&parse_pattern("state{}()").unwrap()).unwrap();
+        let model_state = trivial_model_state();
+        let with_key = |params: &Value, key: &str| {
+            let mut params = params.clone();
+            params.as_object_mut().unwrap().insert(key.into(), json!(0));
+            params
+        };
+        // `max-depth: 0` halts this state on the depth bound; the misspelt `max-dept` would
+        // otherwise run it unbounded and report a different result.
+        let cases = vec![
+            (
+                "execute",
+                json!({ "state": state.clone(), "max-depth": 0 }),
+                "max-dept",
+            ),
+            (
+                "simplify",
+                json!({ "state": state.clone() }),
+                "future-option",
+            ),
+            (
+                "implies",
+                json!({ "antecedent": state.clone(), "consequent": state.clone() }),
+                "assume-defind",
+            ),
+            (
+                "add-module",
+                json!({ "module": "module EXTRA import TEST [] endmodule []" }),
+                "name-as-ids",
+            ),
+            (
+                "get-model",
+                json!({ "state": model_state }),
+                "future-option",
+            ),
+        ];
+
+        for (method, declared, unknown) in cases {
+            let accepted = request(&mut service(), 1, method, declared.clone());
+            assert!(accepted.get("error").is_none(), "{method}: {accepted:#}");
+            if method == "execute" {
+                assert_eq!(accepted["result"]["reason"], "depth-bound");
+            }
+
+            let params = with_key(&declared, unknown);
+            let rejected = request(&mut service(), 1, method, params.clone());
+            assert!(rejected.get("result").is_none(), "{method}: {rejected:#}");
+            assert_eq!(rejected["error"]["code"], -32602, "{method}");
+            assert_eq!(rejected["error"]["message"], "Invalid params", "{method}");
+            assert_eq!(rejected["error"]["data"], params, "{method}");
+        }
+
+        // Every declared key, including the k-rust extension and the routing and logging keys,
+        // is still accepted.
         let response = request(
-            &mut service,
+            &mut service(),
             1,
             "execute",
-            json!({ "state": state, "max-depth": 0, "future-option": true }),
+            json!({
+                "state": state,
+                "max-depth": 0,
+                "max-simplification-iterations": 4,
+                "booster-only": true,
+                "haskell-logging": ["Rewrite"],
+            }),
         );
-
         assert!(response.get("error").is_none(), "{response:#}");
         assert_eq!(response["result"]["reason"], "depth-bound");
     }
