@@ -3,7 +3,7 @@
 
 import type { FailureCode, Stage } from "../src/protocol.ts";
 
-export const ORACLE_SHA256 = "8460248238982e624d9d75e541e036d88f2508e4aa27ed5498f19ea0112eca47";
+export const ORACLE_SHA256 = "1754f5e9c139e1223183649908d16a6deacfb38bc3dc101807c5b6bf8f5b38f4";
 export const ORACLE_BYTES = 183292;
 
 export interface Expectation {
