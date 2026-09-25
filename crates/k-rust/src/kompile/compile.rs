@@ -641,6 +641,20 @@ fn transform_loaded_definition(
     // Every sentence the caller handed over is an input sentence: give each one its address in
     // `loaded.definition` before any pass moves, merges, or derives from it. Only the structured
     // addresses of an unchanged `load_structured` result are kept.
+    // The structured addresses are trusted only for an unedited `load_structured` result; a
+    // flagged resolution must at least describe the same modules, each with no more sentences
+    // than the definition (the resolution keeps one of each class of equivalent sentences).
+    debug_assert!(
+        !loaded.resolved.structured_input
+            || (loaded.resolved.modules().count() == loaded.definition.modules.len()
+                && loaded.definition.modules.iter().all(|module| {
+                    loaded.resolved.module_id(&module.name).is_some_and(|id| {
+                        loaded.resolved.module(id).local_sentences.len()
+                            <= module.local_sentences.len()
+                    })
+                })),
+        "LoadedDefinition::resolved is not the resolution of LoadedDefinition::definition"
+    );
     let stamped = || {
         let mut definition = loaded.definition.clone();
         stamp_input_addresses(

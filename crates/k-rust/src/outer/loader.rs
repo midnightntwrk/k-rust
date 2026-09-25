@@ -273,6 +273,13 @@ impl fmt::Display for LoadError {
 impl Error for LoadError {}
 
 /// A completely loaded and import-resolved source graph.
+///
+/// Contract: `resolved` is the resolution of `definition`. A caller that edits `definition`
+/// must re-resolve it (`ResolvedDefinition::resolve`, or `update` from the unedited
+/// definition) before compiling. The structured input addresses a [`load_structured`] result
+/// carries are trusted only while `resolved` is the resolution that call returned, that is, for
+/// an unedited result; any re-resolution makes compilation address every sentence by its
+/// position in the definition being compiled.
 #[derive(Clone, Debug)]
 pub struct LoadedDefinition {
     /// Parsed files in dependency-first `requires` order.
