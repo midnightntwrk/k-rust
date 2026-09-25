@@ -154,7 +154,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - definition.outer.requires — O(F^2 + E x P + B), plus definition.outer.parse… +1 mode — in: [prepared definition manifest], [resolved source text] → out: [loaded definition]
 - definition.outer.select_modules — O(M x (M + E) log M + S)
 - definition.outer.virtual_path — O(P)
-- definition.provenance.record — O(M^2 + D + N log N + sum k)
+- definition.provenance.record — O(M^2 + D + N + sum k) expected +1 mode
 - definition.provenance.source_identity — O(B + S) +1 mode
 - definition.regex.parse — O(B)
 - definition.resolve.sentences — O((M + E) log M + n_m log n_m + n_m x k x eq)

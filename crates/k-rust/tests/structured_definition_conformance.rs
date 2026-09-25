@@ -111,6 +111,11 @@ fn load_structured_compiles_an_authored_instrs_configuration() {
 #[test]
 fn structured_rules_carry_their_structured_addresses_through_every_pass() {
     let mut definition = structured_definition_with_configuration_cell("k");
+    let configuration_index = definition.modules[0]
+        .local_sentences
+        .iter()
+        .position(|sentence| matches!(**sentence, Sentence::Configuration { .. }))
+        .unwrap();
     let constant = |name: &str| Sentence::Production {
         label: Some(Label::new(name)),
         parameters: Vec::new(),
@@ -147,6 +152,7 @@ fn structured_rules_carry_their_structured_addresses_through_every_pass() {
     );
     let first = u32::try_from(main.len() - 3).unwrap();
     let address = |index| InputAddress::new(InputSpace::Structured, "MAIN", index);
+    let configuration = address(u32::try_from(configuration_index).unwrap());
     let (a_first, b, a_second) = (address(first), address(first + 1), address(first + 2));
 
     let loaded = load_structured(
@@ -196,6 +202,30 @@ fn structured_rules_carry_their_structured_addresses_through_every_pass() {
         .collect::<BTreeSet<_>>();
     assert_eq!(a_ids.len(), 1, "equal rules share one UNIQUE_ID");
     assert!(!a_ids.contains(&ids[&b][0]));
+    let a_id = a_ids.into_iter().next().unwrap();
+    let a_provenance = &artifacts.sentence_provenance[a_id.as_str()];
+    assert_eq!(
+        a_provenance.input_addresses,
+        [a_first.clone(), a_second.clone()]
+    );
+    assert_eq!(
+        a_provenance.input_sentence_kinds[&a_first],
+        k_rust::provenance::InputSentenceKind::Rule
+    );
+    assert_eq!(
+        a_provenance.input_sentence_kinds[&a_second],
+        k_rust::provenance::InputSentenceKind::Rule
+    );
+    let b_provenance = &artifacts.sentence_provenance[&ids[&b][0]];
+    assert_eq!(b_provenance.input_addresses, std::slice::from_ref(&b));
+    assert_eq!(
+        b_provenance.input_sentence_kinds[&b],
+        k_rust::provenance::InputSentenceKind::Rule
+    );
+    assert!(artifacts.sentence_provenance.values().any(|provenance| {
+        provenance.input_sentence_kinds.get(&configuration)
+            == Some(&k_rust::provenance::InputSentenceKind::Configuration)
+    }));
 }
 
 fn truth() -> Term {

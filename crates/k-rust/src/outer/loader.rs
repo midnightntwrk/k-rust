@@ -47,7 +47,9 @@ use crate::{
     },
     kast::WellKnownModule,
     kompile::pipeline::load_phase,
-    provenance::{InputSpace, LogicalSourceId, SourceTable, stamp_input_addresses},
+    provenance::{
+        InputSpace, LogicalSourceId, SourceTable, input_sentence_kinds, stamp_input_addresses,
+    },
     timings::PhaseTimings,
 };
 
@@ -599,6 +601,7 @@ pub fn load_structured(
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
     stamp_input_addresses(&mut definition, InputSpace::Structured, true);
+    let kinds = input_sentence_kinds(&definition, InputSpace::Structured);
     let mut resolver = |_: &str, required: &str| {
         builtin::embedded(required)
             .ok_or_else(|| format!("embedded builtin source {required:?} was not found"))
@@ -648,7 +651,10 @@ pub fn load_structured(
         None,
         &mut timings,
     )
-    .map(|(loaded, _)| loaded)
+    .map(|(mut loaded, _)| {
+        loaded.source_table.set_input_sentence_kinds(kinds);
+        loaded
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -55,6 +55,10 @@
 //! equal sentences unites their carriers in first-occurrence order.
 //! A sentence with an empty carrier is generated without an input author (a sort predicate, a
 //! projection), never attributed to a guessed one.
+//! `kompile::CompiledKoreArtifacts::sentence_provenance` groups execution rules and claims by
+//! their backend `UNIQUE_ID`. It unions carriers across equal-content sentences in execution
+//! module and local sentence order, retains the original kinds of addressed input sentences, and
+//! reports the generating pass when an identity has no input address.
 //!
 //! The origin receipt ([`OriginRecord`]) records the generating pass and the source spans or
 //! `UNIQUE_ID`s a changed sentence derives from. After each generating pass a sentence is paired
@@ -235,9 +239,23 @@ impl SourceOffsetMap {
 pub struct SourceTable {
     sources: Vec<LogicalSourceId>,
     offset_maps: BTreeMap<SourceId, SourceOffsetMap>,
+    // Structured input can be removed by loading, while its stamped address survives on derived
+    // sentences. Keep its original kind with the other loading provenance.
+    input_sentence_kinds: BTreeMap<InputAddress, InputSentenceKind>,
 }
 
 impl SourceTable {
+    pub(crate) fn set_input_sentence_kinds(
+        &mut self,
+        kinds: BTreeMap<InputAddress, InputSentenceKind>,
+    ) {
+        self.input_sentence_kinds = kinds;
+    }
+
+    pub(crate) fn input_sentence_kinds(&self) -> &BTreeMap<InputAddress, InputSentenceKind> {
+        &self.input_sentence_kinds
+    }
+
     pub fn intern(&mut self, source: LogicalSourceId) -> SourceId {
         // Invariant: `self.sources` holds pairwise distinct sources indexed by `SourceId`; `position` compares `source` against the entries of `self.sources` in order, so one call is O(|sources|) and interning F sources is O(F^2).
         if let Some(index) = self
@@ -426,6 +444,86 @@ pub struct InputAddress {
     pub input: InputSpace,
     pub module: String,
     pub index: u32,
+}
+
+/// Kind of a sentence in the caller's input definition, before loading or compilation changes it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InputSentenceKind {
+    SyntaxSort,
+    SortSynonym,
+    SyntaxLexical,
+    Production,
+    SyntaxAssociativity,
+    SyntaxPriority,
+    ContextAlias,
+    Context,
+    Rule,
+    Claim,
+    Configuration,
+    Bubble,
+}
+
+impl InputSentenceKind {
+    pub fn of(sentence: &Sentence) -> Self {
+        match sentence {
+            Sentence::SyntaxSort { .. } => Self::SyntaxSort,
+            Sentence::SortSynonym { .. } => Self::SortSynonym,
+            Sentence::SyntaxLexical { .. } => Self::SyntaxLexical,
+            Sentence::Production { .. } => Self::Production,
+            Sentence::SyntaxAssociativity { .. } => Self::SyntaxAssociativity,
+            Sentence::SyntaxPriority { .. } => Self::SyntaxPriority,
+            Sentence::ContextAlias { .. } => Self::ContextAlias,
+            Sentence::Context { .. } => Self::Context,
+            Sentence::Rule { .. } => Self::Rule,
+            Sentence::Claim { .. } => Self::Claim,
+            Sentence::Configuration { .. } => Self::Configuration,
+            Sentence::Bubble { .. } => Self::Bubble,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::SyntaxSort => "syntax-sort",
+            Self::SortSynonym => "sort-synonym",
+            Self::SyntaxLexical => "syntax-lexical",
+            Self::Production => "production",
+            Self::SyntaxAssociativity => "syntax-associativity",
+            Self::SyntaxPriority => "syntax-priority",
+            Self::ContextAlias => "context-alias",
+            Self::Context => "context",
+            Self::Rule => "rule",
+            Self::Claim => "claim",
+            Self::Configuration => "configuration",
+            Self::Bubble => "bubble",
+        }
+    }
+}
+
+/// Snapshot the kinds at the same boundary that assigns input addresses.
+pub(crate) fn input_sentence_kinds(
+    definition: &Definition,
+    input: InputSpace,
+) -> BTreeMap<InputAddress, InputSentenceKind> {
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| {
+            module
+                .local_sentences
+                .iter()
+                .enumerate()
+                .map(move |(index, sentence)| {
+                    (
+                        InputAddress::new(
+                            input,
+                            module.name.clone(),
+                            u32::try_from(index).expect("sentence index fits in u32"),
+                        ),
+                        InputSentenceKind::of(sentence),
+                    )
+                })
+        })
+        .collect()
 }
 
 impl InputAddress {
@@ -1094,20 +1192,7 @@ fn sentence_name(sentence: &Sentence, index: usize) -> String {
 }
 
 fn sentence_kind(sentence: &Sentence) -> &'static str {
-    match sentence {
-        Sentence::SyntaxSort { .. } => "syntax-sort",
-        Sentence::SortSynonym { .. } => "sort-synonym",
-        Sentence::SyntaxLexical { .. } => "syntax-lexical",
-        Sentence::Production { .. } => "production",
-        Sentence::SyntaxAssociativity { .. } => "syntax-associativity",
-        Sentence::SyntaxPriority { .. } => "syntax-priority",
-        Sentence::ContextAlias { .. } => "context-alias",
-        Sentence::Context { .. } => "context",
-        Sentence::Rule { .. } => "rule",
-        Sentence::Claim { .. } => "claim",
-        Sentence::Configuration { .. } => "configuration",
-        Sentence::Bubble { .. } => "bubble",
-    }
+    InputSentenceKind::of(sentence).as_str()
 }
 
 pub(crate) fn sentence_source_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
