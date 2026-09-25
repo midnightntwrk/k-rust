@@ -239,9 +239,22 @@ Like C8, that evidence depends on the port's simplifier.
 
 ## Definition verification
 
-The acceptance boundary follows `kore-parser --verify` even where Booster is more permissive.
-Every axiom pattern must be well formed, including axioms ignored by later classification, and domain values require a sort declared with `hasDomainValues`.
-Reflexive subsort axioms are accepted, as Kore accepts them.
+The acceptance boundary includes the sentence, declaration and pattern conditions of KORE validity as the KORE language specification states them, [`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity).
+Among its conditions, every sort, symbol and alias an axiom uses is declared, each application agrees with its declaration in sort parameters, arity and argument sorts, and each bound variable agrees in sort with its binder.
+It does not include the two module-order conditions on import sentences: an imported module need not appear earlier in the definition (condition 6a), and an import need not precede the other declarations of its module (6b).
+Modules are resolved by name, so a definition that violates either condition is accepted and means the same theory as its reordered form.
+The reason: imports determine which declarations are in scope, and textual order adds nothing to that scope, as the specification already states for the non-import sentences of a module.
+The part of 6a that a topological order implies, that imports form no cycle, is still enforced.
+A definition is a matching-logic theory, and every axiom belongs to that theory whether or not the backend later classifies it as a rewrite, an equation or an attribute axiom.
+An axiom that is not a valid pattern has no meaning, so a definition containing one does not define a theory, even when execution would never consult that axiom.
+Verification therefore checks every sentence of the modules in scope before classification, including axioms that classification ignores.
+This diverges from Booster, which drops some axiom shapes without internalizing them (a `simplification` axiom whose left-hand side is not an application, and a `functional` or `total` existential; `booster/library/Booster/Syntax/ParsedKore/Internalise.hs:629-630,636-641`), so an ill-formed axiom of those shapes does not stop Booster from loading the definition.
+Verification also rejects `\dv{S}` on a sort `S` declared without `hasDomainValues`, a condition the specification's Validity list does not state.
+Its reason: a `\dv{S}` pattern names a domain value of `S`, and `hasDomainValues` is the declaration that `S` has domain values, so a domain value of a sort declared without it denotes nothing.
+The verifier enforces further conditions beyond the specification (among them `BOOL.Bool` literals, subsorts of sorts with domain values, function heads and constructor result sorts, attributes, and claim right-hand-side variables); they are not yet justified in this section.
+A subsort axiom `subsort{S, S}` states `S <= S`.
+The subsort order is the reflexive-transitive closure of the declared pairs, so it contains `S <= S` for every sort even without a subsort axiom, and the axiom `\exists V:S. V = inj{S, S}(W:S)` is a valid pattern.
+A reflexive subsort declaration therefore adds nothing to the order and is not rejected for being reflexive; the other subsort conditions still apply, so `subsort{S, S}` on a sort with `hasDomainValues` is rejected because the verifier does not accept subsorts of a sort with domain values.
 The [definition fixture index](../crates/k-rust/tests/fixtures/reference/definition/index.toml) records pinned verification outcomes and diagnostic fragments.
 
 ## Search results
