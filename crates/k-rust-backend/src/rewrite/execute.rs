@@ -601,22 +601,7 @@ impl<'a> Execution<'a> {
     ) -> Phase<Vec<ExecutionState>> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
-            for simplification in &applied.remainder_simplifications {
-                state.effects.commit(simplification.effects.iter().cloned());
-                state.trace.extend(
-                    simplification
-                        .applied_rules
-                        .iter()
-                        .cloned()
-                        .map(|unique_id| TraceEntry {
-                            depth: state.depth,
-                            kind: TraceKind::Simplification,
-                            label: None,
-                            unique_id,
-                        }),
-                );
-            }
-            state.effects.commit(applied.effects.iter().cloned());
+            commit_proposed_effects(&mut state, &applied);
             // The cut-point rule is proposed, not committed: the `CutPointRule` leaf stays at
             // this state's depth and branch position and carries the successor in
             // `next_states`, with the successor's diagnostics and with the events it would add
@@ -675,16 +660,7 @@ impl<'a> Execution<'a> {
                     &self.observation_log,
                 ));
             }
-            applied.observations = self
-                .observation_log
-                .events_since(candidate_observation, state.observation);
-            return Err(state.leaf(
-                HaltReason::CutPointRule {
-                    rule,
-                    next_states: vec![applied],
-                },
-                &self.observation_log,
-            ));
+            return Err(self.cut_point_leaf(state, rule, applied, candidate_observation));
         }
         let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
         let mut next = next_state(
@@ -729,6 +705,30 @@ impl<'a> Execution<'a> {
             return Err(next.leaf(halt_reason, &self.observation_log));
         }
         Ok(vec![next])
+    }
+
+    /// The `CutPointRule` leaf for a proposed successor that is normalized, on its own
+    /// observation head `candidate`, and not bottom, once its effects are committed to `state`.
+    /// The leaf is this state: it keeps this state's depth, branch and diagnostics; the
+    /// successor, carried in `next_states`, owns its diagnostics and the events it would add to
+    /// this branch.
+    fn cut_point_leaf(
+        &self,
+        state: ExecutionState,
+        rule: String,
+        mut applied: AppliedRule,
+        candidate: ObservationHead,
+    ) -> ExecutionLeaf {
+        applied.observations = self
+            .observation_log
+            .events_since(candidate, state.observation);
+        state.leaf(
+            HaltReason::CutPointRule {
+                rule,
+                next_states: vec![applied],
+            },
+            &self.observation_log,
+        )
     }
 
     /// E7: several rules applied, or one with a complete remainder. Under `StopAtBranch`, the
@@ -903,8 +903,24 @@ impl<'a> Execution<'a> {
                     ));
                 }
                 (1, false) => {
+                    // The only surviving candidate is the unique successor of this state, as a
+                    // `Finished` step's application is: the stop rules apply to it alike. It is
+                    // already normalized, on its own head, and not bottom.
                     let (applied, observation) = branches.pop().expect("one branch remains");
-                    return Ok(vec![commit_applied(state, applied, observation)]);
+                    if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules)
+                    {
+                        let mut state = state;
+                        commit_proposed_effects(&mut state, &applied);
+                        return Err(self.cut_point_leaf(state, rule, applied, observation));
+                    }
+                    let terminal_rule = selected_stop_rule(&applied, &self.options.terminal_rules);
+                    let next = commit_applied(state, applied, observation);
+                    if let Some(rule) = terminal_rule {
+                        return Err(
+                            next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
+                        );
+                    }
+                    return Ok(vec![next]);
                 }
                 (0, true) => {
                     let remainder = remainder.take().expect("one remainder remains");
@@ -1276,6 +1292,27 @@ fn externalise_leaf(
             state.leaf_with_pattern(pattern, HaltReason::Simplification(error), observation_log)
         }
     }
+}
+
+/// Commit a proposed successor's effects to the state that reports it as a cut point, with the
+/// trace of its higher-priority remainder's simplifications, as a cut-point leaf always has.
+fn commit_proposed_effects(state: &mut ExecutionState, applied: &AppliedRule) {
+    for simplification in &applied.remainder_simplifications {
+        state.effects.commit(simplification.effects.iter().cloned());
+        state.trace.extend(
+            simplification
+                .applied_rules
+                .iter()
+                .cloned()
+                .map(|unique_id| TraceEntry {
+                    depth: state.depth,
+                    kind: TraceKind::Simplification,
+                    label: None,
+                    unique_id,
+                }),
+        );
+    }
+    state.effects.commit(applied.effects.iter().cloned());
 }
 
 /// Extend `head` with an applied candidate's observations: the evaluations of the higher-priority
