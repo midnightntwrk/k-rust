@@ -47,6 +47,21 @@ The variable's sort is then inferred like any other variable's: the same sort at
 To make an annotation exact, so that a narrower occurrence is a sort error, write the strict cast `X::S`.
 The pinned K frontend rejects `semcast3` and `semcast4`, whose ambiguous `a(X)` has exactly one well-sorted reading under this bound; Rust accepts them with that reading, and the differential manifest records both as `excluded` with the Rust acceptance as the local gate.
 
+## Formal parameter preference
+
+A formal sort parameter of a parametric production is not a variable of the sentence (K user manual, "Parametric productions and `bracket` attributes").
+Sort inference therefore orders the readings of a sentence only by well-sortedness, by maximality over the sorts of its variables, and then by `prefer`/`avoid`; a sentence with several readings left after these steps is an ambiguous parse error (K user manual, "Variable Sort Inference" and "Symbol priority and associativity").
+The `K`/`KItem`/`Bag` preference on formal parameters only chooses how a kept reading is instantiated: it compares parameter vectors that keep the same set of well-sorted readings and never removes a reading that some vector types.
+A free parameter is inferred as `K`, since it "cannot actually reject any parse".
+Alternatives that are equal once bracket nodes are erased and each concrete instance of a parametric production is replaced by its formal source are one reading, not several: `rule #Ceil(X:W) => (#Top) [simplification]` has one parse, `#Top{K}`, exactly as without the brackets.
+
+The pinned K frontend also uses the parameter preference to choose between distinct readings, by sending a parameter to `K` where that makes another reading ill-sorted.
+Rust does not.
+Where this makes the reference pick the non-`prefer` reading, Rust takes the `prefer` reading (`#fun2` over `#fun3` in `#fun(P => B)(A)` when both are well-sorted).
+Where no `prefer` or `avoid` separates the readings, Rust reports the ambiguity and the conformance expectations record the step as `port-reports-ambiguity`.
+In `issue-2287-simpl-rules-in-kprovex`, the claim `<k> c => 2 #And n +Int n </k>` of `a5-spec.k` reads as `(2 #And n) +Int n` and as `2 #And (n +Int n)`: both are well-sorted, the claim has no variables, and no priority, `prefer`, or `avoid` relates `_+Int_` and `#And`, so the claim is ambiguous.
+The two readings have different KORE and different proof behavior; a specification that means one of them states it with brackets.
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.

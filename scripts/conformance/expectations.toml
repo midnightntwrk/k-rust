@@ -60,6 +60,11 @@ decided_by = "docs/compatibility.md#cli-scope"
 meaning = "The step needs a K CLI capability outside krust's interface (the kompiled-directory contract or K-only flags); the driver has no krust equivalent to translate to."
 
 [[category]]
+id = "port-reports-ambiguity"
+decided_by = "docs/compatibility.md#formal-parameter-preference"
+meaning = "The reference resolves a sentence by a formal-parameter preference that removes a well-sorted reading; the port reports the ambiguity that remains after maximality and prefer/avoid."
+
+[[category]]
 id = "undriven-recipe"
 decided_by = "docs/compatibility.md#driver-scope"
 meaning = "The upstream recipe defines no case or individual step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, or an expected kompile failure that leaves no definition); there is no oracle, so the skip is not evidence of a Rust pass."
@@ -1028,7 +1033,10 @@ accepted_stage = "kprove"
 baseline_verdict = "krust-error"
 baseline_stage = "kprove"
 exclusion = ""
-reason = "The cases exercise overlapping equation results (a1), invalid simplification-rule rejection (a2), existential witnesses and injection equality (a3), and matching-logic connectives in term positions (a4/a5). For a5, implication simplifies the destination under the antecedent constraints before matching: n +Int n rewrites to #Top, so the target `2 #And n +Int n` reduces to 2. This follows Kore Claim.hs simplifyRightHandSide; the corrected case proves (revision 02e0d89). The a2 rejection remains excluded as both-reject; diagnostic source excerpts do not determine proof verdicts."
+reason = "The cases exercise overlapping equation results (a1), invalid simplification-rule rejection (a2), existential witnesses and injection equality (a3), and matching-logic connectives in term positions (a4/a5). The a5 claim `2 #And n +Int n` has two well-sorted readings that nothing in the language orders, so the port rejects it as ambiguous (docs/compatibility.md#formal-parameter-preference) and its step is excluded as port-reports-ambiguity. The a2 rejection remains excluded as both-reject; diagnostic source excerpts do not determine proof verdicts."
+step_exclusions = [
+  { test = "a5-spec.k", out = "a5-spec.k.out", exclusion = "port-reports-ambiguity", reason = "`2 #And n +Int n` reads as `(2 #And n) +Int n` and as `2 #And (n +Int n)`: both trees are well-sorted, the claim has no variables to maximise, and no priority, prefer or avoid relates _+Int_ and #And, so the port reports the ambiguity; the reference keeps the second reading by sending #And's parameter to K, which makes the first ill-sorted." },
+]
 
 [[case]]
 name = "issue-2315-id-quotes"
