@@ -83,10 +83,16 @@ impl std::fmt::Display for Error {
                 write!(formatter, "unsupported KAST version {version}")
             }
             Self::UnsupportedSentence(node) => {
-                write!(
-                    formatter,
-                    "{node} is not representable in KAST JSON version 4"
-                )
+                if *node == "badsentence" {
+                    formatter.write_str(
+                        "KAST JSON version 4 document contains badsentence: its writer could not represent a sentence",
+                    )
+                } else {
+                    write!(
+                        formatter,
+                        "KAST JSON version 4 document contains unsupported sentence node {node}"
+                    )
+                }
             }
             Self::MissingMainModule(name) => {
                 write!(formatter, "main module {name:?} was not found")
@@ -1217,10 +1223,6 @@ impl JsonFlatModule {
             local_sentences: module
                 .local_sentences
                 .into_iter()
-                .filter(|sentence| {
-                    kind != DefinitionEnvelopeKind::KastV4
-                        || !matches!(sentence, JsonSentence::KBadsentence)
-                })
                 .map(|sentence| sentence.decode(kind).map(Arc::new))
                 .collect::<Result<_, _>>()?,
             attributes: module.att.into(),
