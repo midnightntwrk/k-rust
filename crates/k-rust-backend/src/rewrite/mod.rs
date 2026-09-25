@@ -280,7 +280,9 @@ pub struct ExecutionOptions {
     /// configurations collapse into the first leaf in depth-first order. `PathSet` keeps one leaf
     /// per explored path, so paths that converge on one configuration keep their own trace,
     /// branch identity, and observations. Exploration is the same under both; only the final
-    /// merge differs. Under `ExecutionMode::Any` one path is followed and the two coincide.
+    /// merge differs. `ExecutionMode::Any` commits one rule per step but keeps that rule's
+    /// right-hand-side alternatives and a symbolic remainder, so it can yield several leaves;
+    /// the two readings coincide only when no two leaves share a configuration.
     pub result_modality: ResultModality,
 }
 
