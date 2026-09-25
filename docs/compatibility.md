@@ -125,6 +125,12 @@ Execution retains an explicit `aborted` reason for incomplete indeterminate, sim
 An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
 Backend error `data` is compared by class: code, message, and the `error` sentence; context lines are the port's own diagnostics (N28).
 
+An `implies` response reports its antecedent and consequent after simplification, the patterns the verdict was decided on ([`simplified_implication_response_syntax`](../crates/k-rust/src/rpc.rs)); a simplification failure is reported as a `simplify` fault rather than as an unsimplified pattern beside a verdict computed from the simplified one.
+Simplification replaces a pattern by an equal one, so the payload denotes the requested implication.
+The pinned Booster proxy echoes the request's patterns instead; for the IMP request that is an unevaluated `initGeneratedTopCell` application where k-rust reports the configuration it evaluates to.
+The `rpc.imp` `oracle-exception` records that difference with `equivalence = "simplified-implication"`, and N19 checks the claimed equality rather than asserting it: the two responses must be equal outside the payload, and both payloads' antecedents and consequents, simplified by `krust kore-simplify` against the reference definition, must print identically.
+Like C8, that evidence depends on the port's simplifier.
+
 ## Definition verification
 
 The acceptance boundary follows `kore-parser --verify` even where Booster is more permissive.
