@@ -112,6 +112,31 @@ Rust retains the specified behavior for all three operations.
 The [hook fixtures](../crates/k-rust/tests/fixtures/reference/hooks) and `execution.oracle-exception` entries in the differential manifest preserve separate Rust and Kore expectations for the two Kore deviations.
 Normalization N18 checks both expectations independently; when a pin fixes the deviation, refresh the reference evidence and remove that exception.
 
+## ECDSA recovery on invalid input
+
+`KRYPTO.ecdsaRecover` and `SECP256K1.ecdsaRecover` share one evaluator in [krypto.rs](../crates/k-rust-backend/src/builtin/krypto.rs).
+Their hook contract is not in `domains.md`: [`plugin/krypto.md` at blockchain-k-plugin `207ae512`](https://github.com/runtimeverification/blockchain-k-plugin/blob/207ae5121e5178a09742ed746f2d15e34b1750cc/plugin/krypto.md), the revision the [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records, declares `ECDSARecover(Bytes, Int, Bytes, Bytes)` as a `function` of sort `Bytes`.
+It documents only the successful result, the 64-byte public key that signed a 32-byte message hash with the given `v`, `r` and `s`, and refers to the Ethereum signature form for their meaning; it says nothing about other inputs.
+
+For concrete arguments Rust defines:
+
+- the domain: a 32-byte message hash, `r` and `s` as 32-byte big-endian scalars that form a valid secp256k1 signature, and `v` equal to 27 or 28, which in that signature form encodes the recovery parity as `v - 27`;
+- on the domain, the recovered key as its 64 coordinate bytes (the uncompressed SEC1 encoding without its tag byte);
+- for every other concrete input, and for an in-domain signature from which no key can be recovered, the empty `Bytes` value.
+
+An application with a non-concrete argument remains unevaluated.
+
+The declaration allows either choice outside the documented domain: a `function` without `total` has at most one value ([`docs/user_manual.md`, "`function` and `total` attributes"](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#function-and-total-attributes)), so both `\bottom` and a single `Bytes` value are consistent with it.
+Rust returns a value because a failed recovery must stay observable.
+Every recovered key has exactly 64 bytes, so the empty value cannot be mistaken for a key, and a definition can branch on it with ordinary `Bytes` operations.
+A `\bottom` result would make every configuration that applies the hook to such an input denote no state: that execution path would vanish from execution and search results, and a claim over it would hold vacuously instead of checking how the definition handles a malformed signature.
+Ending the run with an error is not a result either: the inputs are ordinary values of the declared argument sorts, and the unsupported-hook error of [Backend scope](#backend-scope) is for hooks without an evaluator.
+
+The fact this diverges from: Booster has no evaluator for the hook, and the pinned Kore evaluator in `kore/src/Kore/Builtin/Krypto.hs` has no failure value.
+It encodes a recovered point for every input and ends the backend process when recovery fails, through the assertion at `:331` or, when recovery yields the point at infinity, the `error` at `:414`.
+The pinned toolchain therefore supplies no expected behavior for invalid input, and the differential manifest's `ecdsa-invalid-execution` entry is a `local-gate` exclusion.
+The CLI test `krun_executes_invalid_ecdsa_recovery_to_empty_bytes` pins the terminal KORE for [`ecdsa-invalid.crypto`](../crates/k-rust/tests/fixtures/reference/ecdsa-invalid.crypto), and the unit test `invalid_concrete_recoveries_return_empty_bytes` in `krypto.rs` covers each boundary of the domain.
+
 ## RPC behavior
 
 A predicate-free `get-model` request returns `Unknown` without a substitution.
