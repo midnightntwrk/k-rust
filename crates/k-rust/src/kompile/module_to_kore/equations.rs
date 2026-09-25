@@ -1211,7 +1211,7 @@ mod tests {
         );
         assert_eq!(
             error.to_string(),
-            "variable Var'Unds'Gen0 occurs with sorts SortInt{} and SortKCell{} in one axiom (TEST.collision); a kompile pass minted a fresh name that another pass already used"
+            "variable Var'Unds'Gen0 occurs with sorts SortInt{} and SortKCell{} in one axiom (TEST.collision); this can result from an authored sortless variable used at positions of different sorts or from a kompile pass reusing a variable name"
         );
     }
 
