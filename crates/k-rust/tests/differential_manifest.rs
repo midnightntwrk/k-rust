@@ -263,37 +263,57 @@ fn differential_special_case_schema_is_complete() {
         .unwrap()
         .iter()
         .flat_map(|entry| {
+            let name = entry["name"].as_str().expect("RPC case name");
             entry
                 .get("oracle-exception")
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
+                .map(move |exception| (name, exception))
         })
         .collect::<Vec<_>>();
     assert_eq!(
-        rpc_exceptions.len(),
-        1,
-        "only the measured IMP implication payload diverges from Booster",
+        rpc_exceptions
+            .iter()
+            .map(|(name, exception)| (*name, exception["response"].as_str().unwrap_or("")))
+            .collect::<Vec<_>>(),
+        [
+            ("imp", "implies"),
+            ("trivial-result-rpc", "execute-trivial-configuration"),
+        ],
+        "only the measured IMP implication payload and the trivial-rule result diverge from Booster",
     );
-    for exception in rpc_exceptions {
+    for (name, exception) in rpc_exceptions {
         for field in ["oracle", "response", "expected", "reference", "reason"] {
             assert!(
                 exception[field]
                     .as_str()
                     .is_some_and(|value| !value.trim().is_empty()),
-                "RPC oracle exception lacks {field}"
+                "RPC oracle exception on {name} lacks {field}"
             );
         }
         assert_ne!(exception["expected"], exception["reference"]);
         assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
-        assert_eq!(exception["response"].as_str(), Some("implies"));
-        // N19: the payload is claimed equal to the oracle's, so the gate must check that claim
-        // by simplifying both payloads instead of pinning only the port's response.
-        assert_eq!(
-            exception["equivalence"].as_str(),
-            Some("simplified-implication"),
-            "the IMP implication exception must declare the equivalence the gate checks"
+        let listed = manifest["rpc"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["name"].as_str() == Some(name))
+            .and_then(|entry| entry["responses"].as_array())
+            .is_some_and(|responses| responses.contains(&exception["response"]));
+        assert!(
+            listed,
+            "RPC oracle exception on {name} names an unlisted response"
         );
+        if exception["response"].as_str() == Some("implies") {
+            // N19: the payload is claimed equal to the oracle's, so the gate must check that claim
+            // by simplifying both payloads instead of pinning only the port's response.
+            assert_eq!(
+                exception["equivalence"].as_str(),
+                Some("simplified-implication"),
+                "the IMP implication exception must declare the equivalence the gate checks"
+            );
+        }
     }
     for needle in [
         "compare_simplified_implication",
@@ -302,6 +322,24 @@ fn differential_special_case_schema_is_complete() {
     ] {
         assert!(RPC_SCRIPT.contains(needle), "RPC gate lacks {needle}");
     }
+    let trivial_rpc = manifest["rpc"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["name"].as_str() == Some("trivial-result-rpc"))
+        .expect("trivial-result RPC case");
+    assert!(
+        trivial_rpc["configuration-state"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("rpc/trivial-result-configuration.json")),
+        "the excluded trivial-rule response must send an evaluated configuration Booster rewrites itself",
+    );
+    assert!(
+        trivial_rpc["oracle-exception"][0]["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.starts_with("docs/compatibility.md#trivial-rule-results")),
+        "the trivial-rule exception must cite its compatibility decision",
+    );
 
     for entry in manifest["symbolic"].as_array().expect("symbolic cases") {
         let name = entry["name"].as_str().expect("symbolic name");
@@ -404,6 +442,8 @@ fn differential_gate_scripts_wire_the_runtime_contract() {
         "rpc_flavour",
         "REFERENCE_RPC_ORACLE",
         "oracle-exception",
+        "configuration-state",
+        "execute-trivial-configuration",
     ] {
         assert!(RPC_SCRIPT.contains(needle), "RPC gate lacks {needle}");
     }

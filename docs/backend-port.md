@@ -129,6 +129,6 @@ part of the compatibility contract, and differential gates compare its disjuncts
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that
-sub-case. This follows kore-exec semantics; Booster's `OnlyTrivial` fall-through is excluded from the RPC differential for that shape.
+sub-case. [Trivial rule results](compatibility.md#trivial-rule-results) gives the reason and the RPC differential row that records the Booster divergence.
 When every execution leaf is dropped as trivial or vacuous, the CLI reports each leaf's depth, applied rule when available, and refuted obligation on stderr while retaining the `\bottom` result and exit status.
 See [compatibility decisions](compatibility.md) for the source evidence, regression homes, and policies covering engine disagreements, supported frontend extensions, CLI scope, and reference exclusions.

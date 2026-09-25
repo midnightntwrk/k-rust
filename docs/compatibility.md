@@ -103,8 +103,14 @@ The [rewrite coverage fixture](../crates/k-rust-backend/tests/fixtures/rewrite-c
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when `ensures false` or a bottom right-hand side makes its result empty.
 Its matched region must be removed from the remainder available to lower-priority and `owise` rules.
-This follows `kore/src/Kore/Rewrite.hs`, which computes the remainder from unification, and K's documented requirement that `owise` applies only when other rules fail to apply.
-Booster's `OnlyTrivial` fall-through is excluded from the RPC differential for that shape.
+The K manual fixes both halves: the `requires` clause decides whether a rule applies, while the `ensures` clause is a post-condition that "may cause the entire term to become undefined, but the backend will not stop itself from applying the rule in this case" (`docs/user_manual.md:1153-1164`, "Rule Structure"); an `owise` rule applies "only if all the other rules have been tried and failed", after they have "been shown not to apply" (`docs/user_manual.md:1711-1722`, "`owise` and `priority` attributes").
+A rule with an empty result has not failed, so for the matched region the result of the step is empty: `krun` prints `\bottom` and the RPC `execute` answers `vacuous`, never a successor of a lower-priority rule.
+
+This is a recorded divergence from `kore-rpc-booster`, whose Booster rewriter continues with the next priority group when every applicable rule of a group has an empty result (`OnlyTrivial` in `booster/library/Booster/Pattern/Rewrite.hs::rewriteStep`).
+The `trivial-result-rpc` differential case compares both answers with the pinned proxy.
+Its `execute-trivial` request is krun's depth-0 state, whose initializer functions Booster does not rewrite, so the proxy answers it through its Kore fallback and both sides answer `vacuous`.
+Its `execute-trivial-configuration` request sends the evaluated configuration `<k> a </k>`, which Booster rewrites itself: Booster answers `depth-bound` at depth 1 with the `owise` successor `<k> c </k>`, and k-rust answers `vacuous` at depth 0.
+That response is the case's `rpc.oracle-exception` row in the [differential manifest](../scripts/reference-differential.toml): the gate fails when k-rust's answer leaves the committed expectation or when the proxy's answer becomes equal to it, and the proxy's measured answer is kept beside the expectation in the [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc).
 [Rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs), including `a_trivial_rule_shadows_lower_priority_rules`, cover concrete and symbolic remainders.
 
 ## Hook specification exceptions

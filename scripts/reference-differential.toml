@@ -1553,6 +1553,9 @@ responses = [
   "error-implies-top",
 ]
 
+# execute-trivial sends krun's depth-0 state, whose initializer functions Booster cannot match, so
+# the proxy answers it through its Kore fallback. execute-trivial-configuration sends the evaluated
+# configuration <k> a </k>, which Booster rewrites itself; its answer is the recorded exception below.
 [[rpc]]
 name = "trivial-result-rpc"
 requires = ["reference-toolchain"]
@@ -1561,12 +1564,20 @@ oracle = "kore-rpc-booster"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/test.k"
 program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/false-ensures.pgm"
 stuck-program = "${workspace}/crates/k-rust/tests/fixtures/reference/execution/trivial-result-execution/stuck.pgm"
+configuration-state = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/trivial-result-configuration.json"
 main-module = "TR"
 syntax-module = "TR-SYNTAX"
 sort = "Pgm"
 configuration = []
 state-depth = 0
-responses = ["execute-trivial"]
+responses = ["execute-trivial", "execute-trivial-configuration"]
+
+[[rpc.oracle-exception]]
+oracle = "kore-rpc-booster"
+response = "execute-trivial-configuration"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/trivial-result-execute-configuration.json"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/trivial-result-execute-configuration.reference.json"
+reason = "docs/compatibility.md#trivial-rule-results: the ensures-false rule applies to <k> a </k>, so the owise rule does not, and k-rust answers vacuous at depth 0; kore-rpc-booster answers depth-bound at depth 1 with the owise successor <k> c </k>."
 
 # The three symbolic collection and injection cases compare one rewrite step of a symbolic collection or injection
 # configuration against kore-exec. kore-exec's --depth N lists the leaves that are stuck within N
