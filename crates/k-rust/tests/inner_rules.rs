@@ -3927,7 +3927,6 @@ fn assert_ambiguous_between(result: Result<String, RuleError>, readings: [&str; 
 }
 
 const CLASS_TYPE_READING: &str = "arrayRef(`_[]_MAIN_Type_Type`(#SemanticCastToType(T)),`_,__MAIN_Types_Type_Types`(`int_MAIN_Type`(.KList),#SemanticCastToTypes(Ts)))=>arrayRef(#SemanticCastToType(T),#SemanticCastToTypes(Ts))";
-#[cfg(not(feature = "z3-inference"))]
 const CLASS_ID_READING: &str = "arrayRef(`_[]_MAIN_Type_Type`(class(#SemanticCastToId(T))),`_,__MAIN_Types_Type_Types`(`int_MAIN_Type`(.KList),#SemanticCastToTypes(Ts)))=>arrayRef(class(#SemanticCastToId(T)),#SemanticCastToTypes(Ts))";
 
 #[test]
@@ -3946,14 +3945,12 @@ fn avoided_constructor_at_one_of_two_divergence_points_agrees_under_checked_infe
     );
 }
 
-// The z3 build still ranks maximal typings by the syntactic chain order, in which
-// `Type ::= Id [symbol(class)]` puts `Id` below `Type`; these two are portable-only until it
-// uses the subsort order.
+// Both engines rank maximal typings in the subsort order, where `Id` and `Type` are
+// incomparable, so without an attribute nothing decides and `prefer` keeps the `class` reading.
 //
 // Without an attribute nothing decides. The error names the first undecided ambiguity, which is
 // inside the `T:Id` tree: its right-hand `T` is an `Exp` either through `Exp ::= Id` or as
 // `class(T)` through `Exp ::= Type`.
-#[cfg(not(feature = "z3-inference"))]
 #[test]
 fn constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous() {
     assert_ambiguous_between(
@@ -3962,12 +3959,84 @@ fn constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous() {
     );
 }
 
-#[cfg(not(feature = "z3-inference"))]
 #[test]
 fn preferred_constructor_at_one_of_two_divergence_points_is_kept() {
     let body = resolved_rule_body(&class_constructor_source(", prefer"))
         .expect("prefer on class decides between the two maximal trees");
     assert_eq!(body, CLASS_ID_READING);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn constructor_without_prefer_or_avoid_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous",
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn preferred_constructor_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "preferred_constructor_at_one_of_two_divergence_points_is_kept",
+    );
+}
+
+// `f : A ::= B` and `g : B ::= A` are a legal pair of constructors: they make the chain relation
+// cyclic but add nothing to the subsort order, which stays acyclic. They are not a
+// `CircularSubsorts` error, so a rule elsewhere in the grammar is inferred: `q Y` has the
+// incomparable maximal typings `Y:C` and `Y:D`.
+fn constructor_cycle_source(rule: &str) -> String {
+    format!(
+        r#"
+        module MAIN
+          syntax A ::= "a" | B [symbol(f)]
+          syntax B ::= "b" | A [symbol(g)]
+          syntax R ::= "p" A [symbol(pa)]
+                     | "p" B [symbol(pb)]
+          syntax C ::= "c"
+          syntax D ::= "d"
+          syntax S ::= "q" C [symbol(qc)]
+                     | "q" D [symbol(qd)]
+          rule {rule}
+        endmodule
+    "#
+    )
+}
+
+#[test]
+fn constructor_cycle_leaves_an_ambiguous_rule_to_inference() {
+    assert_ambiguous_between(
+        resolved_rule_body(&constructor_cycle_source("q Y => .K")),
+        ["qc(#SemanticCastToC(Y))", "qd(#SemanticCastToD(Y))"],
+    );
+}
+
+// A rule over the cycle's own sorts is not reached by inference: `p X` has the readings
+// `pa(X)`, `pa(f(X))`, `pa(f(g(X)))`, and so on without end, and the parser reports that
+// forest as cyclic.
+#[test]
+fn constructor_cycle_makes_a_rule_over_its_sorts_a_cyclic_forest() {
+    let result = resolved_rule_body(&constructor_cycle_source("p X => .K"));
+    let Err(RuleError::Parse(error)) = &result else {
+        panic!("expected a parse error, got {result:?}")
+    };
+    assert!(
+        matches!(error.error, ParseError::CyclicParseForest),
+        "{:?}",
+        error.error
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn constructor_cycle_agrees_under_checked_inference() {
+    for test in [
+        "constructor_cycle_leaves_an_ambiguous_rule_to_inference",
+        "constructor_cycle_makes_a_rule_over_its_sorts_a_cyclic_forest",
+    ] {
+        assert_test_passes_under_checked_inference(test);
+    }
 }
 
 // Without single-nonterminal productions both orders agree. The two readings of `a(X, Y)`

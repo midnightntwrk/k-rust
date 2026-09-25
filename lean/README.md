@@ -125,7 +125,7 @@ rust_test = "crates/k-rust-backend/src/definedness.rs tests::deduplicate_keeps_a
 [[hypothesis]]
 theorem = "KRust.MaximalModels.maximal_models_spec"
 hypothesis = "hP : P.WF"
-meaning = "less_than_eq(_, _, true) is reflexive and transitive on every value of the encoding datatype"
+meaning = "less_than_eq(_, _), the subsort order of the hard constraints, the climb and the blocking clause, is reflexive and transitive on every value of the encoding datatype"
 rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::subsort_order_is_a_preorder_on_model_values"
 
 [[hypothesis]]

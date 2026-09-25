@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "encoding construction"
-//! bound = "O(H + G^2 + R) plus two PartialOrder::new constructions"
+//! bound = "O(H + G^2 + R) plus one PartialOrder::new construction"
 //!
 //! [[cost]]
 //! mode = "one inference"
@@ -35,11 +35,19 @@
 //! Each check is counted by `Counter::ParserZ3Checks`; model enumeration is proportional to
 //! the number of maximal typings times solver checks. Grammar-determined encoding construction is
 //! O(heads + ground sorts squared) once per grammar generation and top sort on each thread,
-//! including the up- and down-set of every ground sort value in both subsort relations; each
+//! including the up- and down-set of every ground sort value in the subsort relation; each
 //! attempt then constructs O(term nodes) constraints. An order constraint with a closed side is
 //! built from that side's up- or down-set rather than from the whole relation
 //! (`Encoding::less_than_eq`). `ParserZ3EncodingBuilds` counts base builds.
 //! The unpacked path remains a checked oracle.
+//!
+//! One order on sorts is encoded: the grammar's subsort relation (`Grammar::subsort_relations`,
+//! the unlabelled single-nonterminal productions). Well-sortedness and maximality both read it.
+//! A labelled single-nonterminal production such as `A ::= B [symbol(f)]` is a constructor
+//! `f : B -> A`, not a subsort: no `B` value is an `A` value, so it neither makes a `B` typing
+//! of a variable ill-sorted where an `A` is expected nor makes that typing dominated by an `A`
+//! typing. The grammar's syntactic relation, which also holds such productions, belongs to
+//! bracket and priority filtering and is not encoded.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -79,13 +87,11 @@ struct EncodingBase {
     head_indexes: BTreeMap<SortHead, usize>,
     ground_sorts: BTreeSet<Sort>,
     semantic: PartialOrder<Sort>,
-    syntactic: PartialOrder<Sort>,
     ground_values: RefCell<BTreeMap<Sort, Datatype>>,
     /// The values of `ground_values`, filled once `build` has cached every ground sort: the
     /// closed constructor terms that `less_than_eq` treats as a closed side.
     closed_values: HashSet<Datatype>,
     semantic_relation: OrderRelation,
-    syntactic_relation: OrderRelation,
     /// Numeric sort names declared by the grammar as parameters of an instantiated parametric
     /// sort (`Module.definedSorts` keeps the Nat heads of `definedInstantiations`).
     declared_nat_sorts: BTreeSet<String>,
@@ -194,7 +200,6 @@ thread_local! {
 struct OrderConstraintCall {
     lesser: Datatype,
     greater: Datatype,
-    syntactic: bool,
     formula: Bool,
 }
 
@@ -519,16 +524,10 @@ impl EncodingBase {
         measure::bump(Counter::ParserZ3EncodingBuilds);
         let semantic = PartialOrder::new(grammar.subsort_relations.iter().cloned())
             .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
-        let syntactic = PartialOrder::new(grammar.syntactic_subsort_relations.iter().cloned())
-            .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
         let mut heads = BTreeSet::new();
         let mut ground_sorts = BTreeSet::new();
         collect_sort(top_sort, &mut heads, &mut ground_sorts);
-        for (lesser, greater) in grammar
-            .subsort_relations
-            .iter()
-            .chain(&grammar.syntactic_subsort_relations)
-        {
+        for (lesser, greater) in &grammar.subsort_relations {
             collect_sort(lesser, &mut heads, &mut ground_sorts);
             collect_sort(greater, &mut heads, &mut ground_sorts);
         }
@@ -596,11 +595,9 @@ impl EncodingBase {
             head_indexes,
             ground_sorts,
             semantic,
-            syntactic,
             ground_values: RefCell::new(BTreeMap::new()),
             closed_values: HashSet::new(),
             semantic_relation: OrderRelation::new(Vec::new()),
-            syntactic_relation: OrderRelation::new(Vec::new()),
             declared_nat_sorts,
         };
         for sort in &base.ground_sorts {
@@ -609,8 +606,7 @@ impl EncodingBase {
         // `sort_value` caches exactly the sorts of `ground_sorts`, all cached above, so
         // `ground_values` does not grow after this point.
         base.closed_values = base.ground_values.borrow().values().cloned().collect();
-        base.semantic_relation = OrderRelation::new(base.order_relation(false)?);
-        base.syntactic_relation = OrderRelation::new(base.order_relation(true)?);
+        base.semantic_relation = OrderRelation::new(base.order_relation()?);
         Ok(base)
     }
 
@@ -653,12 +649,8 @@ impl EncodingBase {
         Ok(value)
     }
 
-    fn order_relation(&self, syntactic: bool) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
-        let order = if syntactic {
-            &self.syntactic
-        } else {
-            &self.semantic
-        };
+    fn order_relation(&self) -> Result<Vec<(Datatype, Datatype)>, ParseError> {
+        let order = &self.semantic;
         let mut relation = Vec::new();
         for left in &self.ground_sorts {
             if !is_real_ground_sort(left) {
@@ -932,7 +924,7 @@ impl<'a> Encoding<'a> {
                     let constraint = if strict {
                         actual.eq(expected)
                     } else {
-                        self.less_than_eq(&actual, expected, false)?
+                        self.less_than_eq(&actual, expected)?
                     };
                     self.record_replay(
                         &constraint,
@@ -1095,7 +1087,7 @@ impl<'a> Encoding<'a> {
                     let constraint = if strict {
                         actual.eq(expected)
                     } else {
-                        self.less_than_eq(&actual, expected, false)?
+                        self.less_than_eq(&actual, expected)?
                     };
                     self.record_replay(
                         &constraint,
@@ -1346,7 +1338,7 @@ impl<'a> Encoding<'a> {
             (true, _) | (_, CastContext::Strict) => variable.eq(expected),
             (false, CastContext::Parser) => Bool::from_bool(true),
             (false, CastContext::None | CastContext::Semantic) => {
-                self.less_than_eq(&variable, expected, false)?
+                self.less_than_eq(&variable, expected)?
             }
         };
         if is_anonymous(name) || cast_context != CastContext::Parser {
@@ -1399,9 +1391,7 @@ impl<'a> Encoding<'a> {
         let constraint = match cast_context {
             CastContext::Strict => actual.eq(expected),
             CastContext::Parser => Bool::from_bool(true),
-            CastContext::None | CastContext::Semantic => {
-                self.less_than_eq(&actual, expected, false)?
-            }
+            CastContext::None | CastContext::Semantic => self.less_than_eq(&actual, expected)?,
         };
         if !self.ground_token_fits(sort, expected, cast_context) {
             self.ill_sorted_ground = true;
@@ -1576,9 +1566,11 @@ impl<'a> Encoding<'a> {
         self.decode_sort(&value)
     }
 
-    /// The order constraint `lesser <= greater` in the semantic or the syntactic subsort order:
-    /// true exactly in the models where the two values are equal or are a pair `(l, r)` of the
-    /// relation `R` (`order_relation`).
+    /// The order constraint `lesser <= greater` in the subsort order: true exactly in the models
+    /// where the two values are equal or are a pair `(l, r)` of the relation `R`
+    /// (`order_relation`). `R` is the grammar's semantic subsort relation, the one order every
+    /// caller uses: the hard constraints, the preferences, and the climb and blocking clause of
+    /// `maximal_models`.
     ///
     /// The formula over the whole relation, `OR over (l, r) in R of (lesser = l and greater =
     /// r)` then `or lesser = greater` (`OrderRelation::full_disjunction`), costs `|R|` disjuncts.
@@ -1617,17 +1609,8 @@ impl<'a> Encoding<'a> {
     /// may change is what depends on the particular models
     /// Z3 returns: the number of checks (`ParserZ3Checks`), the order of recorded models, and
     /// the sorts named in the diagnostics of a rejected input.
-    fn less_than_eq(
-        &self,
-        lesser: &Datatype,
-        greater: &Datatype,
-        syntactic: bool,
-    ) -> Result<Bool, ParseError> {
-        let relation = if syntactic {
-            &self.syntactic_relation
-        } else {
-            &self.semantic_relation
-        };
+    fn less_than_eq(&self, lesser: &Datatype, greater: &Datatype) -> Result<Bool, ParseError> {
+        let relation = &self.semantic_relation;
         #[cfg(test)]
         if FORCE_FULL_DISJUNCTION.with(std::cell::Cell::get) {
             return Ok(relation.full_disjunction(lesser, greater));
@@ -1665,7 +1648,6 @@ impl<'a> Encoding<'a> {
                 calls.push(OrderConstraintCall {
                     lesser: lesser.clone(),
                     greater: greater.clone(),
-                    syntactic,
                     formula: formula.clone(),
                 });
             }
@@ -1740,7 +1722,7 @@ impl<'a> Encoding<'a> {
             let preferred = self.sort_value(&sort, &BTreeMap::new())?;
             for (name, variable) in &self.variables {
                 if select(name) {
-                    constraints.push(self.less_than_eq(&preferred, variable, false)?);
+                    constraints.push(self.less_than_eq(&preferred, variable)?);
                 }
             }
         }
@@ -1876,6 +1858,13 @@ impl<'a> Encoding<'a> {
     /// Enumerate the maximal real-variable typings, each with every admissible parameter vector
     /// ([`Encoding::admissible_parameters`]); the first model of each group is the one
     /// `prefer_parameters` kept.
+    ///
+    /// Maximal is pointwise in the subsort order of `less_than_eq`, the order of the hard
+    /// constraints: the climb raises a satisfying typing while some variable can grow, and the
+    /// blocking clause excludes every typing below a recorded one. Two typings that differ by a
+    /// labelled chain production (`T:Id` against `T:Type` with `Type ::= Id [symbol(class)]`)
+    /// are incomparable, so both are recorded and the post-inference passes decide between
+    /// their parses (`prefer`/`avoid`, or an ambiguity).
     fn maximal_models(
         &self,
         solver: &Solver,
@@ -1928,7 +1917,6 @@ impl<'a> Encoding<'a> {
                             self.variables
                                 .get(name)
                                 .expect("real variables are registered"),
-                            true,
                         )
                     })
                     .collect::<Result<Vec<_>, ParseError>>()?;
@@ -1985,7 +1973,6 @@ impl<'a> Encoding<'a> {
                             .get(name)
                             .expect("real variables are registered"),
                         &maximal,
-                        true,
                     )
                 })
                 .collect::<Result<Vec<_>, ParseError>>()?;
@@ -3280,10 +3267,6 @@ mod tests {
                 decoded_relation(&cached, &cached.semantic_relation.pairs).unwrap(),
                 decoded_relation(&uncached, &uncached.semantic_relation.pairs).unwrap()
             );
-            prop_assert_eq!(
-                decoded_relation(&cached, &cached.syntactic_relation.pairs).unwrap(),
-                decoded_relation(&uncached, &uncached.syntactic_relation.pairs).unwrap()
-            );
         }
 
         #[test]
@@ -3343,7 +3326,7 @@ mod tests {
         /// (distinct cached constructor terms denote distinct values in every Z3 model); the test
         /// checks that the Rust code matches the Lean model and that Z3 satisfies `hI`.
         /// `R` is arbitrary, not a closed partial order, because the theorem needs no hypothesis
-        /// on it; the semantic and the syntactic relation are generated separately. The sides
+        /// on it. The sides
         /// are every cached ground value and, for the model's `other` case, two variables, a
         /// constructor applied to a variable, and an accessor applied to a cached value (a
         /// closed term that is not a cached constructor term), so every pair of kinds
@@ -3352,28 +3335,23 @@ mod tests {
         fn ground_side_encoding_is_equivalent(
             sort_count in 2usize..5,
             semantic in proptest::collection::vec((0usize..16, 0usize..16), 0..12),
-            syntactic in proptest::collection::vec((0usize..16, 0usize..16), 0..12),
         ) {
             let (grammar, term, top_sort) = cached_encoding_fixture(sort_count);
             let mut term_sorts = TermSorts::default();
             collect_packed_term_sorts(&term, &mut term_sorts.heads, &mut term_sorts.ground);
             let mut base = EncodingBase::build(&grammar, &top_sort, &term_sorts).unwrap();
             let ground = base.ground_values.borrow().values().cloned().collect::<Vec<_>>();
-            let relation = |pairs: &[(usize, usize)]| {
-                OrderRelation::new(
-                    pairs
-                        .iter()
-                        .map(|(left, right)| {
-                            (
-                                ground[left % ground.len()].clone(),
-                                ground[right % ground.len()].clone(),
-                            )
-                        })
-                        .collect(),
-                )
-            };
-            base.semantic_relation = relation(&semantic);
-            base.syntactic_relation = relation(&syntactic);
+            base.semantic_relation = OrderRelation::new(
+                semantic
+                    .iter()
+                    .map(|(left, right)| {
+                        (
+                            ground[left % ground.len()].clone(),
+                            ground[right % ground.len()].clone(),
+                        )
+                    })
+                    .collect(),
+            );
             let mut encoding =
                 Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
             encoding.base = Rc::new(base);
@@ -3390,27 +3368,20 @@ mod tests {
                 box_variant.accessors[0].apply(&[&boxed]).as_datatype().unwrap(),
             ];
             let sides = ground.iter().chain(&others).collect::<Vec<_>>();
-            for syntactic in [false, true] {
-                let relation = if syntactic {
-                    &encoding.syntactic_relation
-                } else {
-                    &encoding.semantic_relation
-                };
-                for lesser in &sides {
-                    for greater in &sides {
-                        let old = relation.full_disjunction(lesser, greater);
-                        let new = encoding.less_than_eq(lesser, greater, syntactic).unwrap();
-                        let solver = Solver::new();
-                        solver.assert(old.iff(&new).not());
-                        prop_assert_eq!(
-                            solver.check(),
-                            SatResult::Unsat,
-                            "old and new differ for {} <= {} (syntactic: {})",
-                            lesser,
-                            greater,
-                            syntactic
-                        );
-                    }
+            let relation = &encoding.semantic_relation;
+            for lesser in &sides {
+                for greater in &sides {
+                    let old = relation.full_disjunction(lesser, greater);
+                    let new = encoding.less_than_eq(lesser, greater).unwrap();
+                    let solver = Solver::new();
+                    solver.assert(old.iff(&new).not());
+                    prop_assert_eq!(
+                        solver.check(),
+                        SatResult::Unsat,
+                        "old and new differ for {} <= {}",
+                        lesser,
+                        greater
+                    );
                 }
             }
         }
@@ -3446,12 +3417,8 @@ mod tests {
 
     /// A grammar whose encoding datatype has the generated nullary sorts, the unary head `Box`
     /// (the top sort `Box{S0}`) and the binary head `Pair` (a production of sort `Pair{S0, S1}`);
-    /// `semantic` and `syntactic` become its two subsort relations.
-    fn order_fixture(
-        sort_count: usize,
-        semantic: &[(usize, usize)],
-        syntactic: &[(usize, usize)],
-    ) -> (Grammar, Sort, TermSorts) {
+    /// `semantic` becomes its subsort relation.
+    fn order_fixture(sort_count: usize, semantic: &[(usize, usize)]) -> (Grammar, Sort, TermSorts) {
         let mut grammar = Grammar::default();
         for index in 0..sort_count + EXTRA_ORDER_SORTS.len() {
             grammar
@@ -3474,7 +3441,6 @@ mod tests {
             )
             .unwrap();
         grammar.subsort_relations = oriented_pairs(semantic, sort_count);
-        grammar.syntactic_subsort_relations = oriented_pairs(syntactic, sort_count);
         let top_sort = Sort::with_parameters("Box", vec![Sort::new("S0")]);
         (grammar, top_sort, TermSorts::default())
     }
@@ -3483,49 +3449,40 @@ mod tests {
         #![proptest_config(ProptestConfig::with_cases(48))]
 
         /// Rust side of the hypothesis `hP : P.WF` of `KRust.MaximalModels`
-        /// (lean/KRust/MaximalModels.lean): `Encoding::less_than_eq(_, _, syntactic)` is
-        /// reflexive and transitive on every value of the encoding datatype.
+        /// (lean/KRust/MaximalModels.lean): `Encoding::less_than_eq`, the semantic subsort order
+        /// that the hard constraints, the preferences, the climb and the blocking clause all
+        /// use, is reflexive and transitive on every value of the encoding datatype.
         /// Fresh constants range over every value a Z3 model can give a variable or a parameter,
         /// including values of the parametric heads and of the parser sorts that
         /// `restrict_to_real_sorts` excludes, so Z3 must report an irreflexive or a
         /// transitivity-breaking assignment unsatisfiable.
-        /// Both relations are checked; the climb and the blocking clause use the syntactic one.
         #[test]
         fn subsort_order_is_a_preorder_on_model_values(
             sort_count in 2usize..5,
             semantic in proptest::collection::vec((0usize..16, 0usize..16), 0..10),
-            syntactic in proptest::collection::vec((0usize..16, 0usize..16), 0..10),
         ) {
-            let (grammar, top_sort, term_sorts) = order_fixture(sort_count, &semantic, &syntactic);
+            let (grammar, top_sort, term_sorts) = order_fixture(sort_count, &semantic);
             let encoding =
                 Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
             let sort = &encoding.datatype.sort;
             let x = Datatype::new_const("x", sort);
             let y = Datatype::new_const("y", sort);
             let z = Datatype::new_const("z", sort);
-            for syntactic in [false, true] {
-                let le = |lesser: &Datatype, greater: &Datatype| {
-                    encoding.less_than_eq(lesser, greater, syntactic).unwrap()
-                };
-                let solver = Solver::new();
-                solver.assert(le(&x, &x).not());
-                prop_assert_eq!(
-                    solver.check(),
-                    SatResult::Unsat,
-                    "less_than_eq(x, x, {}) is falsifiable",
-                    syntactic
-                );
-                let solver = Solver::new();
-                solver.assert(le(&x, &y));
-                solver.assert(le(&y, &z));
-                solver.assert(le(&x, &z).not());
-                prop_assert_eq!(
-                    solver.check(),
-                    SatResult::Unsat,
-                    "less_than_eq(_, _, {}) is not transitive",
-                    syntactic
-                );
-            }
+            let le = |lesser: &Datatype, greater: &Datatype| {
+                encoding.less_than_eq(lesser, greater).unwrap()
+            };
+            let solver = Solver::new();
+            solver.assert(le(&x, &x).not());
+            prop_assert_eq!(solver.check(), SatResult::Unsat, "less_than_eq(x, x) is falsifiable");
+            let solver = Solver::new();
+            solver.assert(le(&x, &y));
+            solver.assert(le(&y, &z));
+            solver.assert(le(&x, &z).not());
+            prop_assert_eq!(
+                solver.check(),
+                SatResult::Unsat,
+                "less_than_eq is not transitive"
+            );
         }
 
         /// Rust side of the hypothesis `hR : P.RoundTrip` of `KRust.MaximalModels`: for every
@@ -3544,7 +3501,7 @@ mod tests {
                 (0usize..4, 0usize..6, 0usize..16, 0usize..16), 0..8,
             ),
         ) {
-            let (grammar, top_sort, term_sorts) = order_fixture(sort_count, &semantic, &[]);
+            let (grammar, top_sort, term_sorts) = order_fixture(sort_count, &semantic);
             let encoding =
                 Encoding::new_with_term_sorts(&grammar, &top_sort, false, &term_sorts).unwrap();
             let datatype = &encoding.datatype;
@@ -3601,12 +3558,15 @@ mod tests {
     /// over productions `p{k} : R ::= "p{k}" A B` applied to the variables `X`, `Y`, `Z`,
     /// optionally under a unary production `w : R ::= "w" A`, and optionally under a parametric
     /// production `q : {P} R ::= "q" P P` whose second child is one of the variables.
+    /// The grammar's syntactic relation carries extra pairs beyond the subsort pairs (a labelled
+    /// single-nonterminal production puts such a pair there); the maximality order must ignore
+    /// them.
     struct ConformanceProblem {
         grammar: Grammar,
         term: Rc<PackedTerm>,
         top_sort: Sort,
-        /// The syntactic subsort pairs the generator produced, before any closure.
-        syntactic: BTreeSet<(Sort, Sort)>,
+        /// The subsort pairs the generator produced, before any closure.
+        semantic: BTreeSet<(Sort, Sort)>,
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3652,8 +3612,8 @@ mod tests {
         };
         let mut syntactic = oriented(extra_syntactic);
         syntactic.extend(semantic.iter().cloned());
-        grammar.subsort_relations = semantic;
-        grammar.syntactic_subsort_relations = syntactic.clone();
+        grammar.subsort_relations = semantic.clone();
+        grammar.syntactic_subsort_relations = syntactic;
 
         let mut indexes = Vec::new();
         for (k, (result, first, second)) in productions.iter().enumerate() {
@@ -3743,7 +3703,7 @@ mod tests {
             grammar,
             term,
             top_sort,
-            syntactic,
+            semantic,
         }
     }
 
@@ -3752,7 +3712,7 @@ mod tests {
     #[derive(Clone, Copy, Debug)]
     struct Perturbation {
         random_seed: Option<u32>,
-        /// Reverse both subsort relations of the encoding base, which reverses the order of the
+        /// Reverse the subsort relation of the encoding base, which reverses the order of the
         /// disjuncts of every `less_than_eq`.
         reverse_disjuncts: bool,
         /// Write every order constraint over the whole relation (`FORCE_FULL_DISJUNCTION`), as
@@ -3820,7 +3780,6 @@ mod tests {
         if perturbation.reverse_disjuncts {
             let base = Rc::get_mut(&mut encoding.base).expect("an uncached base is not shared");
             base.semantic_relation = reversed(&base.semantic_relation);
-            base.syntactic_relation = reversed(&base.syntactic_relation);
         }
         let solver = Solver::new();
         if let Some(seed) = perturbation.random_seed {
@@ -3928,7 +3887,8 @@ mod tests {
     /// `Max(π(Sat C))` by brute force: every assignment of the real variables to the real
     /// ground sorts is checked against the hard constraints with the variables pinned, and the
     /// maximal satisfiable ones under the pointwise reflexive-transitive closure of the
-    /// generated syntactic pairs are kept. The closure is computed here, not by `PartialOrder`.
+    /// generated subsort pairs are kept; the extra syntactic pairs play no part. The closure is
+    /// computed here, not by `PartialOrder`.
     /// Returns `None` when no assignment is satisfiable.
     fn brute_force_maximal(
         problem: &ConformanceProblem,
@@ -3995,7 +3955,7 @@ mod tests {
             .filter(|(lesser, greater)| {
                 lesser == greater
                     || problem
-                        .syntactic
+                        .semantic
                         .contains(&((*lesser).clone(), (*greater).clone()))
             })
             .map(|(lesser, greater)| (lesser.clone(), greater.clone()))
@@ -4199,6 +4159,13 @@ mod tests {
         Blocking,
     }
 
+    /// The kind of an inference variable on a side of an order constraint.
+    #[derive(Clone, Copy, Debug)]
+    enum Variable {
+        Real,
+        Parameter,
+    }
+
     /// Run `f` with `ORDER_CONSTRAINTS` recording, and return its result and the calls.
     fn recording<T>(f: impl FnOnce() -> T) -> (T, Vec<OrderConstraintCall>) {
         let previous = ORDER_CONSTRAINTS.with(|calls| calls.replace(Some(Vec::new())));
@@ -4216,9 +4183,12 @@ mod tests {
     }
 
     /// The `less_than_eq` calls of the inference path of `Grammar::infer_packed_sorts_z3` up
-    /// to `maximal_models`, each with its call site. Inside `maximal_models` a syntactic call is the climb when its greater side
-    /// is an inference variable and the blocking clause when its lesser side is; its semantic
-    /// calls are `prefer_parameters`'s preferences.
+    /// to `maximal_models`, each with its call site. Every call uses the one subsort order, so
+    /// the calls inside `maximal_models` are told apart by the position of the variable: a call
+    /// whose greater side is a real variable is the climb (`current <= variable`), one whose
+    /// lesser side is a real variable is the blocking clause (`variable <= maximal`), and one
+    /// whose greater side is a formal parameter is a preference of `prefer_parameters` (which
+    /// selects only the parameters).
     fn order_constraint_calls(
         problem: &ConformanceProblem,
     ) -> Result<OrderConstraintCalls<'_>, ParseError> {
@@ -4247,20 +4217,29 @@ mod tests {
         if satisfiable {
             let (models, calls) = recording(|| encoding.maximal_models(&solver, seed));
             models?;
-            let is_variable = |value: &Datatype| encoding.variables.values().any(|v| v == value);
+            // Which kind of inference variable a value is, if any.
+            let kind = |value: &Datatype| {
+                encoding
+                    .variables
+                    .iter()
+                    .find(|(_, variable)| *variable == value)
+                    .map(|(name, _)| {
+                        if encoding.parameters.contains(name) {
+                            Variable::Parameter
+                        } else {
+                            Variable::Real
+                        }
+                    })
+            };
             for call in calls {
-                let site = match (
-                    call.syntactic,
-                    is_variable(&call.lesser),
-                    is_variable(&call.greater),
-                ) {
-                    (false, _, _) => OrderSite::Preference,
-                    (true, false, true) => OrderSite::Climbing,
-                    (true, true, false) => OrderSite::Blocking,
-                    (true, lesser, greater) => {
+                let site = match (kind(&call.lesser), kind(&call.greater)) {
+                    (None, Some(Variable::Real)) => OrderSite::Climbing,
+                    (Some(Variable::Real), None) => OrderSite::Blocking,
+                    (None, Some(Variable::Parameter)) => OrderSite::Preference,
+                    (lesser, greater) => {
                         return Err(z3_error(format!(
                             "unclassified order constraint in maximal_models: {} <= {} \
-                             (variables: {lesser}, {greater})",
+                             (variables: {lesser:?}, {greater:?})",
                             call.lesser, call.greater
                         )));
                     }
@@ -4317,22 +4296,18 @@ mod tests {
                 satisfiable,
             } = order_constraint_calls(&problem).unwrap();
             for (site, call) in &calls {
-                let relation = if call.syntactic {
-                    &encoding.syntactic_relation
-                } else {
-                    &encoding.semantic_relation
-                };
-                let old = relation.full_disjunction(&call.lesser, &call.greater);
+                let old = encoding
+                    .semantic_relation
+                    .full_disjunction(&call.lesser, &call.greater);
                 let solver = Solver::new();
                 solver.assert(old.iff(&call.formula).not());
                 prop_assert_eq!(
                     solver.check(),
                     SatResult::Unsat,
-                    "{:?}: old and new differ for {} <= {} (syntactic: {})",
+                    "{:?}: old and new differ for {} <= {}",
                     site,
                     call.lesser,
-                    call.greater,
-                    call.syntactic
+                    call.greater
                 );
             }
             let reached = calls.iter().map(|(site, _)| *site).collect::<BTreeSet<_>>();
@@ -4348,6 +4323,136 @@ mod tests {
                 prop_assert!(reached.contains(&OrderSite::Blocking), "{:?}", reached);
             }
         }
+    }
+
+    /// `p(X)` read as `pa : R ::= "p" A` or `pb : R ::= "p" B`, with the labelled
+    /// single-nonterminal productions `chains` (result, argument, label) added to the grammar.
+    /// A labelled chain is a constructor, so it adds a pair to the grammar's syntactic relation
+    /// and none to its subsort relation.
+    fn labelled_chain_problem(chains: &[(&str, &str, &str)]) -> ConformanceProblem {
+        let mut grammar = Grammar::default();
+        for sort in ["A", "B"] {
+            // The production that records the inferred sort of a variable.
+            grammar
+                .add(
+                    Sort::new(sort),
+                    vec![nonterminal("KItem")],
+                    Some(Label::new(format!("#SemanticCastTo{sort}"))),
+                    false,
+                    false,
+                )
+                .unwrap();
+        }
+        for (result, argument, label) in chains {
+            grammar
+                .add(
+                    Sort::new(*result),
+                    vec![nonterminal(argument)],
+                    Some(Label::new(*label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            assert!(
+                grammar
+                    .syntactic_subsort_relations
+                    .contains(&(Sort::new(*argument), Sort::new(*result)))
+            );
+        }
+        assert!(grammar.subsort_relations.is_empty());
+        let mut alternatives = BTreeSet::new();
+        for (label, argument) in [("pa", "A"), ("pb", "B")] {
+            let production = grammar.productions.len();
+            grammar
+                .add(
+                    Sort::new("R"),
+                    vec![ProductionItem::Terminal("p".into()), nonterminal(argument)],
+                    Some(Label::new(label)),
+                    false,
+                    false,
+                )
+                .unwrap();
+            alternatives.insert(PackedTerm::production(
+                production,
+                vec![PackedTerm::leaf(Term::variable("X"))],
+                Default::default(),
+            ));
+        }
+        ConformanceProblem {
+            grammar,
+            term: PackedTerm::ambiguity(alternatives),
+            top_sort: Sort::new("R"),
+            semantic: BTreeSet::new(),
+        }
+    }
+
+    /// The maximal typings `maximal_models` records for `labelled_chain_problem(chains)`, and
+    /// the labels of the casts that record `X`'s sort in the parses the inference returns.
+    fn labelled_chain_typings(
+        chains: &[(&str, &str, &str)],
+    ) -> (BTreeSet<BTreeMap<String, Sort>>, BTreeSet<String>) {
+        let problem = labelled_chain_problem(chains);
+        let recorded = recorded_real_projections(
+            &problem,
+            Perturbation {
+                random_seed: None,
+                reverse_disjuncts: false,
+                full_disjunction: false,
+            },
+        )
+        .unwrap()
+        .expect("p(X) is well-sorted");
+        let inferred = problem
+            .grammar
+            .infer_packed_sorts_z3(Rc::clone(&problem.term), &problem.top_sort, false)
+            .unwrap();
+        let ParsedTerm::Ambiguity(parses) = &inferred else {
+            panic!("expected an ambiguity of two parses, got {inferred:?}")
+        };
+        let casts = parses
+            .iter()
+            .map(|parse| {
+                let ParsedTerm::Production { children, .. } = parse else {
+                    panic!("unexpected parse {parse:?}")
+                };
+                let ParsedTerm::Production { production, .. } = &children[0] else {
+                    panic!("X is not recorded through a cast in {parse:?}")
+                };
+                problem.grammar.productions[*production]
+                    .label
+                    .as_ref()
+                    .expect("the casts are labelled")
+                    .name
+                    .clone()
+            })
+            .collect();
+        (recorded.into_iter().collect(), casts)
+    }
+
+    fn both_casts() -> BTreeSet<String> {
+        BTreeSet::from(["#SemanticCastToA".to_owned(), "#SemanticCastToB".to_owned()])
+    }
+
+    fn typing(sort: &str) -> BTreeMap<String, Sort> {
+        BTreeMap::from([("variable_X".to_owned(), Sort::new(sort))])
+    }
+
+    #[test]
+    fn a_labelled_chain_production_does_not_dominate_its_argument_typing() {
+        // `f : A ::= B` is a constructor: no `B` value is an `A` value, so `{X:B}` is not below
+        // `{X:A}` and both typings of `p(X)` are maximal.
+        let (recorded, casts) = labelled_chain_typings(&[("A", "B", "f")]);
+        assert_eq!(recorded, BTreeSet::from([typing("A"), typing("B")]));
+        assert_eq!(casts, both_casts());
+    }
+
+    #[test]
+    fn a_labelled_chain_cycle_is_not_a_subsort_cycle() {
+        // `f : A ::= B` and `g : B ::= A` are a legal pair of constructors; the subsort order is
+        // empty and acyclic, so the encoding builds and both typings stay maximal.
+        let (recorded, casts) = labelled_chain_typings(&[("A", "B", "f"), ("B", "A", "g")]);
+        assert_eq!(recorded, BTreeSet::from([typing("A"), typing("B")]));
+        assert_eq!(casts, both_casts());
     }
 
     #[test]

@@ -52,15 +52,12 @@ struct Side {
     index: usize,
 }
 
-/// One generated order constraint: the grammar size of `cached_encoding_fixture`, the semantic
-/// and the syntactic relation as index pairs into the cached ground values, which relation the
-/// constraint reads, and its two sides.
+/// One generated order constraint: the grammar size of `cached_encoding_fixture`, the subsort
+/// relation as index pairs into the cached ground values, and its two sides.
 #[derive(Clone, Debug)]
 struct Case {
     sort_count: usize,
     semantic: Vec<(usize, usize)>,
-    syntactic: Vec<(usize, usize)>,
-    use_syntactic: bool,
     lesser: Side,
     greater: Side,
 }
@@ -71,20 +68,16 @@ fn side() -> impl Strategy<Value = Side> {
 
 fn case() -> impl Strategy<Value = Case> {
     let pairs = || proptest::collection::vec((0usize..16, 0usize..16), 0..12);
-    (2usize..5, pairs(), pairs(), any::<bool>(), side(), side()).prop_map(
-        |(sort_count, semantic, syntactic, use_syntactic, lesser, greater)| Case {
-            sort_count,
-            semantic,
-            syntactic,
-            use_syntactic,
-            lesser,
-            greater,
-        },
-    )
+    (2usize..5, pairs(), side(), side()).prop_map(|(sort_count, semantic, lesser, greater)| Case {
+        sort_count,
+        semantic,
+        lesser,
+        greater,
+    })
 }
 
-/// The encoding of `cached_encoding_fixture(case.sort_count)` with both relations replaced by the
-/// generated ones, as `ground_side_encoding_is_equivalent` builds it, and the generated sides:
+/// The encoding of `cached_encoding_fixture(case.sort_count)` with its relation replaced by the
+/// generated one, as `ground_side_encoding_is_equivalent` builds it, and the generated sides:
 /// the cached ground values in `ground_values` order, then the `OTHER_SIDES` other expressions.
 struct Realized<'a> {
     encoding: Encoding<'a>,
@@ -108,14 +101,6 @@ fn fixture_base((grammar, term, top_sort): &Fixture) -> (EncodingBase, TermSorts
 }
 
 impl Case {
-    fn relation(&self) -> &[(usize, usize)] {
-        if self.use_syntactic {
-            &self.syntactic
-        } else {
-            &self.semantic
-        }
-    }
-
     /// The position of `side` in `Realized::sides`.
     fn position(&self, side: Side, ground: usize) -> usize {
         if side.ground {
@@ -129,21 +114,17 @@ impl Case {
         let (grammar, _, top_sort) = fixture;
         let (mut base, term_sorts, ground_values) = fixture_base(fixture);
         let ground = ground_values.len();
-        let relation = |pairs: &[(usize, usize)]| {
-            OrderRelation::new(
-                pairs
-                    .iter()
-                    .map(|&(left, right)| {
-                        (
-                            ground_values[ground_index(left, ground)].clone(),
-                            ground_values[ground_index(right, ground)].clone(),
-                        )
-                    })
-                    .collect(),
-            )
-        };
-        base.semantic_relation = relation(&self.semantic);
-        base.syntactic_relation = relation(&self.syntactic);
+        base.semantic_relation = OrderRelation::new(
+            self.semantic
+                .iter()
+                .map(|&(left, right)| {
+                    (
+                        ground_values[ground_index(left, ground)].clone(),
+                        ground_values[ground_index(right, ground)].clone(),
+                    )
+                })
+                .collect(),
+        );
         let mut encoding =
             Encoding::new_with_term_sorts(grammar, top_sort, false, &term_sorts).unwrap();
         encoding.base = std::rc::Rc::new(base);
@@ -178,7 +159,7 @@ impl Case {
         let side = |side: Side| side_json(self.position(side, ground), ground);
         json!({
             "relation": self
-                .relation()
+                .semantic
                 .iter()
                 .map(|&(left, right)| {
                     json!([ground_index(left, ground), ground_index(right, ground)])
@@ -190,12 +171,12 @@ impl Case {
     }
 
     /// The formula `build` makes from the realized relation and sides, read back as a `Dnf`.
-    fn answer(&self, build: impl Fn(&Encoding<'_>, &Datatype, &Datatype, bool) -> Bool) -> Value {
+    fn answer(&self, build: impl Fn(&Encoding<'_>, &Datatype, &Datatype) -> Bool) -> Value {
         let fixture = cached_encoding_fixture(self.sort_count);
         let realized = self.realize(&fixture);
         let lesser = &realized.sides[self.position(self.lesser, realized.ground)];
         let greater = &realized.sides[self.position(self.greater, realized.ground)];
-        let formula = build(&realized.encoding, lesser, greater, self.use_syntactic);
+        let formula = build(&realized.encoding, lesser, greater);
         dnf_json(&formula, &realized)
     }
 }
@@ -278,9 +259,7 @@ fn dnf_json(formula: &Bool, realized: &Realized<'_>) -> Value {
 #[test]
 fn less_than_eq_agrees_with_new() {
     let Some(answers) = check("lessThanEq", case(), Case::input, |case| {
-        case.answer(|encoding, lesser, greater, syntactic| {
-            encoding.less_than_eq(lesser, greater, syntactic).unwrap()
-        })
+        case.answer(|encoding, lesser, greater| encoding.less_than_eq(lesser, greater).unwrap())
     }) else {
         return;
     };
@@ -306,13 +285,8 @@ fn less_than_eq_agrees_with_new() {
 #[test]
 fn full_disjunction_agrees_with_old() {
     let Some(answers) = check("fullDisjunction", case(), Case::input, |case| {
-        case.answer(|encoding, lesser, greater, syntactic| {
-            let relation = if syntactic {
-                &encoding.syntactic_relation
-            } else {
-                &encoding.semantic_relation
-            };
-            relation.full_disjunction(lesser, greater)
+        case.answer(|encoding, lesser, greater| {
+            encoding.semantic_relation.full_disjunction(lesser, greater)
         })
     }) else {
         return;
