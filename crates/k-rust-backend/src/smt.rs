@@ -429,7 +429,7 @@ impl TranslationState {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TranslationError {
     NonBooleanAnd(Term),
     PlaceholderOutOfBounds {

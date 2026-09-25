@@ -2757,7 +2757,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "3571e06490ec34d35dbefd6a1db2222381e389c595b79beb58009851588e9bff",
+        "fa4df5976c0373b7b96c6009006544857b1e0e43ad3bb248161a232187915853",
     );
 }
 
@@ -2798,7 +2798,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "512c0fb1d0f79d76b6f565fb62adb5042576b9a76e99c6056ffe92a9abfb20cf",
+        "b4c7188c17175ebfc6e37073d0088b47b13c1a83c2e820748251b6acecd82171",
     );
 }
 
@@ -2855,7 +2855,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "60eec3d8141eb5a4de4ab7940f9f1d0d475ed1c427817bd7fb8cc1b8c8a937e8",
+        "a310892d9b34c8808500d60c108990a0d4798e2922e0f74028bbe298badcd793",
     );
 }
 
@@ -2916,7 +2916,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "272aaac7541a59e29ade395d4d93b158d6e06c7ebf02312e2137ce5c714d7d9d",
+        "fff44be69beb2bfd3bc5bb0f4e120f641eff316a85c2e05f75e4f3a0ed48ab67",
     );
 }
 
@@ -2989,7 +2989,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "415423463ad47040bfa628a46258507a843d0bfe4c4ac50f20c2e8738450edd0",
+        "ee82d2926435ad44d5ca5fd1014b8eaff1bbe3b4c65b9a04935049848092f97e",
     );
 }
 
@@ -3191,14 +3191,25 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
             subject: BudgetSubject::Term,
         }]
     );
+    // The branch leaf is the parent state, whose own work emitted nothing; the diagnostic
+    // belongs to the lower-priority candidate whose right-hand side exhausted the budget.
+    let leaf = &result.leaves[0];
+    assert_eq!(leaf.diagnostics, []);
+    let HaltReason::Branch { branches, .. } = &leaf.halt_reason else {
+        panic!("expected a branch leaf: {leaf:#?}");
+    };
+    let candidate_diagnostics = branches
+        .iter()
+        .map(|branch| (branch.label.as_deref().unwrap(), branch.diagnostics.clone()))
+        .collect::<Vec<_>>();
     assert_eq!(
-        result.leaves[0].diagnostics, diagnostics,
-        "the one leaf's path emitted every diagnostic"
+        candidate_diagnostics,
+        [("lower-budget", diagnostics.clone()), ("first", Vec::new()),]
     );
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "f9316fd548e1937955273f38cee512079cf195586e80dce52d791393852ae0ff",
+        "35d334736aa2ccdf1797c71b5db905e312d349a9f4b781bc893ef84eb597f811",
     );
 }
 
@@ -3262,7 +3273,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "e46ad102247e0aa294c6f67ed58d6aa46a32093001914ebaab8990b72be9561d",
+        "6a6cc992ffcbccc3bbee4a72f3e86a4ba6174a4d322ea9ad65ea5bb238cb0085",
     );
 }
 
@@ -4700,6 +4711,366 @@ const COLLECTED_AROUND_GROWING_BRANCHES: &[BackendDiagnostic] = &[
         subject: BudgetSubject::Term,
     },
 ];
+
+/// A higher-priority rule `first` (`X < 0`, to `tag(10)`) and a lower-priority rule applied to
+/// its remainder; `grow` is a partial function whose simplification equation never terminates,
+/// so constructing the lower candidate's right-hand side exhausts the budget.
+const LOWER_GROW_RULES: &str = r#"
+    symbol grow{}(SortK{}) : SortK{} [function{}()]
+    axiom{R} \implies{R}(
+        \top{R}(),
+        \equals{SortK{}, R}(
+            grow{}(X:SortK{}),
+            \and{SortK{}}(grow{}(grow{}(X:SortK{})), \top{SortK{}}())
+        )
+    ) [label{}("grow"), simplification{}()]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            state{}(X:SortInt{}),
+            \equals{SortBool{}, SortK{}}(
+                lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                \dv{SortBool{}}("true")
+            )
+        ),
+        tag{}(\dv{SortInt{}}("10"))
+    ) [label{}("first"), priority{}("10")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+        grow{}(tag{}(\dv{SortInt{}}("50")))
+    ) [label{}("lower-grow"), priority{}("50")]
+"#;
+
+/// `first` as above and a lower-priority rule whose condition `kpred(expand(dotk))` exhausts
+/// the budget whenever it is simplified: in the lower candidate's own condition and in the
+/// remainder the lower group leaves, `X >= 0` and the negated condition.
+const LOWER_CONDITION_RULES: &str = r#"
+    symbol kpred{}(SortK{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            state{}(X:SortInt{}),
+            \equals{SortBool{}, SortK{}}(
+                lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                \dv{SortBool{}}("true")
+            )
+        ),
+        tag{}(\dv{SortInt{}}("10"))
+    ) [label{}("first"), priority{}("10")]
+    axiom{} \rewrites{SortK{}}(
+        \and{SortK{}}(
+            state{}(X:SortInt{}),
+            \equals{SortBool{}, SortK{}}(
+                kpred{}(expand{}(dotk{}())),
+                \dv{SortBool{}}("true")
+            )
+        ),
+        tag{}(\dv{SortInt{}}("50"))
+    ) [label{}("lower-condition"), priority{}("50")]
+"#;
+
+fn satisfiable_solver() -> FixedSolver {
+    FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Indeterminate),
+    }
+}
+
+fn budget_one(branch_mode: ExecutionBranchMode, max_breadth: Option<usize>) -> ExecutionOptions {
+    ExecutionOptions {
+        branch_mode,
+        max_breadth,
+        max_simplification_iterations: 1,
+        ..ExecutionOptions::default()
+    }
+}
+
+fn predicates_budget_exhausted(limit: usize) -> BackendDiagnostic {
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit,
+        subject: BudgetSubject::Predicates,
+    }
+}
+
+/// What constructing the `lower-grow` candidate emits: the definedness obligation of
+/// `grow(tag(50))` exhausts the budget through the `grow` equation's condition, and so does
+/// the right-hand side itself.
+fn lower_grow_diagnostics() -> Vec<BackendDiagnostic> {
+    vec![
+        predicates_budget_exhausted(1),
+        BackendDiagnostic::RuleConditionUnsimplified {
+            rule_id: "grow".to_owned(),
+            limit: 1,
+        },
+        term_budget_exhausted(1),
+    ]
+}
+
+fn leaf_with_term<'a>(
+    definition: &BackendDefinition,
+    result: &'a ExecutionResult,
+    term: &str,
+) -> &'a ExecutionLeaf {
+    let term = internal_term(definition, term);
+    result
+        .leaves
+        .iter()
+        .find(|leaf| leaf.pattern.term == term)
+        .unwrap_or_else(|| panic!("no leaf with term {term:?}: {:#?}", result.leaves))
+}
+
+/// Diagnostics emitted while the step builds one candidate belong to that candidate's path
+/// only, although the parent's expansion emitted them: the sibling `first` path carries none.
+#[test]
+fn a_step_attributes_a_candidates_own_work_to_that_candidate_only() {
+    let definition = be08_portable_definition(LOWER_GROW_RULES);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
+    let lower = leaf_ending_in(&result, "grow");
+    let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    assert_eq!(lower.halt_reason, HaltReason::Stuck);
+    assert_eq!(lower.diagnostics, lower_grow_diagnostics());
+    assert_eq!(first.halt_reason, HaltReason::Stuck);
+    assert_eq!(first.diagnostics, []);
+}
+
+/// A state cut off by the breadth bound is never expanded; its leaf carries what its path
+/// accumulated up to it, including its share of the parent's step.
+#[test]
+fn a_breadth_bound_frontier_state_carries_the_diagnostics_of_its_derivation() {
+    let definition = be08_portable_definition(LOWER_GROW_RULES);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, Some(1)),
+        &satisfiable_solver(),
+    );
+
+    assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
+    let lower = leaf_ending_in(&result, "grow");
+    let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    assert_eq!(lower.halt_reason, HaltReason::BreadthBound);
+    assert_eq!(lower.diagnostics, lower_grow_diagnostics());
+    assert_eq!(first.halt_reason, HaltReason::BreadthBound);
+    assert_eq!(first.diagnostics, []);
+}
+
+/// A branch leaf is the parent state: it carries the parent path's diagnostics, and each
+/// candidate it reports carries the diagnostics of its own construction and simplification.
+#[test]
+fn a_branch_leaf_reports_each_candidates_diagnostics_on_that_candidate() {
+    let definition = be08_portable_definition(LOWER_GROW_RULES);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::StopAtBranch, None),
+        &satisfiable_solver(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:#?}", result.leaves);
+    };
+    assert_eq!(leaf.diagnostics, []);
+    let HaltReason::Branch {
+        branches,
+        remainder: None,
+    } = &leaf.halt_reason
+    else {
+        panic!("expected a branch without a remainder: {leaf:#?}");
+    };
+    let candidates = branches
+        .iter()
+        .map(|branch| (branch.label.as_deref().unwrap(), branch.diagnostics.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        candidates,
+        [
+            ("lower-grow", lower_grow_diagnostics()),
+            ("first", Vec::new())
+        ]
+    );
+}
+
+/// Work on the remainder a lower-priority group leaves (the simplification of its negated
+/// condition) belongs to the remainder path, and the lower candidate's condition to that
+/// candidate; the higher-priority branch retained before them carries neither.
+#[test]
+fn remainder_work_is_attributed_to_the_remainder_path() {
+    let definition = be08_portable_definition(LOWER_CONDITION_RULES);
+
+    let explored = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    assert_eq!(explored.leaves.len(), 3, "{:#?}", explored.leaves);
+    let lower = leaf_with_term(&definition, &explored, r#"tag{}(\dv{SortInt{}}("50"))"#);
+    let first = leaf_with_term(&definition, &explored, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    let remainder = leaf_ending_in(&explored, "state");
+    assert_eq!(lower.diagnostics, [predicates_budget_exhausted(1)]);
+    assert_eq!(first.diagnostics, []);
+    assert_eq!(remainder.diagnostics, [predicates_budget_exhausted(1)]);
+
+    // The sequential step feeds `lower-condition` what `first` left and attributes alike.
+    let sequential = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        ExecutionOptions {
+            mode: ExecutionMode::Any,
+            ..budget_one(ExecutionBranchMode::ExploreAll, None)
+        },
+        &satisfiable_solver(),
+    );
+    let attributed = |result: &ExecutionResult| {
+        [
+            r#"tag{}(\dv{SortInt{}}("50"))"#,
+            r#"tag{}(\dv{SortInt{}}("10"))"#,
+        ]
+        .map(|term| {
+            leaf_with_term(&definition, result, term)
+                .diagnostics
+                .clone()
+        })
+    };
+    assert_eq!(attributed(&sequential), attributed(&explored));
+    assert_eq!(
+        leaf_ending_in(&sequential, "state").diagnostics,
+        [predicates_budget_exhausted(1)]
+    );
+
+    let stopped = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::StopAtBranch, None),
+        &satisfiable_solver(),
+    );
+    let [leaf] = stopped.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:#?}", stopped.leaves);
+    };
+    let HaltReason::Branch {
+        branches,
+        remainder: Some(remainder),
+    } = &leaf.halt_reason
+    else {
+        panic!("expected a branch with a remainder: {leaf:#?}");
+    };
+    assert_eq!(leaf.diagnostics, []);
+    assert_eq!(remainder.diagnostics, [predicates_budget_exhausted(1)]);
+    let candidates = branches
+        .iter()
+        .map(|branch| (branch.label.as_deref().unwrap(), branch.diagnostics.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        candidates,
+        [
+            ("lower-condition", vec![predicates_budget_exhausted(1)]),
+            ("first", Vec::new())
+        ]
+    );
+}
+
+/// A state whose term exhausts the budget, then is cancelled during its rewrite step: the
+/// cancelled leaf reports the state after its own simplification, so it carries that
+/// simplification's diagnostic; the step's work on candidates that are never reported is on
+/// no leaf.
+#[test]
+fn a_cancelled_expansion_keeps_the_diagnostics_of_the_work_its_leaf_reports() {
+    let definition = be08_portable_definition(
+        r#"
+        symbol hold{}(SortK{}, SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                hold{}(K:SortK{}, X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            tag{}(\dv{SortInt{}}("10"))
+        ) [label{}("guarded"), priority{}("10")]
+        "#,
+    );
+    let subject = definition
+        .internalize_pattern(
+            &parse_pattern(r#"hold{}(expand{}(dotk{}()), X:SortInt{})"#).unwrap(),
+            &[],
+        )
+        .unwrap();
+    let token = CancellationToken::new();
+    let solver = ScriptedSolver::new(
+        (0..4).map(|_| Ok(Satisfiability::Sat)),
+        (0..4).map(|_| Ok(Validity::Indeterminate)),
+    )
+    .cancelling_at(0, token.clone());
+
+    let result = token.scope(|| {
+        execute_with_solver(
+            &definition,
+            subject,
+            budget_one(ExecutionBranchMode::ExploreAll, None),
+            &solver,
+        )
+    });
+
+    assert!(
+        !solver.transcript.borrow().is_empty(),
+        "the step queried the solver"
+    );
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cancelled leaf: {:#?}", result.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
+    assert_eq!(leaf.depth, 0);
+    assert_eq!(leaf.diagnostics, [term_budget_exhausted(1)]);
+}
+
+/// A remainder a lower-priority group could not decide ends as a leaf with the simplification
+/// error; the leaf carries the diagnostics of the remainder's path, which the higher-priority
+/// branch does not share.
+#[test]
+fn an_undecided_remainder_leaf_carries_its_paths_diagnostics() {
+    let rules = format!(
+        "{LOWER_CONDITION_RULES}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    isIOInt{}(getc{}(\dv{SortInt{}}("0"))),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            done{}()
+        ) [label{}("lower-error"), priority{}("60")]
+        "#
+    );
+    let definition = be08_portable_definition(&rules);
+
+    let result = execute_with_solver(
+        &definition,
+        be08_portable_subject(&definition),
+        budget_one(ExecutionBranchMode::ExploreAll, None),
+        &satisfiable_solver(),
+    );
+
+    let remainder = leaf_ending_in(&result, "state");
+    assert!(
+        matches!(remainder.halt_reason, HaltReason::Simplification(_)),
+        "{remainder:#?}"
+    );
+    assert_eq!(remainder.diagnostics, [predicates_budget_exhausted(1)]);
+    let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    assert_eq!(first.diagnostics, []);
+}
 
 #[test]
 fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {

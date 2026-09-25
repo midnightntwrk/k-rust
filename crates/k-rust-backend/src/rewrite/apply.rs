@@ -1061,6 +1061,9 @@ fn instantiate(
     })
 }
 
+// Returned once per right-hand-side alternative and unpacked at once; `Applied` is the common
+// variant, and boxing it would add an allocation per candidate to save stack in a short-lived value.
+#[allow(clippy::large_enum_variant)]
 enum RhsAlternativeAttempt {
     Applied(RuleApplication),
     Trivial {
@@ -1279,6 +1282,7 @@ fn apply_rhs_alternative(
             effects,
             remainder_simplifications: Vec::new(),
             io: io_evaluation.map(|execution| execution.commit()),
+            diagnostics: Vec::new(),
         },
         remainder: remainder_of(applicability),
     })

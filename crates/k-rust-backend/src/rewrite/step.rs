@@ -33,6 +33,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
+    diagnostic::{self, BackendDiagnostic, extend_distinct},
     rule::{Predicate, RewriteRule, RuleRhs, applicable_rewrite_groups, subject_index, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver},
     smt::{Satisfiability, SmtSolver},
@@ -47,6 +48,10 @@ use super::{
     apply_rule, extend_unique, predicates_truth, violates_finite_constructor_domain,
 };
 
+/// The outcome of one priority group. A `Productive` outcome attributes every diagnostic emitted
+/// while it was computed to the candidates it concerns (`AppliedRule::diagnostics`,
+/// `RemainderBranch::diagnostics`); the other outcomes attribute none, and the caller's own
+/// collection holds them.
 enum PriorityGroupOutcome {
     NotProductive,
     Productive {
@@ -70,23 +75,36 @@ fn apply_priority_group(
 ) -> PriorityGroupOutcome {
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
+    // Diagnostics of attempts that produced no candidate: they concern which candidates exist,
+    // so every candidate of the group shares them.
+    let mut shared = Vec::new();
     for rule in rules {
-        match apply_rule(
-            definition,
-            rule,
-            pattern,
-            fresh_counter,
-            simplification_options,
-            solver,
-            assume_initial_defined,
-            io,
-        ) {
-            RuleAttempt::NotApplicable => {}
+        let (attempt, attempt_diagnostics) = diagnostic::collect(|| {
+            apply_rule(
+                definition,
+                rule,
+                pattern,
+                fresh_counter,
+                simplification_options,
+                solver,
+                assume_initial_defined,
+                io,
+            )
+        });
+        match attempt {
+            RuleAttempt::NotApplicable => extend_distinct(&mut shared, &attempt_diagnostics),
             RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
+                let first_candidate = applied.len();
                 for group in groups {
                     applied.extend(group.applied);
                     trivial.extend(group.trivial);
+                }
+                if applied.len() == first_candidate {
+                    extend_distinct(&mut shared, &attempt_diagnostics);
+                }
+                for application in &mut applied[first_candidate..] {
+                    extend_distinct(&mut application.applied.diagnostics, &attempt_diagnostics);
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
@@ -118,13 +136,16 @@ fn apply_priority_group(
                 .map(|application| application.remainder.clone()),
         )
         .collect::<Vec<_>>();
-    let remainder = match simplify_predicates_with_solver(
-        definition,
-        &raw_remainder,
-        &pattern.constraints,
-        simplification_options,
-        solver,
-    ) {
+    let (remainder, remainder_diagnostics) = diagnostic::collect(|| {
+        simplify_predicates_with_solver(
+            definition,
+            &raw_remainder,
+            &pattern.constraints,
+            simplification_options,
+            solver,
+        )
+    });
+    let remainder = match remainder {
         Ok(remainder) => remainder,
         Err(error) => {
             return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(error));
@@ -165,15 +186,21 @@ fn apply_priority_group(
             effects: Vec::new(),
             simplifications: Vec::new(),
             indeterminate: None,
+            diagnostics: remainder_diagnostics,
         })
     } else {
+        // Without a remainder the work on it concerns no path: its conditions, possibly left
+        // partially simplified, were refuted, and a refutation of an equivalent condition holds.
         None
     };
+    let mut branches = applied
+        .into_iter()
+        .map(|application| application.applied)
+        .collect::<Vec<_>>();
+    let mut remainder = remainder;
+    inherit_diagnostics(&mut branches, remainder.as_mut(), &shared);
     PriorityGroupOutcome::Productive {
-        branches: applied
-            .into_iter()
-            .map(|application| application.applied)
-            .collect(),
+        branches,
         trivial,
         remainder,
     }
@@ -190,23 +217,62 @@ fn first_productive_group(
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
 ) -> PriorityGroupOutcome {
+    // Diagnostics of the unproductive higher groups: every candidate of the step shares them.
+    let mut earlier = Vec::new();
     for rules in groups.by_ref() {
-        match apply_priority_group(
-            definition,
-            pattern,
-            &rules,
-            fresh_counter,
-            simplification_options,
-            solver,
-            assume_initial_defined,
-            io,
-        ) {
-            PriorityGroupOutcome::NotProductive => {}
+        let (outcome, diagnostics) = diagnostic::collect(|| {
+            apply_priority_group(
+                definition,
+                pattern,
+                &rules,
+                fresh_counter,
+                simplification_options,
+                solver,
+                assume_initial_defined,
+                io,
+            )
+        });
+        match outcome {
+            PriorityGroupOutcome::NotProductive => extend_distinct(&mut earlier, &diagnostics),
             outcome @ PriorityGroupOutcome::Undecided(_) => return outcome,
-            outcome @ PriorityGroupOutcome::Productive { .. } => return outcome,
+            PriorityGroupOutcome::Productive {
+                mut branches,
+                trivial,
+                mut remainder,
+            } => {
+                inherit_diagnostics(&mut branches, remainder.as_mut(), &earlier);
+                return PriorityGroupOutcome::Productive {
+                    branches,
+                    trivial,
+                    remainder,
+                };
+            }
         }
     }
     PriorityGroupOutcome::NotProductive
+}
+
+/// Put `earlier`, the diagnostics of work every candidate was derived through, before each
+/// candidate's own.
+fn inherit_diagnostics(
+    branches: &mut [AppliedRule],
+    remainder: Option<&mut RemainderBranch>,
+    earlier: &[BackendDiagnostic],
+) {
+    if earlier.is_empty() {
+        return;
+    }
+    let inherit = |diagnostics: &mut Vec<BackendDiagnostic>| {
+        let mut inherited = earlier.to_vec();
+        extend_distinct(&mut inherited, diagnostics);
+        *diagnostics = inherited;
+    };
+    for branch in branches {
+        inherit(&mut branch.diagnostics);
+    }
+    if let Some(remainder) = remainder {
+        inherit(&mut remainder.diagnostics);
+    }
 }
 
 fn classify_first_group(
@@ -340,13 +406,17 @@ fn fold_lower_priority_groups(
         };
         if needs_simplification {
             let before = current.pattern.clone();
-            match simplify_with_solver(
-                definition,
-                &before.term,
-                &before.constraints,
-                simplification_options,
-                solver,
-            ) {
+            let (simplified, diagnostics) = diagnostic::collect(|| {
+                simplify_with_solver(
+                    definition,
+                    &before.term,
+                    &before.constraints,
+                    simplification_options,
+                    solver,
+                )
+            });
+            extend_distinct(&mut current.diagnostics, &diagnostics);
+            match simplified {
                 Ok(simplified) => {
                     current.pattern.term = simplified.term;
                     extend_unique(&mut current.pattern.constraints, simplified.constraints);
@@ -377,22 +447,31 @@ fn fold_lower_priority_groups(
         let current = remainder
             .as_ref()
             .expect("remainder survived simplification");
-        match apply_priority_group(
-            definition,
-            &current.pattern,
-            &rules,
-            fresh_counter,
-            simplification_options,
-            solver,
-            assume_initial_defined,
-            None,
-        ) {
-            PriorityGroupOutcome::NotProductive => {}
-            PriorityGroupOutcome::Undecided(undecided) => {
-                remainder
+        let (outcome, diagnostics) = diagnostic::collect(|| {
+            apply_priority_group(
+                definition,
+                &current.pattern,
+                &rules,
+                fresh_counter,
+                simplification_options,
+                solver,
+                assume_initial_defined,
+                None,
+            )
+        });
+        match outcome {
+            PriorityGroupOutcome::NotProductive => {
+                let current = remainder
                     .as_mut()
-                    .expect("the current remainder is present")
-                    .indeterminate = Some(undecided);
+                    .expect("the current remainder is present");
+                extend_distinct(&mut current.diagnostics, &diagnostics);
+            }
+            PriorityGroupOutcome::Undecided(undecided) => {
+                let current = remainder
+                    .as_mut()
+                    .expect("the current remainder is present");
+                extend_distinct(&mut current.diagnostics, &diagnostics);
+                current.indeterminate = Some(undecided);
                 return;
             }
             PriorityGroupOutcome::Productive {
@@ -406,6 +485,8 @@ fn fold_lower_priority_groups(
                         .remainder_simplifications
                         .splice(0..0, previous.simplifications.iter().cloned());
                 }
+                let mut lower_remainder = lower_remainder;
+                inherit_diagnostics(&mut lower, lower_remainder.as_mut(), &previous.diagnostics);
                 lower.append(branches);
                 *branches = lower;
                 lower_trivial.append(trivial);
@@ -592,6 +673,9 @@ pub(super) fn rewrite_step_any(
     let mut remainder_conditions = Vec::new();
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
+    // Diagnostics of the work on `remaining`: every later candidate and the remainder, all
+    // derived from it, share them.
+    let mut remaining_diagnostics = Vec::new();
     let rules = priority_groups
         .iter()
         .flat_map(|(priority, rules)| rules.iter().map(move |rule| (*priority, rule)));
@@ -615,16 +699,18 @@ pub(super) fn rewrite_step_any(
             }
             break;
         }
-        let attempt = apply_rule(
-            definition,
-            rule,
-            &remaining,
-            fresh_counter,
-            simplification_options,
-            solver,
-            false,
-            io,
-        );
+        let (attempt, attempt_diagnostics) = diagnostic::collect(|| {
+            apply_rule(
+                definition,
+                rule,
+                &remaining,
+                fresh_counter,
+                simplification_options,
+                solver,
+                false,
+                io,
+            )
+        });
         if let Some(determinism) = determinism.as_deref_mut() {
             determinism.record(
                 definition,
@@ -639,7 +725,9 @@ pub(super) fn rewrite_step_any(
             );
         }
         match attempt {
-            RuleAttempt::NotApplicable => {}
+            RuleAttempt::NotApplicable => {
+                extend_distinct(&mut remaining_diagnostics, &attempt_diagnostics);
+            }
             RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
                 // `any` follows one deterministic collection candidate of the first applicable
@@ -648,6 +736,9 @@ pub(super) fn rewrite_step_any(
                     .into_iter()
                     .next()
                     .expect("a unified rule has an application group");
+                if group.applied.is_empty() {
+                    extend_distinct(&mut remaining_diagnostics, &attempt_diagnostics);
+                }
                 for application in group.applied {
                     extend_unique(
                         &mut remainder_conditions,
@@ -657,7 +748,12 @@ pub(super) fn rewrite_step_any(
                         &mut remaining.constraints,
                         std::iter::once(application.remainder),
                     );
-                    applied.push(application.applied);
+                    let mut candidate = application.applied;
+                    let mut diagnostics = remaining_diagnostics.clone();
+                    extend_distinct(&mut diagnostics, &attempt_diagnostics);
+                    extend_distinct(&mut diagnostics, &candidate.diagnostics);
+                    candidate.diagnostics = diagnostics;
+                    applied.push(candidate);
                 }
                 for application in group.trivial {
                     extend_unique(
@@ -670,13 +766,17 @@ pub(super) fn rewrite_step_any(
                     );
                     trivial.push(application);
                 }
-                match simplify_predicates_with_solver(
-                    definition,
-                    &remaining.constraints,
-                    &pattern.constraints,
-                    simplification_options,
-                    solver,
-                ) {
+                let (constraints, diagnostics) = diagnostic::collect(|| {
+                    simplify_predicates_with_solver(
+                        definition,
+                        &remaining.constraints,
+                        &pattern.constraints,
+                        simplification_options,
+                        solver,
+                    )
+                });
+                extend_distinct(&mut remaining_diagnostics, &diagnostics);
+                match constraints {
                     Ok(constraints) => {
                         remaining.constraints = pattern.constraints.clone();
                         extend_unique(&mut remaining.constraints, constraints);
@@ -750,6 +850,7 @@ pub(super) fn rewrite_step_any(
         effects: Vec::new(),
         simplifications: Vec::new(),
         indeterminate: None,
+        diagnostics: remaining_diagnostics,
     });
     match (applied.len(), trivial.is_empty(), remainder) {
         (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),
