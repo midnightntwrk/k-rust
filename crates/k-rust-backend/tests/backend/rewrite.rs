@@ -24,8 +24,8 @@ use k_rust_backend::{
     term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,
     transition::{
-        ExecutionIoState, ObservationEvent, ObservationFilterError, ObservationOptions,
-        PatternDigest, TransitionClass, UncommittedReason,
+        EvaluationClass, ExecutionIoState, ObservationEvent, ObservationFilterError,
+        ObservationOptions, PatternDigest, TransitionClass, UncommittedReason,
     },
 };
 use k_rust_kore::{
@@ -6838,6 +6838,543 @@ fn observation_filter_installation_is_atomic() {
     assert!(ObservationOptions::with_rules(&definition, ["left", "right"]).is_ok());
 }
 
+/// A leaf's observation stream without payloads.
+#[derive(Debug, PartialEq)]
+enum Observed<'a> {
+    Transition(&'a str, TransitionClass),
+    Evaluation(&'a str, EvaluationClass, usize),
+}
+
+fn observed(leaf: &ExecutionLeaf) -> Vec<Observed<'_>> {
+    observed_stream(&leaf.observations)
+}
+
+fn observed_stream(observations: &[ObservationEvent]) -> Vec<Observed<'_>> {
+    observations
+        .iter()
+        .map(|event| match event {
+            ObservationEvent::Transition(observation) => {
+                Observed::Transition(observation.id.rule.as_str(), observation.class)
+            }
+            ObservationEvent::Evaluation(observation) => Observed::Evaluation(
+                observation.rule.as_str(),
+                observation.class,
+                observation.anchor,
+            ),
+            ObservationEvent::Uncommitted(_) => panic!("rollback leaked into a leaf"),
+        })
+        .collect()
+}
+
+/// Under unfiltered observation, the transition events are exactly `branch` in order, and every
+/// evaluation is anchored after the transitions that precede it in the stream.
+fn assert_observations_anchor_into_branch(leaf: &ExecutionLeaf) {
+    assert_stream_anchors_into_branch(&leaf.branch, &leaf.observations);
+}
+
+fn assert_stream_anchors_into_branch(
+    branch: &[k_rust_backend::transition::TransitionId],
+    observations: &[ObservationEvent],
+) {
+    let mut transitions = Vec::new();
+    for event in observations {
+        match event {
+            ObservationEvent::Transition(observation) => transitions.push(observation.id.clone()),
+            ObservationEvent::Evaluation(observation) => {
+                assert_eq!(observation.anchor, transitions.len(), "{observation:?}");
+            }
+            ObservationEvent::Uncommitted(_) => panic!("rollback leaked into a leaf"),
+        }
+    }
+    assert_eq!(transitions, branch);
+}
+
+/// `value()` evaluates by a function equation; `left` and `right` both apply to any `wrap`, and
+/// only `left`'s successor calls `value()`.
+fn evaluating_branch_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                value{}()
+            ) [label{}("left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("right")
+            ) [label{}("right")]
+            "#,
+    )
+}
+
+#[test]
+fn successor_function_equation_is_an_evaluation_anchored_after_its_rewrite() {
+    let definition = definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                value{}()
+            ) [label{}("step")]
+            "#,
+    );
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf: {:?}", result.leaves);
+    };
+    assert_eq!(
+        observed(leaf),
+        [
+            Observed::Transition("step", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+        ]
+    );
+    assert_observations_anchor_into_branch(leaf);
+    let ObservationEvent::Evaluation(evaluation) = &leaf.observations[1] else {
+        unreachable!("checked above");
+    };
+    assert_eq!(evaluation.rule_label.as_deref(), Some("value"));
+    assert_eq!(evaluation.after, leaf.pattern);
+}
+
+#[test]
+fn sibling_branches_anchor_their_evaluations_into_their_own_branch() {
+    let definition = evaluating_branch_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, r#"wrap{}(value{}())"#),
+        constraints: Vec::new(),
+    };
+    let result = execute_observed(
+        &definition,
+        initial.clone(),
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+
+    let streams = result
+        .leaves
+        .iter()
+        .inspect(|leaf| assert_observations_anchor_into_branch(leaf))
+        .map(observed)
+        .collect::<Vec<_>>();
+    assert_eq!(streams.len(), 2, "{streams:?}");
+    for expected in [
+        vec![
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition("left", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+        ],
+        vec![
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition("right", TransitionClass::Rewrite),
+        ],
+    ] {
+        assert!(streams.contains(&expected), "{streams:?}");
+    }
+
+    let mut unobserved = result.clone();
+    for leaf in &mut unobserved.leaves {
+        leaf.branch.clear();
+        leaf.observations.clear();
+    }
+    assert_eq!(
+        unobserved,
+        execute(&definition, initial, ExecutionOptions::default())
+    );
+}
+
+/// `value()` evaluates by a function equation; `step` rewrites any `wrap` to a `wrap` whose
+/// argument calls `value()`, so every successor is normalized by one evaluation.
+fn evaluating_loop_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                wrap{}(value{}())
+            ) [label{}("step")]
+            "#,
+    )
+}
+
+/// A cut-point rule is proposed, not committed: the leaf stays at the state before it, so its
+/// branch holds only the transitions that produced that state and no evaluation of the proposed
+/// successor is anchored past it.
+#[test]
+fn cut_point_leaf_observes_only_the_transitions_that_produced_its_state() {
+    let definition = definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("start")), \top{SortS{}}()),
+                wrap{}(\dv{SortS{}}("middle"))
+            ) [label{}("first")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(\dv{SortS{}}("middle")), \top{SortS{}}()),
+                value{}()
+            ) [label{}("stop")]
+            "#,
+    );
+    let options = ExecutionOptions {
+        cut_point_rules: BTreeSet::from(["stop".into()]),
+        ..ExecutionOptions::default()
+    };
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        options.clone(),
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cut-point leaf: {:?}", result.leaves);
+    };
+    let HaltReason::CutPointRule { next_states, .. } = &leaf.halt_reason else {
+        panic!("expected a cut-point leaf: {:?}", leaf.halt_reason);
+    };
+    assert_eq!(leaf.pattern, subject(&definition, "middle"));
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(
+        observed(leaf),
+        [Observed::Transition("first", TransitionClass::Rewrite)]
+    );
+    assert_observations_anchor_into_branch(leaf);
+    let [next] = next_states.as_slice() else {
+        panic!("expected one proposed successor");
+    };
+    assert_eq!(next.unique_id, "stop");
+
+    let mut unobserved = result.clone();
+    for leaf in &mut unobserved.leaves {
+        leaf.branch.clear();
+        leaf.observations.clear();
+    }
+    assert_eq!(
+        unobserved,
+        execute(&definition, subject(&definition, "start"), options)
+    );
+}
+
+#[test]
+fn depth_bound_leaf_anchors_its_normalization_at_its_branch_length() {
+    let definition = evaluating_loop_definition();
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions {
+            max_depth: 2,
+            ..ExecutionOptions::default()
+        },
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one depth-bound leaf: {:?}", result.leaves);
+    };
+    assert!(matches!(leaf.halt_reason, HaltReason::DepthBound));
+    assert_eq!(
+        observed(leaf),
+        [
+            Observed::Transition("step", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+            Observed::Transition("step", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 2),
+        ]
+    );
+    assert_observations_anchor_into_branch(leaf);
+}
+
+#[test]
+fn breadth_bound_leaves_carry_only_their_own_normalizations() {
+    let definition = evaluating_branch_definition();
+    let result = execute_observed(
+        &definition,
+        Pattern {
+            term: internal_term(&definition, r#"wrap{}(value{}())"#),
+            constraints: Vec::new(),
+        },
+        ExecutionOptions {
+            max_breadth: Some(1),
+            ..ExecutionOptions::default()
+        },
+        &ObservationOptions::all(),
+    );
+
+    assert_eq!(result.leaves.len(), 2, "{:?}", result.leaves);
+    let streams = result
+        .leaves
+        .iter()
+        .inspect(|leaf| {
+            assert!(matches!(leaf.halt_reason, HaltReason::BreadthBound));
+            assert_observations_anchor_into_branch(leaf);
+        })
+        .map(observed)
+        .collect::<Vec<_>>();
+    for rule in ["left", "right"] {
+        let expected = vec![
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition(rule, TransitionClass::Rewrite),
+        ];
+        assert!(streams.contains(&expected), "{streams:?}");
+    }
+}
+
+/// `left` reaches `"value"` through an evaluation and `right` reaches it directly; the equal
+/// final leaves merge, and the survivor reports only its own branch's events.
+#[test]
+fn merged_equal_leaves_keep_only_the_survivors_events() {
+    let definition = definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                value{}()
+            ) [label{}("left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("value")
+            ) [label{}("right")]
+            "#,
+    );
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected the equal leaves to merge: {:?}", result.leaves);
+    };
+    assert_observations_anchor_into_branch(leaf);
+    let stream = observed(leaf);
+    assert!(
+        stream
+            == [
+                Observed::Transition("left", TransitionClass::Rewrite),
+                Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+            ]
+            || stream == [Observed::Transition("right", TransitionClass::Rewrite)],
+        "{stream:?}"
+    );
+}
+
+/// Decides a condition only from path knowledge: with no known constraints every check is
+/// indeterminate, so a higher-priority rule's requires leaves a remainder; once the remainder's
+/// negated condition is known, conditional simplifications apply.
+struct KnowledgeDecidesSolver;
+
+impl SmtSolver for KnowledgeDecidesSolver {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Result<Satisfiability, SmtError> {
+        Ok(Satisfiability::Sat)
+    }
+
+    fn check_predicates(
+        &self,
+        known: &[Predicate],
+        _substitution: &Substitution,
+        _checked: &[Predicate],
+    ) -> Result<Validity, SmtError> {
+        Ok(if known.is_empty() {
+            Validity::Indeterminate
+        } else {
+            Validity::Valid
+        })
+    }
+}
+
+/// `matched` rewrites `pair(X, S)` under the undecided condition `cond(X)`; the state's `sign(X)`
+/// simplifies only under path knowledge, which the remainder `\not(cond(X) = true)` supplies.
+/// `fallback`, when present, has a lower priority.
+fn remainder_evaluation_definition(fallback: bool) -> BackendDefinition {
+    let fallback = if fallback {
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(pair{}(X:SortS{}, S:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("fallback")
+            ) [label{}("fallback"), priority{}("50")]
+        "#
+    } else {
+        ""
+    };
+    definition(&format!(
+        r#"
+            hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+            symbol pair{{}}(SortS{{}}, SortS{{}}) : SortS{{}}
+                [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
+            symbol cond{{}}(SortS{{}}) : SortBool{{}}
+                [function{{}}(), total{{}}(), no-evaluators{{}}()]
+            symbol sign{{}}(SortS{{}}) : SortS{{}} [function{{}}(), total{{}}()]
+            axiom{{R}} \implies{{R}}(
+                \equals{{SortBool{{}}, R}}(cond{{}}(X:SortS{{}}), \dv{{SortBool{{}}}}("false")),
+                \equals{{SortS{{}}, R}}(
+                    sign{{}}(X:SortS{{}}),
+                    \and{{SortS{{}}}}(\dv{{SortS{{}}}}("signed"), \top{{SortS{{}}}}())
+                )
+            ) [label{{}}("sign"), simplification{{}}()]
+            axiom{{}} \rewrites{{SortS{{}}}}(
+                \and{{SortS{{}}}}(
+                    pair{{}}(X:SortS{{}}, S:SortS{{}}),
+                    \equals{{SortBool{{}}, SortS{{}}}}(cond{{}}(X:SortS{{}}), \dv{{SortBool{{}}}}("true"))
+                ),
+                \dv{{SortS{{}}}}("matched")
+            ) [label{{}}("matched"), priority{{}}("10")]
+            {fallback}
+        "#
+    ))
+}
+
+fn symbolic_wrap(definition: &BackendDefinition) -> Pattern {
+    Pattern {
+        term: internal_term(definition, "pair{}(X:SortS{}, sign{}(X:SortS{}))"),
+        constraints: Vec::new(),
+    }
+}
+
+fn remainder_evaluation_execution(fallback: bool) -> ExecutionResult {
+    let definition = remainder_evaluation_definition(fallback);
+    let result = execute_observed_with_solver(
+        &definition,
+        symbolic_wrap(&definition),
+        ExecutionOptions::default(),
+        &KnowledgeDecidesSolver,
+        &ObservationOptions::all(),
+    );
+    result
+        .leaves
+        .iter()
+        .for_each(assert_observations_anchor_into_branch);
+    result
+}
+
+/// The remainder of `matched` is normalized before `fallback` applies to it: that normalization
+/// belongs to the state before the rewrite, so it is anchored at 0 on the fallback branch.
+#[test]
+fn priority_remainder_evaluation_is_anchored_before_the_lower_priority_rewrite() {
+    let result = remainder_evaluation_execution(true);
+    let streams = result.leaves.iter().map(observed).collect::<Vec<_>>();
+    assert_eq!(streams.len(), 2, "{streams:?}");
+    for expected in [
+        vec![
+            Observed::Evaluation("sign", EvaluationClass::Simplification, 0),
+            Observed::Transition("fallback", TransitionClass::Rewrite),
+        ],
+        vec![Observed::Transition("matched", TransitionClass::Rewrite)],
+    ] {
+        assert!(streams.contains(&expected), "{streams:?}");
+    }
+}
+
+/// Without a lower-priority rule the remainder is a branch of its own; its normalization follows
+/// the remainder transition.
+#[test]
+fn retained_remainder_evaluation_is_anchored_after_the_remainder_transition() {
+    let result = remainder_evaluation_execution(false);
+    let streams = result.leaves.iter().map(observed).collect::<Vec<_>>();
+    assert_eq!(streams.len(), 2, "{streams:?}");
+    for expected in [
+        vec![
+            Observed::Transition("remainder:matched", TransitionClass::Remainder),
+            Observed::Evaluation("sign", EvaluationClass::Simplification, 1),
+        ],
+        vec![Observed::Transition("matched", TransitionClass::Rewrite)],
+    ] {
+        assert!(streams.contains(&expected), "{streams:?}");
+    }
+}
+
+#[test]
+fn observed_search_anchors_evaluations_into_each_result_branch() {
+    use k_rust_backend::search::{SearchOptions, search_graph_observed, search_paths_observed};
+
+    let definition = evaluating_branch_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, r#"wrap{}(value{}())"#),
+        constraints: Vec::new(),
+    };
+    let states = search_graph_observed(
+        &definition,
+        initial.clone(),
+        SearchOptions::default(),
+        &ObservationOptions::all(),
+    );
+    assert_eq!(states.states.len(), 2, "{states:?}");
+    for state in &states.states {
+        assert_stream_anchors_into_branch(&state.branch, &state.observations);
+        assert!(
+            observed_stream(&state.observations).contains(&Observed::Evaluation(
+                "value",
+                EvaluationClass::FunctionEquation,
+                0
+            )),
+            "{state:?}"
+        );
+    }
+
+    let paths = search_paths_observed(
+        &definition,
+        initial,
+        SearchOptions::default(),
+        &ObservationOptions::all(),
+    );
+    assert_eq!(paths.witnesses.len(), 2, "{paths:?}");
+    for witness in &paths.witnesses {
+        assert_stream_anchors_into_branch(&witness.id, &witness.observations);
+    }
+    assert!(paths.witnesses.iter().any(|witness| {
+        observed_stream(&witness.observations).contains(&Observed::Evaluation(
+            "value",
+            EvaluationClass::FunctionEquation,
+            1,
+        ))
+    }));
+}
+
 #[test]
 fn single_rewrite_emits_one_committed_observation() {
     let definition = definition(
@@ -6917,6 +7454,7 @@ fn sibling_branches_own_independent_ordered_streams() {
                 .iter()
                 .map(|event| match event {
                     ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+                    ObservationEvent::Evaluation(_) => panic!("the definition has no equations"),
                     ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
                 })
                 .collect::<Vec<_>>()
@@ -6976,7 +7514,7 @@ fn valid_observation_filter_suppresses_events_but_preserves_branch_identity() {
 }
 
 #[test]
-fn transition_classes_distinguish_function_equations_from_rewrites() {
+fn initial_state_function_equation_is_an_evaluation_at_anchor_zero() {
     let definition = definition(
         r#"
             symbol value{}() : SortS{} [function{}(), total{}()]
@@ -7008,16 +7546,13 @@ fn transition_classes_distinguish_function_equations_from_rewrites() {
     );
 
     assert_eq!(
-        result.leaves[0]
-            .observations
-            .iter()
-            .map(|event| match event {
-                ObservationEvent::Transition(observation) => observation.class,
-                ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
-            })
-            .collect::<Vec<_>>(),
-        [TransitionClass::FunctionEquation, TransitionClass::Rewrite]
+        observed(&result.leaves[0]),
+        [
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition("step", TransitionClass::Rewrite),
+        ]
     );
+    assert_observations_anchor_into_branch(&result.leaves[0]);
 }
 
 #[test]
@@ -7049,21 +7584,13 @@ fn terminal_result_simplification_is_observed_in_order() {
     );
 
     assert_eq!(
-        result.leaves[0]
-            .observations
-            .iter()
-            .map(|event| match event {
-                ObservationEvent::Transition(observation) => {
-                    (observation.id.rule.as_str(), observation.class)
-                }
-                ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
-            })
-            .collect::<Vec<_>>(),
+        observed(&result.leaves[0]),
         [
-            ("stop", TransitionClass::Rewrite),
-            ("identity", TransitionClass::Simplification),
+            Observed::Transition("stop", TransitionClass::Rewrite),
+            Observed::Evaluation("identity", EvaluationClass::Simplification, 1),
         ]
     );
+    assert_observations_anchor_into_branch(&result.leaves[0]);
 }
 
 #[test]
@@ -7141,12 +7668,14 @@ fn builtin_observation_owns_its_user_log_effect() {
         &ObservationOptions::all(),
     );
 
-    let [ObservationEvent::Transition(observation)] = result.leaves[0].observations.as_slice()
+    let [ObservationEvent::Evaluation(observation)] = result.leaves[0].observations.as_slice()
     else {
         panic!("expected one builtin observation");
     };
-    assert_eq!(observation.id.rule, "builtin:IO.logString");
-    assert_eq!(observation.class, TransitionClass::Builtin);
+    assert_eq!(observation.rule, "builtin:IO.logString");
+    assert_eq!(observation.class, EvaluationClass::Builtin);
+    assert_eq!(observation.anchor, 0);
+    assert!(result.leaves[0].branch.is_empty());
     assert_eq!(observation.before, initial);
     assert_eq!(observation.after, result.leaves[0].pattern);
     assert_eq!(
@@ -7211,7 +7740,9 @@ fn symbolic_remainder_emits_a_distinct_observation_class() {
             {
                 Some(observation)
             }
-            ObservationEvent::Transition(_) | ObservationEvent::Uncommitted(_) => None,
+            ObservationEvent::Transition(_)
+            | ObservationEvent::Evaluation(_)
+            | ObservationEvent::Uncommitted(_) => None,
         })
         .expect("expected one retained symbolic remainder");
     assert_eq!(remainder.id.rule, "remainder:negative");
@@ -7541,6 +8072,7 @@ fn rolled_back_branch_effects_are_classified_without_committing() {
             .iter()
             .map(|event| match event {
                 ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+                ObservationEvent::Evaluation(_) => panic!("the definition has no equations"),
                 ObservationEvent::Uncommitted(_) => panic!("rollback leaked into leaf"),
             })
             .collect::<Vec<_>>(),

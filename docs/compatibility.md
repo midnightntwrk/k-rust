@@ -364,6 +364,19 @@ Under this reading three normalizations of [the register](../scripts/reference-n
 - N16 drops the outer `\exists` binders of a disjunct that bind generated variables (not free in the initial pattern; by the N4 name shapes when no initial pattern is given), which denotes the same disjunct as its body; it stops at a binder of an initial-pattern variable, which is kept and compared. k-rust prints no such prefix.
 - N22 adds, inside a negated existential, the binder of a generated variable that is free there and occurs nowhere else in the disjunct, which is where the reading above places it; k-rust already prints that binder, while the pinned Kore prints the unification's collection frame free in that position.
 
+## Observation events
+
+Observed execution and search (`executeObserved` and the `*Observed` search methods of the host API) report three event kinds, a closed union tagged by `kind`.
+A `transition` event is a committed transition of the leaf's `branch` (or a witness's `id`); under an allowlist only the admitted ones are reported, always in branch order.
+An `evaluation` event is an equation, simplification, or builtin application that normalized a branch state; its `anchor` is the number of branch entries before it, whether or not the allowlist reports them.
+An `uncommitted` event is an attempted transition that no surviving branch retains.
+A cut-point rule is proposed, not committed: the leaf stays at the state before it, and neither the rule nor its successor's normalization appears in the leaf's events.
+Evaluation events are diagnostics; which ones occur and in which order depends on the simplifier's strategy.
+
+This shape replaced an earlier one at backend schema version 1, without a version change, in line with the other closed-variant changes of that schema:
+equation, simplification, and builtin applications were `transition` events with a `TransitionId` and the classes `function-equation`, `simplification`, and `builtin`; `transition.class` is now one of `rewrite`, `remainder`, and `claim`, and those three classes moved to `evaluation.class`.
+The event fields are camelCase (`ruleLabel`, `introducedPredicates`), as the TypeScript declarations always stated; the JSON previously spelled them `rule_label` and `introduced_predicates`.
+
 ## CLI scope
 
 `krust` retains its source-plus-flags interface.

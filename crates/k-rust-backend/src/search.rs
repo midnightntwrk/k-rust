@@ -3044,10 +3044,11 @@ mod tests {
                     state
                         .observations
                         .iter()
-                        .map(|event| match event {
+                        .filter_map(|event| match event {
                             ObservationEvent::Transition(observation) => {
-                                observation.id.rule.as_str()
+                                Some(observation.id.rule.as_str())
                             }
+                            ObservationEvent::Evaluation(_) => None,
                             ObservationEvent::Uncommitted(_) => {
                                 panic!("search cannot retain a rolled-back transition")
                             }
@@ -3132,8 +3133,9 @@ mod tests {
             witness
                 .observations
                 .iter()
-                .map(|event| match event {
-                    ObservationEvent::Transition(observation) => &observation.id,
+                .filter_map(|event| match event {
+                    ObservationEvent::Transition(observation) => Some(&observation.id),
+                    ObservationEvent::Evaluation(_) => None,
                     ObservationEvent::Uncommitted(_) => {
                         panic!("path search cannot retain a rollback")
                     }
@@ -3192,8 +3194,9 @@ mod tests {
         fn transition_ids(observations: &[ObservationEvent]) -> Vec<&TransitionId> {
             observations
                 .iter()
-                .map(|event| match event {
-                    ObservationEvent::Transition(observation) => &observation.id,
+                .filter_map(|event| match event {
+                    ObservationEvent::Transition(observation) => Some(&observation.id),
+                    ObservationEvent::Evaluation(_) => None,
                     ObservationEvent::Uncommitted(_) => {
                         panic!("search cannot retain a rolled-back transition")
                     }
