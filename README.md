@@ -311,6 +311,7 @@ expose it on every interface or `--server-port 0` to request an ephemeral port.
 configuration as defined while matching rewrite rules. `implies` accepts `assume-defined` as the
 reference proxy's backend-routing hint; the unified Rust service already uses that in-process path.
 `execute` accepts the k-rust extension `max-simplification-iterations`; omitted values use the same shared default as the library and CLI.
+A parameter object with a key the method does not declare is rejected with `-32602`, `Invalid params`, and is not executed; the reason is in [RPC behavior](docs/compatibility.md#rpc-behavior).
 The standalone RPC `simplify` method remains deliberately unbounded.
 
 Execution can return reference-shaped rewrite diagnostics through `log-successful-rewrites` and

@@ -124,6 +124,7 @@ Execution retains an explicit `aborted` reason for incomplete indeterminate, sim
 [RPC tests](../crates/k-rust/src/rpc.rs) cover predicate-free models, batch cancellation, and error classification; [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc) preserve shipped-proxy responses.
 An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
 Backend error `data` is compared by class: code, message, and the `error` sentence; context lines are the port's own diagnostics (N28).
+A parameter object with a key the method does not declare is rejected with `-32602`, `Invalid params`, and is not executed: the server cannot apply that key, and the result it would return might differ from the one requested, which is the reason for the [CLI-scope](#cli-scope) rule on unknown flags.
 
 The `haskell-logging` parameter selects diagnostic entries; it is not an instruction to the computation.
 It decides only whether `haskell-log-entries` is attached (for a non-empty list) and which entries it holds; no other result field depends on it.
