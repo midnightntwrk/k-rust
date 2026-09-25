@@ -128,6 +128,7 @@ An `implies` request is the statement `A -> \exists E. C` under the universal cl
 A free variable of the consequent that the antecedent does not mention is therefore universal, not an error: the match binding `u := s` of any universal is an obligation `u = s` that the antecedent's condition must entail.
 The answer is `invalid` when the antecedent is satisfiable and the match constrains the variable, and `valid` when the antecedent is unsatisfiable or nothing constrains the variable.
 An antecedent existential that shares the consequent universal's name is a different variable and is renamed apart.
+The RPC differential records this as the `bounded-search` `implies-consequent-universal` oracle exception (N19): with the ground start configuration as antecedent and its `<k>` item replaced by `X:SortState` as consequent, k-rust answers `invalid` with the binding `X = start`, and the pinned proxy answers error code 4, `Implication check error`, "The RHS must not have free variables not present in the LHS".
 
 ## Definition verification
 

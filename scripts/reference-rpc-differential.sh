@@ -244,6 +244,8 @@ collect_responses() {
     -o "$work/$prefix-implies-valid.json"
   "$rpc_client" --port "$port" send "$work/implies-invalid-request.json" \
     -o "$work/$prefix-implies-invalid.json"
+  "$rpc_client" --port "$port" send "$work/implies-consequent-universal-request.json" \
+    -o "$work/$prefix-implies-consequent-universal.json"
   "$rpc_client" --port "$port" get-model "$work/model-sat.json" \
     -o "$work/$prefix-model-sat.json"
   "$rpc_client" --port "$port" get-model "$work/model-unsat.json" \
@@ -415,6 +417,28 @@ else
     method: "implies",
     params: {antecedent: .[1], consequent: .[0], "assume-defined": true}
   }' "$work/start.json" "$work/done.json" >"$work/implies-invalid-request.json"
+  # The consequent is the start configuration with the program in the <k> cell (every
+  # inj{S, SortKItem} argument) replaced by the variable X:S, which the antecedent does not
+  # mention: a consequent-only universal (docs/compatibility.md#rpc-behavior).
+  jq '{
+    jsonrpc: "2.0",
+    id: "implies-consequent-universal",
+    method: "implies",
+    params: {
+      antecedent: .,
+      consequent: (.term |= walk(
+        if type == "object" and .tag == "App" and .name == "inj"
+           and .sorts[1].name == "SortKItem"
+        then .args = [{tag: "EVar", name: "VarX", sort: .sorts[0]}]
+        else . end)),
+      "assume-defined": true
+    }
+  }' "$work/start.json" >"$work/implies-consequent-universal-request.json"
+  if ! jq -e '[.params.consequent | .. | objects | select(.tag == "EVar")] | length > 0' \
+    "$work/implies-consequent-universal-request.json" >/dev/null; then
+    echo "error: the start configuration of $name has no <k> item to replace by a variable" >&2
+    exit 2
+  fi
   jq '{
     format: "KORE",
     version: 1,

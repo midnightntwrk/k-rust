@@ -240,14 +240,34 @@ fn differential_special_case_schema_is_complete() {
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
+                .map(move |exception| (entry, exception))
         })
         .collect::<Vec<_>>();
+    let mut adjudicated = rpc_exceptions
+        .iter()
+        .map(|(entry, exception)| {
+            (
+                entry["name"].as_str().unwrap_or_default(),
+                exception["response"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    adjudicated.sort_unstable();
     assert_eq!(
-        rpc_exceptions.len(),
-        1,
-        "only the measured IMP implication payload diverges from Booster",
+        adjudicated,
+        [
+            ("bounded-search", "implies-consequent-universal"),
+            ("imp", "implies"),
+        ],
+        "the IMP implication payload and the consequent-only universal are the adjudicated RPC differences",
     );
-    for exception in rpc_exceptions {
+    for (entry, exception) in rpc_exceptions {
+        assert!(
+            entry["responses"]
+                .as_array()
+                .is_some_and(|responses| responses.contains(&exception["response"])),
+            "RPC oracle exception names a response its case does not request",
+        );
         for field in ["oracle", "response", "expected", "reference", "reason"] {
             assert!(
                 exception[field]
@@ -258,7 +278,6 @@ fn differential_special_case_schema_is_complete() {
         }
         assert_ne!(exception["expected"], exception["reference"]);
         assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
-        assert_eq!(exception["response"].as_str(), Some("implies"));
     }
 
     for entry in manifest["symbolic"].as_array().expect("symbolic cases") {
