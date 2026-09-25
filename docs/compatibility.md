@@ -52,8 +52,9 @@ The pinned K frontend rejects `semcast3` and `semcast4`, whose ambiguous `a(X)` 
 A formal sort parameter of a parametric production is not a variable of the sentence (K user manual, "Parametric productions and `bracket` attributes").
 Sort inference therefore orders the readings of a sentence only by well-sortedness, by maximality over the sorts of its variables, and then by `prefer`/`avoid`; a sentence with several readings left after these steps is an ambiguous parse error (K user manual, "Variable Sort Inference" and "Symbol priority and associativity").
 The `K`/`KItem`/`Bag` preference on formal parameters only chooses how a kept reading is instantiated: it compares parameter vectors that keep the same set of well-sorted readings and never removes a reading that some vector types.
-A free parameter is inferred as `K`, since it "cannot actually reject any parse".
-Alternatives that are equal once bracket nodes are erased and each concrete instance of a parametric production is replaced by its formal source are one reading, not several: `rule #Ceil(X:W) => (#Top) [simplification]` has one parse, `#Top{K}`, exactly as without the brackets.
+A parameter that the kept readings leave free is instantiated at `K` by that preference.
+Alternatives that are equal once bracket nodes are erased are one reading, not several: `rule #Ceil(X:W) => (#Top) [simplification]` has one parse, `#Top{K}`, exactly as without the brackets.
+The concrete instances of one parametric production are one production of the parsed term, so they never form separate readings either.
 
 The pinned K frontend also uses the parameter preference to choose between distinct readings, by sending a parameter to `K` where that makes another reading ill-sorted.
 Rust does not.
