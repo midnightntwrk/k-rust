@@ -6091,7 +6091,7 @@ symbol = "or_all"
 
 [[node.cost]]
 mode = "encoding construction"
-bound = "O(H + G^2 + R) plus two PartialOrder::new constructions"
+bound = "O(H + G^2 + R) plus one PartialOrder::new construction"
 
 [[node.cost]]
 mode = "one inference"

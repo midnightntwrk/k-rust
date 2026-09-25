@@ -30,7 +30,8 @@ The statements are partial correctness over complete runs; termination is not mo
 
 Hypotheses (each a named argument of the theorems that use it; `lean/README.md` lists the Rust
 test behind each):
-  * `hP : P.WF`: `less_than_eq(_, _, true)` on model values is reflexive and transitive;
+  * `hP : P.WF`: `less_than_eq(_, _)`, the subsort order that also defines well-sortedness, on
+    model values is reflexive and transitive;
   * `hR : P.RoundTrip`: `sort_value (decode_sort v)` denotes `v` for every value `model.eval`
     returns, so re-encoding a decoded model value gives back the same value;
   * `e : Equivalent P Q`: two encodings define the same `sat`, `le` and `pref`.
@@ -51,7 +52,7 @@ namespace KRust.MaximalModels
 
 * `A` is the projection of a Z3 model onto the real variables (`real_variables`, :1685-1690);
   `B` is its projection onto the formal parameters (`self.parameters`).
-* `le` is `less_than_eq(_, _, true)` read pointwise over the real variables: the climb asserts it
+* `le` is `less_than_eq(_, _)` read pointwise over the real variables: the climb asserts it
   as `greater` (:1718-1735, :1752) and the blocking clause as `dominated` (:1774-1792).
 * `sat a b` is "the hard constraints hold": the formulas asserted at :177-179 (packed) or
   :389-391 (unpacked). No other assertion stays on the solver across iterations except the

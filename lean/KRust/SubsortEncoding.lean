@@ -3,13 +3,12 @@ Case study 2 of `draft/lean-verification/README.md`: the Z3 subsort encoding.
 
 Rust modelled here, with line anchors at bb256f2c:
   crates/k-rust/src/inner/parser/z3_inference.rs
-    EncodingBase                  :76-92     (ground_values, closed_values, semantic_relation,
-                                              syntactic_relation)
+    EncodingBase                  :76-92     (ground_values, closed_values, semantic_relation)
     OrderRelation                 :98-137    (pairs; up- and down-sets built once by `new`
                                               :105-115, read by `up` :117-119, `down` :121-123)
     OrderRelation::full_disjunction :125-136 (`old`)
-    EncodingBase::build           :637-641   (closed_values = the cached ground values; the two
-                                              relations)
+    EncodingBase::build           :637-641   (closed_values = the cached ground values; the
+                                              relation)
     EncodingBase::sort_value      :645-682   (ground values are cached constructor terms)
     EncodingBase::order_relation  :684-707   (R = pairs of real ground sorts with l = r or l < r)
     Encoding::less_than_eq        :1663-1717 (`new`: the dispatch on closed sides is :1678-1704)
@@ -88,7 +87,7 @@ def Dnf.holds (I : G → D) (ρ : Nat → D) (d : Dnf G) : Prop :=
 
 /-- The full disjunction (`OrderRelation::full_disjunction`, z3_inference.rs:125-136):
 `OR over (l, r) in R of (lesser = l ∧ greater = r)`, then `∨ lesser = greater`.
-`R` is `semantic_relation` or `syntactic_relation`, whose pairs `order_relation` builds
+`R` is `semantic_relation`, whose pairs `order_relation` builds
 (z3_inference.rs:684-707). -/
 def old (R : List (G × G)) (a b : Tm G) : Dnf G :=
   R.map (fun p => [⟨a, .val p.1⟩, ⟨b, .val p.2⟩]) ++ [[⟨a, b⟩]]
