@@ -136,7 +136,7 @@ pub enum ResultModalityOutput {
     PathSet,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct TransitionIdOutput {
     pub rule: String,
