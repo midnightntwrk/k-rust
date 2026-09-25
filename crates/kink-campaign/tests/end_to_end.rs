@@ -158,7 +158,7 @@ fn replace(baseline: &Baseline, label: &str, path: &[u32], replacement: Term) ->
 /// candidates come in site order, and the generation is scored when it has one.
 fn generation<'b>(baseline: &'b Baseline, mutants: &[(TermRef, Patch)]) -> CandidateGeneration<'b> {
     let derive = |clauses: &[SiteSelector]| derive_sites(baseline, "site", clauses);
-    let nothing = derive(&[SiteSelector::RuleLabel("NOTHING.nothing".to_owned())]);
+    let nothing = Discovery::empty(baseline, false, false);
     let discovery = mutants
         .iter()
         .map(|(site, _)| {
@@ -171,9 +171,7 @@ fn generation<'b>(baseline: &'b Baseline, mutants: &[(TermRef, Patch)]) -> Candi
                 SiteSelector::Path(site.path.0.clone()),
             ])
         })
-        .try_fold(nothing.expect("no bindings"), |all, next| {
-            all.union(&next.expect("no bindings"))
-        })
+        .try_fold(nothing, |all, next| all.union(&next.expect("no bindings")))
         .expect("one baseline and shape");
     assert!(discovery.exhaustive(), "declared by clauses");
     assert_eq!(
@@ -763,12 +761,7 @@ fn incomplete_and_failed_generations_are_not_scored() {
         assert_eq!(exhaustive.tuples().len(), 1);
         let partial = Discovery::supplied(baseline, exhaustive.tuples().to_vec(), false, false)
             .expect("derived sites are known");
-        let nothing = derive_sites(
-            baseline,
-            "requires",
-            &[SiteSelector::RuleLabel("COUNTER.nothing".to_owned())],
-        )
-        .expect("no bindings");
+        let nothing = Discovery::empty(baseline, false, false);
         // Every `requires`, narrowed by a closure to `branch`'s: `fallback`'s is dropped by
         // code, not by a declared clause.
         let narrowed = derive_sites(baseline, "requires", &[SiteSelector::Path(vec![1])])

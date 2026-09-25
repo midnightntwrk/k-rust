@@ -12,7 +12,9 @@
 //! that [`Selection::fold`] makes of that, which is the only one a campaign
 //! runs. A generation can be scored only when its discovery was exhaustive,
 //! which only declarative derivation gives: [`derive_sites`] and its unions
-//! and joins. A [`Discovery::supplied`] or [`Discovery::filter`]ed one never
+//! and joins. Exhaustive means every match of the declared selector
+//! expression, whose rule labels and label-and-path references must resolve.
+//! A [`Discovery::supplied`] or [`Discovery::filter`]ed one never
 //! is. Each stage borrows the baseline it was derived from, and a campaign
 //! compares that borrow with its own baseline by address. Address identity needs no digest: the borrow keeps
 //! the baseline alive, so no other live baseline can share its address. An
@@ -40,7 +42,7 @@ pub enum CandidateFailureKind {
     InvalidBinding,
     /// An operator built an edit outside the sentences of its origin.
     UnauthorizedEdit,
-    /// A supplied site is not a term position of the baseline.
+    /// A supplied site, or a selector's rule label or label-and-path, is not a term position of the baseline.
     UnknownSite,
 }
 
@@ -140,6 +142,19 @@ pub struct Discovery<'b> {
 }
 
 impl<'b> Discovery<'b> {
+    /// An exhaustive discovery with no tuples, the identity of [`Self::union`]
+    /// for discoveries with this shape.
+    #[must_use]
+    pub const fn empty(baseline: &'b Baseline, joined: bool, tuple_symmetric: bool) -> Self {
+        Self {
+            baseline,
+            tuples: Vec::new(),
+            exhaustive: true,
+            joined,
+            tuple_symmetric,
+        }
+    }
+
     /// Tuples supplied by hand over `baseline`, for shapes no derivation
     /// produces. The discovery is not exhaustive.
     ///
@@ -507,6 +522,8 @@ pub enum SiteSelector {
 ///
 /// Returns `InvalidBinding` when the `Bind` names are not unique K variable
 /// names, whether or not any position matches.
+/// Returns `UnknownSite` when a `RuleLabel` names no written rule or a `Path`
+/// is not a position of a rule named by a `RuleLabel`.
 pub fn derive_sites<'b>(
     baseline: &'b Baseline,
     role: &str,
@@ -521,6 +538,43 @@ pub fn derive_sites<'b>(
         .collect::<Vec<_>>();
     names.sort_unstable();
     check_binding_names(names.iter().copied())?;
+    let written_rules = baseline
+        .authored_sentences()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .collect::<Vec<_>>();
+    for clause in selector {
+        let SiteSelector::RuleLabel(label) = clause else {
+            continue;
+        };
+        let matching = written_rules
+            .iter()
+            .filter(|(_, sentence)| {
+                sentence.attributes().string(AttributeKey::Label) == Some(label.as_str())
+            })
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            return Err(CandidateFailure::new(
+                CandidateFailureKind::UnknownSite,
+                format!("no written rule is labelled {label}"),
+            ));
+        }
+        for (rule_ref, _) in matching {
+            for path in selector.iter().filter_map(|clause| match clause {
+                SiteSelector::Path(path) => Some(path),
+                _ => None,
+            }) {
+                if baseline
+                    .term(&TermRef::new(rule_ref.clone(), path.as_slice()))
+                    .is_none()
+                {
+                    return Err(CandidateFailure::new(
+                        CandidateFailureKind::UnknownSite,
+                        format!("{label} has no position {path:?}"),
+                    ));
+                }
+            }
+        }
+    }
     let bind = |term: &Term| {
         Bindings(
             names

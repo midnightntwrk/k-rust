@@ -81,15 +81,7 @@ impl Memory {
         joined: bool,
         tuple_symmetric: bool,
     ) -> Discovery<'_> {
-        let nothing =
-            derive_sites(&self.baseline, "site", &[label("MEMORY.nothing")]).expect("no bindings");
-        let nothing = if joined {
-            nothing
-                .join(&nothing, tuple_symmetric)
-                .expect("one baseline")
-        } else {
-            nothing
-        };
+        let nothing = Discovery::empty(&self.baseline, joined, tuple_symmetric);
         supplied
             .iter()
             .map(|names| match (joined, names) {
@@ -841,12 +833,7 @@ fn discovery_authority_adversaries_publish_no_scored_generation() {
 #[test]
 fn empty_generations_are_not_scored() {
     let memory = Memory::new();
-    let nothing = derive_sites(
-        &memory.baseline,
-        "body",
-        &[SiteSelector::RuleLabel("MEMORY.nothing".to_owned())],
-    )
-    .expect("no bindings");
+    let nothing = Discovery::empty(&memory.baseline, false, false);
     let write = memory.discovery(&[&["write"]], false, false);
     let no_change = |origin: &PatchOrigin| {
         let at = origin.site_tuple[0].clone();
@@ -912,6 +899,55 @@ fn head(label: &str) -> SiteSelector {
 
 fn bind(name: &str) -> SiteSelector {
     SiteSelector::Bind(name.to_owned())
+}
+
+#[test]
+fn selector_references_must_resolve() {
+    let memory = Memory::new();
+    let counter = support::load("counter.k");
+    let derived = memory.derived("site", "write");
+    #[rustfmt::skip]
+    let rows = [
+        ("unknown-label", &memory.baseline, vec![label("MEMORY.nothing")]),
+        ("typo-in-a-union-member", &memory.baseline, vec![label("MEMORY.wirte"), path(&[0])]),
+        ("label-with-a-path-past-a-leaf", &counter, vec![label("COUNTER.branch"), path(&[0, 1, 99])]),
+    ];
+    for (id, baseline, selector) in rows {
+        let result = derive_sites(baseline, "site", &selector);
+        let result = if id == "typo-in-a-union-member" {
+            result.and_then(|member| derived.union(&member))
+        } else {
+            result
+        };
+        assert_eq!(
+            result.expect_err(id).kind(),
+            CandidateFailureKind::UnknownSite,
+            "{id}"
+        );
+    }
+
+    let unmet = derive_sites(
+        &counter,
+        "site",
+        &[label("COUNTER.branch"), path(&[0, 1]), sort("Bool")],
+    )
+    .expect("resolved selector");
+    assert!(unmet.tuples().is_empty() && unmet.exhaustive());
+    let invalid = derive_sites(
+        &memory.baseline,
+        "site",
+        &[label("MEMORY.nothing"), bind("a"), bind("a")],
+    );
+    assert_eq!(
+        invalid.expect_err("invalid bind names first").kind(),
+        CandidateFailureKind::InvalidBinding
+    );
+    let fallback_requires = TermRef::new(support::rule(&counter, "COUNTER.fallback"), [1]);
+    assert!(counter.term(&fallback_requires).is_some());
+    let empty = Discovery::empty(&memory.baseline, false, false);
+    let union = empty.union(&derived).expect("same shape");
+    assert_eq!(union.tuples(), derived.tuples());
+    assert!(union.exhaustive());
 }
 
 /// Expected sites as (rule label, path).
