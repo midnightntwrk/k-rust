@@ -611,10 +611,8 @@ fn e6_failures_never_distinguish() {
     let leaf = |halt| halt_side(&StateProjection::WholeTerm, halt).expect("a leaf side");
     let backend = ExecutionFailureKind::from(&ExecutionAdapterFailure::Backend("lost".to_owned()));
     #[rustfmt::skip]
-    let rows: [(&str, Result<OracleSide, ExecutionFailureKind>, Expected); 8] = [
-        ("depth-bound-leaf-is-unknown", Ok(leaf(HaltClass::DepthBound)), Expected::Side(OracleSide::Unknown, MutantStatus::Unknown)),
+    let rows: [(&str, Result<OracleSide, ExecutionFailureKind>, Expected); 6] = [
         ("cancelled-leaf-is-error", Ok(leaf(HaltClass::Cancelled)), Expected::Side(OracleSide::Error, MutantStatus::Error)),
-        ("timeout-leaf-is-timeout", Ok(leaf(HaltClass::Timeout)), Expected::Side(OracleSide::Timeout, MutantStatus::Timeout)),
         ("backend-error-is-infrastructure", Err(backend), Expected::Failed(ExecutionFailureKind::Infrastructure, MutantStatus::Error)),
         ("solver-indeterminate", Ok(leaf(HaltClass::Indeterminate)), Expected::Side(OracleSide::Unknown, MutantStatus::Unknown)),
         ("missing-output-bytes", Ok(state_side(&exit, &single(Normal, constant("done")))), Expected::Side(OracleSide::Error, MutantStatus::Error)),
@@ -677,8 +675,6 @@ fn bounded_or_indeterminate_sides_are_unknown_even_against_a_crash() {
     let mut bounded = [
         HaltClass::Trivial,
         HaltClass::Vacuous,
-        HaltClass::DepthBound,
-        HaltClass::BreadthBound,
         HaltClass::Indeterminate,
         HaltClass::UnsupportedHook,
         HaltClass::SimplificationError,
@@ -821,12 +817,12 @@ fn runner_mapping_is_exhaustive() {
         (H::Branch, infrastructure.clone()),
         (H::CutPoint, infrastructure.clone()),
         (H::TerminalRule, infrastructure.clone()),
-        (H::DepthBound, Ok(OracleSide::Unknown)),
-        (H::BreadthBound, Ok(OracleSide::Unknown)),
+        (H::DepthBound, infrastructure.clone()),
+        (H::BreadthBound, infrastructure.clone()),
         (H::Indeterminate, Ok(OracleSide::Unknown)),
         (H::UnsupportedHook, Ok(OracleSide::Unknown)),
         (H::SimplificationError, Ok(OracleSide::Unknown)),
-        (H::Timeout, Ok(OracleSide::Timeout)),
+        (H::Timeout, infrastructure.clone()),
         // Until upstream tells cancellation from timeout.
         (H::Cancelled, Ok(OracleSide::Error)),
     ];

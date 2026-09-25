@@ -74,15 +74,17 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
     Ok(Some(match halt {
         HaltClass::Stuck => return Ok(None),
         HaltClass::Trivial | HaltClass::Vacuous => PathStop::SolverUnknown,
-        HaltClass::DepthBound => PathStop::DepthLimit,
-        HaltClass::BreadthBound => PathStop::BranchLimit,
         HaltClass::Indeterminate | HaltClass::UnsupportedHook | HaltClass::SimplificationError => {
             PathStop::BackendLimit
         }
-        HaltClass::Timeout => PathStop::TimeLimit,
         // Until upstream tells cancellation from timeout.
         HaltClass::Cancelled => PathStop::Error,
-        HaltClass::Branch | HaltClass::CutPoint | HaltClass::TerminalRule => {
+        HaltClass::Branch
+        | HaltClass::CutPoint
+        | HaltClass::TerminalRule
+        | HaltClass::DepthBound
+        | HaltClass::BreadthBound
+        | HaltClass::Timeout => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -589,15 +591,15 @@ mod tests {
             (H::Branch, GROUND, None),
             (H::CutPoint, GROUND, None),
             (H::TerminalRule, GROUND, None),
-            (H::DepthBound, GROUND, Some(Err(P::DepthLimit))),
-            (H::DepthBound, CONSTRAINED, Some(Err(P::SolverUnknown))),
-            (H::BreadthBound, GROUND, Some(Err(P::BranchLimit))),
-            (H::BreadthBound, SYMBOLIC, Some(Err(P::SolverUnknown))),
+            (H::DepthBound, GROUND, None),
+            (H::DepthBound, CONSTRAINED, None),
+            (H::BreadthBound, GROUND, None),
+            (H::BreadthBound, SYMBOLIC, None),
             (H::Indeterminate, GROUND, Some(Err(P::BackendLimit))),
             (H::UnsupportedHook, GROUND, Some(Err(P::BackendLimit))),
             (H::SimplificationError, GROUND, Some(Err(P::BackendLimit))),
-            (H::Timeout, GROUND, Some(Err(P::TimeLimit))),
-            (H::Timeout, CONSTRAINED, Some(Err(P::SolverUnknown))),
+            (H::Timeout, GROUND, None),
+            (H::Timeout, CONSTRAINED, None),
             (H::Cancelled, GROUND, Some(Err(P::Error))),
             (H::Vacuous, BOTTOM, Some(Err(P::SolverUnknown))),
         ];
@@ -668,6 +670,15 @@ mod tests {
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
     }
 
+    #[test]
+    fn halt_stop_rejects_exactly_the_classes_the_adapter_excludes() {
+        let mismatches = HaltClass::ALL
+            .into_iter()
+            .filter(|halt| halt_stop(*halt).is_err() != !halt.adapter_admits())
+            .collect::<Vec<_>>();
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+    }
+
     /// Complete evidence needs the single-path route, no diagnostic and no timeout, and a
     /// witness needs a real prefix: a diagnostic makes every path of its run `BackendLimit`,
     /// so its events are no witness even on a stuck ground leaf (review P1), and the
@@ -717,19 +728,15 @@ mod tests {
                 PatternOutcome::Match,
             ),
             (
-                "explore-all-reports-its-least-severe-limit",
+                "explore-all-reports-a-backend-limit",
                 execution(
                     ExecutionRoute::ExploreAll,
-                    vec![
-                        leaf(0, H::Stuck),
-                        leaf(1, H::Indeterminate),
-                        leaf(2, H::DepthBound),
-                    ],
+                    vec![leaf(0, H::Stuck), leaf(1, H::Indeterminate)],
                     Vec::new(),
                     false,
                 ),
-                CollectionStop::DepthLimit,
-                3,
+                CollectionStop::BackendLimit,
+                2,
                 PatternOutcome::Match,
             ),
             (
@@ -748,7 +755,7 @@ mod tests {
                 "a-diagnostic-makes-every-explored-path-a-backend-limit",
                 execution(
                     ExecutionRoute::ExploreAll,
-                    vec![leaf(0, H::Stuck), leaf(1, H::DepthBound)],
+                    vec![leaf(0, H::Stuck), leaf(1, H::Indeterminate)],
                     vec![budget],
                     false,
                 ),

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 /// Keys no edit may write: the rule label (observation resolves rules by
 /// label on each compiled side, so relabelling would silently retarget it),
-/// kompile identities and receipts, and source positions.
+/// kompile identities and source positions.
 const PROTECTED_KEYS: [AttributeKey; 11] = [
     AttributeKey::Label,
     AttributeKey::UniqueId,

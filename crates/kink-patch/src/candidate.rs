@@ -992,8 +992,7 @@ impl<'b> Selection<'b> {
     /// Every edit must target a sentence that holds a site of its origin: a
     /// term, sentence or attribute edit names that sentence, an insertion
     /// before or after names it, and a module-start or module-end insertion
-    /// names the module of one of those sentences. The check is per sentence,
-    /// like the former receipt's target lineage: operators legitimately edit
+    /// names the module of one of those sentences. Operators legitimately edit
     /// around a site (the right-hand side of a body site, an attribute of the
     /// site's rule), so no term-level relation between site and edit is
     /// imposed. Because of it, two origins fold into one candidate only when

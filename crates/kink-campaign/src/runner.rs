@@ -10,8 +10,7 @@
 //!   collection that stopped for lack of work on an execution route. An explore-all run
 //!   qualifies, because k-rust's merging of converging branches keeps every distinct final
 //!   state. Any other stop is `Error` for an error or a cancelled leaf (until upstream tells
-//!   cancellation from timeout), `Timeout` for a timed-out leaf, and `Unknown`
-//!   otherwise, including a backend diagnostic.
+//!   cancellation from timeout), and `Unknown` otherwise, including a backend diagnostic.
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
 //!   crash among several terminals is `Unknown`.
 //! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`

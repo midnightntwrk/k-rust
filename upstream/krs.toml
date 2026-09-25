@@ -2,7 +2,7 @@
 # Vocabulary and field contract are in README.md beside this file.
 
 schema = 1
-updated = "2026-09-24"
+updated = "2026-09-25"
 
 [reference_pin]
 krs_commit = "e0ba404"

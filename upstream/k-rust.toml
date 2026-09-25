@@ -78,7 +78,7 @@ id = "execution-leaf-completeness"
 title = "Execution leaves have no typed halt reason and may be dropped or merged without a record"
 kind = "correctness"
 status = "open"
-status_basis = "test run at 985e0086 on 2026-09-25 (kink-native converging_branches_never_yield_pattern_no_match; kink-native every_halt_spelling_is_produced_live, which makes k-rust produce all 13 halt spellings; a scratch reproducer in which one stuck branch hides a depth-bound branch and one converging observed branch loses its events) plus static screen of k-rust-backend/src/rewrite/execute.rs, docs/backend-port.md and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-25"
+status_basis = "test run at 985e0086 on 2026-09-25 (kink-native converging_branches_never_yield_pattern_no_match; kink-native src/execution.rs every_halt_spelling_is_produced_live, which makes k-rust produce all 13 halt spellings; a scratch reproducer in which one stuck branch hides a depth-bound branch and one converging observed branch loses its events) plus static screen of k-rust-backend/src/rewrite/execute.rs, docs/backend-port.md and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-25"
 blocking = true
 needed_by = ["execution-pattern NoMatch on branching executions", "binding sets on branching executions", "state-set oracles without a trust assumption"]
 summary = """
@@ -95,9 +95,9 @@ local_workaround = """
 kink-native's ExecutionAdapter runs with stop_at_branch first: a ground initial state that ends in exactly one stuck leaf, with no backend diagnostic and within the time budget, is a single-path witness and complete evidence.
 Otherwise it reruns explore-all without a depth bound. State-set oracles are then complete only under the assumption that every distinct final state is returned; an execution-pattern oracle reaches at most Match, NoMatch and binding sets are Unknown, and the collection stop is ExhaustionUnrecorded.
 kink-native HaltClass::parse accepts exactly the 13 spellings of the private halt_reason (crates/k-rust/src/backend/mod.rs:984-1002) at the pin. every_halt_reason_string_maps_to_exactly_one_class checks kink's copy of that list, not k-rust output.
-All 13 spellings are live-checked: kink-native tests/bridge.rs every_halt_spelling_is_produced_live makes k-rust produce each one over an inline KORE definition and asserts the class it maps to.
+All 13 spellings are live-checked: kink-native src/execution.rs every_halt_spelling_is_produced_live makes k-rust produce each one over an inline KORE definition and asserts the class it maps to.
 Seven are produced through ExecutionAdapter::execute: stuck, trivial, vacuous, indeterminate, unsupported-hook, simplification-error and cancelled.
-Six are produced only through Backend::execute_observed with one field of the adapter's explore-all request changed: branch (stop_at_branch; the adapter discards its stop_at_branch run unless that run ended in one stuck leaf), cut-point (cut_point_rules), terminal (terminal_rules), depth-bound (max_depth), breadth-bound (max_breadth) and timeout (step_timeout_ms); for these the row checks HaltClass::parse, which the adapter applies to every leaf.
+Six are produced only through Backend::execute_observed with one field of the adapter's explore-all request changed: branch (stop_at_branch; the adapter discards its stop_at_branch run unless that run ended in one stuck leaf), cut-point (cut_point_rules), terminal (terminal_rules), depth-bound (max_depth), breadth-bound (max_breadth) and timeout (step_timeout_ms); for these the row checks HaltClass::parse and requires the adapter to reject the result as a contract violation.
 A moved spelling fails that test and makes the execution adapter fail closed with UnknownHaltReason, which the runner reports as Error. A new halt reason is noticed by no test, so re-read halt_reason when moving the pin.
 """
 requested_action = """

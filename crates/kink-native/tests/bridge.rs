@@ -8,22 +8,16 @@ mod support;
 
 use std::time::Duration;
 
-use k_rust::backend::{
-    Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ObservedRequest,
-};
+use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
-use k_rust::kore::{
-    ast::Pattern,
-    codec,
-    parser::{parse_definition, parse_pattern},
-};
+use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, ExecutionRoute, HaltClass,
 };
-use kink_native::observation::{DomainEventSpec, InstalledObservationManifest, PayloadSource};
+use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition};
 use kink_patch::{Edit, Patch, TermRef};
 use kink_pattern::{
@@ -207,7 +201,7 @@ fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
 
 /// Pins kink's copy of the spellings, read from k-rust's private `halt_reason`
 /// (`backend/mod.rs:984-1002` at the ledger pin). It reads no k-rust output; a moved spelling
-/// fails `every_halt_spelling_is_produced_live` instead, and a new one is noticed by neither.
+/// fails the execution module's `every_halt_spelling_is_produced_live` instead, and a new one is noticed by neither.
 #[test]
 fn every_halt_reason_string_maps_to_exactly_one_class() {
     let spellings = [
@@ -239,132 +233,6 @@ fn every_halt_reason_string_maps_to_exactly_one_class() {
     for unknown in ["", "Stuck", "stuck ", "depth_bound", "terminal-rule"] {
         assert_eq!(HaltClass::parse(unknown), None, "{unknown:?}");
     }
-}
-
-/// A KORE definition with one route to each halt reason. `gone` rewrites to `\bottom`; `g`
-/// applies to a symbolic argument only with a solver, which the no-Z3 profile lacks; `missing`
-/// has an unimplemented hook; and `or-equation` has two live right-hand sides.
-const HALTS: &str = r#"[]
-    module HALTS
-        sort SortS{} []
-        sort SortV{} [hasDomainValues{}()]
-        symbol a{}() : SortS{} [constructor{}()]
-        symbol b{}() : SortS{} [constructor{}()]
-        symbol done{}() : SortS{} [constructor{}()]
-        symbol start{}() : SortS{} [constructor{}()]
-        symbol spin{}() : SortS{} [constructor{}()]
-        symbol gone{}() : SortS{} [constructor{}()]
-        symbol g{}(SortS{}) : SortS{} [constructor{}()]
-        symbol open{}(SortS{}) : SortS{} [function{}()]
-        symbol f{}(SortS{}) : SortS{} [function{}()]
-        symbol k{}() : SortS{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
-        hooked-symbol missing{}(SortV{}) : SortS{} [function{}(), hook{}("TEST.missing")]
-        axiom{} \rewrites{SortS{}}(\and{SortS{}}(a{}(), \top{SortS{}}()), b{}()) [label{}("ab")]
-        axiom{} \rewrites{SortS{}}(\and{SortS{}}(start{}(), \top{SortS{}}()), a{}()) [label{}("left")]
-        axiom{} \rewrites{SortS{}}(\and{SortS{}}(start{}(), \top{SortS{}}()), done{}()) [label{}("right")]
-        axiom{} \rewrites{SortS{}}(\and{SortS{}}(spin{}(), \top{SortS{}}()), spin{}()) [label{}("spin")]
-        axiom{} \rewrites{SortS{}}(\and{SortS{}}(gone{}(), \top{SortS{}}()), \and{SortS{}}(done{}(), \bottom{SortS{}}())) [label{}("gone")]
-        axiom{} \rewrites{SortS{}}(\and{SortS{}}(g{}(open{}(X:SortS{})), \top{SortS{}}()), done{}()) [label{}("g")]
-        axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(f{}(X:SortS{}), \and{SortS{}}(\or{SortS{}}(X:SortS{}, k{}()), \top{SortS{}}()))) [label{}("or-equation"), simplification{}()]
-    endmodule []"#;
-
-/// How a live row reaches k-rust.
-enum Via {
-    /// `ExecutionAdapter::execute` with an empty manifest, which parses each leaf's spelling.
-    Adapter(ExecutionBudget, ExecutionRoute),
-    /// `Backend::execute_observed` with the adapter's explore-all request changed in one field;
-    /// the row parses each leaf's spelling with `HaltClass::parse`, as the adapter would.
-    Facade(fn(&mut ExecuteRequest)),
-}
-
-/// Makes k-rust produce each of the 13 spellings over `HALTS` and checks that each maps to its
-/// class. Six are produced only through the public facade, because the adapter's request fixes
-/// the options that yield them: it never sets `max_depth` (`depth-bound`), `max_breadth`
-/// (`breadth-bound`), `step_timeout_ms` (`timeout`), cut-point rules (`cut-point`) or terminal
-/// rules (`terminal`), and it discards its `stop_at_branch` run unless that run ended in one
-/// `stuck` leaf (`branch`). Each of them is still accepted by `HaltClass::parse`, so the rows
-/// pin the spelling that the adapter would read. `cancelled` is the watchdog's, as in
-/// `nonterminating_execution_is_timeout`.
-#[test]
-fn every_halt_spelling_is_produced_live() {
-    use ExecutionRoute::{ExploreAll, SinglePath};
-    let short = ExecutionBudget {
-        time: Duration::from_millis(200),
-        ..BUDGET
-    };
-    // (class, initial state, how k-rust is reached)
-    #[rustfmt::skip]
-    let rows: [(HaltClass, &str, Via); 13] = [
-        (HaltClass::Stuck, "b{}()", Via::Adapter(BUDGET, SinglePath)),
-        (HaltClass::Trivial, "gone{}()", Via::Adapter(BUDGET, ExploreAll)),
-        (HaltClass::Vacuous, r"\and{SortS{}}(a{}(), \bottom{SortS{}}())", Via::Adapter(BUDGET, ExploreAll)),
-        (HaltClass::Branch, "start{}()", Via::Facade(|request| request.stop_at_branch = true)),
-        (HaltClass::CutPoint, "a{}()", Via::Facade(|request| request.cut_point_rules = vec!["ab".to_owned()])),
-        (HaltClass::TerminalRule, "a{}()", Via::Facade(|request| request.terminal_rules = vec!["ab".to_owned()])),
-        (HaltClass::DepthBound, "spin{}()", Via::Facade(|request| request.max_depth = Some(2))),
-        (HaltClass::BreadthBound, "start{}()", Via::Facade(|request| request.max_breadth = Some(1))),
-        (HaltClass::Indeterminate, "g{}(VarX:SortS{})", Via::Adapter(BUDGET, ExploreAll)),
-        (HaltClass::UnsupportedHook, r#"missing{}(\dv{SortV{}}("v"))"#, Via::Adapter(BUDGET, ExploreAll)),
-        (HaltClass::SimplificationError, "f{}(a{}())", Via::Adapter(BUDGET, ExploreAll)),
-        (HaltClass::Timeout, "a{}()", Via::Facade(|request| request.step_timeout_ms = Some(0))),
-        (HaltClass::Cancelled, "spin{}()", Via::Adapter(short, ExploreAll)),
-    ];
-    let mut covered = Vec::new();
-    for (class, state, via) in rows {
-        let state = parse_pattern(state).expect("state parses");
-        let mut backend = Backend::new(HALTS, "HALTS", BackendOptions::default()).expect("backend");
-        let halts = match via {
-            Via::Adapter(budget, route) => {
-                let manifest = InstalledObservationManifest::install(Vec::new()).expect("empty");
-                let execution = ExecutionAdapter::new(manifest)
-                    .execute(&mut backend, &state, budget)
-                    .unwrap_or_else(|failure| panic!("{class:?}: {failure:?}"));
-                assert_eq!(execution.route(), route, "{class:?}");
-                assert_eq!(
-                    execution.timed_out(),
-                    class == HaltClass::Cancelled,
-                    "{class:?}"
-                );
-                assert!(execution.diagnostics().is_empty(), "{class:?}");
-                execution.leaves().iter().map(|leaf| leaf.halt).collect()
-            }
-            Via::Facade(set) => {
-                let mut request = ExecuteRequest {
-                    state: codec::to_value(&state).expect("state encodes"),
-                    max_depth: None,
-                    max_breadth: None,
-                    max_simplification_iterations: BUDGET.max_simplification_iterations,
-                    strategy: ExecutionStrategy::All,
-                    stop_at_branch: false,
-                    cut_point_rules: Vec::new(),
-                    terminal_rules: Vec::new(),
-                    step_timeout_ms: None,
-                    ..ExecuteRequest::default()
-                };
-                set(&mut request);
-                backend
-                    .execute_observed(ObservedRequest {
-                        request,
-                        rules: Some(Vec::new()),
-                    })
-                    .unwrap_or_else(|error| panic!("{class:?}: {error}"))
-                    .leaves
-                    .iter()
-                    .map(|leaf| {
-                        HaltClass::parse(&leaf.reason)
-                            .unwrap_or_else(|| panic!("{class:?}: {:?}", leaf.reason))
-                    })
-                    .collect::<Vec<_>>()
-            }
-        };
-        assert!(!halts.is_empty(), "{class:?}: no leaf");
-        assert!(
-            halts.iter().all(|halt| *halt == class),
-            "{class:?}: {halts:?}"
-        );
-        covered.push(class);
-    }
-    assert_eq!(covered, HaltClass::ALL, "one live row per class, in order");
 }
 
 #[test]
