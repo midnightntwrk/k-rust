@@ -144,7 +144,7 @@ The port follows the first applicable rule in priority order, then `definition.k
 Among several collection matches of that rule, the port follows the first candidate in deterministic structural order; which candidate the reference follows is engine-internal.
 The RPC `next-states` array is a set of successors and is compared as a multiset (N27).
 
-The port retains every execution leaf when Kore's graph traversal drops `Stop` leaves in the presence of a `Remaining` leaf.
+A depth-bounded execution result covers every path of every input instance up to the bound, so a configuration reached at the bound is a result whatever other branches did; the port keeps such a leaf when another branch halted, where the reference graph traversal drops it.
 Normalization N17 limits the corresponding differential exception to marked depth-bounded cases and requires the reference leaves to remain a sub-multiset of the Rust leaves.
 [Execution fixtures](../crates/k-rust/tests/fixtures/reference/execution) and the symbolic differential cover branch sets and depth cuts.
 

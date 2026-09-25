@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.rewrite.execute"
 //! name = "depth-first exploration of a rewrite tree"
-//! sites = ["execute_using", "Execution::run", "Execution::expand", "select_got_stuck_over_depth_bound", "merge_equal_final_leaves", "enqueue_execution_states"]
+//! sites = ["execute_using", "Execution::run", "Execution::expand", "merge_equal_final_leaves", "enqueue_execution_states"]
 //! variable = "d = maximum depth; b = maximum breadth; L = final leaves"
 //! counters = ["RewriteSteps"]
 //! span = "per problem"
@@ -23,8 +23,8 @@
 //! ```
 //!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and
-//! Kore's got-stuck-over-depth-bound leaf selection and equal-leaf merge (Booster performRewrite;
-//! Kore GraphTraversal.checkLeftUnproven): O(states) steps, states <= branching^depth bounded by
+//! an equal-leaf merge; a depth-bounded leaf is a result whatever the other leaves' halt reasons,
+//! so the result covers every path up to the bound: O(states) steps, states <= branching^depth bounded by
 //! `max_depth` and `max_breadth`, each state one term simplification, one predicate pass, and one
 //! rewrite step; `Counter::RewriteSteps`. Not breadth-first: `enqueue_execution_states`
 //! pushes successors to the front, so children are visited before siblings.
@@ -116,7 +116,7 @@ struct Execution<'a> {
     observation_log: ObservationLog,
     initial_input_count: usize,
     pending: VecDeque<ExecutionState>,
-    leaves: SelectedExecutionLeaves,
+    leaves: Vec<ExecutionLeaf>,
     discarded: Vec<UncommittedObservation>,
     completed_initial_simplifications: usize,
     bottom_initial_simplifications: usize,
@@ -154,7 +154,7 @@ impl<'a> Execution<'a> {
                 }
             })
             .collect::<VecDeque<_>>();
-        let mut leaves = SelectedExecutionLeaves::default();
+        let mut leaves = Vec::new();
         let mut validated = VecDeque::with_capacity(pending.len());
         // Invariant: `validated` holds, in queue order, the popped states without a surviving macro or alias symbol, and `leaves` one leaf per other popped state; nothing is pushed onto `pending`, so each initial state is popped once.
         while let Some(state) = pending.pop_front() {
@@ -188,7 +188,7 @@ impl<'a> Execution<'a> {
 
     /// `max_breadth = Some(0)`: every initial pattern is a `BreadthBound` leaf.
     fn collect_at_breadth_zero(mut self) -> (ExecutionResult, InitialSimplificationStatus) {
-        let mut leaves = self.leaves.into_inner();
+        let mut leaves = self.leaves;
         leaves.extend(
             self.pending
                 .drain(..)
@@ -877,12 +877,13 @@ impl<'a> Execution<'a> {
         }
     }
 
-    /// E8: leaves pass `select_got_stuck_over_depth_bound` then `merge_equal_final_leaves`;
+    /// E8: leaves pass `merge_equal_final_leaves`. A `DepthBound` leaf is kept whatever halt
+    /// reason other leaves carry: a depth-bounded result covers every path up to the bound, so a
+    /// configuration reached at the bound is a result independently of other branches.
     /// `simplified_to_bottom` holds iff every initial input completed E2 and E3 and ended
     /// `Vacuous`.
     fn collect(self) -> (ExecutionResult, InitialSimplificationStatus) {
-        let leaves =
-            merge_equal_final_leaves(select_got_stuck_over_depth_bound(self.leaves.into_inner()));
+        let leaves = merge_equal_final_leaves(self.leaves);
         // The legacy observer is a single-stream interface. It receives a transcript only when
         // final selection retained one leaf; callers consume multi-leaf transcripts from each leaf.
         let effects = match leaves.as_slice() {
@@ -909,61 +910,6 @@ impl<'a> Execution<'a> {
 
 fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
     pattern.constraints.is_empty() && pattern.term.attributes().variables.is_empty()
-}
-
-/// Kore's `GraphTraversal.checkLeftUnproven` reports stuck and vacuous results in
-/// preference to states that merely reached the depth bound. Apply that selection before
-/// deduplication so an equal depth-bounded leaf cannot hide a later stuck leaf.
-fn select_got_stuck_over_depth_bound(mut leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
-    let got_stuck = leaves.iter().any(|leaf| {
-        matches!(
-            leaf.halt_reason,
-            HaltReason::Stuck | HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
-        )
-    });
-    if got_stuck {
-        leaves.retain(|leaf| leaf.halt_reason != HaltReason::DepthBound);
-    }
-    leaves
-}
-
-#[derive(Default)]
-struct SelectedExecutionLeaves {
-    retained: Vec<ExecutionLeaf>,
-    got_stuck: bool,
-}
-
-impl SelectedExecutionLeaves {
-    fn push(&mut self, leaf: ExecutionLeaf) {
-        let got_stuck = matches!(
-            leaf.halt_reason,
-            HaltReason::Stuck | HaltReason::Trivial { .. } | HaltReason::Vacuous { .. }
-        );
-        if got_stuck && !self.got_stuck {
-            self.retained
-                .retain(|retained| retained.halt_reason != HaltReason::DepthBound);
-            self.got_stuck = true;
-        }
-        if self.got_stuck && leaf.halt_reason == HaltReason::DepthBound {
-            return;
-        }
-        self.retained.push(leaf);
-    }
-
-    fn replace_unselected(&mut self, leaves: impl IntoIterator<Item = ExecutionLeaf>) {
-        self.retained.clear();
-        self.retained.extend(leaves);
-        self.got_stuck = false;
-    }
-
-    #[cfg(test)]
-    fn retained(&self) -> &[ExecutionLeaf] {
-        &self.retained
-    }
-
-    fn into_inner(self) -> Vec<ExecutionLeaf> {
-        self.retained
-    }
 }
 
 /// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342), extended with branch-local
@@ -1047,14 +993,15 @@ fn enqueue_execution_states(pending: &mut VecDeque<ExecutionState>, next: Vec<Ex
 
 fn execution_breadth_exceeded(
     pending: &mut VecDeque<ExecutionState>,
-    leaves: &mut SelectedExecutionLeaves,
+    leaves: &mut Vec<ExecutionLeaf>,
     max_breadth: Option<usize>,
     observation_log: &ObservationLog,
 ) -> bool {
     if !max_breadth.is_some_and(|bound| pending.len() > bound) {
         return false;
     }
-    leaves.replace_unselected(
+    leaves.clear();
+    leaves.extend(
         pending
             .drain(..)
             .map(|state| execution_state_at_breadth_bound(state, observation_log)),
@@ -1385,7 +1332,7 @@ mod tests {
     }
 
     #[test]
-    fn got_stuck_selection_releases_and_suppresses_depth_bound_leaves_online() {
+    fn depth_bound_leaves_are_kept_around_a_stuck_leaf() {
         let definition = definition("");
         let leaf = |name, halt_reason| ExecutionLeaf {
             pattern: subject(&definition, name),
@@ -1397,20 +1344,25 @@ mod tests {
             io: ExecutionIoState::default(),
             halt_reason,
         };
-        let mut selected = SelectedExecutionLeaves::default();
 
-        selected.push(leaf("depth-before", HaltReason::DepthBound));
-        assert_eq!(selected.retained().len(), 1);
+        let leaves = merge_equal_final_leaves(vec![
+            leaf("depth-before", HaltReason::DepthBound),
+            leaf("stuck", HaltReason::Stuck),
+            leaf("depth-after", HaltReason::DepthBound),
+        ]);
 
-        selected.push(leaf("stuck", HaltReason::Stuck));
-        assert_eq!(selected.retained().len(), 1);
-        assert_eq!(selected.retained()[0].halt_reason, HaltReason::Stuck);
-
-        selected.push(leaf("depth-after", HaltReason::DepthBound));
-        selected.push(leaf("cancelled", HaltReason::Cancelled));
-        assert_eq!(selected.retained().len(), 2);
-        assert_eq!(selected.retained()[0].halt_reason, HaltReason::Stuck);
-        assert_eq!(selected.retained()[1].halt_reason, HaltReason::Cancelled);
+        let halt_reasons = leaves
+            .iter()
+            .map(|leaf| leaf.halt_reason.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            halt_reasons,
+            [
+                HaltReason::DepthBound,
+                HaltReason::Stuck,
+                HaltReason::DepthBound
+            ]
+        );
     }
 
     #[test]

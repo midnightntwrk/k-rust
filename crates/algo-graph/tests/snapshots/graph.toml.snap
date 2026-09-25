@@ -1633,11 +1633,6 @@ symbol = "Execution::expand"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/execute.rs"
-symbol = "select_got_stuck_over_depth_bound"
-
-[[node.sites]]
-crate = "k-rust-backend"
-file = "crates/k-rust-backend/src/rewrite/execute.rs"
 symbol = "merge_equal_final_leaves"
 
 [[node.sites]]

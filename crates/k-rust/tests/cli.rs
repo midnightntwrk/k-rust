@@ -2938,7 +2938,7 @@ fn krun_surface_pattern_reports_command_line_parse_locations() {
 }
 
 #[test]
-fn reference_symbolic_depth_two_leaves_match_gotstuck_selection() {
+fn symbolic_depth_two_result_covers_the_reference_leaves_and_the_depth_bound_frontier() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/search/symbolic-depth-bound");
     let (root, _) = fixture();
@@ -2991,17 +2991,43 @@ fn reference_symbolic_depth_two_leaves_match_gotstuck_selection() {
     );
     let actual = disjuncts(parse_pattern(&String::from_utf8(execute.stdout).unwrap()).unwrap());
     assert_eq!(reference.len(), 2, "the reference records two stuck leaves");
-    assert_eq!(
-        actual.len(),
-        reference.len(),
-        "the port must drop depth-bounded leaves when the traversal gets stuck"
-    );
-    for expected in reference {
+    for expected in &reference {
         assert!(
-            actual.contains(&expected),
+            actual.contains(expected),
             "missing reference remainder leaf: {expected:#?}"
         );
     }
+    // A depth-bounded result covers every path up to the bound: for X > 1 the path is at
+    // count(X -Int 2) after two steps, a result whatever the halted branches did.
+    let frontier = parse_pattern(
+        r#"\and{SortGeneratedTopCell{}}(
+            Lbl'-LT-'generatedTop'-GT-'{}(
+                Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortPgm{}, SortKItem{}}(
+                    Lblcount'LParUndsRParUnds'SD-SYNTAX'Unds'Pgm'Unds'Int{}(
+                        Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("-2"))
+                    )
+                ), dotk{}())),
+                Lbl'-LT-'generatedCounter'-GT-'{}(\dv{SortInt{}}("0"))
+            ),
+            \equals{SortBool{}, SortGeneratedTopCell{}}(
+                \dv{SortBool{}}("true"),
+                Lbl'Unds-GT-'Int'Unds'{}(
+                    Lbl'UndsPlus'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("-1")),
+                    \dv{SortInt{}}("0")
+                )
+            )
+        )"#,
+    )
+    .unwrap();
+    let extra = actual
+        .iter()
+        .filter(|leaf| !reference.contains(leaf))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        extra,
+        [&frontier],
+        "the port adds exactly the depth-bound leaf count(X -Int 2) with X -Int 1 >Int 0"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

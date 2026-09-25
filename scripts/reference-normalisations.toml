@@ -164,7 +164,7 @@ gate = "symbolic execution"
 anchor = "scripts/reference-symbolic-execution-differential.sh:gotstuck"
 anchor_symbol = "gotstuck"
 rule = "For a depth-bounded exec case marked gotstuck, require the reference leaves to be a sub-multiset of the port leaves."
-justification = "The reference graph traversal drops Stop leaves when another leaf remains; the port keeps them."
+justification = "A depth-bounded result covers every path up to the bound, so the port keeps a leaf reached at the bound when another branch halted; the reference graph traversal drops such leaves."
 
 [[normalisation]]
 id = "N18"
