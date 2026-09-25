@@ -3,6 +3,7 @@ mod support;
 
 use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
 use k_rust::kast::{Sort, Term};
+use k_rust::kompile::CompileOptions;
 use k_rust::outer::LoadedDefinition;
 use kink_patch::{
     Baseline, Edit, InsertPosition, Patch, PatchFailureKind, PatchModelError, SentenceOrigin,
@@ -478,6 +479,21 @@ fn testdata_definitions_load_and_compile_without_z3() {
             support::rule(&baseline, label);
         }
         support::compile(baseline.loaded()).unwrap_or_else(|error| panic!("{fixture}: {error:?}"));
+    }
+}
+
+#[test]
+fn authored_sentences_exclude_builtin_catalog() {
+    for fixture in ["counter.k"] {
+        let baseline = support::load(fixture);
+        let prefixes = CompileOptions::default().builtin_source_prefixes;
+        for (at, sentence) in baseline.authored_sentences() {
+            let source = sentence.attributes().source().expect("authored source");
+            assert!(
+                prefixes.iter().all(|prefix| !source.starts_with(prefix)),
+                "{fixture}: {at:?} has builtin source {source}"
+            );
+        }
     }
 }
 

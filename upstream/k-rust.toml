@@ -171,7 +171,7 @@ krs_id = "z3-free-structured-compile"
 note = """
 K-in-K2 builds k-rust without z3-inference, and that build cannot load the embedded prelude.md (Z3InferenceRequired; k-rust tests/inner_rules.rs portable_build_rejects_the_standard_prelude).
 The test definitions load kast.md plus testdata/k/portable-prelude.k stand-ins, and kink-native cannot bind a pre-load KRS definition.
-Tracked in k-rust's untracked draft/krs-requests/tickets.toml as KR-09, KR-20, KR-21 and KR-22; delete portable-prelude.k once KR-22 lands.
+Tracked in k-rust's untracked draft/krs-requests/tickets.toml as KR-09, KR-20, KR-21 and KR-22; delete portable-prelude.k once KR-22 lands; builtin-catalog prelude sentences are not sites or observable rules.
 """
 
 [[krs_owned]]

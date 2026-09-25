@@ -29,6 +29,7 @@ pub use failure::{PatchFailure, PatchFailureKind};
 
 use k_rust::definition::{Definition, Sentence};
 use k_rust::kast::Term;
+use k_rust::kompile::CompileOptions;
 use k_rust::outer::{
     LoadError, LoadOptions, LoadedDefinition, ResolvedSource, SourceResolver, load_for_compilation,
 };
@@ -93,7 +94,8 @@ impl Baseline {
         )
     }
 
-    /// Sentences that carry a source location, in definition order.
+    /// The user's written sentences: located and outside the builtin catalog,
+    /// in definition order. This is the site universe for patches.
     ///
     /// Configuration expansion stamps an origin record on some written
     /// sentences (unlabelled rules among them), so an origin record does not
@@ -101,12 +103,22 @@ impl Baseline {
     /// and productions) are the ones without a location. The cell productions
     /// it derives keep the configuration's location and are listed.
     pub fn authored_sentences(&self) -> impl Iterator<Item = (SentenceRef, &Sentence)> {
-        self.definition().modules.iter().flat_map(|module| {
+        let builtin_source_prefixes = CompileOptions::default().builtin_source_prefixes;
+        self.definition().modules.iter().flat_map(move |module| {
+            let builtin_source_prefixes = builtin_source_prefixes.clone();
             module
                 .local_sentences
                 .iter()
                 .enumerate()
-                .filter(|(_, sentence)| sentence.attributes().location().is_some())
+                .filter(move |(_, sentence)| {
+                    let attributes = sentence.attributes();
+                    attributes.location().is_some()
+                        && !attributes.source().is_some_and(|source| {
+                            builtin_source_prefixes
+                                .iter()
+                                .any(|prefix| source.starts_with(prefix))
+                        })
+                })
                 .filter_map(|(index, sentence)| {
                     let index = u32::try_from(index).ok()?;
                     Some((SentenceRef::new(module.name.clone(), index), &**sentence))
