@@ -47,6 +47,22 @@ The variable's sort is then inferred like any other variable's: the same sort at
 To make an annotation exact, so that a narrower occurrence is a sort error, write the strict cast `X::S`.
 The pinned K frontend rejects `semcast3` and `semcast4`, whose ambiguous `a(X)` has exactly one well-sorted reading under this bound; Rust accepts them with that reading, and the differential manifest records both as `excluded` with the Rust acceptance as the local gate.
 
+## Resource bounds
+
+Simplification budgets and term nesting depth are k-rust's own resource contracts, specified in [backend-port.md](backend-port.md#simplification-iteration-budgets) and [backend-port.md](backend-port.md#json-depth-policy); this section records how they differ from the reference and why.
+
+The simplification budget bounds the rewrite rounds of one fixed-point lineage: sibling subterms each receive a copy of the current budget, and the terms a rewrite produces inherit that rewrite's reduced budget.
+Booster instead counts passes of its whole-term equation loop against `--equation-max-iterations` (`booster/library/Booster/Pattern/ApplyEquations.hs`, `iterateEquations`).
+The bounded surfaces of both default to 100 (k-rust's `kore-simplify` command and RPC `simplify` method are unbounded), but equal numbers do not denote the same cut, and k-rust's `--max-simplification-iterations` option and RPC `max-simplification-iterations` parameter are not translations of the Booster option.
+The reason is the budget's purpose.
+An equation replaces a term with one equal to it, so the budget never decides what a pattern denotes; it guards only against a chain of rewrites that does not terminate.
+Non-termination is a property of one chain of rewrites of one subterm, so the count belongs to that chain; a whole-term pass count measures a chain's length only through the evaluation schedule, that is, through how far one pass advances each chain, which does not bear on whether the chain terminates.
+Inheriting the reduced budget keeps an expanding equation from resetting its own cap.
+Where the budget is exhausted, the retained configuration is still equal to the one being simplified, but it can be less simplified, and a step that needs the missing value may not be taken; the outcome on each surface, and the `SimplificationBudgetExhausted` diagnostic that marks this incompleteness, are specified in backend-port.md.
+
+Term readers and writers impose no nesting-depth cap: depth is not part of what a term means, so a fixed cap would reject well-formed input.
+Their capacity is set by the host thread's stack and the process memory, as listed in [backend-port.md](backend-port.md#json-depth-policy).
+
 ## Compiler-resolved fresh constants
 
 Within one rule or context, each distinct `!` variable receives a distinct consecutive offset from the generated counter and every occurrence of the same full variable name reuses that offset.
