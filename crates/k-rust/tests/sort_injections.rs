@@ -544,6 +544,103 @@ fn joint_ambiguity_is_resolved_by_another_argument_or_reported() {
     );
 }
 
+// The exact assignment is only a first try: `make(X:MInt{8})` at an `R{16}` position would be
+// `W = 8` exactly, but `R{8}` does not fit the position, while `W = 16` fits both the argument
+// (through `MInt{8} < MInt{16}`) and the position.
+#[test]
+fn position_constraint_overrides_the_exact_argument_instance() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax MInt{16}
+          syntax MInt{16} ::= MInt{8}
+          syntax R{8}
+          syntax R{16}
+          syntax {W} R{W} ::= "make(" MInt{W} ")" [symbol(make)]
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let term = Term::apply(
+        "make",
+        vec![Term::Variable {
+            name: "X".into(),
+            sort: Some(mint("8")),
+        }],
+    );
+
+    let injected = injector
+        .inject(&term, &Sort::with_parameters("R", vec![Sort::new("16")]))
+        .unwrap();
+    let Term::Apply { label, arguments } = injected.unannotated() else {
+        panic!("expected the parametric make application");
+    };
+
+    assert_eq!(label.parameters, vec![Sort::new("16")], "{injected}");
+    assert!(
+        matches!(
+            arguments.as_slice(),
+            [Term::Apply { label, .. }]
+                if label.name == "inj" && label.parameters == vec![mint("8"), mint("16")]
+        ),
+        "{injected}"
+    );
+}
+
+// All parameters are solved together: `Byte` alone fits `Pair{W, T}` at two incomparable
+// instances, but `Box{W}` at `Box{A}` fixes `W = A` and the whole-sort argument fixes `T = Int`.
+#[test]
+fn whole_and_nested_parameters_are_solved_together() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax Int
+          syntax Byte
+          syntax Pair{A, Int}
+          syntax Pair{B, Int}
+          syntax Pair{A, Int} ::= Byte
+          syntax Pair{B, Int} ::= Byte
+          syntax Box{A}
+          syntax Box{B}
+          syntax Result
+          syntax {W, T} Result ::= "f(" Pair{W, T} "," Box{W} "," T ")" [symbol(f)]
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let variable = |name: &str, sort: Sort| Term::Variable {
+        name: name.into(),
+        sort: Some(sort),
+    };
+    let pair_a_int = Sort::with_parameters("Pair", vec![Sort::new("A"), Sort::new("Int")]);
+    let term = Term::apply(
+        "f",
+        vec![
+            variable("X", Sort::new("Byte")),
+            variable("Y", Sort::with_parameters("Box", vec![Sort::new("A")])),
+            variable("Z", Sort::new("Int")),
+        ],
+    );
+
+    let injected = injector.inject(&term, &Sort::new("Result")).unwrap();
+    let Term::Apply { label, arguments } = injected.unannotated() else {
+        panic!("expected the parametric f application");
+    };
+
+    assert_eq!(
+        label.parameters,
+        vec![Sort::new("A"), Sort::new("Int")],
+        "{injected}"
+    );
+    assert!(
+        matches!(
+            arguments.as_slice(),
+            [Term::Apply { label, .. }, Term::Variable { .. }, Term::Variable { .. }]
+                if label.name == "inj" && label.parameters == vec![Sort::new("Byte"), pair_a_int.clone()]
+        ),
+        "{injected}"
+    );
+}
+
 fn nat_as_definition() -> ResolvedDefinition {
     ResolvedDefinition::resolve(&lowered(indoc! {r#"
         module MAIN
