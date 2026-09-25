@@ -84,6 +84,14 @@ pub enum SortInjectionError {
     /// (`found`) nor strictly below it, so the cast is neither an upcast (an injection) nor a
     /// downcast (a projection).
     IncomparableCast(Box<SortMismatch>),
+    /// An argument of sort `argument` at a parametric argument sort `declared` that has several
+    /// incomparable least declared instances above the argument, so no instantiation fits it most
+    /// tightly.
+    AmbiguousInstance {
+        declared: Sort,
+        argument: Sort,
+        instances: Vec<Sort>,
+    },
 }
 
 /// A term and the two sorts a sort check found unrelated.
@@ -196,6 +204,19 @@ impl fmt::Display for SortInjectionError {
                 formatter,
                 "semantic cast of {} to sort {} is not comparable with its sort {}: it is neither an upcast nor a downcast",
                 mismatch.term, mismatch.required, mismatch.found
+            ),
+            Self::AmbiguousInstance {
+                declared,
+                argument,
+                instances,
+            } => write!(
+                formatter,
+                "an argument of sort {argument} fits {declared} at several incomparable least instances: {}",
+                instances
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         }
     }
@@ -406,7 +427,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ///
     /// A cast `t:S` claims that `t` denotes an element of `S`. When `S` is neither at or above the
     /// sort of `t` nor strictly below it, no injection or projection realizes that claim, so the
-    /// cast is rejected as [`SortInjectionError::IncomparableCast`].
+    /// cast is rejected as [`SortInjectionError::IncomparableCast`]. The rule applies to every
+    /// operand with a sort of its own (applications, tokens, K sequences, injected labels, sorted
+    /// variables); a cast on a rewrite or `as` pattern instead fixes the sort its sides are
+    /// injected at, and a sortless variable takes the cast's sort.
     fn sort_and_downcast(
         &self,
         term: &Term,
@@ -414,14 +438,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         allow_trailing_arguments: bool,
     ) -> Result<(Sort, Option<Sort>), SortInjectionError> {
         let cast = term.metadata().and_then(|metadata| metadata.sort.as_ref());
-        if !matches!(term.unannotated(), Term::Apply { .. } | Term::Token { .. }) {
-            if let Some(sort) = cast {
+        match (term.unannotated(), cast) {
+            // A cast on a rewrite or an `as` pattern is the sort its sides are placed at: each
+            // side is injected at `sort`, which checks it against the cast.
+            (Term::Rewrite { .. } | Term::As { .. }, Some(sort)) => {
                 return Ok((sort.clone(), None));
             }
-            return Ok((
-                self.natural_sort(term, expected, allow_trailing_arguments)?,
-                None,
-            ));
+            // A variable without its own sort has the cast's sort; there is no operand sort to
+            // compare it with.
+            (Term::Variable { sort: None, .. }, Some(sort)) => return Ok((sort.clone(), None)),
+            _ => {}
         }
         let natural = self.natural_sort(term, expected, allow_trailing_arguments)?;
         match cast {
@@ -448,49 +474,18 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// ran the stage, so the order used here states it directly and does not depend on the stage.
     /// A `KItem` is a `K` as the one-element sequence the injector builds for it at a `K` position.
     ///
-    /// A sort mentioning a sort variable (`#SortParam`) stands for its instances, and the
-    /// injection is a constraint on how the sentence's sort parameters are instantiated. It is
-    /// accepted when some instantiation satisfies it: always when either side is a bare sort
-    /// variable, and otherwise when a declared instance of each side is related as above.
+    /// A sort that mentions a sort variable (`#SortParam`) stands for every instance of it: a
+    /// sentence's sort parameters are universally quantified, so the relation must hold for every
+    /// instantiation. The order has no parametric subsort declarations (a production with sort
+    /// parameters declares no subsort), so that holds only reflexively (the same sort, variables
+    /// included), or below `KItem` when the sort's head is not a parser sort, or below `K` when
+    /// it is below `KItem`; the test below therefore applies unchanged to such sorts.
     fn below(&self, actual: &Sort, expected: &Sort) -> bool {
-        if self.below_as_written(actual, expected) {
-            return true;
-        }
-        let parametric = [actual, expected].map(mentions_sort_parameter);
-        if parametric == [false, false] {
-            return false;
-        }
-        if [actual, expected]
-            .iter()
-            .any(|sort| sort.name == FrontendSort::SortParam.as_str())
-        {
-            return true;
-        }
-        let instances = |pattern: &Sort| -> Vec<Sort> {
-            if mentions_sort_parameter(pattern) {
-                self.sorts
-                    .sorted_all_sorts()
-                    .filter(|sort| instance_of(pattern, sort))
-                    .cloned()
-                    .collect()
-            } else {
-                vec![pattern.clone()]
-            }
-        };
-        let expected_instances = instances(expected);
-        instances(actual).iter().any(|actual| {
-            expected_instances
-                .iter()
-                .any(|expected| self.below_as_written(actual, expected))
-        })
-    }
-
-    fn below_as_written(&self, actual: &Sort, expected: &Sort) -> bool {
         let kitem = Sort::builtin(BuiltinSort::KItem);
         actual == expected
             || self.subsorts.less_than_eq(actual, expected)
             || (*expected == kitem && !is_parser_sort(actual))
-            || (expected.is_builtin(BuiltinSort::K) && self.below_as_written(actual, &kitem))
+            || (expected.is_builtin(BuiltinSort::K) && self.below(actual, &kitem))
     }
 
     /// Reject a term of sort `actual` at a position of sort `expected` unless `actual` is below it.
@@ -1034,7 +1029,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     &actual,
                     Instances::AtOrAbove,
                     &mut matches,
-                );
+                )?;
             }
             // Invariant: each `parameter` scans `argument_sorts` once, O(|parameters| * |argument_sorts|), and the scan stops at the first parameter that occurs in `sort` but in no argument sort.
             let result_only_parameter = parameters.iter().any(|parameter| {
@@ -1050,7 +1045,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     &expected,
                     Instances::AtOrBelow,
                     &mut matches,
-                );
+                )?;
             }
             parameters
                 .iter()
@@ -1109,11 +1104,14 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// instantiated to a declared sort related to `known` in the direction `instances` names.
     ///
     /// An argument of sort `A` fits a declared argument sort `D` under a substitution only when
-    /// `A <= D`, so for an argument the candidate instances are `A` itself and the declared sorts
-    /// above it; for a parameter that occurs only in the result, the result must fit its position
-    /// of sort `E`, so the candidates are `E` and the declared sorts below it. The bindings found
-    /// here only choose the instantiation: every argument is then injected at its instantiated
-    /// declared sort, which rejects an instantiation it does not fit.
+    /// `A <= D`, and the instantiation that fits it most tightly is the least instance of `D` at
+    /// or above `A`: `A` itself when it is an instance of `D`, otherwise the unique minimal
+    /// declared instance above `A`. Several incomparable minimal instances are an ambiguity,
+    /// reported as [`SortInjectionError::AmbiguousInstance`]. For a parameter that occurs only in
+    /// the result, the result must fit its position of sort `E`, so the candidates are `E` and the
+    /// declared sorts below it. The bindings found here only choose the instantiation: every
+    /// argument is then injected at its instantiated declared sort, which rejects an
+    /// instantiation it does not fit.
     // Invariant: each `match_sort` to `match_sort_parameters` to `match_sort` round descends one level into `declared.parameters`, so the depth of `declared` bounds the recursion; `matches` accumulates, per formal parameter, every sort bound so far.
     fn match_sort(
         &self,
@@ -1122,30 +1120,66 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         known: &Sort,
         instances: Instances,
         matches: &mut BTreeMap<Sort, Vec<Sort>>,
-    ) {
+    ) -> Result<(), SortInjectionError> {
         if formal_parameters.contains(declared) {
             matches
                 .entry(declared.clone())
                 .or_default()
                 .push(known.clone());
-            return;
+            return Ok(());
         }
-
-        self.match_sort_parameters(formal_parameters, declared, known, instances, matches);
-        // Invariant: `matches` includes the bindings from `known` and from every declared sort strictly on the `instances` side of `known` before `candidate` in `sorts.sorted_all_sorts()`; each candidate is visited once.
-        for candidate in self.sorts.sorted_all_sorts() {
-            let related = match instances {
-                Instances::AtOrAbove => self.subsorts.less_than_eq(known, candidate),
-                Instances::AtOrBelow => self.subsorts.less_than_eq(candidate, known),
-            };
-            if candidate != known && related {
-                self.match_sort_parameters(
-                    formal_parameters,
-                    declared,
-                    candidate,
-                    instances,
-                    matches,
-                );
+        match instances {
+            Instances::AtOrAbove => {
+                if same_head(declared, known) {
+                    return self.match_sort_parameters(
+                        formal_parameters,
+                        declared,
+                        known,
+                        instances,
+                        matches,
+                    );
+                }
+                let above = self
+                    .sorts
+                    .sorted_all_sorts()
+                    .filter(|candidate| {
+                        same_head(declared, candidate)
+                            && self.subsorts.less_than_eq(known, candidate)
+                    })
+                    .collect::<Vec<_>>();
+                let least = self.subsorts.minimal(above);
+                let mut least = least.into_iter();
+                match (least.next(), least.next()) {
+                    (None, _) => Ok(()),
+                    (Some(instance), None) => self.match_sort_parameters(
+                        formal_parameters,
+                        declared,
+                        &instance,
+                        instances,
+                        matches,
+                    ),
+                    (Some(first), Some(second)) => Err(SortInjectionError::AmbiguousInstance {
+                        declared: declared.clone(),
+                        argument: known.clone(),
+                        instances: [first, second].into_iter().chain(least).collect(),
+                    }),
+                }
+            }
+            Instances::AtOrBelow => {
+                self.match_sort_parameters(formal_parameters, declared, known, instances, matches)?;
+                // Invariant: `matches` includes the bindings from `known` and from every declared sort strictly below `known` before `candidate` in `sorts.sorted_all_sorts()`; each candidate is visited once.
+                for candidate in self.sorts.sorted_all_sorts() {
+                    if candidate != known && self.subsorts.less_than_eq(candidate, known) {
+                        self.match_sort_parameters(
+                            formal_parameters,
+                            declared,
+                            candidate,
+                            instances,
+                            matches,
+                        )?;
+                    }
+                }
+                Ok(())
             }
         }
     }
@@ -1157,12 +1191,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         known: &Sort,
         instances: Instances,
         matches: &mut BTreeMap<Sort, Vec<Sort>>,
-    ) {
-        if declared.name == known.name && declared.parameters.len() == known.parameters.len() {
+    ) -> Result<(), SortInjectionError> {
+        if same_head(declared, known) {
             for (declared, known) in declared.parameters.iter().zip(&known.parameters) {
-                self.match_sort(formal_parameters, declared, known, instances, matches);
+                self.match_sort(formal_parameters, declared, known, instances, matches)?;
             }
         }
+        Ok(())
     }
 
     fn production(&self, term: &Term, label: &Label) -> Result<&Sentence, SortInjectionError> {
@@ -1390,22 +1425,9 @@ pub fn add_sort_injections_from_resolved(
     SortInjector::new(definition, module)?.inject_at_top(term)
 }
 
-/// Whether `sort` is or contains a sort variable of a parametric sentence or production.
-fn mentions_sort_parameter(sort: &Sort) -> bool {
-    sort.name == FrontendSort::SortParam.as_str()
-        || sort.parameters.iter().any(mentions_sort_parameter)
-}
-
-/// Whether `sort` is an instance of `pattern`, whose sort variables match any sort.
-fn instance_of(pattern: &Sort, sort: &Sort) -> bool {
-    pattern.name == FrontendSort::SortParam.as_str()
-        || (pattern.name == sort.name
-            && pattern.parameters.len() == sort.parameters.len()
-            && pattern
-                .parameters
-                .iter()
-                .zip(&sort.parameters)
-                .all(|(pattern, sort)| instance_of(pattern, sort)))
+/// Whether two sorts have the same head name and parameter count.
+fn same_head(left: &Sort, right: &Sort) -> bool {
+    left.name == right.name && left.parameters.len() == right.parameters.len()
 }
 
 /// A bounded rendering of a term for a sort diagnostic.

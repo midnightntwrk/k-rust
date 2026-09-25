@@ -322,6 +322,268 @@ fn parametric_argument_below_a_declared_instance_instantiates_it() {
     );
 }
 
+fn use_injector(source: &str) -> (Definition, ResolvedDefinition) {
+    let definition = lowered(source);
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    (definition, resolved)
+}
+
+fn use_of(sort: Sort) -> Term {
+    Term::apply(
+        "use",
+        vec![Term::Variable {
+            name: "X".into(),
+            sort: Some(sort),
+        }],
+    )
+}
+
+fn mint(width: &str) -> Sort {
+    Sort::with_parameters("MInt", vec![Sort::new(width)])
+}
+
+// An argument that is itself an instance of `MInt{W}` fixes `W` exactly, even when a larger
+// declared instance lies above it: `MInt{8}` needs no injection and gives `use{8}`.
+#[test]
+fn parametric_argument_that_is_an_instance_binds_it_exactly() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax MInt{16}
+          syntax MInt{16} ::= MInt{8}
+          syntax Result
+          syntax {W} Result ::= "use(" MInt{W} ")" [symbol(use)]
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    let injected = injector
+        .inject(&use_of(mint("8")), &Sort::new("Result"))
+        .unwrap();
+    let Term::Apply { label, arguments } = injected.unannotated() else {
+        panic!("expected the parametric use application");
+    };
+
+    assert_eq!(label.parameters, vec![Sort::new("8")], "{injected}");
+    assert!(
+        matches!(arguments.as_slice(), [Term::Variable { .. }]),
+        "{injected}"
+    );
+}
+
+// The least instance above the argument is chosen, not an upper bound of every instance above it:
+// with `Byte < MInt{8} < MInt{16}`, `use(X:Byte)` is `use{8}` with `inj{Byte, MInt{8}}`.
+#[test]
+fn parametric_argument_instantiates_the_least_instance_above_it() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax MInt{16}
+          syntax Byte
+          syntax MInt{8} ::= Byte
+          syntax MInt{16} ::= MInt{8}
+          syntax Result
+          syntax {W} Result ::= "use(" MInt{W} ")" [symbol(use)]
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    let injected = injector
+        .inject(&use_of(Sort::new("Byte")), &Sort::new("Result"))
+        .unwrap();
+    let Term::Apply { label, arguments } = injected.unannotated() else {
+        panic!("expected the parametric use application");
+    };
+
+    assert_eq!(label.parameters, vec![Sort::new("8")], "{injected}");
+    assert!(
+        matches!(
+            arguments.as_slice(),
+            [Term::Apply { label, .. }]
+                if label.name == "inj" && label.parameters == vec![Sort::new("Byte"), mint("8")]
+        ),
+        "{injected}"
+    );
+}
+
+// `Byte` lies below both `MInt{8}` and `MInt{16}`, which are incomparable: no instance fits it most
+// tightly, so the instantiation is ambiguous rather than an upper bound of `8` and `16`.
+#[test]
+fn parametric_argument_with_incomparable_least_instances_is_ambiguous() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax MInt{16}
+          syntax Byte
+          syntax MInt{8} ::= Byte
+          syntax MInt{16} ::= Byte
+          syntax Result
+          syntax {W} Result ::= "use(" MInt{W} ")" [symbol(use)]
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    let error = injector
+        .inject(&use_of(Sort::new("Byte")), &Sort::new("Result"))
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            &error,
+            SortInjectionError::AmbiguousInstance { argument, instances, .. }
+                if *argument == Sort::new("Byte") && *instances == vec![mint("16"), mint("8")]
+        ),
+        "{error}"
+    );
+}
+
+fn sort_variable(name: &str) -> Sort {
+    Sort::with_parameters("#SortParam", vec![Sort::new(name)])
+}
+
+fn sorted_variable(sort: Sort) -> Term {
+    Term::Variable {
+        name: "X".into(),
+        sort: Some(sort),
+    }
+}
+
+// A sort parameter is universally quantified, so `MInt{Q} <= MInt{8}` would have to hold for every
+// `Q`; that `Q = 8` is one witness does not justify `inj{MInt{Q}, MInt{8}}`. `MInt{Q}` stands
+// below `KItem` for every `Q` (its head is not a parser sort) and below itself.
+#[test]
+fn sort_with_a_sort_variable_is_below_only_what_every_instance_is_below() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let parametric = Sort::with_parameters("MInt", vec![sort_variable("Q")]);
+
+    let error = injector
+        .inject(&sorted_variable(parametric.clone()), &mint("8"))
+        .unwrap_err();
+    assert!(
+        matches!(&error, SortInjectionError::IllSortedTerm(mismatch)
+            if mismatch.found == parametric && mismatch.required == mint("8")),
+        "{error}"
+    );
+    let bare = injector
+        .inject(&sorted_variable(sort_variable("Q")), &mint("8"))
+        .unwrap_err();
+    assert!(
+        matches!(bare, SortInjectionError::IllSortedTerm(_)),
+        "{bare}"
+    );
+
+    injector
+        .inject(&sorted_variable(parametric.clone()), &parametric)
+        .unwrap();
+    let to_kitem = injector
+        .inject(&sorted_variable(parametric.clone()), &Sort::new("KItem"))
+        .unwrap();
+    assert!(
+        matches!(to_kitem.unannotated(), Term::Apply { label, .. }
+            if label.name == "inj" && label.parameters == vec![parametric.clone(), Sort::new("KItem")]),
+        "{to_kitem}"
+    );
+}
+
+// One sort variable occurring twice stands for one sort: `Pair{Q, Q}` has no instance
+// `Pair{A, B}` with `A` and `B` distinct, and `Pair{Q, Q}` and `Pair{Q, R}` are different sorts.
+#[test]
+fn repeated_sort_variable_is_one_sort() {
+    let (_, resolved) = use_injector(indoc! {r#"
+        module MAIN
+          syntax A
+          syntax B
+          syntax Pair{A, B}
+        endmodule
+    "#});
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let pair = |left: Sort, right: Sort| Sort::with_parameters("Pair", vec![left, right]);
+    let diagonal = pair(sort_variable("Q"), sort_variable("Q"));
+
+    for expected in [
+        pair(Sort::new("A"), Sort::new("B")),
+        pair(sort_variable("Q"), sort_variable("R")),
+    ] {
+        let error = injector
+            .inject(&sorted_variable(diagonal.clone()), &expected)
+            .unwrap_err();
+        assert!(
+            matches!(error, SortInjectionError::IllSortedTerm(_)),
+            "{expected}: {error}"
+        );
+    }
+    injector
+        .inject(&sorted_variable(diagonal.clone()), &diagonal)
+        .unwrap();
+}
+
+fn cast_to(sort: &str, term: Term) -> Term {
+    term.with_metadata(TermMetadata {
+        sort: Some(Sort::new(sort)),
+        ..TermMetadata::default()
+    })
+}
+
+fn sequence_definition() -> (Definition, ResolvedDefinition) {
+    let definition = generate_sort_projections(&lowered(indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KItem ::= Int
+          syntax K ::= KItem
+        endmodule
+    "#}))
+    .expect("sort projections should generate");
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    (definition, resolved)
+}
+
+// A cast on a K sequence compares the target with the sequence's own sort `K` like any other
+// operand: `Int < K` is a downcast, realized by `project:Int`.
+#[test]
+fn cast_of_a_k_sequence_below_k_is_a_projected_downcast() {
+    let (_, resolved) = sequence_definition();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let sequence = cast_to(
+        "Int",
+        Term::Sequence(vec![Term::Token {
+            token: "1".into(),
+            sort: Sort::new("Int"),
+        }]),
+    );
+
+    let injected = injector.inject(&sequence, &Sort::new("Int")).unwrap();
+
+    assert!(
+        matches!(injected.unannotated(), Term::Apply { label, arguments }
+            if label.name == "project:Int" && matches!(arguments.as_slice(), [argument]
+                if matches!(argument.unannotated(), Term::Sequence(_)))),
+        "{injected}"
+    );
+}
+
+// `KConfigVar` is neither above nor below `K` here, so a K sequence cast to it is rejected.
+#[test]
+fn cast_of_a_k_sequence_to_an_incomparable_sort_is_rejected() {
+    let (_, resolved) = sequence_definition();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let sequence = cast_to("KConfigVar", Term::Sequence(Vec::new()));
+
+    let error = injector
+        .inject(&sequence, &Sort::new("KConfigVar"))
+        .unwrap_err();
+
+    assert!(
+        matches!(&error, SortInjectionError::IncomparableCast(mismatch)
+            if mismatch.found == Sort::new("K") && mismatch.required == Sort::new("KConfigVar")),
+        "{error}"
+    );
+}
+
 fn wem10_bound_definition(source: &str) -> ResolvedDefinition {
     ResolvedDefinition::resolve(&lowered(source)).unwrap()
 }
