@@ -356,3 +356,19 @@ anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_local_funct
 anchor_symbol = "canonicalize_local_function"
 rule = "In parsed JSON, rewrite every `#fun3` application with exactly three arguments `(L, R, A)` into `#fun2(L => R, A)` (a KRewrite body); label sort parameters are already erased by N9. A `#fun2` over a non-rewrite body, `#let`, and every other label are unchanged, so a difference in L, R or A remains visible."
 justification = "parsed.json is the parse tree before any kompile pass. kompile lowers both labels through one path (resolve_fun.rs, resolve_application): `#fun3(L, R, A)` becomes the body `L => R` applied to `A` and `#fun2(B, A)` the body `B` applied to `A`, and the lambda depends only on that pair, never on the label's sort parameters. When both productions type a `#fun(L => R)(A)` bubble, `prefer` on `#fun2` selects it; the choice has no semantic content, and the semantic, syntax and macro KORE comparisons stay exact."
+
+[[normalisation]]
+id = "N32"
+gate = "compile semantic KORE"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_unsupported_sort_predicates"
+anchor_symbol = "normalize_unsupported_sort_predicates"
+anchor_helpers = [
+  "kore_sort",
+  "sort_predicate_equation",
+  "single_predicate_match",
+  "injected_predicate_argument",
+  "unsupported_sort_predicate_axiom",
+  "owise_unsupported_disjunct",
+]
+rule = "On the reference side only, drop a generated sort-predicate true equation whose sole match places X:S at K through inj{S,KItem} in a one-element K sequence (or inj{S,K}), only when the KORE definition has no subsort{S,KItem} axiom. In its matching owise false equation, replace the negation of exactly that existential match disjoined with bottom by the negation of bottom; retain every other condition and sentence. A declared subsort{S,KItem} leaves both equations untouched."
+justification = "A predicate takes a K argument, so isS(X:S) => true is well-sorted only if S is placeable there. Without an axiom embedding S in KItem, the injected match cannot denote a K term; its true equation is ill-sorted and its negated owise disjunct has no witness. See docs/compatibility.md#sorts-of-compiled-terms."
