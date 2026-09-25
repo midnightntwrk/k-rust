@@ -216,11 +216,14 @@ export interface ExecutionLeaf {
   detail?: string
   trace: BackendTraceEntry[]
   branch?: TransitionId[]
+  /** Ordered effects committed on this branch, independent of observation. */
+  effects?: BackendEffect[]
   observations?: ObservationEvent[]
 }
 
 export interface ExecutionResult {
   leaves: ExecutionLeaf[]
+  /** Compatibility copy of effects when execution retains exactly one leaf. */
   effects: BackendEffect[]
   discarded?: UncommittedObservation[]
 }
@@ -260,6 +263,7 @@ export interface TransitionObservation {
   introducedPredicates: Kore[]
   before: Kore
   after: Kore
+  /** Attributes committed branch effects to this observed transition. */
   effects: BackendEffect[]
 }
 
@@ -267,6 +271,7 @@ export interface UncommittedObservation {
   kind: 'uncommitted'
   id: TransitionId
   ruleLabel?: string
+  /** Effects attempted by a rolled-back transition; no leaf commits them. */
   effects: BackendEffect[]
   reason: 'rolled-back'
 }

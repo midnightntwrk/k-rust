@@ -144,6 +144,8 @@ pub enum ExecutionStrategy {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionResult {
     pub leaves: Vec<ExecutionLeaf>,
+    /// Compatibility copy of the committed effects when execution retains exactly one leaf.
+    /// Multi-leaf executions carry their transcripts on the individual leaves.
     pub effects: Vec<EffectOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub discarded: Vec<ObservationEventOutput>,
@@ -164,6 +166,9 @@ pub struct ExecutionLeaf {
     pub trace: Vec<TraceEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub branch: Vec<TransitionIdOutput>,
+    /// Ordered effects committed on this branch, regardless of observation.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<EffectOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<ObservationEventOutput>,
 }
@@ -1216,6 +1221,27 @@ mod tests {
                 [function{}(), total{}(), hook{}("IO.logString")]
         endmodule []"#;
 
+    const EFFECTFUL_BRANCH_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortString{} [hasDomainValues{}()]
+            sort SortK{} []
+            sort SortState{} []
+            symbol initial{}() : SortState{} [constructor{}()]
+            symbol left{}(SortK{}) : SortState{} [constructor{}()]
+            symbol right{}(SortK{}) : SortState{} [constructor{}()]
+            symbol dotk{}() : SortK{} [constructor{}()]
+            hooked-symbol log{}(SortString{}) : SortK{}
+                [function{}(), hook{}("IO.logString")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                left{}(log{}(\dv{SortString{}}("left")))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                right{}(log{}(\dv{SortString{}}("right")))
+            ) [label{}("right")]
+        endmodule []"#;
+
     const UNSUPPORTED_HOOK_DEFINITION: &str = r#"[]
         module MAIN
             sort SortState{} [hasDomainValues{}()]
@@ -1826,6 +1852,8 @@ mod tests {
                 message: "one line".into()
             }]
         );
+        assert_eq!(ordinary.leaves.len(), 1);
+        assert_eq!(ordinary.leaves[0].effects, ordinary.effects);
         assert!(ordinary.leaves[0].observations.is_empty());
 
         let observed = backend
@@ -1841,6 +1869,65 @@ mod tests {
         };
         assert_eq!(id.rule, "builtin:IO.logString");
         assert_eq!(effects, &ordinary.effects);
+        assert_eq!(observed.leaves[0].effects, ordinary.leaves[0].effects);
+    }
+
+    #[test]
+    fn execute_exposes_each_branches_effects_without_observation() {
+        let request = ExecuteRequest {
+            state: json("initial{}()"),
+            ..ExecuteRequest::default()
+        };
+        let mut backend = Backend::new(
+            EFFECTFUL_BRANCH_DEFINITION,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let ordinary = backend.execute(request.clone()).unwrap();
+        assert_eq!(ordinary.leaves.len(), 2);
+        assert!(ordinary.effects.is_empty());
+        assert!(
+            ordinary
+                .leaves
+                .iter()
+                .all(|leaf| leaf.observations.is_empty())
+        );
+        let branch_effects = |result: &ExecutionResult| {
+            let mut effects = result
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.trace[0].label.clone().unwrap(), leaf.effects.clone()))
+                .collect::<Vec<_>>();
+            effects.sort_by(|left, right| left.0.cmp(&right.0));
+            effects
+        };
+        assert_eq!(
+            branch_effects(&ordinary),
+            [
+                (
+                    "left".into(),
+                    vec![EffectOutput::UserLog {
+                        message: "left".into()
+                    }]
+                ),
+                (
+                    "right".into(),
+                    vec![EffectOutput::UserLog {
+                        message: "right".into()
+                    }]
+                ),
+            ]
+        );
+
+        let observed = backend
+            .execute_observed(ObservedRequest {
+                request,
+                rules: None,
+            })
+            .unwrap();
+        assert_eq!(branch_effects(&observed), branch_effects(&ordinary));
+        assert!(observed.effects.is_empty());
     }
 
     #[test]
