@@ -189,7 +189,7 @@ Default KORE output remains unchanged.
 The conformance driver translates each upstream `ktest` recipe into krust operations and compares their outcomes.
 A plain `krun --output none` recipe with a non-empty expected console output runs under `--io off` and compares the stdout stream buffer of its single unconstrained execution leaf with that output under C9; it does not require host console effects from the backend.
 An explicit `--io on` recipe compares the committed console stdout bytes directly with its expected output.
-When C9 proves that buffered stdin cannot reproduce an implicit recipe's tokenization, the driver retains the attributed C9 result and re-runs that recipe under pre-buffered `--io on --output none`; only the live bytes decide that step.
+When C9 detects that buffered stdin cannot reproduce an implicit recipe's tokenization ([Comparison contract](#comparison-contract) states the one detected symptom), the driver retains the attributed C9 result and re-runs that recipe under pre-buffered `--io on --output none`; only the live bytes decide that step.
 A recipe that defines no translatable step supplies no oracle: a `ktest-kdep.mak` or sub-make-only Makefile, a Makefile whose `ktest.mak` include is disabled upstream, a recipe that discards the output it would compare, or an expected kompile failure that leaves no definition for a later step.
 The `undriven-recipe` category records such cases with the concrete recipe feature; the skip is not evidence of a Rust pass and must be reconsidered when the driver learns to translate the feature.
 
@@ -227,6 +227,8 @@ Any residual leaf, multiple terminal leaves, and malformed stream configurations
 The tutorial stream rules append the same strings in both IO modes and make the `on` mode's `IO.write` hook only a transport for those bytes; K itself selects `off` for search and debug executions.
 For input programs, C9 applies only where krust's buffered stdin is the piped input and K's stream rules tokenize those bytes as they tokenize the recipe's interactive stream; [Backend scope](#backend-scope) states where the two tokenizations differ.
 When krust attributes an undefined result to a `STDIN-STREAM` rule and the input begins with a parse delimiter or contains adjacent parse delimiters, the driver records that C9 precondition failure and drives the implicit recipe under committed pre-buffered `--io on`.
+This detection is a sufficient test for one symptom, not a decision procedure: the precondition depends on the sort each `#parseInput` requests and on the input suffix it reads, which the input bytes alone do not determine.
+Any other failure of the precondition, for example `stdinParseString` taking the whole remaining buffer under `--io off` where the interactive stream supplies one token, is not detected; it runs to completion and is reported as a C9 stdout-buffer mismatch, to be diagnosed against [Backend scope](#backend-scope), never excluded.
 This comparison remains independent of the captured output mode: C9 extracts the KORE result through its own structural helper and does not invoke `krun --output captured`.
 C9 also remains independent of live delivery: the normal tutorial measurements continue to use its definition-computed buffer, while only a proved C9 input-precondition failure selects the separate committed transcript path.
 
