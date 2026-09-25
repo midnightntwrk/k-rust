@@ -86,6 +86,7 @@ fi
 semantics=$(jq -r '.source' <<<"$rpc")
 program=$(jq -r '.program' <<<"$rpc")
 stuck_program=$(jq -r '.["stuck-program"] // empty' <<<"$rpc")
+configuration_state=$(jq -r '.["configuration-state"] // empty' <<<"$rpc")
 main_module=$(jq -r '.["main-module"]' <<<"$rpc")
 syntax_module=$(jq -r '.["syntax-module"]' <<<"$rpc")
 program_sort=$(jq -r '.sort // empty' <<<"$rpc")
@@ -99,6 +100,13 @@ if [[ ! -f "$semantics" || ! -f "$program" ]]; then
 fi
 if [[ "$name" != imp && ! -f "$stuck_program" ]]; then
   echo "error: missing stuck-program RPC fixture for $name" >&2
+  exit 2
+fi
+# execute-trivial-configuration sends a committed, already-evaluated configuration, so the
+# request reaches the rewriter rather than the initializer functions krun leaves at depth 0.
+if jq -e '.responses | index("execute-trivial-configuration")' <<<"$rpc" >/dev/null &&
+  [[ ! -f "$configuration_state" ]]; then
+  echo "error: execute-trivial-configuration needs a configuration-state fixture for $name" >&2
   exit 2
 fi
 if [[ "$name" == imp ]]; then
@@ -238,6 +246,10 @@ collect_responses() {
     -O max-depth=1 -o "$work/$prefix-execute-trivial.json"
   "$rpc_client" --port "$port" execute "$work/done.json" \
     -O max-depth=10 -o "$work/$prefix-execute-stuck.json"
+  if [[ -n "$configuration_state" ]]; then
+    "$rpc_client" --port "$port" execute "$configuration_state" \
+      -O max-depth=1 -o "$work/$prefix-execute-trivial-configuration.json"
+  fi
   "$rpc_client" --port "$port" simplify "$work/bool.json" \
     -o "$work/$prefix-simplify.json"
   "$rpc_client" --port "$port" send "$work/implies-valid-request.json" \
