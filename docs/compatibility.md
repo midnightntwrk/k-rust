@@ -32,6 +32,20 @@ Their input cursor and ordered descriptor transcript are branch-local, and rolle
 Input is pre-buffered before execution; live output is delivered exactly once from the selected `--strategy any` trace.
 Other descriptors and IO hooks remain unsupported, pure simplification receives no console state, search rejects `--io on`, and RPC does not perform host IO.
 
+Standard input is read to end of file before the first step because it is part of the initial state, not a host resource that execution consumes.
+Execution evaluates rewrite candidates tentatively and may fork, so a read by a rolled-back candidate or by a sibling branch must not change the bytes another branch reads.
+The evaluator therefore holds no process handles: every branch reads one immutable byte sequence through its own cursor, and its reads are a function of that sequence and the cursor.
+The result of a run is then a function of its command-line inputs and the bytes of standard input, and not of when those bytes arrive.
+Nothing is lost by waiting for end of file: console output reaches the process only after execution, from the selected leaf's transcript, so no run can prompt for input and read a reply.
+A run that must terminate on a terminal needs its input ended (Ctrl-D) or redirected, as the CLI notes when standard input is a terminal.
+
+Pre-buffered input is tokenized differently under the two IO modes, because the stream rules generated for a `stream="stdin"` cell (`STDIN-STREAM` in `domains.md`) depend on the mode.
+Under `--io on` the `stdinGetc` rule applies only while the stream's `#buffer` holds no delimiter, and moves the pre-buffered bytes into it one `#getc` at a time, so each `#parseInput` sees one token as an interactive stream supplies it: a `String` token together with the delimiter that ends it, and a lone delimiter before an `Int` token, which `stdinTrim` drops.
+Under `--io off`, and therefore in search, `stdinGetc` cannot apply and, unless the program itself is read from standard input, the whole input with its trailing newlines replaced by exactly one is the initial `#buffer($STDIN)`.
+`stdinParseString` then takes the whole remaining buffer as one `String`, and `stdinParseInt` takes the prefix before the buffer's first delimiter.
+When that buffer holds more than one character and begins with a delimiter, because the input does or because two delimiters are adjacent after a token, the prefix is empty, `String2Int("")` is undefined, and the rule produces an undefined result where the interactive stream would have trimmed the delimiter and read the next token.
+The two modes therefore agree on a stream program's input only where these forms coincide; this is the input precondition of C9 in the [comparison contract](#comparison-contract).
+
 ## Frontend policy
 
 The Rust backend uses K's Haskell policies for existential right-hand-side variables, variables bound through `requires`, and excluded module attributes.
@@ -210,7 +224,7 @@ C9 compares the bytes a tutorial definition accumulates in its stdout stream buf
 The comparison requires exactly one execution leaf in total, that leaf to be unconstrained, and exactly one structurally identified `#ostream(1)`, `"off"`, `#buffer(S)` stream.
 Any residual leaf, multiple terminal leaves, and malformed stream configurations are mismatches and remain reported.
 The tutorial stream rules append the same strings in both IO modes and make the `on` mode's `IO.write` hook only a transport for those bytes; K itself selects `off` for search and debug executions.
-For input programs, C9 applies only where krust's buffered stdin is the piped input and K's stream rules tokenize those bytes as they tokenize the recipe's interactive stream.
+For input programs, C9 applies only where krust's buffered stdin is the piped input and K's stream rules tokenize those bytes as they tokenize the recipe's interactive stream; [Backend scope](#backend-scope) states where the two tokenizations differ.
 When krust attributes an undefined result to a `STDIN-STREAM` rule and the input begins with a parse delimiter or contains adjacent parse delimiters, the driver records that C9 precondition failure and drives the implicit recipe under committed pre-buffered `--io on`.
 This comparison remains independent of the captured output mode: C9 extracts the KORE result through its own structural helper and does not invoke `krun --output captured`.
 C9 also remains independent of live delivery: the normal tutorial measurements continue to use its definition-computed buffer, while only a proved C9 input-precondition failure selects the separate committed transcript path.
