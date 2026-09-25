@@ -5704,7 +5704,7 @@ fn stops_exactly_at_the_requested_depth_bound() {
 }
 
 #[test]
-fn stuck_branch_takes_precedence_over_a_depth_bounded_branch() {
+fn stuck_branch_and_depth_bounded_branch_are_both_results() {
     let definition = definition(
         r#"
             axiom{} \rewrites{SortS{}}(
@@ -5731,12 +5731,23 @@ fn stuck_branch_takes_precedence_over_a_depth_bounded_branch() {
         },
     );
 
-    let [leaf] = result.leaves.as_slice() else {
-        panic!("expected only the stuck leaf, found {:?}", result.leaves);
-    };
-    assert_eq!(leaf.pattern, subject(&definition, "done"));
-    assert_eq!(leaf.depth, 1);
-    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    // `start -> loop -> loop` reaches the bound while `start -> done` halts; a depth-bounded
+    // result covers both paths, so each contributes its own leaf.
+    assert_eq!(result.leaves.len(), 2, "{:?}", result.leaves);
+    let done = result
+        .leaves
+        .iter()
+        .find(|leaf| leaf.pattern == subject(&definition, "done"))
+        .expect("the halted branch is a result");
+    assert_eq!(done.depth, 1);
+    assert_eq!(done.halt_reason, HaltReason::Stuck);
+    let looping = result
+        .leaves
+        .iter()
+        .find(|leaf| leaf.pattern == subject(&definition, "loop"))
+        .expect("the branch stopped at the bound is a result");
+    assert_eq!(looping.depth, 2);
+    assert_eq!(looping.halt_reason, HaltReason::DepthBound);
 }
 
 fn stop_rule_definition() -> BackendDefinition {
@@ -5916,9 +5927,11 @@ fn equal_configurations_with_different_halt_reasons_merge_to_the_first() {
             result.leaves
         );
     };
+    // Depth-first order reaches `a -> b -> d` (at the bound) before `a -> d` (stuck); the equal
+    // configurations merge into that first leaf.
     assert_eq!(leaf.pattern, subject(&definition, "d"));
-    assert_eq!(leaf.depth, 1);
-    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(leaf.depth, 2);
+    assert_eq!(leaf.halt_reason, HaltReason::DepthBound);
 }
 
 #[test]
