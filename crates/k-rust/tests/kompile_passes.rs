@@ -3297,6 +3297,52 @@ fn parametric_macro_expands_in_a_parsed_program_by_its_argument_sort() {
     assert_eq!(expanded, exp, "an Exp argument does not match X:Int");
 }
 
+/// One parametric production with two macro rules that only their result sorts separate: each
+/// rule is an axiom about one instance of `m`, so a program application expands by the rule of
+/// its own instance, whichever comes first, and an instance neither rule states stays as it is.
+#[test]
+fn parametric_macro_rules_apply_only_at_their_head_instance() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax Exp ::= "a" [symbol(a)]
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          rule m():Int => 1
+          rule m():Bool => true
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let program = |sort: &str| {
+        k_rust::inner::parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new(sort),
+            "m()",
+            k_rust::provenance::SourceId(0),
+        )
+        .unwrap()
+    };
+    for (sort, token) in [("Bool", "true"), ("Int", "1")] {
+        let term = program(sort);
+        let Term::Apply { label, .. } = term.unannotated() else {
+            panic!("{term:?}")
+        };
+        assert_eq!(label.parameters, [Sort::new(sort)], "{term:?}");
+        assert_eq!(
+            prepared.expand_term("MAIN", term).unwrap(),
+            Term::Token {
+                token: token.into(),
+                sort: Sort::new(sort),
+            },
+            "m{{{sort}}}()"
+        );
+    }
+    let exp = program("Exp");
+    assert_eq!(prepared.expand_term("MAIN", exp.clone()).unwrap(), exp);
+}
+
 #[test]
 fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;

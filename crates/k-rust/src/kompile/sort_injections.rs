@@ -411,6 +411,24 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.term_sort_with_arity(term, expected, false)
     }
 
+    /// The instance and instantiated argument sorts injection solves for the application `term`
+    /// at a position of sort `expected`, ignoring any parameters its label carries; `None` when
+    /// the label has no production or the application cannot be instantiated there. A parameter
+    /// nothing constrains is a fresh `#SortParam` sort.
+    pub(crate) fn application_instance(
+        &self,
+        term: &Term,
+        expected: Option<&Sort>,
+    ) -> Option<(Vec<Sort>, Vec<Sort>)> {
+        let Term::Apply { label, arguments } = term.unannotated() else {
+            return None;
+        };
+        let signature = self
+            .signature(term, label, arguments, expected, false)
+            .ok()?;
+        Some((signature.label.parameters, signature.arguments))
+    }
+
     /// Infer a sort before cell terms have been normalized to their generated productions.
     ///
     /// Java's sort-only inference visits the declared nonterminal prefix and ignores trailing

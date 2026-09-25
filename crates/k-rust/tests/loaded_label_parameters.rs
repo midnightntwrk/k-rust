@@ -272,6 +272,51 @@ fn every_rule_like_sentence_kind_loads_parametric_applications_without_parameter
     );
 }
 
+/// A loaded rule's `m()` carries no instance: macro expansion, which runs before sort injection,
+/// takes it from the position, so each function's body expands by the macro rule stated for its
+/// result sort, not by the first rule of `m`.
+#[test]
+fn a_parametric_macro_in_a_rule_expands_by_its_position() {
+    let source = r#"
+module MACROS
+  imports INT
+  imports BOOL
+  syntax {S} S ::= m() [macro, symbol(m)]
+  rule m():Int => 1
+  rule m():Bool => true
+  syntax Bool ::= f() [function, symbol(f)]
+  rule f() => m()
+  syntax Int ::= g() [function, symbol(g)]
+  rule g() => m()
+  syntax Int ::= h(Int) [function, symbol(h)]
+  rule h(_) => 0 requires m()
+endmodule
+"#;
+    for backend in BACKENDS {
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        let loaded = load_for_compilation(
+            ResolvedSource::new("macros.k", source.to_owned()),
+            "MACROS",
+            Some("MACROS"),
+            &mut resolver,
+            &options(backend),
+        )
+        .unwrap_or_else(|error| panic!("{backend}: the macros definition loads: {error}"))
+        .0;
+        let [definition_kore, ..] = compile(&loaded, backend);
+        for expected in [
+            r#"\equals{SortBool{}, R}(
+        Lblf{}(),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())"#,
+            r#"\equals{SortInt{}, R}(Lblg{}(), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))"#,
+        ] {
+            assert!(definition_kore.contains(expected), "{backend}: {expected}");
+        }
+    }
+}
+
 /// The instance each parametric label of `PARAMS` had when the parser wrote its own choice into
 /// the loaded label: `wrap` realised its unconstrained parameter as `K`, `ite` took `Int`, and
 /// `#Equals` took `K` for both parameters.
