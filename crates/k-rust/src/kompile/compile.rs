@@ -40,7 +40,10 @@ use crate::{
     kast::{GeneratedLabel, Sort, Term},
     kore::printer::Printer as KorePrinter,
     outer::LoadedDefinition,
-    provenance::{InputSpace, stamp_input_addresses},
+    provenance::{
+        GeneratingPass, InputAddress, InputSentenceKind, InputSpace, input_sentence_kinds,
+        stamp_input_addresses,
+    },
     timings::PhaseTimings,
 };
 
@@ -182,6 +185,20 @@ pub struct CompiledKoreArtifacts {
     /// KORE emission structurally sorts rules, so source-backed execution joins this order to the
     /// emitted axioms by their final `UNIQUE_ID`. Equivalent duplicate rules occur only once.
     pub execution_rewrite_order: Vec<String>,
+    /// The input sentences behind each execution rule or claim, keyed by its backend UNIQUE_ID.
+    /// Equal-content sentences with one UNIQUE_ID contribute all of their input addresses.
+    pub sentence_provenance: BTreeMap<String, EmittedSentenceProvenance>,
+}
+
+/// Input provenance of one emitted rule or claim identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmittedSentenceProvenance {
+    /// Distinct input addresses in execution-definition module and local sentence order.
+    pub input_addresses: Vec<InputAddress>,
+    /// Original kind of each addressed input sentence.
+    pub input_sentence_kinds: BTreeMap<InputAddress, InputSentenceKind>,
+    /// Generating pass when no input sentence contributed to this identity.
+    pub generated_by: Option<GeneratingPass>,
 }
 
 /// A compilation failure with its precise pipeline stage and any structured diagnostics.
@@ -352,6 +369,8 @@ pub fn compile_loaded_definition_timed(
                 .join("\n"),
         )
     });
+    let sentence_provenance = collect_sentence_provenance(&execution_definition, loaded)
+        .map_err(|message| CompileError::from_error("emitted sentence provenance", message))?;
     timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((
         CompiledKoreArtifacts {
@@ -362,9 +381,68 @@ pub fn compile_loaded_definition_timed(
             configuration_variables,
             execution_definition,
             execution_rewrite_order,
+            sentence_provenance,
         },
         std::mem::take(timings),
     ))
+}
+
+fn collect_sentence_provenance(
+    execution: &Definition,
+    loaded: &LoadedDefinition,
+) -> Result<BTreeMap<String, EmittedSentenceProvenance>, String> {
+    let mut kinds = loaded.source_table.input_sentence_kinds().clone();
+    kinds.extend(input_sentence_kinds(
+        &loaded.definition,
+        InputSpace::Compile,
+    ));
+    let mut relation = BTreeMap::<String, EmittedSentenceProvenance>::new();
+    for module in &execution.modules {
+        for (index, sentence) in module.local_sentences.iter().enumerate() {
+            if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
+                continue;
+            }
+            let attributes = sentence.attributes();
+            let id = attributes.string(AttributeKey::UniqueId).ok_or_else(|| {
+                format!(
+                    "rule or claim in {} at local sentence {index} has no UNIQUE_ID",
+                    module.name
+                )
+            })?;
+            let entry =
+                relation
+                    .entry(id.to_owned())
+                    .or_insert_with(|| EmittedSentenceProvenance {
+                        input_addresses: Vec::new(),
+                        input_sentence_kinds: BTreeMap::new(),
+                        generated_by: None,
+                    });
+            for address in attributes.input_addresses() {
+                let kind = kinds.get(address).ok_or_else(|| {
+                    format!("rule or claim {id} names unknown input address {address:?}")
+                })?;
+                if !entry.input_sentence_kinds.contains_key(address) {
+                    entry.input_addresses.push(address.clone());
+                    entry.input_sentence_kinds.insert(address.clone(), *kind);
+                }
+            }
+            if entry.input_addresses.is_empty() {
+                entry.generated_by = entry
+                    .generated_by
+                    .or(attributes.origin_record().map(|record| record.pass));
+            } else {
+                entry.generated_by = None;
+            }
+        }
+    }
+    for (id, entry) in &relation {
+        if entry.input_addresses.is_empty() && entry.generated_by.is_none() {
+            return Err(format!(
+                "rule or claim {id} has neither input addresses nor a generating pass"
+            ));
+        }
+    }
+    Ok(relation)
 }
 
 fn collect_execution_rewrite_order(definition: &Definition) -> Result<Vec<String>, String> {
@@ -1241,5 +1319,33 @@ mod tests {
             .expect("frontend KORE should internalize into the in-process backend");
         assert!(!backend.rewrite_theory.is_empty());
         assert_eq!(backend.reachability_claims.len(), 1);
+        let input_claim = loaded
+            .definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .position(|sentence| matches!(**sentence, Sentence::Claim { .. }))
+            .unwrap();
+        let claim = artifacts
+            .execution_definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| matches!(***sentence, Sentence::Claim { .. }))
+            .unwrap();
+        let id = claim.attributes().string(AttributeKey::UniqueId).unwrap();
+        let address = InputAddress::new(
+            InputSpace::Compile,
+            "MAIN",
+            u32::try_from(input_claim).unwrap(),
+        );
+        let provenance = &artifacts.sentence_provenance[id];
+        assert_eq!(provenance.input_addresses, std::slice::from_ref(&address));
+        assert_eq!(
+            provenance.input_sentence_kinds[&address],
+            InputSentenceKind::Claim
+        );
     }
 }

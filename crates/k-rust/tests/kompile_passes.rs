@@ -6046,9 +6046,20 @@ fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
         assert_eq!(rules.len(), 1, "line {line}");
         assert_eq!(
             rules[0].attributes().input_addresses(),
-            [expected],
+            std::slice::from_ref(&expected),
             "line {line}"
         );
+        let id = rules[0]
+            .attributes()
+            .string(AttributeKey::UniqueId)
+            .unwrap();
+        let provenance = &artifacts.sentence_provenance[id];
+        assert_eq!(provenance.input_addresses, std::slice::from_ref(&expected));
+        assert_eq!(
+            provenance.input_sentence_kinds[&expected],
+            k_rust::provenance::InputSentenceKind::Rule
+        );
+        assert_eq!(provenance.generated_by, None);
     }
 
     // (b) Heating and cooling rules derive from the strict production and the alias its
@@ -6075,6 +6086,21 @@ fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
             rule.attributes().input_addresses(),
             [production.clone(), alias.clone()]
         );
+        let id = rule.attributes().string(AttributeKey::UniqueId).unwrap();
+        let provenance = &artifacts.sentence_provenance[id];
+        assert_eq!(
+            provenance.input_addresses,
+            [production.clone(), alias.clone()]
+        );
+        assert_eq!(
+            provenance.input_sentence_kinds[&production],
+            k_rust::provenance::InputSentenceKind::Production
+        );
+        assert_eq!(
+            provenance.input_sentence_kinds[&alias],
+            k_rust::provenance::InputSentenceKind::ContextAlias
+        );
+        assert_eq!(provenance.generated_by, None);
     }
 
     // Soundness over the whole execution definition: every named address exists in the
@@ -6105,6 +6131,32 @@ fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
             }
         }
     }
+
+    let sort_predicate = artifacts
+        .execution_definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+        .find(|sentence| {
+            matches!(***sentence, Sentence::Rule { .. })
+                && sentence.attributes().input_addresses().is_empty()
+                && sentence
+                    .attributes()
+                    .origin_record()
+                    .is_some_and(|record| record.pass == GeneratingPass::GenerateSortPredicateRules)
+        })
+        .expect("compilation generates an unowned sort-predicate rule");
+    let id = sort_predicate
+        .attributes()
+        .string(AttributeKey::UniqueId)
+        .unwrap();
+    let provenance = &artifacts.sentence_provenance[id];
+    assert!(provenance.input_addresses.is_empty());
+    assert!(provenance.input_sentence_kinds.is_empty());
+    assert_eq!(
+        provenance.generated_by,
+        Some(GeneratingPass::GenerateSortPredicateRules)
+    );
 }
 
 /// Review round 1: a compile address restored from KRUST-PROVENANCE into a rearranged definition
@@ -6202,6 +6254,11 @@ fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
             .to_owned()
     });
     assert_eq!(rules[0], rules[1]);
+    let addresses = [4, 5].map(|line| main_address(&loaded, |sentence| at_line(sentence, line)));
+    assert_eq!(
+        artifacts.sentence_provenance[&rules[0]].input_addresses,
+        addresses
+    );
     assert_eq!(
         artifacts
             .execution_rewrite_order
