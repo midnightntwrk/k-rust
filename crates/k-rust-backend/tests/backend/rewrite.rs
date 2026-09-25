@@ -3340,7 +3340,8 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     );
 }
 
-/// T16 / cut_terminal. Both complete results captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d.
+/// T16 / cut_terminal. Both complete results captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d;
+/// re-pinned by KK-37, where the sole surviving candidate honours the stop rules.
 #[test]
 fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     let definition = be08_portable_definition(
@@ -3361,7 +3362,8 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         ) [label{}("stop"), priority{}("50")]
         "#,
     );
-    let cut_solver = be08_indeterminate_solver(1, 3);
+    // The step after the survivor is no longer taken, so its validity query is not asked.
+    let cut_solver = be08_indeterminate_solver(1, 2);
     let cut = execute_with_solver(
         &definition,
         be08_portable_subject(&definition),
@@ -3372,7 +3374,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         },
         &cut_solver,
     );
-    let terminal_solver = be08_indeterminate_solver(1, 3);
+    let terminal_solver = be08_indeterminate_solver(1, 2);
     let terminal = execute_with_solver(
         &definition,
         be08_portable_subject(&definition),
@@ -3391,23 +3393,38 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "c27222b51afefbc8e622551c2e38574b0bfa603f7fdfe46387d9390052ee4792",
+        "fcc77b4ace573bb46238df756abe271bc12635138dfd33c77a82187308a5061a",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
     assert!(terminal_solver.answers.borrow().is_empty());
     assert!(terminal_solver.validity.borrow().is_empty());
 
+    // The cascade leaves `stop` as the only candidate, the unique successor of the state: the
+    // cut point stops before it and the terminal rule stops after it.
     let [cut_leaf] = cut.leaves.as_slice() else {
         panic!("expected one cut-point leaf: {cut:#?}");
     };
-    assert_eq!(cut_leaf.depth, 1);
-    assert_eq!(cut_leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(cut_leaf.depth, 0);
+    let HaltReason::CutPointRule { rule, next_states } = &cut_leaf.halt_reason else {
+        panic!("expected a cut-point halt: {:?}", cut_leaf.halt_reason);
+    };
+    assert_eq!(rule, "stop");
+    let [proposed] = next_states.as_slice() else {
+        panic!("expected one proposed successor: {next_states:?}");
+    };
+    assert_eq!(proposed.unique_id, "stop");
     let [terminal_leaf] = terminal.leaves.as_slice() else {
         panic!("expected one terminal leaf: {terminal:#?}");
     };
     assert_eq!(terminal_leaf.depth, 1);
-    assert_eq!(terminal_leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(
+        terminal_leaf.halt_reason,
+        HaltReason::TerminalRule {
+            rule: "stop".into()
+        }
+    );
+    assert_eq!(terminal_leaf.pattern, proposed.pattern);
 }
 
 #[cfg(feature = "z3")]
@@ -7291,6 +7308,161 @@ fn a_cut_point_candidate_owns_both_the_diagnostics_and_the_evaluations_of_its_wo
         )),
         "{stream:?}"
     );
+}
+
+/// `start` rewrites to `g(a)` (`to-g`) and to `dead(a)` (`to-dead`). At a branch stop the
+/// `dead` simplification refutes `to-dead`'s candidate, so `to-g`'s is the unique successor; its
+/// normalization applies the `grow` simplification and exhausts a budget of 3.
+fn pruned_to_growing_survivor_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol start{}() : SortS{} [constructor{}(), functional{}()]
+                symbol a{}() : SortS{} [constructor{}(), functional{}()]
+                symbol g{}(SortS{}) : SortS{} [function{}(), functional{}()]
+                symbol dead{}(SortS{}) : SortS{} [function{}(), functional{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        g{}(X:SortS{}),
+                        \and{SortS{}}(g{}(g{}(X:SortS{})), \top{SortS{}}())
+                    )
+                ) [label{}("grow"), simplification{}()]
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortS{}, R}(
+                        dead{}(X:SortS{}),
+                        \and{SortS{}}(a{}(), \bottom{SortS{}}())
+                    )
+                ) [label{}("dead"), simplification{}()]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(), \top{SortS{}}()),
+                    \and{SortS{}}(g{}(a{}()), \top{SortS{}}())
+                ) [label{}("to-g")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(), \top{SortS{}}()),
+                    \and{SortS{}}(dead{}(a{}()), \top{SortS{}}())
+                ) [label{}("to-dead")]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+fn execute_pruned_to_growing_survivor(
+    definition: &BackendDefinition,
+    options: ExecutionOptions,
+) -> (ExecutionResult, ExecutionResult) {
+    let initial = Pattern {
+        term: internal_term(definition, "start{}()"),
+        constraints: Vec::new(),
+    };
+    let options = ExecutionOptions {
+        branch_mode: ExecutionBranchMode::StopAtBranch,
+        max_simplification_iterations: 3,
+        ..options
+    };
+    (
+        execute_observed(
+            definition,
+            initial.clone(),
+            options.clone(),
+            &ObservationOptions::all(),
+        ),
+        execute(definition, initial, options),
+    )
+}
+
+/// The sole survivor of a branch stop is the state's unique successor, so a cut point on its
+/// rule stops before it exactly as for a `Finished` step: the leaf is the parent state, and the
+/// proposed successor owns the diagnostics and the evaluations of its normalization.
+#[test]
+fn a_sole_branch_survivor_on_a_cut_point_rule_is_a_proposed_successor() {
+    let definition = pruned_to_growing_survivor_definition();
+    let (result, unobserved) = execute_pruned_to_growing_survivor(
+        &definition,
+        ExecutionOptions {
+            cut_point_rules: BTreeSet::from(["to-g".into()]),
+            ..ExecutionOptions::default()
+        },
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cut-point leaf: {:?}", result.leaves);
+    };
+    assert_eq!(leaf.depth, 0);
+    assert_eq!(leaf.pattern.term, internal_term(&definition, "start{}()"));
+    let HaltReason::CutPointRule { rule, next_states } = &leaf.halt_reason else {
+        panic!("expected a cut-point halt: {:?}", leaf.halt_reason);
+    };
+    assert_eq!(rule, "to-g");
+    let [next] = next_states.as_slice() else {
+        panic!("expected one proposed successor");
+    };
+    assert!(leaf.diagnostics.is_empty(), "{:?}", leaf.diagnostics);
+    assert!(leaf.branch.is_empty());
+    assert!(leaf.observations.is_empty(), "{:?}", leaf.observations);
+    assert_eq!(next.diagnostics, [term_budget_exhausted(3)]);
+    let stream = observed_stream(&next.observations);
+    assert_eq!(
+        stream.first(),
+        Some(&Observed::Transition("to-g", TransitionClass::Rewrite))
+    );
+    assert!(
+        stream.contains(&Observed::Evaluation(
+            "grow",
+            EvaluationClass::Simplification,
+            1
+        )),
+        "{stream:?}"
+    );
+    let [discarded] = result.discarded.as_slice() else {
+        panic!("expected the refuted candidate: {:?}", result.discarded);
+    };
+    assert_eq!(discarded.id.rule, "to-dead");
+    assert_eq!(without_observations(result), unobserved);
+}
+
+/// A terminal rule stops after the sole survivor, as after a `Finished` step's successor: the
+/// leaf is the successor, with its transition, its evaluations and its diagnostics.
+#[test]
+fn a_sole_branch_survivor_on_a_terminal_rule_ends_the_path_after_it() {
+    let definition = pruned_to_growing_survivor_definition();
+    let (result, unobserved) = execute_pruned_to_growing_survivor(
+        &definition,
+        ExecutionOptions {
+            terminal_rules: BTreeSet::from(["to-g".into()]),
+            ..ExecutionOptions::default()
+        },
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one terminal leaf: {:?}", result.leaves);
+    };
+    assert_eq!(
+        leaf.halt_reason,
+        HaltReason::TerminalRule {
+            rule: "to-g".into()
+        }
+    );
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(leaf.diagnostics, [term_budget_exhausted(3)]);
+    assert_observations_anchor_into_branch(leaf);
+    let stream = observed(leaf);
+    assert_eq!(
+        stream.first(),
+        Some(&Observed::Transition("to-g", TransitionClass::Rewrite))
+    );
+    assert!(
+        stream.contains(&Observed::Evaluation(
+            "grow",
+            EvaluationClass::Simplification,
+            1
+        )),
+        "{stream:?}"
+    );
+    assert_eq!(without_observations(result), unobserved);
 }
 
 /// An observed result with every observation output removed: the leaves' `branch` and
