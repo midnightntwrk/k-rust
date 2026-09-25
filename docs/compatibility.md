@@ -23,6 +23,39 @@ Among the implemented hooks, four groups have no evaluator in either pinned Kore
 The console IO hooks `IO.getc`, `IO.putc`, `IO.read` and `IO.write` are evaluated only by ordinary execution (see the console paragraph below); Kore's IO module registers only `IO.logString` (`kore/src/Kore/Builtin/IO.hs`), and Booster has no IO builtin module.
 The `KRYPTO` hooks `bn128add`, `bn128mul`, `bn128ate`, `bn128valid`, `bn128g2valid`, `sha256raw` and `ripemd160raw` are declared in `plugin/krypto.md`; Kore's `Krypto` module registers none of them (`kore/src/Kore/Builtin/Krypto.hs`), and Booster has no `KRYPTO` builtin module.
 `SUBSTITUTION.substOne` is declared in `substitution.md`; Kore has no `SUBSTITUTION` builtin module (`kore/src/Kore/Builtin.hs`), and neither has Booster.
+k-rust implements these eight hooks because each declaration fixes the hook's value on every input of the domain stated below, independently of any backend.
+Where the declaration gives no value, the result is undefined (`#Bottom`), as for other partial hooks.
+Where the value depends on a subterm the call cannot see, the application stays unevaluated.
+Such a subterm is a variable or an application of a non-constructor symbol, and it may denote any constructor term of its sort.
+
+`KRYPTO.sha256raw` and `KRYPTO.ripemd160raw` return the 32-byte SHA-256 digest and the 20-byte RIPEMD-160 digest of their `Bytes` argument.
+`plugin/krypto.md` declares `Sha256raw(Bytes)` and `RipEmd160raw(Bytes)` as "the same hash function as those named above except that they return a raw byte string", and every byte string has a digest.
+An argument that is not a `Bytes` literal stays unevaluated.
+
+The BN128 hooks are declared on points of the BN128 curve written `(x, y)` (`symbol(g1Point)`) for G1 and `(x1 x x2, y1 x y2)` (`symbol(g2Point)`) for G2, where `(0, 0)` and `(0 x 0, 0 x 0)` denote the point at infinity.
+A BN128 hook reads a point only from `g1Point`/`g2Point` with `Int` literal coordinates.
+The coordinates must lie in `[0, p)` for the base field modulus `p`, and must be the point at infinity or satisfy the curve equation; for G2 the point must also lie in the order-`r` subgroup G2 of the twist curve.
+A `g1Point`/`g2Point` term with `Int` literal coordinates that fail these conditions, any other constructor term, and any domain value or collection in a point position is not a point: `isValidPoint` is `false`, and `BN128Add`, `BN128Mul` and `BN128AtePairing` are undefined.
+An argument that contains a variable or an unevaluated function application where the reading needs a value leaves the call unevaluated, unless another argument is already not a point, or the two pairing lists have known, different lengths.
+Reason: the declarations define the hooks on those points only; constructors are free, so a constructor term with another head denotes no point in any model, while a variable or function application may denote a point or not.
+On that domain:
+
+- `KRYPTO.bn128valid` (`isValidPoint(G1Point)`) is `true` for every G1 point. G1 has cofactor 1, so a point on the curve, which the declaration asks for, is a point of G1.
+- `KRYPTO.bn128g2valid` (`isValidPoint(G2Point)`, `symbol(isValidG2Point)`) is `true` for every G2 point and `false` for a point on the twist curve outside the subgroup G2. The declaration calls a `G2Point` a point on G2 and defines the pairing through discrete logarithms of G2 points, which exist only in the subgroup, so validity is exactly the domain of the pairing.
+- `KRYPTO.bn128add` (`BN128Add(G1Point, G1Point)`) returns `g1Point` of the sum P + Q in G1, with `(0, 0)` as the identity.
+- `KRYPTO.bn128mul` (`BN128Mul(G1Point, Int)`) returns `g1Point` of n·P for every `Int` n, computed as (n mod r)·P with the non-negative residue. Multiplication by an integer is defined for every integer, and r·P is the identity because G1 has prime order r.
+- `KRYPTO.bn128ate` (`BN128AtePairing(List, List)`) is `true` iff the lists have equal length and the product of the pairings e(P_i, Q_i) is 1. With P_i = a_i·G and Q_i = b_i·H for the generators G and H, the product is e(G, H) raised to the sum of a_i·b_i, so it is 1 exactly when that sum is zero modulo r, which is what the declaration states. Two empty lists give `true`, and lists of different lengths give the undefined result.
+
+`SUBSTITUTION.substOne` (`T [ V / X ]`) returns the capture-avoiding substitution of the `KItem` V for the free occurrences of the `KVar` X in T.
+A production with the `binder` attribute binds the `KVar` of its first nonterminal in its last nonterminal (`substitution.md`, "The `binder` Attribute"), and a bound `KVar` that would capture a free `KVar` of V is renamed.
+A renamed variable gets a fresh name `<name><n>` that occurs nowhere in T, V or X; the hook is `impure`, so the declaration does not fix the fresh name, and any fresh choice denotes the same term up to renaming of bound variables.
+The call evaluates only when X is a `KVar` token and every opaque subterm of T and V has a `KVar`-free sort.
+An opaque subterm is a variable or an application of a non-constructor symbol, including a collection rest.
+A sort is `KVar`-free when, by the definition's constructors, collection symbols and subsorts, no constructor term of that sort can contain a `KVar` token; such a subterm is copied unchanged, because substitution is the identity on every one of its values.
+Otherwise the call stays unevaluated until its arguments are refined, because whether X occurs in an opaque subterm, and which names are free in it, depends on its instance.
+A target that is not a `KVar` token also stays unevaluated: the declaration substitutes only for a `KVar`.
+When the substitution makes two keys of one `Map` equal, the result is undefined, since a map has no duplicate keys; when it cannot tell whether two such keys are equal, the call stays unevaluated.
+
 The `FLOAT` hooks are pure: Kore registers no `Float` builtin functions (`kore/src/Kore/Builtin.hs`), and Booster has no `FLOAT` builtin module (`booster/library/Booster/Builtin.hs`).
 k-rust implements the `FLOAT` hooks because `domains.md` specifies them as IEEE 754 operations, which fixes each result without reference to a backend.
 A `Float` is an IEEE 754 value whose precision and exponent width are named by its suffix (`p24x8` is `binary32`, `p53x11` is `binary64`), the arithmetic hooks round to nearest with ties to even (their `smt-hook` attributes), and the comparison hooks are IEEE 754 comparisons (`==Float` is IEEE 754 equality, so `0.0 ==Float -0.0` holds and `NaN ==Float NaN` does not; `=/=Float` has no hook and is the K rule `notBool (F1 ==Float F2)`).
