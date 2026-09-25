@@ -40,6 +40,23 @@ module MAIN
   ) [label{}("reaches-c")]
 endmodule []`
 
+test('exposes the compiled rule catalog', () => {
+  const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
+  try {
+    const catalog = backend.ruleCatalog()
+    assert.deepEqual(backend.ruleCatalog('MAIN'), catalog)
+    assert.deepEqual(
+      catalog.filter((rule) => rule.kind === 'rewrite').map((rule) => rule.label),
+      ['a-to-b', 'b-to-c'],
+    )
+    assert.ok(catalog.every((rule) => typeof rule.id === 'string'))
+    assert.ok(catalog.every((rule) => Array.isArray(rule.origins)))
+    assert.ok(catalog.every((rule) => typeof rule.sharedIdentity === 'boolean'))
+  } finally {
+    backend.free()
+  }
+})
+
 // Without associativity or priorities, a+a+a has two well-sorted trees that denote different terms,
 // so no sort decision can pick one: the error must name the ambiguity and list both readings.
 const bothAdditionReadings =

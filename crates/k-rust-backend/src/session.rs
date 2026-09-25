@@ -1,6 +1,11 @@
 //! Stateful KORE module addition and definition selection.
 
-use std::{collections::BTreeMap, error::Error, fmt, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 use k_rust_kore::kore::ast as kore;
 use sha2::{Digest, Sha256};
@@ -15,7 +20,7 @@ use crate::definition::{BackendDefinition, DefinitionError};
 pub struct BackendSession {
     syntax: kore::Definition,
     default_module: String,
-    definitions: BTreeMap<String, Arc<BackendDefinition>>,
+    definitions: Mutex<BTreeMap<String, Arc<BackendDefinition>>>,
     added_sources: BTreeMap<String, String>,
     module_aliases: BTreeMap<String, String>,
 }
@@ -49,7 +54,7 @@ impl BackendSession {
         Self {
             syntax,
             default_module: default_module.into(),
-            definitions: BTreeMap::new(),
+            definitions: Mutex::new(BTreeMap::new()),
             added_sources: BTreeMap::new(),
             module_aliases: BTreeMap::new(),
         }
@@ -66,7 +71,7 @@ impl BackendSession {
                 modules: Vec::new(),
             },
             default_module,
-            definitions,
+            definitions: Mutex::new(definitions),
             added_sources: BTreeMap::new(),
             module_aliases: BTreeMap::new(),
         }
@@ -77,21 +82,21 @@ impl BackendSession {
     }
 
     /// Obtain an immutable backend view for a module, compiling and caching it on first use.
-    pub fn definition(
-        &mut self,
-        module: Option<&str>,
-    ) -> Result<Arc<BackendDefinition>, SessionError> {
+    pub fn definition(&self, module: Option<&str>) -> Result<Arc<BackendDefinition>, SessionError> {
         let requested = module.unwrap_or(&self.default_module);
         let canonical = self
             .module_aliases
             .get(requested)
             .map_or(requested, String::as_str);
-        if let Some(definition) = self.definitions.get(canonical) {
+        let mut definitions = self
+            .definitions
+            .lock()
+            .expect("definition cache lock poisoned");
+        if let Some(definition) = definitions.get(canonical) {
             return Ok(Arc::clone(definition));
         }
         let definition = Arc::new(BackendDefinition::internalize(&self.syntax, canonical)?);
-        self.definitions
-            .insert(canonical.to_owned(), Arc::clone(&definition));
+        definitions.insert(canonical.to_owned(), Arc::clone(&definition));
         Ok(definition)
     }
 
@@ -179,6 +184,8 @@ impl BackendSession {
 
         self.syntax = syntax;
         self.definitions
+            .get_mut()
+            .expect("definition cache lock poisoned")
             .insert(module_id.clone(), Arc::clone(&definition));
         self.added_sources
             .insert(module_id.clone(), source.to_owned());

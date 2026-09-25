@@ -54,6 +54,19 @@ function deeplyNestedBackendState(depth) {
   return { format: 'KORE', version: 1, term }
 }
 
+test('exposes the compiled rule catalog', () => {
+  const backend = createBackend({ definitionKore: backendDefinition, moduleName: 'MAIN' })
+  const catalog = backend.ruleCatalog()
+  assert.deepEqual(backend.ruleCatalog('MAIN'), catalog)
+  assert.deepEqual(
+    catalog.filter((rule) => rule.kind === 'rewrite').map((rule) => rule.label),
+    ['a-to-b', 'b-to-c'],
+  )
+  assert.ok(catalog.every((rule) => typeof rule.id === 'string'))
+  assert.ok(catalog.every((rule) => Array.isArray(rule.origins)))
+  assert.ok(catalog.every((rule) => typeof rule.sharedIdentity === 'boolean'))
+})
+
 test('parses programs through virtual requires', () => {
   const parsed = parseProgram({
     definition: `

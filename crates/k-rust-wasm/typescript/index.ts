@@ -152,6 +152,22 @@ export interface SerializedKore {
   kore: Kore
 }
 
+export interface RuleOrigin {
+  source: string | null
+  location: string | null
+}
+
+/** One compiled axiom, after equivalent written axioms have been combined. */
+export interface CompiledRule {
+  id: string
+  kind: 'rewrite' | 'function-equation' | 'simplification' | 'definedness'
+  executable: boolean
+  label: string | null
+  priority: number
+  origins: RuleOrigin[]
+  sharedIdentity: boolean
+}
+
 export interface BackendCapabilities {
   execution: boolean
   simplification: boolean
@@ -514,6 +530,10 @@ export class Backend {
 
   get capabilities(): BackendCapabilities {
     return JSON.parse(this.#wasm.capabilities) as BackendCapabilities
+  }
+
+  ruleCatalog(moduleName?: string): CompiledRule[] {
+    return JSON.parse(this.#wasm.ruleCatalog(moduleName)) as CompiledRule[]
   }
 
   execute(options: ExecuteOptions): ExecutionResult {

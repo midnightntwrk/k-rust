@@ -29,6 +29,37 @@ use k_rust_backend::{
 
 pub const BACKEND_SCHEMA_VERSION: u32 = 1;
 
+/// The backend classification of a compiled axiom.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompiledRuleKind {
+    Rewrite,
+    FunctionEquation,
+    Simplification,
+    Definedness,
+}
+
+/// A written KORE axiom's source and location attributes, when present.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CompiledRuleOriginOutput {
+    pub source: Option<String>,
+    pub location: Option<String>,
+}
+
+/// One compiled rule, after equivalent written axioms have been collapsed.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct CompiledRuleOutput {
+    pub id: String,
+    pub kind: CompiledRuleKind,
+    pub executable: bool,
+    pub label: Option<String>,
+    pub priority: u8,
+    pub origins: Vec<CompiledRuleOriginOutput>,
+    pub shared_identity: bool,
+}
+
 pub(super) fn validate_schema_version(schema_version: u32) -> Result<(), BackendError> {
     if schema_version == BACKEND_SCHEMA_VERSION {
         Ok(())

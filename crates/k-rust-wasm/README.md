@@ -87,10 +87,16 @@ const backend = compileBackend({
 })
 
 console.log(backend.capabilities) // includes smt: false
+console.log(backend.ruleCatalog().filter(rule => rule.kind === 'rewrite'))
 backend.free()
 ```
 
 Portable `execute`, `simplify`, `implies`, `prove`, and `addModule` operations are available.
+`backend.ruleCatalog(moduleName?)` lists the compiled axioms of the selected execution definition.
+Each entry carries its identity, backend classification, executability, label, priority, and ordered `origins` containing the backend's `source` and `location` strings.
+A written sentence's kind is found by matching its source and location against the origins; a position absent from the catalog compiled to no axiom of that definition.
+Equal written rules have one catalog entry with multiple origins.
+`sharedIdentity` marks an id also carried by another compiled entry; the observation filter refuses that id as ambiguous.
 Implication responses use schema version 2; their optional `condition` keeps `predicate`,
 term-match `substitution`, and existential `witnesses` as three separate KORE values.
 The portable backend also mirrors native `search`, `searchPaths`, `searchPattern`, `searchPatternPaths`, and their `*Observed` variants.

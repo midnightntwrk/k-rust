@@ -89,10 +89,16 @@ const backend = compileBackend({
 })
 
 console.log(backend.capabilities) // includes smt: true
+console.log(backend.ruleCatalog().filter(rule => rule.kind === 'rewrite'))
 console.log(backend.prove({ claim: 'reaches-c' }).status) // "proven"
 ```
 
 Use `createBackend({ definitionKore, moduleName })` when KORE has already been compiled.
+`backend.ruleCatalog(moduleName?)` lists the compiled axioms of the selected execution definition.
+Each entry carries its identity, backend classification, executability, label, priority, and ordered `origins` containing the backend's `source` and `location` strings.
+A written sentence's kind is found by matching its source and location against the origins; a position absent from the catalog compiled to no axiom of that definition.
+Equal written rules have one catalog entry with multiple origins.
+`sharedIdentity` marks an id also carried by another compiled entry; the observation filter refuses that id as ambiguous.
 Backend methods accept typed KORE JSON from `parseKore` and include `execute`, `simplify`, `implies`, `getModel`, `prove`, `addModule`, and four reachability methods: `search`, `searchPaths`, `searchPattern`, and `searchPatternPaths`.
 The method name declares state-set versus path-set modality; no request flag changes a result's meaning.
 Each search response carries `schemaVersion`, a literal `modality`, accumulated effects, and a closed `incomplete` union that reports every bound or backend uncertainty structurally.

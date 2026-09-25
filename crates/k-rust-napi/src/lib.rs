@@ -116,6 +116,16 @@ impl NativeBackend {
         serialize_native(&self.lock()?.capabilities())
     }
 
+    #[napi(js_name = "ruleCatalog")]
+    pub fn rule_catalog(&self, module_name: Option<String>) -> Result<String> {
+        serialize_native(
+            &self
+                .lock()?
+                .rule_catalog(module_name.as_deref())
+                .map_err(napi_error)?,
+        )
+    }
+
     #[napi]
     pub fn execute(&self, options: String) -> Result<String> {
         let request = deserialize_native::<ExecuteRequest>(&options)?;

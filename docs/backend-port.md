@@ -36,6 +36,19 @@ The intended workspace structure is:
 Keeping the backend independent from frontend ASTs preserves KORE as the semantic boundary while
 avoiding a package dependency cycle when the CLI links both halves into one static binary.
 
+## Compiled rule catalog
+
+`Backend::rule_catalog(module_name)` returns the compiled axioms of the same module selection used by execution.
+Passing `None` selects the backend's default module.
+Each `CompiledRuleOutput` has an `id`, a backend-classified `kind` (`rewrite`, `function-equation`, `simplification`, or `definedness`), `executable`, `label`, `priority`, `origins`, and `sharedIdentity` in JSON.
+The catalog includes non-executable axioms with `executable: false`.
+Each origin contains the backend's `Source` and `Location` attribute strings when present; it is not an input-sentence address.
+A written sentence's kind is found by matching its source and location against an entry's origins.
+A position absent from the catalog compiled to no axiom in the selected execution definition.
+Equivalent written axioms form one entry with all origins in declaration order.
+If distinct entries share an id, both have `sharedIdentity: true`, and the observation filter refuses that id as ambiguous.
+The Node-API and WebAssembly TypeScript facades expose the same catalog through `backend.ruleCatalog(moduleName?)`.
+
 ## Module map
 
 Run `cargo run -p algo-graph -- render module-map` to write the generated backend module-map projection to `target/algo/module-map.md`; it groups source-card algorithm IDs by their declared `k-rust-backend` site module and derives each module's counters from the graph's `measured-by` edges.

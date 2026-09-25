@@ -6,7 +6,12 @@
 //!
 //! One orchestration path for the CLI, RPC server, and JavaScript hosts: a session, one solver per module, and execution, search, simplification, implication, and proving operations. `wire` contains the JavaScript JSON contracts.
 
-use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+    time::Duration,
+};
 
 #[cfg(not(feature = "z3-inference"))]
 use k_rust_backend::smt::NoSolver;
@@ -23,6 +28,7 @@ use k_rust_backend::{
         ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
         execute_observed_with_solver, execute_with_solver,
     },
+    rule::ClassifiedAxiom,
     search::{
         SearchOptions, SearchType, search_graph_observed_with_solver, search_graph_with_solver,
         search_paths_observed_with_solver, search_paths_with_solver,
@@ -416,6 +422,56 @@ impl Backend {
 
     pub fn default_module(&self) -> &str {
         self.session.default_module()
+    }
+
+    /// Return the compiled rules in the definition selected for execution.
+    ///
+    /// A written sentence's kind is found by matching its `Source` and `Location` against
+    /// `origins`. A position absent from the catalog compiled to no axiom of this definition.
+    /// Equal written axioms yield one entry with all their origins. An identity shared by
+    /// different entries has `shared_identity = true` and is refused by the observation filter.
+    pub fn rule_catalog(
+        &self,
+        module_name: Option<&str>,
+    ) -> Result<Vec<CompiledRuleOutput>, BackendError> {
+        let definition = self
+            .session
+            .definition(module_name)
+            .map_err(error("could not select backend module"))?;
+        let mut identity_counts = BTreeMap::<&str, usize>::new();
+        for axiom in &definition.classified_axioms {
+            *identity_counts
+                .entry(&axiom.attributes().unique_id)
+                .or_default() += 1;
+        }
+        Ok(definition
+            .classified_axioms
+            .iter()
+            .map(|axiom| {
+                let attributes = axiom.attributes();
+                CompiledRuleOutput {
+                    id: attributes.unique_id.clone(),
+                    kind: match axiom {
+                        ClassifiedAxiom::Rewrite { .. } => CompiledRuleKind::Rewrite,
+                        ClassifiedAxiom::Function { .. } => CompiledRuleKind::FunctionEquation,
+                        ClassifiedAxiom::Simplification { .. } => CompiledRuleKind::Simplification,
+                        ClassifiedAxiom::Ceil { .. } => CompiledRuleKind::Definedness,
+                    },
+                    executable: attributes.executable,
+                    label: attributes.label.clone(),
+                    priority: attributes.priority,
+                    origins: attributes
+                        .origins
+                        .iter()
+                        .map(|origin| CompiledRuleOriginOutput {
+                            source: origin.source.clone(),
+                            location: origin.location.clone(),
+                        })
+                        .collect(),
+                    shared_identity: identity_counts[attributes.unique_id.as_str()] > 1,
+                }
+            })
+            .collect())
     }
 
     pub fn select_definition(
