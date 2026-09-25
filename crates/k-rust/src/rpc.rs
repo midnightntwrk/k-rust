@@ -34,8 +34,8 @@ use k_rust_backend::{
     },
     matching::SortGraph,
     rewrite::{
-        AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason,
-        IndeterminateReason, Pattern, TraceKind, substitute_predicates,
+        AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
+        TraceKind, substitute_predicates,
     },
     rule::Predicate,
     session::SessionError,
@@ -587,11 +587,9 @@ impl RpcService {
                     HaltReason::Simplification(
                         error @ SimplificationError::UnsupportedHook { term, .. },
                     ) => return Err(RpcFault::runtime(error.to_string(), Some(term))),
-                    HaltReason::Simplification(error @ SimplificationError::StackExhausted)
-                    | HaltReason::Indeterminate(IndeterminateReason::Simplification {
-                        error: error @ SimplificationError::StackExhausted,
-                        ..
-                    }) => return Err(stack_exhausted_fault(error)),
+                    HaltReason::Simplification(error @ SimplificationError::StackExhausted) => {
+                        return Err(stack_exhausted_fault(error));
+                    }
                     HaltReason::Indeterminate(_) | HaltReason::Simplification(_) => {
                         ("aborted", None, None)
                     }
@@ -1344,9 +1342,6 @@ fn failed_rewrite_log(reason: &HaltReason) -> Option<Value> {
                 "Uncertain about the remainder after applying a rule",
                 rule_ids.first(),
             ),
-            k_rust_backend::rewrite::IndeterminateReason::Simplification { rule_id, .. } => {
-                ("Internal match error", rule_id.as_ref())
-            }
         },
         HaltReason::Simplification(_) => ("Internal match error", None),
         _ => return None,

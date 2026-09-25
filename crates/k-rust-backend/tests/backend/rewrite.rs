@@ -2983,13 +2983,13 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_eq!(branches[0].label.as_deref(), Some("first"));
     assert!(matches!(
         remainder.indeterminate,
-        Some(IndeterminateReason::Simplification { .. })
+        Some(UndecidedStep::Simplification(_))
     ));
     assert_eq!(result.discarded.len(), 1, "{result:#?}");
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "a9ef3d506a17d64d1c49603d8f7839898574059205dda75e910d4b02743b4654",
+        "d7eacc2c8d9892ec1c23364660bdd9afe834e0a50e418872a3ee9843f40d1be8",
     );
 }
 

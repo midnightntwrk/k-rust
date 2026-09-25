@@ -12,7 +12,7 @@ use super::alpha::step_alpha_equal;
 use crate::{
     definition::BackendDefinition,
     rewrite::{
-        AppliedRule, ExecutionMode, IndeterminateReason, Pattern, RemainderBranch, RewriteResult,
+        AppliedRule, ExecutionMode, Pattern, RemainderBranch, RewriteResult,
         conjunctively_contains_alpha_equivalent, rewrite_step_all_first_group_for_tests,
         rewrite_step_with_mode,
     },
@@ -195,10 +195,7 @@ fn replay_oracle(
                 *branches = lower_branches;
                 *remainder = lower_remainder;
             }
-            RewriteResult::Indeterminate {
-                reason: IndeterminateReason::Simplification { error, .. },
-                ..
-            } => return Err(error),
+            RewriteResult::Simplification { error, .. } => return Err(error),
             RewriteResult::Stuck(_) | RewriteResult::Indeterminate { .. } => {
                 *remainder = Some(current);
                 break;
@@ -513,7 +510,8 @@ fn reached_instantiate(result: &RewriteResult) -> bool {
         } => !branches.is_empty() || !trivial.is_empty(),
         RewriteResult::Stuck(_)
         | RewriteResult::Vacuous(_)
-        | RewriteResult::Indeterminate { .. } => false,
+        | RewriteResult::Indeterminate { .. }
+        | RewriteResult::Simplification { .. } => false,
     }
 }
 

@@ -864,16 +864,6 @@ fn indeterminate_failure_output(
                 symbol: symbol.to_string(),
             }
         }
-        IndeterminateReason::Simplification { rule_id, error } => {
-            let failure = simplification_failure_output(error, result_sort)?;
-            match (rule_id, failure) {
-                (Some(rule), SearchFailureOutput::Smt { error, .. }) => SearchFailureOutput::Smt {
-                    rule: Some(rule),
-                    error,
-                },
-                (_, failure) => failure,
-            }
-        }
         IndeterminateReason::Match {
             rule_id,
             substitution,
@@ -1287,20 +1277,7 @@ mod tests {
             SimplificationError::Builtin(BuiltinError::Interrupted),
         ] {
             let described = format!("{error:?}");
-            let failure =
-                simplification_failure_output(error.clone(), &sort).expect_err(&described);
-            assert!(
-                failure.0.contains("as a cancelled entry"),
-                "{described}: {failure}"
-            );
-            let failure = indeterminate_failure_output(
-                IndeterminateReason::Simplification {
-                    rule_id: Some("rule".into()),
-                    error,
-                },
-                &sort,
-            )
-            .expect_err(&described);
+            let failure = simplification_failure_output(error, &sort).expect_err(&described);
             assert!(
                 failure.0.contains("as a cancelled entry"),
                 "{described}: {failure}"

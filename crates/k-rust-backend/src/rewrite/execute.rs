@@ -58,7 +58,7 @@ use crate::{
 use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
     IndeterminateReason, InitialSimplificationStatus, Pattern, RemainderBranch, RewriteResult,
-    TraceEntry, TraceKind, TrivialApplication, Truth, applied_trivial_halt,
+    TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
     normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
     rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
 };
@@ -245,17 +245,17 @@ impl<'a> Execution<'a> {
         let rewritten = match &state.kind {
             ExecutionStateKind::Rewritable => self.step(&state),
             ExecutionStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
-            ExecutionStateKind::Remaining(Some(reason)) => RewriteResult::Indeterminate {
-                pattern: state.pattern.clone(),
-                reason: reason.clone(),
-            },
+            ExecutionStateKind::Remaining(Some(undecided)) => {
+                undecided.clone().into_result(state.pattern.clone())
+            }
         };
         let state = self.check_interrupted(state, step_timer)?;
         match rewritten {
             RewriteResult::Stuck(_)
             | RewriteResult::Trivial(_, _)
             | RewriteResult::Vacuous(_)
-            | RewriteResult::Indeterminate { .. } => {
+            | RewriteResult::Indeterminate { .. }
+            | RewriteResult::Simplification { .. } => {
                 Err(self.halt_leaf(state, rewritten, deferred_initial_vacuity))
             }
             RewriteResult::Finished(applied) => self.finished(state, applied, step_timer),
@@ -522,10 +522,7 @@ impl<'a> Execution<'a> {
                 let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace);
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
-            RewriteResult::Indeterminate {
-                pattern,
-                reason: IndeterminateReason::Simplification { error, .. },
-            } => state.leaf_with_pattern(
+            RewriteResult::Simplification { pattern, error } => state.leaf_with_pattern(
                 pattern,
                 HaltReason::Simplification(error),
                 &self.observation_log,
@@ -1266,7 +1263,7 @@ fn remaining_state(
 #[derive(Clone)]
 enum ExecutionStateKind {
     Rewritable,
-    Remaining(Option<IndeterminateReason>),
+    Remaining(Option<UndecidedStep>),
 }
 
 #[derive(Clone)]

@@ -44,7 +44,7 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs},
     simplify::{
-        ConditionIndeterminacy, RuleCondition, SimplificationOptions,
+        ConditionIndeterminacy, RuleCondition, SimplificationError, SimplificationOptions,
         binds_element_variable_to_set_pattern, decide_condition, simplify_in_execution_with_solver,
         simplify_predicates_with_solver, simplify_with_solver,
     },
@@ -73,6 +73,8 @@ pub(super) enum RuleAttempt {
         groups: Vec<RuleApplicationGroup>,
     },
     Indeterminate(IndeterminateReason),
+    /// Simplifying a term or condition of the rule failed, so the attempt could not be decided.
+    Simplification(SimplificationError),
 }
 
 pub(super) struct RuleApplicationGroup {
@@ -441,12 +443,7 @@ fn recover_by_simplification(
     ) {
         Ok(recovered) => recovered,
         Err(error) => {
-            return Err(RuleAttempt::Indeterminate(
-                IndeterminateReason::simplification(
-                    Some(&context.rule.attributes.unique_id),
-                    error,
-                ),
-            ));
+            return Err(RuleAttempt::Simplification(error));
         }
     };
     extend_unique(inherited_conditions, recovered.conditions.iter().cloned());
@@ -652,12 +649,7 @@ fn recover_by_unification(
             ) {
                 Ok(requires) => requires,
                 Err(error) => {
-                    return Err(RuleAttempt::Indeterminate(
-                        IndeterminateReason::simplification(
-                            Some(&rule.attributes.unique_id),
-                            error,
-                        ),
-                    ));
+                    return Err(RuleAttempt::Simplification(error));
                 }
             };
             if predicates_truth(&requires) == Truth::False {
@@ -736,12 +728,7 @@ fn simplify_conditions(
     ) {
         Ok(conditions) => conditions,
         Err(error) => {
-            return Err(RuleAttempt::Indeterminate(
-                IndeterminateReason::simplification(
-                    Some(&context.rule.attributes.unique_id),
-                    error,
-                ),
-            ));
+            return Err(RuleAttempt::Simplification(error));
         }
     };
     if predicates_truth(&inherited_conditions) == Truth::False {
@@ -783,12 +770,7 @@ fn definedness(
     ) {
         Ok(conditions) => conditions,
         Err(error) => {
-            return Err(RuleAttempt::Indeterminate(
-                IndeterminateReason::simplification(
-                    Some(&context.rule.attributes.unique_id),
-                    error,
-                ),
-            ));
+            return Err(RuleAttempt::Simplification(error));
         }
     };
     if predicates_truth(&definedness_conditions) == Truth::False {
@@ -863,9 +845,7 @@ fn requires(
     ) {
         Ok(requires) => requires,
         Err(error) => {
-            return Err(RuleAttempt::Indeterminate(
-                IndeterminateReason::simplification(Some(&rule.attributes.unique_id), error),
-            ));
+            return Err(RuleAttempt::Simplification(error));
         }
     };
     if predicates_truth(&requires) == Truth::False {
@@ -1068,6 +1048,9 @@ fn instantiate(
             RhsAlternativeAttempt::Indeterminate(reason) => {
                 return Err(RuleAttempt::Indeterminate(reason));
             }
+            RhsAlternativeAttempt::Simplification(error) => {
+                return Err(RuleAttempt::Simplification(error));
+            }
         }
     }
     Ok(RuleAttempt::Unified {
@@ -1085,6 +1068,7 @@ enum RhsAlternativeAttempt {
         effects: Vec<BuiltinEffect>,
     },
     Indeterminate(IndeterminateReason),
+    Simplification(SimplificationError),
 }
 
 enum ObligationVerdict {
@@ -1189,12 +1173,7 @@ fn apply_rhs_alternative(
                     simplified.undefined_term,
                 ),
                 Err(error) => {
-                    return RhsAlternativeAttempt::Indeterminate(
-                        IndeterminateReason::simplification(
-                            Some(&rule.attributes.unique_id),
-                            error,
-                        ),
-                    );
+                    return RhsAlternativeAttempt::Simplification(error);
                 }
             }
         };
@@ -1225,10 +1204,7 @@ fn apply_rhs_alternative(
         ) {
             Ok(obligations) => obligations,
             Err(error) => {
-                return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::simplification(
-                    Some(&rule.attributes.unique_id),
-                    error,
-                ));
+                return RhsAlternativeAttempt::Simplification(error);
             }
         };
         match rhs_obligation_verdict(decide_condition(&obligations, &condition_knowledge, solver)) {
@@ -1256,10 +1232,7 @@ fn apply_rhs_alternative(
     ) {
         Ok(ensures) => ensures,
         Err(error) => {
-            return RhsAlternativeAttempt::Indeterminate(IndeterminateReason::simplification(
-                Some(&rule.attributes.unique_id),
-                error,
-            ));
+            return RhsAlternativeAttempt::Simplification(error);
         }
     };
     match rhs_ensures_verdict(decide_condition(&ensures, &condition_knowledge, solver)) {
@@ -1373,7 +1346,9 @@ fn combine_rule_attempts(attempts: impl IntoIterator<Item = RuleAttempt>) -> Rul
         match attempt {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups: found } => groups.extend(found),
-            RuleAttempt::Indeterminate(reason) => return RuleAttempt::Indeterminate(reason),
+            attempt @ (RuleAttempt::Indeterminate(_) | RuleAttempt::Simplification(_)) => {
+                return attempt;
+            }
         }
     }
     if groups.is_empty() {

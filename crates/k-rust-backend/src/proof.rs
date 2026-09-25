@@ -52,7 +52,7 @@ use crate::{
     },
     rewrite::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
-        collection_unification_definedness, conjunctively_contains_alpha_equivalent,
+        UndecidedStep, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
         predicates_truth, quantify_introduced_variables, recover_indeterminate_match,
         rewrite_step_sequential_tracking_dropped, rewrite_step_sequential_with_options,
         rewrite_step_with_options, simplify_leaf_pattern, substitute_predicates,
@@ -463,10 +463,13 @@ pub fn prove_claim(
             state = state.remaining(remainder);
         }
 
-        if let ProofStateKind::Remaining(reason) = state.kind.clone() {
-            let outcome = match reason {
-                Some(reason) => {
+        if let ProofStateKind::Remaining(undecided) = state.kind.clone() {
+            let outcome = match undecided {
+                Some(UndecidedStep::Indeterminate(reason)) => {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(reason))
+                }
+                Some(UndecidedStep::Simplification(error)) => {
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(error))
                 }
                 None if implication_indeterminate => {
                     ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Implication)
@@ -724,16 +727,21 @@ pub fn prove_claim(
                 record_leaf!(state.leaf(outcome));
             }
             RewriteResult::Indeterminate { reason, .. } => {
-                let reason = match reason {
-                    IndeterminateReason::Simplification { error, .. } => {
-                        ProofIndeterminateReason::Simplification(error)
-                    }
-                    reason => ProofIndeterminateReason::Rewrite(reason),
-                };
                 record_leaf!(externalise_leaf(
                     definition,
                     state,
-                    ProofLeafOutcome::Indeterminate(reason),
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(reason)),
+                    options,
+                    solver,
+                ));
+            }
+            RewriteResult::Simplification { error, .. } => {
+                record_leaf!(externalise_leaf(
+                    definition,
+                    state,
+                    ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
+                        error
+                    )),
                     options,
                     solver,
                 ));
@@ -1019,7 +1027,7 @@ struct ProofState {
 #[derive(Clone)]
 enum ProofStateKind {
     Rewritable,
-    Remaining(Option<IndeterminateReason>),
+    Remaining(Option<UndecidedStep>),
 }
 
 impl ProofState {
@@ -3075,6 +3083,74 @@ mod tests {
                     | SimplificationError::PredicateIterationLimit { .. }
             ))
         ));
+    }
+
+    /// A simplification failure while a lower priority group rewrites the remainder of a
+    /// productive group is the same failure as one in the first group: the remainder's leaf
+    /// reports the simplification error, not a rewrite indeterminacy.
+    #[test]
+    fn lower_group_simplification_failure_on_the_remainder_keeps_its_identity() {
+        let rules = r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            sort SortIOInt{} []
+            symbol opaque{}() : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+            symbol isIOInt{}(SortIOInt{}) : SortBool{}
+                [function{}(), total{}(), no-evaluators{}()]
+            hooked-symbol getc{}(SortInt{}) : SortIOInt{}
+                [function{}(), total{}(), hook{}("IO.getc")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    a{}(),
+                    \equals{SortBool{}, SortS{}}(opaque{}(), \dv{SortBool{}}("true"))
+                ),
+                c{}()
+            ) [label{}("first"), priority{}("10")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    a{}(),
+                    \equals{SortBool{}, SortS{}}(
+                        isIOInt{}(getc{}(\dv{SortInt{}}("0"))),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                b{}()
+            ) [label{}("lower-error"), priority{}("50")]
+        "#;
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
+        let definition = definition(rules, &claims);
+        // The first group's condition is undecided and its remainder satisfiable, so the step
+        // branches to the destination and hands the remainder to the lower group, whose
+        // condition needs a hook that has no console to read.
+        let solver = FixedSolver {
+            satisfiability: Ok(Satisfiability::Sat),
+            validity: Ok(Validity::Indeterminate),
+        };
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions::default(),
+            &solver,
+        )
+        .expect("the proof should run");
+
+        assert!(
+            result.leaves.iter().any(|leaf| matches!(
+                &leaf.outcome,
+                ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Simplification(
+                    SimplificationError::UnsupportedHook { hook, .. }
+                )) if hook == "IO.getc"
+            )),
+            "{result:#?}"
+        );
+        assert!(
+            result.leaves.iter().all(|leaf| !matches!(
+                leaf.outcome,
+                ProofLeafOutcome::Indeterminate(ProofIndeterminateReason::Rewrite(_))
+            )),
+            "{result:#?}"
+        );
     }
 
     #[cfg(feature = "z3")]

@@ -42,7 +42,7 @@ use crate::{
 
 use super::{
     AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RemainderSimplification,
-    RewriteResult, RuleAttempt, TrivialApplication, Truth,
+    RewriteResult, RuleAttempt, TrivialApplication, Truth, UndecidedStep,
     apply::{RuleApplication, RuleApplicationGroup},
     apply_rule, extend_unique, predicates_truth, violates_finite_constructor_domain,
 };
@@ -54,7 +54,7 @@ enum PriorityGroupOutcome {
         trivial: Vec<TrivialApplication>,
         remainder: Option<RemainderBranch>,
     },
-    Indeterminate(IndeterminateReason),
+    Undecided(UndecidedStep),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -90,7 +90,10 @@ fn apply_priority_group(
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
-                return PriorityGroupOutcome::Indeterminate(reason);
+                return PriorityGroupOutcome::Undecided(UndecidedStep::Indeterminate(reason));
+            }
+            RuleAttempt::Simplification(error) => {
+                return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(error));
             }
         }
     }
@@ -124,9 +127,7 @@ fn apply_priority_group(
     ) {
         Ok(remainder) => remainder,
         Err(error) => {
-            return PriorityGroupOutcome::Indeterminate(IndeterminateReason::simplification(
-                None, error,
-            ));
+            return PriorityGroupOutcome::Undecided(UndecidedStep::Simplification(error));
         }
     };
     let remainder_result = if predicates_truth(&remainder) == Truth::False {
@@ -144,11 +145,13 @@ fn apply_priority_group(
         remainder_result,
         Ok(Satisfiability::Unsat | Satisfiability::Sat)
     ) {
-        return PriorityGroupOutcome::Indeterminate(IndeterminateReason::Remainder {
-            rule_ids,
-            predicates: remainder,
-            satisfiability: remainder_result,
-        });
+        return PriorityGroupOutcome::Undecided(UndecidedStep::Indeterminate(
+            IndeterminateReason::Remainder {
+                rule_ids,
+                predicates: remainder,
+                satisfiability: remainder_result,
+            },
+        ));
     }
     let remainder = if matches!(remainder_result, Ok(Satisfiability::Sat)) {
         let mut remainder_pattern = pattern.clone();
@@ -199,7 +202,7 @@ fn first_productive_group(
             io,
         ) {
             PriorityGroupOutcome::NotProductive => {}
-            outcome @ PriorityGroupOutcome::Indeterminate(_) => return outcome,
+            outcome @ PriorityGroupOutcome::Undecided(_) => return outcome,
             outcome @ PriorityGroupOutcome::Productive { .. } => return outcome,
         }
     }
@@ -253,10 +256,7 @@ pub(super) fn rewrite_step_all(
         io,
     ) {
         PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
-        PriorityGroupOutcome::Indeterminate(reason) => RewriteResult::Indeterminate {
-            pattern: pattern.clone(),
-            reason,
-        },
+        PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
         PriorityGroupOutcome::Productive {
             mut branches,
             mut trivial,
@@ -307,10 +307,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
         None,
     ) {
         PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
-        PriorityGroupOutcome::Indeterminate(reason) => RewriteResult::Indeterminate {
-            pattern: pattern.clone(),
-            reason,
-        },
+        PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
         PriorityGroupOutcome::Productive {
             branches,
             trivial,
@@ -371,7 +368,7 @@ fn fold_lower_priority_groups(
                     }
                 }
                 Err(error) => {
-                    current.indeterminate = Some(IndeterminateReason::simplification(None, error));
+                    current.indeterminate = Some(UndecidedStep::Simplification(error));
                     return;
                 }
             }
@@ -391,11 +388,11 @@ fn fold_lower_priority_groups(
             None,
         ) {
             PriorityGroupOutcome::NotProductive => {}
-            PriorityGroupOutcome::Indeterminate(reason) => {
+            PriorityGroupOutcome::Undecided(undecided) => {
                 remainder
                     .as_mut()
                     .expect("the current remainder is present")
-                    .indeterminate = Some(reason);
+                    .indeterminate = Some(undecided);
                 return;
             }
             PriorityGroupOutcome::Productive {
@@ -511,7 +508,7 @@ impl SequentialDeterminism {
                 None,
             ) {
                 RuleAttempt::NotApplicable => {}
-                RuleAttempt::Indeterminate(_) => {
+                RuleAttempt::Indeterminate(_) | RuleAttempt::Simplification(_) => {
                     self.dropped = true;
                     return;
                 }
@@ -685,12 +682,9 @@ pub(super) fn rewrite_step_any(
                         extend_unique(&mut remaining.constraints, constraints);
                     }
                     Err(error) => {
-                        return RewriteResult::Indeterminate {
+                        return RewriteResult::Simplification {
                             pattern: remaining,
-                            reason: IndeterminateReason::simplification(
-                                Some(&rule.attributes.unique_id),
-                                error,
-                            ),
+                            error,
                         };
                     }
                 }
@@ -699,6 +693,12 @@ pub(super) fn rewrite_step_any(
                 return RewriteResult::Indeterminate {
                     pattern: remaining,
                     reason,
+                };
+            }
+            RuleAttempt::Simplification(error) => {
+                return RewriteResult::Simplification {
+                    pattern: remaining,
+                    error,
                 };
             }
         }
