@@ -209,7 +209,12 @@ pub enum EffectOutput {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    deny_unknown_fields,
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum BuiltinFailureOutput {
     WrongArity {
         hook: String,
@@ -352,7 +357,12 @@ pub enum SatisfiabilityOutput {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    deny_unknown_fields,
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum SearchFailureOutput {
     StackExhausted,
     SurvivingMacroOrAlias {
@@ -1340,6 +1350,87 @@ pub(super) fn path_pattern_search_response(
 mod tests {
     use super::*;
 
+    fn assert_typescript_variant_fields(union: &str, kind: &str, fields: &[&str]) {
+        for source in [
+            include_str!("../../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            let declaration = source
+                .split_once(&format!("export type {union} ="))
+                .unwrap()
+                .1
+                .split("\nexport type ")
+                .next()
+                .unwrap();
+            let variant = declaration
+                .split("  | {")
+                .find(|part| part.contains(&format!("kind: '{kind}'")))
+                .unwrap_or_else(|| panic!("{union} has no {kind} variant"));
+            let compact: String = variant.split_whitespace().collect();
+            for field in fields {
+                assert!(
+                    compact.contains(&format!("{field}:")),
+                    "{union}.{kind} is missing {field} in a TypeScript declaration"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_failure_field_names_match_both_typescript_declarations() {
+        let cases = [
+            (
+                BuiltinFailureOutput::AlternativeSortsDiffer {
+                    then_sort: "A".into(),
+                    else_sort: "B".into(),
+                },
+                serde_json::json!({"kind": "alternative-sorts-differ", "thenSort": "A", "elseSort": "B"}),
+            ),
+            (
+                BuiltinFailureOutput::UnsupportedFloatFormat {
+                    hook: "FLOAT".into(),
+                    precision: 53,
+                    exponent_bits: 11,
+                },
+                serde_json::json!({"kind": "unsupported-float-format", "hook": "FLOAT", "precision": 53, "exponentBits": 11}),
+            ),
+            (
+                BuiltinFailureOutput::UnsupportedFloatFormatParameters {
+                    hook: "FLOAT".into(),
+                    precision: "p".into(),
+                    exponent_bits: "e".into(),
+                },
+                serde_json::json!({"kind": "unsupported-float-format-parameters", "hook": "FLOAT", "precision": "p", "exponentBits": "e"}),
+            ),
+            (
+                BuiltinFailureOutput::MismatchedFloatFormats {
+                    hook: "FLOAT".into(),
+                    left_precision: 53,
+                    left_exponent_bits: 11,
+                    right_precision: 24,
+                    right_exponent_bits: 8,
+                },
+                serde_json::json!({"kind": "mismatched-float-formats", "hook": "FLOAT", "leftPrecision": 53, "leftExponentBits": 11, "rightPrecision": 24, "rightExponentBits": 8}),
+            ),
+        ];
+        for (failure, expected) in cases {
+            let value = serde_json::to_value(&failure).unwrap();
+            assert_eq!(value, expected);
+            let kind = value["kind"].as_str().unwrap();
+            let fields: Vec<_> = value
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect();
+            assert_typescript_variant_fields("BuiltinFailure", kind, &fields);
+            assert_eq!(
+                serde_json::from_value::<BuiltinFailureOutput>(value).unwrap(),
+                failure
+            );
+        }
+    }
+
     #[test]
     fn branch_remainder_keeps_its_own_typed_diagnostics() {
         let remainder = RemainderBranch {
@@ -1464,8 +1555,14 @@ mod tests {
         assert_eq!(value["kind"], "instantiation");
         assert_eq!(value["rule"], "heat");
         assert_eq!(
-            value["missing_variables"],
+            value["missingVariables"],
             serde_json::json!([encode_variable(&variable).unwrap()])
+        );
+        assert!(value.get("missing_variables").is_none());
+        assert_typescript_variant_fields(
+            "SearchFailure",
+            "instantiation",
+            &["rule", "missingVariables"],
         );
         assert_eq!(
             serde_json::from_value::<SearchFailureOutput>(value).unwrap(),

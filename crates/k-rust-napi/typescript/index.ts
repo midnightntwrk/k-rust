@@ -427,6 +427,7 @@ export type SearchSatisfiability =
 
 export type SearchFailure =
   | { kind: 'stack-exhausted' }
+  | { kind: 'surviving-macro-or-alias'; symbol: string }
   | { kind: 'builtin'; error: BuiltinFailure }
   | { kind: 'conflicting-results'; rules: string[] }
   | { kind: 'smt'; rule?: string; error: SmtFailure }
@@ -435,7 +436,9 @@ export type SearchFailure =
   | { kind: 'iteration-limit'; limit: number; term: Kore | null }
   | { kind: 'predicate-iteration-limit'; limit: number; predicate: Kore | null }
   | { kind: 'invalid-builtin-result-symbol'; hook: string; symbol: string }
+  | { kind: 'unsupported-hook'; hook: string; reason: string; term: Kore }
   | { kind: 'match'; rule: string; bindings: BackendBinding[]; remainder: BackendTermPair[] }
+  | { kind: 'instantiation'; rule: string; missingVariables: Kore[] }
   | { kind: 'requires'; rule: string; predicates: Kore[] }
   | { kind: 'concreteness'; rule: string; variable: Kore }
   | {
