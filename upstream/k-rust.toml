@@ -56,7 +56,7 @@ Claim activity is never observed (transition.rs:438-447), no test asserts that e
 """
 reproducer = "Prove a claim with observation enabled; no TransitionClass::Claim observation is emitted."
 local_workaround = "none"
-requested_action = "Emit claim observations, assert solver-call invariance under observation, and document effect attribution when observation is disabled."
+requested_action = "Emit claim observations with a compiled sentence identity that distinguishes claims at different authored positions even when their contents are identical, assert solver-call invariance under observation, and document effect attribution when observation is disabled."
 sources = ["k-rust-agent-requests.toml KRUST-UP-002", "upstream-issues.toml KRUST-UP-002"]
 
 [[request]]
@@ -113,7 +113,7 @@ id = "execution-diagnostics"
 title = "Execution and search responses do not carry the backend diagnostics of the run"
 kind = "missing-feature"
 status = "open"
-status_basis = "test run at 985e0086 on 2026-09-25 (a scratch crate running the reproducer below; kink-native tests/bridge.rs undecided_live_occurrences_are_no_witness and a scratch crate running the reproducer below, where only diagnostic::collect returns the backend diagnostic) plus static screen of k-rust-backend/src/diagnostic.rs, simplify.rs, crates/k-rust/src/backend/mod.rs and README.md at 985e0086 on 2026-09-25"
+status_basis = "test run at 985e0086 on 2026-09-25 (kink-native tests/bridge.rs undecided_live_occurrences_are_no_witness and a scratch crate running the reproducer below, where only diagnostic::collect returns the backend diagnostic) plus static screen of k-rust-backend/src/diagnostic.rs, simplify.rs, crates/k-rust/src/backend/mod.rs and README.md at 985e0086 on 2026-09-25"
 blocking = false
 needed_by = ["execution oracle slots that must tell budget exhaustion from a result"]
 summary = """
@@ -163,19 +163,20 @@ id = "rewrite-rule-classification"
 title = "No stable public way to tell which written rules are rewrite rules, and equation applications cannot be observed"
 kind = "missing-feature"
 status = "open"
-status_basis = "static screen of crates/k-rust/src/kompile/module_to_kore/equations.rs, crates/k-rust-backend/src/definition.rs, crates/k-rust-backend/src/transition.rs, and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-25"
+status_basis = "test run at 985e0086 on 2026-09-25 (kink-native one_of_two_identical_unlabelled_rules_is_not_observable, inserted_anonymous_clone_of_observed_rule_is_not_observable and selected_rewrite_reclassified_as_equation_fails_closed) plus static screen of crates/k-rust/src/kompile/passes/number_sentences.rs, crates/k-rust/src/kompile/module_to_kore/equations.rs, crates/k-rust-backend/src/definition.rs, crates/k-rust-backend/src/transition.rs, and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-25"
 blocking = false
 needed_by = ["AllTransitions as every rewrite rule without a second internalize", "function-equation applications as pattern evidence"]
 summary = """
 k-rust classifies rewrite rules against equations at kompile time in the private equation_info (crates/k-rust/src/kompile/module_to_kore/equations.rs:240-291).
 The only public view is BackendDefinition::rewrite_theory after internalize (crates/k-rust-backend/src/definition.rs:214,487), a backend field with no stability promise and keyed by UNIQUE_ID, so a client internalizes the whole definition a second time.
 Nothing maps a written sentence to its kind.
+UNIQUE_ID hashes the rule body, requires, ensures and seven semantic attributes; it excludes source position and label (crates/k-rust/src/kompile/passes/number_sentences.rs:29-37,58-79). Distinct written rules can therefore share one observation identity.
 The observation allowlist accepts only rewrite_theory IDs (crates/k-rust-backend/src/transition.rs:224-256).
 Unfiltered, k-rust emits FunctionEquation and Simplification events (transition.rs:376-447), but they carry no branch transition (transition: None at :395), so a client that anchors events to committed transitions cannot use them.
 """
 reproducer = "Over k-in-k2 testdata/k/undecided.k, observe the isZero(z) => true equation in an observed execute; the backend rejects the filter with ObservationFilterError::UnknownRule."
-local_workaround = "kink-native RewriteRules::classify internalizes the compiled baseline through Backend::internalize_definition and reads rewrite_theory membership; an explicitly selected equation fails closed (function_equations_are_not_observable)."
-requested_action = "Provide (a) a stable public query on a compiled definition or CompiledKoreArtifacts that classifies each written rule by UNIQUE_ID or source location as a rewrite rule, function equation, simplification, or not executed (macro, non-executable); and (b) an account of whether function-equation and simplification applications can be observed under an allowlist with an anchor to the committed transition they occur in, or why not."
+local_workaround = "kink-native RewriteRules::classify internalizes the compiled baseline through Backend::internalize_definition and reads rewrite_theory membership. It fails if an executable rewrite identity cannot be mapped to an authored position or a known builtin. An observed position is admitted only when its UNIQUE_ID belongs to exactly one compiled rule across the execution definition, including builtins; otherwise baseline admission or mutant preparation fails. Explicitly selected equations fail closed (function_equations_are_not_observable; selected_rewrite_reclassified_as_equation_fails_closed)."
+requested_action = "Provide (a) a stable public query on a compiled definition or CompiledKoreArtifacts that classifies each written rule by source position as a rewrite rule, function equation, simplification, or not executed (macro, non-executable), with a per-sentence observation identity unique across compiled rules even when contents match; and (b) an account of whether function-equation and simplification applications can be observed under an allowlist with an anchor to the committed transition they occur in, or why not. Including source position in UNIQUE_ID or exposing a separate position-unique identity would address the identity collision."
 sources = ["k-in-k2 milestone 4, AllTransitions as every rewrite rule"]
 
 # ---------------------------------------------------------------- tracked by KRS
