@@ -641,8 +641,10 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 
 - The LLVM backend remains external. `krust kcompile --backend llvm` emits its input but does not
   invoke LLVM compilation; symbolic execution is handled by the in-process Rust backend.
-- Context/freezer labels are semantically equivalent but can differ in numeric suffix assignment
-  from Java when Java's `HashSet` traversal changes encounter order. The exact corpus does not
+- Context/freezer labels take their numeric suffixes in declaration order, so the emitted
+  definition does not depend on source paths or hash-set iteration; Java K's suffixes follow its
+  `HashSet` traversal and can differ. The difference is deliberate
+  ([compatibility](docs/compatibility.md#comparison-contract)). The exact corpus does not
   normalize arbitrary user labels.
 - The WASM-compatible feature set intentionally omits Z3 inference, MPFR constant folding, and
   host-clock-dependent step timeouts.
@@ -669,7 +671,7 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
   available.
 - Add an AST-level differential oracle against the JavaCC outer parser and broaden exact lexical
   error and ambiguous/parametric inference coverage across rules, claims, contexts, and aliases.
-- Reproduce exact Java scanner diagnostic wording and generated freezer-label iteration order.
+- Reproduce exact Java scanner diagnostic wording.
 - Add a native diagnostic presentation adapter after the portable diagnostic model stabilizes;
   `miette` remains a possible renderer, not a core dependency.
 - Extend standalone sort injection for manually constructed parametric KAST whose labels omit the
