@@ -10,9 +10,8 @@ mod pattern;
 pub use pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, EmptySearchDecision,
     Evaluation, EvaluationContext, EvaluationOptions, Event, EventOrigin, EventVocabulary,
-    ExecutionBounds, ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, MatchMode,
-    OriginMode, PathInput, PathStop, PatternArm, PatternFailure, PatternFailureKind,
-    PatternOutcome, PatternPlan, PayloadClause, Relation, SearchPolicy, SemanticSite,
-    SideCondition, SideConditionResult, SideConditionRow, SideConditionTable, SymbolSorts,
-    TermRelation, TransitionKey, Witness, evaluate,
+    ExecutionBounds, ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, MatchMode, PathInput,
+    PathStop, PatternArm, PatternFailure, PatternFailureKind, PatternOutcome, PatternPlan,
+    PayloadClause, Relation, SearchPolicy, SideCondition, SideConditionResult, SideConditionRow,
+    SideConditionTable, SymbolSorts, TermRelation, TransitionKey, Witness, evaluate,
 };

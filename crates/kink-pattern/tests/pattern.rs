@@ -647,29 +647,6 @@ fn trace_context_nested_symbolics_and_empty_exhaustion_fail_closed() {
         PatternFailureKind::BoundsMismatch
     );
 
-    let mut empty_role = base.clone();
-    empty_role[0].events[0]
-        .origin
-        .semantic_site
-        .as_mut()
-        .expect("memory event site")
-        .role
-        .clear();
-    assert_eq!(
-        evaluate_single(id, &empty_role, &context(id))
-            .expect_err("semantic site without a role")
-            .kind(),
-        PatternFailureKind::InvalidOrigin
-    );
-    let mut missing_site = base.clone();
-    missing_site[0].events[0].origin.semantic_site = None;
-    assert_eq!(
-        evaluate_single(id, &missing_site, &context(id))
-            .expect_err("memory event without its semantic site")
-            .kind(),
-        PatternFailureKind::InvalidOrigin
-    );
-
     // A nested symbolic payload is neither equal nor unequal without a relation.
     let symbolic = |name: &str| app("LblsymbolicAddress", vec![var(name, "SortInt")]);
     let mut nested = paths(&[done("p0", &["wa", "lb"])], id);

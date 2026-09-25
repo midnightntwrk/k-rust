@@ -30,8 +30,8 @@ use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, apply};
 use kink_pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, Evaluation, EvaluationContext,
     EvaluationOptions, EventVocabulary, ExecutionBounds, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, OriginMode, PathInput, PathStop, PatternArm, PatternFailure,
-    PatternOutcome, PatternPlan, SearchPolicy, SymbolSorts, Witness, evaluate,
+    ExecutionTerminalKind, PathInput, PathStop, PatternArm, PatternFailure, PatternOutcome,
+    PatternPlan, SearchPolicy, SymbolSorts, Witness, evaluate,
 };
 
 use CrashPolicy::{CompareIdentity, Distinguish as Distinguishes, Reject};
@@ -172,7 +172,6 @@ fn vocabulary() -> EventVocabulary {
     EventVocabulary::new(vec![Constructor {
         name: "write".to_owned(),
         payload_sorts: Vec::new(),
-        origin_mode: OriginMode::EmittingSentence,
     }])
     .expect("vocabulary")
 }

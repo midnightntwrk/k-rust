@@ -245,7 +245,6 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                 origin: EventOrigin {
                     rule_label: label.clone(),
                     transition: TransitionKey::from(transition),
-                    semantic_site: None,
                 },
                 transition_ordinal: widen(transition_ordinal),
                 emission_ordinal: widen(emission_ordinal),
@@ -434,7 +433,7 @@ mod tests {
     use k_rust::kore::{json as kore_json, parser::parse_pattern};
     use kink_pattern::{
         Atom, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary, ExecutionBounds,
-        OriginMode, PatternArm, PatternOutcome, PatternPlan, SearchPolicy, evaluate,
+        PatternArm, PatternOutcome, PatternPlan, SearchPolicy, evaluate,
     };
     use serde_json::Value;
 
@@ -518,7 +517,6 @@ mod tests {
                 .map(|name| Constructor {
                     name: name.to_owned(),
                     payload_sorts: Vec::new(),
-                    origin_mode: OriginMode::EmittingSentence,
                 })
                 .collect(),
         )

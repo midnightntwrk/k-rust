@@ -4,14 +4,12 @@
 #![allow(dead_code)]
 
 use k_rust::kore::ast::{Pattern, Sort, Symbol, Variable, VariableKind};
-use k_rust::provenance::DestinationAnchor;
 use kink_pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, EvaluationContext,
     EvaluationOptions, Event, EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop,
-    ExecutionTerminal, ExecutionTerminalKind, MatchMode, OriginMode, PathInput, PathStop,
-    PatternArm, PatternPlan, PayloadClause, Relation, SearchPolicy, SemanticSite, SideCondition,
-    SideConditionResult, SideConditionRow, SideConditionTable, SymbolSorts, TermRelation,
-    TransitionKey,
+    ExecutionTerminal, ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm,
+    PatternPlan, PayloadClause, Relation, SearchPolicy, SideCondition, SideConditionResult,
+    SideConditionRow, SideConditionTable, SymbolSorts, TermRelation, TransitionKey,
 };
 
 pub fn sort(name: &str) -> Sort {
@@ -144,15 +142,6 @@ pub const RULE_LABELS: [&str; 6] = [
 /// Event `name` at `index`, one transition per event.
 pub fn event(name: &str, index: usize) -> Event {
     let (constructor, payload, rule_label) = event_spec(name);
-    let semantic_site = constructor.starts_with("memory").then(|| SemanticSite {
-        role: "event-origin".to_owned(),
-        anchor: DestinationAnchor {
-            module: "MEMORY".to_owned(),
-            sentence: rule_label.to_owned(),
-            sentence_index: 0,
-            path: vec![0],
-        },
-    });
     Event {
         index,
         constructor: constructor.to_owned(),
@@ -163,38 +152,32 @@ pub fn event(name: &str, index: usize) -> Event {
                 rule: format!("{rule_label}-id"),
                 target: format!("target-{index}"),
             },
-            semantic_site,
         },
         transition_ordinal: u64::try_from(index).expect("small index"),
         emission_ordinal: 0,
     }
 }
 
-fn constructor(name: &str, payload: &[&str], site: bool) -> Constructor {
+fn constructor(name: &str, payload: &[&str]) -> Constructor {
     Constructor {
         name: name.to_owned(),
         payload_sorts: payload.iter().map(|name| sort(name)).collect(),
-        origin_mode: if site {
-            OriginMode::EmittingSentenceAndSemanticSite
-        } else {
-            OriginMode::EmittingSentence
-        },
     }
 }
 
 pub fn memory_constructors() -> Vec<Constructor> {
     vec![
-        constructor("Other", &[], false),
-        constructor("memoryFree", &["SortAddress"], true),
-        constructor("memoryLoad", &["SortAddress", "SortInt"], true),
-        constructor("memoryWrite", &["SortAddress", "SortInt"], true),
+        constructor("Other", &[]),
+        constructor("memoryFree", &["SortAddress"]),
+        constructor("memoryLoad", &["SortAddress", "SortInt"]),
+        constructor("memoryWrite", &["SortAddress", "SortInt"]),
     ]
 }
 
 pub fn counter_constructors() -> Vec<Constructor> {
     vec![
-        constructor("branchTaken", &["SortInt"], false),
-        constructor("counterIncrement", &["SortInt", "SortInt"], false),
+        constructor("branchTaken", &["SortInt"]),
+        constructor("counterIncrement", &["SortInt", "SortInt"]),
     ]
 }
 

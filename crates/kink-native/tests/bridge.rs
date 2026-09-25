@@ -22,8 +22,8 @@ use kink_native::{ManifestFailure, NativeValidator, ObservedRule, ValidatedDefin
 use kink_patch::{Edit, Patch, TermRef};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary,
-    ExecutionBounds, ExecutionTerminalKind, MatchMode, OriginMode, PathStop, PatternArm,
-    PatternOutcome, PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
+    ExecutionBounds, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
+    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -145,7 +145,6 @@ fn vocabulary(constructors: &[(&str, &[&str])]) -> EventVocabulary {
             .map(|(name, sorts)| Constructor {
                 name: (*name).to_owned(),
                 payload_sorts: sorts.iter().map(|sort| kore_sort(sort)).collect(),
-                origin_mode: OriginMode::EmittingSentence,
             })
             .collect(),
     )

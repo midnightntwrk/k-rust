@@ -1,6 +1,5 @@
 use k_rust::backend::TransitionIdOutput;
 use k_rust::kore::ast::{Definition as KoreDefinition, Pattern, Sentence as KoreSentence, Sort};
-use k_rust::provenance::DestinationAnchor;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
@@ -56,19 +55,11 @@ impl fmt::Display for PatternFailure {
 
 impl std::error::Error for PatternFailure {}
 
-/// How event provenance is represented by the vocabulary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum OriginMode {
-    EmittingSentence,
-    EmittingSentenceAndSemanticSite,
-}
-
 /// One constructor in an event vocabulary. Payload sorts are KORE sorts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Constructor {
     pub name: String,
     pub payload_sorts: Vec<Sort>,
-    pub origin_mode: OriginMode,
 }
 
 /// An event vocabulary: constructor names mapped to their payload sorts.
@@ -442,19 +433,11 @@ pub struct Event {
     pub emission_ordinal: u64,
 }
 
-/// One semantic site an event is attributed to, anchored in its destination sentence.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct SemanticSite {
-    pub role: String,
-    pub anchor: DestinationAnchor,
-}
-
 /// The rule whose transition emitted an event, and the transition itself.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EventOrigin {
     pub rule_label: String,
     pub transition: TransitionKey,
-    pub semantic_site: Option<SemanticSite>,
 }
 
 /// Closed execution terminal kinds carried by a trace.
@@ -1038,21 +1021,6 @@ fn validate_events(
                 "event origin {} is not an observed rule",
                 event.origin.rule_label
             )));
-        }
-        match (constructor.origin_mode, &event.origin.semantic_site) {
-            (OriginMode::EmittingSentence, None) => {}
-            (OriginMode::EmittingSentenceAndSemanticSite, Some(site)) => {
-                if site.role.is_empty() || site.anchor.path.is_empty() {
-                    return Err(invalid_origin(
-                        "semantic-site role and anchor path must be nonempty",
-                    ));
-                }
-            }
-            _ => {
-                return Err(invalid_origin(
-                    "event origin mode disagrees with semantic-site presence",
-                ));
-            }
         }
         if previous_transition.is_some_and(|previous| event.transition_ordinal < previous) {
             return Err(invalid_path("transition ordinals must be monotonic"));

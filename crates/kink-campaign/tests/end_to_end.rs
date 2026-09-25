@@ -24,7 +24,7 @@ use kink_patch::{
     SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::{
-    Atom, Constructor, EventVocabulary, ExecutionTerminalKind, OriginMode, PatternArm, PatternPlan,
+    Atom, Constructor, EventVocabulary, ExecutionTerminalKind, PatternArm, PatternPlan,
 };
 use serde_json::Value;
 
@@ -94,7 +94,6 @@ fn vocabulary(names: &[&str]) -> EventVocabulary {
             .map(|name| Constructor {
                 name: (*name).to_owned(),
                 payload_sorts: Vec::new(),
-                origin_mode: OriginMode::EmittingSentence,
             })
             .collect(),
     )
