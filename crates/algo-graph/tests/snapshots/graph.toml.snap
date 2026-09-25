@@ -2627,7 +2627,7 @@ id = "definition.checks.run"
 provenance = "declared"
 area = "definition"
 name = "structural checking of resolved definitions"
-variable = "M = modules; S = visited sentences and terms plus catalog work"
+variable = "M = modules; S = visited sentences and terms; P = visible parametric token declarations"
 no_counter = "structural definition checks have no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "DefinitionChecksRun"
@@ -2649,7 +2649,7 @@ symbol = "check_module_with_options"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(M x S)"
+bound = "O(M x (S x (P + 1) + catalog work))"
 
 [[node]]
 kind = "algorithm"
