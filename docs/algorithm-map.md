@@ -33,7 +33,7 @@ Phases:
   - 15 resolve structured configurations
     - definition.resolve.imports — O(M log M + E log E + sum l_m^2 + sum l_m x k x… +1 mode — in: [expanded configurations], [lowered source], [parsed rule bubbles] → out: [resolved definition]
   - 16 definition checks
-    - definition.checks.run — O(M x S)
+    - definition.checks.run — O(M x (S x (P + 1) + catalog work))
 - `TRANSFORM_STAGES` + `EMISSION_STAGES` 17–50, follows:
   - 17 resolve commutative rules
   - 18 resolve I/O streams
