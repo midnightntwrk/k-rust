@@ -1281,6 +1281,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
 symbol = "freshen_claim"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "rename_apart"
+
 [[node.cost]]
 mode = "shared counter"
 bound = "O(c) per name, amortized O(1)"
@@ -1290,7 +1295,7 @@ mode = "Booster existential spelling"
 bound = "O(c) trailing-decimal retries"
 
 [[node.cost]]
-mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, alias fresh_variable)"
+mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, rename_apart, alias fresh_variable)"
 bound = "O(v log v) per call before the retry loop"
 
 [[node.cost]]

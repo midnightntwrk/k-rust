@@ -16,7 +16,7 @@
 //! bound = "O(c) trailing-decimal retries"
 //!
 //! [[cost]]
-//! mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, alias fresh_variable)"
+//! mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, rename_apart, alias fresh_variable)"
 //! bound = "O(v log v) per call before the retry loop"
 //!
 //! [[cost]]
