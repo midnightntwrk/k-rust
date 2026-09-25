@@ -352,7 +352,7 @@ fn cloning_attributes_shares_provenance_receipt_storage() {
 }
 
 #[test]
-fn rejects_non_unique_main_modules_and_emits_context_alias_placeholders() {
+fn rejects_non_unique_main_modules_and_unrepresentable_sentences() {
     let missing = complete_definition(Vec::new());
     let mut missing = missing;
     missing.main_module = "MISSING".into();
@@ -373,8 +373,15 @@ fn rejects_non_unique_main_modules_and_emits_context_alias_placeholders() {
         wire["term"]["modules"][0]["localSentences"][0]["node"],
         "badsentence"
     );
-    let decoded = json::from_str(&encoded).unwrap();
-    assert!(decoded.modules[0].local_sentences.is_empty());
+    let error = json::from_str(&encoded).unwrap_err();
+    assert!(matches!(
+        error,
+        json::Error::UnsupportedSentence("badsentence")
+    ));
+    assert_eq!(
+        error.to_string(),
+        "KAST JSON version 4 document contains badsentence: its writer could not represent a sentence"
+    );
 }
 
 #[test]
