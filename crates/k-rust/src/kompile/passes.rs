@@ -105,8 +105,8 @@ pub use resolve_semantic_casts::{
 };
 pub(crate) use resolve_strict::resolve_strict_pass;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};
-pub(crate) use subsort_kitem::subsort_kitem_pass;
 pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
+pub(crate) use subsort_kitem::{is_parser_sort, subsort_kitem_pass};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {

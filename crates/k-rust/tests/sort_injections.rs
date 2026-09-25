@@ -244,8 +244,12 @@ fn semantic_casts_instantiate_parametric_production_results() {
     assert_eq!(rendered.matches("inj{B,C}").count(), 2, "{rendered}");
 }
 
+// `use(X:Value)` with `MInt{8} < Value` has no instantiation of `W` under which `Value <= MInt{W}`:
+// the only declared instance, `MInt{8}`, lies below `Value`. `inj{Value, MInt{8}}` would not embed
+// `Value` in `MInt{8}` (the definition declares no such subsort), so the term is ill-sorted and the
+// injector rejects it instead of building that injection.
 #[test]
-fn parametric_head_matches_declared_subsort_of_actual() {
+fn parametric_argument_above_every_declared_instance_is_rejected() {
     let definition = lowered(indoc! {r#"
         module MAIN
           syntax MInt{8}
@@ -264,18 +268,58 @@ fn parametric_head_matches_declared_subsort_of_actual() {
         }],
     );
 
+    let error = injector.inject(&term, &Sort::new("Result")).unwrap_err();
+
+    assert!(
+        matches!(
+            &error,
+            // No instance of `MInt{W}` lies at or above `Value`, so `W` stays a sort variable and
+            // no declared instance of `MInt{W}` admits the argument.
+            SortInjectionError::IllSortedTerm(mismatch)
+                if mismatch.found == Sort::new("Value") && mismatch.required.name == "MInt"
+        ),
+        "{error}"
+    );
+}
+
+// An argument whose sort is declared below `MInt{8}` fits `MInt{W}` at `W = 8`: the instance is
+// found above the argument's sort and the argument is injected upward into it.
+#[test]
+fn parametric_argument_below_a_declared_instance_instantiates_it() {
+    let definition = lowered(indoc! {r#"
+        module MAIN
+          syntax MInt{8}
+          syntax Byte
+          syntax MInt{8} ::= Byte
+          syntax Result
+          syntax {W} Result ::= "use(" MInt{W} ")" [symbol(use)]
+        endmodule
+    "#});
+    let resolved = ResolvedDefinition::resolve(&definition).unwrap();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let term = Term::apply(
+        "use",
+        vec![Term::Variable {
+            name: "X".into(),
+            sort: Some(Sort::new("Byte")),
+        }],
+    );
+
     let injected = injector.inject(&term, &Sort::new("Result")).unwrap();
     let Term::Apply { label, arguments } = injected.unannotated() else {
         panic!("expected the parametric use application");
     };
 
     assert_eq!(label.parameters, vec![Sort::new("8")]);
-    assert!(matches!(
-        arguments.as_slice(),
-        [Term::Apply { label, .. }]
-            if label.name == "inj"
-                && label.parameters == vec![Sort::new("Value"), Sort::with_parameters("MInt", vec![Sort::new("8")])]
-    ));
+    assert!(
+        matches!(
+            arguments.as_slice(),
+            [Term::Apply { label, .. }]
+                if label.name == "inj"
+                    && label.parameters == vec![Sort::new("Byte"), Sort::with_parameters("MInt", vec![Sort::new("8")])]
+        ),
+        "{injected}"
+    );
 }
 
 fn wem10_bound_definition(source: &str) -> ResolvedDefinition {
@@ -1128,4 +1172,285 @@ fn definition_injection_errors_name_the_source_sentence() {
         error.to_string(),
         "fixture.k:17: cannot find a production for KLabel \"missing\""
     );
+}
+
+// A loaded rule edited in place and relinked, as an embedder that mutates `LoadedDefinition`
+// does, and the same edited rule given to `load_structured` in place of its bubble: the compiler
+// must reject every term whose sort does not fit its position, whatever path produced it.
+mod edited_loaded_rules {
+    use k_rust::builtin;
+    use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence};
+    use k_rust::kast::{Sort, Term};
+    use k_rust::kompile::{
+        CompilationBackend, CompileError, CompileOptions, compile_loaded_definition,
+    };
+    use k_rust::outer::{
+        LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation, load_structured,
+    };
+
+    const COUNTER: &str = include_str!("fixtures/sort-check/counter.k");
+    const PRELUDE: &str = include_str!("fixtures/sort-check/portable-prelude.k");
+    const BACKENDS: [CompilationBackend; 2] = [CompilationBackend::Rust, CompilationBackend::Llvm];
+
+    fn options(backend: CompilationBackend) -> LoadOptions {
+        LoadOptions {
+            implicit_sources: vec![
+                builtin::embedded("kast.md").unwrap(),
+                ResolvedSource::new("portable-prelude.k", PRELUDE.to_owned()),
+            ],
+            excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+            ..LoadOptions::default()
+        }
+    }
+
+    fn load(backend: CompilationBackend) -> LoadedDefinition {
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        load_for_compilation(
+            ResolvedSource::new("counter.k", COUNTER.to_owned()),
+            "COUNTER",
+            None,
+            &mut resolver,
+            &options(backend),
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
+        .0
+    }
+
+    fn labelled<'a>(definition: &'a mut Definition, label: &str) -> &'a mut Sentence {
+        let module = definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "COUNTER")
+            .unwrap();
+        let sentence = module
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| sentence.attributes().string(AttributeKey::Label) == Some(label))
+            .unwrap();
+        k_rust::definition::sentence_mut(sentence)
+    }
+
+    /// The subterm at `path`: 0 body, 1 requires; then rewrite sides and application arguments.
+    fn at<'a>(sentence: &'a mut Sentence, path: &[usize]) -> &'a mut Term {
+        let Sentence::Rule { body, requires, .. } = sentence else {
+            panic!("expected a rule")
+        };
+        let mut term = if path[0] == 0 { body } else { requires };
+        for step in &path[1..] {
+            while let Term::Annotated { term: inner, .. } = term {
+                term = inner;
+            }
+            term = match term {
+                Term::Rewrite { left, right } => {
+                    if *step == 0 {
+                        left
+                    } else {
+                        right
+                    }
+                }
+                Term::Apply { arguments, .. } => &mut arguments[*step],
+                other => panic!("no child {step} in {other}"),
+            };
+        }
+        term
+    }
+
+    fn token(value: &str, sort: &str) -> Term {
+        Term::Token {
+            token: value.into(),
+            sort: Sort::new(sort),
+        }
+    }
+
+    fn cast(sort: &str, term: Term) -> Term {
+        Term::apply(format!("#SemanticCastTo{sort}"), vec![term])
+    }
+
+    fn compile(loaded: &LoadedDefinition, backend: CompilationBackend) -> Result<(), CompileError> {
+        compile_loaded_definition(
+            loaded,
+            CompileOptions {
+                backend,
+                ..CompileOptions::default()
+            },
+        )
+        .map(|_| ())
+    }
+
+    fn relinked(base: &LoadedDefinition, definition: Definition) -> LoadedDefinition {
+        LoadedDefinition {
+            files: base.files.clone(),
+            source_table: base.source_table.clone(),
+            resolved: ResolvedDefinition::resolve(&definition).expect("edited definition resolves"),
+            definition,
+            diagnostics: base.diagnostics.clone(),
+        }
+    }
+
+    /// The edited `increment` rule spliced into the outer-lowered source in place of its bubble.
+    fn structured(edited: Sentence, backend: CompilationBackend) -> LoadedDefinition {
+        let parsed = k_rust::outer::parse("counter.k", COUNTER).unwrap();
+        let mut definition = k_rust::outer::lower(&parsed, "COUNTER").unwrap();
+        let module = definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "COUNTER")
+            .unwrap();
+        let bubble = module
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| {
+                matches!(&***sentence, Sentence::Bubble { contents, .. }
+                    if contents.contains("counter(N, s(L))"))
+            })
+            .expect("the increment bubble");
+        *k_rust::definition::sentence_mut(bubble) = edited;
+        load_structured(definition, &options(backend)).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// Compile `increment` with `replacement` at `path` through both entry paths and backends.
+    fn outcomes(
+        path: &[usize],
+        replacement: &Term,
+    ) -> Vec<(CompilationBackend, &'static str, Result<(), CompileError>)> {
+        let mut outcomes = Vec::new();
+        for backend in BACKENDS {
+            let base = load(backend);
+            let mut definition = base.definition.clone();
+            let sentence = labelled(&mut definition, "COUNTER.increment");
+            *at(sentence, path) = replacement.clone();
+            let edited = sentence.clone();
+            outcomes.push((
+                backend,
+                "relinked",
+                compile(&relinked(&base, definition), backend),
+            ));
+            outcomes.push((
+                backend,
+                "load_structured",
+                compile(&structured(edited, backend), backend),
+            ));
+        }
+        outcomes
+    }
+
+    fn assert_rejected(path: &[usize], replacement: Term, reason: &str) {
+        for (backend, entry, outcome) in outcomes(path, &replacement) {
+            let error = outcome.expect_err(&format!(
+                "{backend} {entry} compiled the ill-sorted {replacement}"
+            ));
+            assert_eq!(
+                error.stage, "add sort injections",
+                "{backend} {entry}: {error}"
+            );
+            assert!(
+                error.message.contains("counter.k:16: ") && error.message.contains(reason),
+                "{backend} {entry}: {error}"
+            );
+        }
+    }
+
+    fn assert_compiles(path: &[usize], replacement: Term) {
+        for (backend, entry, outcome) in outcomes(path, &replacement) {
+            outcome.unwrap_or_else(|error| {
+                panic!("{backend} {entry} rejected {replacement}: {error}")
+            });
+        }
+    }
+
+    const NOT_A_SUBSORT: &str = "which is not a subsort of the sort";
+
+    #[test]
+    fn a_bool_token_at_a_nat_argument_is_rejected() {
+        assert_rejected(
+            &[0, 1, 0],
+            token("true", "Bool"),
+            &format!("has sort Bool, {NOT_A_SUBSORT} Nat"),
+        );
+    }
+
+    #[test]
+    fn a_requires_clause_of_a_user_sort_is_rejected() {
+        assert_rejected(
+            &[1],
+            Term::apply("z", vec![]),
+            &format!("has sort Nat, {NOT_A_SUBSORT} Bool"),
+        );
+    }
+
+    #[test]
+    fn an_int_requires_clause_is_rejected() {
+        assert_rejected(
+            &[1],
+            token("1", "Int"),
+            &format!("has sort Int, {NOT_A_SUBSORT} Bool"),
+        );
+    }
+
+    #[test]
+    fn an_application_requires_clause_of_another_sort_is_rejected() {
+        let counter = Term::apply(
+            "counter",
+            vec![Term::apply("z", vec![]), Term::apply("z", vec![])],
+        );
+        assert_rejected(
+            &[1],
+            counter,
+            &format!("has sort Counter, {NOT_A_SUBSORT} Bool"),
+        );
+    }
+
+    #[test]
+    fn a_counter_term_at_a_nat_argument_is_rejected() {
+        let base = load(CompilationBackend::Rust);
+        let mut definition = base.definition.clone();
+        let left = at(labelled(&mut definition, "COUNTER.increment"), &[0, 0]).clone();
+        assert_rejected(
+            &[0, 1, 0],
+            left,
+            &format!("has sort Counter, {NOT_A_SUBSORT} Nat"),
+        );
+    }
+
+    #[test]
+    fn a_cast_to_a_sort_incomparable_with_its_operand_is_rejected() {
+        assert_rejected(
+            &[0, 1, 0],
+            cast("Nat", token("true", "Bool")),
+            "to sort Nat is not comparable with its sort Bool",
+        );
+    }
+
+    // The cast alone makes the condition ill-sorted: `Nat` and `Bool` are incomparable, even though
+    // the condition position accepts the operand's own sort.
+    #[test]
+    fn an_incomparable_cast_as_a_requires_clause_is_rejected() {
+        assert_rejected(
+            &[1],
+            cast("Nat", token("true", "Bool")),
+            "to sort Nat is not comparable with its sort Bool",
+        );
+    }
+
+    #[test]
+    fn the_unedited_definition_compiles() {
+        for backend in BACKENDS {
+            compile(&load(backend), backend).unwrap_or_else(|error| panic!("{backend}: {error}"));
+        }
+    }
+
+    // `Counter` and `Bool` are both below `KItem`, their least upper bound, so the rewrite is well
+    // sorted at `KItem`.
+    #[test]
+    fn a_rewrite_between_sibling_sorts_compiles_at_their_upper_bound() {
+        assert_compiles(&[0, 1], token("true", "Bool"));
+    }
+
+    #[test]
+    fn an_upcast_and_an_exact_cast_compile() {
+        assert_compiles(&[0, 1, 0], cast("Nat", Term::apply("z", vec![])));
+        assert_compiles(&[1], cast("KItem", token("true", "Bool")));
+    }
 }

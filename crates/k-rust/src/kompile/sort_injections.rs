@@ -30,6 +30,7 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
+use super::passes::is_parser_sort;
 use super::view::View;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,6 +77,24 @@ pub enum SortInjectionError {
         sorts: Vec<Sort>,
         expected: Option<Sort>,
     },
+    /// A term whose sort is not below the sort its position requires, so the only injection that
+    /// could place it there, `inj{found, required}`, is not an embedding of the subsort order.
+    IllSortedTerm(Box<SortMismatch>),
+    /// A semantic cast whose target (`required`) is neither at or above the operand's sort
+    /// (`found`) nor strictly below it, so the cast is neither an upcast (an injection) nor a
+    /// downcast (a projection).
+    IncomparableCast(Box<SortMismatch>),
+}
+
+/// A term and the two sorts a sort check found unrelated.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SortMismatch {
+    /// The term, rendered and truncated for a diagnostic.
+    pub term: String,
+    /// The sort the term has.
+    pub found: Sort,
+    /// The sort its position or cast requires.
+    pub required: Sort,
 }
 
 impl fmt::Display for SortInjectionError {
@@ -168,6 +187,16 @@ impl fmt::Display for SortInjectionError {
                 }
                 Ok(())
             }
+            Self::IllSortedTerm(mismatch) => write!(
+                formatter,
+                "term {} has sort {}, which is not a subsort of the sort {} its position requires",
+                mismatch.term, mismatch.found, mismatch.required
+            ),
+            Self::IncomparableCast(mismatch) => write!(
+                formatter,
+                "semantic cast of {} to sort {} is not comparable with its sort {}: it is neither an upcast nor a downcast",
+                mismatch.term, mismatch.required, mismatch.found
+            ),
         }
     }
 }
@@ -374,6 +403,10 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// downcast: the injector replaces the term by `project:<target>(term)`, whose declared result
     /// sort is `target`, so `target` is the sort of the term the sentence contains and the second
     /// component is `Some(target)`. Every enclosing inference must see that sort.
+    ///
+    /// A cast `t:S` claims that `t` denotes an element of `S`. When `S` is neither at or above the
+    /// sort of `t` nor strictly below it, no injection or projection realizes that claim, so the
+    /// cast is rejected as [`SortInjectionError::IncomparableCast`].
     fn sort_and_downcast(
         &self,
         term: &Term,
@@ -395,7 +428,86 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             Some(target) if *target != natural && self.subsorts.less_than_eq(target, &natural) => {
                 Ok((target.clone(), Some(target.clone())))
             }
+            Some(target) if !self.below(&natural, target) && !self.below(target, &natural) => Err(
+                SortInjectionError::IncomparableCast(Box::new(SortMismatch {
+                    term: render_term(term),
+                    found: natural,
+                    required: target.clone(),
+                })),
+            ),
             _ => Ok((natural, None)),
+        }
+    }
+
+    /// Whether a term of sort `actual` may stand at a position of sort `expected`: `actual <=
+    /// expected` in the module's subsort order, extended with every sort other than a parser sort
+    /// below `KItem`, and `KItem` below `K`.
+    ///
+    /// Every non-parser sort is a `KItem` by K's sort structure; the `add KItem subsorts` stage
+    /// materializes that fact as declared subsorts, but the injector also serves callers that never
+    /// ran the stage, so the order used here states it directly and does not depend on the stage.
+    /// A `KItem` is a `K` as the one-element sequence the injector builds for it at a `K` position.
+    ///
+    /// A sort mentioning a sort variable (`#SortParam`) stands for its instances, and the
+    /// injection is a constraint on how the sentence's sort parameters are instantiated. It is
+    /// accepted when some instantiation satisfies it: always when either side is a bare sort
+    /// variable, and otherwise when a declared instance of each side is related as above.
+    fn below(&self, actual: &Sort, expected: &Sort) -> bool {
+        if self.below_as_written(actual, expected) {
+            return true;
+        }
+        let parametric = [actual, expected].map(mentions_sort_parameter);
+        if parametric == [false, false] {
+            return false;
+        }
+        if [actual, expected]
+            .iter()
+            .any(|sort| sort.name == FrontendSort::SortParam.as_str())
+        {
+            return true;
+        }
+        let instances = |pattern: &Sort| -> Vec<Sort> {
+            if mentions_sort_parameter(pattern) {
+                self.sorts
+                    .sorted_all_sorts()
+                    .filter(|sort| instance_of(pattern, sort))
+                    .cloned()
+                    .collect()
+            } else {
+                vec![pattern.clone()]
+            }
+        };
+        let expected_instances = instances(expected);
+        instances(actual).iter().any(|actual| {
+            expected_instances
+                .iter()
+                .any(|expected| self.below_as_written(actual, expected))
+        })
+    }
+
+    fn below_as_written(&self, actual: &Sort, expected: &Sort) -> bool {
+        let kitem = Sort::builtin(BuiltinSort::KItem);
+        actual == expected
+            || self.subsorts.less_than_eq(actual, expected)
+            || (*expected == kitem && !is_parser_sort(actual))
+            || (expected.is_builtin(BuiltinSort::K) && self.below_as_written(actual, &kitem))
+    }
+
+    /// Reject a term of sort `actual` at a position of sort `expected` unless `actual` is below it.
+    fn check_below(
+        &self,
+        term: &Term,
+        actual: &Sort,
+        expected: &Sort,
+    ) -> Result<(), SortInjectionError> {
+        if self.below(actual, expected) {
+            Ok(())
+        } else {
+            Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+                term: render_term(term),
+                found: actual.clone(),
+                required: expected.clone(),
+            })))
         }
     }
 
@@ -549,6 +661,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             if actual.name == BuiltinSort::KItem.k_name() {
                 return Ok(Term::Sequence(vec![visited]));
             }
+            self.check_below(term, &actual, &Sort::builtin(BuiltinSort::KItem))?;
             return Ok(Term::Sequence(vec![injection(
                 actual,
                 Sort::builtin(BuiltinSort::KItem),
@@ -563,6 +676,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
             return Ok(wrapped);
         }
+        self.check_below(term, &actual, expected)?;
         Ok(injection(actual, expected.clone(), visited))
     }
 
@@ -914,7 +1028,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     Some(&fresh_expected),
                     allow_trailing_arguments,
                 )?;
-                self.match_sort(parameters, declared, &actual, &mut matches);
+                self.match_sort(
+                    parameters,
+                    declared,
+                    &actual,
+                    Instances::AtOrAbove,
+                    &mut matches,
+                );
             }
             // Invariant: each `parameter` scans `argument_sorts` once, O(|parameters| * |argument_sorts|), and the scan stops at the first parameter that occurs in `sort` but in no argument sort.
             let result_only_parameter = parameters.iter().any(|parameter| {
@@ -924,7 +1044,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                         .any(|argument| contains_sort(argument, parameter))
             });
             if result_only_parameter {
-                self.match_sort(parameters, sort, &expected, &mut matches);
+                self.match_sort(
+                    parameters,
+                    sort,
+                    &expected,
+                    Instances::AtOrBelow,
+                    &mut matches,
+                );
             }
             parameters
                 .iter()
@@ -979,27 +1105,47 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         )
     }
 
+    /// Collect the parameter bindings under which the parametric sort `declared` can be
+    /// instantiated to a declared sort related to `known` in the direction `instances` names.
+    ///
+    /// An argument of sort `A` fits a declared argument sort `D` under a substitution only when
+    /// `A <= D`, so for an argument the candidate instances are `A` itself and the declared sorts
+    /// above it; for a parameter that occurs only in the result, the result must fit its position
+    /// of sort `E`, so the candidates are `E` and the declared sorts below it. The bindings found
+    /// here only choose the instantiation: every argument is then injected at its instantiated
+    /// declared sort, which rejects an instantiation it does not fit.
     // Invariant: each `match_sort` to `match_sort_parameters` to `match_sort` round descends one level into `declared.parameters`, so the depth of `declared` bounds the recursion; `matches` accumulates, per formal parameter, every sort bound so far.
     fn match_sort(
         &self,
         formal_parameters: &[Sort],
         declared: &Sort,
-        actual: &Sort,
+        known: &Sort,
+        instances: Instances,
         matches: &mut BTreeMap<Sort, Vec<Sort>>,
     ) {
         if formal_parameters.contains(declared) {
             matches
                 .entry(declared.clone())
                 .or_default()
-                .push(actual.clone());
+                .push(known.clone());
             return;
         }
 
-        self.match_sort_parameters(formal_parameters, declared, actual, matches);
-        // Invariant: `matches` includes the bindings from `actual` and from every strict subsort of `actual` before `candidate` in `sorts.sorted_all_sorts()`; each candidate is visited once.
+        self.match_sort_parameters(formal_parameters, declared, known, instances, matches);
+        // Invariant: `matches` includes the bindings from `known` and from every declared sort strictly on the `instances` side of `known` before `candidate` in `sorts.sorted_all_sorts()`; each candidate is visited once.
         for candidate in self.sorts.sorted_all_sorts() {
-            if candidate != actual && self.subsorts.less_than_eq(candidate, actual) {
-                self.match_sort_parameters(formal_parameters, declared, candidate, matches);
+            let related = match instances {
+                Instances::AtOrAbove => self.subsorts.less_than_eq(known, candidate),
+                Instances::AtOrBelow => self.subsorts.less_than_eq(candidate, known),
+            };
+            if candidate != known && related {
+                self.match_sort_parameters(
+                    formal_parameters,
+                    declared,
+                    candidate,
+                    instances,
+                    matches,
+                );
             }
         }
     }
@@ -1008,12 +1154,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         &self,
         formal_parameters: &[Sort],
         declared: &Sort,
-        actual: &Sort,
+        known: &Sort,
+        instances: Instances,
         matches: &mut BTreeMap<Sort, Vec<Sort>>,
     ) {
-        if declared.name == actual.name && declared.parameters.len() == actual.parameters.len() {
-            for (declared, actual) in declared.parameters.iter().zip(&actual.parameters) {
-                self.match_sort(formal_parameters, declared, actual, matches);
+        if declared.name == known.name && declared.parameters.len() == known.parameters.len() {
+            for (declared, known) in declared.parameters.iter().zip(&known.parameters) {
+                self.match_sort(formal_parameters, declared, known, instances, matches);
             }
         }
     }
@@ -1157,6 +1304,14 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     }
 }
 
+/// The side of a known sort on which `match_sort` looks for declared instances of a parametric
+/// sort: at or above an argument's sort, at or below the sort a result position requires.
+#[derive(Clone, Copy, Debug)]
+enum Instances {
+    AtOrAbove,
+    AtOrBelow,
+}
+
 #[derive(Clone, Debug)]
 struct InstantiatedSignature {
     label: Label,
@@ -1233,6 +1388,34 @@ pub fn add_sort_injections_from_resolved(
     term: &Term,
 ) -> Result<Term, SortInjectionError> {
     SortInjector::new(definition, module)?.inject_at_top(term)
+}
+
+/// Whether `sort` is or contains a sort variable of a parametric sentence or production.
+fn mentions_sort_parameter(sort: &Sort) -> bool {
+    sort.name == FrontendSort::SortParam.as_str()
+        || sort.parameters.iter().any(mentions_sort_parameter)
+}
+
+/// Whether `sort` is an instance of `pattern`, whose sort variables match any sort.
+fn instance_of(pattern: &Sort, sort: &Sort) -> bool {
+    pattern.name == FrontendSort::SortParam.as_str()
+        || (pattern.name == sort.name
+            && pattern.parameters.len() == sort.parameters.len()
+            && pattern
+                .parameters
+                .iter()
+                .zip(&sort.parameters)
+                .all(|(pattern, sort)| instance_of(pattern, sort)))
+}
+
+/// A bounded rendering of a term for a sort diagnostic.
+fn render_term(term: &Term) -> String {
+    const LIMIT: usize = 200;
+    let rendered = term.to_string();
+    match rendered.char_indices().nth(LIMIT) {
+        Some((end, _)) => format!("{}...", &rendered[..end]),
+        None => rendered,
+    }
 }
 
 fn injection(from: Sort, to: Sort, term: Term) -> Term {

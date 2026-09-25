@@ -85,7 +85,9 @@ pub(crate) fn subsort_kitem_pass(
     Ok(output)
 }
 
-fn is_parser_sort(sort: &Sort) -> bool {
+/// A sort of K's own term syntax (`K`, `KItem`, `KConfigVar`, `KBott`, `KLabel`, `KList`, `KString`,
+/// a `#`-prefixed sort, or a numeric sort argument), which this stage does not place below `KItem`.
+pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
     [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
         .iter()
         .any(|builtin| sort.name == builtin.k_name())
