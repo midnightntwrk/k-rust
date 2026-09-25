@@ -594,11 +594,13 @@ fn load_impl(
 /// in [`InputSpace::Structured`](crate::provenance::InputSpace::Structured) (its module and index in `definition`, replacing any address it
 /// already carried) before configurations are expanded, so compilation relates what it emits to
 /// the caller's own sentence positions.
+/// Compilation trusts those addresses only while `resolved` is the one this call returned; a
+/// `LoadedDefinition` whose resolution was rebuilt or updated is addressed in the compile space.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
-    stamp_input_addresses(&mut definition, InputSpace::Structured, true);
+    stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let mut resolver = |_: &str, required: &str| {
         builtin::embedded(required)
             .ok_or_else(|| format!("embedded builtin source {required:?} was not found"))
@@ -648,7 +650,10 @@ pub fn load_structured(
         None,
         &mut timings,
     )
-    .map(|(loaded, _)| loaded)
+    .map(|(mut loaded, _)| {
+        loaded.resolved.structured_input = true;
+        loaded
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

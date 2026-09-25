@@ -46,10 +46,12 @@
 //! definition the caller handed to k-rust, tagged with that definition's [`InputSpace`].
 //! `outer::load_structured` stamps each sentence of its `definition` argument with its
 //! [`InputSpace::Structured`] address before configurations are expanded;
-//! `kompile::compile_loaded_definition` stamps every sentence of `LoadedDefinition::definition`
-//! that carries no address yet with its [`InputSpace::Compile`] address, so a text-loaded
-//! sentence is addressed in the post-load definition and a hand-built `LoadedDefinition` that
-//! mixes both stays unambiguous.
+//! `kompile::compile_loaded_definition` stamps every other sentence of
+//! `LoadedDefinition::definition` with its [`InputSpace::Compile`] address, replacing any
+//! carrier it did not stamp itself. Structured addresses are kept only while the loaded
+//! resolution is the one `load_structured` returned. An address therefore always names, in its
+//! space, the sentence it was stamped on for this compilation: a carrier restored from
+//! KRUST-PROVENANCE or copied into a rearranged definition is restamped, never trusted.
 //! Passes derive sentences by copying attributes, which copies the carrier; a pass that builds a
 //! sentence with fresh attributes from input sentences adds their carriers, and a pass that merges
 //! equal sentences unites their carriers in first-occurrence order.
@@ -530,18 +532,27 @@ fn unique_addresses(addresses: Vec<InputAddress>) -> Vec<InputAddress> {
         .collect()
 }
 
-/// Give every sentence of `definition` its own address in `input`.
+/// Give every sentence of `definition` its own address in `input`, replacing whatever it carried.
 ///
-/// With `overwrite` false a sentence that already carries addresses keeps them, so a definition
-/// loaded from structured input keeps its structured addresses when it is compiled.
+/// With `keep_structured`, a sentence whose carrier names only [`InputSpace::Structured`]
+/// addresses keeps it: those were stamped by the `load_structured` call that produced this
+/// definition. Every other carrier, including a compile address restored from an earlier
+/// compilation, is replaced, so an address always names the sentence it was stamped on in the
+/// definition being compiled.
 pub(crate) fn stamp_input_addresses(
     definition: &mut Definition,
     input: InputSpace,
-    overwrite: bool,
+    keep_structured: bool,
 ) {
     for module in &mut definition.modules {
         for (index, sentence) in module.local_sentences.iter_mut().enumerate() {
-            if !overwrite && !sentence.attributes().input_addresses().is_empty() {
+            let inputs = sentence.attributes().input_addresses();
+            if keep_structured
+                && !inputs.is_empty()
+                && inputs
+                    .iter()
+                    .all(|address| address.input == InputSpace::Structured)
+            {
                 continue;
             }
             let address = InputAddress::new(
@@ -549,6 +560,9 @@ pub(crate) fn stamp_input_addresses(
                 module.name.clone(),
                 u32::try_from(index).expect("module sentence count fits u32"),
             );
+            if inputs == std::slice::from_ref(&address) {
+                continue;
+            }
             crate::definition::sentence_mut(sentence)
                 .attributes_mut()
                 .set_input_addresses(vec![address]);

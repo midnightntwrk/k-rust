@@ -638,12 +638,16 @@ fn transform_loaded_definition(
     options: &CompileOptions,
     timings: &mut PhaseTimings,
 ) -> Result<(Definition, Definition, Vec<Diagnostic>, ResolvedDefinition), CompileError> {
-    // Every sentence the caller handed over is an input sentence: give each one not already
-    // stamped by `load_structured` its address in `loaded.definition` before any pass moves,
-    // merges, or derives from it.
+    // Every sentence the caller handed over is an input sentence: give each one its address in
+    // `loaded.definition` before any pass moves, merges, or derives from it. Only the structured
+    // addresses of an unchanged `load_structured` result are kept.
     let stamped = || {
         let mut definition = loaded.definition.clone();
-        stamp_input_addresses(&mut definition, InputSpace::Compile, false);
+        stamp_input_addresses(
+            &mut definition,
+            InputSpace::Compile,
+            loaded.resolved.structured_input,
+        );
         definition
     };
     // Loader-produced definitions are already expanded, while structured embedders can construct

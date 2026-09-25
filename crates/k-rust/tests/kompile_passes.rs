@@ -15,7 +15,6 @@ use k_rust::{
         parser::{parse_definition, parse_pattern},
     },
     outer::{LoadOptions, load_with_options},
-    provenance::{InputAddress, InputSpace},
 };
 use k_rust::{
     definition::{
@@ -40,7 +39,8 @@ use k_rust::{
     },
     outer::{ResolvedSource, load},
     provenance::{
-        GeneratingPass, INPUT_ADDRESSES_ATTRIBUTE, ORIGIN_ATTRIBUTE, ProvenanceLink, SourceId,
+        GeneratingPass, INPUT_ADDRESSES_ATTRIBUTE, InputAddress, InputSpace, ORIGIN_ATTRIBUTE,
+        ProvenanceLink, SourceId,
     },
 };
 #[cfg(feature = "z3-inference")]
@@ -6094,6 +6094,75 @@ fn every_execution_sentence_names_only_the_input_sentences_it_derives_from() {
     }
 }
 
+/// Review round 1: a compile address restored from KRUST-PROVENANCE into a rearranged definition
+/// names its old position; compilation restamps it with the position in the definition it
+/// compiles.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn restored_compile_addresses_are_restamped_for_the_definition_being_compiled() {
+    let source = "module MAIN\n  imports INT\n  syntax Exp ::= Int | a() | b()\n  rule a() => 1\n  rule b() => 2\nendmodule\n";
+    let loaded = load_main_with_prelude(source);
+    let mut definition = with_compile_addresses(loaded.definition.clone());
+    let main = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    let position = |line| {
+        main.local_sentences
+            .iter()
+            .position(|sentence| at_line(sentence, line))
+            .unwrap()
+    };
+    let (first, second) = (position(4), position(5));
+    main.local_sentences.swap(first, second);
+    let encoded =
+        k_rust::definition::json::to_provenance_string(&definition, &loaded.source_table).unwrap();
+    let restored = k_rust::definition::json::from_provenance_str(&encoded).unwrap();
+    let resolved = ResolvedDefinition::resolve(&restored.definition).unwrap();
+    let relinked = k_rust::outer::LoadedDefinition {
+        files: loaded.files.clone(),
+        source_table: restored.source_table,
+        definition: restored.definition,
+        resolved,
+        diagnostics: loaded.diagnostics.clone(),
+    };
+    let stale = |line| {
+        relinked
+            .definition
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .find(|sentence| at_line(sentence, line))
+            .unwrap()
+            .attributes()
+            .input_addresses()
+            .to_vec()
+    };
+    // The premise: each restored carrier names the other rule's current position.
+    assert_eq!(
+        stale(4),
+        [main_address(&relinked, |sentence| at_line(sentence, 5))]
+    );
+
+    let artifacts = compile_loaded_definition(&relinked, CompileOptions::default()).unwrap();
+    let main = artifacts.execution_definition.main_module().unwrap();
+    for line in [4, 5] {
+        let rules = main
+            .local_sentences
+            .iter()
+            .filter(|sentence| at_line(sentence, line))
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            rules[0].attributes().input_addresses(),
+            [main_address(&relinked, |sentence| at_line(sentence, line))],
+            "line {line}"
+        );
+    }
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
@@ -6127,6 +6196,179 @@ fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
             .filter(|id| **id == rules[0])
             .count(),
         1
+    );
+}
+
+fn compile_address(module: &str, index: u32) -> InputAddress {
+    InputAddress::new(InputSpace::Compile, module, index)
+}
+
+/// Give every sentence of `definition` its compile address through the wire attribute, as a
+/// definition restored from KRUST-PROVENANCE would carry it.
+fn with_compile_addresses(mut definition: Definition) -> Definition {
+    for module in &mut definition.modules {
+        let name = module.name.clone();
+        for (index, sentence) in module.local_sentences.iter_mut().enumerate() {
+            k_rust::definition::sentence_mut(sentence)
+                .attributes_mut()
+                .insert(
+                    INPUT_ADDRESSES_ATTRIBUTE,
+                    json!([{"input": "compile", "module": name, "index": index}]),
+                );
+        }
+    }
+    definition
+}
+
+/// Review round 1: equal context aliases the resolution keeps once, within one module and across
+/// imported modules, are both authors of the contexts they instantiate.
+#[test]
+fn equal_context_aliases_all_author_the_contexts_they_instantiate() {
+    let alias = || Sentence::ContextAlias {
+        body: Term::variable("HERE"),
+        requires: truth(),
+        attributes: attributes(&[("label", json!("c"))]),
+    };
+    let strict = Sentence::Production {
+        label: Some(Label::new("foo")),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![ProductionItem::NonTerminal {
+            sort: Sort::new("Exp"),
+            name: None,
+        }],
+        attributes: attributes(&[("strict", json!("c"))]),
+    };
+    let imported = |name: &str| FlatImport {
+        name: name.into(),
+        public: true,
+    };
+    let local = with_compile_addresses(Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module("BOOL", Vec::new()),
+            module("MAIN", vec![alias(), strict.clone(), alias()]),
+        ],
+        attributes: Attributes::default(),
+    });
+    let mut main = module("MAIN", vec![strict]);
+    main.imports = vec![imported("A"), imported("B")];
+    let across = with_compile_addresses(Definition {
+        main_module: "MAIN".into(),
+        modules: vec![
+            module("BOOL", Vec::new()),
+            module("A", vec![alias()]),
+            module("B", vec![alias()]),
+            main,
+        ],
+        attributes: Attributes::default(),
+    });
+    for (definition, expected) in [
+        (
+            local,
+            vec![
+                compile_address("MAIN", 1),
+                compile_address("MAIN", 0),
+                compile_address("MAIN", 2),
+            ],
+        ),
+        (
+            across,
+            vec![
+                compile_address("MAIN", 0),
+                compile_address("A", 0),
+                compile_address("B", 0),
+            ],
+        ),
+    ] {
+        let transformed = resolve_strict(&definition).unwrap();
+        let contexts = transformed
+            .main_module()
+            .unwrap()
+            .local_sentences
+            .iter()
+            .filter(|sentence| matches!(&***sentence, Sentence::Context { .. }))
+            .map(|sentence| sentence.attributes().input_addresses().to_vec())
+            .collect::<Vec<_>>();
+        assert_eq!(contexts, [expected]);
+    }
+}
+
+/// Review round 1: equal field projections of two productions that differ only in their own
+/// attributes are one projection derived from both.
+#[test]
+fn equal_field_projections_keep_every_production_as_author() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Pair ::= pair(left: Int, right: Int) [symbol(pair)]
+          syntax Pair ::= pair(left: Int, right: Int) [symbol(pair), format(%1%2%3%4%5%6)]
+        endmodule
+    "#};
+    let definition =
+        with_compile_addresses(generate_sort_predicate_syntax(&parsed(source)).unwrap());
+    let is_pair = |sentence: &Sentence| matches!(sentence, Sentence::Production { label: Some(label), .. } if label.name == "pair");
+    let pairs = definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| is_pair(sentence))
+        .map(|(index, _)| compile_address("MAIN", u32::try_from(index).unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(pairs.len(), 2);
+    let transformed = generate_sort_projections(&definition).unwrap();
+    let projections = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter(|sentence| {
+            !is_pair(sentence)
+                && sentence
+                    .attributes()
+                    .input_addresses()
+                    .iter()
+                    .any(|address| pairs.contains(address))
+        })
+        .collect::<Vec<_>>();
+    // A production and a rule for each of the two fields.
+    assert_eq!(projections.len(), 4, "{projections:#?}");
+    for projection in projections {
+        assert_eq!(projection.attributes().input_addresses(), pairs.as_slice());
+    }
+}
+
+/// Review round 1: a stream rule specialized to a user's stream cell derives from the builtin
+/// template and the stream production; an unblocking rule also derives from the user's rule.
+#[test]
+fn specialized_stream_rules_name_the_template_and_the_stream_production() {
+    let definition = with_compile_addresses(io_fixture("stdin"));
+    let transformed = resolve_io(&definition).unwrap();
+    let stream_production = compile_address("MAIN", 0);
+    let consume = compile_address("MAIN", 2);
+    let unblock = compile_address("STDIN-STREAM", 1);
+    let stream_rule = compile_address("STDIN-STREAM", 2);
+    let main = transformed.main_module().unwrap();
+    let rule_inputs = |marker: &str| {
+        main.local_sentences
+            .iter()
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Rule { body, .. } if Printer::new().print_term(body).contains(marker) => {
+                    Some(sentence.attributes().input_addresses().to_vec())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        rule_inputs("builtinStep"),
+        [vec![stream_rule, stream_production.clone()]]
+    );
+    assert_eq!(
+        rule_inputs("#parseInput"),
+        [vec![consume, unblock, stream_production]]
     );
 }
 

@@ -198,6 +198,109 @@ fn structured_rules_carry_their_structured_addresses_through_every_pass() {
     assert!(!a_ids.contains(&ids[&b][0]));
 }
 
+/// Review round 1: structured addresses are trusted only in the loaded definition
+/// `load_structured` returned. Relinked with a rebuilt resolution after its rules were
+/// rearranged, every sentence is addressed by its position in the definition being compiled.
+#[test]
+fn rearranged_structured_input_is_addressed_in_the_compiled_definition() {
+    let mut definition = structured_definition_with_configuration_cell("k");
+    let constant = |name: &str| Sentence::Production {
+        label: Some(Label::new(name)),
+        parameters: Vec::new(),
+        sort: Sort::new("Exp"),
+        items: vec![
+            ProductionItem::Terminal(name.into()),
+            ProductionItem::Terminal("(".into()),
+            ProductionItem::Terminal(")".into()),
+        ],
+        attributes: Attributes::default(),
+    };
+    let rule = |name: &str, value: &str| Sentence::Rule {
+        body: Term::Rewrite {
+            left: Box::new(Term::apply(name, Vec::new())),
+            right: Box::new(Term::Token {
+                token: value.into(),
+                sort: Sort::new("Int"),
+            }),
+        },
+        requires: truth(),
+        ensures: truth(),
+        attributes: Attributes::default(),
+    };
+    definition.modules[0].local_sentences.extend(
+        [constant("a"), constant("b"), rule("a", "1"), rule("b", "2")].map(std::sync::Arc::new),
+    );
+    let loaded = load_structured(
+        definition,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("structured loading failed: {error}"));
+    let mut rearranged = loaded.definition.clone();
+    let main = rearranged
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    let rules = main
+        .local_sentences
+        .iter()
+        .enumerate()
+        .filter(|(_, sentence)| matches!(&***sentence, Sentence::Rule { .. }))
+        .filter(|(_, sentence)| {
+            sentence
+                .attributes()
+                .input_addresses()
+                .iter()
+                .all(|address| address.input == InputSpace::Structured)
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let [.., first, second] = rules.as_slice() else {
+        panic!("expected the two authored rules: {rules:?}");
+    };
+    main.local_sentences.swap(*first, *second);
+    let authored = [*first, *second]
+        .map(|index| InputAddress::new(InputSpace::Compile, "MAIN", u32::try_from(index).unwrap()));
+    let resolved = ResolvedDefinition::resolve(&rearranged).unwrap();
+    let relinked = LoadedDefinition {
+        files: loaded.files.clone(),
+        source_table: loaded.source_table.clone(),
+        definition: rearranged,
+        resolved,
+        diagnostics: loaded.diagnostics.clone(),
+    };
+    let artifacts = compile_loaded_definition(&relinked, CompileOptions::default())
+        .unwrap_or_else(|error| panic!("relinked compilation failed: {error:#?}"));
+    for module in &artifacts.execution_definition.modules {
+        for sentence in &module.local_sentences {
+            assert!(
+                sentence
+                    .attributes()
+                    .input_addresses()
+                    .iter()
+                    .all(|address| address.input == InputSpace::Compile),
+                "{sentence:?}"
+            );
+        }
+    }
+    for address in authored {
+        let carriers = artifacts
+            .execution_definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+            .filter(|sentence| sentence.attributes().input_addresses().contains(&address))
+            .collect::<Vec<_>>();
+        assert!(
+            matches!(carriers.as_slice(), [rule] if matches!(&***rule, Sentence::Rule { .. })),
+            "{address:?}: {carriers:?}"
+        );
+    }
+}
+
 fn truth() -> Term {
     Term::Token {
         token: "true".into(),
