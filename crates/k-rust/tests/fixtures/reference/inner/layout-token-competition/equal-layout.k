@@ -1,9 +1,9 @@
-module FE14-SYNTAX
+module LAYOUT-TOKEN-COMPETITION-SYNTAX
   syntax #Layout ::= r"ab"
   syntax Start ::= "ab" [symbol(token)]
 endmodule
 
-module FE14
-  imports FE14-SYNTAX
+module LAYOUT-TOKEN-COMPETITION
+  imports LAYOUT-TOKEN-COMPETITION-SYNTAX
   configuration <k> $PGM:Start </k>
 endmodule

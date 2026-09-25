@@ -2155,14 +2155,14 @@ mod chart_tests {
     }
 
     #[test]
-    fn fe19_incremental_ambiguity_revisits_scan_derivations() {
+    fn incremental_ambiguity_revisits_scan_derivations() {
         let grammar = incremental_ambiguity_grammar(true);
         reset_chart_work_counters();
 
         assert_incremental_ambiguity(grammar.parse(&Sort::new("Start"), "x!"));
 
         let counters = chart_work_counters();
-        eprintln!("FE19 incremental scan chart work: {counters:?}");
+        eprintln!("Incremental ambiguity scan chart work: {counters:?}");
         assert!(counters.existing_state_growth_changes > 0);
         assert!(counters.revisit_pops > 0);
         assert!(counters.revisit_derivations_read > 0);
@@ -2170,14 +2170,14 @@ mod chart_tests {
     }
 
     #[test]
-    fn fe19_incremental_ambiguity_revisits_completion_derivations() {
+    fn incremental_ambiguity_revisits_completion_derivations() {
         let grammar = incremental_ambiguity_grammar(false);
         reset_chart_work_counters();
 
         assert_incremental_ambiguity(grammar.parse(&Sort::new("Start"), "x"));
 
         let counters = chart_work_counters();
-        eprintln!("FE19 incremental completion chart work: {counters:?}");
+        eprintln!("Incremental ambiguity completion chart work: {counters:?}");
         assert!(counters.existing_state_growth_changes > 0);
         assert!(counters.revisit_pops > 0);
         assert!(counters.revisit_derivations_read > 0);

@@ -107,7 +107,7 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
         Prose before.
 
         ```k
-        module FE15-MD
+        module MARKDOWN-RULE-ERROR
           syntax Start ::= "ok" "done" [symbol(start)]
           syntax Other ::= "bad" [symbol(bad)]
           rule ok bad
@@ -117,7 +117,7 @@ fn markdown_rule_failures_report_the_exact_unexpected_token_location() {
     let mut resolver = |_: &str, required: &str| Err(format!("unexpected {required}"));
     let error = load_with_options(
         ResolvedSource::new("fixture.md", source),
-        "FE15-MD",
+        "MARKDOWN-RULE-ERROR",
         &mut resolver,
         &LoadOptions::default(),
     )
