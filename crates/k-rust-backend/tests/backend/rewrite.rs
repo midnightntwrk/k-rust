@@ -1,7 +1,7 @@
 //! Public contracts of `k_rust_backend::rewrite`.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt::{Debug, Write},
     time::Duration,
 };
@@ -7752,6 +7752,93 @@ fn breadth_bound_keeps_leaves_finished_before_the_frontier_exceeds_the_bound() {
         );
         assert_eq!(leaf.halt_reason, reason);
         assert_eq!(leaf.depth, depth);
+    }
+}
+
+#[test]
+fn explore_all_covers_the_distinct_final_states_of_generated_reachability_graphs() {
+    for levels in 1..=4 {
+        // Each diamond has two routes to its successor and one stuck side node. This table is
+        // also the oracle's graph; the oracle never asks the backend which states it explored.
+        let mut rules: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for level in 0..levels {
+            let start = format!("start-{level}");
+            let left = format!("left-{level}");
+            let right = format!("right-{level}");
+            let next = format!("start-{}", level + 1);
+            let side = format!("side-{level}");
+            rules.insert(start, vec![left.clone(), right.clone()]);
+            rules.insert(left, vec![next.clone(), side.clone()]);
+            rules.insert(right, vec![next, side]);
+        }
+
+        let mut axioms = String::new();
+        for (from, destinations) in &rules {
+            for (edge, to) in destinations.iter().enumerate() {
+                write!(
+                    axioms,
+                    r#"axiom{{}} \rewrites{{SortS{{}}}}(
+                        \and{{SortS{{}}}}(wrap{{}}(\dv{{SortS{{}}}}("{from}")), \top{{SortS{{}}}}()),
+                        wrap{{}}(\dv{{SortS{{}}}}("{to}"))
+                    ) [label{{}}("{from}-{edge}")]
+                    "#
+                )
+                .unwrap();
+            }
+        }
+        let definition = definition(&axioms);
+
+        let expected = |max_depth: Option<usize>| {
+            let mut pending = VecDeque::from([(String::from("start-0"), 0)]);
+            let mut stuck = BTreeSet::new();
+            let mut bounded = BTreeSet::new();
+            while let Some((node, depth)) = pending.pop_front() {
+                if max_depth.is_some_and(|limit| depth == limit) {
+                    bounded.insert(node);
+                } else if let Some(destinations) = rules.get(&node) {
+                    pending.extend(destinations.iter().cloned().map(|next| (next, depth + 1)));
+                } else {
+                    stuck.insert(node);
+                }
+            }
+            (stuck, bounded)
+        };
+
+        for max_depth in [None, Some(2 * levels - 1)] {
+            let options = ExecutionOptions {
+                max_depth: max_depth.map_or(u64::MAX, |depth| depth as u64),
+                ..ExecutionOptions::default()
+            };
+            let result = execute(&definition, subject(&definition, "start-0"), options);
+            let (expected_stuck, expected_bounded) = expected(max_depth);
+            let mut actual_stuck = BTreeSet::new();
+            let mut actual_bounded = BTreeSet::new();
+            for leaf in &result.leaves {
+                let node = match leaf.pattern.term.kind() {
+                    TermKind::Application { arguments, .. } => match arguments[0].kind() {
+                        TermKind::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
+                        other => panic!("expected a domain value, found {other:?}"),
+                    },
+                    other => panic!("expected a wrapped node, found {other:?}"),
+                };
+                assert_eq!(leaf.pattern, subject(&definition, &node));
+                match leaf.halt_reason {
+                    HaltReason::Stuck => assert!(actual_stuck.insert(node), "duplicate stuck leaf"),
+                    HaltReason::DepthBound => {
+                        assert!(actual_bounded.insert(node), "duplicate depth-bound leaf")
+                    }
+                    ref other => panic!("unexpected halt reason: {other:?}"),
+                }
+            }
+            assert_eq!(
+                actual_stuck, expected_stuck,
+                "levels={levels}, max_depth={max_depth:?}"
+            );
+            assert_eq!(
+                actual_bounded, expected_bounded,
+                "levels={levels}, max_depth={max_depth:?}"
+            );
+        }
     }
 }
 

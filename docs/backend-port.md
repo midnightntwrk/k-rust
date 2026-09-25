@@ -121,11 +121,16 @@ A configuration below the bound is a result only when no rule applies.
 Configurations whose constraints simplify to false and whole-state trivial or vacuous outcomes are not results.
 The host backend retains `DepthBound` as an incompleteness signal for accepted frontier configurations; the CLI does not render that signal as an error.
 
-Execution collapses structurally equal final configurations, including depth- and breadth-bounded
-frontiers, while preserving the first leaf's trace and halt reason. Whole-state trivial and vacuous
-leaves carry no final configuration and are not merged. Printed execution, search, and pattern-match
-disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not
-part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
+Under strategy `all` without `stop_at_branch`, every path explored within `max_depth` and `max_breadth` ends in exactly one leaf before final merging.
+A rule application with an empty result beside other applications of the same step ends no configuration; when observed, it is recorded in `discarded`.
+The result contains exactly those leaves' configurations, merging structurally equal configurations, including depth- and breadth-bounded frontiers.
+The first leaf in depth-first order retains its trace and halt reason.
+Whole-state trivial and vacuous leaves carry no final configuration and are never merged.
+A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
+Strategy `any` follows one successor per step and makes no coverage claim.
+With `stop_at_branch`, execution stops at the first branch point and reports its successors inside the branch halt.
+
+Printed execution, search, and pattern-match disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that
