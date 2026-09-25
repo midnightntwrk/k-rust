@@ -2143,6 +2143,84 @@ mod tests {
     }
 
     #[test]
+    fn observed_execution_selects_function_equation_without_its_rewrite() {
+        const DEFINITION: &str = r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}() : SortState{} [constructor{}()]
+                symbol done{}(SortBool{}) : SortState{} [constructor{}()]
+                symbol isZero{}(SortS{}) : SortBool{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortS{}, R}(Z:SortS{}, \dv{SortS{}}("z")),
+                            \top{R}()
+                        )
+                    ),
+                    \equals{SortBool{}, R}(
+                        isZero{}(Z:SortS{}),
+                        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+                    )
+                ) [label{}("is-zero-z")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    done{}(isZero{}(\dv{SortS{}}("z")))
+                ) [label{}("step")]
+            endmodule []"#;
+        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let request = ExecuteRequest {
+            state: json("start{}()"),
+            ..ExecuteRequest::default()
+        };
+        let selected = backend
+            .execute_observed(ObservedRequest {
+                request: request.clone(),
+                rules: Some(vec!["is-zero-z".into()]),
+            })
+            .unwrap();
+        let [leaf] = selected.leaves.as_slice() else {
+            panic!("expected one leaf: {selected:?}");
+        };
+        assert_eq!(leaf.branch.len(), 1);
+        assert_eq!(leaf.branch[0].rule, "step");
+        let [
+            ObservationEventOutput::Evaluation {
+                rule,
+                class,
+                anchor,
+                ..
+            },
+        ] = leaf.observations.as_slice()
+        else {
+            panic!("expected only the selected equation: {leaf:?}");
+        };
+        assert_eq!(rule, "is-zero-z");
+        assert_eq!(*class, EvaluationClassOutput::FunctionEquation);
+        assert_eq!(*anchor, 1);
+        assert_eq!(
+            text(leaf.state.clone()),
+            r#"done{}(\dv{SortBool{}}("true"))"#
+        );
+
+        let selected = backend
+            .execute_observed(ObservedRequest {
+                request,
+                rules: Some(vec!["step".into(), "is-zero-z".into()]),
+            })
+            .unwrap();
+        assert!(matches!(
+            selected.leaves[0].observations.as_slice(),
+            [
+                ObservationEventOutput::Transition { .. },
+                ObservationEventOutput::Evaluation { .. }
+            ]
+        ));
+    }
+
+    #[test]
     fn capabilities_advertise_search_and_observation() {
         let capabilities = backend().capabilities();
         assert!(capabilities.search);

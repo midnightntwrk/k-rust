@@ -319,7 +319,7 @@ export type ObservationEvent =
   | UncommittedObservation
 
 export interface ObservationOptions {
-  /** Exact executable rule ids. Omit to observe every supported semantic activity. */
+  /** Exact executable rewrite, equation, simplification, or definedness ids. Omit to include builtins. */
   rules?: string[]
 }
 

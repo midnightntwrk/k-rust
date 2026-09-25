@@ -101,7 +101,7 @@ Implication responses use schema version 2; their optional `condition` keeps `pr
 term-match `substitution`, and existential `witnesses` as three separate KORE values.
 
 `executeObserved` and the four `*Observed` search methods opt into branch-local structured transition events.
-Their optional `rules` allowlist is validated atomically against exact executable rule ids.
+Their optional `rules` allowlist is validated atomically against exact executable rewrite, function-equation, simplification, and definedness rule ids; builtin activity is observable only without an allowlist.
 Ordinary calls do not collect observation events.
 A `transition` event names a committed transition of the leaf's `branch` that the rule filter admits, in branch order; an `evaluation` event records an equation, simplification, or builtin application that normalized a branch state, with `anchor` the number of `branch` entries preceding it.
 Evaluation events are diagnostics: which ones occur, and in which order, depends on the simplifier's strategy.
