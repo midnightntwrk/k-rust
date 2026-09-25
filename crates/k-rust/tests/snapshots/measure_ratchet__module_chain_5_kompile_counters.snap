@@ -4,17 +4,17 @@ description: kompile of the 5-module chain
 ---
 kompile.resolve_calls = 7
 kompile.resolve_updates = 40
-kompile.resolve_update_sentence_visits = 52835
+kompile.resolve_update_sentence_visits = 52790
 kompile.rule_bubbles_parsed = 227
-kompile.sentences_transformed = 2584
-kompile.sentence_equivalence_checks = 492672
+kompile.sentences_transformed = 2569
+kompile.sentence_equivalence_checks = 520157
 kompile.production_catalogs_built = 675
-kompile.partial_orders_built = 1581
+kompile.partial_orders_built = 1672
 kompile.injections_inserted = 203
 kompile.owise_competitor_scans = 8155
 provenance.link_dedup_probes = 153408
 provenance.receipt_renders = 15
-kompile.sentence_copies = 43923
+kompile.sentence_copies = 43878
 kompile.production_identity_digests = 56897
 parser.parse_attempts = 231
 parser.prediction_analysis_builds = 33

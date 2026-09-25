@@ -4,17 +4,17 @@ description: kompile of examples/rewrite.k
 ---
 kompile.resolve_calls = 7
 kompile.resolve_updates = 40
-kompile.resolve_update_sentence_visits = 46053
+kompile.resolve_update_sentence_visits = 46008
 kompile.rule_bubbles_parsed = 198
-kompile.sentences_transformed = 2091
-kompile.sentence_equivalence_checks = 312253
+kompile.sentences_transformed = 2076
+kompile.sentence_equivalence_checks = 334633
 kompile.production_catalogs_built = 627
-kompile.partial_orders_built = 1471
+kompile.partial_orders_built = 1558
 kompile.injections_inserted = 51
 kompile.owise_competitor_scans = 714
 provenance.link_dedup_probes = 32790
 provenance.receipt_renders = 6
-kompile.sentence_copies = 34768
+kompile.sentence_copies = 34723
 kompile.production_identity_digests = 44264
 parser.parse_attempts = 202
 parser.prediction_analysis_builds = 29
