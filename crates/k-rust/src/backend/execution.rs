@@ -1,7 +1,7 @@
 //! Shared execution orchestration and the CLI result contract (S13 and S14).
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashSet},
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
@@ -11,6 +11,7 @@ use std::{
 use k_rust_backend::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
+    diagnostic::BackendDiagnostic,
     externalize,
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
@@ -23,7 +24,9 @@ use k_rust_backend::{
         IncompleteSearch, PatternMatchError, SearchOptions, SearchType,
         match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
-    simplify::{SimplificationError, SimplificationOptions, simplify_pattern_with_solver},
+    simplify::{
+        BudgetSubject, SimplificationError, SimplificationOptions, simplify_pattern_with_solver,
+    },
     smt::SmtSolver,
     term::{Term, TermKind, Variable},
     transition::{DescriptorTranscriptEntry, ExecutionIoState},
@@ -86,6 +89,45 @@ pub fn run(
     solver: &dyn SmtSolver,
 ) -> ExecutionResult {
     execute_with_solver(definition, initial, options, solver)
+}
+
+fn report_diagnostics<'a>(
+    diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
+    depth: u64,
+) {
+    let mut seen = HashSet::new();
+    for diagnostic in diagnostics {
+        if !seen.insert(diagnostic) {
+            continue;
+        }
+        match diagnostic {
+            BackendDiagnostic::SimplificationBudgetExhausted { limit, subject } => {
+                let subject = match subject {
+                    BudgetSubject::Term => "the term",
+                    BudgetSubject::Predicates => "predicates",
+                };
+                eprintln!(
+                    "warning: simplification budget {limit} exhausted while simplifying {subject} at depth {depth}; the result may not be fully simplified"
+                );
+            }
+            BackendDiagnostic::UndecidedCondition {
+                rule_id,
+                reason,
+                predicates,
+            } => eprintln!(
+                "warning: condition of rule {rule_id} remained undecided at depth {depth} ({reason:?}, predicates: {predicates:?}); the result may retain an unresolved condition"
+            ),
+            BackendDiagnostic::UndecidedPredicate { predicate, reason } => eprintln!(
+                "warning: predicate {predicate:?} remained undecided at depth {depth} ({reason:?}); the result may retain an unresolved constraint"
+            ),
+            BackendDiagnostic::RuleConditionUnsimplified { rule_id, limit } => eprintln!(
+                "warning: condition of rule {rule_id} was decided without full simplification at depth {depth} after budget {limit} was exhausted"
+            ),
+            BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } => eprintln!(
+                "warning: hook {hook} was left unevaluated at depth {depth} ({reason}); the result may not be fully simplified"
+            ),
+        }
+    }
 }
 
 fn captured_stdout_buffer(finals: &[&ExecutionLeaf]) -> Result<Vec<u8>, io::Error> {
@@ -334,6 +376,12 @@ fn run_backend_with_solver(
             ))
             .into());
         }
+        for matched in &result.matches {
+            report_diagnostics(
+                matched.state.diagnostics.iter().chain(&matched.diagnostics),
+                matched.state.depth,
+            );
+        }
         return Ok(BackendRunOutput {
             pattern: search_output(
                 &result,
@@ -405,6 +453,9 @@ fn run_backend_with_solver(
             leaf.depth
         ))
         .into());
+    }
+    for leaf in &execution.leaves {
+        report_diagnostics(&leaf.diagnostics, leaf.depth);
     }
     if let Some(path) = options.stop_leaves {
         let depth_bounded = execution

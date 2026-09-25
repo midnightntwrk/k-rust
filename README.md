@@ -260,7 +260,10 @@ while search reports that it is incomplete.
 
 Bounded execution, search, and proof operations allow 100 simplifier iterations per step by default.
 The bound counts simplification-rule, builtin, and symbolic rewriting; determined ground function evaluation (a function equation on a variable-free argument with no residual condition) runs to its value, bounded only by the step deadline (`--step-timeout`), cancellation or Ctrl-C, and the thread's stack, whose exhaustion is a typed error.
-Pass `--max-simplification-iterations N` to `krun`, `kore-exec`, or `kprove` to select a request-specific bound; exhaustion is reported as a simplification iteration-limit stop.
+Pass `--max-simplification-iterations N` to `krun`, `kore-exec`, or `kprove` to select a request-specific bound.
+Execution, search, and proof continue with the partially simplified term when the bound is exhausted.
+Node and WebAssembly execution and search results carry diagnostics on the affected leaf or search state; `krust` reports returned leaf and search-state diagnostics as warnings on stderr.
+The standalone simplifier returns a typed iteration-limit error when run with a finite bound.
 The standalone `kore-simplify` command remains deliberately unbounded so it can serve as the complete Kore-style simplification fallback.
 
 Search final states, every reachable state, states after exactly one step, or states after one or
