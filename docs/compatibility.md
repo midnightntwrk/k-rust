@@ -14,8 +14,25 @@ Fixture provenance records the commands and pins used for committed outputs; a s
 LLVM-specific runtime behavior, the behavior of the external Bison/Flex parser generator, LLVM decision-tree warnings and LLVM coverage instrumentation are outside the Haskell-backend compatibility contract.
 The CLI interoperability contract includes rendering parser sources, invoking the system Bison/Flex/C toolchain, installing executable or shared-library parser artifacts, and preserving their parser-output bytes; the Bison implementation itself remains external to Rust.
 The conformance expectations retain each affected case or step with its concrete `llvm-only` reason.
-An LLVM expected output cannot define the behavior of a hook that neither pinned Kore engine evaluates, or of a definition that `kore-parser --verify` rejects.
-The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations.
+An LLVM expected output does not define the behavior of a hook or of a definition that `kore-parser --verify` rejects.
+A hook's behavior is defined by the K source that declares it: `domains.md` for K's builtin hooks (see [Hook specification exceptions](#hook-specification-exceptions)), `substitution.md` for the `SUBSTITUTION` hooks, and the pinned blockchain-k-plugin `plugin/krypto.md` for the `[crypto]` hooks; a case that needs a hook neither pinned Kore engine evaluates stays `llvm-only` unless k-rust implements that hook as described below.
+The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations for the prelude and `[crypto]` hooks; the `SUBSTITUTION` hooks are classified by the `substitution_hooks_have_an_enforced_external_capability_classification` test beside it.
+
+Among the implemented hooks, four groups have no evaluator in either pinned Kore engine and no `rule` in their declaring K source that defines them.
+(The other implemented hooks without a builtin evaluator in those engines, `STRING.ne`, `STRING.le`, `STRING.gt` and `STRING.ge`, are defined by `domains.md` rules in terms of `STRING.eq` and `STRING.lt`.)
+The console IO hooks `IO.getc`, `IO.putc`, `IO.read` and `IO.write` are evaluated only by ordinary execution (see the console paragraph below); Kore's IO module registers only `IO.logString` (`kore/src/Kore/Builtin/IO.hs`), and Booster has no IO builtin module.
+The `KRYPTO` hooks `bn128add`, `bn128mul`, `bn128ate`, `bn128valid`, `bn128g2valid`, `sha256raw` and `ripemd160raw` are declared in `plugin/krypto.md`; Kore's `Krypto` module registers none of them (`kore/src/Kore/Builtin/Krypto.hs`), and Booster has no `KRYPTO` builtin module.
+`SUBSTITUTION.substOne` is declared in `substitution.md`; Kore has no `SUBSTITUTION` builtin module (`kore/src/Kore/Builtin.hs`), and neither has Booster.
+The `FLOAT` hooks are pure: Kore registers no `Float` builtin functions (`kore/src/Kore/Builtin.hs`), and Booster has no `FLOAT` builtin module (`booster/library/Booster/Builtin.hs`).
+k-rust implements the `FLOAT` hooks because `domains.md` specifies them as IEEE 754 operations, which fixes each result without reference to a backend.
+A `Float` is an IEEE 754 value whose precision and exponent width are named by its suffix (`p24x8` is `binary32`, `p53x11` is `binary64`), the arithmetic hooks round to nearest with ties to even (their `smt-hook` attributes), and the comparison hooks are IEEE 754 comparisons (`==Float` is IEEE 754 equality, so `0.0 ==Float -0.0` holds and `NaN ==Float NaN` does not; `=/=Float` has no hook and is the K rule `notBool (F1 ==Float F2)`).
+Where `domains.md` names an operation without settling an edge case, k-rust applies the IEEE 754 rule: `Float2Int` rounds ties to even, and `minFloat`/`maxFloat` are IEEE 754-2019 `minimumNumber`/`maximumNumber`, which ignore a NaN operand and order `-0.0` below `0.0`.
+The implementation covers `binary32` and `binary64`, with `rootFloat` at degree 2.
+A ground value in any other format is a builtin error that names the format; any other root degree and the `FLOAT` hooks the inventory lists as unsupported give the unsupported-hook outcome below.
+The divergence is an extension: for every ground `FLOAT` application k-rust evaluates, the pinned Haskell backend has no evaluator and so no value, and k-rust supplies the value `domains.md` specifies.
+No pinned Kore engine can serve as an oracle for these hooks, so the differential manifest's excluded `wasm-execution` row names the pinned LLVM execution of the WASM semantics as the alternative oracle.
+No gate runs that LLVM execution and no LLVM result is committed; an LLVM result obtained by hand is evidence to check against `domains.md`, not the definition.
+The row's only gate is the k-rust-only local gate `krun_executes_float_fixture_to_pinned_kore_results`, which pins k-rust's own results for rounding ties, square root, signed zero, NaN equality, `Float2Int` rounding and `maxValueFloat`.
 
 Ordinary `kcompile --backend rust` output is directly runnable through `krun --definition DIR`.
 The runtime validates the artifact identity, schema version, Rust backend identity, and every payload digest before use.
