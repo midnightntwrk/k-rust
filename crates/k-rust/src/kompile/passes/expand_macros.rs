@@ -361,7 +361,10 @@ struct Expander<'view, 'definition> {
     injector: SortInjector<'view, 'definition>,
     subsorts: &'view crate::definition::PartialOrder<Sort>,
     overloads: &'view crate::definition::OverloadOrder<'definition>,
-    macros: BTreeMap<Label, Vec<MacroRule>>,
+    /// Macro rules by the head of their left side. A loaded rule's head carries no sort
+    /// parameter, so it stands for every instance of its production; the variable sorts of its
+    /// arguments decide whether it applies to a given subject.
+    macros: BTreeMap<LabelHead, Vec<MacroRule>>,
     token_macros: BTreeMap<Sort, Vec<MacroRule>>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
@@ -399,12 +402,14 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             .collect::<Result<Vec<_>, _>>()?;
         let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
         all.sort_by_key(|(_, priority)| *priority);
-        let mut macros = BTreeMap::<Label, Vec<MacroRule>>::new();
+        let mut macros = BTreeMap::<LabelHead, Vec<MacroRule>>::new();
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
         // Invariant: `macros` and `token_macros` hold, in ascending priority order, every rule of `all` before `rule` whose left side is an application, a token, or a sorted variable; each iteration consumes one entry of `all`.
         for (rule, _) in all {
             match rule.left.unannotated() {
-                Term::Apply { label, .. } => macros.entry(label.clone()).or_default().push(rule),
+                Term::Apply { label, .. } => {
+                    macros.entry(LabelHead::from(label)).or_default().push(rule)
+                }
                 Term::Token { sort, .. } => {
                     token_macros.entry(sort.clone()).or_default().push(rule)
                 }
@@ -488,7 +493,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     },
                     metadata,
                 );
-                let rules = self.macros.get(&label).cloned();
+                let rules = self.macros.get(&LabelHead::from(&label)).cloned();
                 self.apply_rules(application, rules.as_deref(), applied)
             }
             Term::Token { token, sort } => {

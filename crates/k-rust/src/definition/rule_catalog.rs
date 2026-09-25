@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::ast::Sentence;
 use super::attribute_keys::AttributeKey;
-use super::catalog::ProductionCatalog;
+use super::catalog::{LabelHead, ProductionCatalog};
 use super::equivalence::{dedup_by_equivalence, sentence_equivalent};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use crate::kast::{InternalLabel, Label, Term};
@@ -37,11 +37,11 @@ pub struct ContextId(pub usize);
 pub struct RuleCatalog<'a> {
     rules: Vec<&'a Sentence>,
     local_rules: BTreeSet<RuleId>,
-    rules_by_label: BTreeMap<Label, Vec<RuleId>>,
+    rules_by_label: BTreeMap<LabelHead, Vec<RuleId>>,
     claims: Vec<&'a Sentence>,
     local_claims: BTreeSet<ClaimId>,
     contexts: Vec<&'a Sentence>,
-    macro_labels: BTreeSet<Label>,
+    macro_labels: BTreeSet<LabelHead>,
 }
 
 impl<'a> RuleCatalog<'a> {
@@ -64,11 +64,11 @@ impl<'a> RuleCatalog<'a> {
         let local_rules = local_ids(&rules, &local, RuleId);
         let local_claims = local_ids(&claims, &local, ClaimId);
 
-        let mut rules_by_label = BTreeMap::<Label, Vec<RuleId>>::new();
+        let mut rules_by_label = BTreeMap::<LabelHead, Vec<RuleId>>::new();
         let mut macro_labels = BTreeSet::new();
         for (index, rule) in rules.iter().enumerate() {
             let id = RuleId(index);
-            let label = match_rule_label(rule);
+            let label = LabelHead::from(&match_rule_label(rule));
             rules_by_label.entry(label.clone()).or_default().push(id);
             if rule.attributes().has_any(&AttributeKey::MACRO_LIKE) {
                 macro_labels.insert(label);
@@ -112,12 +112,17 @@ impl<'a> RuleCatalog<'a> {
             .map(|id| (id, self.rule(id)))
     }
 
-    pub fn rules_by_label(&self) -> &BTreeMap<Label, Vec<RuleId>> {
+    /// Rules by the head of the label [`match_rule_label`] gives them. A loaded rule's label
+    /// carries no sort parameter, so the head is its identity.
+    pub fn rules_by_label(&self) -> &BTreeMap<LabelHead, Vec<RuleId>> {
         &self.rules_by_label
     }
 
+    /// The rules whose matched label has the head of `label`, whatever its sort parameters.
     pub fn rules_for(&self, label: &Label) -> &[RuleId] {
-        self.rules_by_label.get(label).map_or(&[], Vec::as_slice)
+        self.rules_by_label
+            .get(&LabelHead::from(label))
+            .map_or(&[], Vec::as_slice)
     }
 
     pub fn claims(&self) -> impl ExactSizeIterator<Item = (ClaimId, &'a Sentence)> + '_ {
@@ -153,11 +158,12 @@ impl<'a> RuleCatalog<'a> {
         self.contexts[id.0]
     }
 
-    pub fn macro_labels(&self) -> &BTreeSet<Label> {
+    /// The heads of the labels of macro-like rules.
+    pub fn macro_labels(&self) -> &BTreeSet<LabelHead> {
         &self.macro_labels
     }
 
-    pub fn all_macro_labels(&self, productions: &ProductionCatalog<'_>) -> BTreeSet<Label> {
+    pub fn all_macro_labels(&self, productions: &ProductionCatalog<'_>) -> BTreeSet<LabelHead> {
         self.macro_labels
             .union(productions.macro_labels())
             .cloned()
@@ -178,7 +184,7 @@ impl<'a> RuleCatalog<'a> {
         let Term::Apply { label, .. } = left.unannotated() else {
             return false;
         };
-        productions.macro_labels().contains(label)
+        productions.macro_labels().contains(&LabelHead::from(label))
     }
 }
 

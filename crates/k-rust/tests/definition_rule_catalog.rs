@@ -172,13 +172,18 @@ fn combines_rule_and_production_macro_labels() {
 
     assert_eq!(
         rules.macro_labels(),
-        &[Label::new("ruleMacro")].into_iter().collect()
+        &[k_rust::definition::LabelHead::new("ruleMacro")]
+            .into_iter()
+            .collect()
     );
     assert_eq!(
         rules.all_macro_labels(&productions),
-        [Label::new("productionMacro"), Label::new("ruleMacro")]
-            .into_iter()
-            .collect()
+        [
+            k_rust::definition::LabelHead::new("productionMacro"),
+            k_rust::definition::LabelHead::new("ruleMacro"),
+        ]
+        .into_iter()
+        .collect()
     );
     let production_lhs = rules
         .rules()

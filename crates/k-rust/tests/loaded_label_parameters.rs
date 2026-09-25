@@ -5,7 +5,9 @@
 //! from its arguments and position.
 
 use k_rust::builtin;
+use k_rust::definition::Attributes;
 use k_rust::definition::{Definition, FlatModule, Sentence};
+use k_rust::inner::parse_rule_content;
 use k_rust::kast::{Label, Sort, Term};
 use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
 use k_rust::outer::{
@@ -164,6 +166,110 @@ fn source_loaded_rule_like_sentences_carry_no_label_parameter() {
             "{backend}: loaded rule-like labels with parameters: {parameterised:?}"
         );
     }
+}
+
+/// One parametric production per sentence kind, each applied only in that kind: `box` in the
+/// configuration, `cl` in a claim, `cx` in a context, `al` in a context alias's side condition,
+/// and `wrap` in a rule. The parser instantiates each application.
+const KINDS_SOURCE: &str = r#"
+requires "domains.md"
+
+module KINDS-SYNTAX
+  imports DOMAINS-SYNTAX
+endmodule
+
+module KINDS
+  imports DOMAINS
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+  syntax {S} Wrap ::= wrap(S) [symbol(wrap)]
+  syntax {S} Box ::= box(S) [symbol(box)]
+  syntax {S} Cl ::= cl(S) [symbol(cl)]
+  syntax {S} KItem ::= cx(S) [symbol(cx)]
+  syntax {S} Bool ::= al(S) [function, total, symbol(al)]
+  syntax Wrap ::= f(Nat) [function, symbol(f)]
+  configuration <k> $PGM:K </k> <b> box(z) </b>
+  rule f(X:Nat) => wrap(X)
+  claim cl(z) => cl(s(z))
+  context cx(HOLE:Int)
+  context alias [kinds]: <k> HERE:K ...</k> requires al(1)
+endmodule
+"#;
+
+fn kind_of(sentence: &Sentence) -> &'static str {
+    match sentence {
+        Sentence::Rule { .. } => "rule",
+        Sentence::Claim { .. } => "claim",
+        Sentence::Context { .. } => "context",
+        Sentence::ContextAlias { .. } => "context alias",
+        Sentence::Configuration { .. } => "configuration",
+        _ => "other",
+    }
+}
+
+/// Every kind of loaded rule-like sentence, and a rule parsed with `parse_rule_content`, carries
+/// its parametric application without a parameter. The configuration is loaded as the
+/// initializer rules its expansion generates, which carry its body.
+#[test]
+fn every_rule_like_sentence_kind_loads_parametric_applications_without_parameters() {
+    let mut resolver =
+        |_: &str, required: &str| builtin::embedded(required).ok_or_else(|| required.to_owned());
+    let loaded = load_for_compilation(
+        ResolvedSource::new("kinds.k", KINDS_SOURCE.to_owned()),
+        "KINDS",
+        None,
+        &mut resolver,
+        &options(CompilationBackend::Rust),
+    )
+    .unwrap_or_else(|error| panic!("the kinds definition loads: {error}"))
+    .0;
+    let mut definition = loaded.definition.clone();
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "KINDS")
+        .unwrap();
+    let mut found = Vec::new();
+    for sentence in &mut module.local_sentences {
+        let sentence = k_rust::definition::sentence_mut(sentence);
+        let kind = kind_of(sentence);
+        for term in rule_like_terms(sentence) {
+            visit_labels(term, &mut |label| {
+                if ["wrap", "box", "cl", "cx", "al"].contains(&label.name.as_str()) {
+                    found.push((kind, label.to_string()));
+                }
+            });
+        }
+    }
+    found.sort_unstable();
+    found.dedup();
+    assert_eq!(
+        found,
+        [
+            ("claim", "cl".to_owned()),
+            ("context", "cx".to_owned()),
+            ("context alias", "al".to_owned()),
+            ("rule", "box".to_owned()),
+            ("rule", "wrap".to_owned()),
+        ]
+    );
+
+    let parsed = parse_rule_content(
+        &loaded.resolved,
+        "KINDS",
+        "f(X:Nat) => wrap(X)",
+        Attributes::default(),
+    )
+    .unwrap();
+    let mut parsed = std::sync::Arc::new(parsed);
+    let mut labels = Vec::new();
+    for term in rule_like_terms(k_rust::definition::sentence_mut(&mut parsed)) {
+        visit_labels(term, &mut |label| labels.push(label.to_string()));
+    }
+    assert!(labels.contains(&"wrap".to_owned()), "{labels:?}");
+    assert!(
+        labels.iter().all(|label| !label.contains('{')),
+        "{labels:?}"
+    );
 }
 
 /// The instance each parametric label of `PARAMS` had when the parser wrote its own choice into

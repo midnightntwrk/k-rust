@@ -2359,6 +2359,45 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
     assert_generated_by(&transformed, GeneratingPass::ConstantFolding);
 }
 
+/// A loaded parametric label carries no instance. `peq`'s result sort `Bool` does not mention its
+/// parameter, so its application folds; `padd`'s result sort is its parameter, which only sort
+/// injection instantiates, so its application is left for injection.
+#[test]
+fn folds_a_parametric_production_only_when_its_result_sort_is_free_of_parameters() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int [hook(INT.Int)]
+          syntax Bool [hook(BOOL.Bool)]
+          syntax Int ::= r"[\\+\\-]?[0-9]+" [token, prec(2)]
+          syntax Bool ::= r"true|false" [token]
+          syntax Int ::= "f(" Int ")" [function, symbol(f)]
+          syntax {S} Bool ::= "peq(" S "," S ")" [function, hook(INT.eq), symbol(peq)]
+          syntax {S} S ::= "padd(" S "," S ")" [function, hook(INT.add), symbol(padd)]
+          rule f(X) => padd(1, 2)
+            requires peq(1, 1)
+        endmodule
+    "#};
+    let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
+    let (right, requires) = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, requires, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some((
+                    Printer::new().print_term(right),
+                    Printer::new().print_term(requires),
+                )),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(requires, r#"#token("true","Bool")"#);
+    assert!(right.starts_with("padd("), "{right}");
+}
+
 #[test]
 fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
     let control =
@@ -3212,6 +3251,50 @@ fn ordinary_rules_still_inherit_every_macro_kind_during_term_expansion() {
             "production attribute {macro_kind}",
         );
     }
+}
+
+/// A parsed program keeps the instance the parser chose (`m{Int}`), while a loaded macro rule's
+/// head carries none: the rule stands for every instance of `m`, and the sort of its argument
+/// variable decides whether it applies.
+#[test]
+fn parametric_macro_expands_in_a_parsed_program_by_its_argument_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= "a" [symbol(a)]
+          syntax {S} S ::= "m(" S ")" [macro, symbol(m)]
+          rule m(X:Int) => X
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let program = |sort: &str, text: &str| {
+        k_rust::inner::parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new(sort),
+            text,
+            k_rust::provenance::SourceId(0),
+        )
+        .unwrap()
+    };
+
+    let int = program("Int", "m(1)");
+    let Term::Apply { label, .. } = int.unannotated() else {
+        panic!("{int:?}")
+    };
+    assert_eq!(label.parameters, [Sort::new("Int")], "{int:?}");
+    assert_eq!(
+        prepared.expand_term("MAIN", int).unwrap(),
+        Term::Token {
+            token: "1".into(),
+            sort: Sort::new("Int"),
+        }
+    );
+
+    let exp = program("Exp", "m(a)");
+    let expanded = prepared.expand_term("MAIN", exp.clone()).unwrap();
+    assert_eq!(expanded, exp, "an Exp argument does not match X:Int");
 }
 
 #[test]

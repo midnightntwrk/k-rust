@@ -164,7 +164,7 @@ A parameter that the kept readings leave free is instantiated at `K` by that pre
 Alternatives that are equal once bracket nodes are erased are one reading, not several: `rule #Ceil(X:W) => (#Top) [simplification]` has one parse, `#Top{K}`, exactly as without the brackets.
 The concrete instances of one parametric production are one production of the parsed term, so they never form separate readings either.
 The instance a kept reading was parsed at is not part of the loaded sentence: rule, claim, context, context-alias and configuration bodies are loaded with no label sort parameter, since source text cannot write one, and sort injection instantiates every parametric label from its arguments and position ([Sorts of compiled terms](#sorts-of-compiled-terms)).
-Program terms keep the instance the parser chose.
+Program terms keep the instance the parser chose; a loaded macro rule, whose head has no instance, applies to an application of its production at any instance, subject to the sorts of its argument patterns, and every other comparison of a rule's label with a production or term label (macro, `anywhere`, and rule-by-label lookups) is by the label's name.
 
 The pinned K frontend also uses the parameter preference to choose between distinct readings, by sending a parameter to `K` where that makes another reading ill-sorted.
 Rust does not.

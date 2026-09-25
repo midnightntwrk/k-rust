@@ -230,10 +230,15 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         let Some(tokens) = tokens else {
             return Ok(None);
         };
-        // A parametric production's result sort is known only through its label's instance;
-        // a label without one (as loaded from source, before sort injection solves it) has
-        // no result sort to give the folded token.
-        if parameters.len() != label.parameters.len() {
+        // A result sort that mentions a sort parameter is known only through the label's
+        // instance; a label without one (as loaded, before sort injection solves it) gives the
+        // folded token no sort. A result sort free of parameters is the token's sort whatever
+        // the instance.
+        if parameters.len() != label.parameters.len()
+            && parameters
+                .iter()
+                .any(|parameter| sort_mentions(sort, parameter))
+        {
             return Ok(None);
         }
         let substitution = parameters
@@ -749,4 +754,13 @@ fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Sort, Sort>) -> Sort {
                 .collect(),
         )
     })
+}
+
+/// Whether `sort` is `parameter` or has it among its (nested) sort arguments.
+fn sort_mentions(sort: &Sort, parameter: &Sort) -> bool {
+    sort == parameter
+        || sort
+            .parameters
+            .iter()
+            .any(|argument| sort_mentions(argument, parameter))
 }

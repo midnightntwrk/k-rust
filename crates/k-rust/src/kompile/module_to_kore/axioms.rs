@@ -80,7 +80,7 @@ pub(super) fn constructor_productions(
     let anywhere_labels = rules
         .rules()
         .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
-        .map(|(_, rule)| match_rule_label(rule))
+        .map(|(_, rule)| LabelHead::from(&match_rule_label(rule)))
         .collect::<BTreeSet<_>>();
     productions
         .productions()
@@ -102,7 +102,7 @@ pub(super) fn constructor_productions(
             (!attributes.has(AttributeKey::Function)
                 && !algebraic
                 && !is_macro
-                && !anywhere_labels.contains(label)
+                && !anywhere_labels.contains(&LabelHead::from(label))
                 && !is_builtin_label(&label.name)
                 && !is_token_production(attributes))
             .then_some(id)

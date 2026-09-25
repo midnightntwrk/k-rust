@@ -20,13 +20,14 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::ast::{ProductionItem, Sentence};
+use super::catalog::LabelHead;
 use super::partial_order::{Cycle, PartialOrder};
 use super::resolve::{ModuleId, ResolvedDefinition};
 use super::sort_catalog::SortCatalog;
 use super::views::DefinitionViews;
 use crate::definition::AttributeKey;
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Sort, Term};
 
 mod attributes;
 mod deprecated;
@@ -439,7 +440,7 @@ pub fn check_sort_top_uniqueness(
 pub fn check_tokens(
     sentences: &[&Sentence],
     token_sorts: &BTreeSet<Sort>,
-    macro_labels: &BTreeSet<Label>,
+    macro_labels: &BTreeSet<LabelHead>,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
@@ -458,7 +459,7 @@ pub fn check_tokens(
             || !token_sorts.contains(sort)
             || label
                 .as_ref()
-                .is_some_and(|label| macro_labels.contains(label))
+                .is_some_and(|label| macro_labels.contains(&LabelHead::from(label)))
         {
             continue;
         }

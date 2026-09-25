@@ -776,7 +776,9 @@ fn token_sort_productions_allow_only_java_exceptions() {
     let token_sorts = [Sort::new("Int"), Sort::new("#Internal")]
         .into_iter()
         .collect();
-    let macro_labels = [Label::new("macro")].into_iter().collect();
+    let macro_labels = [k_rust::definition::LabelHead::new("macro")]
+        .into_iter()
+        .collect();
     let diagnostics = check_tokens(
         &[&illegal, &function, &macro_production, &internal],
         &token_sorts,
