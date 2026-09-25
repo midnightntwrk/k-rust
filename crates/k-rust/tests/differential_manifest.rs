@@ -263,27 +263,41 @@ fn differential_special_case_schema_is_complete() {
         .unwrap()
         .iter()
         .flat_map(|entry| {
-            let name = entry["name"].as_str().expect("RPC case name");
             entry
                 .get("oracle-exception")
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-                .map(move |exception| (name, exception))
+                .map(move |exception| (entry, exception))
         })
         .collect::<Vec<_>>();
+    let mut adjudicated = rpc_exceptions
+        .iter()
+        .map(|(entry, exception)| {
+            (
+                entry["name"].as_str().unwrap_or_default(),
+                exception["response"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    adjudicated.sort_unstable();
     assert_eq!(
-        rpc_exceptions
-            .iter()
-            .map(|(name, exception)| (*name, exception["response"].as_str().unwrap_or("")))
-            .collect::<Vec<_>>(),
+        adjudicated,
         [
+            ("bounded-search", "implies-consequent-universal"),
             ("imp", "implies"),
             ("trivial-result-rpc", "execute-trivial-configuration"),
         ],
-        "only the measured IMP implication payload and the trivial-rule result diverge from Booster",
+        "the IMP implication payload, the consequent-only universal and the trivial-rule result are the adjudicated RPC differences",
     );
-    for (name, exception) in rpc_exceptions {
+    for (entry, exception) in rpc_exceptions {
+        let name = entry["name"].as_str().unwrap_or_default();
+        assert!(
+            entry["responses"]
+                .as_array()
+                .is_some_and(|responses| responses.contains(&exception["response"])),
+            "RPC oracle exception on {name} names a response its case does not request",
+        );
         for field in ["oracle", "response", "expected", "reference", "reason"] {
             assert!(
                 exception[field]
@@ -294,17 +308,6 @@ fn differential_special_case_schema_is_complete() {
         }
         assert_ne!(exception["expected"], exception["reference"]);
         assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
-        let listed = manifest["rpc"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|entry| entry["name"].as_str() == Some(name))
-            .and_then(|entry| entry["responses"].as_array())
-            .is_some_and(|responses| responses.contains(&exception["response"]));
-        assert!(
-            listed,
-            "RPC oracle exception on {name} names an unlisted response"
-        );
         if exception["response"].as_str() == Some("implies") {
             // N19: the payload is claimed equal to the oracle's, so the gate must check that claim
             // by simplifying both payloads instead of pinning only the port's response.
