@@ -154,7 +154,7 @@ pub struct ExecutionResult {
 pub struct ExecutionLeaf {
     pub state: Value,
     pub depth: u64,
-    pub reason: String,
+    pub reason: HaltReasonOutput,
     /// Legacy human-readable diagnostic context.
     ///
     /// This field is not a stable semantic encoding. Consumers must branch on `reason` and use
@@ -166,6 +166,42 @@ pub struct ExecutionLeaf {
     pub branch: Vec<TransitionIdOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<ObservationEventOutput>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum HaltReasonOutput {
+    Cancelled,
+    Stuck,
+    Trivial,
+    Vacuous,
+    Branch,
+    CutPoint,
+    Terminal,
+    DepthBound,
+    BreadthBound,
+    Indeterminate,
+    UnsupportedHook,
+    SimplificationError,
+    Timeout,
+}
+
+impl HaltReasonOutput {
+    pub const ALL: [Self; 13] = [
+        Self::Cancelled,
+        Self::Stuck,
+        Self::Trivial,
+        Self::Vacuous,
+        Self::Branch,
+        Self::CutPoint,
+        Self::Terminal,
+        Self::DepthBound,
+        Self::BreadthBound,
+        Self::Indeterminate,
+        Self::UnsupportedHook,
+        Self::SimplificationError,
+        Self::Timeout,
+    ];
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -987,23 +1023,32 @@ fn trace_entry(entry: k_rust_backend::rewrite::TraceEntry) -> TraceEntry {
     }
 }
 
-fn halt_reason(reason: &HaltReason) -> (&'static str, Option<String>) {
+fn halt_reason(reason: &HaltReason) -> (HaltReasonOutput, Option<String>) {
     match reason {
-        HaltReason::Cancelled => ("cancelled", None),
-        HaltReason::Stuck => ("stuck", None),
-        HaltReason::Trivial { .. } => ("trivial", None),
-        HaltReason::Vacuous { .. } => ("vacuous", None),
-        HaltReason::Branch { .. } => ("branch", Some(format!("{reason:?}"))),
-        HaltReason::CutPointRule { .. } => ("cut-point", Some(format!("{reason:?}"))),
-        HaltReason::TerminalRule { .. } => ("terminal", Some(format!("{reason:?}"))),
-        HaltReason::DepthBound => ("depth-bound", None),
-        HaltReason::BreadthBound => ("breadth-bound", None),
-        HaltReason::Indeterminate(_) => ("indeterminate", Some(format!("{reason:?}"))),
-        HaltReason::Simplification(error @ SimplificationError::UnsupportedHook { .. }) => {
-            ("unsupported-hook", Some(error.to_string()))
+        HaltReason::Cancelled => (HaltReasonOutput::Cancelled, None),
+        HaltReason::Stuck => (HaltReasonOutput::Stuck, None),
+        HaltReason::Trivial { .. } => (HaltReasonOutput::Trivial, None),
+        HaltReason::Vacuous { .. } => (HaltReasonOutput::Vacuous, None),
+        HaltReason::Branch { .. } => (HaltReasonOutput::Branch, Some(format!("{reason:?}"))),
+        HaltReason::CutPointRule { .. } => {
+            (HaltReasonOutput::CutPoint, Some(format!("{reason:?}")))
         }
-        HaltReason::Simplification(_) => ("simplification-error", Some(format!("{reason:?}"))),
-        HaltReason::Timeout(_) => ("timeout", Some(format!("{reason:?}"))),
+        HaltReason::TerminalRule { .. } => {
+            (HaltReasonOutput::Terminal, Some(format!("{reason:?}")))
+        }
+        HaltReason::DepthBound => (HaltReasonOutput::DepthBound, None),
+        HaltReason::BreadthBound => (HaltReasonOutput::BreadthBound, None),
+        HaltReason::Indeterminate(_) => {
+            (HaltReasonOutput::Indeterminate, Some(format!("{reason:?}")))
+        }
+        HaltReason::Simplification(error @ SimplificationError::UnsupportedHook { .. }) => {
+            (HaltReasonOutput::UnsupportedHook, Some(error.to_string()))
+        }
+        HaltReason::Simplification(_) => (
+            HaltReasonOutput::SimplificationError,
+            Some(format!("{reason:?}")),
+        ),
+        HaltReason::Timeout(_) => (HaltReasonOutput::Timeout, Some(format!("{reason:?}"))),
     }
 }
 
@@ -1071,6 +1116,48 @@ fn error<E: fmt::Debug>(context: &'static str) -> impl FnOnce(E) -> BackendError
 mod tests {
     use super::*;
     use crate::kore::{parser::parse_pattern, printer::Printer};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn execution_halt_reasons_match_typescript_declarations() {
+        let expected: BTreeSet<String> = HaltReasonOutput::ALL
+            .into_iter()
+            .map(|reason| {
+                let spelling = serde_json::to_string(&reason).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<HaltReasonOutput>(&spelling).unwrap(),
+                    reason
+                );
+                serde_json::from_str::<String>(&spelling).unwrap()
+            })
+            .collect();
+        assert_eq!(expected.len(), HaltReasonOutput::ALL.len());
+
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let leaf = declaration
+                .split_once("export interface ExecutionLeaf {")
+                .unwrap()
+                .1;
+            let union = leaf.split_once("  reason:\n").unwrap().1;
+            let actual: BTreeSet<String> = union
+                .lines()
+                .take_while(|line| line.trim_start().starts_with('|'))
+                .map(|line| {
+                    line.trim()
+                        .trim_start_matches('|')
+                        .trim()
+                        .trim_matches('\'')
+                        .to_string()
+                })
+                .collect();
+            assert_eq!(actual, expected, "{path}");
+        }
+    }
 
     const DEFINITION: &str = r#"[]
         module MAIN
@@ -1577,7 +1664,12 @@ mod tests {
                 ..ExecuteRequest::default()
             })
             .unwrap();
-        assert_eq!(execution.leaves[0].reason, "unsupported-hook");
+        assert_eq!(
+            execution.leaves[0].reason,
+            HaltReasonOutput::UnsupportedHook
+        );
+        let encoded_execution = serde_json::to_value(&execution).unwrap();
+        assert_eq!(encoded_execution["leaves"][0]["reason"], "unsupported-hook");
         assert!(
             execution.leaves[0]
                 .detail

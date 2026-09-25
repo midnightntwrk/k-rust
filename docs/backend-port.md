@@ -127,6 +127,10 @@ leaves carry no final configuration and are not merged. Printed execution, searc
 disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not
 part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
 
+The backend facade exposes each execution leaf's halt reason as `HaltReasonOutput`, serialized with the same kebab-case reason in JSON.
+Consumers may match the Rust enum exhaustively.
+`detail` is human-readable context and must not be parsed as a halt class.
+
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that
 sub-case. [Trivial rule results](compatibility.md#trivial-rule-results) gives the reason and the RPC differential row that records the Booster divergence.
