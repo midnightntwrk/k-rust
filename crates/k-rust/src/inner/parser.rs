@@ -2737,9 +2737,14 @@ mod chart_tests {
                 )
                 .unwrap();
         }
-        grammar
-            .syntactic_subsort_relations
-            .remove(&(Sort::new("Good"), Sort::new("Good")));
+        // The labelled chains are constructors, so they give no subsort order; the order is
+        // the one every definition has, with `K` above the user sorts. Without that top an
+        // anonymous variable under a losing alternative is unconstrained, and each of the
+        // incomparable sorts it can take is a separate maximal typing.
+        grammar.subsort_relations.extend([
+            (Sort::new("Good"), Sort::new("K")),
+            (Sort::new("Bad"), Sort::new("K")),
+        ]);
         let mut shared = PackedTerm::leaf(Term::Variable {
             name: "_".to_owned(),
             sort: None,
