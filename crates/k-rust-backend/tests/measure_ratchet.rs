@@ -601,8 +601,8 @@ fn simplifier_work_per_step_stays_flat_with_cached_closed_collections() {
     );
     assert_eq!(early.get(Counter::RewriteSteps), 1);
     assert_eq!(late.get(Counter::RewriteSteps), 1);
-    // CB-12-4 caches each closed anywhere head after its inapplicable equation scan. Measured on
-    // this change: 7/7 rounds, 9/9 public entries, and 15/15 constructed terms at steps 8/64.
+    // The simplifier caches each closed anywhere head after its inapplicable equation scan.
+    // The measured steps 8/64 used 7/7 rounds, 9/9 public entries, and 15/15 constructed terms.
     assert!(early.get(Counter::SimplifyRounds) <= 10);
     assert!(late.get(Counter::SimplifyRounds) <= 10);
     assert_eq!(early.get(Counter::SimplifyInvocations), 9);
