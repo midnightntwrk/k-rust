@@ -57,7 +57,7 @@ meaning = "The port intentionally supports anywhere rules that the K Haskell fro
 [[category]]
 id = "declined-capability"
 decided_by = "docs/compatibility.md#cli-scope"
-meaning = "The step needs a K CLI capability outside krust's interface (the kompiled-directory contract or K-only flags); the driver has no krust equivalent to translate to."
+meaning = "The step needs a K CLI capability outside krust's interface (K-only flags, inputs, or outputs); the driver has no krust equivalent to translate to."
 
 [[category]]
 id = "undriven-recipe"
@@ -1409,16 +1409,16 @@ accepted_verdict = "krust-error"
 accepted_stage = "kompile"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
-reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) requires a compiled-directory runtime contract outside the krust CLI interface (docs/compatibility.md#cli-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments."
+exclusion = "llvm-only"
+reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) is an LLVM-backend hook without a pinned Kore evaluator; the recipe compiles with the LLVM backend (docs/compatibility.md#backend-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments."
 [[case]]
 name = "kompiled-directory/nested"
 accepted_verdict = "skipped-with-reason"
 accepted_stage = "none"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
-exclusion = "declined-capability"
-reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) requires a compiled-directory runtime contract outside the krust CLI interface (docs/compatibility.md#cli-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments."
+exclusion = "llvm-only"
+reason = "#kompiledDirectory() (KREFLECTION.kompiledDir) is an LLVM-backend hook without a pinned Kore evaluator; the recipe compiles with the LLVM backend (docs/compatibility.md#backend-scope). Compilation agrees; execution reports an unsupported-hook error on constructor-like arguments."
 [[case]]
 name = "kore-brackets"
 accepted_verdict = "match"
