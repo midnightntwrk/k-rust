@@ -246,7 +246,8 @@ Bottom, residual constraints, multiple leaves, malformed stream state, search, `
 The default `--output kore` behavior remains unchanged.
 
 Execution follows one successor per step by default (`--strategy any`: the first applicable rule
-by priority and definition order, the single path K's krun takes), so a `strict` production with
+by priority, then definition order; the choice among equal-priority rules is unspecified, see
+[Search results](docs/compatibility.md#search-results)), so a `strict` production with
 several unevaluated arguments is heated in one order, not every order. Pass `--strategy all` to
 explore every applicable rule (kore-exec's default, and the mode every `--search-*` run uses), and
 `--execute-to-branch` to return the configuration at the first branch point instead. Pass
