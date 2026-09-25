@@ -17,9 +17,26 @@ use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, bytes, check_interrupted,
     expect_arity, read_int,
 };
-use crate::term::{Sort, Symbol, SymbolType, Term, TermKind};
+use crate::definition::BackendDefinition;
+use crate::term::{Name, Sort, Symbol, SymbolType, Term, TermKind};
 
-pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+pub(super) fn evaluate(
+    hook: &str,
+    arguments: &[Term],
+    definition: Option<&BackendDefinition>,
+) -> Result<BuiltinResult, BuiltinError> {
+    let points = || match definition {
+        Some(definition) => PointConstructors::of(definition.symbols.values().map(AsRef::as_ref)),
+        None => PointConstructors::UNIDENTIFIED,
+    };
+    evaluate_with_points(hook, arguments, points)
+}
+
+fn evaluate_with_points(
+    hook: &str,
+    arguments: &[Term],
+    points: impl FnOnce() -> PointConstructors,
+) -> Result<BuiltinResult, BuiltinError> {
     match hook {
         "KRYPTO.keccak256" | "HASH.keccak256" => hash_hex::<Keccak256>(hook, arguments),
         "KRYPTO.keccak256raw" => hash_raw::<Keccak256>(hook, arguments),
@@ -31,21 +48,90 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
         "KRYPTO.ripemd160raw" => hash_raw::<Ripemd160>(hook, arguments),
         "KRYPTO.ecdsaPubKey" => ecdsa_public_key(arguments),
         "KRYPTO.ecdsaRecover" | "SECP256K1.ecdsaRecover" => ecdsa_recover(hook, arguments),
-        "KRYPTO.bn128valid" => bn128_valid(hook, arguments),
-        "KRYPTO.bn128g2valid" => bn128_g2_valid(hook, arguments),
-        "KRYPTO.bn128add" => bn128_add(hook, arguments),
-        "KRYPTO.bn128mul" => bn128_mul(hook, arguments),
-        "KRYPTO.bn128ate" => bn128_ate(hook, arguments),
+        "KRYPTO.bn128valid" => bn128_valid(hook, arguments, &points()),
+        "KRYPTO.bn128g2valid" => bn128_g2_valid(hook, arguments, &points()),
+        "KRYPTO.bn128add" => bn128_add(hook, arguments, &points()),
+        "KRYPTO.bn128mul" => bn128_mul(hook, arguments, &points()),
+        "KRYPTO.bn128ate" => bn128_ate(hook, arguments, &points()),
         _ => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
         )),
     }
 }
 
-/// The constructor the declarations use to write a point of G1 as `(x, y)`.
-const G1_POINT: &str = "Lblg1Point";
-/// The constructor the declarations use to write a point of G2 as `(x1 x x2, y1 x y2)`.
-const G2_POINT: &str = "Lblg2Point";
+/// The declared notation for the points of one group: `G1Point ::= "(" Int "," Int ")"` and
+/// `G2Point ::= "(" Int "x" Int "," Int "x" Int ")"`. The declaration fixes the production's result
+/// sort and argument sorts; its Kore name depends on how the definition was compiled (a `symbol`
+/// attribute or a generated label), so the constructor is identified by that signature.
+#[derive(Clone, Copy)]
+struct PointSignature {
+    sort: &'static str,
+    arity: usize,
+}
+
+const G1_POINT: PointSignature = PointSignature {
+    sort: "SortG1Point",
+    arity: 2,
+};
+const G2_POINT: PointSignature = PointSignature {
+    sort: "SortG2Point",
+    arity: 4,
+};
+
+impl PointSignature {
+    fn matches(self, symbol: &Symbol) -> bool {
+        symbol.attributes.symbol_type == SymbolType::Constructor
+            && symbol.sort_variables.is_empty()
+            && matches!(&symbol.result_sort, Sort::Application { name, arguments }
+                if arguments.is_empty() && name.as_ref() == self.sort)
+            && symbol.argument_sorts.len() == self.arity
+            && symbol
+                .argument_sorts
+                .iter()
+                .all(|sort| sort.is_builtin(BuiltinSort::Int))
+    }
+}
+
+/// Which constructor writes the points of one group in the definition at hand.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum PointConstructor {
+    /// The only constructor with the point signature, hence the declaration's point notation.
+    Identified(Name),
+    /// No constructor has the point signature, so the declared notation writes no term here.
+    Undeclared,
+    /// The definition declares several constructors with the point signature, or none is at hand
+    /// to look in: an application of any of them may be the declared point or not.
+    Unidentified,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PointConstructors {
+    g1: PointConstructor,
+    g2: PointConstructor,
+}
+
+impl PointConstructors {
+    const UNIDENTIFIED: Self = Self {
+        g1: PointConstructor::Unidentified,
+        g2: PointConstructor::Unidentified,
+    };
+
+    /// Identifies each group's point constructor among a definition's symbols.
+    fn of<'a>(symbols: impl Iterator<Item = &'a Symbol> + Clone) -> Self {
+        let identify = |signature: PointSignature| {
+            let mut candidates = symbols.clone().filter(|symbol| signature.matches(symbol));
+            match (candidates.next(), candidates.next()) {
+                (Some(symbol), None) => PointConstructor::Identified(symbol.name.clone()),
+                (None, _) => PointConstructor::Undeclared,
+                (Some(_), Some(_)) => PointConstructor::Unidentified,
+            }
+        };
+        Self {
+            g1: identify(G1_POINT),
+            g2: identify(G2_POINT),
+        }
+    }
+}
 
 /// What a BN128 hook can know about one of its arguments.
 ///
@@ -76,10 +162,12 @@ fn without_injections(mut term: &Term) -> &Term {
     term
 }
 
-/// Reads the `N` literal coordinates of a point written with `constructor`.
+/// Reads the `N` literal coordinates of a point written with `constructor`, whose signature is
+/// `signature`.
 fn point_coordinates<'a, const N: usize>(
     term: &'a Term,
-    constructor: &str,
+    signature: PointSignature,
+    constructor: &PointConstructor,
 ) -> Reading<(PointHead<'a>, [BigInt; N])> {
     let (symbol, sort_arguments, arguments) = match without_injections(term).kind() {
         TermKind::Application {
@@ -90,11 +178,17 @@ fn point_coordinates<'a, const N: usize>(
         TermKind::Variable(_) | TermKind::And(..) => return Reading::Opaque,
         _ => return Reading::NotAPoint,
     };
-    if symbol.name.as_ref() != constructor {
-        return match symbol.attributes.symbol_type {
-            SymbolType::Constructor => Reading::NotAPoint,
-            SymbolType::Function(_) => Reading::Opaque,
-        };
+    if let SymbolType::Function(_) = symbol.attributes.symbol_type {
+        return Reading::Opaque;
+    }
+    match constructor {
+        PointConstructor::Identified(name) if symbol.name == *name => {}
+        // Constructors are free: another constructor never denotes the declared point.
+        PointConstructor::Identified(_) | PointConstructor::Undeclared => {
+            return Reading::NotAPoint;
+        }
+        PointConstructor::Unidentified if signature.matches(symbol) => return Reading::Opaque,
+        PointConstructor::Unidentified => return Reading::NotAPoint,
     }
     if arguments.len() != N {
         return Reading::NotAPoint;
@@ -115,8 +209,8 @@ fn point_coordinates<'a, const N: usize>(
     ))
 }
 
-fn read_g1(term: &Term) -> Reading<(PointHead<'_>, G1)> {
-    match point_coordinates::<2>(term, G1_POINT) {
+fn read_g1<'a>(term: &'a Term, points: &PointConstructors) -> Reading<(PointHead<'a>, G1)> {
+    match point_coordinates::<2>(term, G1_POINT, &points.g1) {
         Reading::Value((head, coordinates)) => match g1_value(&coordinates) {
             Some(value) => Reading::Value((head, value)),
             None => Reading::NotAPoint,
@@ -126,8 +220,8 @@ fn read_g1(term: &Term) -> Reading<(PointHead<'_>, G1)> {
     }
 }
 
-fn read_g2(term: &Term) -> Reading<G2> {
-    match point_coordinates::<4>(term, G2_POINT) {
+fn read_g2(term: &Term, points: &PointConstructors) -> Reading<G2> {
+    match point_coordinates::<4>(term, G2_POINT, &points.g2) {
         Reading::Value((_, coordinates)) => match g2_value(&coordinates) {
             Some(value) => Reading::Value(value),
             None => Reading::NotAPoint,
@@ -181,39 +275,62 @@ fn validity<T>(reading: Reading<T>) -> BuiltinResult {
     }
 }
 
-fn bn128_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bn128_valid(
+    hook: &str,
+    arguments: &[Term],
+    points: &PointConstructors,
+) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 1)?;
-    Ok(validity(read_g1(&arguments[0])))
+    Ok(validity(read_g1(&arguments[0], points)))
 }
 
-fn bn128_g2_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bn128_g2_valid(
+    hook: &str,
+    arguments: &[Term],
+    points: &PointConstructors,
+) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 1)?;
-    Ok(validity(read_g2(&arguments[0])))
+    Ok(validity(read_g2(&arguments[0], points)))
 }
 
-fn bn128_add(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bn128_add(
+    hook: &str,
+    arguments: &[Term],
+    points: &PointConstructors,
+) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
     // A non-point makes the sum undefined whatever the other argument is, so it is checked
     // before an opaque argument can leave the call unevaluated.
-    Ok(match (read_g1(&arguments[0]), read_g1(&arguments[1])) {
-        (Reading::NotAPoint, _) | (_, Reading::NotAPoint) => BuiltinResult::Bottom,
-        (Reading::Opaque, _) | (_, Reading::Opaque) => BuiltinResult::NotApplicable,
-        (Reading::Value((head, left)), Reading::Value((_, right))) => {
-            BuiltinResult::Value(g1_term(&head, left + right))
-        }
-    })
+    Ok(
+        match (
+            read_g1(&arguments[0], points),
+            read_g1(&arguments[1], points),
+        ) {
+            (Reading::NotAPoint, _) | (_, Reading::NotAPoint) => BuiltinResult::Bottom,
+            (Reading::Opaque, _) | (_, Reading::Opaque) => BuiltinResult::NotApplicable,
+            (Reading::Value((head, left)), Reading::Value((_, right))) => {
+                BuiltinResult::Value(g1_term(&head, left + right))
+            }
+        },
+    )
 }
 
-fn bn128_mul(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bn128_mul(
+    hook: &str,
+    arguments: &[Term],
+    points: &PointConstructors,
+) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
     // Every `Int` is a scalar; anything else in the scalar position may denote any `Int`.
-    Ok(match (read_g1(&arguments[0]), read_int(&arguments[1])) {
-        (Reading::NotAPoint, _) => BuiltinResult::Bottom,
-        (Reading::Opaque, _) | (_, None) => BuiltinResult::NotApplicable,
-        (Reading::Value((head, point)), Some(scalar)) => {
-            BuiltinResult::Value(g1_term(&head, point * g1_scalar(&scalar)))
-        }
-    })
+    Ok(
+        match (read_g1(&arguments[0], points), read_int(&arguments[1])) {
+            (Reading::NotAPoint, _) => BuiltinResult::Bottom,
+            (Reading::Opaque, _) | (_, None) => BuiltinResult::NotApplicable,
+            (Reading::Value((head, point)), Some(scalar)) => {
+                BuiltinResult::Value(g1_term(&head, point * g1_scalar(&scalar)))
+            }
+        },
+    )
 }
 
 /// The order r of G1. Every point P of G1 satisfies r*P = O.
@@ -288,7 +405,11 @@ fn read_list(term: &Term) -> Option<ListReading<'_>> {
     }
 }
 
-fn bn128_ate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+fn bn128_ate(
+    hook: &str,
+    arguments: &[Term],
+    points: &PointConstructors,
+) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
     let g1_list = read_list(&arguments[0]);
     let g2_list = read_list(&arguments[1]);
@@ -309,7 +430,7 @@ fn bn128_ate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinErr
     let mut g1_points = Vec::new();
     for element in g1_list.iter().flat_map(|list| &list.elements) {
         check_interrupted()?;
-        match read_g1(element) {
+        match read_g1(element, points) {
             Reading::Value((_, point)) => g1_points.push(point),
             Reading::NotAPoint => return Ok(BuiltinResult::Bottom),
             Reading::Opaque => opaque = true,
@@ -318,7 +439,7 @@ fn bn128_ate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinErr
     let mut g2_points = Vec::new();
     for element in g2_list.iter().flat_map(|list| &list.elements) {
         check_interrupted()?;
-        match read_g2(element) {
+        match read_g2(element, points) {
             Reading::Value(point) => g2_points.push(point),
             Reading::NotAPoint => return Ok(BuiltinResult::Bottom),
             Reading::Opaque => opaque = true,
@@ -465,6 +586,24 @@ mod tests {
         cancellation::CancellationToken,
         term::{CollectionSymbols, FunctionType, ListDefinition, Symbol, Variable},
     };
+
+    /// Evaluates in a definition whose point constructors are `Lblg1Point`/`Lblg2Point`, the
+    /// Kore names the `symbol(g1Point)`/`symbol(g2Point)` attributes give at blockchain-k-plugin
+    /// `207ae512`. The other `G1Point`/`G2Point` constructor fixtures below have other signatures.
+    fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+        evaluate_in(&[g1_symbol(), g2_symbol()], hook, arguments)
+    }
+
+    /// Evaluates in a definition that declares `symbols`.
+    fn evaluate_in(
+        symbols: &[Arc<Symbol>],
+        hook: &str,
+        arguments: &[Term],
+    ) -> Result<BuiltinResult, BuiltinError> {
+        evaluate_with_points(hook, arguments, || {
+            PointConstructors::of(symbols.iter().map(AsRef::as_ref))
+        })
+    }
 
     fn string(value: &str) -> BuiltinResult {
         BuiltinResult::Value(string_term(value))
@@ -1141,17 +1280,14 @@ mod tests {
             Ok(BuiltinResult::Bottom)
         );
 
-        let alternate_symbol = Arc::new(Symbol::constructor(
-            "LblalternateG1Point",
-            vec![Sort::simple("SortInt"), Sort::simple("SortInt")],
-            Sort::simple("SortG1Point"),
-        ));
+        // Another `G1Point` constructor is not the point notation.
+        let alternate_symbol = constructor_symbol("LblalternateG1Point", 3, "SortG1Point");
         assert_eq!(
             evaluate(
                 "KRYPTO.bn128add",
                 &[
                     g1_point(&symbol, 1.into(), 2.into()),
-                    g1_point(&alternate_symbol, 1.into(), 2.into()),
+                    applied(&alternate_symbol, vec![int(1), int(2), int(0)]),
                 ],
             ),
             Ok(BuiltinResult::Bottom)
@@ -1480,11 +1616,13 @@ mod tests {
 
     #[test]
     fn constructor_terms_other_than_the_point_constructors_are_not_points() {
-        let alt = constructor_symbol("Lblalt", 2, "SortG1Point");
-        let alt4 = constructor_symbol("Lblalt4", 4, "SortG2Point");
-        let alt_generator = || applied(&alt, vec![int(1), int(2)]);
+        let alt = constructor_symbol("Lblalt", 3, "SortG1Point");
+        let alt4 = constructor_symbol("Lblalt4", 5, "SortG2Point");
+        let alt_generator = || applied(&alt, vec![int(1), int(2), int(0)]);
         let alt4_generator = match g2_generator(&g2_symbol()).kind() {
-            TermKind::Application { arguments, .. } => applied(&alt4, arguments.clone()),
+            TermKind::Application { arguments, .. } => {
+                applied(&alt4, arguments.iter().cloned().chain([int(0)]).collect())
+            }
             _ => unreachable!(),
         };
 
@@ -1567,8 +1705,8 @@ mod tests {
 
     #[test]
     fn a_non_point_argument_is_bottom_whatever_the_opaque_ones_are() {
-        let alt = constructor_symbol("Lblalt", 2, "SortG1Point");
-        let alt_generator = || applied(&alt, vec![int(1), int(2)]);
+        let alt = constructor_symbol("Lblalt", 3, "SortG1Point");
+        let alt_generator = || applied(&alt, vec![int(1), int(2), int(0)]);
         let off_curve = || g1_point(&g1_symbol(), 1.into(), 3.into());
         let scalar = Term::variable(Variable::new("N", Sort::simple("SortInt")));
 
@@ -1623,6 +1761,156 @@ mod tests {
                 ]
             ),
             Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    /// The Kore labels blockchain-k-plugin `651a2db5` (the pinned KEVM's plugin) compiles its point
+    /// productions to: they carry no `symbol` attribute, so the names are generated.
+    const GENERATED_G1_POINT: &str =
+        "Lbl'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'Int'Unds'Int";
+    const GENERATED_G2_POINT: &str = "Lbl'LParUnds'x'UndsCommUnds'x'UndsRParUnds'KRYPTO'Unds'G2Point'Unds'Int'Unds'Int'Unds'Int'Unds'Int";
+
+    fn with_head(symbol: &Arc<Symbol>, term: Term) -> Term {
+        match term.kind() {
+            TermKind::Application { arguments, .. } => applied(symbol, arguments.clone()),
+            _ => unreachable!("point fixtures are applications"),
+        }
+    }
+
+    #[test]
+    fn the_point_constructor_is_identified_by_its_signature_not_its_name() {
+        let alt = constructor_symbol("Lblalt", 3, "SortG1Point");
+        let f2 = function_symbol("Lblf2", vec![Sort::simple("SortInt"); 2], "SortG1Point");
+        for (g1, g2) in [
+            (
+                constructor_symbol(GENERATED_G1_POINT, 2, "SortG1Point"),
+                constructor_symbol(GENERATED_G2_POINT, 4, "SortG2Point"),
+            ),
+            (g1_symbol(), g2_symbol()),
+        ] {
+            // Neither another `G1Point` constructor nor a function with the point signature
+            // makes the point notation ambiguous.
+            let definition = [g1.clone(), g2.clone(), alt.clone(), f2.clone()];
+            let evaluate =
+                |hook: &str, arguments: &[Term]| evaluate_in(&definition, hook, arguments);
+            let generator = || g1_point(&g1, 1.into(), 2.into());
+            let negated = g1_point(
+                &g1,
+                1.into(),
+                decimal(
+                    "21888242871839275222246405745257275088696311157297823662689037894645226208581",
+                ),
+            );
+            let doubled = g1_point(
+                &g1,
+                hex_coordinate("030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3"),
+                hex_coordinate("15ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4"),
+            );
+            let q = || with_head(&g2, g2_generator(&g2_symbol()));
+            let name = &g1.name;
+
+            assert_eq!(
+                evaluate("KRYPTO.bn128valid", &[generator()]),
+                boolean(true),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128valid", &[g1_point(&g1, 1.into(), 3.into())]),
+                boolean(false),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128g2valid", &[q()]),
+                boolean(true),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128add", &[generator(), generator()]),
+                Ok(BuiltinResult::Value(doubled.clone())),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128mul", &[generator(), int(2)]),
+                Ok(BuiltinResult::Value(doubled)),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate(
+                    "KRYPTO.bn128ate",
+                    &[
+                        point_list(vec![generator(), negated]),
+                        point_list(vec![q(), q()])
+                    ]
+                ),
+                boolean(true),
+                "{name}"
+            );
+
+            // A different `G1Point` constructor is not a point; a function application may be.
+            assert_eq!(
+                evaluate(
+                    "KRYPTO.bn128valid",
+                    &[applied(&alt, vec![int(1), int(2), int(0)])]
+                ),
+                boolean(false),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128valid", &[applied(&f2, vec![int(1), int(2)])]),
+                Ok(BuiltinResult::NotApplicable),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn several_constructors_with_the_point_signature_identify_none() {
+        let alternate = constructor_symbol("LblalternateG1Point", 2, "SortG1Point");
+        let alt = constructor_symbol("Lblalt", 3, "SortG1Point");
+        let definition = [g1_symbol(), alternate.clone(), g2_symbol()];
+        let evaluate = |hook: &str, arguments: &[Term]| evaluate_in(&definition, hook, arguments);
+        let generator = || g1_point(&g1_symbol(), 1.into(), 2.into());
+        let alt_generator = || applied(&alt, vec![int(1), int(2), int(0)]);
+
+        // Either candidate may be the declared point notation or not.
+        for candidate in [generator(), g1_point(&alternate, 1.into(), 2.into())] {
+            assert_eq!(
+                evaluate("KRYPTO.bn128valid", std::slice::from_ref(&candidate)),
+                Ok(BuiltinResult::NotApplicable)
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128add", &[candidate.clone(), candidate]),
+                Ok(BuiltinResult::NotApplicable)
+            );
+        }
+        // A constructor without the point signature is still not a point, and G2 is unaffected.
+        assert_eq!(
+            evaluate("KRYPTO.bn128valid", &[alt_generator()]),
+            boolean(false)
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128add", &[generator(), alt_generator()]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128g2valid", &[g2_generator(&g2_symbol())]),
+            boolean(true)
+        );
+
+        // With no definition at hand the point notation is not identified either.
+        assert_eq!(
+            super::evaluate("KRYPTO.bn128valid", &[generator()], None),
+            Ok(BuiltinResult::NotApplicable)
+        );
+        assert_eq!(
+            super::evaluate("KRYPTO.bn128valid", &[alt_generator()], None),
+            boolean(false)
+        );
+
+        // A definition with no constructor of the point signature writes no point.
+        assert_eq!(
+            evaluate_in(&[g2_symbol()], "KRYPTO.bn128valid", &[generator()]),
+            boolean(false)
         );
     }
 

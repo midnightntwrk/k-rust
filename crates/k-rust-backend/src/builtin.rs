@@ -271,7 +271,7 @@ fn evaluate_hook_with_context(
                 Some(HookNamespace::Set) => set::evaluate(hook, arguments),
                 Some(HookNamespace::Bytes) => bytes::evaluate(hook, arguments),
                 Some(HookNamespace::Float) => float::evaluate(hook, arguments),
-                Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments),
+                Some(HookNamespace::Plugin) => krypto::evaluate(hook, arguments, definition),
                 Some(HookNamespace::String) => string::evaluate(hook, arguments, result_sort),
                 Some(HookNamespace::Substitution) => {
                     substitution::evaluate(hook, arguments, definition)
