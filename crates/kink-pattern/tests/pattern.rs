@@ -7,7 +7,7 @@ use kink_pattern::{
     CollectionEvidence, CollectionStop, EmptySearchDecision, EvaluationOptions, EventVocabulary,
     ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop,
     PatternFailureKind, PatternOutcome, PatternPlan, Relation, SearchPolicy, SideCondition,
-    TermRelation, aggregate_existential, evaluate,
+    TermRelation, evaluate,
 };
 use support::{
     PathSpec, app, bind, collection, context, done, exhaustive_options, make_match_stop, path,
@@ -731,28 +731,6 @@ fn trace_context_nested_symbolics_and_empty_exhaustion_fail_closed() {
         .kind(),
         PatternFailureKind::InvalidCollection
     );
-    assert_eq!(aggregate_existential(&[], false, None), Unknown);
-    assert_eq!(
-        aggregate_existential(&[], false, Some(EmptySearchDecision)),
-        NoMatch
-    );
-
-    // (components, global error, expected), from the former `aggregationCases`.
-    let rows: [(&[PatternOutcome], bool, PatternOutcome); 6] = [
-        (&[NoMatch, NoMatch], false, NoMatch),
-        (&[NoMatch, Unknown], false, Unknown),
-        (&[Match, Unknown], false, Match),
-        (&[Match, Error], false, Match),
-        (&[Match, NoMatch], true, Error),
-        (&[NoMatch, Error], false, Unknown),
-    ];
-    for (components, global_error, expected) in rows {
-        assert_eq!(
-            aggregate_existential(components, global_error, Some(EmptySearchDecision)),
-            expected,
-            "{components:?} global error {global_error}"
-        );
-    }
 }
 
 /// P7: a semantic crash is a complete terminal carrying its own terminal term.

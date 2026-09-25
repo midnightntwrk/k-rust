@@ -24,7 +24,6 @@ pub enum PatternFailureKind {
     InvalidTerm,
     InvalidPath,
     InvalidCollection,
-    InvalidCorpus,
     InputError,
 }
 
@@ -656,7 +655,7 @@ pub struct Evaluation {
     pub primary_witness: Option<usize>,
     /// For `Unknown`, the least severe incomplete stop in `PathStop` order, never
     /// `MatchFound`: an indeterminate candidate is `SolverUnknown`. Unlike
-    /// `CorpusDecision::cause`, this does not prefer an error over a limit.
+    /// An earlier limit is retained even when a later path has an error.
     pub failure: Option<PathStop>,
     pub search_policy: SearchPolicy,
     pub bounds: ExecutionBounds,
@@ -1284,119 +1283,6 @@ fn validate_relations(path: &PathInput, sorts: &SymbolSorts) -> Result<(), Patte
         ));
     }
     Ok(())
-}
-
-/// Existential aggregation requires an explicit finite-exhaustion witness before absence.
-#[must_use]
-pub fn aggregate_existential(
-    components: &[PatternOutcome],
-    global_error: bool,
-    exhaustion: Option<EmptySearchDecision>,
-) -> PatternOutcome {
-    if global_error {
-        PatternOutcome::Error
-    } else if components.contains(&PatternOutcome::Match) {
-        PatternOutcome::Match
-    } else if components
-        .iter()
-        .any(|item| matches!(item, PatternOutcome::Unknown | PatternOutcome::Error))
-        || exhaustion.is_none()
-    {
-        PatternOutcome::Unknown
-    } else {
-        PatternOutcome::NoMatch
-    }
-}
-
-/// One corpus test in manifest order: evaluated to an outcome, or explicitly skipped.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CorpusComponent {
-    Evaluated(PatternOutcome),
-    Skipped(CorpusSkip),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CorpusSkip {
-    SharedSetupFailed,
-    MatchFound,
-}
-
-/// The folded corpus answer. Indices refer to manifest test order.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CorpusDecision {
-    pub outcome: PatternOutcome,
-    pub complete_coverage: bool,
-    pub matching_tests: Vec<usize>,
-    /// First test-scoped error, else first unknown, that makes the corpus inconclusive.
-    /// Unlike `Evaluation::failure`, an error is never hidden behind an earlier unknown.
-    pub cause: Option<usize>,
-}
-
-/// Folds per-test outcomes after checking that every skip is justified: a shared-setup
-/// failure skips every test, and early stop skips exactly the tests after the first match.
-/// Absence follows `aggregate_existential`, so it needs explicit exhaustion evidence.
-/// Corpus-scoped Error arises only from shared-setup failure; a test-scoped Error leaves
-/// the corpus Unknown and never overrides a Match, as a path-local error stop does in
-/// `evaluate`.
-pub fn aggregate_corpus(
-    components: &[CorpusComponent],
-    shared_setup_failed: bool,
-    early_stop_after_match: bool,
-    exhaustion: Option<EmptySearchDecision>,
-) -> Result<CorpusDecision, PatternFailure> {
-    let invalid = |detail: &str| {
-        Err(PatternFailure::new(
-            PatternFailureKind::InvalidCorpus,
-            detail,
-        ))
-    };
-    if components.is_empty() {
-        return invalid("corpus has no tests");
-    }
-    let first_match = components
-        .iter()
-        .position(|item| *item == CorpusComponent::Evaluated(PatternOutcome::Match));
-    let expected_skip = |index: usize| {
-        if shared_setup_failed {
-            Some(CorpusSkip::SharedSetupFailed)
-        } else if early_stop_after_match && first_match.is_some_and(|first| index > first) {
-            Some(CorpusSkip::MatchFound)
-        } else {
-            None
-        }
-    };
-    let mut outcomes = Vec::with_capacity(components.len());
-    for (index, component) in components.iter().enumerate() {
-        match (*component, expected_skip(index)) {
-            (CorpusComponent::Evaluated(outcome), None) => outcomes.push(outcome),
-            (CorpusComponent::Skipped(skip), Some(expected)) if skip == expected => {}
-            _ => return invalid("corpus skips do not follow its setup and stop policy"),
-        }
-    }
-    let outcome = aggregate_existential(&outcomes, shared_setup_failed, exhaustion);
-    let first = |wanted| {
-        components
-            .iter()
-            .position(|item| *item == CorpusComponent::Evaluated(wanted))
-    };
-    let cause = matches!(outcome, PatternOutcome::Unknown | PatternOutcome::Error)
-        .then(|| first(PatternOutcome::Error).or_else(|| first(PatternOutcome::Unknown)))
-        .flatten();
-    Ok(CorpusDecision {
-        outcome,
-        complete_coverage: matches!(outcome, PatternOutcome::Match | PatternOutcome::NoMatch)
-            && outcomes.len() == components.len()
-            && outcomes
-                .iter()
-                .all(|item| matches!(item, PatternOutcome::Match | PatternOutcome::NoMatch)),
-        matching_tests: components
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| **item == CorpusComponent::Evaluated(PatternOutcome::Match))
-            .map(|(index, _)| index)
-            .collect(),
-        cause,
-    })
 }
 
 fn valid_binding_name(value: &str) -> bool {
