@@ -237,6 +237,18 @@ The pinned Booster proxy echoes the request's patterns instead; for the IMP requ
 The `rpc.imp` `oracle-exception` records that difference with `equivalence = "simplified-implication"`, and N19 checks the claimed equality rather than asserting it: the two responses must be equal outside the payload, and both payloads' antecedents and consequents, simplified by `krust kore-simplify` against the reference definition, must print identically.
 Like C8, that evidence depends on the port's simplifier.
 
+The `haskell-logging` parameter selects diagnostic entries; it is not an instruction to the computation.
+It decides only whether `haskell-log-entries` is attached (for a non-empty list) and which entries it holds; no other result field depends on it.
+A name is matched exactly and case-sensitively against a fixed set of names per entry, not against the entry's `context` array (whose segments are lowercase).
+Every method returns one proxy entry, first in the list when selected; it is selected by `Proxy` or by its method name: `Execute`, `Simplify`, `Implies`, `AddModule` or `GetModel`.
+For `execute`, each step of the trace yields a success entry selected by `Booster`, `Execute`, `Success`, or its kind: `Rewrite` (a rewrite or claim step), `Simplification` or `Remainder`.
+A run that halts stuck, indeterminate or on a simplification error yields one failure entry, selected by `Booster`, `Execute` or `Failure`, and also by `Indeterminate` or `Abort` when the halt is indeterminate.
+`Rewrite` does not select the failure entry, even when its `context` names the rule in a `rewrite` element.
+Any other name selects no entry, in the same way that `Failure` selects none on a run in which no rewrite failed: an empty selection is the answer to the query, not a dropped request.
+The CLI-scope rule that an unknown flag must not be silently ignored therefore does not apply: that rule prevents an operation from returning a result that an unapplied option would have changed, and a `haskell-logging` name changes no result field other than `haskell-log-entries`.
+Because the emitted names are listed here, an empty selection for a name outside the list carries no information about the event that name denotes elsewhere.
+A `haskell-logging` value that is not an array of strings fails parameter decoding and is rejected with `-32602`, `Invalid params`.
+
 ## Definition verification
 
 The acceptance boundary includes the sentence, declaration and pattern conditions of KORE validity as the KORE language specification states them, [`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity).

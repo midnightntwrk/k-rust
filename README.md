@@ -330,9 +330,15 @@ reference proxy's backend-routing hint; the unified Rust service already uses th
 The standalone RPC `simplify` method remains deliberately unbounded.
 
 Execution can return reference-shaped rewrite diagnostics through `log-successful-rewrites` and
-`log-failed-rewrites`. Requests may also select legacy context names such as `Proxy`, `Execute`,
-`Rewrite`, or `Simplify` through `haskell-logging`; matching structured entries are returned in
-`haskell-log-entries`, while names unknown to the Rust backend are ignored.
+`log-failed-rewrites`. Requests may also select legacy context names through `haskell-logging`;
+the selected entries are returned in `haskell-log-entries`. Names match exactly and case-sensitively:
+`Proxy` or the method name (`Execute`, `Simplify`, `Implies`, `AddModule`, `GetModel`) selects the
+proxy entry; for `execute`, `Booster`, `Execute`, `Success`, or the step kind (`Rewrite`,
+`Simplification`, `Remainder`) selects a trace step's success entry, and `Booster`, `Execute`,
+`Failure`, plus `Indeterminate` and `Abort` on an indeterminate halt, select the failure entry.
+Any other name selects no entry; the selection never changes another result field. Why an
+unmatched name is an empty selection rather than an error is in
+[RPC behavior](docs/compatibility.md#rpc-behavior).
 
 Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
 pure ML predicates without requiring a configuration term:
