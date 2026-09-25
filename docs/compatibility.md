@@ -370,7 +370,8 @@ Observed execution and search (`executeObserved` and the `*Observed` search meth
 A `transition` event is a committed transition of the leaf's `branch` (or a witness's `id`); under an allowlist only the admitted ones are reported, always in branch order.
 An `evaluation` event is an equation, simplification, or builtin application that normalized a branch state; its `anchor` is the number of branch entries before it, whether or not the allowlist reports them.
 An `uncommitted` event is an attempted transition that no surviving branch retains.
-A cut-point rule is proposed, not committed: the leaf stays at the state before it, and neither the rule nor its successor's normalization appears in the leaf's events.
+A cut-point rule is proposed, not committed: the leaf stays at the state before it, and neither the rule nor its successor's normalization appears in the leaf's events, unless the leaf reports the successor's pattern because its normalization failed or is bottom.
+With branch stopping, each candidate successor is normalized after its transition on its own branch: a candidate that continues as the only successor keeps those evaluations, and a candidate reported by a branch or cut-point halt carries them with it (in the backend's `AppliedRule::observations` and `RemainderBranch::observations`; the host wire does not expose halt candidates structurally).
 Evaluation events are diagnostics; which ones occur and in which order depends on the simplifier's strategy.
 
 This shape replaced an earlier one at backend schema version 1, without a version change, in line with the other closed-variant changes of that schema:

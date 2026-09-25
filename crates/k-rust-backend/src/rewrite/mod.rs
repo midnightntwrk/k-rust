@@ -153,6 +153,11 @@ pub struct AppliedRule {
     /// subject it was derived from (a lower-priority candidate inherits its remainder's), and
     /// the step work shared by every candidate. Each distinct diagnostic once, in emission order.
     pub diagnostics: Vec<BackendDiagnostic>,
+    /// Under observation, the events this candidate adds to its parent's branch when an
+    /// execution reports it without committing it (a `Branch` or `CutPointRule` halt): the
+    /// evaluations of its higher-priority remainder, its transition, and the evaluations of its
+    /// normalization, anchored as on the branch it would extend. Empty otherwise.
+    pub observations: Vec<ObservationEvent>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -178,6 +183,10 @@ pub struct RemainderBranch {
     /// simplification of its conditions and term, the lower-priority attempts on it, and the
     /// step work shared by every candidate. Each distinct diagnostic once, in emission order.
     pub diagnostics: Vec<BackendDiagnostic>,
+    /// Under observation, the events this remainder adds to its parent's branch when a `Branch`
+    /// halt reports it: its transition and the evaluations of its simplifications and
+    /// normalization, anchored as on the branch it would extend. Empty otherwise.
+    pub observations: Vec<ObservationEvent>,
 }
 
 /// Why a rewrite step could not decide the successors of a pattern.

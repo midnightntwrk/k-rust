@@ -2758,7 +2758,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "fa4df5976c0373b7b96c6009006544857b1e0e43ad3bb248161a232187915853",
+        "48b893ea67a094cbf8ca508f28470ab9fae8861b0f6a57fc2ba1c38a5704627d",
     );
 }
 
@@ -2799,7 +2799,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "b4c7188c17175ebfc6e37073d0088b47b13c1a83c2e820748251b6acecd82171",
+        "97ae8688852a7d44d7ab62b9c20d4a8143d6011d1fd0959110b19623e8b9b88b",
     );
 }
 
@@ -2856,7 +2856,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "a310892d9b34c8808500d60c108990a0d4798e2922e0f74028bbe298badcd793",
+        "69708e730284ac1d74ac413c9e7d8da4a1d22869f0f1ccaa4100142668d616da",
     );
 }
 
@@ -2917,7 +2917,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "fff44be69beb2bfd3bc5bb0f4e120f641eff316a85c2e05f75e4f3a0ed48ab67",
+        "bc23df953b52d2fea202716335850c3fcd2ce8e4e03dfb796f89854bfaa55ef7",
     );
 }
 
@@ -2990,7 +2990,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "ee82d2926435ad44d5ca5fd1014b8eaff1bbe3b4c65b9a04935049848092f97e",
+        "2795b755d8c51e41c802e37f90326995e7635ab8583bd00a02ae49e213f0e496",
     );
 }
 
@@ -3210,7 +3210,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "35d334736aa2ccdf1797c71b5db905e312d349a9f4b781bc893ef84eb597f811",
+        "508e8f09e6d42df8dfc26ea73ad26dac32b55054b8eff25267963b8c6a7c7d84",
     );
 }
 
@@ -3274,7 +3274,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "6a6cc992ffcbccc3bbee4a72f3e86a4ba6174a4d322ea9ad65ea5bb238cb0085",
+        "3eb487673fb91f9b77f0aa0f4728fd9578fac94fcbd4a6b6a1452c4dfc2bf0ee",
     );
 }
 
@@ -7182,15 +7182,339 @@ fn cut_point_leaf_observes_only_the_transitions_that_produced_its_state() {
         panic!("expected one proposed successor");
     };
     assert_eq!(next.unique_id, "stop");
+    // The proposed successor carries the events it would add after the leaf's branch.
+    assert_eq!(
+        observed_stream(&next.observations),
+        [
+            Observed::Transition("stop", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 2),
+        ]
+    );
 
-    let mut unobserved = result.clone();
-    for leaf in &mut unobserved.leaves {
+    assert_eq!(
+        without_observations(result),
+        execute(&definition, subject(&definition, "start"), options)
+    );
+}
+
+/// A cut-point successor that normalizes to bottom ends the path as a `Trivial` leaf reporting
+/// the successor's pattern, so the leaf's branch holds the transition that produced it and the
+/// evaluation of its normalization.
+#[test]
+fn a_bottom_cut_point_successor_leaf_observes_the_rule_that_produced_it() {
+    let definition = definition(
+        r#"
+            symbol dead{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    dead{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("dead"), \bottom{SortS{}}())
+                )
+            ) [label{}("dead"), simplification{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                dead{}(\dv{SortS{}}("left"))
+            ) [label{}("stop")]
+            "#,
+    );
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions {
+            cut_point_rules: BTreeSet::from(["stop".into()]),
+            ..ExecutionOptions::default()
+        },
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one leaf: {:?}", result.leaves);
+    };
+    assert!(
+        matches!(leaf.halt_reason, HaltReason::Trivial { .. }),
+        "{:?}",
+        leaf.halt_reason
+    );
+    assert_observations_anchor_into_branch(leaf);
+    assert_eq!(
+        observed(leaf),
+        [
+            Observed::Transition("stop", TransitionClass::Rewrite),
+            Observed::Evaluation("dead", EvaluationClass::Simplification, 1),
+        ]
+    );
+}
+
+/// A cut-point candidate owns the work done for it: the diagnostics and the evaluations of its
+/// normalization land on the same candidate, and the parent leaf carries neither.
+#[test]
+fn a_cut_point_candidate_owns_both_the_diagnostics_and_the_evaluations_of_its_work() {
+    let definition = growing_equation_definition(false);
+    let result = execute_observed(
+        &definition,
+        Pattern {
+            term: internal_term(&definition, "start{}()"),
+            constraints: Vec::new(),
+        },
+        ExecutionOptions {
+            max_simplification_iterations: 3,
+            cut_point_rules: BTreeSet::from(["to-g".into()]),
+            ..ExecutionOptions::default()
+        },
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one cut-point leaf: {:?}", result.leaves);
+    };
+    let HaltReason::CutPointRule { next_states, .. } = &leaf.halt_reason else {
+        panic!("expected a cut-point leaf: {:?}", leaf.halt_reason);
+    };
+    let [next] = next_states.as_slice() else {
+        panic!("expected one proposed successor");
+    };
+    assert!(leaf.diagnostics.is_empty(), "{:?}", leaf.diagnostics);
+    assert!(leaf.observations.is_empty(), "{:?}", leaf.observations);
+    assert!(leaf.branch.is_empty());
+    assert_eq!(next.diagnostics, [term_budget_exhausted(3)]);
+    let stream = observed_stream(&next.observations);
+    assert_eq!(
+        stream.first(),
+        Some(&Observed::Transition("to-g", TransitionClass::Rewrite))
+    );
+    assert!(
+        stream.contains(&Observed::Evaluation(
+            "grow",
+            EvaluationClass::Simplification,
+            1
+        )),
+        "{stream:?}"
+    );
+}
+
+/// An observed result with every observation output removed: the leaves' `branch` and
+/// `observations`, the observations of the candidates their halts report, and `discarded`.
+fn without_observations(mut result: ExecutionResult) -> ExecutionResult {
+    result.discarded.clear();
+    for leaf in &mut result.leaves {
         leaf.branch.clear();
         leaf.observations.clear();
+        match &mut leaf.halt_reason {
+            HaltReason::Branch {
+                branches,
+                remainder,
+            } => {
+                for applied in branches {
+                    applied.observations.clear();
+                }
+                if let Some(remainder) = remainder {
+                    remainder.observations.clear();
+                }
+            }
+            HaltReason::CutPointRule { next_states, .. } => {
+                for applied in next_states {
+                    applied.observations.clear();
+                }
+            }
+            _ => {}
+        }
     }
+    result
+}
+
+/// The reviewer's scenario: at a branch stop, `left`'s candidate simplifies to bottom and
+/// `right`'s reduces by a function equation. `right` continues as the only successor and keeps
+/// the evaluation of its normalization, anchored after its transition.
+#[test]
+fn a_single_surviving_branch_candidate_keeps_its_normalization_evaluations() {
+    let definition = definition(
+        r#"
+            symbol dead{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    dead{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("dead"), \bottom{SortS{}}())
+                )
+            ) [label{}("dead"), simplification{}()]
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                dead{}(\dv{SortS{}}("left"))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                value{}()
+            ) [label{}("right")]
+            "#,
+    );
+    let stop_at_branch = ExecutionOptions {
+        branch_mode: ExecutionBranchMode::StopAtBranch,
+        ..ExecutionOptions::default()
+    };
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        stop_at_branch.clone(),
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!(
+            "expected the one viable candidate to continue: {:?}",
+            result.leaves
+        );
+    };
+    assert_eq!(leaf.depth, 1);
+    assert_observations_anchor_into_branch(leaf);
     assert_eq!(
-        unobserved,
-        execute(&definition, subject(&definition, "start"), options)
+        observed(leaf).first(),
+        Some(&Observed::Transition("right", TransitionClass::Rewrite))
+    );
+    assert!(
+        observed(leaf).contains(&Observed::Evaluation(
+            "value",
+            EvaluationClass::FunctionEquation,
+            1
+        )),
+        "{:?}",
+        observed(leaf)
+    );
+    let [discarded] = result.discarded.as_slice() else {
+        panic!(
+            "expected the bottom candidate to be discarded: {:?}",
+            result.discarded
+        );
+    };
+    assert_eq!(discarded.id.rule, "left");
+
+    // The transition is identified by the successor the rule built, as when every branch is
+    // explored.
+    let explored = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+    assert!(
+        explored
+            .leaves
+            .iter()
+            .any(|explored| explored.branch == leaf.branch),
+        "{:?}",
+        explored.leaves
+    );
+
+    assert_eq!(
+        without_observations(result),
+        execute(&definition, subject(&definition, "start"), stop_at_branch)
+    );
+}
+
+/// A branch halt reports its candidates without committing them; each carries the events it
+/// would add to the parent's branch, and the leaf keeps only the parent's own.
+#[test]
+fn branch_halt_candidates_carry_their_own_evaluations() {
+    let definition = evaluating_branch_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, r#"wrap{}(value{}())"#),
+        constraints: Vec::new(),
+    };
+    let stop_at_branch = ExecutionOptions {
+        branch_mode: ExecutionBranchMode::StopAtBranch,
+        ..ExecutionOptions::default()
+    };
+    let result = execute_observed(
+        &definition,
+        initial.clone(),
+        stop_at_branch.clone(),
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:?}", result.leaves);
+    };
+    let HaltReason::Branch {
+        branches,
+        remainder: None,
+    } = &leaf.halt_reason
+    else {
+        panic!("expected a branch halt: {:?}", leaf.halt_reason);
+    };
+    assert_eq!(
+        observed(leaf),
+        [Observed::Evaluation(
+            "value",
+            EvaluationClass::FunctionEquation,
+            0
+        )]
+    );
+    assert!(leaf.branch.is_empty());
+    let streams = branches
+        .iter()
+        .map(|applied| observed_stream(&applied.observations))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        streams,
+        [
+            vec![
+                Observed::Transition("left", TransitionClass::Rewrite),
+                Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+            ],
+            vec![Observed::Transition("right", TransitionClass::Rewrite)],
+        ]
+    );
+
+    assert_eq!(
+        without_observations(result),
+        execute(&definition, initial, stop_at_branch)
+    );
+}
+
+/// A branch stop that leaves only the remainder continues on it with the evaluations of its
+/// normalization, anchored after the remainder transition.
+#[test]
+fn a_single_surviving_remainder_keeps_its_normalization_evaluations() {
+    let definition = remainder_evaluation_definition(false);
+    let result = execute_observed_with_solver(
+        &definition,
+        symbolic_wrap(&definition),
+        ExecutionOptions {
+            branch_mode: ExecutionBranchMode::StopAtBranch,
+            ..ExecutionOptions::default()
+        },
+        &KnowledgeDecidesSolver,
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one branch leaf: {:?}", result.leaves);
+    };
+    let HaltReason::Branch {
+        branches,
+        remainder: Some(remainder),
+    } = &leaf.halt_reason
+    else {
+        panic!(
+            "expected a branch halt with a remainder: {:?}",
+            leaf.halt_reason
+        );
+    };
+    assert_eq!(branches.len(), 1);
+    assert_eq!(
+        observed_stream(&remainder.observations),
+        [
+            Observed::Transition("remainder:matched", TransitionClass::Remainder),
+            Observed::Evaluation("sign", EvaluationClass::Simplification, 1),
+        ]
     );
 }
 

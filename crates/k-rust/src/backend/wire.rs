@@ -1353,6 +1353,7 @@ mod tests {
                 limit: 3,
                 subject: BudgetSubject::Predicates,
             }],
+            observations: Vec::new(),
         };
         let (candidates, remainder) = execution_candidates_output(HaltReason::Branch {
             branches: Vec::new(),
