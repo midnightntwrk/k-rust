@@ -296,3 +296,57 @@ impl fmt::Display for IdentityError {
 }
 
 impl std::error::Error for IdentityError {}
+
+#[cfg(test)]
+#[path = "../../../testdata/k/support.rs"]
+mod support;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ClassificationFailure, RewriteRules};
+
+    #[test]
+    fn all_transitions_refuses_rewrite_rules_without_authored_positions() {
+        let validator =
+            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let baseline = validator.compile_baseline().expect("baseline");
+        let rule = support::rule(validator.baseline(), "COUNTER.increment");
+        let attributes = validator
+            .baseline()
+            .sentence(&rule)
+            .expect("rule")
+            .attributes();
+        let id = baseline
+            .rule_identity(attributes.source().unwrap(), attributes.location().unwrap())
+            .unwrap()
+            .to_owned();
+        #[rustfmt::skip]
+        let rows = [
+            ("missing-source", &[AttributeKey::Source][..]),
+            ("missing-location", &[AttributeKey::Location][..]),
+            ("missing-both", &[AttributeKey::Source, AttributeKey::Location][..]),
+        ];
+        for (name, keys) in rows {
+            let mut side = baseline.clone();
+            let sentence = side
+                .artifacts
+                .execution_definition
+                .modules
+                .iter_mut()
+                .flat_map(|module| module.local_sentences.iter_mut())
+                .find(|sentence| sentence.attributes().string(AttributeKey::UniqueId) == Some(&id))
+                .expect("compiled rule");
+            for key in keys {
+                std::sync::Arc::make_mut(sentence)
+                    .attributes_mut()
+                    .remove(key.as_str());
+            }
+            assert_eq!(
+                RewriteRules::classify(&validator, &side, "COUNTER"),
+                Err(ClassificationFailure::UnmappedRewriteIdentity(id.clone())),
+                "{name}"
+            );
+        }
+    }
+}

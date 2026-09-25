@@ -58,6 +58,8 @@ pub enum ClassificationFailure {
     ObservationFilter(String),
     MissingSource(SentenceRef),
     AmbiguousRule(SentenceRef),
+    /// A rewrite identity cannot be assigned to a written rule or a known builtin.
+    UnmappedRewriteIdentity(String),
 }
 
 impl fmt::Display for ClassificationFailure {
@@ -80,6 +82,12 @@ impl fmt::Display for ClassificationFailure {
             Self::AmbiguousRule(rule) => {
                 write!(formatter, "{rule:?} has ambiguous compiled identities")
             }
+            Self::UnmappedRewriteIdentity(id) => {
+                write!(
+                    formatter,
+                    "rewrite identity {id} has no authored source position"
+                )
+            }
         }
     }
 }
@@ -91,7 +99,8 @@ impl RewriteRules {
     ///
     /// # Errors
     ///
-    /// Refuses a mutant, failed KORE parse or internalization, or an ambiguous position.
+    /// Refuses a mutant, failed KORE parse or internalization, an ambiguous position,
+    /// or a rewrite identity without a known authored or builtin position.
     pub fn classify(
         validator: &NativeValidator,
         baseline: &ValidatedDefinition,
@@ -115,6 +124,7 @@ impl RewriteRules {
         ObservationOptions::with_rules(&definition, ids.iter().copied())
             .map_err(|error| ClassificationFailure::ObservationFilter(format!("{error:?}")))?;
         let mut selected = BTreeSet::new();
+        let mut resolved_ids = BTreeSet::new();
         for (at, sentence) in validator.baseline().authored_sentences() {
             if !matches!(sentence, Sentence::Rule { .. }) {
                 continue;
@@ -126,12 +136,41 @@ impl RewriteRules {
             };
             match baseline.rule_identity(source, location) {
                 Ok(id) if ids.contains(id) => {
+                    resolved_ids.insert(id);
                     selected.insert(at);
                 }
                 Ok(_) | Err(IdentityError::Missing) => {}
                 Err(IdentityError::Ambiguous) => {
                     return Err(ClassificationFailure::AmbiguousRule(at));
                 }
+            }
+        }
+        for id in ids.difference(&resolved_ids) {
+            let carrying_rules = baseline
+                .artifacts()
+                .execution_definition
+                .modules
+                .iter()
+                .flat_map(|module| module.local_sentences.iter())
+                .filter(|sentence| {
+                    matches!(***sentence, Sentence::Rule { .. })
+                        && sentence.attributes().string(AttributeKey::UniqueId) == Some(id)
+                })
+                .collect::<Vec<_>>();
+            let known_builtin = !carrying_rules.is_empty()
+                && carrying_rules.iter().all(|sentence| {
+                    sentence.attributes().source().is_some_and(|source| {
+                        baseline
+                            .compile_options()
+                            .builtin_source_prefixes
+                            .iter()
+                            .any(|prefix| source.starts_with(prefix))
+                    })
+                });
+            if !known_builtin {
+                return Err(ClassificationFailure::UnmappedRewriteIdentity(
+                    (*id).to_owned(),
+                ));
             }
         }
         Ok(Self(selected))
