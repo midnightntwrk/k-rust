@@ -265,7 +265,7 @@ baseline_stage = "kompile"
 exclusion = ""
 reason = "All 16 rejection checks agree. The driver translates -w2e -w all to --warnings all --warnings-to-errors. In existsLHSBoundPass.k, the bound variable and #Exists/#Equals parameters must range over real sorts, excluding KList, as TypeInferencer.isRealSort requires."
 step_exclusions = [
-  { out = "checkHaskellAnywhere.k.out", exclusion = "supported-superset", reason = "Decision 10-1 keeps anywhere rules executable by default; K's Haskell-only rejection is not the port contract." },
+  { out = "checkHaskellAnywhere.k.out", exclusion = "supported-superset", reason = "The expected output is a kompile rejection of an anywhere rule for the Haskell backend; k-rust accepts and executes anywhere rules (docs/compatibility.md#anywhere-rules)." },
 ]
 [[case]]
 name = "checks"
@@ -1102,7 +1102,7 @@ baseline_stage = "kompile"
 exclusion = ""
 reason = "KItem start sort; `--allow-anywhere-haskell` dropped"
 step_exclusions = [
-  { step = "kompile", exclusion = "supported-superset", reason = "Decision 10-1 keeps anywhere rules and deliberately drops --allow-anywhere-haskell; execution remains a real target." },
+  { step = "kompile", exclusion = "supported-superset", reason = "The recipe passes --allow-anywhere-haskell to lift a rejection of anywhere rules; k-rust accepts and executes anywhere rules without a flag (docs/compatibility.md#anywhere-rules), so krust has no such flag and the driver drops it. Execution remains a real target." },
 ]
 
 [[case]]
