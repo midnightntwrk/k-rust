@@ -854,16 +854,6 @@ fn indeterminate_failure_output(
                 symbol: symbol.to_string(),
             }
         }
-        IndeterminateReason::Simplification { rule_id, error } => {
-            let failure = simplification_failure_output(error, result_sort)?;
-            match (rule_id, failure) {
-                (Some(rule), SearchFailureOutput::Smt { error, .. }) => SearchFailureOutput::Smt {
-                    rule: Some(rule),
-                    error,
-                },
-                (_, failure) => failure,
-            }
-        }
         IndeterminateReason::Match {
             rule_id,
             substitution,

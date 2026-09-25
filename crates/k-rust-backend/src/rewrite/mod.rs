@@ -165,8 +165,27 @@ pub struct RemainderBranch {
     /// Simplifications performed while folding this remainder through lower priority groups.
     pub simplifications: Vec<RemainderSimplification>,
     /// A lower priority group that could not be decided. Earlier branches remain valid, while
-    /// this remainder alone is reported as indeterminate.
-    pub indeterminate: Option<IndeterminateReason>,
+    /// this remainder alone is reported as undecided.
+    pub indeterminate: Option<UndecidedStep>,
+}
+
+/// Why a rewrite step could not decide the successors of a pattern.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UndecidedStep {
+    /// The rules' applicability could not be decided for the pattern.
+    Indeterminate(IndeterminateReason),
+    /// Simplifying a term or condition of a rule application failed.
+    Simplification(SimplificationError),
+}
+
+impl UndecidedStep {
+    /// The step result that reports this undecided step for `pattern`.
+    pub fn into_result(self, pattern: Pattern) -> RewriteResult {
+        match self {
+            Self::Indeterminate(reason) => RewriteResult::Indeterminate { pattern, reason },
+            Self::Simplification(error) => RewriteResult::Simplification { pattern, error },
+        }
+    }
 }
 
 /// A rule that unified but whose rewritten result is bottom. Kore retains its unifier in the
@@ -202,6 +221,12 @@ pub enum RewriteResult {
         pattern: Pattern,
         reason: IndeterminateReason,
     },
+    /// Simplifying a term or condition of a rule application failed, so the step's successors
+    /// are unknown; `pattern` is the configuration (or remainder) being rewritten.
+    Simplification {
+        pattern: Pattern,
+        error: SimplificationError,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -209,10 +234,6 @@ pub enum IndeterminateReason {
     /// A preprocessing symbol survived into an executable backend term.
     SurvivingMacroOrAlias {
         symbol: crate::term::Name,
-    },
-    Simplification {
-        rule_id: Option<String>,
-        error: SimplificationError,
     },
     Match {
         rule_id: String,
@@ -237,15 +258,6 @@ pub enum IndeterminateReason {
         predicates: Vec<Predicate>,
         satisfiability: Result<Satisfiability, SmtError>,
     },
-}
-
-impl IndeterminateReason {
-    fn simplification(rule_id: Option<&str>, error: SimplificationError) -> Self {
-        Self::Simplification {
-            rule_id: rule_id.map(str::to_owned),
-            error,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

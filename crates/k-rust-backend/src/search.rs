@@ -80,8 +80,8 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::{
         AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry,
-        TraceKind, Truth, predicates_truth, rewrite_step_with_options, simplify_result_pattern,
-        substitute_predicates,
+        TraceKind, Truth, UndecidedStep, predicates_truth, rewrite_step_with_options,
+        simplify_result_pattern, substitute_predicates,
     },
     rule::Predicate,
     simplify::{
@@ -674,10 +674,9 @@ fn search_graph_collecting(
                 solver,
             ),
             QueuedStateKind::Remaining(None) => RewriteResult::Stuck(state.pattern.clone()),
-            QueuedStateKind::Remaining(Some(reason)) => RewriteResult::Indeterminate {
-                pattern: state.pattern.clone(),
-                reason,
-            },
+            QueuedStateKind::Remaining(Some(undecided)) => {
+                undecided.into_result(state.pattern.clone())
+            }
         };
         // See `step_observed_cancellation`.
         if step_observed_cancellation() {
@@ -735,6 +734,13 @@ fn search_graph_collecting(
                 incomplete.push(rewrite_incomplete(
                     materialize_search_state(state, observation_head, &observation_log),
                     reason,
+                ));
+            }
+            RewriteResult::Simplification { pattern, error } => {
+                state.pattern = pattern;
+                incomplete.push(simplification_incomplete(
+                    materialize_search_state(state, observation_head, &observation_log),
+                    error,
                 ));
             }
             RewriteResult::Finished(applied) => {
@@ -821,7 +827,7 @@ struct SearchWorkState {
 #[derive(Clone)]
 enum QueuedStateKind {
     Rewritable,
-    Remaining(Option<IndeterminateReason>),
+    Remaining(Option<UndecidedStep>),
 }
 
 impl SearchWorkState {
@@ -1250,10 +1256,9 @@ fn search_paths_collecting(
                 solver,
             ),
             QueuedStateKind::Remaining(None) => RewriteResult::Stuck(path.state.pattern.clone()),
-            QueuedStateKind::Remaining(Some(reason)) => RewriteResult::Indeterminate {
-                pattern: path.state.pattern.clone(),
-                reason,
-            },
+            QueuedStateKind::Remaining(Some(undecided)) => {
+                undecided.into_result(path.state.pattern.clone())
+            }
         };
         // See `step_observed_cancellation`.
         if step_observed_cancellation() {
@@ -1297,6 +1302,13 @@ fn search_paths_collecting(
                 incomplete.push(rewrite_incomplete(
                     path.materialize_state(&observation_log),
                     reason,
+                ));
+            }
+            RewriteResult::Simplification { pattern, error } => {
+                path.state.pattern = pattern;
+                incomplete.push(simplification_incomplete(
+                    path.materialize_state(&observation_log),
+                    error,
                 ));
             }
             RewriteResult::Finished(applied) => {
@@ -1860,12 +1872,10 @@ fn retain_pattern_match(
 /// source (it arms no step deadline), so any entry recorded while the cancellation is set is
 /// reported as `Cancelled`.
 fn rewrite_incomplete(state: SearchState, reason: IndeterminateReason) -> IncompleteSearch {
-    match reason {
-        IndeterminateReason::Simplification { error, .. } => {
-            simplification_incomplete(state, error)
-        }
-        _ if cancellation_requested() => IncompleteSearch::Cancelled(state),
-        reason => IncompleteSearch::Indeterminate { state, reason },
+    if cancellation_requested() {
+        IncompleteSearch::Cancelled(state)
+    } else {
+        IncompleteSearch::Indeterminate { state, reason }
     }
 }
 
@@ -2585,29 +2595,6 @@ mod tests {
     }
 
     #[test]
-    fn cancelled_rewrite_simplification_is_classified_as_cancellation() {
-        let definition = definition();
-        let state = SearchState {
-            pattern: initial(&definition),
-            depth: 0,
-            trace: Vec::new(),
-            branch: Vec::new(),
-            observations: Vec::new(),
-        };
-
-        assert_eq!(
-            rewrite_incomplete(
-                state.clone(),
-                IndeterminateReason::Simplification {
-                    rule_id: Some("rule".into()),
-                    error: SimplificationError::Cancelled,
-                },
-            ),
-            IncompleteSearch::Cancelled(state)
-        );
-    }
-
-    #[test]
     fn every_interruption_signal_is_classified_as_cancellation() {
         let definition = definition();
         let state = SearchState {
@@ -2625,17 +2612,6 @@ mod tests {
         ] {
             assert_eq!(
                 simplification_incomplete(state.clone(), error.clone()),
-                IncompleteSearch::Cancelled(state.clone()),
-                "{error:?}"
-            );
-            assert_eq!(
-                rewrite_incomplete(
-                    state.clone(),
-                    IndeterminateReason::Simplification {
-                        rule_id: Some("rule".into()),
-                        error: error.clone(),
-                    },
-                ),
                 IncompleteSearch::Cancelled(state.clone()),
                 "{error:?}"
             );

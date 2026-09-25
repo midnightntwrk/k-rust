@@ -6,7 +6,7 @@ use crate::{
     builtin::UnsupportedHookReason,
     rewrite::{
         AppliedRule, ExecutionLeaf, ExecutionResult, HaltReason, IndeterminateReason, Pattern,
-        RemainderBranch, RemainderSimplification, TrivialApplication,
+        RemainderBranch, RemainderSimplification, TrivialApplication, UndecidedStep,
     },
     rule::Predicate,
     simplify::SimplificationError,
@@ -907,20 +907,31 @@ impl AlphaComparable for TrivialApplication {
     }
 }
 
+impl AlphaComparable for UndecidedStep {
+    fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
+        match (self, other) {
+            (Self::Indeterminate(left), Self::Indeterminate(right)) => {
+                left.collect_alpha(right, context)
+            }
+            (Self::Simplification(left), Self::Simplification(right)) => {
+                left.collect_alpha(right, context)
+            }
+            _ => Err(format!("undecided steps differ: {self:?} versus {other:?}")),
+        }
+    }
+
+    fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
+        Ok(match self {
+            Self::Indeterminate(reason) => Self::Indeterminate(reason.rename_alpha(context)?),
+            Self::Simplification(error) => Self::Simplification(error.rename_alpha(context)?),
+        })
+    }
+}
+
 impl AlphaComparable for IndeterminateReason {
     fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
         use IndeterminateReason::*;
         match (self, other) {
-            (
-                Simplification {
-                    rule_id: li,
-                    error: le,
-                },
-                Simplification {
-                    rule_id: ri,
-                    error: re,
-                },
-            ) if li == ri => le.collect_alpha(re, context),
             (
                 Match {
                     rule_id: li,
@@ -1004,10 +1015,6 @@ impl AlphaComparable for IndeterminateReason {
     fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
         use IndeterminateReason::*;
         Ok(match self {
-            Simplification { rule_id, error } => Simplification {
-                rule_id: rule_id.clone(),
-                error: error.rename_alpha(context)?,
-            },
             Match {
                 rule_id,
                 substitution,
