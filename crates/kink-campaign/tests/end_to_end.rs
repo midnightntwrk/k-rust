@@ -20,8 +20,8 @@ use kink_native::execution::{ExecutionBudget, ExecutionRoute};
 use kink_native::observation::DomainEventSpec;
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
-    Baseline, CandidateFailureKind, CandidateGeneration, Discovery, Edit, Patch, SelectionPolicy,
-    SiteSelector, TermRef, derive_sites, select,
+    Baseline, CandidateFailureKind, CandidateGeneration, Discovery, Edit, InsertPosition, Patch,
+    SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::{
     Atom, Constructor, EventVocabulary, ExecutionTerminalKind, PatternArm, PatternPlan,
@@ -705,6 +705,74 @@ fn selected_function_equation_is_infrastructure_failure() {
         )
         .expect_err("equation filter is refused");
         assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
+    });
+}
+
+#[test]
+fn anonymous_clone_of_observed_rule_is_mutant_infrastructure_failure() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let rule = support::rule(baseline, "COUNTER.increment");
+        let mut clone = baseline.sentence(&rule).expect("rule").clone();
+        for key in [
+            AttributeKey::Label,
+            AttributeKey::UniqueId,
+            AttributeKey::Origin,
+            AttributeKey::Location,
+            AttributeKey::Source,
+            AttributeKey::SourceId,
+            AttributeKey::SentenceStartOffset,
+            AttributeKey::SentenceEndOffset,
+            AttributeKey::ContentStartLine,
+            AttributeKey::ContentStartColumn,
+            AttributeKey::ContentStartOffset,
+        ] {
+            clone.attributes_mut().remove(key.as_str());
+        }
+        let patch = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::After(rule.clone()),
+            ordinal: 0,
+            sentence: clone,
+        }])
+        .expect("patch");
+        let generation = generation(baseline, &[(TermRef::new(rule.clone(), [0]), patch)]);
+        let observed = [ObservedRule {
+            rule,
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }];
+        let tests = [TestCase {
+            id: "increment".into(),
+            initial_state: counter_state(),
+            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+        }];
+        let vocabulary = vocabulary(&[]);
+        let run = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "COUNTER",
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_eq!(run.mutants.len(), 1);
+        assert_eq!(
+            run.mutants[0].plan.mutant_failure,
+            Some(MutantScopeFailure::Infrastructure)
+        );
+        assert!(run.mutants[0].plan.tests.is_empty());
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Error);
+        let score = run.score.expect("complete generation is counted");
+        assert_eq!(score.denominator, 0);
+        assert_eq!(score.ratio, None);
     });
 }
 

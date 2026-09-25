@@ -239,18 +239,22 @@ impl ValidatedDefinition {
     /// The `UNIQUE_ID` of the rule at `source` and `location` in the compiled
     /// execution definition.
     ///
-    /// `UNIQUE_ID` is content-derived, so a mutated rule has a different one
-    /// on each compiled side; resolve it per side, never across sides.
+    /// `UNIQUE_ID` is content-derived and can be shared by different positions.
+    /// The resolved ID must belong to exactly one compiled rule on this side,
+    /// including builtins.
     pub fn rule_identity(&self, source: &str, location: Location) -> Result<&str, IdentityError> {
-        let mut identities = self
+        let rules = self
             .artifacts
             .execution_definition
             .modules
             .iter()
             .flat_map(|module| module.local_sentences.iter())
+            .filter(|sentence| matches!(***sentence, Sentence::Rule { .. }))
+            .collect::<Vec<_>>();
+        let mut identities = rules
+            .iter()
             .filter(|sentence| {
-                matches!(***sentence, Sentence::Rule { .. })
-                    && sentence.attributes().source() == Some(source)
+                sentence.attributes().source() == Some(source)
                     && sentence.attributes().location() == Some(location)
             })
             .map(|sentence| sentence.attributes().string(AttributeKey::UniqueId));
@@ -258,7 +262,15 @@ impl ValidatedDefinition {
             .next()
             .ok_or(IdentityError::Missing)?
             .ok_or(IdentityError::Missing)?;
-        if identities.any(|other| other != Some(first)) {
+        if identities.any(|other| other != Some(first))
+            || rules
+                .iter()
+                .filter(|sentence| {
+                    sentence.attributes().string(AttributeKey::UniqueId) == Some(first)
+                })
+                .count()
+                != 1
+        {
             return Err(IdentityError::Ambiguous);
         }
         Ok(first)
@@ -270,7 +282,7 @@ impl ValidatedDefinition {
 pub enum IdentityError {
     /// No compiled rule carries the position, or it has no `UNIQUE_ID`.
     Missing,
-    /// Compiled rules with the position carry different `UNIQUE_ID`s.
+    /// Several compiled rules share the position or its resolved `UNIQUE_ID`.
     Ambiguous,
 }
 
@@ -278,7 +290,7 @@ impl fmt::Display for IdentityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Missing => "no compiled rule identity for the source position",
-            Self::Ambiguous => "the source position names several compiled rule identities",
+            Self::Ambiguous => "the source position does not have a unique compiled rule identity",
         })
     }
 }

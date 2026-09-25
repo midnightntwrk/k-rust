@@ -9,6 +9,7 @@ mod support;
 use std::time::Duration;
 
 use k_rust::backend::{Backend, BackendOptions};
+use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
@@ -18,8 +19,10 @@ use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, ExecutionRoute, HaltClass,
 };
 use kink_native::observation::{DomainEventSpec, PayloadSource};
-use kink_native::{ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition};
-use kink_patch::{Edit, Patch, TermRef};
+use kink_native::{
+    IdentityError, ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition,
+};
+use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionBounds, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
@@ -175,9 +178,69 @@ fn identical_unlabelled_rules_are_not_observable() {
     });
     assert!(matches!(
         validator.observation_manifest(&side, &rules),
-        Err(ManifestFailure::Installation(
-            kink_native::observation::ObservationFailure::DuplicateRuleIdentity(_)
-        ))
+        Err(ManifestFailure::Identity {
+            error: IdentityError::Ambiguous,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn one_of_two_identical_unlabelled_rules_is_not_observable() {
+    let validator = NativeValidator::bind(
+        support::load("duplicate_unlabelled.k"),
+        CompileOptions::default(),
+    );
+    let side = validator
+        .compile_baseline()
+        .expect("duplicate source compiles");
+    let rule = kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", 0);
+    assert!(matches!(
+        validator.observation_manifest(&side, &[ObservedRule {
+            rule: rule.clone(),
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }]),
+        Err(ManifestFailure::Identity { rule: at, error: IdentityError::Ambiguous }) if at == rule
+    ));
+}
+
+#[test]
+fn inserted_anonymous_clone_of_observed_rule_is_not_observable() {
+    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+    let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
+    let mut clone = validator.baseline().sentence(&rule).expect("rule").clone();
+    for key in [
+        AttributeKey::Label,
+        AttributeKey::UniqueId,
+        AttributeKey::Origin,
+        AttributeKey::Location,
+        AttributeKey::Source,
+        AttributeKey::SourceId,
+        AttributeKey::SentenceStartOffset,
+        AttributeKey::SentenceEndOffset,
+        AttributeKey::ContentStartLine,
+        AttributeKey::ContentStartColumn,
+        AttributeKey::ContentStartOffset,
+    ] {
+        clone.attributes_mut().remove(key.as_str());
+    }
+    let patch = Patch::new(vec![Edit::InsertSentence {
+        position: InsertPosition::After(rule.clone()),
+        ordinal: 0,
+        sentence: clone,
+    }])
+    .expect("patch");
+    let mutant = validator
+        .validate(&patch)
+        .expect("anonymous clone compiles");
+    assert!(matches!(
+        validator.observation_manifest(&mutant, &[ObservedRule {
+            rule: rule.clone(),
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }]),
+        Err(ManifestFailure::Identity { rule: at, error: IdentityError::Ambiguous }) if at == rule
     ));
 }
 
