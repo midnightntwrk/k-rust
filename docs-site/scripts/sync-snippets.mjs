@@ -79,8 +79,8 @@ const snippets = [
   {
     source: '../crates/krs-macros/tests/fixtures/positive/src/main.rs',
     mirror: 'src/snippets/guarded-transition.rs',
-    start: '#[rule]\n#[language_host::requires(language_host::builtin::int::gt(value, 0))]',
-    end: '#[rule(label = "state-var")]',
+    start: '#[language_host::rule]\n#[language_host::requires(language_host::builtin::int::gt(value, 0))]',
+    end: '#[language_host::rule(label = "state-var")]',
   },
   {
     source: '../crates/krs-macros/tests/fixtures/positive/src/main.rs',
