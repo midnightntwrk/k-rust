@@ -5111,22 +5111,33 @@ fn a_right_hand_side_alternatives_own_work_stays_on_its_candidate() {
     assert_eq!(candidates, [lower_grow_diagnostics(), Vec::new()]);
 }
 
-/// A candidate-producing rule is attempted before a same-priority rule that does not apply but
-/// emits a diagnostic on the way; the candidate carries both, in the order they were emitted.
+const GROW_AND_MISSING: &str = r#"
+    symbol grow{}(SortK{}) : SortK{} [function{}()]
+    hooked-symbol missing{}(SortInt{}) : SortBool{}
+        [function{}(), total{}(), hook{}("TEST.missing")]
+    axiom{R} \implies{R}(
+        \top{R}(),
+        \equals{SortK{}, R}(
+            grow{}(X:SortK{}),
+            \and{SortK{}}(grow{}(grow{}(X:SortK{})), \top{SortK{}}())
+        )
+    ) [label{}("grow"), simplification{}()]
+"#;
+
+fn missing_hook() -> BackendDiagnostic {
+    BackendDiagnostic::UnsupportedHookUnevaluated {
+        hook: "TEST.missing".to_owned(),
+        reason: UnsupportedHookReason::NotImplemented,
+    }
+}
+
+/// A rule attempt that does not apply derives no successor, so its work is on no leaf, although
+/// an enclosing collector sees it; a same-priority rule's candidate does not inherit it.
 #[test]
-fn a_candidates_diagnostics_keep_emission_order_across_attempts() {
-    let definition = be08_portable_definition(
+fn a_non_applicable_attempts_work_is_on_no_path() {
+    let definition = be08_portable_definition(&format!(
+        "{GROW_AND_MISSING}{}",
         r#"
-        symbol grow{}(SortK{}) : SortK{} [function{}()]
-        hooked-symbol missing{}(SortInt{}) : SortBool{}
-            [function{}(), total{}(), hook{}("TEST.missing")]
-        axiom{R} \implies{R}(
-            \top{R}(),
-            \equals{SortK{}, R}(
-                grow{}(X:SortK{}),
-                \and{SortK{}}(grow{}(grow{}(X:SortK{})), \top{SortK{}}())
-            )
-        ) [label{}("grow"), simplification{}()]
         axiom{} \rewrites{SortK{}}(
             \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
             grow{}(tag{}(\dv{SortInt{}}("50")))
@@ -5141,8 +5152,184 @@ fn a_candidates_diagnostics_keep_emission_order_across_attempts() {
             ),
             done{}()
         ) [label{}("later"), priority{}("10")]
+        "#
+    ));
+
+    let (result, collected) = diagnostic::collect(|| {
+        execute_with_solver(
+            &definition,
+            be08_portable_subject(&definition),
+            budget_one(ExecutionBranchMode::ExploreAll, None),
+            &satisfiable_solver(),
+        )
+    });
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one leaf: {:#?}", result.leaves);
+    };
+    assert_eq!(leaf.diagnostics, lower_grow_diagnostics());
+    assert!(collected.contains(&missing_hook()), "{collected:?}");
+}
+
+/// A rule (for `X < 0`) whose only right-hand side is refuted by its ensures after its
+/// construction exhausted the budget produces no candidate: that work is on no path, in
+/// particular not on a same-priority rule's candidate, nor, in the sequential step, on the
+/// candidate the rule's remainder `X >= 0` feeds.
+#[test]
+fn a_refuted_rules_work_is_not_shared_with_other_candidates() {
+    let definition = be08_portable_definition(&format!(
+        "{GROW_AND_MISSING}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    lt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            \and{SortK{}}(
+                grow{}(tag{}(\dv{SortInt{}}("50"))),
+                \equals{SortBool{}, SortK{}}(\dv{SortBool{}}("false"), \dv{SortBool{}}("true"))
+            )
+        ) [label{}("refuted"), priority{}("10")]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
+            tag{}(\dv{SortInt{}}("10"))
+        ) [label{}("survivor"), priority{}("10")]
+        "#
+    ));
+
+    for mode in [ExecutionMode::All, ExecutionMode::Any] {
+        let (result, collected) = diagnostic::collect(|| {
+            execute_with_solver(
+                &definition,
+                be08_portable_subject(&definition),
+                ExecutionOptions {
+                    mode,
+                    ..budget_one(ExecutionBranchMode::ExploreAll, None)
+                },
+                &satisfiable_solver(),
+            )
+        });
+        let survivor = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+        assert_eq!(survivor.diagnostics, [], "{mode:?}: {:#?}", result.leaves);
+        assert!(
+            collected.contains(&term_budget_exhausted(1)),
+            "{mode:?}: the refuted construction did exhaust: {collected:?}"
+        );
+    }
+}
+
+/// A match split (a symbolic `KEQUAL.ite` in the subject) yields one application group per
+/// branch, each with its own condition; only the branch whose condition exhausts the budget
+/// carries the diagnostic, in the exploring and in the sequential step.
+#[test]
+fn a_match_splits_groups_carry_only_their_own_condition_work() {
+    let definition = be08_portable_definition(
+        r#"
+        symbol hold{}(SortK{}, SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+        symbol kpred{}(SortK{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+        symbol mk{}(SortInt{}) : SortK{} [function{}(), total{}()]
+        hooked-symbol ite{}(SortBool{}, SortK{}, SortK{}) : SortK{}
+            [function{}(), total{}(), hook{}("KEQUAL.ite")]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortK{}, R}(
+                mk{}(\dv{SortInt{}}("1")),
+                \and{SortK{}}(dotk{}(), \top{SortK{}}())
+            )
+        ) [label{}("mk-one"), simplification{}()]
+        axiom{R} \implies{R}(
+            \top{R}(),
+            \equals{SortK{}, R}(
+                mk{}(\dv{SortInt{}}("2")),
+                \and{SortK{}}(expand{}(dotk{}()), \top{SortK{}}())
+            )
+        ) [label{}("mk-two"), simplification{}()]
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                hold{}(tag{}(N:SortInt{}), X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(
+                    kpred{}(mk{}(N:SortInt{})),
+                    \dv{SortBool{}}("true")
+                )
+            ),
+            tag{}(N:SortInt{})
+        ) [label{}("guarded"), priority{}("10")]
         "#,
     );
+    let subject = definition
+        .internalize_pattern(
+            &parse_pattern(
+                r#"hold{}(ite{}(B:SortBool{}, tag{}(\dv{SortInt{}}("1")), tag{}(\dv{SortInt{}}("2"))), X:SortInt{})"#,
+            )
+            .unwrap(),
+            &[],
+        )
+        .unwrap();
+
+    let term = |source: &str| internal_term(&definition, source);
+    let one = term(r#"tag{}(\dv{SortInt{}}("1"))"#);
+    let two = term(r#"tag{}(\dv{SortInt{}}("2"))"#);
+    let run = |mode| {
+        let result = execute_with_solver(
+            &definition,
+            subject.clone(),
+            ExecutionOptions {
+                mode,
+                ..budget_one(ExecutionBranchMode::ExploreAll, None)
+            },
+            &satisfiable_solver(),
+        );
+        result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                let name = if leaf.pattern.term == one {
+                    "one"
+                } else if leaf.pattern.term == two {
+                    "two"
+                } else {
+                    "remainder"
+                };
+                (name, leaf.diagnostics.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // The remainder is built from both groups' conditions, so it depends on both.
+    assert_eq!(
+        run(ExecutionMode::All),
+        [
+            ("one", Vec::new()),
+            ("two", vec![predicates_budget_exhausted(1)]),
+            ("remainder", vec![predicates_budget_exhausted(1)]),
+        ]
+    );
+    // The sequential step follows the first group only: the second group's work is on no path.
+    assert_eq!(
+        run(ExecutionMode::Any),
+        [("one", Vec::new()), ("remainder", Vec::new())]
+    );
+}
+
+/// A candidate's own list keeps emission order across the units it depends on: the rule's
+/// condition (an unevaluated hook) before its right-hand side's construction.
+#[test]
+fn a_candidates_diagnostics_keep_emission_order_across_units() {
+    let definition = be08_portable_definition(&format!(
+        "{GROW_AND_MISSING}{}",
+        r#"
+        axiom{} \rewrites{SortK{}}(
+            \and{SortK{}}(
+                state{}(X:SortInt{}),
+                \equals{SortBool{}, SortK{}}(missing{}(X:SortInt{}), \dv{SortBool{}}("true"))
+            ),
+            grow{}(tag{}(\dv{SortInt{}}("50")))
+        ) [label{}("guarded-grow"), priority{}("10")]
+        "#
+    ));
 
     let result = execute_with_solver(
         &definition,
@@ -5151,15 +5338,10 @@ fn a_candidates_diagnostics_keep_emission_order_across_attempts() {
         &satisfiable_solver(),
     );
 
-    let [leaf] = result.leaves.as_slice() else {
-        panic!("expected one leaf: {:#?}", result.leaves);
-    };
-    let mut expected = lower_grow_diagnostics();
-    expected.push(BackendDiagnostic::UnsupportedHookUnevaluated {
-        hook: "TEST.missing".to_owned(),
-        reason: UnsupportedHookReason::NotImplemented,
-    });
-    assert_eq!(leaf.diagnostics, expected);
+    let grown = leaf_ending_in(&result, "grow");
+    let mut expected = vec![missing_hook()];
+    expected.extend(lower_grow_diagnostics());
+    assert_eq!(grown.diagnostics, expected);
 }
 
 /// A remainder a lower-priority group could not decide ends as a leaf with the simplification

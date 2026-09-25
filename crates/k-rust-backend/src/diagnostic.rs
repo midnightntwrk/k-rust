@@ -76,7 +76,7 @@ impl EmissionKind {
 }
 
 thread_local! {
-    static SINK: RefCell<Option<Vec<Emission>>> = const { RefCell::new(None) };
+    static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     static NEXT_POSITION: Cell<u64> = const { Cell::new(0) };
 }
 
@@ -105,13 +105,36 @@ pub(crate) fn emit_rule_condition_budget_exhausted(rule_id: &str, limit: usize) 
     });
 }
 
+/// The emissions of one open collection. A unit collection (`collect_unit`) records every
+/// emission as emitted, for attribution; any other applies the collection rules of `record`.
+struct Sink {
+    unit: bool,
+    emissions: Vec<Emission>,
+}
+
+impl Sink {
+    fn record(&mut self, emission: Emission) {
+        if self.unit {
+            self.emissions.push(emission);
+        } else {
+            record(&mut self.emissions, emission);
+        }
+    }
+}
+
 fn record_in_sink(kind: EmissionKind) {
     SINK.with(|sink| {
-        if let Some(emissions) = sink.borrow_mut().as_mut() {
+        if let Some(sink) = sink.borrow_mut().as_mut() {
             let position = NEXT_POSITION.with(|next| next.replace(next.get() + 1));
-            record(emissions, Emission { position, kind });
+            sink.record(Emission { position, kind });
         }
     });
+}
+
+/// The position the next emission on this thread will take: every emission of a unit of work
+/// that starts at `a` and ends at `b` has a position in `a..b`.
+pub(crate) fn next_position() -> u64 {
+    NEXT_POSITION.with(Cell::get)
 }
 
 /// Append `emission` to a collection under the collection's rules: an unevaluated hook is
@@ -174,21 +197,34 @@ fn sequenced(emissions: Vec<Emission>) -> Vec<Sequenced> {
 /// under its own rules, so a caller collecting around an operation sees every diagnostic
 /// whatever the operation collects inside, in emission order.
 pub fn collect<T>(action: impl FnOnce() -> T) -> (T, Vec<BackendDiagnostic>) {
-    let (result, diagnostics) = collect_sequenced(action);
+    let collection = Collection::open(false);
+    let result = action();
     (
         result,
-        diagnostics
+        sequenced(collection.close())
             .into_iter()
             .map(|sequenced| sequenced.diagnostic)
             .collect(),
     )
 }
 
-/// `collect`, keeping each diagnostic's position in the thread's emission order.
-pub(crate) fn collect_sequenced<T>(action: impl FnOnce() -> T) -> (T, Vec<Sequenced>) {
-    let collection = Collection::open();
+/// Collect every diagnostic one unit of work emits, as emitted and with its position in the
+/// thread's emission order, for attributing the unit's work to the paths its result belongs
+/// to; the enclosing collector receives them under its own rules as with `collect`.
+pub(crate) fn collect_unit<T>(action: impl FnOnce() -> T) -> (T, Vec<Sequenced>) {
+    let collection = Collection::open(true);
     let result = action();
     (result, sequenced(collection.close()))
+}
+
+/// Concatenate lists collected by `collect_unit` in emission order.
+pub(crate) fn merge_units(lists: &[&[Sequenced]]) -> Vec<Sequenced> {
+    let mut merged = lists
+        .iter()
+        .flat_map(|list| list.iter().cloned())
+        .collect::<Vec<_>>();
+    merged.sort_by_key(|sequenced| sequenced.position);
+    merged
 }
 
 /// The diagnostics of several separately collected lists in the order they were emitted, each
@@ -210,12 +246,17 @@ pub(crate) fn in_emission_order<'a>(
 /// An open collection; closing it, or dropping it while unwinding, restores the enclosing
 /// collector and forwards the collection to it.
 struct Collection {
-    enclosing: Option<Option<Vec<Emission>>>,
+    enclosing: Option<Option<Sink>>,
 }
 
 impl Collection {
-    fn open() -> Self {
-        let enclosing = SINK.with(|sink| sink.replace(Some(Vec::new())));
+    fn open(unit: bool) -> Self {
+        let enclosing = SINK.with(|sink| {
+            sink.replace(Some(Sink {
+                unit,
+                emissions: Vec::new(),
+            }))
+        });
         Self {
             enclosing: Some(enclosing),
         }
@@ -235,13 +276,13 @@ impl Drop for Collection {
     }
 }
 
-fn restore_and_forward(mut enclosing: Option<Vec<Emission>>) -> Vec<Emission> {
+fn restore_and_forward(mut enclosing: Option<Sink>) -> Vec<Emission> {
     SINK.with(|sink| {
         let mut sink = sink.borrow_mut();
-        let inner = sink.take().unwrap_or_default();
+        let inner = sink.take().map(|inner| inner.emissions).unwrap_or_default();
         if let Some(enclosing) = enclosing.as_mut() {
             for emission in &inner {
-                record(enclosing, emission.clone());
+                enclosing.record(emission.clone());
             }
         }
         *sink = enclosing;
@@ -568,12 +609,12 @@ mod tests {
     #[test]
     fn separately_collected_lists_merge_in_emission_order() {
         let ((first, second), _) = collect(|| {
-            let ((), first) = collect_sequenced(|| {
+            let ((), first) = collect_unit(|| {
                 emit(term_exhausted(1));
-                collect_sequenced(|| emit(term_exhausted(2)));
+                collect_unit(|| emit(term_exhausted(2)));
                 emit_rule_condition_budget_exhausted("r1", 3);
             });
-            let ((), second) = collect_sequenced(|| emit(hook("H", out_of_range())));
+            let ((), second) = collect_unit(|| emit(hook("H", out_of_range())));
             (first, second)
         });
         // `first` holds 1, 2 and the pair in order; `second` was emitted after all of them.

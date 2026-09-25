@@ -31,7 +31,7 @@
 // The phase functions return `Phase<T>` (below), whose `Err` is the `RuleAttempt` itself.
 #![allow(clippy::result_large_err)]
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{cell::RefCell, collections::BTreeSet, ops::Range, sync::Arc};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -78,19 +78,24 @@ pub(super) enum RuleAttempt {
     Simplification(SimplificationError),
 }
 
+/// The applications of one sub-case of a rule attempt: one match (after any split) whose
+/// conditions were decided once and whose right-hand-side alternatives were each instantiated.
 pub(super) struct RuleApplicationGroup {
     pub(super) applied: Vec<RuleApplication>,
     pub(super) trivial: Vec<TrivialApplication>,
-    /// The diagnostics of the right-hand-side alternatives that simplified to bottom: work on
-    /// a refuted candidate, which no other candidate of the rule shares.
-    pub(super) refuted: Vec<Sequenced>,
+    /// The diagnostics of the attempt's work this sub-case's result depends on: the matching
+    /// and recovery that led to it (including the splits above it) and the simplification and
+    /// decision of its conditions. Its applications' candidates and the remainder its
+    /// applicability is negated into are derived from that work. `None` until the attempt
+    /// level that built the group attributes it (`apply_rule_with_match`).
+    pub(super) common: Option<Vec<Sequenced>>,
 }
 
 pub(super) struct RuleApplication {
     pub(super) applied: AppliedRule,
     pub(super) remainder: Predicate,
-    /// The diagnostics of this right-hand-side alternative's own construction; the attempt's
-    /// work common to all its alternatives is not in it.
+    /// The diagnostics of this right-hand-side alternative's own construction; its group's
+    /// `common` work is not in it. The work of an alternative refuted to bottom is on no path.
     pub(super) diagnostics: Vec<Sequenced>,
 }
 
@@ -199,6 +204,21 @@ struct RuleContext<'a> {
     solver: &'a dyn SmtSolver,
     assume_initial_defined: bool,
     io: Option<&'a ExecutionIoState>,
+    /// The emission-position ranges of this attempt level's nested units of work (re-entered
+    /// sub-attempts and right-hand-side alternatives), which attribute their own diagnostics.
+    nested_units: &'a RefCell<Vec<Range<u64>>>,
+}
+
+impl RuleContext<'_> {
+    /// Run `work` as a nested unit of this attempt level.
+    fn nested<T>(&self, work: impl FnOnce() -> T) -> T {
+        let start = diagnostic::next_position();
+        let result = work();
+        self.nested_units
+            .borrow_mut()
+            .push(start..diagnostic::next_position());
+        result
+    }
 }
 
 /// A phase either hands its result to the next phase or ends the attempt with the
@@ -226,6 +246,7 @@ pub(super) fn apply_rule_with_match(
 ) -> RuleAttempt {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
     measure::bump(Counter::RewriteRuleAttempts);
+    let nested_units = RefCell::new(Vec::new());
     let context = RuleContext {
         definition,
         rule,
@@ -234,10 +255,35 @@ pub(super) fn apply_rule_with_match(
         solver,
         assume_initial_defined,
         io,
+        nested_units: &nested_units,
     };
-    match apply_rule_phases(context, fresh_counter, matched) {
-        Ok(attempt) | Err(attempt) => attempt,
+    let (mut attempt, level) =
+        diagnostic::collect_unit(
+            || match apply_rule_phases(context, fresh_counter, matched) {
+                Ok(attempt) | Err(attempt) => attempt,
+            },
+        );
+    // This level's own work (matching, recovery, conditions) is every emission outside its
+    // nested units. Every group of the attempt, built here or by a sub-attempt re-entered from
+    // here, depends on it. An attempt that produced no group attributes it to no candidate.
+    if let RuleAttempt::Unified { groups } = &mut attempt {
+        let nested_units = nested_units.into_inner();
+        let own = level
+            .into_iter()
+            .filter(|sequenced| {
+                !nested_units
+                    .iter()
+                    .any(|unit| unit.contains(&sequenced.position))
+            })
+            .collect::<Vec<_>>();
+        for group in groups {
+            group.common = Some(match group.common.take() {
+                None => own.clone(),
+                Some(nested) => diagnostic::merge_units(&[&own, &nested]),
+            });
+        }
     }
+    attempt
 }
 
 /// The thirteen phases P1 to P13 in order; each phase's postcondition is what the next may
@@ -302,17 +348,19 @@ fn reenter(
     fresh_counter: &mut u64,
     matched: PartialRuleMatch,
 ) -> RuleAttempt {
-    apply_rule_with_match(
-        context.definition,
-        context.rule,
-        context.pattern,
-        fresh_counter,
-        context.simplification_options,
-        context.solver,
-        context.assume_initial_defined,
-        Some(matched),
-        context.io,
-    )
+    context.nested(|| {
+        apply_rule_with_match(
+            context.definition,
+            context.rule,
+            context.pattern,
+            fresh_counter,
+            context.simplification_options,
+            context.solver,
+            context.assume_initial_defined,
+            Some(matched),
+            context.io,
+        )
+    })
 }
 
 /// P1: the match of `rule.lhs` against the subject in `Rewrite` mode, or the caller's partial
@@ -792,7 +840,7 @@ fn definedness(
                     Predicate::False,
                     Vec::new(),
                 )],
-                refuted: Vec::new(),
+                common: None,
             }],
         });
     }
@@ -1015,7 +1063,7 @@ fn instantiate(
                         Predicate::False,
                         Vec::new(),
                     )],
-                    refuted: Vec::new(),
+                    common: None,
                 }],
             });
         }
@@ -1023,27 +1071,28 @@ fn instantiate(
     };
     let mut applications = Vec::new();
     let mut trivial = Vec::new();
-    let mut refuted = Vec::new();
     for (rhs, alternative_ensures) in alternatives {
         let mut ensures = rule.ensures.clone();
         extend_unique(&mut ensures, alternative_ensures.iter().cloned());
-        let (attempt, own_diagnostics) = diagnostic::collect_sequenced(|| {
-            apply_rhs_alternative(
-                context.definition,
-                rule,
-                pattern,
-                rhs,
-                &ensures,
-                &substitution,
-                &existential_substitution,
-                &condition_knowledge,
-                &match_conditions,
-                &unclear_requires,
-                &applicability,
-                context.simplification_options,
-                context.solver,
-                context.io,
-            )
+        let (attempt, own_diagnostics) = context.nested(|| {
+            diagnostic::collect_unit(|| {
+                apply_rhs_alternative(
+                    context.definition,
+                    rule,
+                    pattern,
+                    rhs,
+                    &ensures,
+                    &substitution,
+                    &existential_substitution,
+                    &condition_knowledge,
+                    &match_conditions,
+                    &unclear_requires,
+                    &applicability,
+                    context.simplification_options,
+                    context.solver,
+                    context.io,
+                )
+            })
         });
         match attempt {
             RhsAlternativeAttempt::Applied(mut application) => {
@@ -1054,7 +1103,6 @@ fn instantiate(
                 obligation,
                 effects,
             } => {
-                refuted.extend(own_diagnostics);
                 trivial.push(trivial_application(
                     rule,
                     &applicability,
@@ -1074,7 +1122,7 @@ fn instantiate(
         groups: vec![RuleApplicationGroup {
             applied: applications,
             trivial,
-            refuted,
+            common: None,
         }],
     })
 }

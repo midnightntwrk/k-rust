@@ -213,17 +213,25 @@ impl<'a> Execution<'a> {
     /// E1: pop each unexpanded state, count the step, time it, expand it, and enqueue its
     /// successors or record its leaf.
     ///
-    /// Diagnostics. Every backend diagnostic is emitted by a unit of work of one expansion, and
-    /// each unit is collected and attributed to the paths it concerns (`ExecutionLeaf::diagnostics`):
-    /// the state's own constraint and term simplification (E2, E3) to the state's path, so to
-    /// every successor and to its leaf; the rewrite step to the candidates it produces, per
-    /// candidate (`AppliedRule::diagnostics`, `RemainderBranch::diagnostics`): a right-hand-side
-    /// alternative's construction to its candidate, a rule's matching and conditions to all its
-    /// alternatives, and step work that decides which candidates exist to all of them, merged in
-    /// emission order; or to the state's leaf when the step halts it; the simplification of a candidate or leaf pattern to that candidate or leaf.
-    /// Work on a refuted candidate is on no path; a leaf cut off by a cancellation or timeout
-    /// after the step carries all the work of the step and of its candidates done before it.
-    /// Every collection forwards to any collector the caller holds around the execution.
+    /// Diagnostics. Every backend diagnostic is emitted by a unit of work of one expansion; each
+    /// unit is collected separately and attached to exactly the paths derived from its result
+    /// (`ExecutionLeaf::diagnostics`), in emission order:
+    /// - the state's own constraint and term simplification (E2, E3): the state's path, so every
+    ///   successor and its leaf;
+    /// - in the rewrite step (`step.rs`, `apply.rs`), per candidate (`AppliedRule::diagnostics`,
+    ///   `RemainderBranch::diagnostics`): a right-hand-side alternative's construction to its
+    ///   candidate; one application group's matching, recovery and condition work (a match split
+    ///   yields one group per sub-case) to the group's candidates and to the remainder, whose
+    ///   constraint negates the group's applicability; the remainder's own simplification and the
+    ///   lower-priority work on it to the remainder and the candidates derived from it;
+    /// - a step that halts the state: its leaf; the simplification of a leaf or candidate pattern:
+    ///   that leaf or candidate.
+    ///
+    /// Work no reported successor is derived from is on no path: a rule attempt that does not
+    /// apply, an alternative refuted to bottom, a group the sequential step does not follow. A
+    /// leaf cut off by a cancellation or timeout after the step carries all the work of the step
+    /// and of its candidates done before it. Every collection forwards to any collector the
+    /// caller holds around the execution, which therefore sees every diagnostic.
     fn run(&mut self, timeout_controller: &StepTimeoutController) {
         // `pending` is a stack: `enqueue_execution_states` pushes successors to the front, so a
         // state's children are expanded before its siblings (depth-first). Each push either

@@ -33,7 +33,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
-    diagnostic::{self, BackendDiagnostic, Sequenced, extend_distinct, in_emission_order},
+    diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
     rule::{Predicate, RewriteRule, RuleRhs, applicable_rewrite_groups, subject_index, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver},
     smt::{Satisfiability, SmtSolver},
@@ -75,32 +75,35 @@ fn apply_priority_group(
 ) -> PriorityGroupOutcome {
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
-    // Diagnostics of attempts that produced no candidate: they concern which candidates exist,
-    // so every candidate of the group shares them, merged with its own in emission order.
-    let mut shared = Vec::new();
+    // The work every application of the group (candidate or refuted) depends on: the remainder
+    // is built from the negation of each application's applicability, so it depends on all of it.
+    let mut remainder_work = Vec::new();
     for rule in rules {
-        let (attempt, attempt_diagnostics) = diagnostic::collect_sequenced(|| {
-            apply_rule(
-                definition,
-                rule,
-                pattern,
-                fresh_counter,
-                simplification_options,
-                solver,
-                assume_initial_defined,
-                io,
-            )
-        });
-        match attempt {
-            RuleAttempt::NotApplicable => shared.extend(attempt_diagnostics),
-            RuleAttempt::Unified { mut groups } => {
+        // A rule attempt attributes its own work (`RuleApplicationGroup::common`,
+        // `RuleApplication::diagnostics`); the work of an attempt that does not apply is on no
+        // candidate's path, since no successor is derived from it.
+        match apply_rule(
+            definition,
+            rule,
+            pattern,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            io,
+        ) {
+            RuleAttempt::NotApplicable => {}
+            RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
-                if !attribute_rule_attempt(&mut groups, &attempt_diagnostics) {
-                    shared.extend(attempt_diagnostics);
-                }
                 for group in groups {
-                    applied.extend(group.applied);
+                    let common = group.common.unwrap_or_default();
+                    for mut application in group.applied {
+                        application.applied.diagnostics =
+                            in_emission_order([common.as_slice(), &application.diagnostics]);
+                        applied.push(application);
+                    }
                     trivial.extend(group.trivial);
+                    remainder_work.extend(common);
                 }
             }
             RuleAttempt::Indeterminate(reason) => {
@@ -183,8 +186,8 @@ fn apply_priority_group(
             simplifications: Vec::new(),
             indeterminate: None,
             diagnostics: {
-                // The shared attempts all precede the remainder's simplification.
-                let mut diagnostics = in_emission_order([shared.as_slice()]);
+                // The attempts all precede the remainder's simplification.
+                let mut diagnostics = in_emission_order([remainder_work.as_slice()]);
                 extend_distinct(&mut diagnostics, &remainder_diagnostics);
                 diagnostics
             },
@@ -196,12 +199,7 @@ fn apply_priority_group(
     };
     let branches = applied
         .into_iter()
-        .map(|application| {
-            let mut branch = application.applied;
-            branch.diagnostics =
-                in_emission_order([application.diagnostics.as_slice(), shared.as_slice()]);
-            branch
-        })
+        .map(|application| application.applied)
         .collect::<Vec<_>>();
     PriorityGroupOutcome::Productive {
         branches,
@@ -221,73 +219,24 @@ fn first_productive_group(
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
 ) -> PriorityGroupOutcome {
-    // Diagnostics of the unproductive higher groups: every candidate of the step shares them.
-    let mut earlier = Vec::new();
+    // An unproductive group's attempts did not apply: no successor depends on their work.
     for rules in groups.by_ref() {
-        let (outcome, diagnostics) = diagnostic::collect(|| {
-            apply_priority_group(
-                definition,
-                pattern,
-                &rules,
-                fresh_counter,
-                simplification_options,
-                solver,
-                assume_initial_defined,
-                io,
-            )
-        });
-        match outcome {
-            PriorityGroupOutcome::NotProductive => extend_distinct(&mut earlier, &diagnostics),
+        match apply_priority_group(
+            definition,
+            pattern,
+            &rules,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            io,
+        ) {
+            PriorityGroupOutcome::NotProductive => {}
             outcome @ PriorityGroupOutcome::Undecided(_) => return outcome,
-            PriorityGroupOutcome::Productive {
-                mut branches,
-                trivial,
-                mut remainder,
-            } => {
-                inherit_diagnostics(&mut branches, remainder.as_mut(), &earlier);
-                return PriorityGroupOutcome::Productive {
-                    branches,
-                    trivial,
-                    remainder,
-                };
-            }
+            outcome @ PriorityGroupOutcome::Productive { .. } => return outcome,
         }
     }
     PriorityGroupOutcome::NotProductive
-}
-
-/// Give each application of a unified rule attempt its own alternative's diagnostics and the
-/// attempt's work no alternative owns (matching, the rule's conditions), in emission order.
-/// Returns whether the attempt produced a candidate; without one, the caller shares the whole
-/// collection.
-fn attribute_rule_attempt(groups: &mut [RuleApplicationGroup], attempt: &[Sequenced]) -> bool {
-    if groups.iter().all(|group| group.applied.is_empty()) {
-        return false;
-    }
-    let owned = groups
-        .iter()
-        .flat_map(|group| {
-            group
-                .applied
-                .iter()
-                .flat_map(|application| application.diagnostics.iter())
-                .chain(group.refuted.iter())
-        })
-        .map(|sequenced| sequenced.position)
-        .collect::<std::collections::HashSet<_>>();
-    let common = attempt
-        .iter()
-        .filter(|sequenced| !owned.contains(&sequenced.position))
-        .collect::<Vec<_>>();
-    for application in groups.iter_mut().flat_map(|group| group.applied.iter_mut()) {
-        application
-            .diagnostics
-            .extend(common.iter().map(|sequenced| (*sequenced).clone()));
-        application
-            .diagnostics
-            .sort_by_key(|sequenced| sequenced.position);
-    }
-    true
 }
 
 /// Put `earlier`, the diagnostics of work every candidate was derived through and which all
@@ -498,12 +447,8 @@ fn fold_lower_priority_groups(
             )
         });
         match outcome {
-            PriorityGroupOutcome::NotProductive => {
-                let current = remainder
-                    .as_mut()
-                    .expect("the current remainder is present");
-                extend_distinct(&mut current.diagnostics, &diagnostics);
-            }
+            // The lower group did not apply to the remainder, which goes on unchanged.
+            PriorityGroupOutcome::NotProductive => {}
             PriorityGroupOutcome::Undecided(undecided) => {
                 let current = remainder
                     .as_mut()
@@ -737,18 +682,16 @@ pub(super) fn rewrite_step_any(
             }
             break;
         }
-        let (attempt, attempt_diagnostics) = diagnostic::collect_sequenced(|| {
-            apply_rule(
-                definition,
-                rule,
-                &remaining,
-                fresh_counter,
-                simplification_options,
-                solver,
-                false,
-                io,
-            )
-        });
+        let attempt = apply_rule(
+            definition,
+            rule,
+            &remaining,
+            fresh_counter,
+            simplification_options,
+            solver,
+            false,
+            io,
+        );
         if let Some(determinism) = determinism.as_deref_mut() {
             determinism.record(
                 definition,
@@ -763,26 +706,16 @@ pub(super) fn rewrite_step_any(
             );
         }
         match attempt {
-            RuleAttempt::NotApplicable => {
-                extend_distinct(
-                    &mut remaining_diagnostics,
-                    &in_emission_order([attempt_diagnostics.as_slice()]),
-                );
-            }
-            RuleAttempt::Unified { mut groups } => {
+            RuleAttempt::NotApplicable => {}
+            RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
-                if !attribute_rule_attempt(&mut groups, &attempt_diagnostics) {
-                    extend_distinct(
-                        &mut remaining_diagnostics,
-                        &in_emission_order([attempt_diagnostics.as_slice()]),
-                    );
-                }
                 // `any` follows one deterministic collection candidate of the first applicable
-                // rule.  Every right-hand-side alternative of that candidate remains a branch.
+                // rule; the other groups' work belongs to candidates it does not follow.
                 let group = groups
                     .into_iter()
                     .next()
                     .expect("a unified rule has an application group");
+                let common = group.common.unwrap_or_default();
                 for application in group.applied {
                     extend_unique(
                         &mut remainder_conditions,
@@ -797,11 +730,16 @@ pub(super) fn rewrite_step_any(
                     let mut diagnostics = remaining_diagnostics.clone();
                     extend_distinct(
                         &mut diagnostics,
-                        &in_emission_order([application.diagnostics.as_slice()]),
+                        &in_emission_order([common.as_slice(), &application.diagnostics]),
                     );
                     candidate.diagnostics = diagnostics;
                     applied.push(candidate);
                 }
+                // `remaining` is narrowed by the negation of this group's applicability.
+                extend_distinct(
+                    &mut remaining_diagnostics,
+                    &in_emission_order([common.as_slice()]),
+                );
                 for application in group.trivial {
                     extend_unique(
                         &mut remainder_conditions,
