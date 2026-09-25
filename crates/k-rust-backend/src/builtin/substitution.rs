@@ -9,11 +9,11 @@
 //!
 //! [[cost]]
 //! mode = "one object-language substitution"
-//! bound = "O(t + r) opacity pre-pass, then O((k + b + 1) x t + k x r + m^2 per map) plus collision retries"
+//! bound = "O((t + r) x log s) opacity pre-pass, then O((k + b + 1) x t + k x r + m^2 per map) plus collision retries"
 //!
 //! [[cost]]
 //! mode = "the may-contain-KVar sort fact (KVarSorts::of), once per definition"
-//! bound = "O(s + y x a + e), a least fixpoint by one worklist pass over dependency edges"
+//! bound = "O((s + y x a + e) x log s), a least fixpoint by one worklist pass over dependency edges, each edge, reach test and sort lookup an ordered-map operation keyed by sort name"
 //! ```
 //!
 //! Capture-avoiding substitution of object-language `KVar` tokens (Barendregt renaming through
