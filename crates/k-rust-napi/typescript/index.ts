@@ -201,6 +201,7 @@ export interface ExecutionLeaf {
     | 'depth-bound'
     | 'breadth-bound'
     | 'indeterminate'
+    | 'unsupported-hook'
     | 'simplification-error'
     | 'timeout'
   /** Legacy human-readable diagnostic only; never parse it as semantic data. */
