@@ -3343,6 +3343,96 @@ fn parametric_macro_rules_apply_only_at_their_head_instance() {
     assert_eq!(prepared.expand_term("MAIN", exp.clone()).unwrap(), exp);
 }
 
+/// The instance of a macro rule's head is the one the typing of the rule gives it. When nothing
+/// fixes it (`m() => n()`, both parametric in their result only) it stays open and the rule
+/// applies to `m{Bool}()`; an unsorted variable on the right (`m() => X`) is typed at `K`, so that
+/// rule is about `m{K}` and leaves `m{Bool}()` alone.
+#[test]
+fn a_parametric_macro_head_takes_the_instance_its_rule_is_typed_at() {
+    let expand = |rule: &str, sort: &str| {
+        let source = format!(
+            "module MAIN\n  syntax Bool ::= \"true\" [token] | \"false\" [token]\n  \
+             syntax {{S}} S ::= \"m\" \"(\" \")\" [macro, symbol(m)]\n  \
+             syntax {{S}} S ::= \"n\" \"(\" \")\" [symbol(n)]\n  rule {rule}\nendmodule\n"
+        );
+        let definition = parsed(&source);
+        let program = k_rust::inner::parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new(sort),
+            "m()",
+            k_rust::provenance::SourceId(0),
+        )
+        .unwrap();
+        let expanded = MacroExpansionDefinition::prepare(&definition)
+            .unwrap()
+            .expand_term("MAIN", program)
+            .unwrap();
+        Printer::new().print_term(&expanded)
+    };
+    assert_eq!(expand("m() => n()", "Bool"), "n(.KList)");
+    assert_eq!(expand("m() => X", "Bool"), "m{Bool}(.KList)");
+    assert!(expand("m() => X", "K").starts_with("_Gen"));
+}
+
+/// An item of a right-hand K sequence is typed in the sequence's `K` context, where it keeps the
+/// sort `K`: `m() ~> .K` applies the macro rule about `m{K}` (`m() => X`, whose unsorted `X` is
+/// typed at `K`), not the `m{KItem}` one listed first.
+#[test]
+fn a_parametric_macro_in_a_k_sequence_takes_the_k_instance() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "b" [symbol(b)] | "c" [symbol(c)]
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          syntax K ::= "f" "(" ")" [function, symbol(f)]
+          rule m():KItem => b
+          rule m() => X
+          rule f() => m() ~> .K
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let expanded = expand_macros(&definition).unwrap();
+    let bodies = expanded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .filter(|body| body.starts_with("f("))
+        .collect::<Vec<_>>();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert!(bodies[0].contains("_Gen"), "{bodies:?}");
+    assert!(!bodies[0].contains("b("), "{bodies:?}");
+}
+
+/// The instance of an application is read after its arguments are expanded: `m()` becomes the
+/// `Bool` `true`, so the enclosing `f` stands at `Bool`, and the macro rule of `f`'s `KItem`
+/// instance does not apply to it.
+#[test]
+fn a_parametric_macro_sees_the_instance_of_its_expanded_arguments() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax KItem ::= Bool
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          syntax {S} S ::= "f" "(" S ")" [macro, symbol(f)]
+          rule m() => true
+          rule f(X:KItem) => X
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let term = application("f", vec![application("m", Vec::new())]);
+    let expanded = expand_macros_in_term(&definition, "MAIN", term).unwrap();
+    assert_eq!(
+        Printer::new().print_term(&expanded),
+        r#"f(#token("true","Bool"))"#
+    );
+}
+
 #[test]
 fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;
