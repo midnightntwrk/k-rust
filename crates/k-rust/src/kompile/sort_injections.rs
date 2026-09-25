@@ -96,7 +96,8 @@ pub struct AmbiguousInstance {
     pub declared: Vec<Sort>,
     /// The sorts of the corresponding arguments.
     pub arguments: Vec<Sort>,
-    /// For each minimal instantiation, the declared argument sorts it instantiates to.
+    /// Declared argument sorts under representative minimal instantiations. When independent
+    /// parameter groups are ambiguous, these vary one group while fixing the others.
     pub candidates: Vec<Vec<Sort>>,
 }
 
@@ -1100,7 +1101,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// constraint, the least assignment satisfying the argument constraints is chosen, so a
     /// position the injector fills through a wrapper or a projection is decided there. Several
     /// incomparable minimal assignments are [`SortInjectionError::AmbiguousInstance`].
-    // Invariant: the search visits each assignment of the cartesian product of the parameters' candidate values once, O(product x arguments) subsort queries.
+    // Invariant: each connected group visits its candidate product once. Independent groups add
+    // their costs rather than multiplying them, and only current minima are retained.
     fn solve_parameters(
         &self,
         parameters: &[Sort],
@@ -1131,6 +1133,19 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         let fits_position = |assignment: &BTreeMap<Sort, Sort>| {
             !position_constrains || self.below(&substitute_sort(result, assignment), position)
         };
+
+        // An argument that is already an instance fixes every parameter in its declared sort.
+        // Check this before gathering possible super-sort instances.
+        let mut exact = BTreeMap::new();
+        if constrained
+            .iter()
+            .all(|(declared, actual)| bind_parameters(parameters, declared, actual, &mut exact))
+            && exact.len() == parameters.len()
+            && fits_arguments(&exact)
+            && fits_position(&exact)
+        {
+            return Ok(exact);
+        }
 
         let mut candidates = parameters
             .iter()
@@ -1254,89 +1269,158 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             })
             .collect::<Vec<_>>();
 
-        let mut exact = BTreeMap::new();
-        if constrained
-            .iter()
-            .all(|(declared, actual)| bind_parameters(parameters, declared, actual, &mut exact))
-        {
+        // A parameter absent from concrete arguments can still have one inferred candidate.
+        // Keep the exact preference when those candidates complete a partial exact binding.
+        let mut completed_exact = BTreeMap::new();
+        if constrained.iter().all(|(declared, actual)| {
+            bind_parameters(parameters, declared, actual, &mut completed_exact)
+        }) {
             for (parameter, values) in &domains {
-                if !exact.contains_key(parameter)
+                if !completed_exact.contains_key(parameter)
                     && let [value] = values.as_slice()
                 {
-                    exact.insert(parameter.clone(), value.clone());
+                    completed_exact.insert(parameter.clone(), value.clone());
                 }
             }
-            if exact.len() == parameters.len() && fits_arguments(&exact) && fits_position(&exact) {
-                return Ok(exact);
+            if completed_exact.len() == parameters.len()
+                && fits_arguments(&completed_exact)
+                && fits_position(&completed_exact)
+            {
+                return Ok(completed_exact);
             }
         }
 
-        let mut assignments = vec![BTreeMap::<Sort, Sort>::new()];
-        for (parameter, values) in &domains {
-            assignments = assignments
-                .into_iter()
-                .flat_map(|assignment| {
-                    values.iter().map(move |value| {
-                        let mut extended = assignment.clone();
-                        extended.insert(parameter.clone(), value.clone());
-                        extended
-                    })
+        // A constraint joins all parameters that occur in its declared sort. A concrete result
+        // position joins the parameters of the result sort in the same way.
+        fn root(parents: &mut [usize], index: usize) -> usize {
+            if parents[index] != index {
+                let parent = parents[index];
+                parents[index] = root(parents, parent);
+            }
+            parents[index]
+        }
+        let mut parents = (0..parameters.len()).collect::<Vec<_>>();
+        for sort in declared
+            .iter()
+            .copied()
+            .chain(position_constrains.then_some(result))
+        {
+            let touched = parameters
+                .iter()
+                .enumerate()
+                .filter_map(|(index, parameter)| contains_sort(sort, parameter).then_some(index))
+                .collect::<Vec<_>>();
+            if let Some((&first, rest)) = touched.split_first() {
+                for &index in rest {
+                    let first_root = root(&mut parents, first);
+                    let index_root = root(&mut parents, index);
+                    parents[index_root] = first_root;
+                }
+            }
+        }
+        let mut groups = BTreeMap::<usize, Vec<usize>>::new();
+        for index in 0..parameters.len() {
+            groups
+                .entry(root(&mut parents, index))
+                .or_default()
+                .push(index);
+        }
+        let mut groups = groups.into_values().collect::<Vec<_>>();
+        groups.sort_by_key(|group| group[0]);
+
+        fn visit_assignments(
+            domains: &[(Sort, Vec<Sort>)],
+            assignment: &mut BTreeMap<Sort, Sort>,
+            visit: &mut impl FnMut(&BTreeMap<Sort, Sort>),
+        ) {
+            if let Some(((parameter, values), rest)) = domains.split_first() {
+                for value in values {
+                    assignment.insert(parameter.clone(), value.clone());
+                    visit_assignments(rest, assignment, visit);
+                }
+                assignment.remove(parameter);
+            } else {
+                visit(assignment);
+            }
+        }
+
+        let mut chosen = BTreeMap::new();
+        let mut group_minima = Vec::new();
+        for group in groups {
+            let group_domains = group
+                .iter()
+                .map(|&index| domains[index].clone())
+                .collect::<Vec<_>>();
+            let group_constraints = constrained
+                .iter()
+                .filter(|(declared, _)| {
+                    group
+                        .iter()
+                        .any(|&index| contains_sort(declared, &parameters[index]))
+                })
+                .copied()
+                .collect::<Vec<_>>();
+            let group_has_position = position_constrains
+                && group
+                    .iter()
+                    .any(|&index| contains_sort(result, &parameters[index]));
+            let at_most = |left: &[Sort], right: &[Sort]| {
+                left.iter()
+                    .zip(right)
+                    .all(|(left, right)| self.below(left, right))
+            };
+            let mut fitting = Vec::<(BTreeMap<Sort, Sort>, Vec<Sort>)>::new();
+            let mut preferred = Vec::<(BTreeMap<Sort, Sort>, Vec<Sort>)>::new();
+            visit_assignments(&group_domains, &mut BTreeMap::new(), &mut |assignment| {
+                if !group_constraints.iter().all(|(declared, actual)| {
+                    self.below(actual, &substitute_sort(declared, assignment))
+                }) {
+                    return;
+                }
+                let sorts = group_constraints
+                    .iter()
+                    .map(|(declared, _)| substitute_sort(declared, assignment))
+                    .collect::<Vec<_>>();
+                let retain_minimum = |minima: &mut Vec<(BTreeMap<Sort, Sort>, Vec<Sort>)>| {
+                    if minima.iter().any(|(_, other)| at_most(other, &sorts)) {
+                        return;
+                    }
+                    minima.retain(|(_, other)| !at_most(&sorts, other));
+                    minima.push((assignment.clone(), sorts.clone()));
+                };
+                retain_minimum(&mut fitting);
+                if !group_has_position || fits_position(assignment) {
+                    retain_minimum(&mut preferred);
+                }
+            });
+            let minima = if preferred.is_empty() {
+                fitting
+            } else {
+                preferred
+            };
+            let Some((first, _)) = minima.first() else {
+                // Nothing fits: keep the fallback for every parameter; injection rejects it.
+                return Ok(domains
+                    .into_iter()
+                    .map(|(parameter, values)| (parameter, values[0].clone()))
+                    .collect());
+            };
+            chosen.extend(first.clone());
+            group_minima.push(minima);
+        }
+        if let Some(minima) = group_minima.iter().find(|minima| minima.len() > 1) {
+            let candidates = minima
+                .iter()
+                .map(|(assignment, _)| {
+                    let mut witness = chosen.clone();
+                    witness.extend(assignment.clone());
+                    constrained
+                        .iter()
+                        .map(|(declared, _)| substitute_sort(declared, &witness))
+                        .collect()
                 })
                 .collect();
-        }
-        let fitting = assignments
-            .into_iter()
-            .filter(|assignment| fits_arguments(assignment))
-            .collect::<Vec<_>>();
-        let preferred = fitting
-            .iter()
-            .filter(|assignment| fits_position(assignment))
-            .collect::<Vec<_>>();
-        let pool = if preferred.is_empty() {
-            fitting.iter().collect::<Vec<_>>()
-        } else {
-            preferred
-        };
-        let Some(first) = pool.first() else {
-            // Nothing fits: keep the fallback for every parameter; injecting the arguments rejects
-            // the one that does not fit.
-            return Ok(domains
-                .into_iter()
-                .map(|(parameter, values)| (parameter, values[0].clone()))
-                .collect());
-        };
-        let instantiated = |assignment: &BTreeMap<Sort, Sort>| {
-            constrained
-                .iter()
-                .map(|(declared, _)| substitute_sort(declared, assignment))
-                .collect::<Vec<_>>()
-        };
-        let at_most = |left: &[Sort], right: &[Sort]| {
-            left.iter()
-                .zip(right)
-                .all(|(left, right)| self.below(left, right))
-        };
-        let ranked = pool
-            .iter()
-            .map(|assignment| (*assignment, instantiated(assignment)))
-            .collect::<Vec<_>>();
-        let minimal = ranked
-            .iter()
-            .filter(|(_, sorts)| {
-                !ranked
-                    .iter()
-                    .any(|(_, other)| other != sorts && at_most(other, sorts))
-            })
-            .collect::<Vec<_>>();
-        let mut distinct = minimal
-            .iter()
-            .map(|(_, sorts)| sorts.clone())
-            .collect::<Vec<_>>();
-        distinct.dedup();
-        match (minimal.first(), distinct.len()) {
-            (Some((assignment, _)), 1) => Ok((*assignment).clone()),
-            (None, _) => Ok((*first).clone()),
-            _ => Err(SortInjectionError::AmbiguousInstance(Box::new(
+            Err(SortInjectionError::AmbiguousInstance(Box::new(
                 AmbiguousInstance {
                     declared: constrained
                         .iter()
@@ -1346,9 +1430,11 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                         .iter()
                         .map(|(_, actual)| (*actual).clone())
                         .collect(),
-                    candidates: distinct,
+                    candidates,
                 },
-            ))),
+            )))
+        } else {
+            Ok(chosen)
         }
     }
 

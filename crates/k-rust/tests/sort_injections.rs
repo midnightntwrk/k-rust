@@ -438,6 +438,37 @@ fn parametric_argument_with_incomparable_least_instances_is_ambiguous() {
     );
 }
 
+#[test]
+fn independent_parameters_report_ambiguity_without_a_cross_product_search() {
+    let mut source = String::from("module MAIN\n  syntax Byte\n");
+    for index in 0..10 {
+        source.push_str(&format!(
+            "  syntax MInt{{{index}}}\n  syntax MInt{{{index}}} ::= Byte\n"
+        ));
+    }
+    source.push_str(
+        "  syntax Result\n  syntax {A,B,C,D,E,F} Result ::= \"six(\" MInt{A} \",\" MInt{B} \",\" MInt{C} \",\" MInt{D} \",\" MInt{E} \",\" MInt{F} \")\" [symbol(six)]\nendmodule\n",
+    );
+    let (_, resolved) = use_injector(&source);
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let arguments = (0..6)
+        .map(|index| Term::Variable {
+            name: format!("X{index}"),
+            sort: Some(Sort::new("Byte")),
+        })
+        .collect();
+    let error = injector
+        .inject(&Term::apply("six", arguments), &Sort::new("Result"))
+        .unwrap_err();
+
+    assert!(
+        matches!(&error, SortInjectionError::AmbiguousInstance(ambiguity)
+            if ambiguity.arguments == vec![Sort::new("Byte"); 6]
+                && ambiguity.candidates.len() >= 2),
+        "{error}"
+    );
+}
+
 const TWO_WIDTHS: &str = indoc! {r#"
     module MAIN
       syntax MInt{8}
