@@ -190,6 +190,10 @@ export interface BackendTraceEntry {
 export interface ExecutionLeaf {
   state: Kore
   diagnostics?: BackendDiagnostic[]
+  /** Present on branch and cut-point halts. */
+  candidates?: ExecutionCandidate[]
+  /** The branch's remaining path candidate, when one remains. */
+  remainder?: ExecutionRemainder
   depth: number
   reason:
     | 'cancelled'
@@ -205,11 +209,24 @@ export interface ExecutionLeaf {
     | 'unsupported-hook'
     | 'simplification-error'
     | 'timeout'
-  /** Legacy human-readable diagnostic only; never parse it as semantic data. */
+  /** Legacy human-readable context only; use candidates and remainder for halt evidence. */
   detail?: string
   trace: BackendTraceEntry[]
   branch?: TransitionId[]
   observations?: ObservationEvent[]
+}
+
+export interface ExecutionCandidate {
+  state: Kore
+  uniqueId: string
+  label?: string
+  diagnostics?: BackendDiagnostic[]
+}
+
+export interface ExecutionRemainder {
+  state: Kore
+  ruleIds: string[]
+  diagnostics?: BackendDiagnostic[]
 }
 
 export interface ExecutionResult {

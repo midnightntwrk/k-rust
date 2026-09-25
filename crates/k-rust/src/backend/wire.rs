@@ -4,14 +4,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    BackendError, ExecutionLeaf, ExecutionResult, TraceEntry, encode_pattern, halt_reason,
-    trace_entry,
+    BackendError, ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput,
+    ExecutionResult, TraceEntry, encode_pattern, halt_reason, trace_entry,
 };
 use k_rust_backend::{
     builtin::{BuiltinEffect, BuiltinError},
     diagnostic::BackendDiagnostic,
     externalize,
-    rewrite::IndeterminateReason,
+    rewrite::{AppliedRule, HaltReason, IndeterminateReason, RemainderBranch},
     search::{
         IncompleteSearch, PathSearchResult as BackendPathSearchResult, PathWitness,
         PatternPathSearchResult as BackendPatternPathSearchResult,
@@ -872,6 +872,68 @@ fn diagnostic_output(
     })
 }
 
+fn candidate_output(candidate: AppliedRule) -> Result<ExecutionCandidateOutput, BackendError> {
+    let result_sort = candidate.pattern.term.sort();
+    Ok(ExecutionCandidateOutput {
+        state: encode_pattern(&externalize::constrained_pattern(&candidate.pattern))?,
+        unique_id: candidate.unique_id,
+        label: candidate.label,
+        diagnostics: candidate
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn remainder_output(remainder: RemainderBranch) -> Result<ExecutionRemainderOutput, BackendError> {
+    let result_sort = remainder.pattern.term.sort();
+    Ok(ExecutionRemainderOutput {
+        state: encode_pattern(&externalize::constrained_pattern(&remainder.pattern))?,
+        rule_ids: remainder.rule_ids,
+        diagnostics: remainder
+            .diagnostics
+            .into_iter()
+            .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+fn execution_candidates_output(
+    reason: HaltReason,
+) -> Result<
+    (
+        Option<Vec<ExecutionCandidateOutput>>,
+        Option<ExecutionRemainderOutput>,
+    ),
+    BackendError,
+> {
+    match reason {
+        HaltReason::Branch {
+            branches,
+            remainder,
+        } => Ok((
+            Some(
+                branches
+                    .into_iter()
+                    .map(candidate_output)
+                    .collect::<Result<_, _>>()?,
+            ),
+            remainder.map(remainder_output).transpose()?,
+        )),
+        HaltReason::CutPointRule { next_states, .. } => Ok((
+            Some(
+                next_states
+                    .into_iter()
+                    .map(candidate_output)
+                    .collect::<Result<_, _>>()?,
+            ),
+            None,
+        )),
+        _ => Ok((None, None)),
+    }
+}
+
 fn smt_failure_output(
     error: SmtError,
     result_sort: &Sort,
@@ -1092,6 +1154,7 @@ pub(super) fn execution_response(
             .map(|leaf| {
                 let (reason, detail) = halt_reason(&leaf.halt_reason);
                 let result_sort = leaf.pattern.term.sort();
+                let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
                     state: encode_pattern(&externalize::constrained_pattern(&leaf.pattern))?,
                     diagnostics: leaf
@@ -1099,6 +1162,8 @@ pub(super) fn execution_response(
                         .into_iter()
                         .map(|diagnostic| diagnostic_output(diagnostic, &result_sort))
                         .collect::<Result<_, _>>()?,
+                    candidates,
+                    remainder,
                     depth: leaf.depth,
                     reason,
                     detail,
@@ -1202,6 +1267,44 @@ pub(super) fn path_pattern_search_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn branch_remainder_keeps_its_own_typed_diagnostics() {
+        let remainder = RemainderBranch {
+            pattern: k_rust_backend::rewrite::Pattern {
+                term: Term::variable(k_rust_backend::term::Variable::new(
+                    "X",
+                    Sort::simple("SortS"),
+                )),
+                constraints: Vec::new(),
+            },
+            rule_ids: vec!["r".into()],
+            effects: Vec::new(),
+            simplifications: Vec::new(),
+            indeterminate: None,
+            diagnostics: vec![BackendDiagnostic::SimplificationBudgetExhausted {
+                limit: 3,
+                subject: BudgetSubject::Predicates,
+            }],
+        };
+        let (candidates, remainder) = execution_candidates_output(HaltReason::Branch {
+            branches: Vec::new(),
+            remainder: Some(remainder),
+        })
+        .unwrap();
+        assert!(candidates.unwrap().is_empty());
+        let value = serde_json::to_value(remainder.unwrap()).unwrap();
+        assert_eq!(value["ruleIds"], serde_json::json!(["r"]));
+        assert_eq!(value["state"]["format"], "KORE");
+        assert_eq!(
+            value["diagnostics"],
+            serde_json::json!([{
+                "kind": "simplification-budget-exhausted",
+                "limit": 3,
+                "subject": "predicates"
+            }])
+        );
+    }
 
     #[test]
     fn diagnostic_wire_variants_round_trip_and_reject_unknown_fields() {
