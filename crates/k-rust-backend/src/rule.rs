@@ -961,10 +961,9 @@ pub fn term_index(term: &Term) -> TermIndex {
     }
 }
 
-/// The rules a subject with `index` may match, per priority and in trial order: the rules
-/// under `index`, then the rules under `TermIndex::Variable`, each group in declaration order
-/// (CQ-05a). `Variable` subjects see only the variable-indexed rules. One `Arc` clone per
-/// candidate; `Counter::RewriteRuleAttempts` counts what the caller does with them (backend.rule.select).
+/// The rules a subject with `index` may match, per priority and in trial order: the rules under `index`, then the rules under `TermIndex::Variable`, each group in declaration order.
+/// `Variable` subjects see only the variable-indexed rules.
+/// One `Arc` clone is made per candidate; `Counter::RewriteRuleAttempts` counts what the caller does with them (backend.rule.select).
 pub(crate) fn applicable_groups(
     theory: &Theory,
     index: &TermIndex,

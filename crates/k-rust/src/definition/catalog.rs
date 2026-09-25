@@ -17,7 +17,7 @@
 //! ```
 //!
 //! Production catalogs group visible productions and build label, sort, hook, and identity indexes in declaration order.
-//! Construction costs O(n log n + buckets * eq) with indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds after CQ-12's counter commit.
+//! Construction costs O(n log n + buckets * eq) with indexed equivalence; `Counter::KompileProductionCatalogsBuilt` measures builds.
 //!
 //! Deterministic indexes over the productions visible from a resolved module.
 

@@ -48,7 +48,7 @@
 //! Validation and internalization of textual KORE definitions, O(|definition|) for the module, sort
 //! and symbol passes plus one axiom push, alias expansion and classification per import path to
 //! each module, once per load: import DFS with a path stack for cycle detection, preorder axiom
-//! order (CQ-05a) without deduplication of modules reached by several import paths, axiom-shape
+//! order without deduplication of modules reached by several import paths, axiom-shape
 //! classification, term internalization; subsort and overload transitive closures by naive
 //! iteration, rounds <= longest chain, each O(|S| x |closure|) for subsorts and O(|closure|^2) for
 //! overloads. No counter; the `internalize` phase of `kprove --timings` measures it,

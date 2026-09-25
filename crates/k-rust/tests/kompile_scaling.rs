@@ -1,10 +1,9 @@
 //! Sandbox scaling probes for module graphs that expose import-closure costs.
 //!
-//! These tests are intentionally ignored in the ordinary workspace run. They launch a release
-//! `krust` child through `measure.py`, so the run records wall time, peak RSS, and the CQ-15a
-//! timing residual together. CQ-15's structural update was dropped after its RSS gate failed;
-//! consequently this harness does not claim a resolve-update sentence-visit counter. That work
-//! is unavailable on the fallback tree and must be measured by a future ownership redesign.
+//! These tests are intentionally ignored in the ordinary workspace run.
+//! They launch a release `krust` child through `measure.py`, so the run records wall time, peak RSS, and the unattributed timing residual together.
+//! An earlier structural update was dropped after its RSS gate failed, so this harness does not claim a resolve-update sentence-visit counter.
+//! That work is unavailable on the fallback tree and must be measured by a future ownership redesign.
 
 #![cfg(feature = "cli")]
 
@@ -129,7 +128,7 @@ fn run_scaling_case(label: &str, modules: usize, shape: Shape, peak_limit_kib: u
 }
 
 #[test]
-#[ignore = "sandbox scaling gate; CQ-15 structural update was dropped"]
+#[ignore = "manual scaling gate; earlier structural update exceeded the RSS limit"]
 fn chain_40_scaling_stays_within_the_fallback_envelope() {
     run_scaling_case(
         "chain-40",
@@ -140,7 +139,7 @@ fn chain_40_scaling_stays_within_the_fallback_envelope() {
 }
 
 #[test]
-#[ignore = "sandbox scaling gate; CQ-15 structural update was dropped"]
+#[ignore = "manual scaling gate; earlier structural update exceeded the RSS limit"]
 fn fan_in_24_scaling_stays_within_the_fallback_envelope() {
     run_scaling_case(
         "fanin-24",
