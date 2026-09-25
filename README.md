@@ -224,6 +224,8 @@ krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
 
+In the Rust API, the legacy `ProgramParser::parse` omits source spans, while `parse_program` records the caller-provided `SourceId` in term spans.
+
 Write a standalone executable parser for an explicitly selected module and sort:
 
 ```console
@@ -681,10 +683,7 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 - Incremental specification compilation: reuse lowered semantics passes as well as parsed KAST;
   make prepared-source identities relocatable and add artifact freshness validation.
 
-- Map retained inner-parser byte spans back to absolute nested source locations and preserve all
-  remaining nested term attributes.
-- Add Java-compatible unused-symbol and deprecated-production warnings once nested provenance is
-  available.
+- Add unused-symbol and deprecated-production warnings.
 - Add an AST-level differential oracle against the JavaCC outer parser and broaden exact lexical
   error and ambiguous/parametric inference coverage across rules, claims, contexts, and aliases.
 - Reproduce exact Java scanner diagnostic wording.
