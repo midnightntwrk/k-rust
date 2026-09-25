@@ -1170,7 +1170,7 @@ id = "backend.fresh.object_language"
 provenance = "declared"
 area = "backend"
 name = "capture-avoiding substitution of object-language variables"
-variable = "t = term size; r = replacement size; k = binders traversed whose bound variable differs from the target; b = binders renamed; m = entries of one map; s = sorts in the definition"
+variable = "t = term size; r = replacement size; k = binders traversed whose bound variable differs from the target; b = binders renamed; m = entries of one map; s = sorts in the definition; y = symbols of the definition; a = largest symbol arity; e = subsort closure pairs"
 no_counter = "object-language substitution has no dedicated counter; its hook caller simplify_root bumps SimplifyBuiltinEvaluations"
 span = "per call"
 table = "Algorithm::ALL"
@@ -1185,6 +1185,11 @@ symbol = "evaluate"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/builtin/substitution.rs"
 symbol = "evaluate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/builtin/substitution.rs"
+symbol = "KVarSorts::of"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -1213,7 +1218,11 @@ symbol = "peel_injections"
 
 [[node.cost]]
 mode = "one object-language substitution"
-bound = "O(s + (k + b + 1) x t + k x r + m^2 per map) plus collision retries"
+bound = "O((t + r) x log s) opacity pre-pass, then O((k + b + 1) x t + k x r + m^2 per map) plus collision retries"
+
+[[node.cost]]
+mode = "the may-contain-KVar sort fact (KVarSorts::of), once per definition"
+bound = "O((s + y x a + e) x log s), a least fixpoint by one worklist pass over dependency edges, each edge, reach test and sort lookup an ordered-map operation keyed by sort name"
 
 [[node]]
 kind = "algorithm"

@@ -1,15 +1,19 @@
 //! ```toml algorithm
 //! id = "backend.fresh.object_language"
 //! name = "capture-avoiding substitution of object-language variables"
-//! sites = ["evaluate", "FreshNames::mint", "substitute", "freshen_bound_kvar_identities", "freshen_bound_kvar_identities_inner", "peel_injections"]
-//! variable = "t = term size; r = replacement size; k = binders traversed whose bound variable differs from the target; b = binders renamed; m = entries of one map; s = sorts in the definition"
+//! sites = ["evaluate", "KVarSorts::of", "FreshNames::mint", "substitute", "freshen_bound_kvar_identities", "freshen_bound_kvar_identities_inner", "peel_injections"]
+//! variable = "t = term size; r = replacement size; k = binders traversed whose bound variable differs from the target; b = binders renamed; m = entries of one map; s = sorts in the definition; y = symbols of the definition; a = largest symbol arity; e = subsort closure pairs"
 //! counters = []
 //! span = "per call"
 //! no_counter = "object-language substitution has no dedicated counter; its hook caller simplify_root bumps SimplifyBuiltinEvaluations"
 //!
 //! [[cost]]
 //! mode = "one object-language substitution"
-//! bound = "O(s + (k + b + 1) x t + k x r + m^2 per map) plus collision retries"
+//! bound = "O((t + r) x log s) opacity pre-pass, then O((k + b + 1) x t + k x r + m^2 per map) plus collision retries"
+//!
+//! [[cost]]
+//! mode = "the may-contain-KVar sort fact (KVarSorts::of), once per definition"
+//! bound = "O((s + y x a + e) x log s), a least fixpoint by one worklist pass over dependency edges, each edge, reach test and sort lookup an ordered-map operation keyed by sort name"
 //! ```
 //!
 //! Capture-avoiding substitution of object-language `KVar` tokens (Barendregt renaming through
@@ -20,19 +24,32 @@
 //! loops over application arguments, map entries (pairwise for key distinctness), list heads and
 //! tails, and set elements. Its name domain is the object language, distinct from the
 //! backend-variable fresh naming.
+//!
+//! `substOne` is a rule-less function defined by recursion over constructor terms, so a call on
+//! symbolic arguments has a value only when that recursion gives the same result for every
+//! instance. An *opaque* subterm (a variable, or an application of a non-constructor symbol)
+//! denotes some constructor term that is not known. When its sort may contain a `KVar` token,
+//! whether the target occurs in it, which `KVar`s are free in it and which names a fresh name must
+//! avoid depend on the instance, so the call stays unevaluated. When its sort cannot contain a
+//! `KVar` token, none of its values has a `KVar` or a binder, substitution is the identity on it,
+//! and every traversal copies it verbatim without descending into its arguments. The sort fact is
+//! the least fixpoint in [`KVarSorts::of`], computed once per definition.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 
-use k_rust_kore::measure::{self, Algorithm};
+use k_rust_kore::{
+    measure::{self, Algorithm},
+    names::WellKnownSymbol,
+};
 
 use super::{BuiltinError, BuiltinResult, UnsupportedHookReason, check_interrupted, expect_arity};
 use crate::{
     definition::BackendDefinition,
     matching::SortGraph,
-    term::{Name, Sort, Term, TermKind},
+    term::{Name, Sort, SymbolType, Term, TermKind},
 };
 
 pub(super) fn evaluate(
@@ -47,16 +64,11 @@ pub(super) fn evaluate(
             let Some(definition) = definition else {
                 return Ok(BuiltinResult::NotApplicable);
             };
-            let kvar_sorts = definition
-                .sorts
-                .iter()
-                .filter(|(_, info)| info.hook.as_deref() == Some("KVAR.KVar"))
-                .map(|(name, _)| name.clone())
-                .collect::<BTreeSet<_>>();
-            if kvar_sorts.is_empty() {
+            let facts = definition.kvar_sorts();
+            if facts.tokens.is_empty() {
                 return Ok(BuiltinResult::NotApplicable);
             }
-            subst_one(arguments, &kvar_sorts, &definition.sort_graph)
+            subst_one(arguments, facts, &definition.sort_graph)
         }
         "SUBSTITUTION.substMany" => Ok(BuiltinResult::Unsupported(
             UnsupportedHookReason::NotImplemented,
@@ -67,18 +79,203 @@ pub(super) fn evaluate(
     }
 }
 
+/// Which sorts of a definition have constructor terms that may contain a `KVar` token.
+///
+/// The sorts that may contain one form the least set of sort names closed under three clauses: a
+/// sort hooked `KVAR.KVar` is in it; the result sort of a constructor, or of a collection element
+/// or concat symbol, is in it when some argument sort is; and a supersort is in it when some
+/// subsort is. A sort variable, a sort with arguments, and a sort the definition does not declare
+/// are treated as members, because no finite fact about them is known here; a non-injection
+/// constructor whose result is a sort variable makes every sort a member. Every other declared
+/// sort is `kvar_free`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct KVarSorts {
+    /// Sorts hooked `KVAR.KVar`, whose domain values are the `KVar` tokens.
+    tokens: BTreeSet<Name>,
+    /// Declared sorts none of whose constructor terms contains a `KVar` token.
+    kvar_free: BTreeSet<Name>,
+}
+
+impl KVarSorts {
+    /// One worklist pass over the dependency edges,
+    /// O((sorts + symbols x arity + subsort pairs) x log sorts): every edge insert, reach test and
+    /// sort lookup is an ordered-map operation keyed by sort name.
+    pub(crate) fn of(definition: &BackendDefinition) -> Self {
+        let tokens = definition
+            .sorts
+            .iter()
+            .filter(|(_, info)| info.hook.as_deref() == Some("KVAR.KVar"))
+            .map(|(name, _)| name.clone())
+            .collect::<BTreeSet<_>>();
+        // `dependents[a]` holds the sorts that contain a `KVar` whenever `a` does.
+        let mut dependents = BTreeMap::<Name, BTreeSet<Name>>::new();
+        let mut seeds = tokens.iter().cloned().collect::<Vec<_>>();
+        for symbol in definition.symbols.values() {
+            let builds_values = symbol.attributes.symbol_type == SymbolType::Constructor
+                || symbol.attributes.collection.is_some();
+            if !builds_values || symbol.is(WellKnownSymbol::Inj) || symbol.argument_sorts.is_empty()
+            {
+                continue;
+            }
+            let Sort::Application { name: result, .. } = &symbol.result_sort else {
+                // A constructor whose result is a sort variable may build a term of any sort.
+                return Self {
+                    tokens,
+                    kvar_free: BTreeSet::new(),
+                };
+            };
+            for argument in &symbol.argument_sorts {
+                match argument {
+                    Sort::Application { name, arguments } if arguments.is_empty() => {
+                        dependents
+                            .entry(name.clone())
+                            .or_default()
+                            .insert(result.clone());
+                    }
+                    _ => seeds.push(result.clone()),
+                }
+            }
+        }
+        for supersort in definition.sorts.keys() {
+            if let Some(subsorts) = definition
+                .sort_graph
+                .subsorts_of(&Sort::simple(supersort.clone()))
+            {
+                for subsort in subsorts.iter().filter(|subsort| *subsort != supersort) {
+                    dependents
+                        .entry(subsort.clone())
+                        .or_default()
+                        .insert(supersort.clone());
+                }
+            }
+        }
+        let mut reaching = BTreeSet::new();
+        // Invariant: every sort enters `reaching` at most once, so each edge is followed once.
+        while let Some(sort) = seeds.pop() {
+            if !reaching.insert(sort.clone()) {
+                continue;
+            }
+            if let Some(next) = dependents.get(&sort) {
+                seeds.extend(
+                    next.iter()
+                        .filter(|next| !reaching.contains(*next))
+                        .cloned(),
+                );
+            }
+        }
+        let kvar_free = definition
+            .sorts
+            .keys()
+            .filter(|sort| !reaching.contains(*sort))
+            .cloned()
+            .collect();
+        Self { tokens, kvar_free }
+    }
+
+    fn may_contain_kvar(&self, sort: &Sort) -> bool {
+        match sort {
+            Sort::Application { name, arguments } if arguments.is_empty() => {
+                !self.kvar_free.contains(name)
+            }
+            _ => true,
+        }
+    }
+}
+
+/// A variable or an application of a non-constructor symbol: a subterm whose value is some
+/// constructor term that the call cannot see.
+fn is_opaque(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Variable(_) => true,
+        TermKind::Application { symbol, .. } => {
+            symbol.attributes.symbol_type != SymbolType::Constructor
+        }
+        _ => false,
+    }
+}
+
+/// True when `term` has an opaque subterm whose sort may contain a `KVar` token. Opaque subterms
+/// of `KVar`-free sorts are not descended into, as in the substitution traversals.
+fn has_blocking_subterm(term: &Term, facts: &KVarSorts) -> Result<bool, BuiltinError> {
+    check_interrupted()?;
+    if is_opaque(term) {
+        return Ok(facts.may_contain_kvar(&term.sort()));
+    }
+    Ok(match term.kind() {
+        TermKind::And(left, right) => {
+            has_blocking_subterm(left, facts)? || has_blocking_subterm(right, facts)?
+        }
+        TermKind::Application { arguments, .. } => {
+            for argument in arguments {
+                if has_blocking_subterm(argument, facts)? {
+                    return Ok(true);
+                }
+            }
+            false
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
+        TermKind::Injection { term, .. } => has_blocking_subterm(term, facts)?,
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries {
+                if has_blocking_subterm(key, facts)? || has_blocking_subterm(value, facts)? {
+                    return Ok(true);
+                }
+            }
+            match rest {
+                Some(rest) => has_blocking_subterm(rest, facts)?,
+                None => false,
+            }
+        }
+        TermKind::List { heads, rest, .. } => {
+            for head in heads {
+                if has_blocking_subterm(head, facts)? {
+                    return Ok(true);
+                }
+            }
+            if let Some((middle, tails)) = rest {
+                if has_blocking_subterm(middle, facts)? {
+                    return Ok(true);
+                }
+                for tail in tails {
+                    if has_blocking_subterm(tail, facts)? {
+                        return Ok(true);
+                    }
+                }
+            }
+            false
+        }
+        TermKind::Set { elements, rest, .. } => {
+            for element in elements {
+                if has_blocking_subterm(element, facts)? {
+                    return Ok(true);
+                }
+            }
+            match rest {
+                Some(rest) => has_blocking_subterm(rest, facts)?,
+                None => false,
+            }
+        }
+    })
+}
+
 fn subst_one(
     arguments: &[Term],
-    kvar_sorts: &BTreeSet<Name>,
+    facts: &KVarSorts,
     sort_graph: &SortGraph,
 ) -> Result<BuiltinResult, BuiltinError> {
     let [body, replacement, variable] = arguments else {
         unreachable!("substOne arity was checked by the dispatcher")
     };
+    let kvar_sorts = &facts.tokens;
     let Some(target) = read_kvar(variable, kvar_sorts) else {
         return Ok(BuiltinResult::NotApplicable);
     };
     let replacement = peel_injections(replacement);
+    // Past this check every opaque subterm of `body` and `replacement` has a KVar-free sort, so
+    // the traversals below may copy each one verbatim and the result holds for every instance.
+    if has_blocking_subterm(body, facts)? || has_blocking_subterm(&replacement, facts)? {
+        return Ok(BuiltinResult::NotApplicable);
+    }
     let Some(replacement_free) = free_kvars(&replacement, kvar_sorts)? else {
         return Ok(BuiltinResult::NotApplicable);
     };
@@ -154,6 +351,9 @@ fn substitute(
     if read_kvar(term, kvar_sorts).as_ref() == Some(target) {
         return Ok(inject_to_sort(replacement.clone(), term.sort(), sort_graph)
             .map_or(SubstituteOutcome::NotApplicable, SubstituteOutcome::Value));
+    }
+    if is_opaque(term) {
+        return Ok(SubstituteOutcome::Value(term.clone()));
     }
 
     Ok(SubstituteOutcome::Value(match term.kind() {
@@ -466,6 +666,9 @@ fn freshen_bound_kvar_identities_inner(
         };
         return Ok(rename_kvar_token(term, renamed, kvar_sorts));
     }
+    if is_opaque(term) {
+        return Ok(Some(term.clone()));
+    }
 
     Ok(Some(match term.kind() {
         TermKind::And(left, right) => {
@@ -767,6 +970,9 @@ fn collect_free_kvars(
         }
         return Ok(true);
     }
+    if is_opaque(term) {
+        return Ok(true);
+    }
     match term.kind() {
         TermKind::And(left, right) => Ok(collect_free_kvars(left, kvar_sorts, bound, free)?
             && collect_free_kvars(right, kvar_sorts, bound, free)?),
@@ -865,6 +1071,9 @@ fn collect_kvars(
     check_interrupted()?;
     if let Some(name) = read_kvar(term, kvar_sorts) {
         names.insert(name);
+        return Ok(());
+    }
+    if is_opaque(term) {
         return Ok(());
     }
     match term.kind() {
@@ -1053,8 +1262,42 @@ mod tests {
         })
     }
 
+    /// Only `SortInt` is KVar-free; every other sort, declared here or not, may contain a KVar.
+    fn facts() -> KVarSorts {
+        KVarSorts {
+            tokens: kvar_sorts(),
+            kvar_free: BTreeSet::from(["SortInt".into()]),
+        }
+    }
+
     fn run(body: Term, replacement: Term, target: Term) -> BuiltinResult {
-        subst_one(&[body, replacement, target], &kvar_sorts(), &sort_graph()).unwrap()
+        subst_one(&[body, replacement, target], &facts(), &sort_graph()).unwrap()
+    }
+
+    fn int_sort() -> Sort {
+        Sort::simple("SortInt")
+    }
+
+    fn function(name: &str, argument: Sort, result: Sort) -> Arc<Symbol> {
+        let mut symbol = Symbol::constructor(name, vec![argument], result);
+        symbol.attributes.symbol_type = SymbolType::Function(crate::term::FunctionType::Total);
+        Arc::new(symbol)
+    }
+
+    fn plus(left: Term, right: Term) -> Term {
+        Term::application(
+            Arc::new(Symbol::constructor(
+                "plus",
+                vec![exp_sort(), int_sort()],
+                exp_sort(),
+            )),
+            Vec::new(),
+            vec![left, right],
+        )
+    }
+
+    fn variable(name: &str, sort: Sort) -> Term {
+        Term::variable(crate::term::Variable::new(name, sort))
     }
 
     #[test]
@@ -1307,6 +1550,113 @@ mod tests {
     }
 
     #[test]
+    fn stays_unevaluated_when_an_opaque_subterm_may_contain_a_kvar() {
+        let symbolic_exp = variable("X", exp_sort());
+        assert_eq!(
+            run(symbolic_exp.clone(), kvar("v"), kvar("x")),
+            BuiltinResult::NotApplicable
+        );
+        assert_eq!(
+            run(variable("X", kvar_sort()), kvar("v"), kvar("x")),
+            BuiltinResult::NotApplicable
+        );
+        assert_eq!(
+            run(
+                lambda("y", exp_var("x")),
+                variable("R", exp_sort()),
+                kvar("x")
+            ),
+            BuiltinResult::NotApplicable
+        );
+        let f = function("f", exp_sort(), exp_sort());
+        assert_eq!(
+            run(
+                Term::application(f, Vec::new(), vec![exp_var("x")]),
+                kvar("v"),
+                kvar("x")
+            ),
+            BuiltinResult::NotApplicable
+        );
+        let map = Term::map(
+            test_map_definition(),
+            vec![(exp_var("z"), exp_var("a"))],
+            Some(variable("REST", Sort::simple("SortMap"))),
+        );
+        assert_eq!(run(map, kvar("v"), kvar("x")), BuiltinResult::NotApplicable);
+    }
+
+    #[test]
+    fn copies_opaque_subterms_of_kvar_free_sorts_verbatim() {
+        let n = variable("N", int_sort());
+        assert_eq!(
+            run(
+                lambda("y", plus(exp_var("x"), n.clone())),
+                kvar("v"),
+                kvar("x")
+            ),
+            BuiltinResult::Value(lambda("y", plus(exp_var("v"), n)))
+        );
+        let g_of_x = Term::application(
+            function("g", exp_sort(), int_sort()),
+            Vec::new(),
+            vec![exp_var("x")],
+        );
+        assert_eq!(
+            run(plus(exp_var("x"), g_of_x.clone()), kvar("v"), kvar("x")),
+            BuiltinResult::Value(plus(exp_var("v"), g_of_x))
+        );
+    }
+
+    #[test]
+    fn computes_the_sorts_that_may_contain_a_kvar() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortKVar{} [hook{}("KVAR.KVar"), hasDomainValues{}()]
+                sort SortExp{} []
+                sort SortWrap{} []
+                sort SortInt{} []
+                sort SortIntBox{} []
+                sort SortBox{S} []
+                symbol inj{From, To}(From) : To [sortInjection{}()]
+                symbol wrap{}(SortExp{}) : SortWrap{} [constructor{}()]
+                symbol intBox{}(SortInt{}) : SortIntBox{} [constructor{}()]
+                symbol box{S}(S) : SortBox{S} [constructor{}()]
+                symbol g{}(SortExp{}) : SortInt{} [function{}(), total{}()]
+                axiom{R}
+                    \exists{R}(
+                        Val:SortExp{},
+                        \equals{SortExp{}, R}(
+                            Val:SortExp{},
+                            inj{SortKVar{}, SortExp{}}(From:SortKVar{})
+                        )
+                    )
+                    [subsort{SortKVar{}, SortExp{}}()]
+            endmodule []
+        "#})
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let facts = definition.kvar_sorts();
+        assert_eq!(facts.tokens, BTreeSet::from(["SortKVar".into()]));
+        assert_eq!(
+            facts.kvar_free,
+            BTreeSet::from(["SortInt".into(), "SortIntBox".into()])
+        );
+        for sort in [
+            "SortKVar",
+            "SortExp",
+            "SortWrap",
+            "SortBox",
+            "SortUndeclared",
+        ] {
+            assert!(facts.may_contain_kvar(&Sort::simple(sort)), "{sort}");
+        }
+        assert!(facts.may_contain_kvar(&Sort::Variable("S".into())));
+        assert!(std::ptr::eq(facts, definition.kvar_sorts()));
+    }
+
+    #[test]
     fn enforces_subst_one_arity_and_keeps_subst_many_unsupported() {
         let arguments = [kvar("x"), kvar("y")];
         assert_eq!(
@@ -1358,11 +1708,7 @@ mod tests {
         });
         let _timer = controller.begin_step();
         assert_eq!(
-            subst_one(
-                &[kvar("x"), kvar("y"), kvar("x")],
-                &kvar_sorts(),
-                &sort_graph()
-            ),
+            subst_one(&[kvar("x"), kvar("y"), kvar("x")], &facts(), &sort_graph()),
             Err(BuiltinError::Interrupted)
         );
     }

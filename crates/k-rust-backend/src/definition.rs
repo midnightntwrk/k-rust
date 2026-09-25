@@ -58,7 +58,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     error::Error,
     fmt,
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use k_rust_kore::kore::ast as kore;
@@ -68,6 +68,7 @@ use k_rust_kore::names::{BuiltinSort, KoreAttribute, MalformedAttribute, WellKno
 
 use crate::{
     alias::{AliasDefinition, collect as collect_aliases, expand as expand_aliases},
+    builtin::KVarSorts,
     claim::{ClaimError, ReachabilityClaim, internalize_reachability_claim},
     matching::SortGraph,
     rewrite::Pattern,
@@ -217,6 +218,8 @@ pub struct BackendDefinition {
     pub predicate_simplification_theory: PredicateTheory,
     pub ceil_theory: Theory,
     finite_sort_constructors: BTreeMap<Sort, BTreeSet<ConstructorHead>>,
+    /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
+    kvar_sorts: OnceLock<KVarSorts>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -741,6 +744,7 @@ impl BackendDefinition {
             predicate_simplification_theory: PredicateTheory::new(),
             ceil_theory: Theory::new(),
             finite_sort_constructors: BTreeMap::new(),
+            kvar_sorts: OnceLock::new(),
         };
         let rules = result
             .classified_axioms
@@ -790,6 +794,11 @@ impl BackendDefinition {
         result.finite_sort_constructors = collect_finite_sort_constructors(&result);
         crate::definedness::discharge_rewrite_definedness(&mut result);
         Ok(result)
+    }
+
+    /// The may-contain-`KVar` sort fact, a least fixpoint computed at most once per definition.
+    pub(crate) fn kvar_sorts(&self) -> &KVarSorts {
+        self.kvar_sorts.get_or_init(|| KVarSorts::of(self))
     }
 
     pub(crate) fn finite_constructor_heads(

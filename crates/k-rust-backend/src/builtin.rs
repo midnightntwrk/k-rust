@@ -17,6 +17,8 @@ mod set;
 mod string;
 mod substitution;
 
+pub(crate) use substitution::KVarSorts;
+
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
