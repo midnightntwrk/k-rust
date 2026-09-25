@@ -16,7 +16,7 @@ use k_rust::{
     kore::parser::parse_definition,
 };
 use k_rust_backend::transition::ObservationOptions;
-use kink_patch::{Baseline, SentenceRef, SiteSelector, derive_sites};
+use kink_patch::{Baseline, CandidateFailure, SentenceRef, SiteSelector, derive_sites};
 use serde_json::Value;
 
 use crate::observation::DomainEventSpec;
@@ -163,6 +163,11 @@ pub enum SelectionFailure {
     DuplicateRule { selection: usize, rule: SentenceRef },
     /// Some position's sort could not be decided, so whether the rule matches is unknown.
     UndecidedSort { selection: usize },
+    /// A structural selector names an invalid site.
+    Structural {
+        selection: usize,
+        failure: CandidateFailure,
+    },
 }
 
 impl fmt::Display for SelectionFailure {
@@ -190,6 +195,12 @@ impl fmt::Display for SelectionFailure {
                     "selection {selection} met a position of unknown sort"
                 )
             }
+            Self::Structural { selection, failure } => {
+                write!(
+                    formatter,
+                    "selection {selection} has an invalid structural site: {failure}"
+                )
+            }
         }
     }
 }
@@ -215,6 +226,10 @@ pub fn select_rules(
             return Err(SelectionFailure::Unclassified { selection: index });
         }
         let matched = matched_rules(baseline, rewrite_rules, &selection.selector)
+            .map_err(|failure| SelectionFailure::Structural {
+                selection: index,
+                failure,
+            })?
             .ok_or(SelectionFailure::UndecidedSort { selection: index })?;
         if matched.len() != selection.expected_cardinality || matched.is_empty() {
             return Err(SelectionFailure::CardinalityMismatch {
@@ -246,7 +261,7 @@ fn matched_rules(
     baseline: &Baseline,
     rewrite_rules: Option<&RewriteRules>,
     selector: &RuleSelector,
-) -> Option<Vec<SentenceRef>> {
+) -> Result<Option<Vec<SentenceRef>>, CandidateFailure> {
     let structural = match selector {
         RuleSelector::Structural {
             label,
@@ -265,10 +280,9 @@ fn matched_rules(
                     label: label.clone(),
                 }))
                 .collect::<Vec<_>>();
-            let discovery = derive_sites(baseline, "observation", &clauses)
-                .expect("a selector without Bind clauses is valid");
+            let discovery = derive_sites(baseline, "observation", &clauses)?;
             if !discovery.exhaustive() {
-                return None;
+                return Ok(None);
             }
             Some(
                 discovery
@@ -281,7 +295,7 @@ fn matched_rules(
         }
         _ => None,
     };
-    Some(
+    Ok(Some(
         baseline
             .authored_sentences()
             .filter(|(at, sentence)| {
@@ -304,5 +318,5 @@ fn matched_rules(
             })
             .map(|(at, _)| at)
             .collect(),
-    )
+    ))
 }

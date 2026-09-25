@@ -23,7 +23,7 @@ use kink_native::{
     MutantRejection, NativeValidator, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
     select_rules,
 };
-use kink_patch::{Baseline, Edit, Patch, SentenceRef};
+use kink_patch::{Baseline, CandidateFailureKind, Edit, Patch, SentenceRef};
 use serde_json::Value;
 
 fn structural(label: Option<&str>, path: &[u32], sort: &str, head: Option<&str>) -> RuleSelector {
@@ -159,6 +159,30 @@ fn selection_failures_publish_no_rule() {
             .map(|(selector, cardinality)| selection(selector, cardinality))
             .collect::<Vec<_>>();
         assert_eq!(labels(&counter, &selections), Err(failure), "{id}");
+    }
+}
+
+#[test]
+fn invalid_structural_sites_publish_no_rule() {
+    let counter = support::load("counter.k");
+    #[rustfmt::skip]
+    let rows = [
+        ("labelled-path-past-leaf", structural(Some("COUNTER.increment"), &[0, 1, 0, 99], "Counter", None)),
+        ("unknown-label", structural(Some("COUNTER.nothing"), &[0], "Control", None)),
+    ];
+    for (id, selector) in rows {
+        let result = select_rules(
+            &counter,
+            None,
+            &[
+                selection(RuleSelector::Label("COUNTER.branch".into()), 1),
+                selection(selector, 1),
+            ],
+        );
+        assert!(
+            matches!(result, Err(SelectionFailure::Structural { selection: 1, ref failure }) if failure.kind() == CandidateFailureKind::UnknownSite),
+            "{id}: {result:?}"
+        );
     }
 }
 
