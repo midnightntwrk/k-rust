@@ -17,7 +17,7 @@ use super::{
     BuiltinError, BuiltinResult, UnsupportedHookReason, bool_term, bytes, check_interrupted,
     expect_arity, read_int,
 };
-use crate::term::{Sort, Symbol, Term, TermKind};
+use crate::term::{Sort, Symbol, SymbolType, Term, TermKind};
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     match hook {
@@ -42,24 +42,31 @@ pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, 
     }
 }
 
+/// The constructor the declarations use to write a point of G1 as `(x, y)`.
+const G1_POINT: &str = "Lblg1Point";
+/// The constructor the declarations use to write a point of G2 as `(x1 x x2, y1 x y2)`.
+const G2_POINT: &str = "Lblg2Point";
+
+/// What a BN128 hook can know about one of its arguments.
+///
+/// The hooks are functions on the values of their arguments, and they have an answer only for
+/// points written with the declared point constructor and integer coordinates. Constructors are
+/// free, so a ground constructor term with another head, a domain value, or a collection never
+/// denotes such a point. A variable or a non-constructor application denotes some term the call
+/// cannot see, which may be a point or not, so the call has no single answer for it.
 enum Reading<T> {
-    Concrete(T),
-    Invalid,
-    Symbolic,
+    /// The argument's value, which the hook is defined on.
+    Value(T),
+    /// The argument denotes no point in any model, so the hook has no group value for it.
+    NotAPoint,
+    /// The argument's value depends on terms the call cannot see.
+    Opaque,
 }
 
-struct ConcreteG1 {
-    symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
-    x: BigInt,
-    y: BigInt,
-}
-
-struct ConcreteG2 {
-    x_c0: BigInt,
-    x_c1: BigInt,
-    y_c0: BigInt,
-    y_c1: BigInt,
+/// The head a point argument was written with; a G1 result point is built with the same head.
+struct PointHead<'a> {
+    symbol: &'a Arc<Symbol>,
+    sort_arguments: &'a [Sort],
 }
 
 fn without_injections(mut term: &Term) -> &Term {
@@ -69,67 +76,65 @@ fn without_injections(mut term: &Term) -> &Term {
     term
 }
 
-fn unreadable<T>(term: &Term) -> Reading<T> {
-    if term.attributes().variables.is_empty() {
-        Reading::Invalid
-    } else {
-        Reading::Symbolic
+/// Reads the `N` literal coordinates of a point written with `constructor`.
+fn point_coordinates<'a, const N: usize>(
+    term: &'a Term,
+    constructor: &str,
+) -> Reading<(PointHead<'a>, [BigInt; N])> {
+    let (symbol, sort_arguments, arguments) = match without_injections(term).kind() {
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } => (symbol, sort_arguments, arguments),
+        TermKind::Variable(_) | TermKind::And(..) => return Reading::Opaque,
+        _ => return Reading::NotAPoint,
+    };
+    if symbol.name.as_ref() != constructor {
+        return match symbol.attributes.symbol_type {
+            SymbolType::Constructor => Reading::NotAPoint,
+            SymbolType::Function(_) => Reading::Opaque,
+        };
+    }
+    if arguments.len() != N {
+        return Reading::NotAPoint;
+    }
+    let mut coordinates: [BigInt; N] = std::array::from_fn(|_| BigInt::default());
+    for (coordinate, argument) in coordinates.iter_mut().zip(arguments) {
+        let Some(value) = read_int(argument) else {
+            return Reading::Opaque;
+        };
+        *coordinate = value;
+    }
+    Reading::Value((
+        PointHead {
+            symbol,
+            sort_arguments,
+        },
+        coordinates,
+    ))
+}
+
+fn read_g1(term: &Term) -> Reading<(PointHead<'_>, G1)> {
+    match point_coordinates::<2>(term, G1_POINT) {
+        Reading::Value((head, coordinates)) => match g1_value(&coordinates) {
+            Some(value) => Reading::Value((head, value)),
+            None => Reading::NotAPoint,
+        },
+        Reading::NotAPoint => Reading::NotAPoint,
+        Reading::Opaque => Reading::Opaque,
     }
 }
 
-fn concrete_g1(term: &Term) -> Reading<ConcreteG1> {
-    let term = without_injections(term);
-    let TermKind::Application {
-        symbol,
-        sort_arguments,
-        arguments,
-    } = term.kind()
-    else {
-        return unreadable(term);
-    };
-    let [x, y] = arguments.as_slice() else {
-        return unreadable(term);
-    };
-    let Some(x) = read_int(x) else {
-        return unreadable(term);
-    };
-    let Some(y) = read_int(y) else {
-        return unreadable(term);
-    };
-    Reading::Concrete(ConcreteG1 {
-        symbol: symbol.clone(),
-        sort_arguments: sort_arguments.clone(),
-        x,
-        y,
-    })
-}
-
-fn concrete_g2(term: &Term) -> Reading<ConcreteG2> {
-    let term = without_injections(term);
-    let TermKind::Application { arguments, .. } = term.kind() else {
-        return unreadable(term);
-    };
-    let [x_c0, x_c1, y_c0, y_c1] = arguments.as_slice() else {
-        return unreadable(term);
-    };
-    let Some(x_c0) = read_int(x_c0) else {
-        return unreadable(term);
-    };
-    let Some(x_c1) = read_int(x_c1) else {
-        return unreadable(term);
-    };
-    let Some(y_c0) = read_int(y_c0) else {
-        return unreadable(term);
-    };
-    let Some(y_c1) = read_int(y_c1) else {
-        return unreadable(term);
-    };
-    Reading::Concrete(ConcreteG2 {
-        x_c0,
-        x_c1,
-        y_c0,
-        y_c1,
-    })
+fn read_g2(term: &Term) -> Reading<G2> {
+    match point_coordinates::<4>(term, G2_POINT) {
+        Reading::Value((_, coordinates)) => match g2_value(&coordinates) {
+            Some(value) => Reading::Value(value),
+            None => Reading::NotAPoint,
+        },
+        Reading::NotAPoint => Reading::NotAPoint,
+        Reading::Opaque => Reading::Opaque,
+    }
 }
 
 fn coordinate_bytes(value: &BigInt) -> Option<[u8; 32]> {
@@ -142,9 +147,9 @@ fn coordinate_bytes(value: &BigInt) -> Option<[u8; 32]> {
     Some(bytes)
 }
 
-fn g1_value(point: &ConcreteG1) -> Option<G1> {
-    let x = Fq::from_slice(&coordinate_bytes(&point.x)?).ok()?;
-    let y = Fq::from_slice(&coordinate_bytes(&point.y)?).ok()?;
+fn g1_value([x, y]: &[BigInt; 2]) -> Option<G1> {
+    let x = Fq::from_slice(&coordinate_bytes(x)?).ok()?;
+    let y = Fq::from_slice(&coordinate_bytes(y)?).ok()?;
     if x.is_zero() && y.is_zero() {
         Some(G1::zero())
     } else {
@@ -152,11 +157,11 @@ fn g1_value(point: &ConcreteG1) -> Option<G1> {
     }
 }
 
-fn g2_value(point: &ConcreteG2) -> Option<G2> {
-    let x_c0 = Fq::from_slice(&coordinate_bytes(&point.x_c0)?).ok()?;
-    let x_c1 = Fq::from_slice(&coordinate_bytes(&point.x_c1)?).ok()?;
-    let y_c0 = Fq::from_slice(&coordinate_bytes(&point.y_c0)?).ok()?;
-    let y_c1 = Fq::from_slice(&coordinate_bytes(&point.y_c1)?).ok()?;
+fn g2_value([x_c0, x_c1, y_c0, y_c1]: &[BigInt; 4]) -> Option<G2> {
+    let x_c0 = Fq::from_slice(&coordinate_bytes(x_c0)?).ok()?;
+    let x_c1 = Fq::from_slice(&coordinate_bytes(x_c1)?).ok()?;
+    let y_c0 = Fq::from_slice(&coordinate_bytes(y_c0)?).ok()?;
+    let y_c1 = Fq::from_slice(&coordinate_bytes(y_c1)?).ok()?;
     if x_c0.is_zero() && x_c1.is_zero() && y_c0.is_zero() && y_c1.is_zero() {
         Some(G2::zero())
     } else {
@@ -166,70 +171,49 @@ fn g2_value(point: &ConcreteG2) -> Option<G2> {
     }
 }
 
+/// `isValidPoint` checks whether its argument is a point: `true` for a point, `false` for a term
+/// that is a point in no model, and no answer for a term that may be either.
+fn validity<T>(reading: Reading<T>) -> BuiltinResult {
+    match reading {
+        Reading::Value(_) => BuiltinResult::Value(bool_term(true)),
+        Reading::NotAPoint => BuiltinResult::Value(bool_term(false)),
+        Reading::Opaque => BuiltinResult::NotApplicable,
+    }
+}
+
 fn bn128_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 1)?;
-    Ok(match concrete_g1(&arguments[0]) {
-        Reading::Concrete(point) => BuiltinResult::Value(bool_term(g1_value(&point).is_some())),
-        Reading::Invalid => BuiltinResult::Value(bool_term(false)),
-        Reading::Symbolic => BuiltinResult::NotApplicable,
-    })
+    Ok(validity(read_g1(&arguments[0])))
 }
 
 fn bn128_g2_valid(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 1)?;
-    Ok(match concrete_g2(&arguments[0]) {
-        Reading::Concrete(point) => BuiltinResult::Value(bool_term(g2_value(&point).is_some())),
-        Reading::Invalid => BuiltinResult::Value(bool_term(false)),
-        Reading::Symbolic => BuiltinResult::NotApplicable,
-    })
+    Ok(validity(read_g2(&arguments[0])))
 }
 
 fn bn128_add(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
-    let left = match concrete_g1(&arguments[0]) {
-        Reading::Concrete(point) => point,
-        Reading::Invalid => return Ok(BuiltinResult::Bottom),
-        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-    };
-    let right = match concrete_g1(&arguments[1]) {
-        Reading::Concrete(point) => point,
-        Reading::Invalid => return Ok(BuiltinResult::Bottom),
-        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-    };
-    if left.symbol.name != right.symbol.name || left.sort_arguments != right.sort_arguments {
-        return Ok(BuiltinResult::Bottom);
-    }
-    let Some(sum) = g1_value(&left)
-        .zip(g1_value(&right))
-        .map(|(left, right)| left + right)
-    else {
-        return Ok(BuiltinResult::Bottom);
-    };
-    Ok(BuiltinResult::Value(concrete_g1_term(&left, sum)))
+    // A non-point makes the sum undefined whatever the other argument is, so it is checked
+    // before an opaque argument can leave the call unevaluated.
+    Ok(match (read_g1(&arguments[0]), read_g1(&arguments[1])) {
+        (Reading::NotAPoint, _) | (_, Reading::NotAPoint) => BuiltinResult::Bottom,
+        (Reading::Opaque, _) | (_, Reading::Opaque) => BuiltinResult::NotApplicable,
+        (Reading::Value((head, left)), Reading::Value((_, right))) => {
+            BuiltinResult::Value(g1_term(&head, left + right))
+        }
+    })
 }
 
 fn bn128_mul(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
-    let point = match concrete_g1(&arguments[0]) {
-        Reading::Concrete(point) => point,
-        Reading::Invalid => return Ok(BuiltinResult::Bottom),
-        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-    };
-    let Some(scalar) = read_int(&arguments[1]) else {
-        return Ok(if arguments[1].attributes().variables.is_empty() {
-            BuiltinResult::Bottom
-        } else {
-            BuiltinResult::NotApplicable
-        });
-    };
-    let Some(value) = g1_value(&point) else {
-        return Ok(BuiltinResult::Bottom);
-    };
-    let scalar = g1_scalar(&scalar);
-    Ok(BuiltinResult::Value(concrete_g1_term(
-        &point,
-        value * scalar,
-    )))
+    // Every `Int` is a scalar; anything else in the scalar position may denote any `Int`.
+    Ok(match (read_g1(&arguments[0]), read_int(&arguments[1])) {
+        (Reading::NotAPoint, _) => BuiltinResult::Bottom,
+        (Reading::Opaque, _) | (_, None) => BuiltinResult::NotApplicable,
+        (Reading::Value((head, point)), Some(scalar)) => {
+            BuiltinResult::Value(g1_term(&head, point * g1_scalar(&scalar)))
+        }
+    })
 }
 
 /// The order r of G1. Every point P of G1 satisfies r*P = O.
@@ -255,7 +239,7 @@ fn g1_scalar(scalar: &BigInt) -> Fr {
     Fr::from_slice(&bytes).expect("a residue mod r is a canonical element of Fr")
 }
 
-fn concrete_g1_term(template: &ConcreteG1, value: G1) -> Term {
+fn g1_term(head: &PointHead<'_>, value: G1) -> Term {
     let (x, y) = if let Some(affine) = AffineG1::from_jacobian(value) {
         let mut x = [0_u8; 32];
         let mut y = [0_u8; 32];
@@ -275,58 +259,76 @@ fn concrete_g1_term(template: &ConcreteG1, value: G1) -> Term {
         (BigInt::from(0), BigInt::from(0))
     };
     Term::application(
-        template.symbol.clone(),
-        template.sort_arguments.clone(),
+        head.symbol.clone(),
+        head.sort_arguments.to_vec(),
         vec![super::int_term(x), super::int_term(y)],
     )
 }
 
-fn complete_list(term: &Term) -> Reading<&[Term]> {
-    match term.kind() {
-        TermKind::List {
-            heads, rest: None, ..
-        } => Reading::Concrete(heads),
-        TermKind::List { rest: Some(_), .. } => Reading::Symbolic,
-        _ => unreadable(term),
+/// The elements of a list argument that the call can see, and whether they are all of them.
+struct ListReading<'a> {
+    elements: Vec<&'a Term>,
+    complete: bool,
+}
+
+/// Reads a list argument; any term other than a `List` node may denote any list.
+fn read_list(term: &Term) -> Option<ListReading<'_>> {
+    match without_injections(term).kind() {
+        TermKind::List { heads, rest, .. } => Some(match rest {
+            None => ListReading {
+                elements: heads.iter().collect(),
+                complete: true,
+            },
+            Some((_, tail)) => ListReading {
+                elements: heads.iter().chain(tail).collect(),
+                complete: false,
+            },
+        }),
+        _ => None,
     }
 }
 
 fn bn128_ate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity(hook, arguments, 2)?;
-    let g1_terms = match complete_list(&arguments[0]) {
-        Reading::Concrete(terms) => terms,
-        Reading::Invalid => return Ok(BuiltinResult::Bottom),
-        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-    };
-    let g2_terms = match complete_list(&arguments[1]) {
-        Reading::Concrete(terms) => terms,
-        Reading::Invalid => return Ok(BuiltinResult::Bottom),
-        Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-    };
-    if g1_terms.len() != g2_terms.len() {
+    let g1_list = read_list(&arguments[0]);
+    let g2_list = read_list(&arguments[1]);
+    // The pairing is defined only on lists of equal length, whatever their elements are.
+    if let (Some(g1_list), Some(g2_list)) = (&g1_list, &g2_list)
+        && g1_list.complete
+        && g2_list.complete
+        && g1_list.elements.len() != g2_list.elements.len()
+    {
         return Ok(BuiltinResult::Bottom);
     }
 
+    // Every known element is read before an opaque one can leave the call unevaluated,
+    // because a single non-point makes the pairing undefined for every instance of the rest.
     check_interrupted()?;
-    let mut pairs = Vec::with_capacity(g1_terms.len());
-    for (g1_term, g2_term) in g1_terms.iter().zip(g2_terms) {
+    let mut opaque = !g1_list.as_ref().is_some_and(|list| list.complete)
+        || !g2_list.as_ref().is_some_and(|list| list.complete);
+    let mut g1_points = Vec::new();
+    for element in g1_list.iter().flat_map(|list| &list.elements) {
         check_interrupted()?;
-        let g1 = match concrete_g1(g1_term) {
-            Reading::Concrete(point) => g1_value(&point),
-            Reading::Invalid => return Ok(BuiltinResult::Bottom),
-            Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-        };
-        let g2 = match concrete_g2(g2_term) {
-            Reading::Concrete(point) => g2_value(&point),
-            Reading::Invalid => return Ok(BuiltinResult::Bottom),
-            Reading::Symbolic => return Ok(BuiltinResult::NotApplicable),
-        };
-        let Some(pair) = g1.zip(g2) else {
-            return Ok(BuiltinResult::Bottom);
-        };
-        pairs.push(pair);
+        match read_g1(element) {
+            Reading::Value((_, point)) => g1_points.push(point),
+            Reading::NotAPoint => return Ok(BuiltinResult::Bottom),
+            Reading::Opaque => opaque = true,
+        }
+    }
+    let mut g2_points = Vec::new();
+    for element in g2_list.iter().flat_map(|list| &list.elements) {
+        check_interrupted()?;
+        match read_g2(element) {
+            Reading::Value(point) => g2_points.push(point),
+            Reading::NotAPoint => return Ok(BuiltinResult::Bottom),
+            Reading::Opaque => opaque = true,
+        }
+    }
+    if opaque {
+        return Ok(BuiltinResult::NotApplicable);
     }
 
+    let pairs: Vec<(G1, G2)> = g1_points.into_iter().zip(g2_points).collect();
     Ok(BuiltinResult::Value(bool_term(
         pairing_batch(&pairs) == Gt::one(),
     )))
@@ -461,7 +463,7 @@ mod tests {
     use super::*;
     use crate::{
         cancellation::CancellationToken,
-        term::{CollectionSymbols, ListDefinition, Symbol, Variable},
+        term::{CollectionSymbols, FunctionType, ListDefinition, Symbol, Variable},
     };
 
     fn string(value: &str) -> BuiltinResult {
@@ -1426,6 +1428,199 @@ mod tests {
                     point_list(vec![symbolic_element]),
                     point_list(vec![g2_generator(&g2)]),
                 ],
+            ),
+            Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    fn function_symbol(name: &str, argument_sorts: Vec<Sort>, result_sort: &str) -> Arc<Symbol> {
+        let mut symbol = Symbol::constructor(name, argument_sorts, Sort::simple(result_sort));
+        symbol.attributes.symbol_type = SymbolType::Function(FunctionType::Partial);
+        Arc::new(symbol)
+    }
+
+    fn constructor_symbol(name: &str, arity: usize, result_sort: &str) -> Arc<Symbol> {
+        Arc::new(Symbol::constructor(
+            name,
+            vec![Sort::simple("SortInt"); arity],
+            Sort::simple(result_sort),
+        ))
+    }
+
+    fn applied(symbol: &Arc<Symbol>, arguments: Vec<Term>) -> Term {
+        Term::application(symbol.clone(), Vec::new(), arguments)
+    }
+
+    fn int(value: i64) -> Term {
+        super::super::int_term(value.into())
+    }
+
+    fn g1_variable() -> Term {
+        Term::variable(Variable::new("P", Sort::simple("SortG1Point")))
+    }
+
+    fn list_with_rest(heads: Vec<Term>) -> Term {
+        let definition = match point_list(Vec::new()).kind() {
+            TermKind::List { definition, .. } => definition.clone(),
+            _ => unreachable!(),
+        };
+        Term::list(
+            definition,
+            heads,
+            Some((
+                Term::variable(Variable::new("REST", Sort::simple("SortList"))),
+                Vec::new(),
+            )),
+        )
+    }
+
+    fn boolean(value: bool) -> Result<BuiltinResult, BuiltinError> {
+        Ok(BuiltinResult::Value(super::super::bool_term(value)))
+    }
+
+    #[test]
+    fn constructor_terms_other_than_the_point_constructors_are_not_points() {
+        let alt = constructor_symbol("Lblalt", 2, "SortG1Point");
+        let alt4 = constructor_symbol("Lblalt4", 4, "SortG2Point");
+        let alt_generator = || applied(&alt, vec![int(1), int(2)]);
+        let alt4_generator = match g2_generator(&g2_symbol()).kind() {
+            TermKind::Application { arguments, .. } => applied(&alt4, arguments.clone()),
+            _ => unreachable!(),
+        };
+
+        assert_eq!(
+            evaluate("KRYPTO.bn128valid", &[alt_generator()]),
+            boolean(false)
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128add", &[alt_generator(), alt_generator()]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128mul", &[alt_generator(), int(2)]),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate("KRYPTO.bn128g2valid", &[alt4_generator]),
+            boolean(false)
+        );
+        // A G1 point is not a G2 point, and neither is a domain value.
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128g2valid",
+                &[g1_point(&g1_symbol(), 0.into(), 0.into())]
+            ),
+            boolean(false)
+        );
+        assert_eq!(evaluate("KRYPTO.bn128valid", &[int(0)]), boolean(false));
+    }
+
+    #[test]
+    fn arguments_the_call_cannot_see_leave_it_unevaluated() {
+        let generator = || g1_point(&g1_symbol(), 1.into(), 2.into());
+        let f2 = function_symbol("Lblf2", vec![Sort::simple("SortInt"); 2], "SortG1Point");
+        let f0 = function_symbol("Lblf0", Vec::new(), "SortG1Point");
+        let h = function_symbol("Lblh", Vec::new(), "SortInt");
+        let l = function_symbol("Lbll", Vec::new(), "SortList");
+
+        for (name, point) in [
+            ("f(1,2)", applied(&f2, vec![int(1), int(2)])),
+            ("f()", applied(&f0, Vec::new())),
+            (
+                "g1Point(h(),2)",
+                applied(&g1_symbol(), vec![applied(&h, Vec::new()), int(2)]),
+            ),
+        ] {
+            assert_eq!(
+                evaluate("KRYPTO.bn128valid", std::slice::from_ref(&point)),
+                Ok(BuiltinResult::NotApplicable),
+                "{name}"
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128add", &[point, generator()]),
+                Ok(BuiltinResult::NotApplicable),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            evaluate("KRYPTO.bn128mul", &[generator(), applied(&h, Vec::new())]),
+            Ok(BuiltinResult::NotApplicable)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[applied(&l, Vec::new()), point_list(Vec::new())]
+            ),
+            Ok(BuiltinResult::NotApplicable)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128g2valid",
+                &[applied(
+                    &function_symbol("Lblg", Vec::new(), "SortG2Point"),
+                    Vec::new()
+                )]
+            ),
+            Ok(BuiltinResult::NotApplicable)
+        );
+    }
+
+    #[test]
+    fn a_non_point_argument_is_bottom_whatever_the_opaque_ones_are() {
+        let alt = constructor_symbol("Lblalt", 2, "SortG1Point");
+        let alt_generator = || applied(&alt, vec![int(1), int(2)]);
+        let off_curve = || g1_point(&g1_symbol(), 1.into(), 3.into());
+        let scalar = Term::variable(Variable::new("N", Sort::simple("SortInt")));
+
+        for non_point in [alt_generator(), off_curve()] {
+            assert_eq!(
+                evaluate("KRYPTO.bn128add", &[g1_variable(), non_point.clone()]),
+                Ok(BuiltinResult::Bottom)
+            );
+            assert_eq!(
+                evaluate("KRYPTO.bn128add", &[non_point, g1_variable()]),
+                Ok(BuiltinResult::Bottom)
+            );
+        }
+        assert_eq!(
+            evaluate("KRYPTO.bn128mul", &[alt_generator(), scalar]),
+            Ok(BuiltinResult::Bottom)
+        );
+
+        let q = || g2_generator(&g2_symbol());
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[list_with_rest(vec![alt_generator()]), point_list(vec![q()])]
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[point_list(vec![g1_variable()]), point_list(vec![q(), q()])]
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        // A non-point G2 element after an opaque G1 element.
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    point_list(vec![g1_variable()]),
+                    point_list(vec![g1_point(&g1_symbol(), 1.into(), 2.into())])
+                ]
+            ),
+            Ok(BuiltinResult::Bottom)
+        );
+        // Unknown length with only valid or opaque elements stays unevaluated.
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128ate",
+                &[
+                    list_with_rest(vec![g1_point(&g1_symbol(), 1.into(), 2.into())]),
+                    point_list(vec![q(), q()])
+                ]
             ),
             Ok(BuiltinResult::NotApplicable)
         );
