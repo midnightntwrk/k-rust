@@ -149,6 +149,6 @@ rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::order_constra
 [[hypothesis]]
 theorem = "KRust.MaximalModels.runs_agree_candidates"
 hypothesis = "enumeration conformance (the candidate set is P.candidates out f)"
-meaning = "for each recorded maximal real projection a, Encoding::maximal_models returns, through Encoding::admissible_parameters, exactly the parameter vectors b with P.pref a b, without duplicates, and the inference applies each of them; checked against a brute-force Pref(a) (maximal overload count, then an inclusion-maximal set of well-sorted trees, then the maximal top-preference count within that set) under random_seed, disjunct-order and full-disjunction perturbations"
+meaning = "for each recorded maximal real projection a, Encoding::maximal_models returns, through Encoding::admissible_parameters, exactly the parameter vectors b with P.pref a b, without duplicates, and the inference applies each of them; checked against a brute-force Pref(a) (maximal overload count, then an inclusion-maximal set of readings of well-sorted trees (bracket-erased, parametric instances replaced by their formal source), then the maximal top-preference count within that set) under random_seed, disjunct-order and full-disjunction perturbations"
 rust_test = "crates/k-rust/src/inner/parser/z3_inference.rs tests::admissible_parameters_conform_to_brute_force"
 ```

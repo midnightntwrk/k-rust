@@ -3372,6 +3372,116 @@ fn fun_over_an_inner_rewrite_takes_the_preferred_fun2() {
     );
 }
 
+/// The rule bodies of `source`'s main module `TEST`, loaded with the prelude.
+#[cfg(feature = "z3-inference")]
+fn test_rule_bodies(source: &str, name: &str) -> Vec<String> {
+    let loaded = load_with_prelude(source, name, "TEST")
+        .unwrap_or_else(|error| panic!("{name} should load: {error:?}"));
+    rule_bodies(&loaded)
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn bracketed_parametric_result_is_one_reading_instantiated_at_k() {
+    // A bracket has no node in the parsed term, and its concrete instances (one per sort) are how
+    // the parser covers `{Sort} Sort ::= "(" Sort ")"`; they differ only in the instantiation of
+    // `#Top`'s parameter, so they are one reading, whose free parameter is inferred as `K`. The
+    // bracketed rule therefore has one parse and lowers exactly as the unbracketed one.
+    let rule = |right: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports BOOL\n  syntax W ::= \"w32\" | \"w64\"\n  \
+             rule #Ceil(@A0:W) => {right} [simplification]\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(&rule("(#Top)"), "bracketed.k");
+    let bare = test_rule_bodies(&rule("#Top"), "bare.k");
+    assert_eq!(bracketed, bare);
+    assert_eq!(bare.len(), 1, "{bare:?}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn nested_bracketed_ml_connectives_are_one_reading() {
+    // Reduced from wasm-data.md:461 (`#Ceil(#signed(..)) => (({ .. #Equals true } #And
+    // #Ceil(..)) #And #Ceil(..))`): every bracket instance of the nested `#And`s is one reading,
+    // so the rule has one parse, the parse of the same rule without brackets.
+    let rule = |right: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports BOOL\n  syntax W ::= \"w32\" | \"w64\"\n  \
+             syntax Int ::= sgn(W, Int) [function, total]\n  \
+             syntax Bool ::= ok(W, Int) [function, total]\n  \
+             rule ok(_, _) => true\n  rule sgn(_, N) => N\n  \
+             rule #Ceil(sgn(@A0:W, @A1:Int))\n    => {right} [simplification]\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(
+        &rule("(({ ok(@A0, @A1) #Equals true } #And #Ceil(@A0)) #And #Ceil(@A1))"),
+        "bracketed.k",
+    );
+    let bare = test_rule_bodies(
+        &rule("{ ok(@A0, @A1) #Equals true } #And #Ceil(@A0) #And #Ceil(@A1)"),
+        "bare.k",
+    );
+    assert_eq!(bracketed, bare);
+    assert_eq!(bare.len(), 3, "{bare:?}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn bracketed_parametric_term_in_a_k_cell_lowers_like_the_bare_term() {
+    let rule = |right: &str| {
+        format!(
+            "module TEST\n  imports INT\n  imports ML-SYNTAX\n  syntax S ::= \"c\" | Int\n  \
+             configuration <k> $PGM:K </k>\n  rule <k> c => {right} </k>\nendmodule\n"
+        )
+    };
+    let bracketed = test_rule_bodies(&rule("(0 #And 1)"), "bracketed.k");
+    let bare = test_rule_bodies(&rule("0 #And 1"), "bare.k");
+    assert_eq!(bracketed, bare);
+    assert!(bare.iter().any(|body| body.contains("#And{K}")), "{bare:?}");
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn distinct_readings_that_only_a_parameter_preference_separates_are_ambiguous() {
+    // The shape of issue-2287 a5-spec.k (`2 #And n +Int n`): `(2 #And n) +Int n` and
+    // `2 #And (n +Int n)` are both well-sorted, the sentence has no variable to maximise, and no
+    // priority, `prefer` or `avoid` relates `_+Int_` and `#And`. Only a preference for `#And`'s
+    // free parameter at `K` would make the first ill-sorted, and a free parameter cannot reject a
+    // reading, so the rule is ambiguous.
+    let source = indoc! {r#"
+        module TEST
+          imports INT
+          imports ML-SYNTAX
+          syntax Int ::= "n" [function, total, no-evaluators]
+          syntax S ::= "c" | Int
+          configuration <k> $PGM:K </k>
+          rule <k> c => 2 #And n +Int n </k>
+        endmodule
+    "#};
+    let Err(error) = load_with_prelude(source, "a5.k", "TEST") else {
+        panic!("two distinct well-sorted readings must be ambiguous");
+    };
+    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = &error else {
+        panic!("expected a rule parse error, got {error:?}");
+    };
+    let ParseError::Ambiguous { alternatives, .. } = &error.error else {
+        panic!("expected ParseError::Ambiguous, got {:?}", error.error);
+    };
+    let mut terms = alternatives
+        .iter()
+        .map(|alternative| alternative.term.as_str())
+        .collect::<Vec<_>>();
+    terms.sort_unstable();
+    assert_eq!(
+        terms,
+        [
+            "#And{K}(#token(\"2\",\"Int\"),`_+Int_`(`n_TEST_Int`(.KList),`n_TEST_Int`(.KList)))",
+            "`_+Int_`(#And{Int}(#token(\"2\",\"Int\"),`n_TEST_Int`(.KList)),`n_TEST_Int`(.KList))",
+        ]
+    );
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn sort_parameter_choice_visible_after_lowering_is_ambiguous() {

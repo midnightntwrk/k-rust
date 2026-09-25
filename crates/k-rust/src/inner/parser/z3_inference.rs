@@ -2,7 +2,7 @@
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
 //! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators", "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = ambiguity alternatives of the term constraint (one live-tree indicator each); L = inclusion-maximal live sets of one maximal typing"
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure and parametric instance, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -55,11 +55,11 @@ use z3::ast::{Ast, Bool, Datatype};
 use z3::{DatatypeAccessor, DatatypeBuilder, DatatypeSort, Model, SatResult, Solver};
 
 use crate::definition::{PartialOrder, SortHead};
-use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term};
+use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term, TermSpan};
 use crate::names::BuiltinSort;
 
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
+    Grammar, Item, PackedNode, PackedTerm, ParametricOrigin, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
 };
 
@@ -155,10 +155,10 @@ struct Encoding<'a> {
     packed_overload_preferences: Vec<Bool>,
     /// The node constraints of the term constraint and the nodes that use each of them.
     liveness: LivenessGraph,
-    /// One indicator per alternative of each ambiguity of the term constraint
+    /// One indicator per reading class of each ambiguity of the term constraint
     /// (`LivenessGraph::indicators`): it holds exactly when a well-sorted tree of the whole
-    /// term passes through that alternative.
-    alternative_indicators: Vec<Bool>,
+    /// term passes through an alternative of that class.
+    reading_indicators: Vec<Bool>,
     packed_ids: HashMap<*const PackedTerm, usize>,
     anywhere: bool,
     top_rewrite_paths: HashSet<String>,
@@ -220,39 +220,227 @@ const PARAMETER_CHOICE_LIMIT: usize = 256;
 /// (`Encoding::constraint_packed_node`, `Encoding::constraint_node`), with the nodes that use it:
 /// a production node uses its children and an ambiguity node its alternatives. A node is
 /// completed after every node it uses, so node indexes are a topological order, users last.
+///
+/// Each node also has a reading class (`readings`): two nodes are in one class exactly when
+/// they are the same term once bracket nodes are erased and every concrete instance of a
+/// parametric production is replaced by its formal source. Brackets have no node in the parsed
+/// term, and the instances of one formal production are how the parser covers the sorts of its
+/// parameters, so alternatives of one class differ only in the instantiation of a reading's
+/// parameters, not in the reading.
 #[derive(Default)]
 struct LivenessGraph {
     constraints: Vec<Bool>,
     users: Vec<Vec<usize>>,
+    /// The nodes each node uses, in order.
+    children: Vec<Vec<usize>>,
     /// `(ambiguity, alternative)` for every alternative of every ambiguity node.
     alternatives: Vec<(usize, usize)>,
+    /// What each node is, apart from its children.
+    kinds: Vec<NodeKind>,
+    /// The reading class of each node.
+    readings: Vec<usize>,
+    /// Interned reading keys: a key names its children by their classes.
+    reading_ids: BTreeMap<ReadingKey, usize>,
+    /// The formal sources seen so far, without their substitutions.
+    formal_sources: Vec<ParametricOrigin>,
+    /// The reading source of each production index seen so far.
+    sources: HashMap<usize, ReadingSource>,
+}
+
+/// What a node of a `LivenessGraph` is, apart from its children.
+#[derive(Clone, Debug)]
+enum NodeKind {
+    Leaf(Term),
+    Production {
+        source: ReadingSource,
+        span: Option<TermSpan>,
+    },
+    /// A bracket node: its reading is its only child's.
+    Bracket,
+    /// An ambiguity node: its reading is the set of its alternatives' readings, or their one
+    /// reading when they have only one.
+    Ambiguity,
+}
+
+/// One way a node of a `LivenessGraph` is reached from the root (`LivenessGraph::positions`).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Reach {
+    Root,
+    /// Child `index` of a production node at a position, applying a reading source.
+    Child(usize, ReadingSource, usize),
+    /// An alternative of the given reading class of an ambiguity at a position.
+    Alternative(usize, usize),
+}
+
+/// The production a reading applies: a production of the grammar, or the formal source of a
+/// family of concrete parametric instances (`LivenessGraph::formal_sources`).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum ReadingSource {
+    Production(usize),
+    Formal(usize),
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum ReadingKey {
+    Leaf(Term, Option<TermSpan>),
+    Production {
+        source: ReadingSource,
+        span: Option<TermSpan>,
+        children: Vec<usize>,
+    },
+    Ambiguity(BTreeSet<usize>),
 }
 
 impl LivenessGraph {
-    fn node(&mut self, constraint: Bool, children: &[usize]) -> usize {
+    fn node(&mut self, constraint: Bool, children: &[usize], kind: NodeKind) -> usize {
         let node = self.constraints.len();
         self.constraints.push(constraint);
         self.users.push(Vec::new());
         for child in children {
             self.users[*child].push(node);
         }
+        let key = match &kind {
+            NodeKind::Bracket => None,
+            NodeKind::Leaf(term) => Some(ReadingKey::Leaf(
+                term.clone(),
+                term.metadata().and_then(|metadata| metadata.span),
+            )),
+            NodeKind::Production { source, span } => Some(ReadingKey::Production {
+                source: *source,
+                span: *span,
+                children: children.iter().map(|child| self.readings[*child]).collect(),
+            }),
+            NodeKind::Ambiguity => {
+                let classes = children
+                    .iter()
+                    .map(|child| self.readings[*child])
+                    .collect::<BTreeSet<_>>();
+                // An ambiguity whose alternatives are all one reading is that reading.
+                (classes.len() != 1).then_some(ReadingKey::Ambiguity(classes))
+            }
+        };
+        let reading = match key {
+            Some(key) => {
+                let next = self.reading_ids.len();
+                *self.reading_ids.entry(key).or_insert(next)
+            }
+            None => self.readings[children[0]],
+        };
+        self.readings.push(reading);
+        self.children.push(children.to_vec());
+        self.kinds.push(kind);
         node
     }
 
+    fn leaf(&mut self, constraint: Bool, term: &Term) -> usize {
+        self.node(constraint, &[], NodeKind::Leaf(term.clone()))
+    }
+
+    /// The node of production `index` over `children`; a bracket over one child takes the
+    /// child's class.
+    fn production(
+        &mut self,
+        constraint: Bool,
+        children: &[usize],
+        index: usize,
+        production: &Production,
+        span: Option<&TermSpan>,
+    ) -> usize {
+        let kind = if production.bracket && children.len() == 1 {
+            NodeKind::Bracket
+        } else {
+            NodeKind::Production {
+                source: self.source(index, production),
+                span: span.copied(),
+            }
+        };
+        self.node(constraint, children, kind)
+    }
+
     fn ambiguity(&mut self, constraint: Bool, alternatives: &[usize]) -> usize {
-        let node = self.node(constraint, alternatives);
+        let node = self.node(constraint, alternatives, NodeKind::Ambiguity);
         self.alternatives
             .extend(alternatives.iter().map(|alternative| (node, *alternative)));
         node
     }
 
-    /// One indicator per recorded ambiguity alternative, for the term constraint whose root is
-    /// `root`. A node is live when its constraint holds and some user of it is live (the root:
-    /// when its constraint holds), so a node is live exactly when some tree of the whole term
-    /// that passes through it is well-sorted. The indicator of alternative `a` of ambiguity `n`
-    /// is `constraint(a) and live(n)`: a parameter vector keeps a tree through `a` at `n` exactly
-    /// when it holds. Constraints of nodes that only an ill-sorted tree reaches therefore cannot
-    /// make an indicator true.
+    /// The reading source of production `index`: the formal source of a concrete parametric
+    /// instance (its origin without the substitution), or the production itself.
+    fn source(&mut self, index: usize, production: &Production) -> ReadingSource {
+        if let Some(source) = self.sources.get(&index) {
+            return *source;
+        }
+        let source = match &production.parametric_origin {
+            None => ReadingSource::Production(index),
+            Some(origin) => {
+                let formal = ParametricOrigin {
+                    substitution: BTreeMap::new(),
+                    ..origin.clone()
+                };
+                let position = self
+                    .formal_sources
+                    .iter()
+                    .position(|known| *known == formal)
+                    .unwrap_or_else(|| {
+                        self.formal_sources.push(formal);
+                        self.formal_sources.len() - 1
+                    });
+                ReadingSource::Formal(position)
+            }
+        };
+        self.sources.insert(index, source);
+        source
+    }
+
+    /// The position of each node reachable from `root` within the readings of the term, as an
+    /// interned id: the set of the ways its users reach it. A production user contributes
+    /// (its position, its reading source, the child index), an ambiguity user (its position,
+    /// the reading class of the alternative), and a bracket user passes on the ways it is
+    /// itself reached, since a bracket is not a node of the reading. So the nodes of one
+    /// ambiguity that differ only in the expected sort that a bracket or a parametric instance
+    /// above them imposes share a position, while the nodes under two different readings of an
+    /// enclosing ambiguity do not. Each node contributes once per user, so the positions are
+    /// computed in one pass over the graph.
+    fn positions(&self, root: usize) -> Vec<Option<usize>> {
+        let mut reached: Vec<BTreeSet<Reach>> = vec![BTreeSet::new(); self.constraints.len()];
+        let mut ids: BTreeMap<BTreeSet<Reach>, usize> = BTreeMap::new();
+        let mut positions = vec![None; self.constraints.len()];
+        reached[root].insert(Reach::Root);
+        // Invariant: every user of `node` is above it and has contributed its ways to it.
+        for node in (0..=root).rev() {
+            if reached[node].is_empty() {
+                continue;
+            }
+            let ways = std::mem::take(&mut reached[node]);
+            let next = ids.len();
+            let position = *ids.entry(ways.clone()).or_insert(next);
+            positions[node] = Some(position);
+            for (index, child) in self.children[node].iter().enumerate() {
+                match &self.kinds[node] {
+                    NodeKind::Leaf(_) => {}
+                    NodeKind::Production { source, .. } => {
+                        reached[*child].insert(Reach::Child(position, *source, index));
+                    }
+                    NodeKind::Bracket => reached[*child].extend(ways.iter().cloned()),
+                    NodeKind::Ambiguity => {
+                        reached[*child].insert(Reach::Alternative(position, self.readings[*child]));
+                    }
+                }
+            }
+        }
+        positions
+    }
+
+    /// One indicator per reading class of each recorded ambiguity, for the term constraint
+    /// whose root is `root`. A node is live when its constraint holds and some user of it is
+    /// live (the root: when its constraint holds), so a node is live exactly when some tree of
+    /// the whole term that passes through it is well-sorted. The indicator of alternative `a`
+    /// of ambiguity `n` is `constraint(a) and live(n)`: a parameter vector keeps a tree through
+    /// `a` at `n` exactly when it holds. The indicator of a class of `n` is the disjunction of
+    /// its alternatives' indicators: a vector keeps the reading exactly when it keeps a tree
+    /// through one of them. The nodes of one ambiguity at one position (`positions`) share
+    /// their class indicators, so a reading does not split by the instance above it.
+    /// Constraints of nodes that only an ill-sorted tree reaches cannot make an indicator true.
     fn indicators(&self, root: usize) -> Vec<Bool> {
         if self.alternatives.is_empty() {
             return Vec::new();
@@ -277,16 +465,26 @@ impl LivenessGraph {
                 None => self.constraints[node].clone(),
             });
         }
-        self.alternatives
-            .iter()
-            .filter_map(|(ambiguity, alternative)| {
-                let reached = live[*ambiguity].clone()?;
-                Some(Bool::and(&[
+        let positions = self.positions(root);
+        let mut classes: BTreeMap<(usize, usize, usize), Vec<Bool>> = BTreeMap::new();
+        for (ambiguity, alternative) in &self.alternatives {
+            let (Some(reached), Some(position)) = (live[*ambiguity].clone(), positions[*ambiguity])
+            else {
+                continue;
+            };
+            classes
+                .entry((
+                    position,
+                    self.readings[*ambiguity],
+                    self.readings[*alternative],
+                ))
+                .or_default()
+                .push(Bool::and(&[
                     self.constraints[*alternative].clone(),
                     reached,
-                ]))
-            })
-            .collect()
+                ]));
+        }
+        classes.values().map(|members| or_all(members)).collect()
     }
 }
 
@@ -539,7 +737,7 @@ impl Grammar {
         };
         let (constraint, root) =
             encoding.constraint_node(&term, &expected, root_context, "root")?;
-        encoding.alternative_indicators = encoding.liveness.indicators(root);
+        encoding.reading_indicators = encoding.liveness.indicators(root);
         if encoding.variables.is_empty() && !encoding.ill_sorted_ground {
             return Ok(term);
         }
@@ -919,7 +1117,7 @@ impl<'a> Encoding<'a> {
         };
         let (constraint, root) =
             self.constraint_packed_node(term, &expected, root_context, &mut HashMap::new())?;
-        self.alternative_indicators = self.liveness.indicators(root);
+        self.reading_indicators = self.liveness.indicators(root);
         solver.assert(&constraint);
         self.exclude_klabel_parameters(solver)?;
         self.restrict_to_real_sorts(solver);
@@ -939,7 +1137,7 @@ impl<'a> Encoding<'a> {
             parameters: BTreeSet::new(),
             packed_overload_preferences: Vec::new(),
             liveness: LivenessGraph::default(),
-            alternative_indicators: Vec::new(),
+            reading_indicators: Vec::new(),
             packed_ids: HashMap::new(),
             anywhere,
             top_rewrite_paths: HashSet::new(),
@@ -1009,7 +1207,7 @@ impl<'a> Encoding<'a> {
                         "unexpected lowered KAST node in the concrete parse forest",
                     )),
                 }?;
-                let node = self.liveness.node(constraint.clone(), &[]);
+                let node = self.liveness.leaf(constraint.clone(), term);
                 Ok((constraint, node))
             }
             ParsedTerm::Production {
@@ -1102,7 +1300,13 @@ impl<'a> Encoding<'a> {
                     nodes.push(node);
                 }
                 let constraint = and_all(&constraints);
-                let node = self.liveness.node(constraint.clone(), &nodes);
+                let node = self.liveness.production(
+                    constraint.clone(),
+                    &nodes,
+                    *production,
+                    descriptor,
+                    metadata.span.as_ref(),
+                );
                 Ok((constraint, node))
             }
             ParsedTerm::InstantiatedProduction { .. } => {
@@ -1194,7 +1398,7 @@ impl<'a> Encoding<'a> {
                         "unexpected lowered KAST node in the packed parse forest",
                     )),
                 }?;
-                let node = self.liveness.node(constraint.clone(), &[]);
+                let node = self.liveness.leaf(constraint.clone(), leaf);
                 Ok((constraint, node))
             }
             PackedNode::Production {
@@ -1282,7 +1486,13 @@ impl<'a> Encoding<'a> {
                     nodes.push(node);
                 }
                 let constraint = and_all(&constraints);
-                let node = self.liveness.node(constraint.clone(), &nodes);
+                let node = self.liveness.production(
+                    constraint.clone(),
+                    &nodes,
+                    *production,
+                    descriptor,
+                    metadata.span.as_ref(),
+                );
                 Ok((constraint, node))
             }
             PackedNode::InstantiatedProduction { .. } => {
@@ -2067,24 +2277,28 @@ impl<'a> Encoding<'a> {
     /// 1. as many overload-minimal function-LHS branches as possible stay well-sorted (the
     ///    maximal count of `packed_overload_preferences`), so a branch that an arbitrary value
     ///    of a shared parameter contradicts is not lost before the overload filter sees it;
-    /// 2. the set of live ambiguity alternatives (`alternative_indicators`) is maximal under
-    ///    inclusion: no vector keeps a well-sorted tree only by giving up another one, since a
-    ///    vector whose live set another vector strictly contains is not admissible. Every
-    ///    maximal live set is kept (`Encoding::maximal_live_set`); two of them are
+    /// 2. the set of live readings of the ambiguities (`reading_indicators`, one per reading
+    ///    class of `LivenessGraph`) is maximal under inclusion: no vector keeps a reading only
+    ///    by giving up another one, since a vector whose live set another vector strictly
+    ///    contains is not admissible. Alternatives of one class are one reading: they differ
+    ///    only by bracket nodes and by which concrete instance of a formal production the parser
+    ///    used, and that choice is an instantiation of the reading's parameters, not a reading.
+    ///    Every maximal live set is kept (`Encoding::maximal_live_set`); two of them are
     ///    incomparable, for instance when a parameter shared by a packed subterm must take
     ///    different sorts under two alternatives that use it;
     /// 3. among the vectors of one maximal live set, as many parameters as possible sit at the
     ///    `K`/`KItem`/`Bag` preferences of `seed_model`, which chooses the instantiation of a
-    ///    parameter the kept trees leave free. It compares only vectors that keep the same
-    ///    trees, so it never removes a tree.
+    ///    parameter the kept readings leave free, including which alternative of a class
+    ///    carries the reading. It compares only vectors that keep the same readings, so it
+    ///    never removes a reading.
     ///
     /// Every vector that reaches these criteria is returned, and the caller applies each one as a
     /// candidate. The post-inference passes then see every such parse as an alternative of one
     /// ambiguity, exactly as they see the parses of two incomparable maximal typings: they
     /// resolve it (overloads, `prefer`/`avoid`, alternatives that lower to the same term) or
-    /// report it as `ParseError::Ambiguous`. So a tree that some vector types reaches
+    /// report it as `ParseError::Ambiguous`. So a reading that some vector types reaches
     /// `prefer`/`avoid`, and the parse is a function of the admissible set, not of the vector Z3
-    /// returned. A tree that no vector types is still dropped.
+    /// returned. A reading that no vector types is still dropped.
     ///
     /// With the real variables pinned, the overload count, one maximal live set and its top
     /// count asserted, the constraints are exactly those that define that set's admissible
@@ -2138,7 +2352,7 @@ impl<'a> Encoding<'a> {
                     .ok_or_else(|| z3_error("Z3 returned sat without a live-tree model"))?;
                 let live = self.maximal_live_set(solver, &model)?;
                 let (kept, dropped): (Vec<_>, Vec<_>) = self
-                    .alternative_indicators
+                    .reading_indicators
                     .iter()
                     .zip(&live)
                     .partition(|(_, live)| **live);
@@ -2167,11 +2381,11 @@ impl<'a> Encoding<'a> {
         result
     }
 
-    /// The live set of `model` (which alternative indicators hold), grown to a live set that no
+    /// The live set of `model` (which reading indicators hold), grown to a live set that no
     /// satisfying assignment of the current assertions strictly contains.
     fn maximal_live_set(&self, solver: &Solver, model: &Model) -> Result<Vec<bool>, ParseError> {
         let evaluate = |model: &Model| {
-            self.alternative_indicators
+            self.reading_indicators
                 .iter()
                 .map(|indicator| {
                     model
@@ -2186,7 +2400,7 @@ impl<'a> Encoding<'a> {
         // iteration strictly grows it.
         loop {
             let (kept, dropped): (Vec<_>, Vec<_>) = self
-                .alternative_indicators
+                .reading_indicators
                 .iter()
                 .zip(&live)
                 .partition(|(_, live)| **live);
@@ -3775,7 +3989,10 @@ mod tests {
     /// that uses it, so its parameter `Q` must equal the first child sort of each alternative it
     /// is live under; `Some(true)` also gives `p0` the first child sort `K` when `K` exists, so
     /// that a vector can place `Q` at `K` only by dropping the alternatives over other
-    /// productions.
+    /// productions. With `shared`, each `(variable, sort)` of `bracketed` makes the first child
+    /// over that variable an ambiguity of `id(V)` and `b{sort}(id(V))` under the bracket
+    /// `b{sort} : S{sort} ::= "(" S{sort} ")"`: one reading, whose alternatives fix `Q` to
+    /// different sorts, as the bracket instances of a parametric production do.
     struct ConformanceProblem {
         grammar: Grammar,
         term: Rc<PackedTerm>,
@@ -3795,6 +4012,7 @@ mod tests {
         wrapper: Option<(usize, usize)>,
         parametric: Option<(usize, usize)>,
         shared: Option<bool>,
+        bracketed: &[(usize, usize)],
     ) -> ConformanceProblem {
         // Sorts `S0..S{n-1}`, and `K` above all of them when `top` is `None`, which also turns
         // on the `K` preferences of `seed_model`.
@@ -3893,6 +4111,46 @@ mod tests {
                     )
                 })
                 .collect::<Vec<_>>()
+        });
+        // Each bracketed `(variable, sort)` joins `b{sort}(id(V))` to `id(V)` in one ambiguity.
+        let identity = identity.map(|mut nodes| {
+            let mut brackets = BTreeMap::new();
+            let mut bracketed_nodes = vec![Vec::new(); nodes.len()];
+            for (variable_index, bracket_sort) in bracketed {
+                let bracket_sort = bracket_sort % sort_count;
+                let bracket = *brackets.entry(bracket_sort).or_insert_with(|| {
+                    let index = grammar.productions.len();
+                    grammar
+                        .add(
+                            sort(bracket_sort),
+                            vec![
+                                ProductionItem::Terminal("(".into()),
+                                nonterminal(sort(bracket_sort).name.as_str()),
+                                ProductionItem::Terminal(")".into()),
+                            ],
+                            None,
+                            false,
+                            true,
+                        )
+                        .unwrap();
+                    grammar.productions[index].bracket = true;
+                    index
+                });
+                let position = variable_index % nodes.len();
+                bracketed_nodes[position].push(PackedTerm::production(
+                    bracket,
+                    vec![Rc::clone(&nodes[position])],
+                    Default::default(),
+                ));
+            }
+            for (node, bracketed) in nodes.iter_mut().zip(bracketed_nodes) {
+                if !bracketed.is_empty() {
+                    *node = PackedTerm::ambiguity(
+                        std::iter::once(Rc::clone(node)).chain(bracketed).collect(),
+                    );
+                }
+            }
+            nodes
         });
         let first_child = |index: usize| match &identity {
             Some(nodes) => Rc::clone(&nodes[index % 3]),
@@ -4112,14 +4370,55 @@ mod tests {
         trees(root, &children, &ambiguities)
     }
 
+    /// The reading of one tree of a recorded term constraint: the tree itself with its bracket
+    /// nodes erased and each production replaced by its reading source.
+    #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    enum TreeReading {
+        Leaf(Term),
+        Node(ReadingSource, Option<TermSpan>, Vec<TreeReading>),
+    }
+
+    /// The reading of the tree `tree` (a node set of `graph_trees`) from `node`, built from the
+    /// recorded node kinds and not from the interned classes.
+    fn tree_reading(graph: &LivenessGraph, tree: &BTreeSet<usize>, node: usize) -> TreeReading {
+        let children = &graph.children[node];
+        match &graph.kinds[node] {
+            NodeKind::Leaf(term) => TreeReading::Leaf(term.clone()),
+            NodeKind::Production { source, span } => TreeReading::Node(
+                *source,
+                *span,
+                children
+                    .iter()
+                    .map(|child| tree_reading(graph, tree, *child))
+                    .collect(),
+            ),
+            NodeKind::Bracket => tree_reading(graph, tree, children[0]),
+            NodeKind::Ambiguity => {
+                // A generated tree takes one alternative of each ambiguity; it can also contain
+                // another alternative only as the child of a bracket over it, which is the same
+                // reading.
+                let readings = children
+                    .iter()
+                    .filter(|child| tree.contains(*child))
+                    .map(|child| tree_reading(graph, tree, *child))
+                    .collect::<BTreeSet<_>>();
+                let [reading] =
+                    <[TreeReading; 1]>::try_from(readings.into_iter().collect::<Vec<_>>())
+                        .expect("a generated tree has one reading at each ambiguity");
+                reading
+            }
+        }
+    }
+
     /// `Pref(a)` by brute force for the real typing `real`: every assignment of the formal
     /// parameters to the nullary real sorts is checked against the hard constraints with every
     /// variable pinned. Of the satisfiable ones with the largest number of true overload
-    /// preferences, those are kept whose set of well-sorted trees (`graph_trees`, read from the
-    /// node constraints and not from `alternative_indicators`) no other such assignment
-    /// strictly contains, and among the assignments that keep one set of trees, those with the
-    /// largest number of true top preferences, as `admissible_parameters` orders them. The
-    /// counts and the node constraints are evaluated in the model of the pinned check.
+    /// preferences, those are kept whose set of readings of well-sorted trees (`graph_trees`
+    /// and `tree_reading`, read from the node constraints and node kinds and not from
+    /// `reading_indicators`) no other such assignment strictly contains, and among the
+    /// assignments that keep one set of readings, those with the largest number of true top
+    /// preferences, as `admissible_parameters` orders them. The counts and the node constraints
+    /// are evaluated in the model of the pinned check.
     fn brute_force_admissible(
         problem: &ConformanceProblem,
         real: &BTreeMap<String, Sort>,
@@ -4130,7 +4429,14 @@ mod tests {
         })?;
         let solver = Solver::new();
         encoding.assert_packed_hard_constraints(term, &problem.top_sort, &solver)?;
-        let trees = graph_trees(&encoding.liveness, encoding.liveness.constraints.len() - 1);
+        let root = encoding.liveness.constraints.len() - 1;
+        let trees = graph_trees(&encoding.liveness, root)
+            .into_iter()
+            .map(|tree| {
+                let reading = tree_reading(&encoding.liveness, &tree, root);
+                (tree, reading)
+            })
+            .collect::<Vec<_>>();
         let top_preferences =
             encoding.top_preferences(|name| encoding.parameters.contains(name))?;
         // As in `brute_force_maximal`: no generated sort has a parametric head, so every value a
@@ -4181,11 +4487,11 @@ mod tests {
                 };
                 let live = trees
                     .iter()
-                    .filter(|tree| {
+                    .filter(|(tree, _)| {
                         tree.iter()
                             .all(|node| holds(&encoding.liveness.constraints[*node]))
                     })
-                    .cloned()
+                    .map(|(_, reading)| reading.clone())
                     .collect::<BTreeSet<_>>();
                 satisfiable.push((
                     count(&model, &encoding.packed_overload_preferences),
@@ -4212,7 +4518,7 @@ mod tests {
             .iter()
             .map(|(_, live, ..)| live.clone())
             .collect::<BTreeSet<_>>();
-        let maximal = |live: &BTreeSet<BTreeSet<usize>>| {
+        let maximal = |live: &BTreeSet<TreeReading>| {
             !live_sets
                 .iter()
                 .any(|other| other != live && other.is_superset(live))
@@ -4370,6 +4676,7 @@ mod tests {
                 wrapper,
                 parametric,
                 None,
+                &[],
             );
             let expected = brute_force_maximal(&problem).unwrap();
             let perturbation = |random_seed, reverse_disjuncts, full_disjunction| Perturbation {
@@ -4419,8 +4726,9 @@ mod tests {
         /// `maximal_models` returns exactly the brute-force admissible set `Pref(a)`, without a
         /// duplicate, so the candidate set the inference applies is `Problem.candidates`. Checked on the generated problems of
         /// `maximal_models_conform_to_brute_force_maximum` that carry the parametric production,
-        /// and optionally the shared `id` subterm whose parameter decides which alternatives
-        /// are live, under the same perturbations.
+        /// optionally the shared `id` subterm whose parameter decides which alternatives are
+        /// live, and optionally bracketed copies of alternatives (the same reading under other
+        /// sort constraints), under the same perturbations.
         #[test]
         fn admissible_parameters_conform_to_brute_force(
             sort_count in 3usize..6,
@@ -4432,6 +4740,7 @@ mod tests {
             wrapper in proptest::option::of((0usize..8, 0usize..8)),
             parametric in (0usize..8, 0usize..3),
             shared in proptest::option::of(proptest::bool::ANY),
+            bracketed in proptest::collection::vec((0usize..3, 0usize..8), 0..3),
             seeds in (1u32..1000, 1u32..1000),
         ) {
             let problem = conformance_problem(
@@ -4444,6 +4753,7 @@ mod tests {
                 wrapper,
                 Some(parametric),
                 shared,
+                &bracketed,
             );
             for perturbation in [
                 Perturbation { random_seed: None, reverse_disjuncts: false, full_disjunction: false },
@@ -4511,6 +4821,7 @@ mod tests {
             None,
             None,
             Some(true),
+            &[],
         );
         let (parameters, models) = recorded_models(
             &problem,
@@ -4549,6 +4860,69 @@ mod tests {
                 .map(|vector| vector
                     .into_values()
                     .map(|sort| sort.name)
+                    .collect::<Vec<_>>())
+                .collect::<BTreeSet<_>>(),
+            vectors
+        );
+    }
+
+    /// Bracket instances are one reading: `p0(A, X)` over `p0 : S0 ::= "p0" K S0` where `A` is the
+    /// ambiguity of `id(X)` and `b{S0}(id(X))`. Under `id(X)` alone, `Q = K`; under the bracket,
+    /// `Q = S0`. No vector keeps both, but they are one reading once the bracket is erased, so the
+    /// only admissible vector is the one the `K` preference picks, `Q = K`. Maximality over
+    /// alternatives instead of readings would keep `Q = S0` as a second, incomparable live set.
+    #[test]
+    fn bracket_alternatives_are_one_reading_instantiated_by_the_k_preference() {
+        let problem = conformance_problem(
+            3,
+            &[(0, 1)],
+            &[],
+            None,
+            &[(0, 0, 0)],
+            &[(0, 0, 0)],
+            None,
+            None,
+            Some(true),
+            &[(0, 0)],
+        );
+        let (parameters, models) = recorded_models(
+            &problem,
+            Perturbation {
+                random_seed: None,
+                reverse_disjuncts: false,
+                full_disjunction: false,
+            },
+        )
+        .unwrap()
+        .expect("the problem is satisfiable");
+        assert_eq!(parameters.len(), 1, "{parameters:?}");
+        let [admissible] = models.as_slice() else {
+            panic!("expected one maximal typing, got {models:?}");
+        };
+        let real = admissible[0]
+            .iter()
+            .filter(|(name, _)| !parameters.contains(*name))
+            .map(|(name, sort)| (name.clone(), sort.clone()))
+            .collect::<BTreeMap<_, _>>();
+        let vectors = admissible
+            .iter()
+            .map(|model| {
+                model
+                    .iter()
+                    .filter(|(name, _)| parameters.contains(*name))
+                    .map(|(_, sort)| sort.name.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(vectors, BTreeSet::from([vec!["K".to_owned()]]));
+        assert_eq!(
+            brute_force_admissible(&problem, &real)
+                .unwrap()
+                .into_iter()
+                .map(|vector| vector
+                    .into_iter()
+                    .filter(|(name, _)| parameters.contains(name))
+                    .map(|(_, sort)| sort.name)
                     .collect::<Vec<_>>())
                 .collect::<BTreeSet<_>>(),
             vectors
@@ -4681,6 +5055,7 @@ mod tests {
                 wrapper,
                 parametric,
                 None,
+                &[],
             );
             let OrderConstraintCalls {
                 encoding,
