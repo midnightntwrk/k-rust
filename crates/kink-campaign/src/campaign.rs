@@ -414,7 +414,9 @@ pub struct Rational {
     pub denominator: u64,
 }
 
-/// Mutation score and explicit denominator counts.
+/// Ratio over decided (`Killed`, `Survived`) mutants only. What it leaves out,
+/// `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
+/// [`crate::tally`]; show the tally beside the ratio.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Score {
     /// Number of killed mutants.
@@ -427,7 +429,9 @@ pub struct Score {
     pub ratio: Option<Rational>,
 }
 
-/// Scores only killed and survived mutants.
+/// Ratio over decided (`Killed`, `Survived`) mutants only. What it leaves out,
+/// `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
+/// [`crate::tally`]; show the tally beside the ratio.
 #[must_use]
 pub fn score(statuses: &[MutantStatus]) -> Score {
     let killed = statuses

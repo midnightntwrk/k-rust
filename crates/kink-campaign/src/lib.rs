@@ -4,7 +4,7 @@
 //! every test, and maps each run to typed [`OracleSide`]s without ever turning incomplete
 //! evidence into a value. [`compare_supplied`] compares two sides of one declaration, and
 //! [`derive_mutant_report`] and [`score`] fold the outcomes into mutant statuses and a
-//! score. There is no caching or provenance bookkeeping.
+//! score. [`tally`] counts its exclusions from the generation and run; show it beside the ratio.
 
 mod campaign;
 mod oracle;
@@ -21,5 +21,5 @@ pub use oracle::{
 };
 pub use runner::{
     Campaign, CampaignRun, MutantRun, OracleDeclaration, Projection, SideRun, StateProjection,
-    TestCase, TestEvidence, pattern_side, run_campaign, slot_outcome, state_side,
+    Tally, TestCase, TestEvidence, pattern_side, run_campaign, slot_outcome, state_side, tally,
 };

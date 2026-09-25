@@ -647,10 +647,9 @@ fn first_kill_and_full_schedules_agree_on_status() {
     );
 }
 
-/// C3: the score is the exact reduced killed/(killed+survived), and every
-/// excluded status leaves it unchanged. `Score` has no exclusion buckets; the
-/// duplicate and no-change buckets are candidate dispositions that never
-/// become a `MutantStatus` (see S5).
+/// C3: the score is the exact reduced killed/(killed+survived), and every excluded status
+/// leaves it unchanged. `Score` stays a ratio with no exclusion buckets; `tally` carries
+/// undecided mutants and rejected origins, which never become a `MutantStatus` (see S5).
 #[test]
 fn score_is_exact_and_excluded_statuses_do_not_count() {
     // `scoreCases`

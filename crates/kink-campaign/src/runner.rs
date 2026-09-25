@@ -41,7 +41,7 @@ use kink_native::execution::{
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
-use kink_patch::{CandidateGeneration, Patch};
+use kink_patch::{CandidateDisposition, CandidateGeneration, Patch};
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionBounds, ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure,
@@ -53,9 +53,9 @@ use crate::oracle::OracleFailure;
 use crate::{
     BaselineAdmission, CampaignFailure, CampaignFailureKind, CrashPolicy, ExecutionFailureKind,
     ExitStop, FinalResult, ManifestTest, MutantId, MutantPlan, MutantReport, MutantScopeFailure,
-    OracleFailureKind, OracleKind, OracleOutcome, OracleSide, OracleValue, PatternValue,
-    ScheduleMode, Score, TerminalClass, TestPlan, TestRun, compare_supplied, derive_mutant_report,
-    score, validate_baseline,
+    MutantStatus, OracleFailureKind, OracleKind, OracleOutcome, OracleSide, OracleValue,
+    PatternValue, ScheduleMode, Score, TerminalClass, TestPlan, TestRun, compare_supplied,
+    derive_mutant_report, score, validate_baseline,
 };
 
 /// What a state oracle reads from each complete terminal.
@@ -192,8 +192,59 @@ pub struct CampaignRun {
     pub mutants: Vec<MutantRun>,
     /// `None` when the generation is not scored (see [`run_campaign`]): its mutants still
     /// run and have statuses, but they are not every mutant the operator selects, or there
-    /// are none, so no score is claimed over them.
+    /// are none, so no score is claimed over them. Show [`tally`] beside the ratio.
     pub score: Option<Score>,
+}
+
+/// Counts the candidate statuses and selected origins left out of a score.
+///
+/// Mutant counts are per candidate: a candidate is one distinct applicable patch and the unit
+/// of [`MutantStatus`] and [`Score`]. An origin folded onto that candidate adds no mutant.
+/// Rejections are per selected origin, including NoChange: [`CandidateGeneration::dispositions`]
+/// is per origin, and rejected patches are not retained as candidates. The two units must not
+/// be summed. Whenever `run.score` is `Some`, `killed` and `survived` equal its counts.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct Tally {
+    /// Killed candidate mutants.
+    pub killed: u64,
+    /// Survived candidate mutants.
+    pub survived: u64,
+    /// Invalid candidate mutants.
+    pub invalid: u64,
+    /// Timed out candidate mutants.
+    pub timeout: u64,
+    /// Unknown candidate mutants.
+    pub unknown: u64,
+    /// Error candidate mutants.
+    pub error: u64,
+    /// Rejected selected origins, including NoChange; this uses a different unit from mutants.
+    pub rejected_origins: u64,
+}
+
+/// Counts statuses and rejected origins even when the generation has no score.
+/// Returns `None` when the run's mutant count does not match the generation's candidates.
+#[must_use]
+pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<Tally> {
+    if run.mutants.len() != generation.candidates().len() {
+        return None;
+    }
+    let mut tally = Tally::default();
+    for mutant in &run.mutants {
+        match mutant.report.status {
+            MutantStatus::Killed => tally.killed += 1,
+            MutantStatus::Survived => tally.survived += 1,
+            MutantStatus::Invalid => tally.invalid += 1,
+            MutantStatus::Timeout => tally.timeout += 1,
+            MutantStatus::Unknown => tally.unknown += 1,
+            MutantStatus::Error => tally.error += 1,
+        }
+    }
+    tally.rejected_origins = generation
+        .dispositions()
+        .iter()
+        .filter(|disposition| matches!(disposition, CandidateDisposition::Rejected(_)))
+        .count() as u64;
+    Some(tally)
 }
 
 /// Runs the baseline, admits it, then runs every candidate of a folded `generation` as a

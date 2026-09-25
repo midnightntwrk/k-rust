@@ -11,10 +11,10 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, walk};
 use kink_campaign::{
-    Campaign, CampaignFailureKind, CrashPolicy, ExecutionFailureKind, MutantScopeFailure,
-    MutantStatus, OracleDeclaration, OracleOutcome, OracleSide, OracleValue, PatternValue,
-    Projection, Rational, ScheduleMode, SideRun, StateProjection, TestCase, TestEvidence, TestPlan,
-    TestRun, derive_mutant_report, run_campaign,
+    Campaign, CampaignFailureKind, CampaignRun, CrashPolicy, ExecutionFailureKind,
+    MutantScopeFailure, MutantStatus, OracleDeclaration, OracleOutcome, OracleSide, OracleValue,
+    PatternValue, Projection, Rational, ScheduleMode, SideRun, StateProjection, Tally, TestCase,
+    TestEvidence, TestPlan, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::execution::{ExecutionBudget, ExecutionRoute};
 use kink_native::observation::DomainEventSpec;
@@ -293,12 +293,8 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
             tests: &tests,
             budget: BUDGET,
         };
-        let run = run_campaign(
-            &campaign,
-            &generation(baseline, &mutants),
-            ScheduleMode::Full,
-        )
-        .expect("admitted");
+        let generation = generation(baseline, &mutants);
+        let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("admitted");
 
         let final_state = |program| {
             OracleSide::Normal(OracleValue::FinalResult(
@@ -364,6 +360,11 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
 
         let score = run.score.expect("a complete generation is scored");
         assert_eq!((score.killed, score.survived), (2, 1));
+        let counts = tally(&generation, &run).expect("matching generation");
+        assert_eq!(
+            (counts.killed, counts.survived),
+            (score.killed, score.survived)
+        );
         assert_eq!(
             score.ratio,
             Some(Rational {
@@ -375,12 +376,8 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         // Under first-kill, the killing prefix is t1 for the increment mutant and t2 for
         // the branch mutant, and every status is unchanged. The runner stops the increment
         // mutant after t1, and the reports are the ones derived from running every test.
-        let stopped = run_campaign(
-            &campaign,
-            &generation(baseline, &mutants),
-            ScheduleMode::FirstKill,
-        )
-        .expect("admitted");
+        let stopped =
+            run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("admitted");
         assert_eq!(stopped.baseline, run.baseline);
         assert_eq!(stopped.score, run.score);
         let increment = &stopped.mutants[1];
@@ -453,12 +450,8 @@ fn nonterminating_mutant_is_a_timeout() {
                 ..BUDGET
             },
         };
-        let run = run_campaign(
-            &campaign,
-            &generation(baseline, &[spin]),
-            ScheduleMode::Full,
-        )
-        .expect("admitted");
+        let generation = generation(baseline, &[spin]);
+        let run = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("admitted");
         sides(&run.baseline[0]);
         let [mutant] = run.mutants.as_slice() else {
             panic!("one mutant");
@@ -469,6 +462,13 @@ fn nonterminating_mutant_is_a_timeout() {
         );
         assert_eq!(mutant.report.status, MutantStatus::Timeout);
         assert_eq!(run.score.map(|score| score.denominator), Some(0));
+        assert_eq!(
+            tally(&generation, &run),
+            Some(Tally {
+                timeout: 1,
+                ..Tally::default()
+            })
+        );
     });
 }
 
@@ -706,17 +706,17 @@ fn incomplete_and_failed_generations_are_not_scored() {
             expected_tuple_count: 2,
             expected_tuple_arity: 1,
         };
-        // (id, discovery, policy, patch changes nothing, generation failure, mutant count, score)
+        // (id, discovery, policy, patch changes nothing, generation failure, mutant count, score, tally)
         #[rustfmt::skip]
         let rows = [
-            ("complete-is-scored", &exhaustive, SelectionPolicy::Each, false, None, 1, Some((0, 1))),
-            ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
-            ("closure-narrowed-discovery-is-not-scored", &narrowed, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None),
-            ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, false, Some(CandidateFailureKind::CardinalityMismatch), 0, None),
-            ("empty-selection-is-not-scored", &nothing, SelectionPolicy::Each, false, None, 0, None),
-            ("every-origin-rejected-is-not-scored", &exhaustive, SelectionPolicy::Each, true, None, 0, None),
+            ("complete-is-scored", &exhaustive, SelectionPolicy::Each, false, None, 1, Some((0, 1)), Tally { survived: 1, ..Tally::default() }),
+            ("non-exhaustive-discovery-is-not-scored", &partial, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None, Tally { survived: 1, ..Tally::default() }),
+            ("closure-narrowed-discovery-is-not-scored", &narrowed, SelectionPolicy::Each, false, Some(CandidateFailureKind::IncompleteGeneration), 1, None, Tally { survived: 1, ..Tally::default() }),
+            ("cardinality-mismatch-is-not-scored", &exhaustive, mismatch, false, Some(CandidateFailureKind::CardinalityMismatch), 0, None, Tally::default()),
+            ("empty-selection-is-not-scored", &nothing, SelectionPolicy::Each, false, None, 0, None, Tally::default()),
+            ("every-origin-rejected-is-not-scored", &exhaustive, SelectionPolicy::Each, true, None, 0, None, Tally { rejected_origins: 1, ..Tally::default() }),
         ];
-        for (id, discovery, policy, no_change, failure, mutants, expected) in rows {
+        for (id, discovery, policy, no_change, failure, mutants, expected, counts) in rows {
             // requires B  =>  requires false: fallback still ends in selected(true).
             let generation = select(discovery, policy, 4)
                 .unwrap_or_else(|failure| panic!("{id}: {failure}"))
@@ -739,6 +739,7 @@ fn incomplete_and_failed_generations_are_not_scored() {
             let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
                 .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
             assert_eq!(run.mutants.len(), mutants, "{id}");
+            assert_eq!(tally(&generation, &run), Some(counts), "{id}");
             for mutant in &run.mutants {
                 assert_eq!(mutant.report.status, MutantStatus::Survived, "{id}");
             }
@@ -786,4 +787,19 @@ fn a_generation_of_another_baseline_is_refused() {
             "{id}"
         );
     }
+}
+
+/// A tally needs the generation's full candidate sequence.
+#[test]
+fn tally_rejects_a_run_with_fewer_mutants_than_candidates() {
+    let baseline = support::load("counter.k");
+    let mutant = replace(&baseline, "COUNTER.branch", &[1], bool_token("false"));
+    let generation = generation(&baseline, &[mutant]);
+    assert_eq!(generation.candidates().len(), 1);
+    let run = CampaignRun {
+        baseline: Vec::new(),
+        mutants: Vec::new(),
+        score: None,
+    };
+    assert_eq!(tally(&generation, &run), None);
 }
