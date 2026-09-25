@@ -4854,3 +4854,73 @@ fn a_tree_without_a_greatest_typing_keeps_an_ambiguous_forest_at_the_z3_boundary
     #[cfg(feature = "z3-inference")]
     assert!(result.is_err(), "{result:?}");
 }
+
+/// Load `source` with the prelude as the rule grammar sees it and return its rule-parse error.
+fn sort_parameter_rule_parse_error(source: &str) -> k_rust::inner::RuleParseError {
+    match load_with_prelude_options(source, "sort-parameter.k", "MAIN", Vec::new()) {
+        Err(k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error))) => *error,
+        Err(error) => panic!("expected a rule parse error, got {error}"),
+        Ok(_) => panic!("expected a rule parse error, the definition loaded"),
+    }
+}
+
+#[test]
+fn a_production_sort_parameter_is_not_a_cast_sort_in_rules() {
+    // `Sort1` is bound by the ML productions of ML-SYNTAX and names no sort of MAIN, so the cast
+    // `X:Sort1` has no production, exactly as for the undeclared sort `Foo`.
+    let module = |sort: &str| {
+        format!(
+            "module MAIN\n  imports ML-SYNTAX\n  imports INT\n  syntax KItem ::= g(K)\n  rule g(X:{sort}) => .K\nendmodule\n"
+        )
+    };
+    let parameter = sort_parameter_rule_parse_error(&module("Sort1"));
+    let undeclared = sort_parameter_rule_parse_error(&module("Foo"));
+    assert!(
+        matches!(parameter.error, ParseError::NoParse { .. }),
+        "{parameter:?}"
+    );
+    assert_eq!(parameter.error, undeclared.error);
+}
+
+#[test]
+fn a_production_sort_parameter_has_no_sort_predicate_in_rules() {
+    // Without a sort `Sort1` there is no predicate `isSort1`, so the condition fails to parse
+    // exactly as a predicate of the undeclared sort `Foo` does.
+    let module = |sort: &str| {
+        format!(
+            "module MAIN\n  imports ML-SYNTAX\n  imports INT\n  imports BOOL\n  syntax Int ::= f(Int) [function]\n  rule f(X) => 1 requires is{sort}(X)\nendmodule\n"
+        )
+    };
+    let parameter = sort_parameter_rule_parse_error(&module("Sort1"));
+    let undeclared = sort_parameter_rule_parse_error(&module("Foo"));
+    assert_eq!(parameter.error, undeclared.error, "{parameter:?}");
+}
+
+#[test]
+fn a_declared_sort_named_like_a_sort_parameter_is_a_rule_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          imports INT
+          imports BOOL
+          syntax Sort ::= "s"
+          syntax KItem ::= g(K)
+          rule g(X:Sort) => X
+        endmodule
+    "#};
+    let loaded = load_with_prelude_excluding(
+        source,
+        "declared-sort.k",
+        "MAIN",
+        k_rust::kompile::CompilationBackend::Rust.excluded_module_attribute(),
+    )
+    .expect("a declared sort Sort is a cast sort");
+    let compiled = k_rust::kompile::compile_loaded_definition(
+        &loaded,
+        k_rust::kompile::CompileOptions::default(),
+    )
+    .expect("the definition compiles");
+    assert!(
+        compiled.definition_kore.contains("sort SortSort{} []"),
+        "the compiled KORE declares SortSort"
+    );
+}

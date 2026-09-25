@@ -776,11 +776,21 @@ fn concrete_sorts(sentences: &[&Sentence]) -> BTreeSet<Sort> {
     sentences
         .iter()
         .flat_map(|sentence| match sentence {
-            Sentence::Production { sort, items, .. } => std::iter::once(sort.clone())
+            // A production's `parameters` are sort variables bound by that production alone
+            // (`syntax {Sort} Sort ::= "#Top"`), so a result or item sort naming one of them is
+            // not a sort of the module. Excluding by the production's own binders, not by
+            // spelling, keeps a declared sort that happens to share a parameter's name.
+            Sentence::Production {
+                parameters,
+                sort,
+                items,
+                ..
+            } => std::iter::once(sort.clone())
                 .chain(items.iter().filter_map(|item| match item {
                     ProductionItem::NonTerminal { sort, .. } => Some(sort.clone()),
                     _ => None,
                 }))
+                .filter(|sort| !parameters.contains(sort))
                 .collect::<Vec<_>>(),
             Sentence::SyntaxSort { sort, .. } => vec![sort.clone()],
             _ => Vec::new(),
@@ -1321,4 +1331,57 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concrete_sorts_excludes_the_sort_parameters_of_the_ml_productions() {
+        let source = r#"
+module MAIN
+  imports ML-SYNTAX
+  syntax Sort2 ::= "s2"
+endmodule
+"#;
+        let prelude = crate::builtin::embedded("prelude.md").expect("embedded prelude");
+        let mut resolver = |_: &str, required: &str| {
+            crate::builtin::embedded(required)
+                .ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = crate::outer::load_with_options(
+            crate::outer::ResolvedSource::new("main.k", source.to_owned()),
+            "MAIN",
+            &mut resolver,
+            &crate::outer::LoadOptions {
+                implicit_sources: vec![prelude],
+                ..crate::outer::LoadOptions::default()
+            },
+        )
+        .expect("MAIN loads");
+        let resolved = &loaded.resolved;
+        let module = resolved.module_id("MAIN").expect("MAIN is resolved");
+        let mut visible = resolved.signature_sentences(module);
+        add_implicit_ml_syntax(resolved, &mut visible);
+        assert!(
+            visible.iter().any(|sentence| matches!(sentence,
+                Sentence::Production { parameters, sort, .. }
+                    if sort.name == "Sort1" || parameters.iter().any(|parameter| parameter.name == "Sort1"))),
+            "the ML productions binding Sort1 are visible"
+        );
+
+        let sorts = concrete_sorts(&visible);
+
+        let names = sorts
+            .iter()
+            .map(|sort| sort.name.as_str())
+            .collect::<BTreeSet<_>>();
+        assert!(!names.contains("Sort"), "{names:?}");
+        assert!(!names.contains("Sort1"), "{names:?}");
+        assert!(
+            names.contains("Sort2"),
+            "the declared sort Sort2 shares a parameter's spelling and stays: {names:?}"
+        );
+    }
 }
