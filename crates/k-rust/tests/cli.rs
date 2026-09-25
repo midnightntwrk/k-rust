@@ -7391,6 +7391,118 @@ fn krun_executes_bn128_fixture_to_pinned_kore_results() {
     }
 }
 
+/// The BN128 section of `plugin/krypto.md` at blockchain-k-plugin `651a2db5`, the plugin the pinned
+/// KEVM uses, verbatim in a module of the same name: its point productions carry no `symbol`
+/// attribute, so their Kore labels are generated from the production.
+const PINNED_PLUGIN_BN128: &str = r#"
+module KRYPTO
+    imports BOOL-SYNTAX
+    imports INT-SYNTAX
+    imports LIST
+
+    syntax G1Point ::= "(" Int "," Int ")" [prefer]
+    syntax G2Point ::= "(" Int "x" Int "," Int "x" Int ")"
+    syntax G1Point ::= BN128Add(G1Point, G1Point) [function, hook(KRYPTO.bn128add)]
+                     | BN128Mul(G1Point, Int)     [function, hook(KRYPTO.bn128mul)]
+
+    syntax Bool ::= BN128AtePairing(List, List) [function, hook(KRYPTO.bn128ate)]
+
+    syntax Bool ::= isValidPoint(G1Point) [function, hook(KRYPTO.bn128valid)]
+                  | isValidPoint(G2Point) [function, symbol(isValidG2Point), hook(KRYPTO.bn128g2valid)]
+endmodule
+
+module MAIN
+  imports INT
+  imports BOOL
+  imports LIST
+  imports KRYPTO
+
+  syntax G1Point ::= alt(Int, Int, Int)
+  syntax Check ::= "valid" | "off-curve" | "other-constructor" | "g2-valid" | "add" | "mul"
+                 | "pairing"
+  syntax KItem ::= result(K)
+
+  rule <k> valid => result(isValidPoint((1, 2))) </k>
+  rule <k> off-curve => result(isValidPoint((1, 3))) </k>
+  rule <k> other-constructor => result(isValidPoint(alt(1, 2, 0))) </k>
+  rule <k> g2-valid => result(isValidPoint((
+      10857046999023057135944570762232829481370756359578518086990519993285655852781
+        x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
+      8495653923123431417604973247489272438418190587263600148770280649306958101930
+        x 4082367875863433681332203403145435568316851327593401208105741076214120093531)))
+  </k>
+  rule <k> add => result(BN128Add((1, 2), (1, 2))) </k>
+  rule <k> mul => result(BN128Mul((1, 2), 2)) </k>
+  rule <k> pairing => result(BN128AtePairing(
+    ListItem((1, 2))
+      ListItem((1, 21888242871839275222246405745257275088696311157297823662689037894645226208581)),
+    ListItem((
+      10857046999023057135944570762232829481370756359578518086990519993285655852781
+        x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
+      8495653923123431417604973247489272438418190587263600148770280649306958101930
+        x 4082367875863433681332203403145435568316851327593401208105741076214120093531))
+      ListItem((
+        10857046999023057135944570762232829481370756359578518086990519993285655852781
+          x 11559732032986387107991004021392285783925812861821192530917403151452391805634,
+        8495653923123431417604973247489272438418190587263600148770280649306958101930
+          x 4082367875863433681332203403145435568316851327593401208105741076214120093531))))
+  </k>
+
+  configuration <k> $PGM:Check </k>
+endmodule
+"#;
+
+#[test]
+fn krun_evaluates_bn128_hooks_on_the_pinned_plugin_point_productions() {
+    let (root, definition) = fixture();
+    fs::write(&definition, PINNED_PLUGIN_BN128).unwrap();
+    let boolean = |value: &str| format!(r#"\dv{{SortBool{{}}}}("{value}")"#);
+    let doubled = concat!(
+        "Lbl'LParUndsCommUndsRParUnds'KRYPTO'Unds'G1Point'Unds'Int'Unds'Int{}(\n",
+        "              \\dv{SortInt{}}(\"1368015179489954701390400359078579693043519447331113978918064868415326638035\"),\n",
+        "              \\dv{SortInt{}}(\"9918110051302171585080402603319702774565515993150576347155970296011118125764\")\n",
+    )
+    .to_owned();
+    for (check, expected) in [
+        ("valid", boolean("true")),
+        ("off-curve", boolean("false")),
+        ("other-constructor", boolean("false")),
+        ("g2-valid", boolean("true")),
+        ("add", doubled.clone()),
+        ("mul", doubled),
+        ("pairing", boolean("true")),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Check",
+                "--expression",
+                check,
+                "--depth",
+                "10",
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{check}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output = String::from_utf8(output.stdout).unwrap();
+        assert!(output.contains("Lblresult"), "{check}: {output}");
+        assert!(output.contains(&expected), "{check}: {output}");
+        assert!(!output.contains("BN128"), "{check}: {output}");
+        assert!(!output.contains("isValid"), "{check}: {output}");
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn krun_completes_star_cell_heating_with_one_or_two_cells() {
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

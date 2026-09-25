@@ -374,6 +374,8 @@ pub(crate) fn is_parser_sort(sort: &Sort) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     macro_rules! assert_parametric_parse_snapshot {
@@ -527,6 +529,41 @@ mod tests {
             grammar.parse(&Sort::new("KItem"), "i").is_ok(),
             "the generated parametric subsort should remain portable"
         );
+    }
+
+    #[test]
+    fn concrete_instances_of_one_family_are_one_production_of_the_parsed_term() {
+        // The parse forest names a production by `term_production` (`forest.rs`), so every
+        // concrete instance of one formal production must carry the same index, one of the
+        // family's own, and instances of different families must not share it. Sort inference
+        // relies on this to treat the instances as one reading.
+        let grammar = parametric_grammar();
+        let mut families: BTreeMap<String, (BTreeSet<usize>, BTreeSet<usize>)> = BTreeMap::new();
+        for (index, production) in grammar.productions.iter().enumerate() {
+            let Some(origin) = &production.parametric_origin else {
+                continue;
+            };
+            let formal = ParametricOrigin {
+                substitution: BTreeMap::new(),
+                ..origin.clone()
+            };
+            let (members, terms) = families.entry(format!("{formal:?}")).or_default();
+            members.insert(index);
+            terms.insert(
+                production
+                    .term_production
+                    .expect("a concrete instance names its family's production"),
+            );
+        }
+        assert_eq!(families.len(), 4);
+        assert!(families.values().any(|(members, _)| members.len() > 1));
+        let mut seen = BTreeSet::new();
+        for (members, terms) in families.values() {
+            let [term] = <[usize; 1]>::try_from(terms.iter().copied().collect::<Vec<_>>())
+                .expect("one production index per family");
+            assert!(members.contains(&term));
+            assert!(seen.insert(term), "two families share a production index");
+        }
     }
 
     #[test]
