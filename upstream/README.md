@@ -5,7 +5,7 @@ Each file is the single place where a request, its status, and any local workaro
 
 | File | Upstream | Status judged against |
 |---|---|---|
-| [`k-rust.toml`](k-rust.toml) | k-rust | `[reference_pin]`: the commit of `../inspirations/midnightntwrk/k-rust` that the workspace was last built against |
+| [`k-rust.toml`](k-rust.toml) | k-rust | `[reference_pin]`: the k-rust commit that the workspace was last built against (see its `checkout` field) |
 | [`krs.toml`](krs.toml) | KRS | `[reference_pin]`: the reviewed commit of `../krs` |
 
 The format follows KRS's `draft/upstream/README.md`.

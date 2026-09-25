@@ -13,7 +13,9 @@ k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
 k_rust_backend_version = "0.3.0"
 k_release = "7.1.337"
-checkout = "../inspirations/midnightntwrk/k-rust"
+# While k-rust main is mid-refactor, the workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
+checkout = "../k-rust-985e0086"
+live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [retired_pins]
