@@ -1,6 +1,6 @@
 //! Pure-Rust cryptographic hooks implemented by Kore's fallback evaluator.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use k256::ecdsa::{RecoveryId, Signature, VerifyingKey};
 use k256::elliptic_curve::sec1::ToSec1Point;
@@ -222,15 +222,37 @@ fn bn128_mul(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinErr
             BuiltinResult::NotApplicable
         });
     };
-    let Some((value, scalar)) = g1_value(&point)
-        .zip(coordinate_bytes(&scalar).and_then(|bytes| Fr::from_slice(&bytes).ok()))
-    else {
+    let Some(value) = g1_value(&point) else {
         return Ok(BuiltinResult::Bottom);
     };
+    let scalar = g1_scalar(&scalar);
     Ok(BuiltinResult::Value(concrete_g1_term(
         &point,
         value * scalar,
     )))
+}
+
+/// The order r of G1. Every point P of G1 satisfies r*P = O.
+const G1_ORDER: &str =
+    "21888242871839275222246405745257275088548364400416034343698204186575808495617";
+
+static G1_ORDER_INT: LazyLock<BigInt> = LazyLock::new(|| {
+    G1_ORDER
+        .parse()
+        .expect("the G1 order constant is a decimal integer")
+});
+
+/// Scalar multiplication in G1 is the Z-module action of `Int` on the group,
+/// defined for every integer n. Because G1 has prime order r, n*P = (n mod r)*P
+/// with the non-negative residue, so every `Int` maps to one element of Fr.
+fn g1_scalar(scalar: &BigInt) -> Fr {
+    let order = &*G1_ORDER_INT;
+    let mut residue = scalar % order;
+    if residue.sign() == Sign::Minus {
+        residue += order;
+    }
+    let bytes = coordinate_bytes(&residue).expect("a residue mod r fits in 32 unsigned bytes");
+    Fr::from_slice(&bytes).expect("a residue mod r is a canonical element of Fr")
 }
 
 fn concrete_g1_term(template: &ConcreteG1, value: G1) -> Term {
@@ -1185,7 +1207,13 @@ mod tests {
                 "KRYPTO.bn128mul",
                 &[generator.clone(), super::super::int_term((-1).into()),],
             ),
-            Ok(BuiltinResult::Bottom)
+            Ok(BuiltinResult::Value(g1_point(
+                &symbol,
+                1.into(),
+                decimal(
+                    "21888242871839275222246405745257275088696311157297823662689037894645226208581",
+                ),
+            )))
         );
         assert_eq!(
             evaluate(
@@ -1215,6 +1243,62 @@ mod tests {
             evaluate(
                 "KRYPTO.bn128mul",
                 &[generator.clone(), super::super::int_term(max_reduced)],
+            )
+        );
+
+        let two_to_256 = BigInt::from(1) << 256;
+        let two_to_256_reduced = &two_to_256 % &group_order;
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(two_to_256)],
+            ),
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[
+                    generator.clone(),
+                    super::super::int_term(two_to_256_reduced)
+                ],
+            )
+        );
+
+        let field_modulus = decimal(
+            "21888242871839275222246405745257275088696311157297823662689037894645226208583",
+        );
+        let negated_doubled = g1_point(
+            &symbol,
+            hex_coordinate("030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd3"),
+            &field_modulus
+                - hex_coordinate(
+                    "15ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4",
+                ),
+        );
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[
+                    generator.clone(),
+                    super::super::int_term(-(&group_order + BigInt::from(2)))
+                ],
+            ),
+            Ok(BuiltinResult::Value(negated_doubled))
+        );
+
+        let large_negative = -(BigInt::from(1) << 300_usize);
+        let large_negative_residue =
+            ((&large_negative % &group_order) + &group_order) % &group_order;
+        assert!(large_negative_residue.sign() != num_bigint::Sign::Minus);
+        assert_eq!(
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[generator.clone(), super::super::int_term(large_negative)],
+            ),
+            evaluate(
+                "KRYPTO.bn128mul",
+                &[
+                    generator.clone(),
+                    super::super::int_term(large_negative_residue)
+                ],
             )
         );
 
