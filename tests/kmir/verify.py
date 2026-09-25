@@ -26,7 +26,7 @@ PORT = semantics.Port(
     label="KMIR",
     key="kmir",
     checkout=ROOT.parent / "inspirations/runtimeverification/mir-semantics",
-    descriptors=1224,
+    descriptors=1222,
 )
 
 

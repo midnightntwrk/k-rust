@@ -1,9 +1,9 @@
 schema = 1
 corpus_sha256 = "76cdf5e3333435f9df3910918d31f52e4297c755aaa06e80cec42fe562105763"
-expansion_sha256 = "8e5cb1ff318ee6d066a4853c2cd31691b66ce01658c7efef41965cd389f4bff4"
+expansion_sha256 = "20d0fed33557e74fc763d2f4b0500c74494612e95dccaeae5f7810b7316fff13"
 behavior_sha256 = "e4bae64f34415d319cf2ac153f2972a8788cfefee66a7ece17e2e84b28ad36f9"
-definition_kore_sha256 = "099d007ff6424c171d7ac82d35bd71092337c9b1cd8b8a68a56f9f7c27d76d25"
-native_definition_kore_sha256 = "cb4cb95ffc7d5f0ab9d760e87099738465d623202c81d0eb7a301627e928026d"
+definition_kore_sha256 = "ee5d2b5194a9407137d158aa019b200c101ea19fc6220136fb196d9aaf2eb13a"
+native_definition_kore_sha256 = "3238603e99a897d108574452a509bc6e6b95669ee2f69ce27621328cc75b74b1"
 
 [kmir]
 version = "7.1.337"
@@ -96,9 +96,9 @@ commit = "4d793252bcd77091ee759ca6cd1629db41ed5496"
 
 [artifact_sha256]
 ".krs-artifacts" = "4992e03ec15408f887a401455c9f719384c6d5bb69e661487f91abe576ceb1b5"
-"definition-ir.json" = "351dfc879467349c90d8fa4a30edd233c57d9c4ba42922dc1aec1ccc0495ea7c"
-"definition.k" = "e692791c2ba60e330c74dfd0bde5e5ce4f9f79ef58bdc313de38f439ec56d213"
-"descriptor-bundle.json" = "7d100b1e99c36e650a66f57e6524a008dc06c6558ec58701fa9ba0a59384b020"
-"semantic-ir.json" = "0bc345bf0923867bb81c554784222b98ab06655967afd52863f16b9cb1417774"
-"sources.json" = "b0698650edc4beeed9a96432b7b87e47cfbc606f12bb8699fff9802414cdfa75"
-"symbols.json" = "97836f07e2e23ed1cf58a7de0e2d032c49602bfafcae721f4d154cf24ed5fc39"
+"definition-ir.json" = "143c075d00d4ed8b9ec8f9358a9e71f98fcc44f1c9248c2e3a839fb97ea5ffcb"
+"definition.k" = "87eafe86317adcfe04cfdf6d35e0012becfcc29b9589bb5755cba7ac6cec80d3"
+"descriptor-bundle.json" = "3beee084bfb78d8fb20fb28fea7e3de7d5253d51acc7ae9f7a1461fc9d220cdb"
+"semantic-ir.json" = "9dbe5c2d04fd53f1780a49548ee2aa0a1b5f5ed6a27a9287afc7e58b478c44f3"
+"sources.json" = "ff82fb7d7592edc545ecd3604e47ff7993d2e461d42ef247edc317a1456673db"
+"symbols.json" = "784afdc44291055e7c7fb9d75478ed30f22acf1c5279f384d4196b8173835c5d"
