@@ -225,7 +225,7 @@ Profiles are machine-local artifacts like benchmark results: they live under the
 
 `compile` runs canonical `kompile --backend haskell` and Rust `kcompile --for-proving` with the
 same semantics main module. Fresh-output cleanup is outside the timed region. `spec-compile`
-reuses `krust-definition/parsed.json` and `krust.json`; source parsing is skipped for prepared
+reuses `krust-definition/parsed.provenance.json` and `krust.json`; source parsing is skipped for prepared
 semantics, but compiler transformations still run on the combined AST. Repeated spec compilation
 overwrites the same output files and does not cache new spec parsing. This remains a substantial
 cost for KEVM and is not a fully incremental compiler.

@@ -250,7 +250,7 @@ Each group names a producer whose output later algorithms or contracts rely on w
 - definition.resolve.imports
   - → contract.kompile.resolved_cache: Current.resolved is forced once and ResolvedDefinition::update propagates the cached resolution between stages
 - kompile.kore.declarations
-  - → definition.outer.requires: the SyntaxModule attribute and PreparedDefinitionManifest module digests cross the process boundary in parsed.json and krust.json
+  - → definition.outer.requires: the SyntaxModule attribute, the base definition with the source table its spans index, and PreparedDefinitionManifest module digests cross the process boundary in the KRUST-PROVENANCE parsed definition and krust.json
 - kompile.sentences.number
   - → backend.definition.internalize: the UNIQUE_ID attribute survives KORE emission and determines source rewrite order
   - → kompile.modules.rewrite_order: the UNIQUE_ID attribute set by number_sentences

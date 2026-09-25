@@ -34,7 +34,7 @@ version = 1
 [[prepare]]
 name = "imp-proof-definition"
 command = "kcompile"
-creates = "${prepared}/imp-proof-definition/parsed.json"
+creates = "${prepared}/imp-proof-definition/parsed.provenance.json"
 args = [
   "${imp}/src/kimp/kdist/imp-semantics/imp.k",
   "--main-module", "IMP",

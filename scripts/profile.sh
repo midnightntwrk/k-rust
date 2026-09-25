@@ -362,7 +362,7 @@ if [[ "$workload" == imp-prove ]]; then
   # Prepared artifacts are reused across runs like benchmark.sh's work root;
   # use a fresh PROFILE_WORK_ROOT after a compiler or option change.
   mkdir -p "$work"
-  if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.json" ]]; then
+  if [[ ! -f "$work/krust-definition/krust.json" || ! -f "$work/krust-definition/parsed.provenance.json" ]]; then
     echo "[$workload] preparing proof-ready krust definition"
     prepare_definition_args
     "${args[@]}"

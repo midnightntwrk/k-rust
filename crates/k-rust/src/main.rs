@@ -12,7 +12,7 @@
 //! role = "variant"
 //! sites = ["load_definition_against_prepared", "load_prepared_manifest"]
 //! consumes = [{ type = "k_rust::PreparedDefinitionManifest", role = "prepared definition manifest" }]
-//! constrains = [{ id = "kompile.kore.declarations", site = "load_definition_against_prepared", via = "the SyntaxModule attribute and PreparedDefinitionManifest module digests cross the process boundary in parsed.json and krust.json" }]
+//! constrains = [{ id = "kompile.kore.declarations", site = "load_definition_against_prepared", via = "the SyntaxModule attribute, the base definition with the source table its spans index, and PreparedDefinitionManifest module digests cross the process boundary in the KRUST-PROVENANCE parsed definition and krust.json" }]
 //! ```
 //!
 //! ```toml algorithm-contract
@@ -1326,15 +1326,68 @@ enum KproveInput {
 
 const PREPARED_MANIFEST: &str = "krust.json";
 const PREPARED_FORMAT: &str = "krust-prepared-definition";
+/// Version 2 names the KRUST-PROVENANCE parsed definition in `definition`. Version 1 bundles
+/// carried only the KAST JSON `parsed.json`, which cannot denote every definition, and are not read.
+const PREPARED_VERSION: u32 = 2;
+/// File name, in the prepared directory, of the parsed definition encoded as KRUST-PROVENANCE.
+const PREPARED_DEFINITION: &str = "parsed.provenance.json";
 
 #[derive(Debug, Deserialize, Serialize)]
 struct PreparedDefinitionManifest {
     format: String,
     version: u32,
+    /// The prepared directory's lossless parsed definition; absent before version 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    definition: Option<String>,
     sources: Vec<String>,
     #[serde(default)]
     modules: Vec<PreparedModuleDeclaration>,
 }
+
+/// A prepared semantics directory that cannot serve as the base of a new specification.
+#[derive(Debug)]
+enum PreparedDefinitionError {
+    UnsupportedManifest {
+        manifest: PathBuf,
+        format: String,
+        version: u32,
+    },
+    /// The manifest names no lossless parsed definition, or names one the directory lacks.
+    MissingDefinition { directory: PathBuf, file: PathBuf },
+    /// The manifest names a definition outside the prepared directory.
+    InvalidDefinitionName { manifest: PathBuf, name: String },
+}
+
+impl fmt::Display for PreparedDefinitionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedManifest {
+                manifest,
+                format,
+                version,
+            } => write!(
+                formatter,
+                "unsupported prepared definition manifest format {format:?} version {version} in {}",
+                manifest.display()
+            ),
+            Self::MissingDefinition { directory, file } => write!(
+                formatter,
+                "prepared definition directory {} lacks its lossless parsed definition {}; \
+                 prepare the semantics again with `kcompile --for-proving`",
+                directory.display(),
+                file.display()
+            ),
+            Self::InvalidDefinitionName { manifest, name } => write!(
+                formatter,
+                "prepared definition manifest {} names definition {name:?}, which is not a file \
+                 name in its directory",
+                manifest.display()
+            ),
+        }
+    }
+}
+
+impl Error for PreparedDefinitionError {}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 enum GraphSearchArg {
@@ -1845,6 +1898,16 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 options.output_directory.join("parsed.json"),
                 definition_json::to_string_pretty(&definition)?,
             )?;
+            // `parsed.json` is the KAST interchange artifact and marks sentences that vocabulary
+            // cannot hold, such as context aliases, as `badsentence`. A later specification
+            // compiles against this definition, so the bundle also carries it losslessly, with
+            // the source table its spans and origin receipts index.
+            if options.for_proving {
+                fs::write(
+                    options.output_directory.join(PREPARED_DEFINITION),
+                    definition_json::to_provenance_string(&definition, &loaded.source_table)?,
+                )?;
+            }
         }
         if options.for_proving {
             let (mut sources, mut modules) = if let Some(prepared) = &options.compiled_definition {
@@ -1864,7 +1927,8 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
             modules.dedup();
             let manifest = PreparedDefinitionManifest {
                 format: PREPARED_FORMAT.into(),
-                version: 1,
+                version: PREPARED_VERSION,
+                definition: Some(PREPARED_DEFINITION.into()),
                 sources,
                 modules,
             };
@@ -3109,10 +3173,8 @@ fn load_definition_against_prepared(
     let mut timings = PhaseTimings::default();
     let (mut resolver, entry, manifest, base) =
         timings.time(load_phase::READ_PREPARED_DEFINITION, || {
-            let directory = prepared_artifact_directory(prepared);
             let manifest = load_prepared_manifest(prepared)?;
-            let base: k_rust::definition::Definition =
-                definition_json::from_str(&fs::read_to_string(directory.join("parsed.json"))?)?;
+            let base = load_prepared_definition(prepared, &manifest)?;
             let builtin_directory = options
                 .builtin_directory
                 .clone()
@@ -3150,16 +3212,62 @@ fn load_definition_against_prepared(
 }
 
 fn load_prepared_manifest(path: &Path) -> Result<PreparedDefinitionManifest, Box<dyn Error>> {
-    let path = prepared_artifact_directory(path).join(PREPARED_MANIFEST);
+    let directory = prepared_artifact_directory(path);
+    let path = directory.join(PREPARED_MANIFEST);
     let manifest: PreparedDefinitionManifest = serde_json::from_str(&fs::read_to_string(&path)?)?;
-    if manifest.format != PREPARED_FORMAT || manifest.version != 1 {
-        return Err(format!(
-            "unsupported prepared definition manifest format {:?} version {}",
-            manifest.format, manifest.version
-        )
+    if manifest.format == PREPARED_FORMAT && manifest.version == 1 {
+        return Err(PreparedDefinitionError::MissingDefinition {
+            file: directory.join(PREPARED_DEFINITION),
+            directory,
+        }
+        .into());
+    }
+    if manifest.format != PREPARED_FORMAT || manifest.version != PREPARED_VERSION {
+        return Err(PreparedDefinitionError::UnsupportedManifest {
+            manifest: path,
+            format: manifest.format,
+            version: manifest.version,
+        }
         .into());
     }
     Ok(manifest)
+}
+
+/// Read the parsed definition a prepared directory's manifest names, with the source table its
+/// term spans and origin receipts index.
+fn load_prepared_definition(
+    path: &Path,
+    manifest: &PreparedDefinitionManifest,
+) -> Result<definition_json::ProvenanceDefinition, Box<dyn Error>> {
+    let directory = prepared_artifact_directory(path);
+    let Some(name) = &manifest.definition else {
+        return Err(PreparedDefinitionError::MissingDefinition {
+            file: directory.join(PREPARED_DEFINITION),
+            directory,
+        }
+        .into());
+    };
+    let mut components = Path::new(name).components();
+    if !matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    ) {
+        return Err(PreparedDefinitionError::InvalidDefinitionName {
+            manifest: directory.join(PREPARED_MANIFEST),
+            name: name.clone(),
+        }
+        .into());
+    }
+    let file = directory.join(name);
+    let text = match fs::read_to_string(&file) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Err(PreparedDefinitionError::MissingDefinition { directory, file }.into());
+        }
+        Err(error) => return Err(error.into()),
+    };
+    definition_json::from_provenance_str(&text)
+        .map_err(|error| format!("could not decode {}: {error}", file.display()).into())
 }
 
 fn prepared_artifact_directory(path: &Path) -> PathBuf {

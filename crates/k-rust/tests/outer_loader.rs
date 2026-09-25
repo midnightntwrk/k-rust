@@ -534,6 +534,10 @@ fn prepared_markdown_sources_are_reread_and_compared_under_the_current_selector(
     .unwrap();
     let declarations = prepared_module_declarations(&base.files, &base.definition);
     let provided = vec!["test.md".to_owned()];
+    let prepared = k_rust::definition::json::ProvenanceDefinition {
+        definition: base.definition.clone(),
+        source_table: base.source_table.clone(),
+    };
 
     let load_spec = |selector: &str| {
         let mut resolver = |_: &str, required: &str| match required {
@@ -548,7 +552,7 @@ fn prepared_markdown_sources_are_reread_and_compared_under_the_current_selector(
                 markdown_selector: selector.into(),
                 ..LoadOptions::default()
             },
-            &base.definition,
+            &prepared,
             &provided,
             &declarations,
         )
@@ -567,6 +571,20 @@ fn prepared_markdown_sources_are_reread_and_compared_under_the_current_selector(
             .iter()
             .any(|module| module.name == "SPEC")
     );
+    // The base's term spans index its own table, so the loaded table extends it unchanged: the
+    // re-read, byte-identical `test.md` keeps its identity and offset map, and `spec.md` follows.
+    let base_sources = base.source_table.iter().cloned().collect::<Vec<_>>();
+    let loaded_sources = same.source_table.iter().cloned().collect::<Vec<_>>();
+    assert_eq!(loaded_sources[..base_sources.len()], base_sources[..]);
+    assert_eq!(loaded_sources.len(), base_sources.len() + 1);
+    assert_eq!(loaded_sources.last().unwrap().logical, "spec.md");
+    for index in 0..base_sources.len() {
+        let id = k_rust::provenance::SourceId(index);
+        assert_eq!(
+            same.source_table.offset_map(id),
+            base.source_table.offset_map(id)
+        );
+    }
 
     let error = load_spec("k").unwrap_err();
     assert!(matches!(

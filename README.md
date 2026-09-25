@@ -208,8 +208,12 @@ krust kcompile spec.k \
 `--definition-module` defaults to the main module and is only needed when the specification
 imports the module that owns the configuration. Omit `--compiled-definition` to compile the
 specification and its source dependencies together. `--for-proving` selects all-path semantics
-for bare claims and writes `parsed.json` plus a versioned `krust.json` source-identity manifest
-alongside the KORE files. These extra files allow later specifications to reuse the parsed AST.
+for bare claims and writes, alongside the KORE files, `parsed.json`, the parsed definition as
+`KRUST-PROVENANCE` in `parsed.provenance.json`, and a versioned `krust.json` manifest that names
+that file and records source identities. Later specifications reuse the parsed AST from
+`parsed.provenance.json`, which keeps every sentence (KAST JSON has no context-alias node) and the
+source table of its spans; `parsed.json` is the KAST interchange artifact and is not read back.
+A bundle whose manifest names no such file was prepared by an older `krust` and is rejected.
 Keep the bundle together and rebuild it when its semantics change; source freshness is not
 automatically checked. Source identities currently refer to their original absolute locations.
 
@@ -429,8 +433,8 @@ When leaves disagree the first word of this list applies, in the order `disprove
 same words, with `depth-bound` and `breadth-bound`. The exit status is 0 exactly when every selected
 claim is proven. `--compiled-definition` accepts either a `kcompile --for-proving` output
 directory or its `definition.kore` file. Without a positional source file, it never reloads the
-original K sources. With a source file, it uses the neighboring `parsed.json` and `krust.json` to
-compile that new specification against the prepared semantics. `--load-only`
+original K sources. With a source file, it uses the neighboring `krust.json` and the
+`parsed.provenance.json` it names to compile that new specification against the prepared semantics. `--load-only`
 parses, validates, and internalizes that prepared definition without running a claim, which is
 useful for separating artifact-load cost from proof-command latency.
 
