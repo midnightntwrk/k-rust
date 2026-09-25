@@ -30,11 +30,9 @@
 //! injection, and symbolic-function paths; a later matcher extension must keep this list sound.
 
 use std::{
+    cell::Cell,
     collections::{BTreeMap, BTreeSet},
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering as AtomicOrdering},
-    },
+    sync::Arc,
 };
 
 use k_rust_kore::kore::ast::{self as kore, KoreString};
@@ -1644,9 +1642,49 @@ fn rename_predicate(
 /// renaming it applied (original rule variable to fresh variable).
 pub(crate) type RenamedApart<R> = (R, BTreeMap<Variable, Variable>);
 
-/// The counter of every `{name}!apart{counter}` name. It is shared by all renamings, nested or
-/// not, in every thread, so two renamings never mint the same name.
-static APART_COUNTER: AtomicU64 = AtomicU64::new(0);
+thread_local! {
+    /// The open `ApartScope`s on this thread and the next `{name}!apart{counter}` counter.
+    static APART: Cell<(usize, u64)> = const { Cell::new((0, 0)) };
+}
+
+/// One request's allocation scope for `{name}!apart{counter}` names.
+///
+/// The backend's entry points (an execution, a rewrite step, a simplification, a proof) open a
+/// scope. Opening the outermost scope on a thread restarts the counter at 0; nested scopes keep
+/// it. Within one outermost scope every name is minted from a counter that only grows, so no
+/// two renamings, nested or siblings, share a name, and identical requests mint identical names
+/// whatever ran before them. A renamed name that outlives its application is part of the state
+/// later scopes are applied to, and every renaming avoids every name of its scope, so a later
+/// scope that restarts the counter cannot reuse it either. Outside any scope the counter keeps
+/// growing from its last value.
+pub(crate) struct ApartScope(());
+
+impl ApartScope {
+    pub(crate) fn enter() -> Self {
+        APART.with(|state| {
+            let (depth, next) = state.get();
+            state.set((depth + 1, if depth == 0 { 0 } else { next }));
+        });
+        Self(())
+    }
+}
+
+impl Drop for ApartScope {
+    fn drop(&mut self) {
+        APART.with(|state| {
+            let (depth, next) = state.get();
+            state.set((depth.saturating_sub(1), next));
+        });
+    }
+}
+
+fn next_apart_counter() -> u64 {
+    APART.with(|state| {
+        let (depth, next) = state.get();
+        state.set((depth, next + 1));
+        next
+    })
+}
 
 /// `rule` with every variable that its scope also mentions renamed to a fresh name, or `None`
 /// when no rule variable can meet a scope variable.
@@ -1666,10 +1704,10 @@ static APART_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// right-hand side with its ensures, requires, quantifier binders, existentials, and
 /// `concrete`/`symbolic` constraints. The fresh name is `{name}!apart{counter}`: the `apart`
 /// marker is spelled by no other name source (KORE identifiers contain no `!`, and the other
-/// backend-minted names use `!{counter}`, `!claim` and `!exists`), the counter is global, and the
-/// name is still checked against every rule variable and every scope variable. So a fresh name
-/// captures nothing in scope and is not reused by a later renaming, including a nested one
-/// while a condition of this rule is evaluated.
+/// backend-minted names use `!{counter}`, `!claim` and `!exists`), the counter is the request's
+/// (`ApartScope`), and the name is still checked against every rule variable and every scope
+/// variable. So a fresh name captures nothing in scope and is not reused by another renaming of
+/// the same request, including a nested one while a condition of this rule is evaluated.
 ///
 /// ```toml algorithm-site
 /// id = "backend.fresh.variables"
@@ -1796,7 +1834,7 @@ fn fresh_renaming(
         .map(|variable| {
             // Invariant: the counter only grows, so at most |avoid| + 1 names are tried.
             let name = loop {
-                let counter = APART_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+                let counter = next_apart_counter();
                 let name = crate::term::names::with_fresh_marker(
                     &variable.name,
                     crate::term::names::FreshMarker::Apart,
@@ -1853,7 +1891,7 @@ pub(crate) fn rule_variable_sets(
 }
 
 /// Every variable of `predicates`, free or bound by a quantifier.
-fn collect_all_variables(predicates: &[Predicate], variables: &mut BTreeSet<Variable>) {
+pub(crate) fn collect_all_variables(predicates: &[Predicate], variables: &mut BTreeSet<Variable>) {
     for predicate in predicates {
         predicate.visit_terms(&mut |term| {
             variables.extend(term.attributes().variables.iter().cloned());

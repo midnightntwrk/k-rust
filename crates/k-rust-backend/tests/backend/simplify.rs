@@ -3869,3 +3869,129 @@ fn predicate_equation_matches_a_quantifier_that_binds_a_variable_of_the_same_nam
     let escaping = Predicate::Exists(bound.clone(), Box::new(body(Term::variable(bound.clone()))));
     assert_ne!(simplify(&escaping), Predicate::True);
 }
+
+/// A definition with the one predicate equation `lhs => rhs` over the uninterpreted `g`, `h`.
+fn predicate_equation(lhs: &str, rhs: &str) -> BackendDefinition {
+    let syntax = parse_definition(&format!(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                symbol h{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                axiom{{R, Q}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{Q, R}}({lhs}, \and{{Q}}({rhs}, \top{{Q}}()))
+                ) [label{{}}("predicate-equation"), simplification{{}}()]
+            endmodule []"#
+    ))
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    assert_eq!(
+        definition
+            .predicate_simplification_theory
+            .values()
+            .flatten()
+            .count(),
+        1
+    );
+    definition
+}
+
+fn int_equals(
+    definition: &BackendDefinition,
+    function: &str,
+    variable: &Variable,
+    value: u8,
+) -> Predicate {
+    Predicate::Equals(
+        k_rust_backend::substitution::substitute(
+            &term(definition, &format!("{function}{{}}(V:SortInt{{}})")),
+            &Substitution::from([(
+                Variable::new("V", Sort::simple("SortInt")),
+                Term::variable(variable.clone()),
+            )]),
+        ),
+        term(definition, &format!(r#"\dv{{SortInt{{}}}}("{value}")"#)),
+    )
+}
+
+fn simplify_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Predicate {
+    simplify_predicate_with_solver(
+        definition,
+        predicate,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .unwrap()
+}
+
+#[test]
+fn predicate_equation_keeps_a_free_variable_named_like_one_of_its_quantifiers() {
+    // `(∃X. g(X) = 1) ∧ h(X) = 2 => h(X) = 3`: the free `X` is not the quantifier's.
+    let definition = predicate_equation(
+        r#"\and{Q}(
+            \exists{Q}(X:SortInt{}, \equals{SortInt{}, Q}(g{}(X:SortInt{}), \dv{SortInt{}}("1"))),
+            \equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("2"))
+        )"#,
+        r#"\equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("3"))"#,
+    );
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let subject = Predicate::And(vec![
+        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "g", &y, 1))),
+        int_equals(&definition, "h", &y, 2),
+    ]);
+
+    assert_eq!(
+        simplify_predicate(&definition, &subject),
+        int_equals(&definition, "h", &y, 3)
+    );
+}
+
+#[test]
+fn predicate_equation_matches_separate_quantifiers_that_reuse_one_name() {
+    // `(∃A. g(A) = 1) ∧ (∃B. h(B) = 2) => \top` against `(∃Y. g(Y) = 1) ∧ (∃Y. h(Y) = 2)`.
+    let definition = predicate_equation(
+        r#"\and{Q}(
+            \exists{Q}(A:SortInt{}, \equals{SortInt{}, Q}(g{}(A:SortInt{}), \dv{SortInt{}}("1"))),
+            \exists{Q}(B:SortInt{}, \equals{SortInt{}, Q}(h{}(B:SortInt{}), \dv{SortInt{}}("2")))
+        )"#,
+        r#"\top{Q}()"#,
+    );
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let subject = Predicate::And(vec![
+        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "g", &y, 1))),
+        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "h", &y, 2))),
+    ]);
+
+    assert_eq!(simplify_predicate(&definition, &subject), Predicate::True);
+}
+
+#[test]
+fn predicate_equation_does_not_bind_a_free_variable_to_a_quantified_one() {
+    // `∃A. (g(A) = 1 ∧ h(X) = 2) => \top`.
+    let definition = predicate_equation(
+        r#"\exists{Q}(A:SortInt{}, \and{Q}(
+            \equals{SortInt{}, Q}(g{}(A:SortInt{}), \dv{SortInt{}}("1")),
+            \equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("2"))
+        ))"#,
+        r#"\top{Q}()"#,
+    );
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let z = Variable::new("Z", Sort::simple("SortInt"));
+    let under = |second: &Variable| {
+        Predicate::Exists(
+            y.clone(),
+            Box::new(Predicate::And(vec![
+                int_equals(&definition, "g", &y, 1),
+                int_equals(&definition, "h", second, 2),
+            ])),
+        )
+    };
+
+    // `∃Y. (g(Y) = 1 ∧ h(Z) = 2)`: `X` binds the free `Z`.
+    assert_eq!(simplify_predicate(&definition, &under(&z)), Predicate::True);
+    // `∃Y. (g(Y) = 1 ∧ h(Y) = 2)`: `X` would bind the quantified `Y` outside its scope.
+    assert_ne!(simplify_predicate(&definition, &under(&y)), Predicate::True);
+}

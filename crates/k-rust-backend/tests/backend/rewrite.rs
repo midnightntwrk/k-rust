@@ -6063,6 +6063,68 @@ fn rewrite_rule_applies_to_a_subject_that_mentions_its_variable_names() {
 }
 
 #[test]
+fn identical_executions_rename_a_clashing_rule_variable_identically() {
+    let definition = definition(
+        r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                injectiveFunction{}(X:SortS{})
+            ) [label{}("unwrap")]
+            "#,
+    );
+    let rule_variable = Variable::new("Rule#X", Sort::simple("SortS"));
+    let subject = Pattern {
+        term: k_rust_backend::substitution::substitute(
+            &definition
+                .internalize_term(
+                    &parse_pattern("wrap{}(wrap{}(Y:SortS{}))").expect("term should parse"),
+                    &[],
+                )
+                .expect("term should internalize"),
+            &Substitution::from([(
+                Variable::new("Y", Sort::simple("SortS")),
+                Term::variable(rule_variable),
+            )]),
+        ),
+        constraints: Vec::new(),
+    };
+    let run = || {
+        let result = execute_observed(
+            &definition,
+            subject.clone(),
+            ExecutionOptions {
+                max_depth: 1,
+                ..ExecutionOptions::default()
+            },
+            &ObservationOptions::all(),
+        );
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one successor: {:?}", result.leaves);
+        };
+        let [ObservationEvent::Transition(observation)] = leaf.observations.as_slice() else {
+            panic!("expected one rule application: {:?}", leaf.observations);
+        };
+        observation.bindings.clone()
+    };
+
+    let first = run();
+    // Other renamings in between do not shift the names a later identical request mints.
+    for _ in 0..3 {
+        run();
+    }
+    let again = run();
+
+    assert_eq!(first, again);
+    assert_eq!(
+        first
+            .keys()
+            .map(|variable| variable.name.as_ref())
+            .collect::<Vec<_>>(),
+        ["Rule#X!apart0"]
+    );
+}
+
+#[test]
 fn single_rewrite_emits_one_committed_observation() {
     let definition = definition(
         r#"
