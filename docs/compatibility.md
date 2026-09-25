@@ -126,7 +126,9 @@ The compile gate runs both compilers on them: it requires the reference to rejec
 
 `inj{A, B}` denotes the embedding of `A` in `B`, and the emitted definition declares subsort axioms only along the subsort order, so the compiler builds an injection only when `A <= B` in the module's subsort order, extended with every sort other than a parser sort (`K`, `KItem`, `KConfigVar`, `KBott`, `KLabel`, `KList`, `KString`, `#`-prefixed sorts) below `KItem` and `KItem` below `K`.
 A term whose sort is not below the sort of its position (an argument, a rewrite side, a `requires` or `ensures` clause at `Bool`) is rejected at the `add sort injections` stage with the sentence's source location; so is a semantic cast whose target is neither at or above its operand's sort (an upcast) nor strictly below it (a downcast, realized by `project:S`).
-A parametric production is instantiated so that each argument's sort is at or below its instantiated argument sort; an argument above every declared instance is rejected.
+A parametric production is instantiated at the least declared instance at or above each argument's sort (the argument's own sort when it is an instance); an argument above every declared instance is rejected, and one with several incomparable least instances is rejected as ambiguous.
+A sort that mentions a sort parameter stands for every instance of it, since a sentence's sort parameters are universally quantified, and productions with sort parameters declare no subsorts: `MInt{Q}` is below itself and below `KItem`, and not below `MInt{8}`.
+A cast on a K sequence, an injected label, or a sorted variable is compared with the operand's own sort like a cast on an application; a cast on a rewrite or `as` pattern is the sort both sides are injected at.
 The check applies to every rule-like sentence `compile_loaded_definition` emits, whether parsed from source, supplied through `load_structured`, or edited in a `LoadedDefinition`; a pass that meets an ill-sorted term earlier may reject it first with its own message.
 [Sort-injection tests](../crates/k-rust/tests/sort_injections.rs) pin the rejections and their controls.
 
