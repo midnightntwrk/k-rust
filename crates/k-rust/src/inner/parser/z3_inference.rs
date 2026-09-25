@@ -2,7 +2,7 @@
 //! id = "parser.inference.z3"
 //! name = "Z3-backed maximal-model sort inference"
 //! sites = ["Grammar::infer_packed_sorts_z3", "Grammar::infer_sorts_z3", "encoding_base", "EncodingBase::sort_value", "EncodingBase::order_relation", "EncodingBase::decode_sort", "OrderRelation::new", "OrderRelation::full_disjunction", "Encoding::assert_packed_hard_constraints", "Encoding::less_than_eq", "Encoding::restrict_to_real_sorts", "Encoding::exclude_klabel_parameters", "Encoding::seed_model", "Encoding::maximal_models", "Encoding::admissible_parameters", "Encoding::maximal_live_set", "Encoding::enumerate_parameters", "LivenessGraph::indicators", "Encoding::read_model", "or_all"]
-//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure and parametric instance, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing"
+//! variable = "H = sort heads; G = ground sorts; N = term nodes; M = maximal typings; R = grammar productions; c = solver checks; P = pairs of a subsort relation, at most G^2; U = largest up- or down-set of a ground sort value, at most G; A = admissible parameter vectors of one maximal typing, at most 256; I = reading classes of the ambiguities of the term constraint (alternatives equal up to bracket erasure, one live-reading indicator each); L = inclusion-maximal live sets of one maximal typing"
 //! counters = ["ParserZ3Checks", "ParserZ3EncodingBuilds"]
 //! consumes = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
 //! produces = [{ type = "k_rust::inner::parser::forest::ParsedTerm", role = "sorted tree" }]
@@ -59,7 +59,7 @@ use crate::kast::{FrontendSort, GeneratedLabel, InternalLabel, Label, Sort, Term
 use crate::names::BuiltinSort;
 
 use super::{
-    Grammar, Item, PackedNode, PackedTerm, ParametricOrigin, ParseError, ParsedTerm, Production,
+    Grammar, Item, PackedNode, PackedTerm, ParseError, ParsedTerm, Production,
     cmp_packed_structurally, inferred_variable_name, packed_terms_in_structural_order,
 };
 
@@ -222,11 +222,12 @@ const PARAMETER_CHOICE_LIMIT: usize = 256;
 /// completed after every node it uses, so node indexes are a topological order, users last.
 ///
 /// Each node also has a reading class (`readings`): two nodes are in one class exactly when
-/// they are the same term once bracket nodes are erased and every concrete instance of a
-/// parametric production is replaced by its formal source. Brackets have no node in the parsed
-/// term, and the instances of one formal production are how the parser covers the sorts of its
-/// parameters, so alternatives of one class differ only in the instantiation of a reading's
-/// parameters, not in the reading.
+/// they are the same term once bracket nodes are erased. Brackets have no node in the parsed
+/// term, so alternatives of one class differ only in the expected sorts their brackets impose,
+/// which is an instantiation of a reading's parameters, not a reading. The concrete instances of
+/// one parametric production need no erasure: the parser gives each of them the production
+/// index of its family (`Production::term_production`, set by `add_parametric_productions`), so
+/// they are already one production of the parsed term.
 #[derive(Default)]
 struct LivenessGraph {
     constraints: Vec<Bool>,
@@ -241,10 +242,6 @@ struct LivenessGraph {
     readings: Vec<usize>,
     /// Interned reading keys: a key names its children by their classes.
     reading_ids: BTreeMap<ReadingKey, usize>,
-    /// The formal sources seen so far, without their substitutions.
-    formal_sources: Vec<ParametricOrigin>,
-    /// The reading source of each production index seen so far.
-    sources: HashMap<usize, ReadingSource>,
 }
 
 /// What a node of a `LivenessGraph` is, apart from its children.
@@ -252,7 +249,7 @@ struct LivenessGraph {
 enum NodeKind {
     Leaf(Term),
     Production {
-        source: ReadingSource,
+        production: usize,
         span: Option<TermSpan>,
     },
     /// A bracket node: its reading is its only child's.
@@ -266,25 +263,17 @@ enum NodeKind {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Reach {
     Root,
-    /// Child `index` of a production node at a position, applying a reading source.
-    Child(usize, ReadingSource, usize),
+    /// Child `index` of a node of a production at a position: (position, production, index).
+    Child(usize, usize, usize),
     /// An alternative of the given reading class of an ambiguity at a position.
     Alternative(usize, usize),
-}
-
-/// The production a reading applies: a production of the grammar, or the formal source of a
-/// family of concrete parametric instances (`LivenessGraph::formal_sources`).
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum ReadingSource {
-    Production(usize),
-    Formal(usize),
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum ReadingKey {
     Leaf(Term, Option<TermSpan>),
     Production {
-        source: ReadingSource,
+        production: usize,
         span: Option<TermSpan>,
         children: Vec<usize>,
     },
@@ -305,8 +294,8 @@ impl LivenessGraph {
                 term.clone(),
                 term.metadata().and_then(|metadata| metadata.span),
             )),
-            NodeKind::Production { source, span } => Some(ReadingKey::Production {
-                source: *source,
+            NodeKind::Production { production, span } => Some(ReadingKey::Production {
+                production: *production,
                 span: *span,
                 children: children.iter().map(|child| self.readings[*child]).collect(),
             }),
@@ -350,7 +339,7 @@ impl LivenessGraph {
             NodeKind::Bracket
         } else {
             NodeKind::Production {
-                source: self.source(index, production),
+                production: index,
                 span: span.copied(),
             }
         };
@@ -364,40 +353,12 @@ impl LivenessGraph {
         node
     }
 
-    /// The reading source of production `index`: the formal source of a concrete parametric
-    /// instance (its origin without the substitution), or the production itself.
-    fn source(&mut self, index: usize, production: &Production) -> ReadingSource {
-        if let Some(source) = self.sources.get(&index) {
-            return *source;
-        }
-        let source = match &production.parametric_origin {
-            None => ReadingSource::Production(index),
-            Some(origin) => {
-                let formal = ParametricOrigin {
-                    substitution: BTreeMap::new(),
-                    ..origin.clone()
-                };
-                let position = self
-                    .formal_sources
-                    .iter()
-                    .position(|known| *known == formal)
-                    .unwrap_or_else(|| {
-                        self.formal_sources.push(formal);
-                        self.formal_sources.len() - 1
-                    });
-                ReadingSource::Formal(position)
-            }
-        };
-        self.sources.insert(index, source);
-        source
-    }
-
     /// The position of each node reachable from `root` within the readings of the term, as an
     /// interned id: the set of the ways its users reach it. A production user contributes
-    /// (its position, its reading source, the child index), an ambiguity user (its position,
+    /// (its position, its production, the child index), an ambiguity user (its position,
     /// the reading class of the alternative), and a bracket user passes on the ways it is
     /// itself reached, since a bracket is not a node of the reading. So the nodes of one
-    /// ambiguity that differ only in the expected sort that a bracket or a parametric instance
+    /// ambiguity that differ only in the expected sort that a bracket or a parametric production
     /// above them imposes share a position, while the nodes under two different readings of an
     /// enclosing ambiguity do not. Each node contributes once per user, so the positions are
     /// computed in one pass over the graph.
@@ -418,8 +379,8 @@ impl LivenessGraph {
             for (index, child) in self.children[node].iter().enumerate() {
                 match &self.kinds[node] {
                     NodeKind::Leaf(_) => {}
-                    NodeKind::Production { source, .. } => {
-                        reached[*child].insert(Reach::Child(position, *source, index));
+                    NodeKind::Production { production, .. } => {
+                        reached[*child].insert(Reach::Child(position, *production, index));
                     }
                     NodeKind::Bracket => reached[*child].extend(ways.iter().cloned()),
                     NodeKind::Ambiguity => {
@@ -2281,8 +2242,8 @@ impl<'a> Encoding<'a> {
     ///    class of `LivenessGraph`) is maximal under inclusion: no vector keeps a reading only
     ///    by giving up another one, since a vector whose live set another vector strictly
     ///    contains is not admissible. Alternatives of one class are one reading: they differ
-    ///    only by bracket nodes and by which concrete instance of a formal production the parser
-    ///    used, and that choice is an instantiation of the reading's parameters, not a reading.
+    ///    only by bracket nodes, whose expected sorts are an instantiation of the reading's
+    ///    parameters, not a reading.
     ///    Every maximal live set is kept (`Encoding::maximal_live_set`); two of them are
     ///    incomparable, for instance when a parameter shared by a packed subterm must take
     ///    different sorts under two alternatives that use it;
@@ -2304,8 +2265,8 @@ impl<'a> Encoding<'a> {
     /// count asserted, the constraints are exactly those that define that set's admissible
     /// vectors: the blocking clauses of earlier records name only real variables and hold at
     /// `chosen`, which is unblocked. Each step excludes exactly the last vector found, so an
-    /// `Unsat` answer means that the whole set has been returned; the live sets are disjoint, so
-    /// no vector is returned twice. A parameter linked by the order constraints to no ground sort
+    /// `Unsat` answer means that the whole set has been returned; each vector has exactly one live
+    /// set, so no vector is returned twice. A parameter linked by the order constraints to no ground sort
     /// and no real variable can range over infinitely many values of the datatype's parametric
     /// heads; when there are more than `PARAMETER_CHOICE_LIMIT` vectors the inference fails
     /// instead of keeping a subset.
@@ -4371,11 +4332,11 @@ mod tests {
     }
 
     /// The reading of one tree of a recorded term constraint: the tree itself with its bracket
-    /// nodes erased and each production replaced by its reading source.
+    /// nodes erased.
     #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
     enum TreeReading {
         Leaf(Term),
-        Node(ReadingSource, Option<TermSpan>, Vec<TreeReading>),
+        Node(usize, Option<TermSpan>, Vec<TreeReading>),
     }
 
     /// The reading of the tree `tree` (a node set of `graph_trees`) from `node`, built from the
@@ -4384,8 +4345,8 @@ mod tests {
         let children = &graph.children[node];
         match &graph.kinds[node] {
             NodeKind::Leaf(term) => TreeReading::Leaf(term.clone()),
-            NodeKind::Production { source, span } => TreeReading::Node(
-                *source,
+            NodeKind::Production { production, span } => TreeReading::Node(
+                *production,
                 *span,
                 children
                     .iter()
