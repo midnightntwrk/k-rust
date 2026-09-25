@@ -125,6 +125,14 @@ Execution retains an explicit `aborted` reason for incomplete indeterminate, sim
 An `execute` response lists `next-states` in application order with the remainder last; the order is not part of the contract and the differential gate compares the array as a multiset (N27).
 Backend error `data` is compared by class: code, message, and the `error` sentence; context lines are the port's own diagnostics (N28).
 
+The `haskell-logging` parameter selects diagnostic entries; it is not an instruction to the computation.
+It decides only whether `haskell-log-entries` is attached (for a non-empty list) and which entries it holds; no other result field depends on it.
+A name selects every entry whose context carries it, and the names the port emits are `Proxy`, the method names `Execute`, `Simplify`, `Implies`, `AddModule` and `GetModel`, and, for `execute`, `Booster`, `Rewrite`, `Simplification`, `Remainder`, `Success`, `Failure`, `Indeterminate` and `Abort`.
+Any other name selects no entry, in the same way that `Failure` selects none on a run in which no rewrite failed: an empty selection is the answer to the query, not a dropped request.
+The CLI-scope rule that an unknown flag must not be silently ignored therefore does not apply: that rule prevents an operation from returning a result that an unapplied option would have changed, and a `haskell-logging` name cannot change any result.
+Because the emitted names are listed here, an empty selection for a name outside the list carries no information about the event that name denotes elsewhere.
+A `haskell-logging` value that is not an array of strings fails parameter decoding and is rejected with `-32602`, `Invalid params`.
+
 ## Definition verification
 
 The acceptance boundary follows `kore-parser --verify` even where Booster is more permissive.
