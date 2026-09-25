@@ -16,9 +16,8 @@ pub use checks::{check_brackets, check_list_declarations};
 pub use loader::{
     LoadError, LoadOptions, LoadedDefinition, PreparedModuleDeclaration, ResolvedSource,
     SourceResolver, SyntaxModule, load, load_for_compilation, load_for_compilation_timed,
-    load_structured, load_with_base, load_with_base_timed, load_with_options,
-    load_with_options_timed, load_with_prepared_base, load_with_prepared_base_timed,
-    prepared_module_declarations, resolve_syntax_module,
+    load_structured, load_with_options, load_with_options_timed, load_with_prepared_base,
+    load_with_prepared_base_timed, prepared_module_declarations, resolve_syntax_module,
 };
 pub use lower::lower;
 pub use markdown::{

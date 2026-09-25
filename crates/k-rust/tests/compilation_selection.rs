@@ -3,11 +3,11 @@
 
 use indoc::indoc;
 use k_rust::{
-    definition::Sentence,
+    definition::{Sentence, json::ProvenanceDefinition},
     diagnostic::{DiagnosticCode, DiagnosticPolicy, Severity, WarningLevel},
     outer::{
         LoadError, LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation,
-        load_structured, load_with_base, load_with_options, lower, parse,
+        load_structured, load_with_options, load_with_prepared_base, lower, parse,
     },
 };
 
@@ -416,16 +416,42 @@ fn generic_prepared_and_structured_loading_keep_their_module_policy() {
     )
     .unwrap();
     assert!(has_rule(&generic, "UNUSED"));
-    let prepared = load_with_base(
+    let base = ProvenanceDefinition {
+        definition: generic.definition.clone(),
+        source_table: generic.source_table.clone(),
+    };
+    let prepared = load_with_prepared_base(
         ResolvedSource::new("proof.k", "module PROOF imports MAIN endmodule"),
         "PROOF",
         &mut resolver,
         &options,
-        &generic.definition,
+        &base,
         &["base.k".into()],
+        &[],
     )
     .unwrap();
     assert!(has_rule(&prepared, "UNUSED"));
+    let unused = prepared
+        .definition
+        .modules
+        .iter()
+        .find(|module| module.name == "UNUSED")
+        .unwrap();
+    let body = unused
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let span = body.metadata().and_then(|metadata| metadata.span).unwrap();
+    assert_eq!(
+        prepared.source_table.get(span.source).unwrap().logical,
+        "base.k"
+    );
+    let range = prepared.source_table.raw_range(span).unwrap();
+    assert_eq!(&source[range], "unused => unused");
     let structured = load_structured(
         lower(&parse("structured.k", source).unwrap(), "MAIN").unwrap(),
         &options,
