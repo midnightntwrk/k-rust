@@ -32,11 +32,12 @@ Their input cursor and ordered descriptor transcript are branch-local, and rolle
 Input is pre-buffered before execution; live output is delivered exactly once from the selected `--strategy any` trace.
 Other descriptors and IO hooks remain unsupported, pure simplification receives no console state, search rejects `--io on`, and RPC does not perform host IO.
 
-Standard input is read to end of file before the first step because it is part of the initial state, not a host resource that execution consumes.
+Whenever a run takes console input from standard input, standard input is read to end of file before the first step: under `--io on`, and under `--io off` when the definition declares `$STDIN` and the program is not itself read from standard input.
+It is read then because console input is part of the initial state, not a host resource that execution consumes.
 Execution evaluates rewrite candidates tentatively and may fork, so a read by a rolled-back candidate or by a sibling branch must not change the bytes another branch reads.
 The evaluator therefore holds no process handles: every branch reads one immutable byte sequence through its own cursor, and its reads are a function of that sequence and the cursor.
-The result of a run is then a function of its command-line inputs and the bytes of standard input, and not of when those bytes arrive.
-Nothing is lost by waiting for end of file: console output reaches the process only after execution, from the selected leaf's transcript, so no run can prompt for input and read a reply.
+The result of a run is then a function of its command-line inputs, the files they name, and the bytes of standard input, and not of when those bytes arrive.
+Nothing is lost by waiting for end of file: console output is written to the process's standard output and error only after execution, from the selected leaf's transcript, so no run can prompt for input and read a reply.
 A run that must terminate on a terminal needs its input ended (Ctrl-D) or redirected, as the CLI notes when standard input is a terminal.
 
 Pre-buffered input is tokenized differently under the two IO modes, because the stream rules generated for a `stream="stdin"` cell (`STDIN-STREAM` in `domains.md`) depend on the mode.
