@@ -265,7 +265,11 @@ export interface BackendTermPair {
 export type BackendEffect = { kind: 'user-log'; message: string }
 
 /** The kind of committed transition. */
-export type TransitionClass = 'rewrite' | 'remainder' | 'claim'
+export type TransitionClass =
+  | 'rewrite'
+  | 'remainder'
+  /** Reserved for a circularity or trusted claim applied inside an observable proof; no operation emits it yet. */
+  | 'claim'
 
 /** The kind of rule applied while normalizing a branch state. */
 export type EvaluationClass = 'function-equation' | 'simplification' | 'builtin'
