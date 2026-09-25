@@ -3091,7 +3091,7 @@ id = "definition.provenance.record"
 provenance = "declared"
 area = "definition"
 name = "recording of generation-origin receipts"
-variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared"
+variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
 table = "Algorithm::ALL"
 registry_name = "DefinitionProvenanceRecord"
 
@@ -3121,8 +3121,12 @@ file = "crates/k-rust/src/provenance.rs"
 symbol = "insert_link"
 
 [[node.cost]]
-mode = "one generating pass over a definition"
-bound = "O(M^2 + D + N log N + sum k)"
+mode = "one order-preserving generating pass with distinct fallback bucket keys"
+bound = "O(M^2 + D + N + sum k) expected"
+
+[[node.cost]]
+mode = "one generating pass with adversarial fallback buckets"
+bound = "O(M^2 + D + N^2 x s + sum k)"
 
 [[node]]
 kind = "algorithm"
