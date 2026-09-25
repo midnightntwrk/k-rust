@@ -977,7 +977,7 @@ pub(super) fn execution_response(
                 Ok(ExecutionLeaf {
                     state: encode_pattern(&externalize::constrained_pattern(&leaf.pattern))?,
                     depth: leaf.depth,
-                    reason: reason.into(),
+                    reason,
                     detail,
                     trace: leaf.trace.into_iter().map(trace_entry).collect(),
                     branch: leaf.branch.into_iter().map(transition_id_output).collect(),
