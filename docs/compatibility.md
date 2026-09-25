@@ -242,6 +242,17 @@ The [conformance expectations](../scripts/conformance/expectations.toml) preserv
 Historical digests identify measurements; they do not imply that their full temporary logs are distributed with this repository.
 A new checkout can seed the versioned floor and measure selected cases using the commands in [testing.md](testing.md#manual-conformance-acceptance).
 
+## Proof gate verdicts
+
+The kprove verdict words are defined in the [README kprove section](../README.md): `disproved` is reserved for a certified refutation, and `failed` covers a failing leaf that does not show the claim false, including an empty leaf that the vacuity policy rejects.
+[reference-proof-differential.sh](../scripts/reference-proof-differential.sh) requires every case's failure claim to be rejected by both toolchains, and requires k-rust's verdict word to be the case's `failure-verdict` in [reference-differential.toml](../scripts/reference-differential.toml): `disproved` unless the entry says otherwise, in which case `failure-verdict-reason` states why the claim is not false.
+
+`trivial-proof` expects `failed` for `TRIVIAL-SPEC.ct2`, the all-path claim `<k> t1 => t3 </k>`.
+The definition's only rule for `t1` is `t1 => t2 ensures false`; its result is empty, so it states that `t1` has a successor in the empty set, which holds of no configuration.
+The claim's left-hand side is therefore empty, and the claim holds vacuously; nothing refutes it.
+k-rust reaches a `Trivial` leaf, which the vacuity policy rejects as `failed`, and `--allow-vacuous` proves the claim.
+The reference toolchain's rejection of the claim remains checked as the case's oracle observation; k-rust's `failed` verdict records that this rejection is not a refutation.
+
 ## Proof oracle incompleteness
 
 A `reference-incomplete-port-proves` exclusion needs a soundness argument for the particular claim: a Rust `proven` result alone cannot justify departing from a reference refutation.

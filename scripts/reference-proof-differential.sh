@@ -105,6 +105,22 @@ for name in "${selected[@]}"; do
 
   mapfile -t proven_claims < <(jq -r '(.claims // [])[]' <<<"$proof")
   failure_claim=$(jq -r '.["failure-claim"]' <<<"$proof")
+  # The k-rust verdict the failure claim must reach: `disproved` for a certified refutation, or
+  # `failed` where the manifest entry's `failure-verdict-reason` explains why the claim is not false.
+  failure_verdict=$(jq -r '.["failure-verdict"] // "disproved"' <<<"$proof")
+  case "$failure_verdict" in
+    disproved) ;;
+    failed)
+      if [[ -z "$(jq -r '.["failure-verdict-reason"] // ""' <<<"$proof")" ]]; then
+        echo "error: $name:$failure_claim expects failed without a failure-verdict-reason" >&2
+        exit 2
+      fi
+      ;;
+    *)
+      echo "error: unknown failure-verdict $failure_verdict for $name:$failure_claim" >&2
+      exit 2
+      ;;
+  esac
   if ((${#proven_claims[@]})); then
     # Reference kprove makes the selected claims available as one proof batch. Keep that batch
     # intact so dependent claims such as IMP's sum-N can use the preceding sum-loop claim.
@@ -176,7 +192,7 @@ for name in "${selected[@]}"; do
     exit 1
   fi
 
-  echo "[$name:$failure_claim] checking the k-rust refuted verdict"
+  echo "[$name:$failure_claim] checking the k-rust $failure_verdict verdict"
   if (
     ulimit -v "$rust_memory_kib"
     cargo run --quiet --release --manifest-path "$workspace/Cargo.toml"       -p k-rust --bin krust --       kprove "$specification"       --main-module "$spec_module"       --definition-module "$definition_module"       --claim "$failure_claim"       --depth "$proof_depth"       -I "$semantics_dir"       --builtin-directory "$k_checkout/k-distribution/include/kframework/builtin"
@@ -184,8 +200,8 @@ for name in "${selected[@]}"; do
     echo "error: k-rust unexpectedly proved $name:$failure_claim" >&2
     exit 1
   fi
-  if ! grep -Fq "claim $failure_claim: disproved" "$work/$name-$failure_claim.rust.log"; then
-    echo "error: k-rust did not report the refuted verdict for $name:$failure_claim" >&2
+  if ! grep -Fq "claim $failure_claim: $failure_verdict " "$work/$name-$failure_claim.rust.log"; then
+    echo "error: k-rust did not report the $failure_verdict verdict for $name:$failure_claim" >&2
     cat "$work/$name-$failure_claim.rust.log" >&2
     exit 1
   fi
