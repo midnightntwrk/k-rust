@@ -819,6 +819,8 @@ impl AlphaComparable for AppliedRule {
         }
         self.remainder_simplifications
             .collect_alpha(&other.remainder_simplifications, context)?;
+        self.diagnostics
+            .collect_alpha(&other.diagnostics, context)?;
         Ok(())
     }
 
@@ -834,6 +836,7 @@ impl AlphaComparable for AppliedRule {
             effects: self.effects.clone(),
             remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
             io: self.io.clone(),
+            diagnostics: self.diagnostics.rename_alpha(context)?,
         })
     }
 }
@@ -848,6 +851,8 @@ impl AlphaComparable for RemainderBranch {
             .collect_alpha(&other.simplifications, context)?;
         self.indeterminate
             .collect_alpha(&other.indeterminate, context)?;
+        self.diagnostics
+            .collect_alpha(&other.diagnostics, context)?;
         Ok(())
     }
 
@@ -858,6 +863,7 @@ impl AlphaComparable for RemainderBranch {
             effects: self.effects.clone(),
             simplifications: self.simplifications.rename_alpha(context)?,
             indeterminate: self.indeterminate.rename_alpha(context)?,
+            diagnostics: self.diagnostics.rename_alpha(context)?,
         })
     }
 }
@@ -1504,6 +1510,7 @@ fn alpha_equality_accepts_identity() {
         effects: Vec::new(),
         simplifications: Vec::new(),
         indeterminate: None,
+        diagnostics: Vec::new(),
     }];
     assert_alpha_equal(&value, &value, "identity");
 }
@@ -1519,6 +1526,7 @@ fn alpha_equality_accepts_one_global_injective_renaming() {
         effects: vec![],
         simplifications: vec![],
         indeterminate: None,
+        diagnostics: Vec::new(),
     }];
     let right = vec![RemainderBranch {
         pattern: Pattern {
@@ -1529,6 +1537,7 @@ fn alpha_equality_accepts_one_global_injective_renaming() {
         effects: vec![],
         simplifications: vec![],
         indeterminate: None,
+        diagnostics: Vec::new(),
     }];
     assert_alpha_equal(&left, &right, "non-identity renaming");
     assert_eq!(

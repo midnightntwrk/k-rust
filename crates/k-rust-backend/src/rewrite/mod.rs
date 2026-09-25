@@ -147,6 +147,11 @@ pub struct AppliedRule {
     pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
     /// Console state tentatively produced while evaluating this candidate's right-hand side.
     pub(crate) io: Option<ExecutionIoState>,
+    /// The backend diagnostics of the work this candidate's path went through in the step that
+    /// produced it: its own construction and simplification, the step work on the part of the
+    /// subject it was derived from (a lower-priority candidate inherits its remainder's), and
+    /// the step work shared by every candidate. Each distinct diagnostic once, in emission order.
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,6 +173,10 @@ pub struct RemainderBranch {
     /// A lower priority group that could not be decided. Earlier branches remain valid, while
     /// this remainder alone is reported as undecided.
     pub indeterminate: Option<UndecidedStep>,
+    /// The backend diagnostics of the work this remainder's path went through in the step: the
+    /// simplification of its conditions and term, the lower-priority attempts on it, and the
+    /// step work shared by every candidate. Each distinct diagnostic once, in emission order.
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 /// Why a rewrite step could not decide the successors of a pattern.
@@ -410,13 +419,15 @@ pub struct ExecutionLeaf {
     /// Buffered console state retained by this branch.
     pub io: ExecutionIoState,
     pub halt_reason: HaltReason,
-    /// The backend diagnostics emitted while the states of this leaf's path were processed, in
-    /// the order the path first met them, each distinct diagnostic once.
+    /// The backend diagnostics of the work this leaf's path went through, in the order the path
+    /// first met them, each distinct diagnostic once.
     ///
     /// A non-empty list means the leaf's pattern may not be the normal form a larger budget
     /// would reach, or that a condition or predicate was left undecided on the path: the
     /// configuration is equivalent to the one reached, but not known normalized and its
-    /// constraints not known refuted. A `RuleConditionUnsimplified` qualifies an earlier
+    /// constraints not known refuted. A `Branch` or `CutPointRule` leaf is the parent state: the
+    /// candidates it reports carry their own diagnostics (`AppliedRule::diagnostics`,
+    /// `RemainderBranch::diagnostics`). A `RuleConditionUnsimplified` qualifies an earlier
     /// `SimplificationBudgetExhausted` over `Predicates` with the same limit. A caller collecting
     /// with `diagnostic::collect` around the execution still receives every diagnostic.
     pub diagnostics: Vec<BackendDiagnostic>,
