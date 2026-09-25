@@ -198,8 +198,10 @@ impl<'b> Discovery<'b> {
     }
 
     /// The tuples of `self` and then those of `other` that `self` does not
-    /// already have: every match of either selector, once. It is exhaustive
-    /// when both inputs are.
+    /// already have: every match of either selector, once. Identical tuples
+    /// appear once; a site both inputs match under different roles or
+    /// bindings stays twice, and [`select`] refuses the repeat
+    /// (`DuplicateSite`). It is exhaustive when both inputs are.
     ///
     /// # Errors
     ///

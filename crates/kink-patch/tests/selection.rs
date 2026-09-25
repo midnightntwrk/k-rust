@@ -443,6 +443,57 @@ fn selection_rows_fold_discovered_tuples() {
     }
 }
 
+#[test]
+fn union_keeps_exhaustiveness_and_shape() {
+    let memory = Memory::new();
+    let write = memory.derived("site", "write");
+    let load = memory.derived("site", "load");
+    let supplied = Discovery::supplied(&memory.baseline, write.tuples().to_vec(), false, false)
+        .expect("known site");
+    let filtered = write.clone().filter(|_| true);
+    let other_role = memory.derived("other", "write");
+    #[rustfmt::skip]
+    let rows = [
+        ("both-exhaustive", &write, &load, true, vec![write.tuples()[0].clone(), load.tuples()[0].clone()]),
+        ("supplied-input", &supplied, &load, false, vec![supplied.tuples()[0].clone(), load.tuples()[0].clone()]),
+        ("supplied-input-reversed", &load, &supplied, false, vec![load.tuples()[0].clone(), supplied.tuples()[0].clone()]),
+        ("filtered-input", &write, &filtered, false, write.tuples().to_vec()),
+        ("identical-tuples-once", &write, &write, true, write.tuples().to_vec()),
+        ("same-site-two-roles", &write, &other_role, true, vec![write.tuples()[0].clone(), other_role.tuples()[0].clone()]),
+    ];
+    for (id, left, right, exhaustive, expected) in rows {
+        let union = left
+            .union(right)
+            .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(union.tuples(), expected, "{id}");
+        assert_eq!(union.exhaustive(), exhaustive, "{id}");
+        if id == "same-site-two-roles" {
+            assert_eq!(
+                select(&union, SelectionPolicy::Each, 4)
+                    .expect_err(id)
+                    .kind(),
+                CandidateFailureKind::DuplicateSite,
+                "{id}"
+            );
+        }
+    }
+
+    let joined = write.join(&load, false).expect("one baseline");
+    let symmetric = write.join(&load, true).expect("one baseline");
+    #[rustfmt::skip]
+    let incompatible = [
+        ("joined-with-unjoined", &joined, &write),
+        ("symmetric-with-asymmetric", &symmetric, &joined),
+    ];
+    for (id, left, right) in incompatible {
+        assert_eq!(
+            left.union(right).expect_err(id).kind(),
+            CandidateFailureKind::InvalidJoin,
+            "{id}"
+        );
+    }
+}
+
 /// Formerly the `binding-order-normalized` row: bindings compare equal
 /// whatever order they were supplied in.
 #[test]
@@ -1104,6 +1155,31 @@ fn term_mut<'t>(term: &'t mut Term, path: &[u32]) -> &'t mut Term {
     term_mut(child, rest)
 }
 
+/// An edited copy of either written rule's body in `annotated.k`.
+fn written(annotated: &Baseline, rule_label: &str, edit: impl FnOnce(&mut Term)) -> Baseline {
+    let rule = support::rule(annotated, rule_label);
+    let mut loaded = annotated.loaded().clone();
+    let module = loaded
+        .definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == rule.module)
+        .expect("module");
+    let slot = &mut module.local_sentences[usize::try_from(rule.index).expect("index")];
+    let k_rust::definition::Sentence::Rule { body, .. } = sentence_mut(slot) else {
+        panic!("{rule_label} is a rule");
+    };
+    edit(body);
+    Baseline::new(loaded)
+}
+
+fn nat_variable(name: &str) -> Term {
+    Term::Variable {
+        name: name.to_owned(),
+        sort: Some(Sort::new("Nat")),
+    }
+}
+
 /// (id, baseline, put's site, get's site (a path, or every `Nat` position),
 /// pairs as (put path, get path), exhaustive)
 type UnificationRow<'a> = (
@@ -1128,28 +1204,17 @@ type UnificationRow<'a> = (
 #[test]
 fn a_join_decides_unification_modulo_variable_sorts_or_is_not_exhaustive() {
     let annotated = support::load("annotated.k");
-    let get = support::rule(&annotated, "ANNOTATED.get");
     // `get`'s left-hand argument becomes `A` written with `sort`.
-    let written = |sort: &str| {
-        let mut loaded = annotated.loaded().clone();
-        let module = loaded
-            .definition
-            .modules
-            .iter_mut()
-            .find(|module| module.name == get.module)
-            .expect("module");
-        let slot = &mut module.local_sentences[usize::try_from(get.index).expect("index")];
-        let k_rust::definition::Sentence::Rule { body, .. } = sentence_mut(slot) else {
-            panic!("get is a rule");
-        };
-        *term_mut(body, &[0, 0]) = Term::Variable {
-            name: "A".to_owned(),
-            sort: Some(Sort::new(sort)),
-        };
-        Baseline::new(loaded)
+    let get_with_sort = |sort: &str| {
+        written(&annotated, "ANNOTATED.get", |body| {
+            *term_mut(body, &[0, 0]) = Term::Variable {
+                name: "A".to_owned(),
+                sort: Some(Sort::new(sort)),
+            };
+        })
     };
-    let nat = written("Nat");
-    let int = written("Int");
+    let nat = get_with_sort("Nat");
+    let int = get_with_sort("Int");
     let bind_a = |baseline, role: &str, rule: &str, at: Option<&[u32]>| {
         let mut selector = vec![label(rule), bind("A")];
         selector.extend(at.map(path));
@@ -1199,6 +1264,86 @@ fn a_join_decides_unification_modulo_variable_sorts_or_is_not_exhaustive() {
             exhaustive,
             "{id}: an undecided pair is never scored"
         );
+    }
+}
+
+#[test]
+fn a_join_unifies_structurally() {
+    let annotated = support::load("annotated.k");
+    let get_different_name = written(&annotated, "ANNOTATED.get", |body| {
+        *term_mut(body, &[0, 0]) = nat_variable("B");
+    });
+    let put_body = annotated
+        .term(&TermRef::new(
+            support::rule(&annotated, "ANNOTATED.put"),
+            [0],
+        ))
+        .expect("put body")
+        .clone();
+    // The two rewrites have the same structure, with `A:Nat` written as a
+    // cast in `put` and an annotated variable in `get`.
+    let equal_rewrites = written(&annotated, "ANNOTATED.get", |body| {
+        *body = put_body.clone();
+        *term_mut(body, &[0, 0]) = nat_variable("A");
+    });
+    let got_rhs = annotated
+        .term(&TermRef::new(
+            support::rule(&annotated, "ANNOTATED.get"),
+            [0, 1],
+        ))
+        .expect("get right-hand side")
+        .clone();
+    let differing_rewrites = written(&equal_rewrites, "ANNOTATED.put", |body| {
+        *term_mut(body, &[1]) = got_rhs.clone();
+    });
+    let put_argument = annotated
+        .term(&TermRef::new(
+            support::rule(&annotated, "ANNOTATED.put"),
+            [0, 0, 0],
+        ))
+        .expect("put argument")
+        .clone();
+    // The as-patterns likewise write their pattern variable in two forms.
+    let as_argument = |pattern| Term::As {
+        pattern: Box::new(pattern),
+        alias: Box::new(nat_variable("C")),
+    };
+    let put_as = written(&annotated, "ANNOTATED.put", |body| {
+        *term_mut(body, &[0, 0]) = as_argument(put_argument.clone());
+    });
+    let both_as = written(&put_as, "ANNOTATED.get", |body| {
+        *term_mut(body, &[0, 0]) = as_argument(nat_variable("A"));
+    });
+    let put_sequence = written(&annotated, "ANNOTATED.put", |body| {
+        *term_mut(body, &[0, 0]) = Term::Sequence(vec![nat_variable("A")]);
+    });
+    let different_sequences = written(&put_sequence, "ANNOTATED.get", |body| {
+        *term_mut(body, &[0, 0]) = Term::Sequence(vec![nat_variable("A"), nat_variable("C")]);
+    });
+    #[rustfmt::skip]
+    let rows = [
+        ("different-names-mismatch", &get_different_name, &[0, 0, 0][..], &[0, 0, 0][..], 0),
+        ("equal-rewrites-unify", &equal_rewrites, &[0][..], &[0][..], 1),
+        ("rewrites-differing-on-one-side", &differing_rewrites, &[0][..], &[0][..], 0),
+        ("as-patterns-unify-componentwise", &both_as, &[0, 0, 0][..], &[0, 0, 0][..], 1),
+        ("sequences-of-different-lengths", &different_sequences, &[0, 0, 0][..], &[0, 0, 0][..], 0),
+    ];
+    for (id, baseline, put_path, get_path, pair_count) in rows {
+        let bind_at = |role, rule, at| {
+            derive_sites(baseline, role, &[label(rule), path(at), bind("X")])
+                .unwrap_or_else(|error| panic!("{id}: {error}"))
+        };
+        let put = bind_at("put", "ANNOTATED.put", put_path);
+        let get = bind_at("get", "ANNOTATED.get", get_path);
+        assert_eq!((put.tuples().len(), get.tuples().len()), (1, 1), "{id}");
+        let joined = put.join(&get, false).expect("one baseline");
+        assert!(joined.exhaustive(), "{id}");
+        assert_eq!(joined.tuples().len(), pair_count, "{id}");
+        for tuple in joined.tuples() {
+            assert_eq!(tuple.sites[0].at.path.0, put_path, "{id}");
+            assert_eq!(tuple.sites[1].at.path.0, get_path, "{id}");
+            assert_eq!(tuple.bindings.as_slice().len(), 1, "{id}");
+        }
     }
 }
 
