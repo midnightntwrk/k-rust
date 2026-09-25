@@ -1012,10 +1012,14 @@ impl Site {
     }
 
     /// The typing of the sentence as it stands; `None` when the typing view rejects it, which
-    /// leaves every instance open.
+    /// leaves every instance open. A parsed program's labels carry the parser's instances, which
+    /// the typing view rejects as written parameters; it types a copy without them, and the
+    /// instance of an application whose arguments are unchanged is read from its own label.
     fn typing(&mut self, typer: &SentenceTyper<'_>) -> Option<&SentenceTyping> {
         if self.typing.is_none() {
-            let typed = match &self.sentence {
+            let mut sentence = self.sentence.clone();
+            erase_label_parameters(&mut sentence);
+            let typed = match &sentence {
                 Sentence::Context {
                     body,
                     requires,
@@ -1031,6 +1035,46 @@ impl Site {
             self.typing = Some(typed.ok());
         }
         self.typing.as_ref().and_then(Option::as_ref)
+    }
+}
+
+/// Clear the sort parameters of every label in `sentence`'s terms.
+fn erase_label_parameters(sentence: &mut Sentence) {
+    fn erase(term: &mut Term) {
+        match term {
+            Term::Annotated { term, .. } => erase(term),
+            Term::Apply { label, arguments } => {
+                label.parameters.clear();
+                arguments.iter_mut().for_each(erase);
+            }
+            Term::InjectedLabel(label) => label.parameters.clear(),
+            Term::Rewrite { left, right } => {
+                erase(left);
+                erase(right);
+            }
+            Term::As { pattern, alias } => {
+                erase(pattern);
+                erase(alias);
+            }
+            Term::Sequence(items) => items.iter_mut().for_each(erase),
+            Term::Variable { .. } | Term::Token { .. } => {}
+        }
+    }
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => [body, requires, ensures].into_iter().for_each(erase),
+        Sentence::Context { body, requires, .. } => [body, requires].into_iter().for_each(erase),
+        _ => {}
     }
 }
 

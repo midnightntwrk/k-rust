@@ -3591,6 +3591,40 @@ fn a_parametric_macro_sees_a_rewrite_that_changes_only_metadata() {
     assert_eq!(Printer::new().print_term(&expanded), r#"#token("0","Int")"#);
 }
 
+/// In a parsed program, whose labels carry the parser's instances, an application is typed
+/// again once an argument is rewritten: `m()` becomes the `Bool` `true`, and the `KItem` macro
+/// rule of `f` does not apply to the resulting `f(true)`. The parser's labels are not written
+/// parameters the typing view rejects.
+#[test]
+fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax KItem ::= Bool
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          syntax {S} S ::= "f" "(" S ")" [macro, symbol(f)]
+          rule m() => true
+          rule f(X:KItem) => X
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Bool"),
+        "f(m())",
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    let expanded = MacroExpansionDefinition::prepare(&definition)
+        .unwrap()
+        .expand_term("MAIN", program)
+        .unwrap();
+    let printed = Printer::new().print_term(&expanded);
+    assert!(printed.starts_with("f{"), "{printed}");
+    assert!(printed.ends_with(r#"(#token("true","Bool"))"#), "{printed}");
+}
+
 #[test]
 fn one_prepared_macro_definition_expands_each_term_as_a_separate_call() {
     // `g` introduces a right-hand-side variable, so each expansion mints a fresh `_Gen` name;
