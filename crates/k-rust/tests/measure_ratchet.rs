@@ -417,5 +417,7 @@ const COMPLETION_CANDIDATES_CHAIN_15: u64 = 1710;
 const AGENDA_POPS_CHAIN_15: u64 = 3290;
 /// Casted rule chain of 15 operands: 47 unpacked nodes.
 const UNPACKED_NODES_CHAIN_15: u64 = 52;
-/// One ambiguous `1 + 2 * 3` bubble: 8 Z3 checks.
-const Z3_CHECKS_AMBIGUOUS_BUBBLE: u64 = 9;
+/// One ambiguous `1 + 2 * 3` bubble: 10 Z3 checks (8 before the admissible parameter vectors
+/// were chosen per inclusion-maximal set of live ambiguity alternatives, which costs a check
+/// that no larger live set exists and one that no other maximal set does).
+const Z3_CHECKS_AMBIGUOUS_BUBBLE: u64 = 11;
