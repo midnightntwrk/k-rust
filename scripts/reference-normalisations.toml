@@ -348,3 +348,11 @@ anchor_symbol = "canonicalize_no_confusion_pairs"
 anchor_helpers = ["is_application_over_variables", "no_confusion_conjunct_key"]
 rule = "For the no-confusion axioms `\\not(\\and(P(X0..), Q(Y0..)))` (the `constructor{}()` family, identified by their shape: a top-level negated binary conjunction of two applications over variables), order the two conjuncts by symbol and argument sorts and rename the free variables by position before the N13 multiset comparison. The comparison prints the number of pairs canonicalised on both sides."
 justification = "K emits one axiom per unordered pair of distinct constructors of a sort and puts the `Production.ord`-smaller production on the `X` side; the port puts the earlier-declared one there. `\\and` is commutative and the free names are alpha-equivalent under the axiom's closure, so the canonical form hides nothing semantic."
+
+[[normalisation]]
+id = "N31"
+gate = "parsed-definition compile artifact"
+anchor = "crates/k-rust/tests/reference_differential.rs:canonicalize_local_function"
+anchor_symbol = "canonicalize_local_function"
+rule = "In parsed JSON, rewrite every `#fun3` application with exactly three arguments `(L, R, A)` into `#fun2(L => R, A)` (a KRewrite body); label sort parameters are already erased by N9. A `#fun2` over a non-rewrite body, `#let`, and every other label are unchanged, so a difference in L, R or A remains visible."
+justification = "parsed.json is the parse tree before any kompile pass. kompile lowers both labels through one path (resolve_fun.rs, resolve_application): `#fun3(L, R, A)` becomes the body `L => R` applied to `A` and `#fun2(B, A)` the body `B` applied to `A`, and the lambda depends only on that pair, never on the label's sort parameters. When both productions type a `#fun(L => R)(A)` bubble, `prefer` on `#fun2` selects it; the choice has no semantic content, and the semantic, syntax and macro KORE comparisons stay exact."
