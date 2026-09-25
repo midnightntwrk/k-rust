@@ -92,12 +92,17 @@ pub(crate) fn internalize_reachability_claim(
     }
     let parsed_attributes =
         RuleAttributes::parse(&claim.attributes).map_err(DefinitionError::Axiom)?;
+    let origin = parsed_attributes
+        .origins
+        .into_iter()
+        .next()
+        .expect("a parsed sentence has exactly one origin");
     let attributes = ClaimAttributes {
         label: parsed_attributes.label,
         unique_id: parsed_attributes.unique_id,
         trusted: claim.attributes.has(KoreAttribute::Trusted),
-        source: parsed_attributes.source,
-        location: parsed_attributes.location,
+        source: origin.source,
+        location: origin.location,
     };
     term_disjuncts(left)
         .into_iter()
