@@ -501,6 +501,7 @@ overhead.
 `createBackend({ definitionKore, moduleName })` starts from existing KORE. The backend exposes
 execution, simplification, implication checking, model generation, reachability proving, and
 stateful module addition. Native sessions cache Z3 preludes per selected module.
+`execute` and `executeObserved` accept `resultModality`: `state-set` (the default) merges structurally equal final configurations, `path-set` returns one leaf per explored path, so converging paths keep their own trace, branch identity, and observations; every `ExecutionResult` reports its `modality`.
 Persistent reachability is available as separate state-set/path-set and graph/pattern methods, with opt-in observed twins that serialize branch-local transition evidence and effects.
 Search requests negotiate schema version 1, reject unknown fields, and return a closed structural `incomplete` union; bounded synchronous responses are fully materialized and do not yet expose streaming or cancellation.
 Implication results advertise schema version 2 and expose structured `predicate`, `substitution`,

@@ -177,6 +177,12 @@ export interface ExecuteOptions {
   stepTimeoutMs?: number
   movingAverageTimeout?: boolean
   assumeStateDefined?: boolean
+  /**
+   * `state-set` (default) merges structurally equal final configurations into one leaf;
+   * `path-set` returns one leaf per explored path, each with its own trace, branch and
+   * observations.
+   */
+  resultModality?: 'state-set' | 'path-set'
   schemaVersion?: number
 }
 
@@ -211,6 +217,8 @@ export interface ExecutionLeaf {
 }
 
 export interface ExecutionResult {
+  /** The reading of `leaves` selected by `ExecuteOptions.resultModality`. */
+  modality: 'state-set' | 'path-set'
   leaves: ExecutionLeaf[]
   effects: BackendEffect[]
   discarded?: UncommittedObservation[]

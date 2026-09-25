@@ -109,6 +109,10 @@ pub struct ExecuteRequest {
     pub step_timeout_ms: Option<u64>,
     pub moving_average_timeout: bool,
     pub assume_state_defined: bool,
+    /// `state-set` (the default) merges structurally equal final configurations into one leaf;
+    /// `path-set` returns one leaf per explored path, so converging paths keep their own trace,
+    /// branch identity, and observations. The result reports the modality it was produced under.
+    pub result_modality: ResultModalityOutput,
     pub schema_version: u32,
 }
 
@@ -127,6 +131,7 @@ impl Default for ExecuteRequest {
             step_timeout_ms: None,
             moving_average_timeout: false,
             assume_state_defined: false,
+            result_modality: ResultModalityOutput::StateSet,
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
@@ -143,6 +148,9 @@ pub enum ExecutionStrategy {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionResult {
+    /// Whether `leaves` is a state set (equal configurations merged) or a path set (one leaf
+    /// per explored path), as selected by `ExecuteRequest::result_modality`.
+    pub modality: ResultModalityOutput,
     pub leaves: Vec<ExecutionLeaf>,
     pub effects: Vec<EffectOutput>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -490,6 +498,7 @@ impl Backend {
                 step_timeout: request.step_timeout_ms.map(Duration::from_millis),
                 moving_average_timeout: request.moving_average_timeout,
                 assume_initial_defined: request.assume_state_defined,
+                result_modality: request.result_modality.into(),
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -1749,6 +1758,73 @@ mod tests {
         };
         assert_eq!(id.rule, "builtin:IO.logString");
         assert_eq!(effects, &ordinary.effects);
+    }
+
+    #[test]
+    fn observed_path_set_execution_keeps_converging_paths_apart() {
+        let request = |modality: &str| {
+            serde_json::from_value::<ExecuteRequest>(serde_json::json!({
+                "state": json("initial{}()"),
+                "resultModality": modality,
+            }))
+            .unwrap()
+        };
+        let labels = |leaf: &ExecutionLeaf| {
+            leaf.observations
+                .iter()
+                .filter_map(|event| match event {
+                    ObservationEventOutput::Transition { rule_label, .. } => rule_label.clone(),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut backend =
+            Backend::new(DIAMOND_DEFINITION, "DIAMOND", BackendOptions::default()).unwrap();
+
+        let state_set = backend
+            .execute_observed(ObservedRequest {
+                request: request("state-set"),
+                rules: None,
+            })
+            .unwrap();
+        assert_eq!(state_set.modality, ResultModalityOutput::StateSet);
+        assert_eq!(state_set.leaves.len(), 1);
+        assert_eq!(
+            serde_json::to_value(&state_set).unwrap()["modality"],
+            "state-set"
+        );
+
+        let path_set = backend
+            .execute_observed(ObservedRequest {
+                request: request("path-set"),
+                rules: None,
+            })
+            .unwrap();
+        assert_eq!(path_set.modality, ResultModalityOutput::PathSet);
+        assert_eq!(
+            serde_json::to_value(&path_set).unwrap()["modality"],
+            "path-set"
+        );
+        let [left, right] = path_set.leaves.as_slice() else {
+            panic!("expected one leaf per path: {:#?}", path_set.leaves);
+        };
+        for leaf in [left, right] {
+            assert_eq!(text(leaf.state.clone()), "merged{}()");
+            // Compared on the wire so the check is independent of the Rust type of `reason`.
+            assert_eq!(serde_json::to_value(leaf).unwrap()["reason"], "stuck");
+        }
+        assert_ne!(left.branch, right.branch);
+        assert_eq!(labels(left), ["initial-left", "left-merged"]);
+        assert_eq!(labels(right), ["initial-right", "right-merged"]);
+
+        let default = backend
+            .execute(ExecuteRequest {
+                state: json("initial{}()"),
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        assert_eq!(default.modality, ResultModalityOutput::StateSet);
+        assert_eq!(default.leaves.len(), 1);
     }
 
     #[test]

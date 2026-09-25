@@ -223,6 +223,11 @@ test('searches and observes the persistent native backend graph', () => {
     ['a-to-b'],
   )
   assert.equal(backend.executeObserved({ state: a }).leaves[0].observations.length, 2)
+  assert.equal(backend.execute({ state: a }).modality, 'state-set')
+  assert.equal(
+    backend.executeObserved({ state: a, resultModality: 'path-set' }).modality,
+    'path-set',
+  )
 
   assert.throws(() => backend.search({ state: a, schemaVersion: 99 }), /schema version 99/)
   assert.throws(() => backend.search({ state: a, maxDeph: 1 }), /unknown field.*maxDeph/i)

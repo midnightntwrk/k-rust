@@ -14,8 +14,8 @@ use k_rust_backend::{
     search::{
         IncompleteSearch, PathSearchResult as BackendPathSearchResult, PathWitness,
         PatternPathSearchResult as BackendPatternPathSearchResult,
-        PatternSearchResult as BackendPatternSearchResult, SearchResult as BackendSearchResult,
-        SearchState,
+        PatternSearchResult as BackendPatternSearchResult, ResultModality,
+        SearchResult as BackendSearchResult, SearchState,
     },
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError},
     smt::{Satisfiability, SmtError, TranslationError},
@@ -134,6 +134,24 @@ pub struct ObservedRequest<T> {
 pub enum ResultModalityOutput {
     StateSet,
     PathSet,
+}
+
+impl From<ResultModality> for ResultModalityOutput {
+    fn from(modality: ResultModality) -> Self {
+        match modality {
+            ResultModality::StateSet => Self::StateSet,
+            ResultModality::PathSet => Self::PathSet,
+        }
+    }
+}
+
+impl From<ResultModalityOutput> for ResultModality {
+    fn from(modality: ResultModalityOutput) -> Self {
+        match modality {
+            ResultModalityOutput::StateSet => Self::StateSet,
+            ResultModalityOutput::PathSet => Self::PathSet,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -969,6 +987,7 @@ pub(super) fn execution_response(
     result: k_rust_backend::rewrite::ExecutionResult,
 ) -> Result<ExecutionResult, BackendError> {
     Ok(ExecutionResult {
+        modality: result.modality.into(),
         leaves: result
             .leaves
             .into_iter()
