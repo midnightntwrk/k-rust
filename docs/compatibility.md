@@ -160,7 +160,7 @@ Parsed applications must rebase into the main catalog before macro expansion, so
 Macro expansion uses the frontend's KAST-domain expander after rebasing and before conversion to executable KORE; `kast` retains its separate unparsing-module scope.
 A macro- or alias-headed term that survives expansion is invalid executable input and must be rejected before the first rewrite step rather than narrowed as an ordinary function application.
 The backend also rejects such a head defensively when a direct caller bypasses the CLI validation.
-The project provides its own versioned compiled-directory runtime contract rather than K's file format; it does not implement K-derived module defaults, every K flag alias, or K's pretty-output and proof-verdict framing solely for tool interchangeability.
+The project provides its own versioned compiled-directory runtime contract rather than K's file format; it does not implement K-derived module defaults, every K flag alias, or K's pretty-output and proof-verdict framing solely for tool interchangeability; its own verdict words are defined under [Proof verdicts](#proof-verdicts).
 K tools and pyk serve as differential oracles; the conformance driver translates recipes into supported Rust operations.
 An unknown or untranslatable flag must remain explicitly unsupported rather than being silently ignored.
 The `declined-capability` category records steps requiring an interface with no Rust equivalent.
@@ -172,6 +172,45 @@ It uses buffered `--io off` stream semantics with pre-buffered standard input, r
 Bottom, constrained or multiple leaves, incomplete execution, malformed stream state, search, surface result matching, and an explicit `--io on` are errors.
 `krun --io on --output none` is the corresponding committed live mode with pre-buffered input and byte-exact descriptor 1/2 delivery.
 Default KORE output remains unchanged.
+
+## Proof verdicts
+
+`krust kprove` prints one verdict word per selected claim: `proven`, `disproved`, `failed`, `indeterminate`, `depth bound` or `breadth bound`.
+The Node.js and WebAssembly `status` field uses the same words, with `depth-bound` and `breadth-bound`.
+The [README kprove section](../README.md) lists them with the leaf listing each word prints.
+A word is a statement about the claim; the process exit status is only a summary of several claims: 0 exactly when every selected claim is `proven`, 1 otherwise with `one or more reachability claims were not proven`.
+
+This differs from the pinned `kprove`, which reports only whether the backend proved every claim.
+It prints `backend terminated because the configuration cannot be rewritten further` whenever the backend exits with status 1 (`k-frontend/src/main/java/org/kframework/kprove/KProve.java`), and the pinned `kore-exec` exits with status 1 whenever its result lists any claim it did not prove (`kore/app/exec/Main.hs`, `koreProve`).
+The message therefore states that a claim was not proven; it does not state that the claim is false.
+k-rust separates the two because a consumer acts on the word: a `disproved` claim cannot be proven by any strategy and needs a changed claim or definition, while a `failed` claim may be true, for example a vacuous claim or a one-path claim whose search took a rule that leads nowhere.
+Reporting a true claim as false is a wrong result, not a presentation difference.
+
+A claim `φ => ψ` is refuted, under the manual's [one-path](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#one-path-interpretation) and [all-path](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#all-path-interpretation) readings ("there exists a path", "all paths ... will reach"), by a configuration of `φ` that, for an all-path claim, has a path ending in a configuration with no successor without passing through `ψ`, or, for a one-path claim, has no path to `ψ`.
+`disproved` requires a leaf that shows this, a certified stuck leaf (`Stuck (certified)` in the listing), which must meet all of the following conditions:
+
+- (a) No successor: the rewrite step on the leaf is stuck.
+  A state the search stopped without rewriting, such as a stuck-check stop, is stepped once and is certified only if that step is stuck, because a configuration that can still move may reach `ψ` later.
+- (b) Every path followed: the claim is all-path, or its one-path trace kept every successor.
+  A one-path claim is false only if no path reaches `ψ`, and a trace that took one of several applicable rules says nothing about the others.
+  The sequential rewriter does not report whether a step dropped an applicable alternative, so every one-path rewrite step counts as one that may have, and a one-path leaf is certified only when its trace has no rewrite step.
+- (c) No claim step: no circularity or trusted claim on the trace.
+  Such a step replaces paths by an assumed claim instead of following them, so the leaf shows at most that the assumption and the claim cannot both hold.
+- (d) Non-empty outside the destination: the leaf term is built from constructors and domain values only, and the leaf constraints together with the definedness of its term hold syntactically, or are satisfiable by an SMT query that approximates nothing (only `Int` and `Bool` variables, no abstracted subterm, no partial function).
+  A leaf denoting the empty set refutes nothing, an unevaluated function application may denote no value or a value the destination accepts, and a satisfiable abstraction may be spurious.
+  The leaf constraints carry the complement of every destination condition checked on the trace, including the uncovered part of a state that the destination condition covers only in part; the complement places the leaf outside `ψ` only if every destination check on the trace ran and was decided.
+
+Every other stuck leaf, and every empty leaf the vacuity policy rejects (`Trivial`, `Vacuous`), makes the claim `failed`: the search stopped there without establishing that the claim is false.
+When leaves disagree, the first of `disproved`, `failed`, `indeterminate`, `depth bound`, `breadth bound` applies.
+The conditions are sufficient, not necessary: a false claim whose refutation k-rust cannot certify is reported `failed`, never `disproved` without evidence.
+The conformance driver compares kprove recipes only as proven, not proven or error (`kprove_verdicts` in `scripts/conformance/run.py`), so `disproved` and `failed` are the same outcome there.
+
+[reference-proof-differential.sh](../scripts/reference-proof-differential.sh) runs each `[[proof]]` entry's `failure-claim` through both toolchains.
+It requires the reference `kprove` to exit with the message above and k-rust to print `claim <failure-claim>: disproved`; N12 omits the counterexample framing from that comparison.
+The reference observation supplies only the fact that the claim is not proven.
+The `disproved` expectation is k-rust's own stronger statement: it is valid for an entry only when the failure claim is false and k-rust's leaf for it meets (a)-(d), and the gate passing shows the leaf was certified, not that the reference refuted the claim.
+`mini-proof`'s `claim-refuted`, the all-path claim `<k> start => stuck </k>` over a definition whose only rules are `start => middle` and `middle => done`, meets them: its leaf is `<k> done </k>` with no constraint, reached by the only path and without a successor.
+A failure claim that is not false cannot carry the `disproved` expectation, and its entry must record its own expectation with the reason.
 
 ## Driver scope
 
