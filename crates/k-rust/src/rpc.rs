@@ -3207,8 +3207,11 @@ mod tests {
     }
 
     /// A free variable that only the consequent mentions is universal over the implication, so it
-    /// is decided like any other: invalid when the match constrains it under a satisfiable
-    /// antecedent, valid under an unsatisfiable antecedent or when nothing constrains it.
+    /// is decided like any other: valid under an unsatisfiable antecedent or when nothing
+    /// constrains it, invalid when a satisfiable antecedent allows a value of its sort that
+    /// violates the match's obligation. `SortInt` has such values; a sort whose no-junk axiom
+    /// leaves the bound value as the only one does not
+    /// (`implication_decides_a_free_consequent_variable_by_the_no_junk_axiom`).
     #[test]
     fn implication_decides_free_consequent_variables() {
         let refuted =
@@ -3250,6 +3253,55 @@ mod tests {
             "box{}(Y:SortInt{})",
         );
         assert_eq!(captured["result"]["status"], "invalid", "{captured:#}");
+    }
+
+    fn wrapped_constructor_implication(constructors: &str, axiom: &str) -> Value {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(&format!(
+                r#"[]
+                module TEST
+                  sort SortU{{}} []
+                  sort SortK{{}} []
+                  {constructors}
+                  {axiom}
+                  symbol wrap{{}}(SortU{{}}) : SortK{{}} [constructor{{}}()]
+                endmodule []"#
+            ))
+            .unwrap(),
+            "TEST",
+        ));
+        let antecedent = encode_kore(&parse_pattern("wrap{}(u{}())").unwrap()).unwrap();
+        let consequent = encode_kore(&parse_pattern("wrap{}(Y:SortU{})").unwrap()).unwrap();
+        request(
+            &mut service,
+            1,
+            "implies",
+            json!({ "antecedent": antecedent, "consequent": consequent }),
+        )
+    }
+
+    /// The consequent-only universal `Y` ranges over the values of `SortU` in the models of the
+    /// definition, and the match binds it to `u()`. With one nullary constructor and the no-junk
+    /// axiom, `u()` is the only value, so the obligation `Y = u()` holds for every `Y` and the
+    /// implication is valid even though the solver, which treats `SortU` as uninterpreted, has a
+    /// counterexample. Without the axiom, or with a second constructor, a violating value exists.
+    #[test]
+    fn implication_decides_a_free_consequent_variable_by_the_no_junk_axiom() {
+        let only_u = wrapped_constructor_implication(
+            "symbol u{}() : SortU{} [constructor{}()]",
+            r#"axiom{} \or{SortU{}}(u{}(), \bottom{SortU{}}()) [constructor{}()]"#,
+        );
+        assert_eq!(only_u["result"]["status"], "valid", "{only_u:#}");
+
+        let junk = wrapped_constructor_implication("symbol u{}() : SortU{} [constructor{}()]", "");
+        assert_eq!(junk["result"]["status"], "invalid", "{junk:#}");
+
+        let two = wrapped_constructor_implication(
+            "symbol u{}() : SortU{} [constructor{}()]
+                  symbol v{}() : SortU{} [constructor{}()]",
+            r#"axiom{} \or{SortU{}}(u{}(), v{}(), \bottom{SortU{}}()) [constructor{}()]"#,
+        );
+        assert_eq!(two["result"]["status"], "invalid", "{two:#}");
     }
 
     #[test]
