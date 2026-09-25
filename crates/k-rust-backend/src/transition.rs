@@ -91,20 +91,23 @@ pub struct TransitionObservation {
 /// restricted by the negated conditions of higher-priority rules when the next transition is a
 /// lower-priority rewrite. Anchors are non-decreasing along a branch's observations.
 ///
-/// Evaluations are recorded for the normalization passes of retained branch states: the term
-/// normalization of the initial state and of every rewrite successor and remainder, the
-/// normalization of a higher-priority remainder before a lower-priority rewrite, and the pattern
-/// normalization of a state leaving the engine as a leaf or search result. A cut-point rule is
-/// proposed, not committed: its leaf stays at the state before it, and neither the rule nor its
-/// successor's normalization is on that leaf's branch. Constraint simplification at the start of a
-/// step reports none. Evaluations performed while deciding a rule's side conditions or building its
-/// right-hand side belong to that rule's application, committed or not, and are not reported;
-/// neither is the simplification that decides, at a branch stop, which candidate successors
-/// survive, although a surviving candidate's own later normalization is. Evaluations of a state
-/// that is later dropped (a remainder that simplifies to bottom, a leaf merged into an equal leaf,
-/// leaves the breadth bound discards) are reported on no branch. Which evaluations occur, how
-/// often, and in which order depends on the simplifier's strategy, so these events are diagnostics:
-/// their absence is not evidence that an equation does not apply.
+/// Evaluations are recorded for the normalization passes of branch states: the term normalization
+/// of the initial state and of every rewrite successor and remainder, the normalization of a
+/// higher-priority remainder before a lower-priority rewrite, the normalization of each candidate
+/// successor at a branch stop, and the pattern normalization of a state leaving the engine as a
+/// leaf or search result. A candidate's normalization is recorded after its transition, on the
+/// branch it extends: a candidate that continues as the only successor keeps it, and a candidate
+/// that a `Branch` or `CutPointRule` halt reports without committing carries its events in its own
+/// `observations` (a cut-point rule is proposed, not committed, so neither the rule nor its
+/// successor's normalization is on that leaf's branch, unless the leaf reports the successor's
+/// pattern because its normalization failed or is bottom). Constraint simplification at the start
+/// of a step reports none. Evaluations performed while deciding a rule's side conditions or
+/// building its right-hand side belong to that rule's application, committed or not, and are not
+/// reported. Evaluations of a state that is later dropped (a candidate or remainder that simplifies
+/// to bottom, a leaf merged into an equal leaf, leaves the breadth bound discards) are reported on
+/// no branch. Which evaluations occur, how often, and in which order depends on the simplifier's
+/// strategy, so these events are diagnostics: their absence is not evidence that an equation does
+/// not apply.
 ///
 /// `before` and `after` are the endpoints of the whole normalization pass, shared by every
 /// evaluation that pass performed.
@@ -329,7 +332,7 @@ pub enum ObservationFilterError {
     AmbiguousRule(String),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) struct ObservationNodeId(usize);
 
 pub(crate) type ObservationHead = Option<ObservationNodeId>;
@@ -466,6 +469,24 @@ impl ObservationLog {
         branch.reverse();
         events.reverse();
         (branch, events)
+    }
+
+    /// The events recorded on the chain from `ancestor` (exclusive) to `head`, in order.
+    /// `ancestor` must be on `head`'s chain.
+    pub(crate) fn events_since(
+        &self,
+        mut head: ObservationHead,
+        ancestor: ObservationHead,
+    ) -> Vec<ObservationEvent> {
+        let mut events = Vec::new();
+        while head != ancestor {
+            let id = head.expect("the ancestor is on the chain");
+            let node = &self.nodes[id.0];
+            events.extend(node.event.clone());
+            head = node.parent;
+        }
+        events.reverse();
+        events
     }
 
     fn transitions(&self, head: ObservationHead) -> usize {

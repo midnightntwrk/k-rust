@@ -411,6 +411,7 @@ pub fn prove_claim(
                         simplifications: Vec::new(),
                         indeterminate: None,
                         diagnostics: Vec::new(),
+                        observations: Vec::new(),
                     };
                     // A contingent destination covers part of the state; the part it does not
                     // cover may still rewrite into the destination, so it continues whatever
@@ -1401,6 +1402,7 @@ fn apply_claim(
             simplifications: Vec::new(),
             indeterminate: None,
             diagnostics: Vec::new(),
+            observations: Vec::new(),
         }
     });
     ClaimApplication::Applied {

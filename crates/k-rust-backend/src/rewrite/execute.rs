@@ -626,10 +626,15 @@ impl<'a> Execution<'a> {
                 );
             }
             state.effects.commit(applied.effects.iter().cloned());
-            // The cut-point rule is proposed, not committed: the leaf stays at this state's depth
-            // and branch position and carries the successor in `next_states`. Neither the
-            // rewrite nor the successor's normalization belongs to this branch's observations;
-            // the successor's diagnostics belong to the candidate.
+            // The cut-point rule is proposed, not committed: the `CutPointRule` leaf stays at
+            // this state's depth and branch position and carries the successor in
+            // `next_states`, with the successor's diagnostics and with the events it would add
+            // to this branch (its transition and its normalization), recorded on its own head.
+            // A leaf that reports the successor's pattern instead (a failed normalization or a
+            // bottom successor) is the successor's, so it takes that head.
+            let mut candidate_observation =
+                self.observation_log
+                    .append_applied(state.observation, &applied, self.observation);
             let (simplified, diagnostics) = diagnostic::collect(|| {
                 simplify_result_pattern(
                     self.definition,
@@ -638,7 +643,7 @@ impl<'a> Execution<'a> {
                     self.solver,
                     state.depth,
                     &mut state.trace,
-                    None,
+                    Some(&mut candidate_observation),
                     &mut self.observation_log,
                     self.observation,
                 )
@@ -651,8 +656,10 @@ impl<'a> Execution<'a> {
                 }
                 Err(error) => {
                     let mut state = self.check_interrupted(state, step_timer)?;
-                    // The leaf reports the successor's pattern, so the successor's diagnostics.
+                    // The leaf reports the successor's pattern, so the successor's diagnostics
+                    // and observations.
                     state.diagnostics.extend(&applied.diagnostics);
+                    state.observation = candidate_observation;
                     return Err(state.leaf_with_pattern(
                         applied.pattern,
                         HaltReason::Simplification(error),
@@ -663,6 +670,7 @@ impl<'a> Execution<'a> {
             let mut state = self.check_interrupted(state, step_timer)?;
             if predicates_truth(&applied.pattern.constraints) == Truth::False {
                 state.diagnostics.extend(&applied.diagnostics);
+                state.observation = candidate_observation;
                 let halt_reason = trivial_halt(state.depth + 1, &applied.pattern);
                 return Err(state.leaf_with_pattern(
                     applied.pattern,
@@ -670,6 +678,9 @@ impl<'a> Execution<'a> {
                     &self.observation_log,
                 ));
             }
+            applied.observations = self
+                .observation_log
+                .events_since(candidate_observation, state.observation);
             return Err(state.leaf(
                 HaltReason::CutPointRule {
                     rule,
@@ -730,7 +741,7 @@ impl<'a> Execution<'a> {
         &mut self,
         mut state: ExecutionState,
         original: Pattern,
-        mut branches: Vec<AppliedRule>,
+        branches: Vec<AppliedRule>,
         mut remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
         step_timer: &mut StepTimer<'_>,
@@ -782,6 +793,15 @@ impl<'a> Execution<'a> {
                     rule: applied.unique_id.clone(),
                     target: PatternDigest::of(&applied.pattern),
                 };
+                // Each candidate's normalization is recorded on its own observation head, after
+                // its transition, as it would be on the branch the candidate extends.
+                let mut observation = applied_observation(
+                    self.definition,
+                    state.observation,
+                    &applied,
+                    &mut self.observation_log,
+                    self.observation,
+                );
                 let (simplified, diagnostics) = diagnostic::collect(|| {
                     simplify_result_pattern(
                         self.definition,
@@ -790,7 +810,7 @@ impl<'a> Execution<'a> {
                         self.solver,
                         state.depth + 1,
                         &mut state.trace,
-                        None,
+                        Some(&mut observation),
                         &mut self.observation_log,
                         self.observation,
                     )
@@ -801,7 +821,7 @@ impl<'a> Execution<'a> {
                         applied.pattern = simplified.pattern;
                         applied.effects.extend(simplified.effects);
                         if predicates_truth(&applied.pattern.constraints) != Truth::False {
-                            simplified_branches.push(applied);
+                            simplified_branches.push((applied, observation));
                         } else if self
                             .observation
                             .is_some_and(|options| options.observes(&applied.unique_id))
@@ -831,8 +851,17 @@ impl<'a> Execution<'a> {
                     &self.observation_log,
                 ));
             }
-            branches = simplified_branches;
+            let mut branches = simplified_branches;
+            let mut remainder_observation_head = None;
             if let Some(candidate) = &mut remainder {
+                let mut observation = remainder_observation(
+                    self.definition,
+                    state.observation,
+                    state.pattern.clone(),
+                    candidate,
+                    &mut self.observation_log,
+                    self.observation,
+                );
                 let (simplified, diagnostics) = diagnostic::collect(|| {
                     simplify_result_pattern(
                         self.definition,
@@ -841,11 +870,12 @@ impl<'a> Execution<'a> {
                         self.solver,
                         state.depth,
                         &mut state.trace,
-                        None,
+                        Some(&mut observation),
                         &mut self.observation_log,
                         self.observation,
                     )
                 });
+                remainder_observation_head = observation;
                 extend_distinct(&mut candidate.diagnostics, &diagnostics);
                 candidate.pattern = match simplified {
                     Ok(simplified) => {
@@ -876,28 +906,34 @@ impl<'a> Execution<'a> {
                     ));
                 }
                 (1, false) => {
-                    let applied = branches.pop().expect("one branch remains");
-                    return Ok(vec![next_state(
-                        self.definition,
-                        state,
-                        applied,
-                        &mut self.observation_log,
-                        self.observation,
-                    )]);
+                    let (applied, observation) = branches.pop().expect("one branch remains");
+                    return Ok(vec![commit_applied(state, applied, observation)]);
                 }
                 (0, true) => {
                     let remainder = remainder.take().expect("one remainder remains");
-                    let before = state.pattern.clone();
-                    return Ok(vec![remaining_state(
-                        self.definition,
+                    return Ok(vec![commit_remainder(
                         state,
-                        before,
                         remainder,
-                        &mut self.observation_log,
-                        self.observation,
+                        remainder_observation_head,
                     )]);
                 }
                 _ => {
+                    // The reported candidates are not committed: each carries the events it
+                    // would add to the parent's branch.
+                    let branches = branches
+                        .into_iter()
+                        .map(|(mut applied, observation)| {
+                            applied.observations = self
+                                .observation_log
+                                .events_since(observation, state.observation);
+                            applied
+                        })
+                        .collect();
+                    if let Some(candidate) = &mut remainder {
+                        candidate.observations = self
+                            .observation_log
+                            .events_since(remainder_observation_head, state.observation);
+                    }
                     return Err(state.leaf_with_pattern(
                         original,
                         HaltReason::Branch {
@@ -1245,17 +1281,18 @@ fn externalise_leaf(
     }
 }
 
-fn next_state(
+/// Extend `head` with an applied candidate's observations: the evaluations of the higher-priority
+/// remainder it was applied to, then its transition.
+fn applied_observation(
     definition: &BackendDefinition,
-    mut state: ExecutionState,
-    applied: AppliedRule,
+    mut head: ObservationHead,
+    applied: &AppliedRule,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
-) -> ExecutionState {
-    state.diagnostics.extend(&applied.diagnostics);
+) -> ObservationHead {
     for simplification in &applied.remainder_simplifications {
-        state.observation = observation_log.append_simplification(
-            state.observation,
+        head = observation_log.append_simplification(
+            head,
             definition,
             simplification.before.clone(),
             &simplification.after,
@@ -1263,6 +1300,69 @@ fn next_state(
             &simplification.effects,
             observation_options,
         );
+    }
+    observation_log.append_applied(head, applied, observation_options)
+}
+
+/// Extend `head` with a remainder candidate's observations: its transition from `before`, then
+/// the evaluations of the simplifications it went through in the step.
+fn remainder_observation(
+    definition: &BackendDefinition,
+    head: ObservationHead,
+    before: Pattern,
+    remainder: &RemainderBranch,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> ObservationHead {
+    let transition_pattern = remainder
+        .simplifications
+        .first()
+        .map_or_else(|| remainder.pattern.clone(), |record| record.before.clone());
+    let transition_remainder = RemainderBranch {
+        pattern: transition_pattern,
+        ..remainder.clone()
+    };
+    let mut head =
+        observation_log.append_remainder(head, before, &transition_remainder, observation_options);
+    for simplification in &remainder.simplifications {
+        head = observation_log.append_simplification(
+            head,
+            definition,
+            simplification.before.clone(),
+            &simplification.after,
+            &simplification.applied_rules,
+            &simplification.effects,
+            observation_options,
+        );
+    }
+    head
+}
+
+fn next_state(
+    definition: &BackendDefinition,
+    state: ExecutionState,
+    applied: AppliedRule,
+    observation_log: &mut ObservationLog,
+    observation_options: Option<&ObservationOptions>,
+) -> ExecutionState {
+    let observation = applied_observation(
+        definition,
+        state.observation,
+        &applied,
+        observation_log,
+        observation_options,
+    );
+    commit_applied(state, applied, observation)
+}
+
+/// The successor of `state` by `applied`, whose observations `observation` already records.
+fn commit_applied(
+    mut state: ExecutionState,
+    applied: AppliedRule,
+    observation: ObservationHead,
+) -> ExecutionState {
+    state.diagnostics.extend(&applied.diagnostics);
+    for simplification in &applied.remainder_simplifications {
         state.trace.extend(
             simplification
                 .applied_rules
@@ -1277,8 +1377,7 @@ fn next_state(
         );
         state.effects.commit(simplification.effects.iter().cloned());
     }
-    state.observation =
-        observation_log.append_applied(state.observation, &applied, observation_options);
+    state.observation = observation;
     state.effects.commit(applied.effects.iter().cloned());
     if let Some(io) = applied.io {
         state.io = io;
@@ -1297,27 +1396,31 @@ fn next_state(
 
 fn remaining_state(
     definition: &BackendDefinition,
-    mut state: ExecutionState,
+    state: ExecutionState,
     before: Pattern,
     remainder: RemainderBranch,
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> ExecutionState {
-    state.diagnostics.extend(&remainder.diagnostics);
-    let transition_pattern = remainder
-        .simplifications
-        .first()
-        .map_or_else(|| remainder.pattern.clone(), |record| record.before.clone());
-    let transition_remainder = RemainderBranch {
-        pattern: transition_pattern,
-        ..remainder.clone()
-    };
-    state.observation = observation_log.append_remainder(
+    let observation = remainder_observation(
+        definition,
         state.observation,
         before,
-        &transition_remainder,
+        &remainder,
+        observation_log,
         observation_options,
     );
+    commit_remainder(state, remainder, observation)
+}
+
+/// The remainder successor of `state`, whose observations `observation` already records.
+fn commit_remainder(
+    mut state: ExecutionState,
+    remainder: RemainderBranch,
+    observation: ObservationHead,
+) -> ExecutionState {
+    state.diagnostics.extend(&remainder.diagnostics);
+    state.observation = observation;
     state.trace.push(TraceEntry {
         depth: state.depth,
         kind: TraceKind::Remainder,
@@ -1325,15 +1428,6 @@ fn remaining_state(
         unique_id: remainder.rule_ids.join(","),
     });
     for simplification in &remainder.simplifications {
-        state.observation = observation_log.append_simplification(
-            state.observation,
-            definition,
-            simplification.before.clone(),
-            &simplification.after,
-            &simplification.applied_rules,
-            &simplification.effects,
-            observation_options,
-        );
         state.trace.extend(
             simplification
                 .applied_rules

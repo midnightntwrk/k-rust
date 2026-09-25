@@ -191,6 +191,7 @@ fn apply_priority_group(
                 extend_distinct(&mut diagnostics, &remainder_diagnostics);
                 diagnostics
             },
+            observations: Vec::new(),
         })
     } else {
         // Without a remainder the work on it concerns no path: its conditions, possibly left
@@ -836,6 +837,7 @@ pub(super) fn rewrite_step_any(
         simplifications: Vec::new(),
         indeterminate: None,
         diagnostics: remaining_diagnostics,
+        observations: Vec::new(),
     });
     match (applied.len(), trivial.is_empty(), remainder) {
         (0, false, None) => RewriteResult::Trivial(pattern.clone(), trivial),

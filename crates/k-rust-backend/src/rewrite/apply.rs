@@ -1349,6 +1349,7 @@ fn apply_rhs_alternative(
             remainder_simplifications: Vec::new(),
             io: io_evaluation.map(|execution| execution.commit()),
             diagnostics: Vec::new(),
+            observations: Vec::new(),
         },
         remainder: remainder_of(applicability),
         diagnostics: Vec::new(),
