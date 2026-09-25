@@ -320,6 +320,8 @@ export interface SearchPatternOptions extends SearchOptions {
 
 export interface SearchState {
   state: Kore
+  /** Diagnostics of the path in `trace`, each distinct one once, in first-occurrence order. */
+  diagnostics?: BackendDiagnostic[]
   depth: number
   trace: BackendTraceEntry[]
   branch?: TransitionId[]
@@ -329,6 +331,8 @@ export interface SearchState {
 export interface PathWitness {
   id: TransitionId[]
   state: Kore
+  /** Diagnostics of this witness's path, as for `SearchState.diagnostics`. */
+  diagnostics?: BackendDiagnostic[]
   depth: number
   trace: BackendTraceEntry[]
   observations?: ObservationEvent[]
@@ -452,6 +456,8 @@ export interface SearchMatch {
   bindings: BackendBinding[]
   constraints: Kore[]
   state: SearchState
+  /** Diagnostics of matching `state` against the pattern, apart from `state.diagnostics`. */
+  diagnostics?: BackendDiagnostic[]
 }
 
 export interface PatternSearchResult {
@@ -466,6 +472,8 @@ export interface PathSearchMatch {
   bindings: BackendBinding[]
   constraints: Kore[]
   witness: PathWitness
+  /** Diagnostics of matching `witness` against the pattern, apart from `witness.diagnostics`. */
+  diagnostics?: BackendDiagnostic[]
 }
 
 export interface PathPatternSearchResult {

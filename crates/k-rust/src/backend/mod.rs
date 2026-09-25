@@ -1326,6 +1326,10 @@ mod tests {
     fn search_wire_types_round_trip_every_disposition() {
         let state = SearchStateOutput {
             state: json("a{}()"),
+            diagnostics: vec![BackendDiagnosticOutput::SimplificationBudgetExhausted {
+                limit: 3,
+                subject: BudgetSubjectOutput::Term,
+            }],
             depth: 1,
             trace: Vec::new(),
             branch: Vec::new(),
@@ -1643,6 +1647,115 @@ mod tests {
                 "subject": "term"
             }])
         );
+    }
+
+    fn search_diagnostics_backend() -> Backend {
+        Backend::new(
+            include_str!("../../tests/fixtures/search-diagnostics.kore"),
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap()
+    }
+
+    fn term_exhausted_json() -> Value {
+        serde_json::json!([{
+            "kind": "simplification-budget-exhausted",
+            "limit": 3,
+            "subject": "term"
+        }])
+    }
+
+    fn condition_exhausted_json(rule_id: &str) -> Value {
+        serde_json::json!([
+            {"kind": "simplification-budget-exhausted", "limit": 3, "subject": "predicates"},
+            {"kind": "rule-condition-unsimplified", "ruleId": rule_id, "limit": 3}
+        ])
+    }
+
+    /// The entry of `entries` whose `field` state prints starting with `state`.
+    fn entry_at<'a>(entries: &'a Value, field: Option<&str>, state: &str) -> &'a Value {
+        entries
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| {
+                let entry = field.map_or(*entry, |field| &entry[field]);
+                text(entry["state"].clone()).starts_with(state)
+            })
+            .unwrap_or_else(|| panic!("no entry at {state}: {entries:#}"))
+    }
+
+    #[test]
+    fn search_states_and_witnesses_expose_their_paths_diagnostics_on_the_wire() {
+        let mut backend = search_diagnostics_backend();
+        let request = SearchRequest {
+            state: json("start{}()"),
+            max_simplification_iterations: 3,
+            ..SearchRequest::default()
+        };
+
+        let states = serde_json::to_value(backend.search(request.clone()).unwrap()).unwrap();
+        let paths = serde_json::to_value(backend.search_paths(request).unwrap()).unwrap();
+
+        assert_eq!(states["states"].as_array().unwrap().len(), 3, "{states:#}");
+        assert_eq!(states["incomplete"], serde_json::json!([]));
+        assert_eq!(
+            entry_at(&states["states"], None, "g{}(")["diagnostics"],
+            term_exhausted_json()
+        );
+        assert!(
+            entry_at(&states["states"], None, "b{}()")
+                .get("diagnostics")
+                .is_none()
+        );
+        assert_eq!(
+            entry_at(&states["states"], None, "c{}()")["diagnostics"],
+            condition_exhausted_json("norm-c")
+        );
+        assert_eq!(paths["witnesses"].as_array().unwrap().len(), 3, "{paths:#}");
+        assert_eq!(
+            entry_at(&paths["witnesses"], None, "g{}(")["diagnostics"],
+            term_exhausted_json()
+        );
+        assert!(
+            entry_at(&paths["witnesses"], None, "b{}()")
+                .get("diagnostics")
+                .is_none()
+        );
+        assert_eq!(
+            entry_at(&paths["witnesses"], None, "c{}()")["diagnostics"],
+            condition_exhausted_json("norm-c")
+        );
+    }
+
+    #[test]
+    fn search_matches_expose_their_own_diagnostics_apart_from_their_states_on_the_wire() {
+        let mut backend = search_diagnostics_backend();
+        let request = SearchPatternRequest {
+            state: json("start{}()"),
+            pattern: json(
+                r#"\and{SortS{}}(X:SortS{}, \equals{SortS{}, SortS{}}(check{}(X:SortS{}), ok{}()))"#,
+            ),
+            max_simplification_iterations: 3,
+            ..SearchPatternRequest::default()
+        };
+
+        let states =
+            serde_json::to_value(backend.search_pattern(request.clone()).unwrap()).unwrap();
+        let paths = serde_json::to_value(backend.search_pattern_paths(request).unwrap()).unwrap();
+
+        for (response, field) in [(&states, "state"), (&paths, "witness")] {
+            let on_b = entry_at(&response["matches"], Some(field), "b{}()");
+            assert!(on_b[field].get("diagnostics").is_none(), "{response:#}");
+            assert_eq!(on_b["diagnostics"], condition_exhausted_json("check-ok"));
+            let on_c = entry_at(&response["matches"], Some(field), "c{}()");
+            assert_eq!(
+                on_c[field]["diagnostics"],
+                condition_exhausted_json("norm-c")
+            );
+            assert_eq!(on_c["diagnostics"], condition_exhausted_json("check-ok"));
+        }
     }
 
     #[test]
