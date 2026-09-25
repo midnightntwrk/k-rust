@@ -2,14 +2,18 @@
 //!
 //! K source text cannot write a label parameter, so a source-loaded rule, claim, context,
 //! context alias or configuration carries none: sort injection solves every parametric label
-//! from its arguments and position.
+//! from its arguments and position. A parameter a caller writes is rejected at compilation and
+//! by the typing view, whatever the entry path; a cast fixes an instance instead.
 
 use k_rust::builtin;
 use k_rust::definition::Attributes;
 use k_rust::definition::{Definition, FlatModule, Sentence};
 use k_rust::inner::parse_rule_content;
 use k_rust::kast::{Label, Sort, Term};
-use k_rust::kompile::{CompilationBackend, CompileOptions, compile_loaded_definition};
+use k_rust::kompile::{
+    CompilationBackend, CompileError, CompileOptions, REJECT_LABEL_PARAMETERS,
+    compile_loaded_definition,
+};
 use k_rust::outer::{
     LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation, load_structured,
 };
@@ -329,15 +333,66 @@ fn hand_written_parameters(label: &Label) -> Option<Vec<Sort>> {
     }
 }
 
-/// The source definition compiles to the same three KORE files as its loaded definition passed
-/// back through `load_structured` with the parser's former parameters written into the user
-/// modules by hand: a label parameter on a loaded rule-like term never reached the emitted KORE,
-/// so dropping it at the bubble boundary changes no output.
+fn load_structured_for(definition: Definition, backend: CompilationBackend) -> LoadedDefinition {
+    load_structured(
+        definition,
+        &LoadOptions {
+            excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("{backend}: structured loading: {error}"))
+}
+
+fn try_compile(
+    loaded: &LoadedDefinition,
+    backend: CompilationBackend,
+) -> Result<[String; 3], CompileError> {
+    compile_loaded_definition(
+        loaded,
+        CompileOptions {
+            backend,
+            ..CompileOptions::default()
+        },
+    )
+    .map(|artifacts| {
+        [
+            artifacts.definition_kore,
+            artifacts.syntax_definition_kore,
+            artifacts.macros_kore,
+        ]
+    })
+}
+
+fn assert_rejects_label_parameters(error: &CompileError, label: &str, parameters: &str) {
+    assert_eq!(error.stage, REJECT_LABEL_PARAMETERS, "{error}");
+    assert!(
+        error.message.contains(&format!(
+            "KLabel {label:?} carries the sort parameters {{{parameters}}}"
+        )),
+        "{error}"
+    );
+    assert!(
+        error
+            .message
+            .contains("remove them, or use a cast to fix an instance"),
+        "{error}"
+    );
+}
+
+/// The source definition compiles through `load_structured` to the same three KORE files; with
+/// the parser's former parameters written into its labels by hand, every structured load is
+/// rejected instead of having the parameters re-solved.
 #[test]
-fn source_kore_equals_structured_kore_with_hand_written_parameters() {
+fn structured_parameters_the_parser_used_to_write_are_rejected() {
     for backend in BACKENDS {
         let source = load_source(backend);
         let expected = compile(&source, backend);
+        let round_trip = compile(
+            &load_structured_for(source.definition.clone(), backend),
+            backend,
+        );
+        assert!(round_trip == expected, "{backend}: structured round trip");
 
         let mut structured = source.definition.clone();
         let mut written = 0usize;
@@ -354,24 +409,162 @@ fn source_kore_equals_structured_kore_with_hand_written_parameters() {
             });
         }
         assert_eq!(written, 4, "{backend}: wrap, ite, #Equals x2");
+        let error = try_compile(&load_structured_for(structured, backend), backend)
+            .expect_err("a written label parameter is rejected");
+        assert_rejects_label_parameters(&error, "wrap", "K");
+    }
+}
 
-        let loaded = load_structured(
-            structured,
-            &LoadOptions {
-                excluded_module_attributes: vec![backend.excluded_module_attribute().to_owned()],
-                ..LoadOptions::default()
-            },
+/// Rejection on each entry path over a definition whose `MInt{8}` rule needs native Z3 sort
+/// inference to parse.
+#[cfg(feature = "z3-inference")]
+mod native {
+    use super::*;
+    use k_rust::definition::ResolvedDefinition;
+    use k_rust::kompile::{SentenceTypingError, SortInjectionError, sentence_typing};
+
+    /// A user parametric production whose parameter occurs in an argument (`wrap`, `use`), and one
+    /// whose parameter occurs in neither an argument nor the result (`size`).
+    const REJECT_SOURCE: &str = r#"
+    requires "domains.md"
+
+    module REJECT-SYNTAX
+      imports DOMAINS-SYNTAX
+    endmodule
+
+    module REJECT
+      imports DOMAINS
+      imports MINT
+      syntax MInt{8}
+      syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+      syntax Num ::= Nat
+      syntax {S} Wrap ::= wrap(S) [symbol(wrap)]
+      syntax Wrap ::= f(Nat) [function, symbol(f)]
+                    | fUp(Nat) [function, symbol(fUp)]
+                    | fProj(Nat) [function, symbol(fProj)]
+      syntax {W} Bool ::= use(MInt{W}) [function, total, symbol(use)]
+      syntax Bool ::= u8(MInt{8}) [function, symbol(u8)]
+      syntax {S} Int ::= size() [function, total, symbol(size)]
+      syntax Int ::= g() [function, symbol(g)]
+      rule [wrapping]: f(X:Nat) => wrap(X)
+      rule [upcast]: fUp(X:Nat) => wrap(s(X):Num)
+      rule [projected]: fProj(X:Nat) => wrap({X}:>Num)
+      rule [use8]: u8(X:MInt{8}) => use(X)
+      rule [sized]: size() => 0
+      rule [phantom]: g() => size()
+    endmodule
+    "#;
+
+    fn load_reject_source() -> LoadedDefinition {
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        load_for_compilation(
+            ResolvedSource::new("reject.k", REJECT_SOURCE.to_owned()),
+            "REJECT",
+            None,
+            &mut resolver,
+            &options(CompilationBackend::Rust),
         )
-        .unwrap_or_else(|error| panic!("{backend}: structured loading: {error}"));
-        let actual = compile(&loaded, backend);
-        for (index, name) in ["definition.kore", "syntaxDefinition.kore", "macros.kore"]
-            .into_iter()
-            .enumerate()
-        {
-            assert!(
-                actual[index] == expected[index],
-                "{backend}: {name} differs between the source and the hand-written parameters"
-            );
+        .unwrap_or_else(|error| panic!("the reject definition loads: {error}"))
+        .0
+    }
+
+    /// `definition` with `parameters` written into the label `name` of the rule labelled `rule`.
+    fn with_written_parameters(
+        definition: &Definition,
+        rule: &str,
+        name: &str,
+        parameters: &[&str],
+    ) -> (Definition, Sentence) {
+        let mut definition = definition.clone();
+        let module = definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == "REJECT")
+            .unwrap();
+        let sentence = module
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| {
+                sentence
+                    .attributes()
+                    .string(k_rust::definition::AttributeKey::Label)
+                    == Some(&format!("REJECT.{rule}"))
+            })
+            .unwrap_or_else(|| panic!("rule {rule}"));
+        let sentence = k_rust::definition::sentence_mut(sentence);
+        let mut written = 0usize;
+        for term in rule_like_terms(sentence) {
+            visit_labels(term, &mut |label| {
+                if label.name == name {
+                    label.parameters = parameters.iter().map(|sort| Sort::new(*sort)).collect();
+                    written += 1;
+                }
+            });
+        }
+        assert_eq!(written, 1, "{rule} applies {name} once");
+        let sentence = sentence.clone();
+        (definition, sentence)
+    }
+
+    /// Without a written parameter, each instance is the one sort injection solves: the least one
+    /// fitting the arguments and the position. An upcast on an argument does not raise it
+    /// (`wrap(s(X):Num)` is `wrap{Nat}`); an instance above the argument's sort is reached only
+    /// through a projection (`wrap({X}:>Num)` is `wrap{Num}` of `project:Num`), as in K source. A
+    /// parameter occurring in neither an argument nor the result (`size`'s `S`) is universally
+    /// quantified in every sentence that uses it. A written parameter is rejected on each entry
+    /// path: a structured load, a hand-built `LoadedDefinition`, and the typing view. The `MInt{8}`
+    /// rule needs native Z3 sort inference to parse.
+    #[test]
+    fn a_written_label_parameter_is_rejected_and_the_solved_instance_is_emitted() {
+        let backend = CompilationBackend::Rust;
+        let source = load_reject_source();
+        let [definition_kore, ..] = try_compile(&source, backend)
+            .unwrap_or_else(|error| panic!("the parameter-free definition compiles: {error}"));
+        for expected in [
+            "Lblwrap{SortNat{}}(VarX:SortNat{})",
+            "Lblwrap{SortNat{}}(Lbls{}(VarX:SortNat{}))",
+            "Lblwrap{SortNum{}}(\n            Lblproject'Coln'Num{}(",
+            "Lbluse{Sort8{}}(VarX:SortMInt{Sort8{}})",
+            "Lblsize{Sort'Hash'SortParam{",
+        ] {
+            assert!(definition_kore.contains(expected), "{expected}");
+        }
+        assert!(!definition_kore.contains("Lblsize{SortNat{}}"));
+
+        for (rule, name, parameters, rendered) in [
+            ("wrapping", "wrap", &["Num"][..], "Num"),
+            ("use8", "use", &["16"][..], "16"),
+            ("phantom", "size", &["Nat"][..], "Nat"),
+        ] {
+            let (edited, sentence) =
+                with_written_parameters(&source.definition, rule, name, parameters);
+
+            let structured = load_structured_for(edited.clone(), backend);
+            let error = try_compile(&structured, backend).expect_err(rule);
+            assert_rejects_label_parameters(&error, name, rendered);
+
+            let hand_built = LoadedDefinition {
+                files: source.files.clone(),
+                source_table: source.source_table.clone(),
+                resolved: ResolvedDefinition::resolve(&edited).unwrap(),
+                definition: edited,
+                diagnostics: source.diagnostics.clone(),
+            };
+            let error = try_compile(&hand_built, backend).expect_err(rule);
+            assert_rejects_label_parameters(&error, name, rendered);
+
+            let error = sentence_typing(&hand_built.resolved, "REJECT", &sentence).expect_err(rule);
+            let SentenceTypingError::Sort {
+                error: SortInjectionError::LabelParameters { label, parameters },
+                ..
+            } = error
+            else {
+                panic!("{rule}: {error}")
+            };
+            assert_eq!(label, name);
+            assert_eq!(parameters, [Sort::new(rendered)]);
         }
     }
 }

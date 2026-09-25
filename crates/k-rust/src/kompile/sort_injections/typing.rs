@@ -193,6 +193,18 @@ impl<'a> SentenceTyper<'a> {
         else {
             return Err(SentenceTypingError::NotRuleLike);
         };
+        let location =
+            sentence
+                .attributes()
+                .source()
+                .map(|source| match sentence.attributes().location() {
+                    Some(location) => format!("{source}:{}", location.start_line),
+                    None => source.to_owned(),
+                });
+        super::reject_label_parameters(sentence).map_err(|error| SentenceTypingError::Sort {
+            location: location.clone(),
+            error,
+        })?;
         let variables = semantic_cast_variable_sorts(sentence, &self.declared)
             .map_err(SentenceTypingError::SemanticCasts)?;
         let resolved = resolve_semantic_casts_in_sentence(&self.declared, sentence.clone())
@@ -212,14 +224,6 @@ impl<'a> SentenceTyper<'a> {
         else {
             unreachable!("resolution keeps the sentence kind")
         };
-        let location =
-            sentence
-                .attributes()
-                .source()
-                .map(|source| match sentence.attributes().location() {
-                    Some(location) => format!("{source}:{}", location.start_line),
-                    None => source.to_owned(),
-                });
         self.typing_of(
             [body, requires, ensures],
             [resolved_body, resolved_requires, resolved_ensures],
