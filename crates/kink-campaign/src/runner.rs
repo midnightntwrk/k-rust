@@ -9,9 +9,7 @@
 //! - A state oracle (exit stop or final result) needs every path complete and a
 //!   collection that stopped for lack of work on an execution route. An explore-all run
 //!   qualifies, because k-rust's merging of converging branches keeps every distinct final
-//!   state; a search never does, whatever its collection stop, because the bridged route
-//!   says it was one. Any
-//!   other stop is `Error` for an error or a cancelled leaf (until upstream tells
+//!   state. Any other stop is `Error` for an error or a cancelled leaf (until upstream tells
 //!   cancellation from timeout), `Timeout` for a timed-out leaf, and `Unknown`
 //!   otherwise, including a backend diagnostic.
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
@@ -36,9 +34,7 @@ use k_rust::kore::{
     parser::parse_definition,
     walk,
 };
-use kink_native::bridge::{
-    BridgeContext, BridgeFailure, BridgedPaths, PathRoute, paths_from_execution,
-};
+use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, ExecutionRoute,
 };
@@ -568,21 +564,17 @@ const fn path_stop_side(stop: PathStop) -> OracleSide {
 /// The side a collection stop of paths obtained on `route` stands for, or `None` when that
 /// route ran out of work. An explore-all execution has no exhaustion record, but merging
 /// converging branches keeps every distinct final state, so its `ExhaustionUnrecorded` is
-/// complete for state oracles; a search's is not (review P2.1), and neither is a stop that
-/// its route cannot produce. Exhaustive over `CollectionStop` and `PathRoute`.
-const fn collection_stop_side(route: PathRoute, stop: CollectionStop) -> Option<OracleSide> {
+/// complete for state oracles. A stop its route cannot produce is not evidence.
+/// Exhaustive over `CollectionStop` and `ExecutionRoute`.
+const fn collection_stop_side(route: ExecutionRoute, stop: CollectionStop) -> Option<OracleSide> {
     match stop {
         CollectionStop::SearchExhausted => match route {
-            PathRoute::Execution(ExecutionRoute::SinglePath) => None,
-            PathRoute::Execution(ExecutionRoute::ExploreAll) | PathRoute::Search => {
-                Some(OracleSide::Unknown)
-            }
+            ExecutionRoute::SinglePath => None,
+            ExecutionRoute::ExploreAll => Some(OracleSide::Unknown),
         },
         CollectionStop::ExhaustionUnrecorded => match route {
-            PathRoute::Execution(ExecutionRoute::ExploreAll) => None,
-            PathRoute::Execution(ExecutionRoute::SinglePath) | PathRoute::Search => {
-                Some(OracleSide::Unknown)
-            }
+            ExecutionRoute::ExploreAll => None,
+            ExecutionRoute::SinglePath => Some(OracleSide::Unknown),
         },
         CollectionStop::Error => Some(OracleSide::Error),
         CollectionStop::TimeLimit => Some(OracleSide::Timeout),
@@ -769,7 +761,6 @@ impl From<&BridgeFailure> for ExecutionFailureKind {
             | BridgeFailure::UndecodablePayload(_)
             | BridgeFailure::UndecodableState(_)
             | BridgeFailure::UndecidedStateSort
-            | BridgeFailure::UnsupportedQueryShape(_)
             | BridgeFailure::DuplicatePathIdentity(_) => Self::Infrastructure,
         }
     }

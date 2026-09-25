@@ -17,7 +17,7 @@ use crate::ProvenanceStatus;
 #[derive(Clone, Debug, PartialEq)]
 pub struct RuleObservationSpec {
     pub label: String,
-    /// Exact backend identity passed to the public observed-search selector.
+    /// Exact backend identity passed to the public observed execution selector.
     pub backend_rule_identity: String,
     pub emit_rule_applied: bool,
     pub domain_events: Vec<DomainEventSpec>,
@@ -52,7 +52,7 @@ impl InstalledObservationManifest {
     /// Validates the local manifest atomically without mutating a backend.
     ///
     /// Definition membership and module visibility are validated atomically by the public
-    /// `Backend::*_observed` operation before search executes.
+    /// `Backend::*_observed` operation before execution starts.
     pub fn install(specs: Vec<RuleObservationSpec>) -> Result<Self, ObservationFailure> {
         let mut selected_labels = BTreeSet::new();
         let mut selected_identities = BTreeSet::new();
@@ -121,7 +121,7 @@ struct InstalledRule {
     spec: RuleObservationSpec,
 }
 
-/// One branch-local adapted search/execution state.
+/// One branch-local adapted execution state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptedBranch {
     pub identity: Vec<TransitionIdOutput>,

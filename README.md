@@ -15,7 +15,7 @@ The work is intended to be merged into k-rust together with KRS.
 |---|---|
 | [`kink-pattern`](crates/kink-pattern) | Execution pattern plans evaluated over paths whose payloads are KORE patterns. |
 | [`kink-patch`](crates/kink-patch) | Patches over a loaded k-rust `Definition`, mutation sites and candidate selection. |
-| [`kink-native`](crates/kink-native) | Mutant validation, execution and search adapters over the k-rust backend, and the bridge to kink-pattern paths. |
+| [`kink-native`](crates/kink-native) | Mutant validation and execution adapters over the k-rust backend, and the bridge to kink-pattern paths. |
 | [`kink-campaign`](crates/kink-campaign) | Campaign runner, typed oracle comparison, mutant classification and scoring. |
 
 ## Upstream requests

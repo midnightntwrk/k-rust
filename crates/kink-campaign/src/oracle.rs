@@ -4,9 +4,8 @@ use kink_pattern::Binding;
 use std::collections::BTreeSet;
 use std::fmt;
 
-/// The oracle kinds `compare_supplied` can compare. Reachability and structured
-/// predicates wait for k-rust search completeness (`upstream/k-rust.toml`
-/// `search-completeness`).
+/// The oracle kinds `compare_supplied` can compare. A state or pattern predicate that needs
+/// search waits for a search oracle, which is not planned.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OracleKind {
     /// Terminal class and declared object-program exit code.

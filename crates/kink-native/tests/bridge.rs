@@ -1,6 +1,6 @@
 //! Observed execution over the shared `testdata/k` definitions, read through the bridge into
 //! kink-pattern paths, and over an inline KORE definition that reaches every halt reason. The
-//! exhaustive leaf and search mapping tables are unit tests in `src/bridge.rs`, because adapted
+//! exhaustive leaf mapping tables are unit tests in `src/bridge.rs`, because adapted
 //! responses cannot be built outside the crate.
 
 #[path = "../../../testdata/k/support.rs"]
@@ -9,7 +9,7 @@ mod support;
 use std::time::Duration;
 
 use k_rust::backend::{
-    Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ObservedRequest, SearchRequest,
+    Backend, BackendOptions, ExecuteRequest, ExecutionStrategy, ObservedRequest,
 };
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
@@ -19,12 +19,11 @@ use k_rust::kore::{
     codec,
     parser::{parse_definition, parse_pattern},
 };
-use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution, paths_from_search};
+use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionBudget, ExecutionRoute, HaltClass,
 };
 use kink_native::observation::{DomainEventSpec, InstalledObservationManifest, PayloadSource};
-use kink_native::search::{SearchAdapter, SolverProfile};
 use kink_native::{ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition};
 use kink_patch::{Edit, Patch, TermRef};
 use kink_pattern::{
@@ -687,106 +686,5 @@ fn undecided_live_occurrences_are_no_witness() {
         assert_eq!(result.outcome, PatternOutcome::Unknown, "{id}");
         assert!(result.witnesses.is_empty(), "{id}");
         assert_eq!(result.failure, Some(stop), "{id}");
-    }
-}
-
-/// Review P2.3 over live k-rust: a path search that exhausts the simplifier budget collects
-/// the backend diagnostic, so its one witness, although a ground final state carrying the
-/// applied rule's event, is `BackendLimit` and no witness; with the budget it needs, the same
-/// search's witness is a complete path and a `Match`.
-#[test]
-fn diagnosed_search_witnesses_are_no_witness() {
-    let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
-    let slow = enabled(&validator, "UNDECIDED.slow");
-    let constructor = "rule:UNDECIDED.slow";
-    let vocabulary = vocabulary(&[(constructor, &[])]);
-    let rules = [rule_applied("UNDECIDED.slow")];
-    let manifest = validator
-        .observation_manifest(&slow, &rules)
-        .expect("manifest installs");
-    let sorts = symbol_sorts(&slow);
-    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
-    let context = EvaluationContext {
-        test_id: "t".to_owned(),
-        bounds: ExecutionBounds {
-            depth: None,
-            time_ms: None,
-            branches: None,
-            results: None,
-        },
-        vocabulary: vocabulary.clone(),
-        selected_rule_labels: manifest.labels().map(str::to_owned).collect(),
-        symbol_sorts: sorts.clone(),
-    };
-    let state = support::initial_state(
-        kore_application("Lbldraining", Vec::new(), Vec::new()),
-        "SortS",
-    );
-    // (id, simplifier iterations, diagnosed)
-    for (id, iterations, diagnosed) in [("tight", 2, true), ("ample", 1000, false)] {
-        let mut backend = Backend::new(
-            &slow.artifacts().definition_kore,
-            "UNDECIDED",
-            BackendOptions::default(),
-        )
-        .expect("backend");
-        let search = SearchAdapter::new(SolverProfile::StructuredNoZ3Inference, manifest.clone())
-            .expect("no-Z3 profile")
-            .search_paths(
-                &mut backend,
-                SearchRequest {
-                    state: codec::to_value(&state).expect("state encodes"),
-                    max_simplification_iterations: iterations,
-                    ..SearchRequest::default()
-                },
-            )
-            .expect("path search adapts");
-        assert_eq!(search.diagnostics().is_empty(), !diagnosed, "{id}");
-        let bridged = paths_from_search(
-            &search,
-            &BridgeContext {
-                test_id: "t",
-                classify: &normal,
-                sorts: &sorts,
-            },
-        )
-        .expect("search bridges");
-        let [path] = bridged.paths.as_slice() else {
-            panic!("{id}: one path");
-        };
-        assert_eq!(
-            path.events
-                .iter()
-                .map(|event| event.constructor.as_str())
-                .collect::<Vec<_>>(),
-            [constructor],
-            "{id}: the rule applied"
-        );
-        assert_eq!(path.complete, !diagnosed, "{id}");
-        let result = evaluate(
-            &context,
-            &single_atom(&vocabulary, constructor, None),
-            &bridged.paths,
-            &bridged.collection,
-            None,
-            EvaluationOptions {
-                stable_path_keys: true,
-                search_policy: SearchPolicy::Exhaustive,
-                input_error: false,
-            },
-        )
-        .expect("evaluation");
-        if diagnosed {
-            assert_eq!(path.stop, PathStop::BackendLimit, "{id}");
-            assert_eq!(
-                bridged.collection.stop,
-                CollectionStop::BackendLimit,
-                "{id}"
-            );
-            assert_eq!(result.outcome, PatternOutcome::Unknown, "{id}");
-            assert!(result.witnesses.is_empty(), "{id}");
-        } else {
-            assert_eq!(result.outcome, PatternOutcome::Match, "{id}");
-        }
     }
 }

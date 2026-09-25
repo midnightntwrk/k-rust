@@ -5,22 +5,19 @@ mod support;
 
 use std::time::Duration;
 
-use k_rust::backend::{Backend, BackendOptions, SearchRequest};
 use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort as KastSort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
-use k_rust::kore::{ast::Pattern, codec, parser::parse_definition, walk};
+use k_rust::kore::{ast::Pattern, walk};
 use kink_campaign::{
     Campaign, CampaignFailureKind, CrashPolicy, ExecutionFailureKind, MutantScopeFailure,
     MutantStatus, OracleDeclaration, OracleOutcome, OracleSide, OracleValue, PatternValue,
     Projection, Rational, ScheduleMode, SideRun, StateProjection, TestCase, TestEvidence, TestPlan,
-    TestRun, derive_mutant_report, run_campaign, state_side,
+    TestRun, derive_mutant_report, run_campaign,
 };
-use kink_native::bridge::{BridgeContext, paths_from_execution, paths_from_search};
-use kink_native::execution::{ExecutionAdapter, ExecutionBudget, ExecutionRoute};
+use kink_native::execution::{ExecutionBudget, ExecutionRoute};
 use kink_native::observation::DomainEventSpec;
-use kink_native::search::{SearchAdapter, SolverProfile};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
     Baseline, CandidateFailureKind, CandidateGeneration, Discovery, Edit, Patch, SelectionPolicy,
@@ -28,7 +25,6 @@ use kink_patch::{
 };
 use kink_pattern::{
     Atom, Constructor, EventVocabulary, ExecutionTerminalKind, OriginMode, PatternArm, PatternPlan,
-    SymbolSorts,
 };
 use serde_json::Value;
 
@@ -659,67 +655,6 @@ fn rule_applied(label: &str) -> ObservedRule {
         emit_rule_applied: true,
         domain_events: Vec::new(),
     }
-}
-
-/// Review P2.1: a path search is never complete, so a state oracle over its paths is
-/// `Unknown` even when every witness is a ground final state; the execution of the same
-/// program is a value.
-#[test]
-fn search_paths_are_never_a_state_value() {
-    with_stack(|| {
-        let validator =
-            NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
-        let side = validator.compile_baseline().expect("baseline compiles");
-        let manifest = validator
-            .observation_manifest(&side, &[])
-            .expect("manifest installs");
-        let sorts = SymbolSorts::from_definition(
-            &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
-        );
-        let context = BridgeContext {
-            test_id: "t1",
-            classify: &normal,
-            sorts: &sorts,
-        };
-        let backend = || {
-            Backend::new(
-                &side.artifacts().definition_kore,
-                "COUNTER",
-                BackendOptions::default(),
-            )
-            .expect("backend")
-        };
-        let execution = ExecutionAdapter::new(manifest.clone())
-            .execute(&mut backend(), &counter_state(), BUDGET)
-            .expect("execution adapts");
-        let search = SearchAdapter::new(SolverProfile::StructuredNoZ3Inference, manifest)
-            .expect("no-Z3 profile")
-            .search_paths(
-                &mut backend(),
-                SearchRequest {
-                    state: codec::to_value(&counter_state()).expect("state encodes"),
-                    ..SearchRequest::default()
-                },
-            )
-            .expect("path search adapts");
-        let executed = paths_from_execution(&execution, &context).expect("execution bridges");
-        let searched = paths_from_search(&search, &context).expect("search bridges");
-        // The search's one witness is the execution's complete ground terminal.
-        let terminals = |bridged: &kink_native::bridge::BridgedPaths| {
-            bridged
-                .paths
-                .iter()
-                .map(|path| (path.complete, path.execution_terminal.clone()))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(terminals(&searched), terminals(&executed));
-        let projection = StateProjection::WholeTerm;
-        assert!(matches!(
-            state_side(&projection, &executed),
-            OracleSide::Normal(_)
-        ));
-        assert_eq!(state_side(&projection, &searched), OracleSide::Unknown);
-    });
 }
 
 /// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and

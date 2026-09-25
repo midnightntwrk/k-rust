@@ -23,7 +23,7 @@ use kink_campaign::{
     pattern_side, slot_outcome, state_side,
 };
 use kink_native::MutantRejection;
-use kink_native::bridge::{BridgeFailure, BridgedPaths, PathRoute, halt_stop};
+use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
 use kink_native::execution::{ExecutionAdapterFailure, ExecutionRoute, HaltClass};
 use kink_native::observation::ObservationFailure;
 use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, apply};
@@ -144,7 +144,7 @@ fn run(paths: Vec<PathInput>) -> BridgedPaths {
             });
     BridgedPaths {
         paths,
-        route: PathRoute::Execution(ExecutionRoute::SinglePath),
+        route: ExecutionRoute::SinglePath,
         collection: collection(stop),
     }
 }
@@ -491,7 +491,7 @@ fn e4_operand_eligibility() {
         ("complete-no-match", complete(NoMatch, &[]), true, normal(OracleValue::Pattern(PatternValue::NoMatch))),
         ("incomplete-match-without-bindings-is-a-match", evaluation(Match, false, Exhaustive, &[&[]]), false, matched(None)),
         ("complete-bindings", complete(Match, &[&[("A", "a")]]), true, matched(Some([vec![Binding { name: "A".to_owned(), term: constant("a") }]].into()))),
-        // A search-derived or explore-all collection has no exhaustion record.
+        // An explore-all collection has no exhaustion record.
         ("bindings-without-complete-coverage-are-unknown", evaluation(Match, false, Exhaustive, &[&[("A", "a")]]), true, OracleSide::Unknown),
         ("bindings-from-existential-first-are-unknown", evaluation(Match, true, ExistentialFirst, &[&[("A", "a")]]), true, OracleSide::Unknown),
         // `evaluate` never returns it; the side still refuses it.
@@ -704,7 +704,7 @@ fn bounded_or_indeterminate_sides_are_unknown_even_against_a_crash() {
             "backend-diagnostic".to_owned(),
             BridgedPaths {
                 paths: vec![terminal(0, Normal, done.clone())],
-                route: PathRoute::Execution(ExecutionRoute::SinglePath),
+                route: ExecutionRoute::SinglePath,
                 collection: collection(CollectionStop::BackendLimit),
             },
         ),
@@ -762,15 +762,13 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
         | BridgeFailure::UndecodablePayload(_)
         | BridgeFailure::UndecodableState(_)
         | BridgeFailure::UndecidedStateSort
-        | BridgeFailure::UnsupportedQueryShape(_)
         | BridgeFailure::DuplicatePathIdentity(_) => {}
     }
 }
 
 /// Review P2.1: complete paths are a state value only when their route ran out of work, and
-/// only an execution route can: a single-path run records exhaustion, and an explore-all run
-/// keeps every distinct final state without recording it. A search is never complete, and
-/// a stop its route cannot produce is not evidence. One row per route and
+/// a single-path run records exhaustion, and an explore-all run keeps every distinct final
+/// state without recording it. A stop its route cannot produce is not evidence. One row per route and
 /// out-of-work stop.
 #[test]
 fn state_values_need_an_execution_route_that_ran_out_of_work() {
@@ -782,12 +780,10 @@ fn state_values_need_an_execution_route_that_ran_out_of_work() {
     )));
     #[rustfmt::skip]
     let rows = [
-        ("single-path-exhausted", PathRoute::Execution(SinglePath), SearchExhausted, value.clone()),
-        ("single-path-unrecorded", PathRoute::Execution(SinglePath), ExhaustionUnrecorded, OracleSide::Unknown),
-        ("explore-all-exhausted", PathRoute::Execution(ExploreAll), SearchExhausted, OracleSide::Unknown),
-        ("explore-all-unrecorded", PathRoute::Execution(ExploreAll), ExhaustionUnrecorded, value),
-        ("search-exhausted", PathRoute::Search, SearchExhausted, OracleSide::Unknown),
-        ("search-unrecorded", PathRoute::Search, ExhaustionUnrecorded, OracleSide::Unknown),
+        ("single-path-exhausted", SinglePath, SearchExhausted, value.clone()),
+        ("single-path-unrecorded", SinglePath, ExhaustionUnrecorded, OracleSide::Unknown),
+        ("explore-all-exhausted", ExploreAll, SearchExhausted, OracleSide::Unknown),
+        ("explore-all-unrecorded", ExploreAll, ExhaustionUnrecorded, value),
     ];
     for (id, route, stop, expected) in rows {
         let bridged = BridgedPaths {
@@ -843,16 +839,13 @@ fn runner_mapping_is_exhaustive() {
     }
 
     // Terminal sets.
-    let other = configuration("done", "2");
     let crash = constant("crash");
     #[rustfmt::skip]
     let shapes = [
         ("single-crash-is-its-terminal-term", single(SemanticCrash, crash.clone()), OracleSide::SemanticCrash(crash.clone())),
         ("crash-among-terminals-is-unknown", run(vec![terminal(0, Normal, done.clone()), terminal(1, SemanticCrash, crash.clone())]), OracleSide::Unknown),
         // Explore-all: no exhaustion record, but every distinct final state is kept.
-        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, other.clone())], route: PathRoute::Execution(ExecutionRoute::ExploreAll), collection: collection(CollectionStop::ExhaustionUnrecorded) }, value(&[done.clone(), other.clone()])),
-        // Review P2.1: a search shares that stop but not that guarantee.
-        ("search-final-states-are-unknown", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, other)], route: PathRoute::Search, collection: collection(CollectionStop::ExhaustionUnrecorded) }, OracleSide::Unknown),
+        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, configuration("done", "2"))], route: ExecutionRoute::ExploreAll, collection: collection(CollectionStop::ExhaustionUnrecorded) }, value(&[done.clone(), configuration("done", "2")])),
         ("error-over-timeout", run(vec![incomplete(0, PathStop::TimeLimit), incomplete(1, PathStop::Error)]), OracleSide::Error),
         ("timeout-over-unknown", run(vec![incomplete(0, PathStop::DepthLimit), incomplete(1, PathStop::TimeLimit)]), OracleSide::Timeout),
         ("no-paths-is-error", run(Vec::new()), OracleSide::Error),
@@ -892,7 +885,6 @@ fn runner_mapping_is_exhaustive() {
         BridgeFailure::UndecodablePayload(String::new()),
         BridgeFailure::UndecodableState(String::new()),
         BridgeFailure::UndecidedStateSort,
-        BridgeFailure::UnsupportedQueryShape(k_rust::backend::SearchTypeArg::OneStep),
         BridgeFailure::DuplicatePathIdentity("root".to_owned()),
     ];
     for failure in &bridge {

@@ -1,14 +1,8 @@
-//! Maps adapted executions and path searches to kink-pattern paths and collection evidence.
+//! Maps adapted executions to kink-pattern paths and collection evidence.
 //!
 //! Only an execution taken on [`ExecutionRoute::SinglePath`] can be complete. An explore-all
-//! execution's collection stop is at best `ExhaustionUnrecorded`, because k-rust may have
-//! merged converging branches together with their events. A search is never complete: k-rust
-//! has no exhaustion record (`upstream/k-rust.toml` `search-completeness`), so its frontier and
-//! incomplete items become limit or indeterminate stops and its collection stop is never
-//! `SearchExhausted`. Neither function can therefore yield evidence for `NoMatch` unless the
-//! execution is a single complete path. Both record their [`PathRoute`], because an
-//! explore-all execution's `ExhaustionUnrecorded` still holds every distinct final state and
-//! a search's does not.
+//! execution's collection stop is `ExhaustionUnrecorded`, because k-rust may have merged
+//! converging branches together with their events. It still holds every distinct final state.
 //!
 //! A path's events are evidence for `Match` only when its prefix is real
 //! (`PathStop::has_real_prefix`). Without a solver, a symbolic or constrained state may be
@@ -17,7 +11,7 @@
 //! backend diagnostic may have kept an infeasible branch or dropped a condition, so every one
 //! of its paths is `BackendLimit`.
 
-use k_rust::backend::{EffectOutput, SearchTypeArg};
+use k_rust::backend::EffectOutput;
 use k_rust::kore::{
     ast::{Pattern, Sort},
     codec,
@@ -29,7 +23,6 @@ use kink_pattern::{
 
 use crate::execution::{AdaptedExecution, ExecutionRoute, HaltClass};
 use crate::observation::{AdaptedBranch, DomainPayload, NativeEvent};
-use crate::search::{AdaptedIncomplete, AdaptedPathSearch, IncompleteClass};
 
 /// What the bridge needs besides the adapted response.
 pub struct BridgeContext<'a> {
@@ -40,22 +33,12 @@ pub struct BridgeContext<'a> {
     pub sorts: &'a SymbolSorts,
 }
 
-/// How bridged paths were obtained. A consumer that needs every final state reads it
-/// instead of inferring the route from the collection stop, which an explore-all execution
-/// and a search share.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PathRoute {
-    Execution(ExecutionRoute),
-    /// A `Final` path search: never a complete set of final states.
-    Search,
-}
-
 /// Paths in response order, the route that produced them, and the evidence of how their
 /// collection stopped.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BridgedPaths {
     pub paths: Vec<PathInput>,
-    pub route: PathRoute,
+    pub route: ExecutionRoute,
     pub collection: CollectionEvidence,
 }
 
@@ -69,13 +52,11 @@ pub enum BridgeFailure {
     UndecodablePayload(String),
     UndecodableState(String),
     UndecidedStateSort,
-    /// Only a `Final` search's witnesses are final states.
-    UnsupportedQueryShape(SearchTypeArg),
     /// Two different branches have one identity, so they would share a path key.
     DuplicatePathIdentity(String),
 }
 
-/// How one leaf or search state becomes a path.
+/// How one execution leaf becomes a path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum LeafPath {
     /// A ground terminal term with no path condition.
@@ -357,22 +338,6 @@ impl<'a> PathSet<'a> {
         )
     }
 
-    /// An incomplete search state; it adds `stop` whatever its halt would be.
-    fn push_incomplete(
-        &mut self,
-        branch: &AdaptedBranch,
-        stop: PathStop,
-    ) -> Result<(), BridgeFailure> {
-        let split = split_state(&branch.state, self.context.sorts)?;
-        let stop = if self.diagnosed {
-            PathStop::BackendLimit
-        } else {
-            decided_stop(stop, split.decided_term().is_some())
-        };
-        self.incomplete.push(stop);
-        self.insert(branch, false, stop, None, split.path_predicate())
-    }
-
     fn insert(
         &mut self,
         branch: &AdaptedBranch,
@@ -408,12 +373,10 @@ impl<'a> PathSet<'a> {
 
     /// The least severe incomplete stop, else the stop of `route` running out of work: only a
     /// single-path execution records exhaustion.
-    fn finish(self, route: PathRoute) -> BridgedPaths {
+    fn finish(self, route: ExecutionRoute) -> BridgedPaths {
         let otherwise = match route {
-            PathRoute::Execution(ExecutionRoute::SinglePath) => CollectionStop::SearchExhausted,
-            PathRoute::Execution(ExecutionRoute::ExploreAll) | PathRoute::Search => {
-                CollectionStop::ExhaustionUnrecorded
-            }
+            ExecutionRoute::SinglePath => CollectionStop::SearchExhausted,
+            ExecutionRoute::ExploreAll => CollectionStop::ExhaustionUnrecorded,
         };
         // A diagnostic taints the whole response, so a less severe stop must not hide it.
         let stop = if self.diagnosed {
@@ -444,7 +407,7 @@ pub fn paths_from_execution(
     if execution.timed_out {
         return Ok(BridgedPaths {
             paths: Vec::new(),
-            route: PathRoute::Execution(execution.route),
+            route: execution.route,
             collection: CollectionEvidence {
                 stop: CollectionStop::TimeLimit,
                 pending_work: 1,
@@ -459,76 +422,13 @@ pub fn paths_from_execution(
     for leaf in &execution.leaves {
         paths.push(&leaf.branch, leaf.halt)?;
     }
-    Ok(paths.finish(PathRoute::Execution(execution.route)))
-}
-
-/// The stop one upstream incomplete item stands for. A result bound adds no path: it is a
-/// collection-level stop. Exhaustive over `IncompleteClass`.
-pub(crate) const fn incomplete_stop(class: IncompleteClass) -> PathStop {
-    match class {
-        IncompleteClass::ResultBound => PathStop::ResultLimit,
-        IncompleteClass::DepthBound => PathStop::DepthLimit,
-        IncompleteClass::BreadthBound => PathStop::BranchLimit,
-        IncompleteClass::Indeterminate => PathStop::BackendLimit,
-        IncompleteClass::MatchIndeterminate | IncompleteClass::SolverDeferred => {
-            PathStop::SolverUnknown
-        }
-        IncompleteClass::Cancelled => PathStop::Error,
-    }
-}
-
-/// Reads an adapted `Final` path search as paths; see the module documentation.
-pub fn paths_from_search(
-    search: &AdaptedPathSearch,
-    context: &BridgeContext<'_>,
-) -> Result<BridgedPaths, BridgeFailure> {
-    let search_type = search.query().search_type();
-    if search_type != SearchTypeArg::Final {
-        return Err(BridgeFailure::UnsupportedQueryShape(search_type));
-    }
-    let mut paths = PathSet::new(context, !search.diagnostics().is_empty());
-    for witness in search
-        .outcome()
-        .witnesses()
-        .into_iter()
-        .flat_map(|w| w.iter())
-    {
-        // A non-frontier `Final` witness is a state that cannot rewrite: a stuck leaf.
-        paths.push(witness, HaltClass::Stuck)?;
-    }
-    for state in search.frontier() {
-        paths.push_incomplete(state, PathStop::DepthLimit)?;
-    }
-    for item in search.incomplete() {
-        let stop = incomplete_stop(item.class());
-        match item {
-            AdaptedIncomplete::ResultBound => paths.incomplete.push(stop),
-            AdaptedIncomplete::BreadthBound { states } => {
-                for state in states {
-                    paths.push_incomplete(state, stop)?;
-                }
-            }
-            AdaptedIncomplete::DepthBound { state }
-            | AdaptedIncomplete::Indeterminate { state, .. }
-            | AdaptedIncomplete::Cancelled { state }
-            | AdaptedIncomplete::Simplification { state, .. }
-            | AdaptedIncomplete::MatchIndeterminate { state, .. }
-            | AdaptedIncomplete::SolverDeferred { state, .. } => {
-                paths.push_incomplete(state, stop)?;
-            }
-        }
-    }
-    Ok(paths.finish(PathRoute::Search))
+    Ok(paths.finish(execution.route))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use k_rust::backend::{
-        BACKEND_SCHEMA_VERSION, IncompleteSearchOutput, PathSearchResponse, PathWitnessOutput,
-        ResultModalityOutput, SearchFailureOutput, SearchStateOutput, SmtFailureOutput,
-        TransitionIdOutput,
-    };
+    use k_rust::backend::TransitionIdOutput;
     use k_rust::kore::{json as kore_json, parser::parse_pattern};
     use kink_pattern::{
         Atom, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary, ExecutionBounds,
@@ -538,8 +438,7 @@ mod tests {
 
     use crate::ProvenanceStatus;
     use crate::execution::AdaptedLeaf;
-    use crate::observation::{DomainEvent, InstalledObservationManifest};
-    use crate::search::{QueryShape, adapt_path_response};
+    use crate::observation::DomainEvent;
 
     use HaltClass as H;
     use PathStop as P;
@@ -876,7 +775,7 @@ mod tests {
             let bridged = paths_from_execution(&execution, &bridge_context(&sorts))
                 .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
             assert_eq!(bridged.collection.stop, stop, "{id}");
-            assert_eq!(bridged.route, PathRoute::Execution(execution.route), "{id}");
+            assert_eq!(bridged.route, execution.route, "{id}");
             assert_eq!(bridged.paths.len(), paths, "{id}");
             assert_eq!(presence(&bridged), occurrence, "{id}");
             if !execution.diagnostics.is_empty() {
@@ -920,347 +819,27 @@ mod tests {
         );
     }
 
-    fn search_state(marker: usize) -> SearchStateOutput {
-        SearchStateOutput {
-            state: kore(GROUND),
-            depth: 1,
-            trace: Vec::new(),
-            branch: vec![TransitionIdOutput {
-                rule: format!("rule-{marker}"),
-                target: format!("target-{marker}"),
-            }],
-            observations: Vec::new(),
-        }
-    }
-
-    fn witness(marker: usize, depth: u64) -> PathWitnessOutput {
-        let state = search_state(marker);
-        PathWitnessOutput {
-            id: state.branch,
-            state: state.state,
-            depth,
-            trace: Vec::new(),
-            observations: Vec::new(),
-        }
-    }
-
-    fn search(
-        query: QueryShape,
-        witnesses: Vec<PathWitnessOutput>,
-        incomplete: Vec<IncompleteSearchOutput>,
-    ) -> AdaptedPathSearch {
-        adapt_path_response(
-            &InstalledObservationManifest::install(Vec::new()).expect("empty manifest"),
-            query,
-            PathSearchResponse {
-                schema_version: BACKEND_SCHEMA_VERSION,
-                modality: ResultModalityOutput::PathSet,
-                witnesses,
-                effects: Vec::new(),
-                incomplete,
-            },
-        )
-        .expect("adapted search")
-    }
-
-    /// One row per incomplete class, a frontier-only row and an empty-incomplete row: a
-    /// search collection is never `SearchExhausted`, so absence is never `NoMatch`.
-    #[test]
-    fn search_outcomes_never_reach_search_exhausted() {
-        use IncompleteSearchOutput as I;
-        let unbounded = QueryShape::new(SearchTypeArg::Final, None);
-        let requires = || SearchFailureOutput::Requires {
-            rule: "r".to_owned(),
-            predicates: Vec::new(),
-        };
-        // (id, query, witnesses, incomplete items, expected collection stop, path count)
-        type Row = (
-            &'static str,
-            QueryShape,
-            Vec<PathWitnessOutput>,
-            Vec<I>,
-            CollectionStop,
-            usize,
-        );
-        let rows: Vec<Row> = vec![
-            (
-                "empty-incomplete",
-                unbounded,
-                vec![witness(0, 1)],
-                Vec::new(),
-                CollectionStop::ExhaustionUnrecorded,
-                1,
-            ),
-            (
-                "frontier-only",
-                QueryShape::new(SearchTypeArg::Final, Some(1)),
-                vec![witness(0, 1)],
-                Vec::new(),
-                CollectionStop::DepthLimit,
-                1,
-            ),
-            (
-                "result-bound",
-                unbounded,
-                Vec::new(),
-                vec![I::ResultBound],
-                CollectionStop::ResultLimit,
-                0,
-            ),
-            (
-                "depth-bound",
-                unbounded,
-                Vec::new(),
-                vec![I::DepthBound {
-                    state: search_state(1),
-                }],
-                CollectionStop::DepthLimit,
-                1,
-            ),
-            (
-                "breadth-bound",
-                unbounded,
-                Vec::new(),
-                vec![I::BreadthBound {
-                    states: vec![search_state(1), search_state(2)],
-                }],
-                CollectionStop::BranchLimit,
-                2,
-            ),
-            (
-                "indeterminate",
-                unbounded,
-                Vec::new(),
-                vec![I::Indeterminate {
-                    state: search_state(1),
-                    reason: requires(),
-                }],
-                CollectionStop::BackendLimit,
-                1,
-            ),
-            (
-                "indeterminate-cancelled",
-                unbounded,
-                Vec::new(),
-                vec![I::Indeterminate {
-                    state: search_state(1),
-                    reason: SearchFailureOutput::Cancelled,
-                }],
-                CollectionStop::Error,
-                1,
-            ),
-            (
-                "cancelled",
-                unbounded,
-                Vec::new(),
-                vec![I::Cancelled {
-                    state: search_state(1),
-                }],
-                CollectionStop::Error,
-                1,
-            ),
-            (
-                "simplification",
-                unbounded,
-                Vec::new(),
-                vec![I::Simplification {
-                    state: search_state(1),
-                    error: requires(),
-                }],
-                CollectionStop::BackendLimit,
-                1,
-            ),
-            (
-                "match-indeterminate",
-                unbounded,
-                Vec::new(),
-                vec![I::Match {
-                    state: search_state(1),
-                    bindings: Vec::new(),
-                    remainder: Vec::new(),
-                }],
-                CollectionStop::SolverUnknown,
-                1,
-            ),
-            (
-                "solver-deferred",
-                unbounded,
-                Vec::new(),
-                vec![I::Smt {
-                    state: search_state(1),
-                    error: SmtFailureOutput::Unavailable,
-                }],
-                CollectionStop::SolverUnknown,
-                1,
-            ),
-            (
-                "constrained-frontier-is-undecided",
-                QueryShape::new(SearchTypeArg::Final, Some(1)),
-                vec![PathWitnessOutput {
-                    state: kore(CONSTRAINED),
-                    ..witness(0, 1)
-                }],
-                Vec::new(),
-                CollectionStop::SolverUnknown,
-                1,
-            ),
-            (
-                "constrained-depth-bound-is-undecided",
-                unbounded,
-                Vec::new(),
-                vec![I::DepthBound {
-                    state: SearchStateOutput {
-                        state: kore(CONSTRAINED),
-                        ..search_state(1)
-                    },
-                }],
-                CollectionStop::SolverUnknown,
-                1,
-            ),
-            (
-                "witness-beside-a-depth-bound",
-                unbounded,
-                vec![witness(0, 1)],
-                vec![I::DepthBound {
-                    state: search_state(1),
-                }],
-                CollectionStop::DepthLimit,
-                2,
-            ),
-        ];
-        let classes = rows
-            .iter()
-            .flat_map(|(_, query, witnesses, incomplete, ..)| {
-                search(*query, witnesses.clone(), incomplete.clone())
-                    .incomplete()
-                    .iter()
-                    .map(AdaptedIncomplete::class)
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        for class in [
-            IncompleteClass::ResultBound,
-            IncompleteClass::DepthBound,
-            IncompleteClass::BreadthBound,
-            IncompleteClass::Indeterminate,
-            IncompleteClass::Cancelled,
-            IncompleteClass::MatchIndeterminate,
-            IncompleteClass::SolverDeferred,
-        ] {
-            assert!(classes.contains(&class), "{class:?} has a row");
-        }
-        let sorts = sorts();
-        for (id, query, witnesses, incomplete, stop, paths) in rows {
-            let bridged = paths_from_search(
-                &search(query, witnesses, incomplete),
-                &bridge_context(&sorts),
-            )
-            .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            assert_eq!(bridged.collection.stop, stop, "{id}");
-            assert_eq!(bridged.route, PathRoute::Search, "{id}");
-            assert_ne!(
-                bridged.collection.stop,
-                CollectionStop::SearchExhausted,
-                "{id}"
-            );
-            assert_eq!(bridged.paths.len(), paths, "{id}");
-            assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
-        }
-        // A ground witness is still a complete final path, unless the search collected a
-        // backend diagnostic (review P2.3; the live row is in tests/bridge.rs).
-        let budget = k_rust_backend::diagnostic::BackendDiagnostic::SimplificationBudgetExhausted {
-            limit: 1,
-            subject: k_rust_backend::simplify::BudgetSubject::Term,
-        };
-        // (id, diagnostics, expected path stop, collection stop)
-        #[rustfmt::skip]
-        let diagnosed = [
-            ("undiagnosed-witness", Vec::new(), P::Terminal, CollectionStop::ExhaustionUnrecorded),
-            ("diagnosed-witness", vec![budget.clone()], P::BackendLimit, CollectionStop::BackendLimit),
-        ];
-        for (id, diagnostics, stop, collection) in diagnosed {
-            let adapted =
-                search(unbounded, vec![witness(0, 1)], Vec::new()).with_diagnostics(diagnostics);
-            let bridged = paths_from_search(&adapted, &bridge_context(&sorts))
-                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            let [path] = bridged.paths.as_slice() else {
-                panic!("{id}: one path");
-            };
-            assert_eq!(path.complete, stop == P::Terminal, "{id}");
-            assert_eq!(path.stop, stop, "{id}");
-            assert_eq!(bridged.collection.stop, collection, "{id}");
-        }
-        // A diagnosed response also taints its frontier and incomplete states, and a less
-        // severe stop (or none at all) must not hide the diagnostic in the collection.
-        // (id, query, witnesses, incomplete items, path count)
-        type DiagnosedRow = (
-            &'static str,
-            QueryShape,
-            Vec<PathWitnessOutput>,
-            Vec<I>,
-            usize,
-        );
-        #[rustfmt::skip]
-        let diagnosed_incomplete: [DiagnosedRow; 3] = [
-            ("diagnosed-frontier", QueryShape::new(SearchTypeArg::Final, Some(1)), vec![witness(0, 1)], Vec::new(), 1),
-            ("diagnosed-depth-bound", unbounded, Vec::new(), vec![I::DepthBound { state: search_state(1) }], 1),
-            ("diagnosed-result-bound", unbounded, Vec::new(), vec![I::ResultBound], 0),
-        ];
-        for (id, query, witnesses, incomplete, count) in diagnosed_incomplete {
-            let adapted =
-                search(query, witnesses, incomplete).with_diagnostics(vec![budget.clone()]);
-            let bridged = paths_from_search(&adapted, &bridge_context(&sorts))
-                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            assert_eq!(bridged.paths.len(), count, "{id}");
-            for path in &bridged.paths {
-                assert!(!path.complete, "{id}");
-                assert_eq!(path.stop, P::BackendLimit, "{id}");
-            }
-            assert_eq!(
-                bridged.collection.stop,
-                CollectionStop::BackendLimit,
-                "{id}"
-            );
-            assert_ne!(absence(&bridged), PatternOutcome::NoMatch, "{id}");
-        }
-    }
-
-    #[test]
-    fn only_final_searches_are_bridged() {
-        let sorts = sorts();
-        for search_type in [
-            SearchTypeArg::All,
-            SearchTypeArg::OneStep,
-            SearchTypeArg::OneOrMoreSteps,
-        ] {
-            assert_eq!(
-                paths_from_search(
-                    &search(
-                        QueryShape::new(search_type, None),
-                        vec![witness(0, 1)],
-                        Vec::new()
-                    ),
-                    &bridge_context(&sorts)
-                ),
-                Err(BridgeFailure::UnsupportedQueryShape(search_type))
-            );
-        }
-    }
-
     #[test]
     fn a_shared_identity_of_different_branches_is_rejected() {
         let sorts = sorts();
-        let mut other = witness(0, 1);
-        other.state = kore(CRASH);
+        let execution = AdaptedExecution {
+            route: ExecutionRoute::ExploreAll,
+            leaves: vec![
+                AdaptedLeaf {
+                    halt: H::Stuck,
+                    branch: branch(0, GROUND),
+                },
+                AdaptedLeaf {
+                    halt: H::Stuck,
+                    branch: branch(0, CRASH),
+                },
+            ],
+            effects: Vec::new(),
+            diagnostics: Vec::new(),
+            timed_out: false,
+        };
         assert_eq!(
-            paths_from_search(
-                &search(
-                    QueryShape::new(SearchTypeArg::Final, None),
-                    vec![witness(0, 1), other],
-                    Vec::new()
-                ),
-                &bridge_context(&sorts)
-            ),
+            paths_from_execution(&execution, &bridge_context(&sorts)),
             Err(BridgeFailure::DuplicatePathIdentity(
                 "rule-0@target-0".to_owned()
             ))

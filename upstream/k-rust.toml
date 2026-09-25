@@ -25,54 +25,6 @@ source = "Cargo.toml [workspace.dependencies] path dependency"
 # ---------------------------------------------------------------- open and partial
 
 [[request]]
-id = "search-completeness"
-title = "Search results do not state exhaustive completion and do not account for unvisited work"
-kind = "correctness"
-status = "partial"
-status_basis = "test run at 985e0086 on 2026-09-24 (kink-native bounded_final_results_are_frontier_and_erasure_agrees_within_the_bound reproduces both frontier clauses) plus static screen of search.rs, timeout.rs, builtin.rs and simplify.rs at 985e0086 on 2026-09-24"
-blocking = true
-needed_by = ["exhaustive absence", "complete pattern denotation", "finite not-reached", "NR-07"]
-summary = """
-Result-limit truncation is usually reported, a zero result limit is never reported as exhaustive, and a truncated sibling is not claimed absent.
-There is no exhaustion record, and an empty IncompleteSearch list (k-rust-backend/src/search.rs:150-173) is not evidence of exhaustion: a Final result-bound break can leave the frontier unreported (see reproducer).
-Final search returns states that reach the depth bound as results without checking whether they can still rewrite (search.rs:593-594 state search, 1169-1170 path search; pattern matches are taken from the same results), so a depth-bounded Final result is not a final state. Upstream documents the depth cut (docs/backend-port.md:102-108); what is missing is a per-result frontier marker in the host API.
-Cancellation is only partly distinct from failure: a hook that notices cancellation returns BuiltinError::Interrupted (timeout.rs:25-28, builtin.rs:502-507), which reaches the caller as a builtin failure, not as IncompleteSearch::Cancelled.
-"""
-reproducer = """
-Final search from a{}() under a => b with max_depth=0 and max_results=1 returns states=[a@0] and incomplete=[]; the result bound breaks with an empty queue before the DepthBound push (search.rs:622-636 then 658-663), so neither DepthBound nor ResultBound is emitted for the frontier state.
-The same search without max_results returns states=[a@0] and incomplete=[DepthBound@0]: the unexplored initial state is returned as a Final result.
-Search a finite graph with no target; the result carries no positive exhaustion record.
-"""
-local_workaround = "kink-native search adapter reports only existential witnesses, moves Final results at depth >= max_depth to a separate frontier list whether or not upstream emitted DepthBound for them, and never maps a response to CompleteFinite."
-requested_action = """
-Add an explicit exhausted/complete disposition.
-Mark depth-bounded Final results as frontier, or exclude them from Final results and report them only as DepthBound.
-Emit DepthBound (or ResultBound) for a frontier state that fills the result bound when the queue is empty, so every unexplored state is accounted for.
-Retain the frontier, or an exact unvisited-work count, on ResultBound.
-Report cancellation noticed inside a hook as Cancelled rather than as a builtin Interrupted failure. Search installs no step deadline; execute and prove fold their step deadline into BuiltinError::Interrupted (timeout.rs:20-41, rewrite/execute.rs:76, proof.rs:216), and a deadline never becomes IncompleteSearch::Cancelled. Add distinct timeout and host-resource dispositions if search gains a deadline.
-Report whether pattern-search matches are the complete denotation.
-Expose timeout and cancellation through SearchRequest (crates/k-rust/src/backend/wire.rs:54-63).
-"""
-sources = ["k-rust-agent-requests.toml KRUST-UP-003", "upstream-issues.toml KRUST-UP-003"]
-
-[[request]]
-id = "path-witness-identity"
-title = "Path witnesses are dropped at the result bound and their identity omits the source state and substitution"
-kind = "correctness"
-status = "partial"
-status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (diamond, equal-binding, determinism, cycle, and result-bound tests pass)"
-blocking = false
-needed_by = ["path-sensitive event occurrence", "counterexample receipts"]
-summary = """
-ResultModality::{StateSet, PathSet} and content-derived PathWitness identities are present, and converging paths are no longer collapsed.
-When the result bound is reached, witnesses already found are kept but the unexamined paths (pending, plus the path being processed) are dropped without a record (search.rs:1249-1257, retain_witness :1383-1387); witness identity omits the source state and the substitution; hand-written KORE rules without UNIQUE_ID fall back to "UNKNOWN" (rule.rs:1666-1670).
-"""
-reproducer = "Run a path search whose result bound truncates a diamond graph and inspect the returned witnesses and ResultBound."
-local_workaround = "none"
-requested_action = "Carry the truncated path frontier together with search-completeness, and include the source state and substitution in witness identity, or document why they are unnecessary."
-sources = ["k-rust-agent-requests.toml KRUST-UP-004 (path witnesses)"]
-
-[[request]]
 id = "nested-provenance-residual"
 title = "Context aliases are exported lossily without a typed diagnostic"
 kind = "correctness"
@@ -161,9 +113,9 @@ id = "execution-diagnostics"
 title = "Execution and search responses do not carry the backend diagnostics of the run"
 kind = "missing-feature"
 status = "open"
-status_basis = "test run at 985e0086 on 2026-09-25 (a scratch crate running the reproducer below; kink-native diagnosed_search_witnesses_are_no_witness, where a path search under a two-iteration simplifier budget yields a backend diagnostic that only diagnostic::collect returns) plus static screen of k-rust-backend/src/diagnostic.rs, simplify.rs, crates/k-rust/src/backend/mod.rs and README.md at 985e0086 on 2026-09-25"
+status_basis = "test run at 985e0086 on 2026-09-25 (a scratch crate running the reproducer below; kink-native tests/bridge.rs undecided_live_occurrences_are_no_witness and a scratch crate running the reproducer below, where only diagnostic::collect returns the backend diagnostic) plus static screen of k-rust-backend/src/diagnostic.rs, simplify.rs, crates/k-rust/src/backend/mod.rs and README.md at 985e0086 on 2026-09-25"
 blocking = false
-needed_by = ["search-derived oracle slots that must tell budget exhaustion from a result"]
+needed_by = ["execution oracle slots that must tell budget exhaustion from a result"]
 summary = """
 Simplification-budget exhaustion, undecided conditions and predicates, and unevaluated hooks are emitted as BackendDiagnostic into a thread-local sink (k-rust-backend/src/diagnostic.rs:12-31, emitted at simplify.rs:271, :479, :755, :826, :2590).
 Only a caller that wraps the call in diagnostic::collect (diagnostic.rs:59-66) sees them; no production route does, and ExecutionResult (crates/k-rust/src/backend/mod.rs:141-147) and the search response have no diagnostics field.
@@ -171,7 +123,7 @@ After budget exhaustion execution continues with a partially simplified term, so
 README.md:257 says exhaustion "is reported as a simplification iteration-limit stop", but no response field carries such a stop.
 """
 reproducer = "Define a function g with the simplification equation g(X) = g(g(X)) and the rule start => g(a). Execute from start with max_simplification_iterations = 3: the one leaf is stuck with 1226 unevaluated g calls, and only diagnostic::collect returns SimplificationBudgetExhausted { limit: 3, .. }. A Final search from start under the same budget returns that state with an empty incomplete list."
-local_workaround = "kink-native wraps every execute and search call in diagnostic::collect and treats any diagnostic as an incomplete run: every path of the run or search response is a BackendLimit, so state-set slots and a pattern Match or NoMatch become Unknown."
+local_workaround = "kink-native wraps every execute call in diagnostic::collect and treats any diagnostic as an incomplete run: every path is a BackendLimit, so state-set slots and a pattern Match or NoMatch become Unknown."
 requested_action = "Return the run's diagnostics as a typed field on ExecutionResult and on the search response, so a caller on another thread or across the wire sees them (KRS KR-07, in review, adds the diagnostic kinds for equation conditions). Count budget exhaustion as a reason a search is incomplete, and align README.md:257 with the behaviour."
 sources = ["k-in-k2 k-rust migration design, section 8 risk 4 and critique C3"]
 
@@ -316,3 +268,11 @@ reason = "Conditional on a TypeScript/WASM orchestration boundary; K-in-K2 calls
 id = "checked-lowering-proof"
 former_id = "KRUST-UP-004 (upstream-issues.toml)"
 reason = "Per-artifact translation validation of the k-rust frontend is not a realistic request and blocks no K-in-K2 goal. K-in-K2 trusts the k-rust checkout it builds against."
+
+[[withdrawn]]
+id = "search-completeness"
+reason = "K-in-K2 deleted its search path; recover it from tag archive/search-2026-09 if a search oracle is added. The request comes back with that oracle."
+
+[[withdrawn]]
+id = "path-witness-identity"
+reason = "K-in-K2 deleted its search path; recover it from tag archive/search-2026-09 if a search oracle is added. The request comes back with that oracle."
