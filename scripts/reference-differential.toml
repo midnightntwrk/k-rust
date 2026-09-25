@@ -1370,7 +1370,7 @@ section = "execution"
 source = "${workspace}/crates/k-rust/tests/fixtures/reference/ecdsa-invalid.crypto"
 disposition = "local-gate"
 local_gate = "cargo test -p k-rust --test cli krun_executes_invalid_ecdsa_recovery_to_empty_bytes -- --exact"
-reason = "docs/compatibility.md#ecdsa-recovery-on-invalid-input: the pinned Kore evaluator in Kore.Builtin.Krypto has no failure value and ends the backend process on invalid input (an assertion, or the point-at-infinity error in encodePoint), so it supplies no oracle for the empty-Bytes result that section specifies."
+reason = "docs/compatibility.md#ecdsa-recovery-on-invalid-input: the pinned Kore evaluator in Kore.Builtin.Krypto has no failure value and ends the backend process on some invalid inputs (an assertion, or the point-at-infinity error in encodePoint), and it reads hash, r and s as integers of any length, so it returns a key on some inputs outside the stricter 32-byte, v in {27, 28} domain that section specifies; it supplies no oracle for the empty-Bytes result."
 
 [[excluded]]
 name = "fresh-constants-execution"

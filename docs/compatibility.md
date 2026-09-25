@@ -126,15 +126,22 @@ For concrete arguments Rust defines:
 
 An application with a non-concrete argument remains unevaluated.
 
+Rust reads the byte-string arguments as fields of fixed width, not as integers of any length.
+The hook documentation specifies the message hash as a 32-byte string, and the plugin's own signature form, the result of `ECDSASign`, is 65 bytes in `[r,s,v]` order, so `r` and `s` are 32-byte fields.
+A `Bytes` value of another length is a different value that a definition can tell apart (by its length, for one), so Rust does not treat it as that field's 32-byte encoding with zero bytes added or removed.
+`v` is restricted to the two values the referenced signature form uses; 29 to 34, which name a recovery with the group order added to `r` or a compressed key, are not part of that form.
+
 The declaration allows either choice outside the documented domain: a `function` without `total` has at most one value ([`docs/user_manual.md`, "`function` and `total` attributes"](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md#function-and-total-attributes)), so both `\bottom` and a single `Bytes` value are consistent with it.
 Rust returns a value because a failed recovery must stay observable.
 Every recovered key has exactly 64 bytes, so the empty value cannot be mistaken for a key, and a definition can branch on it with ordinary `Bytes` operations.
 A `\bottom` result would make every configuration that applies the hook to such an input denote no state: that execution path would vanish from execution and search results, and a claim over it would hold vacuously instead of checking how the definition handles a malformed signature.
 Ending the run with an error is not a result either: the inputs are ordinary values of the declared argument sorts, and the unsupported-hook error of [Backend scope](#backend-scope) is for hooks without an evaluator.
 
-The fact this diverges from: Booster has no evaluator for the hook, and the pinned Kore evaluator in `kore/src/Kore/Builtin/Krypto.hs` has no failure value.
-It encodes a recovered point for every input and ends the backend process when recovery fails, through the assertion at `:331` or, when recovery yields the point at infinity, the `error` at `:414`.
-The pinned toolchain therefore supplies no expected behavior for invalid input, and the differential manifest's `ecdsa-invalid-execution` entry is a `local-gate` exclusion.
+The fact this diverges from: Booster has no evaluator for the hook, and the pinned Kore evaluator (`evalECDSARecover` in `kore/src/Kore/Builtin/Krypto.hs`) has no failure value and a wider domain than Rust's.
+It reads the hash, `r` and `s` as unsigned big-endian integers of any length, accepts `v` from 27 to 34 (the assertion at `:313`), does not check `r` and `s` against the group order, and appends zero bytes to whatever it encodes up to 64 bytes (`:295`, `:300-304`).
+On some inputs outside Rust's domain it therefore returns a value where Rust returns empty `Bytes`: a valid signature whose hash, `r` or `s` has the same integer value in fewer or more than 32 bytes recovers the same key, and by the code a `v` of 29 or 30 recovers a key when `r` plus the group order is still the x-coordinate of a curve point.
+On other invalid inputs it ends the backend process, through one of its assertions (`:313`, `:327-331`) or, when recovery yields the point at infinity, the `error` at `:414`; a `v` from 31 to 34 always fails the assertion at `:330`, because the recovery index `v - 27` then adds at least twice the group order to `r`, which exceeds the field prime.
+The pinned toolchain thus differs from Rust by a value on part of the invalid inputs and supplies no value on the rest, and the differential manifest's `ecdsa-invalid-execution` entry is a `local-gate` exclusion.
 The CLI test `krun_executes_invalid_ecdsa_recovery_to_empty_bytes` pins the terminal KORE for [`ecdsa-invalid.crypto`](../crates/k-rust/tests/fixtures/reference/ecdsa-invalid.crypto), and the unit test `invalid_concrete_recoveries_return_empty_bytes` in `krypto.rs` covers each boundary of the domain.
 
 ## RPC behavior
