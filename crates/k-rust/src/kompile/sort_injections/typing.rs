@@ -59,6 +59,12 @@ pub struct SentenceTyping {
     pub branches: BTreeMap<Vec<u32>, BranchTyping>,
     /// The sort of each named variable that semantic-cast resolution determines.
     pub variables: BTreeMap<String, Sort>,
+    /// The instance injection gives the label of each application of a parametric production,
+    /// one entry per sort parameter (`None` where it leaves the parameter open). It is the
+    /// label's own instance, which a downcast placing the application at a narrower sort does
+    /// not change. A path typed with different instances in the two branches of a rewrite has
+    /// no entry.
+    pub(crate) instances: BTreeMap<Vec<u32>, Vec<Option<Sort>>>,
 }
 
 impl SentenceTyping {
@@ -242,10 +248,12 @@ impl<'a> SentenceTyper<'a> {
             let slot = conditions.visit(loaded, resolved, &mut path, &boolean)?;
             conditions.place(&path, &slot, &boolean)?;
         }
+        let (positions, instances) = conditions.finish();
         let mut typing = SentenceTyping {
-            positions: conditions.finish(),
+            positions,
             branches: BTreeMap::new(),
             variables,
+            instances,
         };
         // As `inject_rule_body`: a body with a rewrite is the rewrite of its two projections,
         // typed at their least upper bound below a fresh sort variable, and each projection is
@@ -269,6 +277,7 @@ impl<'a> SentenceTyper<'a> {
             _ => Some(injector.least_upper_bound(&sorts, Some(&top))?),
         };
         let mut maps = Vec::new();
+        let mut branch_instances = Vec::new();
         for branch in branches {
             let mut walk = Walk::new(injector, *branch);
             let mut path = vec![0];
@@ -279,7 +288,9 @@ impl<'a> SentenceTyper<'a> {
             {
                 walk.place(&path, &slot, position)?;
             }
-            maps.push(walk.finish());
+            let (positions, instances) = walk.finish();
+            maps.push(positions);
+            branch_instances.push(instances);
         }
         let first = maps.remove(0);
         match maps.pop() {
@@ -300,6 +311,22 @@ impl<'a> SentenceTyper<'a> {
                     }
                 }
                 typing.positions.extend(left);
+            }
+        }
+        let first = branch_instances.remove(0);
+        match branch_instances.pop() {
+            None => typing.instances.extend(first),
+            Some(right) => {
+                let mut left = first;
+                for (path, right) in right {
+                    match left.remove(&path) {
+                        Some(left) if left != right => {}
+                        _ => {
+                            typing.instances.insert(path, right);
+                        }
+                    }
+                }
+                typing.instances.extend(left);
             }
         }
         Ok(typing)
@@ -327,6 +354,7 @@ struct Walk<'a, 'view, 'definition> {
     injector: &'a SortInjector<'view, 'definition>,
     branch: Branch,
     positions: BTreeMap<Vec<u32>, PositionTyping>,
+    instances: BTreeMap<Vec<u32>, Vec<Option<Sort>>>,
     /// Positions whose term occupies an enclosing position's slot (a rewrite's side in a branch,
     /// an as-pattern's alias in the right branch, the operand of a cast the projection drops):
     /// the enclosing requirement applies to them. Inner pairs come first.
@@ -346,6 +374,7 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
             injector,
             branch,
             positions: BTreeMap::new(),
+            instances: BTreeMap::new(),
             delegates: Vec::new(),
             projecting: branch != Branch::Only,
             is_lhs: branch == Branch::Left,
@@ -369,7 +398,13 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
         slot
     }
 
-    fn finish(mut self) -> BTreeMap<Vec<u32>, PositionTyping> {
+    #[allow(clippy::type_complexity)]
+    fn finish(
+        mut self,
+    ) -> (
+        BTreeMap<Vec<u32>, PositionTyping>,
+        BTreeMap<Vec<u32>, Vec<Option<Sort>>>,
+    ) {
         for (from, to) in self.delegates.iter().rev() {
             let required = self
                 .positions
@@ -379,7 +414,7 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                 position.required = required;
             }
         }
-        self.positions
+        (self.positions, self.instances)
     }
 
     /// The term compilation sees at a position: `resolved` with the walk's projection applied.
@@ -655,6 +690,12 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                     Some(&actual),
                     false,
                 )?;
+                if !signature.label.parameters.is_empty() {
+                    self.instances.insert(
+                        path.clone(),
+                        signature.label.parameters.iter().map(reported).collect(),
+                    );
+                }
                 for (index, ((argument, resolved), required)) in arguments
                     .iter()
                     .zip(resolved_arguments)
