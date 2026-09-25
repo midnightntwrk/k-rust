@@ -68,7 +68,7 @@ pub enum EvaluationClass {
 /// Structured evidence for one committed transition of a branch.
 ///
 /// Every transition observation names, by `id`, an element of the branch it is reported on, in
-/// branch order.
+/// branch order; under a rule filter only the admitted elements are reported.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransitionObservation {
     pub id: TransitionId,
@@ -94,16 +94,17 @@ pub struct TransitionObservation {
 /// Evaluations are recorded for the normalization passes of retained branch states: the term
 /// normalization of the initial state and of every rewrite successor and remainder, the
 /// normalization of a higher-priority remainder before a lower-priority rewrite, and the pattern
-/// normalization of a state leaving the engine as a leaf or search result. Constraint
-/// simplification at the start of a step reports none. Evaluations performed while deciding a
-/// rule's side conditions or building its right-hand side belong to that rule's application,
-/// committed or not, and are not reported; neither is the simplification that decides, at a
-/// branch stop, which candidate successors survive, although a surviving candidate's own later
-/// normalization is. Evaluations of a state that is later dropped (a remainder that simplifies to
-/// bottom, a leaf merged into an equal leaf, leaves the breadth bound discards) are reported
-/// on no branch. Which evaluations occur, how often, and in which order depends on the
-/// simplifier's strategy, so these events are diagnostics: their absence is not evidence that an
-/// equation does not apply.
+/// normalization of a state leaving the engine as a leaf or search result. A cut-point rule is
+/// proposed, not committed: its leaf stays at the state before it, and neither the rule nor its
+/// successor's normalization is on that leaf's branch. Constraint simplification at the start of a
+/// step reports none. Evaluations performed while deciding a rule's side conditions or building its
+/// right-hand side belong to that rule's application, committed or not, and are not reported;
+/// neither is the simplification that decides, at a branch stop, which candidate successors
+/// survive, although a surviving candidate's own later normalization is. Evaluations of a state
+/// that is later dropped (a remainder that simplifies to bottom, a leaf merged into an equal leaf,
+/// leaves the breadth bound discards) are reported on no branch. Which evaluations occur, how
+/// often, and in which order depends on the simplifier's strategy, so these events are diagnostics:
+/// their absence is not evidence that an equation does not apply.
 ///
 /// `before` and `after` are the endpoints of the whole normalization pass, shared by every
 /// evaluation that pass performed.

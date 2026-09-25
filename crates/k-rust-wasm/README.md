@@ -96,7 +96,7 @@ term-match `substitution`, and existential `witnesses` as three separate KORE va
 The portable backend also mirrors native `search`, `searchPaths`, `searchPattern`, `searchPatternPaths`, and their `*Observed` variants.
 Method names declare state-set versus path-set and observed versus ordinary behavior; each search response carries a versioned, closed structural completeness disposition.
 Observed calls accept an atomically validated exact-rule allowlist and expose transition-owned effects.
-A `transition` event names a committed transition of the leaf's `branch`, in branch order; an `evaluation` event records an equation, simplification, or builtin application that normalized a branch state, with `anchor` the number of `branch` entries preceding it.
+A `transition` event names a committed transition of the leaf's `branch` that the rule filter admits, in branch order; an `evaluation` event records an equation, simplification, or builtin application that normalized a branch state, with `anchor` the number of `branch` entries preceding it.
 Evaluation events are diagnostics: which ones occur, and in which order, depends on the simplifier's strategy.
 The legacy execution-leaf `detail` string is diagnostic-only; use `reason`, `branch`, and `observations` for semantic decisions.
 Search responses are synchronous and fully materialized, so callers should set depth, breadth, result, and simplification bounds; streaming/backpressure and cancellation are not exposed at this boundary.

@@ -407,8 +407,8 @@ pub enum UncommittedReasonOutput {
 
 /// One observation event of a branch.
 ///
-/// A `transition` event names, by `id`, an element of the branch it is reported on, in branch
-/// order. An `evaluation` event records an equation, simplification, or builtin application that
+/// A `transition` event names, by `id`, an element of the branch it is reported on that the rule
+/// filter admits, in branch order. An `evaluation` event records an equation, simplification, or builtin application that
 /// normalized a state of the branch; `anchor` is the number of branch entries that precede it, so
 /// the normalized state is the one reached by the first `anchor` transitions. Evaluation events
 /// are diagnostics whose presence, multiplicity, and order depend on the simplifier's strategy
