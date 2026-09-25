@@ -279,6 +279,7 @@ fn simplify_with_optional_execution(
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
+    let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendSimplifyTerm);
     measure::bump(Counter::SimplifyInvocations);
     let mut remaining = options.max_iterations;
@@ -562,6 +563,7 @@ fn simplify_predicates_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Vec<Predicate>, SimplificationError> {
+    let _apart = crate::rule::ApartScope::enter();
     let mut conjuncts = Vec::new();
     let mut conjunct_index = FxHashSet::default();
     for predicate in predicates {
@@ -974,6 +976,7 @@ fn simplify_predicate_with_budget(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<Predicate, SimplificationError> {
+    let _apart = crate::rule::ApartScope::enter();
     if interruption_requested() {
         return Err(interruption_error());
     }
@@ -1703,32 +1706,39 @@ enum PredicateMatch {
 /// Match a predicate equation's left-hand side against a predicate.
 ///
 /// The two predicates must have one logical shape; their terms are matched as one problem.
-/// Corresponding quantifiers relate their bound variables: the rule's bound variable (renamed
-/// apart from every subject variable beforehand) is matched as a pattern variable and must be
-/// bound exactly to the subject's bound variable, and no other binding may mention a subject
-/// bound variable, which would move it out of its quantifier. The bound variables' bindings
-/// are not part of the result.
+/// Quantifiers are matched by scope. First every quantifier of either side gets its own fresh
+/// variable (`rename_binders_apart`), distinct from every other variable of both sides, so a
+/// bound variable shares its name with no free variable and no other binder, and an occurrence
+/// of it is exactly an occurrence under its quantifier. Corresponding quantifiers relate their
+/// variables: the rule's is matched as a pattern variable and must be bound to the subject's
+/// exactly, and a binding of a free rule variable may not mention a subject quantifier's
+/// variable, which would move that variable out of its scope. The quantifier variables'
+/// bindings are not part of the result.
 fn match_predicate(
     definition: &BackendDefinition,
     pattern: &Predicate,
     subject: &Predicate,
 ) -> PredicateMatch {
+    let renamed;
+    let (pattern, subject) = if has_quantifier(pattern) || has_quantifier(subject) {
+        let mut variables = BTreeSet::new();
+        crate::rule::collect_all_variables(&[pattern.clone(), subject.clone()], &mut variables);
+        let mut avoid = variables
+            .into_iter()
+            .map(|variable| variable.name)
+            .collect::<BTreeSet<_>>();
+        let mut counter = 0;
+        renamed = (
+            rename_binders_apart(pattern, &mut avoid, &mut counter, &mut Vec::new()),
+            rename_binders_apart(subject, &mut avoid, &mut counter, &mut Vec::new()),
+        );
+        (&renamed.0, &renamed.1)
+    } else {
+        (pattern, subject)
+    };
     let mut pairs = Vec::new();
     let mut binders = Vec::new();
     if !collect_predicate_term_pairs(pattern, subject, &mut pairs, &mut binders) {
-        return PredicateMatch::Failed;
-    }
-    let pattern_binders = binders
-        .iter()
-        .map(|(bound, _)| *bound)
-        .collect::<BTreeSet<_>>();
-    let subject_binders = binders
-        .iter()
-        .map(|(_, bound)| *bound)
-        .collect::<BTreeSet<_>>();
-    // Shadowing on either side would make the correspondence depend on scope; such a pair is
-    // not matched.
-    if pattern_binders.len() != binders.len() || subject_binders.len() != binders.len() {
         return PredicateMatch::Failed;
     }
     match match_term_pairs_in_definition(
@@ -1747,9 +1757,9 @@ fn match_predicate(
                 }
             }
             if substitution.values().any(|value| {
-                subject_binders
+                binders
                     .iter()
-                    .any(|bound| value.attributes().variables.contains(*bound))
+                    .any(|(_, bound)| value.attributes().variables.contains(*bound))
             }) {
                 return PredicateMatch::Failed;
             }
@@ -1757,6 +1767,93 @@ fn match_predicate(
         }
         MatchResult::Failed(_) => PredicateMatch::Failed,
         MatchResult::Indeterminate { .. } => PredicateMatch::Indeterminate,
+    }
+}
+
+fn has_quantifier(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Exists(..) | Predicate::Forall(..) => true,
+        Predicate::Not(inner) => has_quantifier(inner),
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().any(has_quantifier),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            has_quantifier(left) || has_quantifier(right)
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..) => false,
+    }
+}
+
+/// `predicate` with each quantifier's variable renamed to `{name}!binder{counter}`, a name not
+/// in `avoid` (which receives it), at the quantifier and at the occurrences it binds; `scope`
+/// holds the renamings of the enclosing quantifiers, innermost last.
+fn rename_binders_apart(
+    predicate: &Predicate,
+    avoid: &mut BTreeSet<crate::term::Name>,
+    counter: &mut u64,
+    scope: &mut Vec<(Variable, Variable)>,
+) -> Predicate {
+    let term = |term: &Term, scope: &[(Variable, Variable)]| {
+        if scope.is_empty() {
+            return term.clone();
+        }
+        let renaming = scope
+            .iter()
+            .map(|(bound, fresh)| (bound.clone(), Term::variable(fresh.clone())))
+            .collect::<Substitution>();
+        substitute(term, &renaming)
+    };
+    let mut recurse = |inner: &Predicate, scope: &mut Vec<(Variable, Variable)>| {
+        Box::new(rename_binders_apart(inner, avoid, counter, scope))
+    };
+    match predicate {
+        Predicate::True => Predicate::True,
+        Predicate::False => Predicate::False,
+        Predicate::Term(inner) => Predicate::Term(term(inner, scope)),
+        Predicate::Ceil(inner) => Predicate::Ceil(term(inner, scope)),
+        Predicate::Floor(inner) => Predicate::Floor(term(inner, scope)),
+        Predicate::Equals(left, right) => Predicate::Equals(term(left, scope), term(right, scope)),
+        Predicate::In(left, right) => Predicate::In(term(left, scope), term(right, scope)),
+        Predicate::Not(inner) => Predicate::Not(recurse(inner, scope)),
+        Predicate::And(inner) => {
+            Predicate::And(inner.iter().map(|inner| *recurse(inner, scope)).collect())
+        }
+        Predicate::Or(inner) => {
+            Predicate::Or(inner.iter().map(|inner| *recurse(inner, scope)).collect())
+        }
+        Predicate::Implies(left, right) => {
+            Predicate::Implies(recurse(left, scope), recurse(right, scope))
+        }
+        Predicate::Iff(left, right) => Predicate::Iff(recurse(left, scope), recurse(right, scope)),
+        Predicate::Exists(bound, inner) | Predicate::Forall(bound, inner) => {
+            // Invariant: `counter` only grows, so at most |avoid| + 1 names are tried.
+            let name = loop {
+                let name = crate::term::names::with_fresh_marker(
+                    &bound.name,
+                    crate::term::names::FreshMarker::Binder,
+                    *counter,
+                );
+                *counter += 1;
+                if avoid.insert(name.as_str().into()) {
+                    break name;
+                }
+            };
+            let fresh = bound.with_name(name);
+            // The innermost binding of a name wins: `term` collects `scope` in order, so a
+            // shadowing quantifier's entry overrides an enclosing one for its body only.
+            scope.push((bound.clone(), fresh.clone()));
+            let body = Box::new(rename_binders_apart(inner, avoid, counter, scope));
+            scope.pop();
+            if matches!(predicate, Predicate::Exists(..)) {
+                Predicate::Exists(fresh, body)
+            } else {
+                Predicate::Forall(fresh, body)
+            }
+        }
     }
 }
 
