@@ -122,6 +122,14 @@ Rust accepts both rules with that reading; the pinned frontend rejects them.
 The compile manifest records both as `expect = "port-accepts"` with this reason and with `reference-error = "Unexpected sort Big for variable X"`, the reference diagnostic the divergence is about.
 The compile gate runs both compilers on them: it requires the reference to reject with output containing that diagnostic, so a rejection for any other cause (a crash, a failed heap reservation, a different error) fails the gate, and requires Rust to accept with a definition `kore-parser` accepts; it fails when either side changes.
 
+## Sorts of compiled terms
+
+`inj{A, B}` denotes the embedding of `A` in `B`, and the emitted definition declares subsort axioms only along the subsort order, so the compiler builds an injection only when `A <= B` in the module's subsort order, extended with every sort other than a parser sort (`K`, `KItem`, `KConfigVar`, `KBott`, `KLabel`, `KList`, `KString`, `#`-prefixed sorts) below `KItem` and `KItem` below `K`.
+A term whose sort is not below the sort of its position (an argument, a rewrite side, a `requires` or `ensures` clause at `Bool`) is rejected at the `add sort injections` stage with the sentence's source location; so is a semantic cast whose target is neither at or above its operand's sort (an upcast) nor strictly below it (a downcast, realized by `project:S`).
+A parametric production is instantiated so that each argument's sort is at or below its instantiated argument sort; an argument above every declared instance is rejected.
+The check applies to every rule-like sentence `compile_loaded_definition` emits, whether parsed from source, supplied through `load_structured`, or edited in a `LoadedDefinition`; a pass that meets an ill-sorted term earlier may reject it first with its own message.
+[Sort-injection tests](../crates/k-rust/tests/sort_injections.rs) pin the rejections and their controls.
+
 ## Resource bounds
 
 Simplification budgets and term nesting depth are k-rust's own resource contracts, specified in [backend-port.md](backend-port.md#simplification-iteration-budgets) and [backend-port.md](backend-port.md#json-depth-policy); this section records how they differ from the reference and why.
