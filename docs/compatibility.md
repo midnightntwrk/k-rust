@@ -148,6 +148,23 @@ The port retains every execution leaf when Kore's graph traversal drops `Stop` l
 Normalization N17 limits the corresponding differential exception to marked depth-bounded cases and requires the reference leaves to remain a sub-multiset of the Rust leaves.
 [Execution fixtures](../crates/k-rust/tests/fixtures/reference/execution) and the symbolic differential cover branch sets and depth cuts.
 
+## Execution results
+
+An execution or search result is a disjunction; each disjunct denotes the configurations one branch reaches, for a valuation of the initial pattern's free variables.
+Those variables are the only names a result shares with the query.
+Any other variable free in a disjunct is read as existentially quantified over that disjunct alone: it names a value the rewrite introduced, such as a `?` variable, which K quantifies existentially at the top of a rewrite rule's right-hand side (`k/docs/user_manual.md:2442-2444`), a rule variable the match left unbound, or a collection frame.
+k-rust prints a disjunct as its term conjoined with its constraints and leaves these binders implicit (`constrained_pattern` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs)); it names the variables with `Ex`, `Rule` or `Eq` prefixes or as `Var'Ques'` names, each with a fresh counter.
+
+A remainder disjunct, the branch on which a rule does not apply, carries the negated applicability condition `\not(\exists V. C)`, where `V` are the variables of `C` that are free in neither the state's term nor its constraints (`quantify_introduced_variables` in [predicates.rs](../crates/k-rust-backend/src/rewrite/predicates.rs)).
+A rule's variables are universally quantified over the rule (`k/docs/user_manual.md:2447-2449`), so the remainder must exclude every instance of the rule: a variable of the match that occurs nowhere else in the disjunct is bound inside the negation.
+Reading it at the disjunct level instead would say only that some instance does not apply (`\exists x. \not C` rather than `\not \exists x. C`), which is a different set of configurations.
+
+Under this reading three normalizations of [the register](../scripts/reference-normalisations.toml) are equivalences rather than tolerances:
+
+- N4 renames the result variables that are not free in the initial pattern bijectively, sort-preservingly, and per disjunct; that is renaming bound variables, while the initial pattern's variables are compared by name.
+- N16 drops an outer `\exists` prefix of a disjunct, which denotes the same disjunct as its body when its binders are not variables of the initial pattern; k-rust prints no such prefix, and N16 does not check that its binders avoid the initial pattern's names.
+- N22 adds, inside a negated existential, the binder of a generated variable that is free there and occurs nowhere else in the disjunct, which is where the reading above places it; k-rust already prints that binder, while the pinned Kore prints the unification's collection frame free in that position.
+
 ## CLI scope
 
 `krust` retains its source-plus-flags interface.
