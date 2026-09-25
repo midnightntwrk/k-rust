@@ -179,8 +179,8 @@ id = "N19"
 gate = "rpc"
 anchor = "scripts/reference-rpc-differential.sh:oracle-exception"
 anchor_symbol = "oracle-exception"
-rule = "Compare an adjudicated response against its committed port expectation and print the recorded reason."
-justification = "Known oracle-side proxy behavior must remain explicit rather than silently normalized."
+rule = "Compare an adjudicated response against committed port and reference expectations independently, require the two expectations to differ, and print the recorded reason."
+justification = "An exception records one specific difference, and its reason describes both sides of it. Pinning only the port lets the reference response change to something the reason no longer describes while the gate still passes; pinning both makes the recorded difference, not just its existence, the checked fact, and a change on either side a failure to adjudicate."
 
 [[normalisation]]
 id = "N20"

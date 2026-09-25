@@ -1510,6 +1510,7 @@ responses = ["execute", "simplify", "implies", "model", "add-module", "error"]
 oracle = "kore-rpc-booster"
 response = "implies"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-implies.json"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-implies.reference.json"
 reason = "Booster echoes the initializer-form request in the implication payload while k-rust reports the equivalent simplified configuration."
 
 [[rpc]]
