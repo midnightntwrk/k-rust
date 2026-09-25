@@ -1,5 +1,5 @@
 //! krun's initial configuration: `$PGM`, `-c` bindings parsed with the cell's parser module,
-//! `$IO`/`$STDIN` stream defaults, and the `initGeneratedTopCell` application (S18).
+//! `$IO`/`$STDIN` stream defaults, and the `initGeneratedTopCell` application.
 
 use std::collections::{BTreeMap, BTreeSet};
 

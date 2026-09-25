@@ -1,4 +1,4 @@
-//! Shared standalone simplification and model-generation orchestration (S4 and S5).
+//! Shared standalone simplification and model-generation orchestration.
 
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::smt::ModelResult;
