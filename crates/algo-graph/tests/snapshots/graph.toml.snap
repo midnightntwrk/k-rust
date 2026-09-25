@@ -5322,7 +5322,7 @@ id = "parser.disambiguation.filter_overloads"
 provenance = "declared"
 area = "parser"
 name = "overload and prefer-or-avoid filtering"
-variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call"
+variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call; A = alternatives of one ambiguity; P = nodes of their common prefix; F = their frontier positions"
 no_counter = "overload and preference filtering has no dedicated counter"
 span = "per problem"
 table = "Algorithm::ALL"
@@ -5343,9 +5343,18 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/disambiguation.rs"
 symbol = "Grammar::filter_overloads_prefer_avoid_node"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/disambiguation.rs"
+symbol = "Grammar::select_at_frontier"
+
 [[node.cost]]
 mode = "one parsed tree"
 bound = "O(N + t x R) plus one clone, f and one equality test per ambiguity with more than one surviving alternative, and a further pass when factoring changed it"
+
+[[node.cost]]
+mode = "frontier step of one ambiguity that factoring leaves with A >= 2 alternatives"
+bound = "fewer than A rounds of O(A x P) header comparisons and O(A x F x R) token classifications, then one clone, f and equality test when it removed an alternative"
 
 [[node]]
 kind = "algorithm"

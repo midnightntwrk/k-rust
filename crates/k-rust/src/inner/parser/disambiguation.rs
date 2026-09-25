@@ -73,8 +73,8 @@
 //! ```toml algorithm
 //! id = "parser.disambiguation.filter_overloads"
 //! name = "overload and prefer-or-avoid filtering"
-//! sites = ["Grammar::filter_overloads_prefer_avoid", "Grammar::filter_overloads_prefer_avoid_node"]
-//! variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call"
+//! sites = ["Grammar::filter_overloads_prefer_avoid", "Grammar::filter_overloads_prefer_avoid_node", "Grammar::select_at_frontier"]
+//! variable = "N = owned nodes; R = productions in the grammar; t = Term-leaf alternatives of the ambiguities; f = work of one factor_ambiguities call; A = alternatives of one ambiguity; P = nodes of their common prefix; F = their frontier positions"
 //! counters = []
 //! no_counter = "overload and preference filtering has no dedicated counter"
 //! span = "per problem"
@@ -82,7 +82,18 @@
 //! [[cost]]
 //! mode = "one parsed tree"
 //! bound = "O(N + t x R) plus one clone, f and one equality test per ambiguity with more than one surviving alternative, and a further pass when factoring changed it"
+//!
+//! [[cost]]
+//! mode = "frontier step of one ambiguity that factoring leaves with A >= 2 alternatives"
+//! bound = "fewer than A rounds of O(A x P) header comparisons and O(A x F x R) token classifications, then one clone, f and equality test when it removed an alternative"
 //! ```
+//!
+//! The frontier step decides `prefer`/`avoid` between alternatives that diverge at several
+//! positions: an alternative is classified by its nodes just below the alternatives' common prefix
+//! of equal node headers. At a single divergence point that is the node the per-node step already
+//! classifies (the root when top productions differ; the one differing child, after factoring,
+//! when they share it), so the frontier step changes only ambiguities the per-node step leaves
+//! undecided; see `Grammar::filter_overloads_prefer_avoid_node`.
 //!
 //! ```toml algorithm
 //! id = "parser.disambiguation.remove_brackets_casts"
@@ -123,7 +134,8 @@
 //! 7. Infer sorts and unpack (packed DAG to owned tree).
 //! 8. Resolve overloaded terminators (owned tree, O(nodes * list candidates)).
 //! 9. Apply prefer/avoid and overload filtering (owned tree, O(nodes) plus re-factoring of each
-//!    surviving ambiguity).
+//!    surviving ambiguity), then the prefer/avoid frontier step on an ambiguity whose alternatives
+//!    still diverge at several positions.
 //! 10. Remove brackets and syntactic casts (owned tree, O(nodes)).
 //! 11. Factor and report remaining ambiguities (owned tree, O(nodes * alternatives)).
 //!
@@ -1767,16 +1779,51 @@ impl Grammar {
         }
     }
 
-    /// Apply Scala's post-inference overload and `prefer`/`avoid` selection,
-    /// then push shared-production ambiguity into its one differing child.
+    /// Apply post-inference overload and `prefer`/`avoid` selection at every ambiguity, pushing
+    /// shared-production ambiguity into its one differing child; see
+    /// [`Self::filter_overloads_prefer_avoid_node`] for the rule.
     pub(super) fn filter_overloads_prefer_avoid(&self, term: ParsedTerm) -> ParsedTerm {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationFilterOverloads);
         self.filter_overloads_prefer_avoid_node(term)
     }
 
+    /// Select among the alternatives of each ambiguity of a sort-inferred tree.
+    ///
+    /// The input trees are well-sorted and maximal, so every alternative is a reading the
+    /// definition admits; this pass only chooses between them and always keeps a non-empty
+    /// subset. At an ambiguity node, in order:
+    /// 1. drop an alternative whose top production is a less specific overload of another's;
+    /// 2. classify each alternative by its top production: keep the `prefer` alternatives if there
+    ///    are any, otherwise drop the `avoid` alternatives if some others remain;
+    /// 3. filter every surviving alternative recursively;
+    /// 4. factor: when the alternatives share their top production and differ in exactly one child,
+    ///    the ambiguity moves into that child and the pass continues there;
+    /// 5. the frontier step, for an ambiguity that steps 1-4 leave with two or more alternatives.
+    ///
+    /// Step 2 reads the attribute of the production an alternative uses at the point where the
+    /// alternatives diverge. The frontier step ([`Self::select_at_frontier`]) extends that reading
+    /// to alternatives that diverge at several positions. The common prefix is the set of
+    /// positions whose node header (production, instantiated parameters and arity, or the leaf
+    /// itself) is equal in every alternative, together with their ancestors; the frontier is the
+    /// set of positions just below it, or the root when the headers already differ there. An
+    /// alternative is preferred when its node at some frontier position is `prefer`, and avoided
+    /// when one is `avoid`; a node that is itself an ambiguity is neither. The preferred
+    /// alternatives are kept if there are any, otherwise the avoided ones are dropped if some
+    /// others remain, otherwise all are kept; this repeats over the survivors until nothing
+    /// changes, and the result is factored again. Overload specificity stays the per-node step 1.
+    ///
+    /// At a single divergence point the frontier step is step 2: when the top productions differ
+    /// the frontier is the root, and when the alternatives share their top production and differ
+    /// in one child, step 4 has already moved the ambiguity there. It therefore acts only on an
+    /// ambiguity that steps 1-4 cannot decide, one whose alternatives diverge at two or more
+    /// positions, such as a rewrite whose sides both depend on a variable's sort. Because it keeps
+    /// a subset, and `resolve_ambiguities` reports only distinct lowered terms, a rule that lowers
+    /// to one term without it lowers to the same term with it. An `avoid` production below a
+    /// frontier node does not count, as it does not below the top production in step 2.
     fn filter_overloads_prefer_avoid_node(&self, term: ParsedTerm) -> ParsedTerm {
-        // Invariant: recursion strictly descends the owned tree and retains exactly the maximal
-        // overload choices after prefer/avoid classification.
+        // Invariant: recursion strictly descends the owned tree (factoring moves an ambiguity
+        // strictly downward) and retains exactly the maximal overload choices after prefer/avoid
+        // classification.
         match term {
             ParsedTerm::Term(_) => term,
             ParsedTerm::Production {
@@ -1846,12 +1893,74 @@ impl Grammar {
                 }
                 let ambiguity = ParsedTerm::Ambiguity(alternatives);
                 let factored = self.factor_ambiguities(ambiguity.clone());
+                if factored != ambiguity {
+                    return self.filter_overloads_prefer_avoid_node(factored);
+                }
+                let ParsedTerm::Ambiguity(alternatives) = ambiguity else {
+                    unreachable!("the ambiguity was built above")
+                };
+                let count = alternatives.len();
+                let mut selected = self.select_at_frontier(alternatives);
+                if selected.len() == count {
+                    return ParsedTerm::Ambiguity(selected);
+                }
+                if selected.len() == 1 {
+                    return selected.pop_first().expect("length was one");
+                }
+                // The survivors are already filtered, and a subset of mutually non-dominated
+                // overloads is unchanged by step 1 and a fixpoint of step 2 and of the frontier
+                // step, so only a factoring change needs another pass.
+                let ambiguity = ParsedTerm::Ambiguity(selected);
+                let factored = self.factor_ambiguities(ambiguity.clone());
                 if factored == ambiguity {
                     ambiguity
                 } else {
                     self.filter_overloads_prefer_avoid_node(factored)
                 }
             }
+        }
+    }
+
+    /// The frontier step of [`Self::filter_overloads_prefer_avoid_node`]: repeatedly classify the
+    /// alternatives by their nodes just below their common prefix and keep the preferred ones,
+    /// otherwise drop the avoided ones while some others remain, until a round changes nothing.
+    /// Each round either removes an alternative or stops, so there are fewer rounds than
+    /// alternatives.
+    fn select_at_frontier(&self, mut alternatives: BTreeSet<ParsedTerm>) -> BTreeSet<ParsedTerm> {
+        // Invariant: `alternatives` is a non-empty subset of the input, and every round that does
+        // not return removes at least one alternative.
+        loop {
+            if alternatives.len() < 2 {
+                return alternatives;
+            }
+            let keep = {
+                let nodes = alternatives.iter().collect::<Vec<_>>();
+                let mut frontier = Vec::new();
+                collect_frontier(&nodes, &mut frontier);
+                let classify = |predicate: &dyn Fn(&ParsedTerm) -> bool| {
+                    (0..nodes.len())
+                        .map(|index| frontier.iter().any(|position| predicate(position[index])))
+                        .collect::<Vec<_>>()
+                };
+                let preferred = classify(&|node| self.is_preferred(node));
+                if preferred.contains(&true) {
+                    preferred
+                } else {
+                    let avoided = classify(&|node| self.is_avoided(node));
+                    if !avoided.contains(&false) {
+                        return alternatives;
+                    }
+                    avoided.into_iter().map(|avoided| !avoided).collect()
+                }
+            };
+            if !keep.contains(&false) {
+                return alternatives;
+            }
+            alternatives = alternatives
+                .into_iter()
+                .zip(keep)
+                .filter_map(|(alternative, keep)| keep.then_some(alternative))
+                .collect();
         }
     }
 
@@ -2360,6 +2469,70 @@ pub(super) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
         .collect()
 }
 
+/// Push onto `frontier`, for each frontier position below `nodes` (the nodes the alternatives have
+/// at one common-prefix position, in alternative order), the node every alternative has there.
+///
+/// A position is in the common prefix when its node headers are equal: the same production with
+/// the same instantiated parameters and arity, or equal leaves (a leaf or ambiguity is compared
+/// whole, so equal ones have nothing below them). Otherwise the position is a frontier position.
+fn collect_frontier<'a>(nodes: &[&'a ParsedTerm], frontier: &mut Vec<Vec<&'a ParsedTerm>>) {
+    // Invariant: `nodes` holds one node per alternative at one common-prefix position, so every
+    // pushed position has one node per alternative, in alternative order; recursion descends
+    // only through shared headers, whose arity is equal.
+    let (first, rest) = nodes.split_first().expect("an ambiguity has alternatives");
+    let children = |node: &'a ParsedTerm| match node {
+        ParsedTerm::Production { children, .. }
+        | ParsedTerm::InstantiatedProduction { children, .. } => children.as_slice(),
+        ParsedTerm::Term(_) | ParsedTerm::Ambiguity(_) => &[],
+    };
+    let shared_header = rest.iter().all(|node| match (*first, *node) {
+        (
+            ParsedTerm::Production {
+                production,
+                children,
+                ..
+            },
+            ParsedTerm::Production {
+                production: other,
+                children: other_children,
+                ..
+            },
+        ) => production == other && children.len() == other_children.len(),
+        (
+            ParsedTerm::InstantiatedProduction {
+                production,
+                parameters,
+                children,
+                ..
+            },
+            ParsedTerm::InstantiatedProduction {
+                production: other,
+                parameters: other_parameters,
+                children: other_children,
+                ..
+            },
+        ) => {
+            production == other
+                && parameters == other_parameters
+                && children.len() == other_children.len()
+        }
+        (ParsedTerm::Term(_), ParsedTerm::Term(_))
+        | (ParsedTerm::Ambiguity(_), ParsedTerm::Ambiguity(_)) => first == node,
+        _ => false,
+    });
+    if !shared_header {
+        frontier.push(nodes.to_vec());
+        return;
+    }
+    for index in 0..children(first).len() {
+        let below = nodes
+            .iter()
+            .map(|node| &children(node)[index])
+            .collect::<Vec<_>>();
+        collect_frontier(&below, frontier);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2806,6 +2979,184 @@ mod tests {
             "amb{avoided(), alsoAvoided()}"
         );
         assert_eq!(render(&grammar, &nested), "wrapper(preferred())");
+    }
+
+    /// A grammar for the frontier-step tests: `pair` has two children so that alternatives can
+    /// share it and diverge below it at two positions.
+    struct FrontierGrammar {
+        grammar: Grammar,
+        pair: usize,
+        wrap: usize,
+        preferred: usize,
+        avoided: usize,
+        also_avoided: usize,
+    }
+
+    impl FrontierGrammar {
+        fn new() -> Self {
+            let mut grammar = Grammar::default();
+            let pair = add_production(&mut grammar, "Exp", &["Exp", "Exp"], "pair");
+            let wrap = add_production(&mut grammar, "Exp", &["Exp"], "wrap");
+            let preferred = add_production(&mut grammar, "Exp", &[], "preferred");
+            let avoided = add_production(&mut grammar, "Exp", &[], "avoided");
+            let also_avoided = add_production(&mut grammar, "Exp", &[], "alsoAvoided");
+            grammar.productions[preferred].prefer = true;
+            grammar.productions[avoided].avoid = true;
+            grammar.productions[also_avoided].avoid = true;
+            Self {
+                grammar,
+                pair,
+                wrap,
+                preferred,
+                avoided,
+                also_avoided,
+            }
+        }
+
+        fn node(&self, production: usize, children: Vec<ParsedTerm>) -> ParsedTerm {
+            ParsedTerm::Production {
+                production,
+                children,
+                metadata: Default::default(),
+            }
+        }
+
+        fn pair(&self, left: ParsedTerm, right: ParsedTerm) -> ParsedTerm {
+            self.node(self.pair, vec![left, right])
+        }
+
+        fn leaf(&self, production: usize) -> ParsedTerm {
+            self.node(production, Vec::new())
+        }
+
+        fn filter(&self, alternatives: impl IntoIterator<Item = ParsedTerm>) -> String {
+            render(
+                &self.grammar,
+                &self
+                    .grammar
+                    .filter_overloads_prefer_avoid(ParsedTerm::Ambiguity(
+                        alternatives.into_iter().collect(),
+                    )),
+            )
+        }
+    }
+
+    #[test]
+    fn frontier_step_classifies_alternatives_that_diverge_at_two_positions() {
+        let f = FrontierGrammar::new();
+        // The alternatives share `pair` and differ in both children, so factoring cannot move
+        // the ambiguity and the top-production step sees only `pair`.
+        assert_eq!(
+            f.filter([
+                f.pair(f.leaf(f.avoided), variable("X")),
+                f.pair(variable("V"), variable("Y")),
+            ]),
+            "pair(V, Y)"
+        );
+        assert_eq!(
+            f.filter([
+                f.pair(variable("X"), f.leaf(f.avoided)),
+                f.pair(variable("V"), variable("Y")),
+            ]),
+            "pair(V, Y)"
+        );
+        assert_eq!(
+            f.filter([
+                f.pair(f.leaf(f.preferred), variable("X")),
+                f.pair(variable("V"), variable("Y")),
+            ]),
+            "pair(preferred(), X)"
+        );
+        // An `avoid` production below a frontier node is not classified, as below a top
+        // production.
+        assert_eq!(
+            f.filter([
+                f.pair(f.node(f.wrap, vec![f.leaf(f.avoided)]), variable("X")),
+                f.pair(variable("V"), variable("Y")),
+            ]),
+            "amb{pair(wrap(avoided()), X), pair(V, Y)}"
+        );
+    }
+
+    #[test]
+    fn frontier_step_prefers_before_it_avoids() {
+        let f = FrontierGrammar::new();
+        // The first alternative is both preferred and avoided at the frontier; `prefer` decides.
+        assert_eq!(
+            f.filter([
+                f.pair(f.leaf(f.preferred), f.leaf(f.avoided)),
+                f.pair(variable("V"), variable("Y")),
+            ]),
+            "pair(preferred(), avoided())"
+        );
+    }
+
+    #[test]
+    fn frontier_step_keeps_every_alternative_when_all_are_avoided() {
+        let f = FrontierGrammar::new();
+        assert_eq!(
+            f.filter([
+                f.pair(f.leaf(f.avoided), variable("X")),
+                f.pair(variable("V"), f.leaf(f.also_avoided)),
+            ]),
+            "amb{pair(avoided(), X), pair(V, alsoAvoided())}"
+        );
+    }
+
+    #[test]
+    fn frontier_step_repeats_over_the_survivors_until_nothing_changes() {
+        let f = FrontierGrammar::new();
+        let first = f.pair(f.leaf(f.avoided), variable("X"));
+        let second = f.pair(variable("V"), f.pair(f.leaf(f.avoided), variable("Y")));
+        let third = f.pair(variable("V"), f.pair(variable("W"), variable("Z")));
+        // Round 1: the frontier is both children of the root; only `first` is avoided there.
+        // Round 2: `second` and `third` share the prefix `pair(V, pair(_, _))`, and the new
+        // frontier below it shows `second`'s avoided node.
+        let selected = f.grammar.select_at_frontier(BTreeSet::from([
+            first.clone(),
+            second.clone(),
+            third.clone(),
+        ]));
+        assert_eq!(selected, BTreeSet::from([third.clone()]));
+        assert_eq!(f.filter([first, second, third]), "pair(V, pair(W, Z))");
+    }
+
+    #[test]
+    fn frontier_step_counts_an_ambiguity_node_as_neither_preferred_nor_avoided() {
+        let f = FrontierGrammar::new();
+        let nested =
+            ParsedTerm::Ambiguity(BTreeSet::from([f.leaf(f.avoided), f.leaf(f.also_avoided)]));
+        let with_ambiguity = f.pair(nested, variable("X"));
+        let avoided = f.pair(f.leaf(f.avoided), variable("Y"));
+        assert_eq!(
+            f.grammar
+                .select_at_frontier(BTreeSet::from([with_ambiguity.clone(), avoided.clone()])),
+            BTreeSet::from([with_ambiguity.clone()])
+        );
+        assert_eq!(
+            f.filter([with_ambiguity, avoided]),
+            "pair(amb{avoided(), alsoAvoided()}, X)"
+        );
+        let nested = ParsedTerm::Ambiguity(BTreeSet::from([
+            f.leaf(f.preferred),
+            f.leaf(f.also_avoided),
+        ]));
+        assert_eq!(
+            f.grammar.select_at_frontier(BTreeSet::from([
+                f.pair(nested, variable("X")),
+                f.pair(variable("V"), variable("Y")),
+            ])),
+            BTreeSet::from([
+                f.pair(
+                    ParsedTerm::Ambiguity(BTreeSet::from([
+                        f.leaf(f.preferred),
+                        f.leaf(f.also_avoided),
+                    ])),
+                    variable("X"),
+                ),
+                f.pair(variable("V"), variable("Y")),
+            ])
+        );
     }
 
     #[test]

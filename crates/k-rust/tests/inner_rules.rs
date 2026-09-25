@@ -4614,6 +4614,165 @@ fn ambiguity_classes_agree_under_checked_inference() {
     }
 }
 
+// `prefer`/`avoid` between maximal trees that diverge at several positions (the frontier step of
+// the post-inference filter). Reduced from pl-tutorial kool-typed-static.md:358, `rule
+// (T[])[int, Ts:Types] => T[Ts]`: `Type ::= Id [symbol(class)]` is a constructor, not a subsort,
+// so `T:Type` and `T:Id` (under `class`) are both maximal typings. The two trees share the
+// rewrite and differ at the left-hand `_[]` argument and at the right-hand `arrayRef` argument.
+
+fn class_constructor_source(attribute: &str) -> String {
+    format!(
+        r#"
+        module MAIN
+          syntax Id ::= r"[A-Z][a-zA-Z]*" [token]
+          syntax Type ::= "int"
+                        | Id [symbol(class){attribute}]
+                        | Type "[" "]"
+                        | "(" Type ")" [bracket]
+          syntax Types ::= List{{Type,","}} [overload(exps)]
+          syntax Exp ::= Id | Type
+          syntax Exps ::= List{{Exp,","}} [overload(exps)]
+          syntax Exps ::= Types
+          syntax Exp ::= Exp "[" Exps "]" [symbol(arrayRef)]
+          rule (T[])[int, Ts:Types] => T[Ts]
+        endmodule
+    "#
+    )
+}
+
+fn resolved_rule_body(source: &str) -> Result<String, RuleError> {
+    let resolved = resolve_rule_bubbles(&lowered(source))?;
+    let bodies = resolved
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body.to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let [body] = bodies.as_slice() else {
+        panic!("expected one rule, got {bodies:?}")
+    };
+    Ok(body.clone())
+}
+
+fn assert_ambiguous_between(result: Result<String, RuleError>, readings: [&str; 2]) {
+    let Err(RuleError::Parse(error)) = &result else {
+        panic!("expected an ambiguity, got {result:?}")
+    };
+    let ParseError::Ambiguous {
+        parses,
+        alternatives,
+        ..
+    } = &error.error
+    else {
+        panic!("expected an ambiguity, got {:?}", error.error)
+    };
+    assert_eq!(*parses, 2, "{alternatives:#?}");
+    let mut terms = alternatives
+        .iter()
+        .map(|alternative| alternative.term.as_str())
+        .collect::<Vec<_>>();
+    terms.sort_unstable();
+    let mut readings = readings;
+    readings.sort_unstable();
+    assert_eq!(terms, readings);
+}
+
+const CLASS_TYPE_READING: &str = "arrayRef(`_[]_MAIN_Type_Type`(#SemanticCastToType(T)),`_,__MAIN_Types_Type_Types`(`int_MAIN_Type`(.KList),#SemanticCastToTypes(Ts)))=>arrayRef(#SemanticCastToType(T),#SemanticCastToTypes(Ts))";
+#[cfg(not(feature = "z3-inference"))]
+const CLASS_ID_READING: &str = "arrayRef(`_[]_MAIN_Type_Type`(class(#SemanticCastToId(T))),`_,__MAIN_Types_Type_Types`(`int_MAIN_Type`(.KList),#SemanticCastToTypes(Ts)))=>arrayRef(class(#SemanticCastToId(T)),#SemanticCastToTypes(Ts))";
+
+#[test]
+fn avoided_constructor_at_one_of_two_divergence_points_is_dropped() {
+    let body = resolved_rule_body(&class_constructor_source(", avoid"))
+        .expect("avoid on class decides between the two maximal trees");
+    assert!(!body.contains("class("), "{body}");
+    assert_eq!(body, CLASS_TYPE_READING);
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn avoided_constructor_at_one_of_two_divergence_points_agrees_under_checked_inference() {
+    assert_test_passes_under_checked_inference(
+        "avoided_constructor_at_one_of_two_divergence_points_is_dropped",
+    );
+}
+
+// The z3 build still ranks maximal typings by the syntactic chain order, in which
+// `Type ::= Id [symbol(class)]` puts `Id` below `Type`; these two are portable-only until it
+// uses the subsort order.
+//
+// Without an attribute nothing decides. The error names the first undecided ambiguity, which is
+// inside the `T:Id` tree: its right-hand `T` is an `Exp` either through `Exp ::= Id` or as
+// `class(T)` through `Exp ::= Type`.
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn constructor_without_prefer_or_avoid_leaves_two_maximal_trees_ambiguous() {
+    assert_ambiguous_between(
+        resolved_rule_body(&class_constructor_source("")),
+        ["#SemanticCastToId(T)", "class(#SemanticCastToId(T))"],
+    );
+}
+
+#[cfg(not(feature = "z3-inference"))]
+#[test]
+fn preferred_constructor_at_one_of_two_divergence_points_is_kept() {
+    let body = resolved_rule_body(&class_constructor_source(", prefer"))
+        .expect("prefer on class decides between the two maximal trees");
+    assert_eq!(body, CLASS_ID_READING);
+}
+
+// Without single-nonterminal productions both orders agree. The two readings of `a(X, Y)`
+// differ at the left-hand application and at the right-hand variables' sorts.
+fn two_applications_source(k_attribute: &str, int_attribute: &str) -> String {
+    format!(
+        r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Foo ::= "foo"
+          syntax A ::= "a" "(" K "," Int ")" [symbol(aK){k_attribute}]
+          syntax B ::= "a" "(" Int "," Foo ")" [symbol(aF){int_attribute}]
+          rule a(X, Y) => X ~> Y
+        endmodule
+    "#
+    )
+}
+
+const APPLICATION_K_READING: &str =
+    "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))=>#SemanticCastToK(X)~>#SemanticCastToInt(Y)";
+const APPLICATION_F_READING: &str =
+    "aF(#SemanticCastToInt(X),#SemanticCastToFoo(Y))=>#SemanticCastToInt(X)~>#SemanticCastToFoo(Y)";
+
+#[test]
+fn maximal_trees_avoided_at_every_divergence_point_stay_ambiguous() {
+    assert_ambiguous_between(
+        resolved_rule_body(&two_applications_source(", avoid", ", avoid")),
+        [APPLICATION_K_READING, APPLICATION_F_READING],
+    );
+}
+
+#[test]
+fn maximal_tree_avoided_at_one_of_two_divergence_points_is_dropped() {
+    assert_eq!(
+        resolved_rule_body(&two_applications_source("", ", avoid")).unwrap(),
+        APPLICATION_K_READING
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn maximal_trees_avoided_at_the_frontier_agree_under_checked_inference() {
+    for test in [
+        "maximal_trees_avoided_at_every_divergence_point_stay_ambiguous",
+        "maximal_tree_avoided_at_one_of_two_divergence_points_is_dropped",
+    ] {
+        assert_test_passes_under_checked_inference(test);
+    }
+}
+
 #[test]
 fn a_tree_without_a_greatest_typing_keeps_an_ambiguous_forest_at_the_z3_boundary() {
     // `X` is bounded by `A` and by `B`, whose common subsorts `C1` and `C2` are incomparable,
