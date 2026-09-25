@@ -16,7 +16,7 @@
 //! bound = "O(c) trailing-decimal retries"
 //!
 //! [[cost]]
-//! mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, alias fresh_variable)"
+//! mode = "avoid-set construction at a site (freshen_existentials, freshen_claim, rename_apart, alias fresh_variable)"
 //! bound = "O(v log v) per call before the retry loop"
 //!
 //! [[cost]]
@@ -32,7 +32,10 @@
 //! claim variables, `exists` for implication existentials), so emitted names are byte-identical
 //! to the three per-site loops this replaces. Existentials introduced by a rule's right-hand
 //! side follow Booster instead: strip the `Ex#` marker, keep the original name when it is free,
-//! and increment a trailing decimal counter only while the name collides.
+//! and increment a trailing decimal counter only while the name collides. Rule variables renamed
+//! apart from an application's scope (`rule::rename_apart`) use marker `apart` with the
+//! counter of the enclosing request (`rule::ApartScope`), so no two renamings of one request
+//! mint the same name and identical requests mint identical names.
 
 use std::collections::BTreeSet;
 

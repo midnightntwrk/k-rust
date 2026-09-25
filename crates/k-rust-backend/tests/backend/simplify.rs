@@ -3617,3 +3617,381 @@ fn inconsistent_path_condition_is_indeterminate_not_an_error() {
         }] if rule_id == "conditional" && predicates.len() == 1
     ));
 }
+
+/// `f{}(wrap{}(V))`, where `V` is the variable that the only `f` equation binds, so the subject
+/// mentions a variable of the same name and sort as the rule.
+fn subject_sharing_the_equation_variable(definition: &BackendDefinition) -> Term {
+    let rules = definition
+        .function_theory
+        .values()
+        .chain(definition.simplification_theory.values())
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one equation: {rules:?}");
+    };
+    let variables = rule.lhs.attributes().variables.iter().collect::<Vec<_>>();
+    let [variable] = variables.as_slice() else {
+        panic!("expected one equation variable: {variables:?}");
+    };
+    let variable = (*variable).clone();
+    let placeholder = Variable::new("Y", Sort::simple("SortS"));
+    k_rust_backend::substitution::substitute(
+        &term(definition, "f{}(wrap{}(Y:SortS{}))"),
+        &Substitution::from([(placeholder, Term::variable(variable))]),
+    )
+}
+
+#[test]
+fn function_equation_applies_to_a_subject_that_mentions_its_variable_names() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("c"), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-c")]
+            "#,
+    );
+    let input = subject_sharing_the_equation_variable(&definition);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the equation applies");
+
+    assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("c")"#));
+}
+
+#[test]
+fn simplification_rule_applies_to_a_subject_that_mentions_its_variable_names() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-wrap"), simplification{}()]
+            "#,
+    );
+    let input = subject_sharing_the_equation_variable(&definition);
+    let TermKind::Application { arguments, .. } = input.kind() else {
+        panic!("the subject is an application");
+    };
+    let argument = arguments[0].clone();
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("the simplification applies");
+
+    // The rule's `X` is bound to the subject's `wrap(V)`; the subject's `V` is not captured.
+    assert_eq!(
+        result.term,
+        k_rust_backend::substitution::substitute(
+            &term(&definition, "wrap{}(Y:SortS{})"),
+            &Substitution::from([(Variable::new("Y", Sort::simple("SortS")), argument)]),
+        )
+    );
+}
+
+#[test]
+fn concreteness_constraint_survives_renaming_the_equation_apart() {
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \top{R}(),
+                \equals{SortS{}, R}(
+                    f{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("c"), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-c"), simplification{}(), concrete{}(X:SortS{})]
+            "#,
+    );
+    let input = subject_sharing_the_equation_variable(&definition);
+
+    let result = simplify(&definition, &input, SimplificationOptions::default())
+        .expect("a symbolic argument leaves the concrete equation unapplied");
+
+    assert_eq!(result.term, input);
+}
+
+#[test]
+fn an_equation_requirement_on_a_variable_the_match_leaves_unbound_is_not_captured_by_the_path() {
+    // `f(X) = d requires Y = c`: `Y` is the rule's own variable. The subject mentions variables
+    // spelled like the rule's, and the path condition constrains variables spelled like the
+    // rule's `Y` and like names a renaming could pick; none of them is the rule's `Y`.
+    let definition = definition(
+        r#"
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(Y:SortS{}, \dv{SortS{}}("c")),
+                    \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    f{}(X0:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("d"), \top{SortS{}}())
+                )
+            ) [UNIQUE'Unds'ID{}("f-d")]
+            "#,
+    );
+    let rules = definition
+        .function_theory
+        .values()
+        .flat_map(|priorities| priorities.values())
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one equation");
+    };
+    let lhs_variables = rule.lhs.attributes().variables.iter().collect::<Vec<_>>();
+    let [lhs_variable] = lhs_variables.as_slice() else {
+        panic!("expected one lhs variable");
+    };
+    let sort = Sort::simple("SortS");
+    let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+    let rule_y = "Eq#Y";
+    let input = k_rust_backend::substitution::substitute(
+        &term(&definition, "f{}(budgetPair{}(A:SortS{}, B:SortS{}))"),
+        &Substitution::from([
+            (
+                Variable::new("A", sort.clone()),
+                Term::variable((*lhs_variable).clone()),
+            ),
+            (Variable::new("B", sort.clone()), variable(rule_y)),
+        ]),
+    );
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let path = [
+        rule_y,
+        "Eq#Y!0",
+        "Eq#Y!1",
+        "Eq#X!0",
+        "Eq#Y!apart0",
+        "Eq#Y!apart1",
+    ]
+    .map(|name| Predicate::Equals(variable(name), c.clone()));
+
+    let result = simplify_with_solver(
+        &definition,
+        &input,
+        &path,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("an undecided requirement leaves the term");
+
+    // The path condition may rewrite the subject's own `Eq#Y` to `c`, but `f` is not evaluated.
+    assert!(
+        matches!(result.term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "f"),
+        "{:?}",
+        result.term
+    );
+}
+
+/// `∃Y. add(X, Y) = 3` simplifies to `\top`.
+fn quantified_predicate_equation() -> (BackendDefinition, Variable) {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol add{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}()]
+                axiom{R, Q} \implies{R}(
+                    \top{R}(),
+                    \equals{Q, R}(
+                        \exists{Q}(Y:SortInt{},
+                            \equals{SortInt{}, Q}(add{}(X:SortInt{}, Y:SortInt{}), \dv{SortInt{}}("3"))
+                        ),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("solvable"), simplification{}()]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let rules = definition
+        .predicate_simplification_theory
+        .values()
+        .flatten()
+        .collect::<Vec<_>>();
+    let [rule] = rules.as_slice() else {
+        panic!("expected one predicate equation: {rules:?}");
+    };
+    let Predicate::Exists(bound, _) = &rule.lhs else {
+        panic!("expected a quantified left-hand side: {:?}", rule.lhs);
+    };
+    let bound = bound.clone();
+    (definition, bound)
+}
+
+#[test]
+fn predicate_equation_matches_a_quantifier_that_binds_a_variable_of_the_same_name() {
+    let (definition, bound) = quantified_predicate_equation();
+    let body = |first: Term| {
+        Predicate::Equals(
+            k_rust_backend::substitution::substitute(
+                &term(&definition, "add{}(P:SortInt{}, Q:SortInt{})"),
+                &Substitution::from([
+                    (Variable::new("P", Sort::simple("SortInt")), first),
+                    (
+                        Variable::new("Q", Sort::simple("SortInt")),
+                        Term::variable(bound.clone()),
+                    ),
+                ]),
+            ),
+            term(&definition, r#"\dv{SortInt{}}("3")"#),
+        )
+    };
+    let simplify = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .unwrap()
+    };
+
+    // `∃Y. add(Z, Y) = 3` with the rule's own spelling of `Y`.
+    let matching = Predicate::Exists(
+        bound.clone(),
+        Box::new(body(term(&definition, "Z:SortInt{}"))),
+    );
+    assert_eq!(simplify(&matching), Predicate::True);
+
+    // `∃Y. add(Y, Y) = 3`: binding `X` to the bound `Y` would move it out of its quantifier.
+    let escaping = Predicate::Exists(bound.clone(), Box::new(body(Term::variable(bound.clone()))));
+    assert_ne!(simplify(&escaping), Predicate::True);
+}
+
+/// A definition with the one predicate equation `lhs => rhs` over the uninterpreted `g`, `h`.
+fn predicate_equation(lhs: &str, rhs: &str) -> BackendDefinition {
+    let syntax = parse_definition(&format!(
+        r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                symbol h{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                axiom{{R, Q}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{Q, R}}({lhs}, \and{{Q}}({rhs}, \top{{Q}}()))
+                ) [label{{}}("predicate-equation"), simplification{{}}()]
+            endmodule []"#
+    ))
+    .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    assert_eq!(
+        definition
+            .predicate_simplification_theory
+            .values()
+            .flatten()
+            .count(),
+        1
+    );
+    definition
+}
+
+fn int_equals(
+    definition: &BackendDefinition,
+    function: &str,
+    variable: &Variable,
+    value: u8,
+) -> Predicate {
+    Predicate::Equals(
+        k_rust_backend::substitution::substitute(
+            &term(definition, &format!("{function}{{}}(V:SortInt{{}})")),
+            &Substitution::from([(
+                Variable::new("V", Sort::simple("SortInt")),
+                Term::variable(variable.clone()),
+            )]),
+        ),
+        term(definition, &format!(r#"\dv{{SortInt{{}}}}("{value}")"#)),
+    )
+}
+
+fn simplify_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Predicate {
+    simplify_predicate_with_solver(
+        definition,
+        predicate,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .unwrap()
+}
+
+#[test]
+fn predicate_equation_keeps_a_free_variable_named_like_one_of_its_quantifiers() {
+    // `(∃X. g(X) = 1) ∧ h(X) = 2 => h(X) = 3`: the free `X` is not the quantifier's.
+    let definition = predicate_equation(
+        r#"\and{Q}(
+            \exists{Q}(X:SortInt{}, \equals{SortInt{}, Q}(g{}(X:SortInt{}), \dv{SortInt{}}("1"))),
+            \equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("2"))
+        )"#,
+        r#"\equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("3"))"#,
+    );
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let subject = Predicate::And(vec![
+        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "g", &y, 1))),
+        int_equals(&definition, "h", &y, 2),
+    ]);
+
+    assert_eq!(
+        simplify_predicate(&definition, &subject),
+        int_equals(&definition, "h", &y, 3)
+    );
+}
+
+#[test]
+fn predicate_equation_matches_separate_quantifiers_that_reuse_one_name() {
+    // `(∃A. g(A) = 1) ∧ (∃B. h(B) = 2) => \top` against `(∃Y. g(Y) = 1) ∧ (∃Y. h(Y) = 2)`.
+    let definition = predicate_equation(
+        r#"\and{Q}(
+            \exists{Q}(A:SortInt{}, \equals{SortInt{}, Q}(g{}(A:SortInt{}), \dv{SortInt{}}("1"))),
+            \exists{Q}(B:SortInt{}, \equals{SortInt{}, Q}(h{}(B:SortInt{}), \dv{SortInt{}}("2")))
+        )"#,
+        r#"\top{Q}()"#,
+    );
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let subject = Predicate::And(vec![
+        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "g", &y, 1))),
+        Predicate::Exists(y.clone(), Box::new(int_equals(&definition, "h", &y, 2))),
+    ]);
+
+    assert_eq!(simplify_predicate(&definition, &subject), Predicate::True);
+}
+
+#[test]
+fn predicate_equation_does_not_bind_a_free_variable_to_a_quantified_one() {
+    // `∃A. (g(A) = 1 ∧ h(X) = 2) => \top`.
+    let definition = predicate_equation(
+        r#"\exists{Q}(A:SortInt{}, \and{Q}(
+            \equals{SortInt{}, Q}(g{}(A:SortInt{}), \dv{SortInt{}}("1")),
+            \equals{SortInt{}, Q}(h{}(X:SortInt{}), \dv{SortInt{}}("2"))
+        ))"#,
+        r#"\top{Q}()"#,
+    );
+    let y = Variable::new("Y", Sort::simple("SortInt"));
+    let z = Variable::new("Z", Sort::simple("SortInt"));
+    let under = |second: &Variable| {
+        Predicate::Exists(
+            y.clone(),
+            Box::new(Predicate::And(vec![
+                int_equals(&definition, "g", &y, 1),
+                int_equals(&definition, "h", second, 2),
+            ])),
+        )
+    };
+
+    // `∃Y. (g(Y) = 1 ∧ h(Z) = 2)`: `X` binds the free `Z`.
+    assert_eq!(simplify_predicate(&definition, &under(&z)), Predicate::True);
+    // `∃Y. (g(Y) = 1 ∧ h(Y) = 2)`: `X` would bind the quantified `Y` outside its scope.
+    assert_ne!(simplify_predicate(&definition, &under(&y)), Predicate::True);
+}

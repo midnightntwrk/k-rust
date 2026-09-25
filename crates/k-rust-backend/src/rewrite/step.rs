@@ -291,6 +291,7 @@ pub(super) fn rewrite_step_all(
     assume_initial_defined: bool,
     io: Option<&ExecutionIoState>,
 ) -> RewriteResult {
+    let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);
@@ -645,6 +646,7 @@ pub(super) fn rewrite_step_any(
     io: Option<&ExecutionIoState>,
     mut determinism: Option<&mut SequentialDeterminism>,
 ) -> RewriteResult {
+    let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);

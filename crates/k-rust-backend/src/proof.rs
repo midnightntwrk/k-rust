@@ -201,6 +201,7 @@ pub fn prove_claim(
     options: ProofOptions,
     solver: &dyn SmtSolver,
 ) -> Result<ProofResult, ProofError> {
+    let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendProofSearch);
     if options.max_counterexamples == 0 {
         return Err(ProofError::ZeroCounterexampleLimit);
