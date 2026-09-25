@@ -1417,3 +1417,72 @@ fn emits_claims_imported_into_the_specification_module() {
         .collect::<Vec<_>>();
     assert_eq!(claim_labels, ["LEMMAS.reach"]);
 }
+
+/// A source claim over a definition whose rules instantiate `!` variables says nothing about the
+/// generated counter: the emitted claim rewrites an arbitrary initial counter to an existential
+/// final one, so the claim gains one universal and one more leading `\exists`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn claims_rewrite_the_generated_counter_to_an_existential() {
+    let source = indoc!(
+        r#"
+        module DEF
+          imports INT
+          syntax State ::= "start" [symbol(start)]
+                         | st(Int) [symbol(st)]
+          configuration <k> $PGM:State </k>
+          rule <k> start => st(!N:Int) </k>
+        endmodule
+
+        module SPEC
+          imports DEF
+          claim [fresh-value]: <k> start => st(?B:Int) </k>
+        endmodule
+        "#
+    );
+    let prelude = embedded("prelude.md").expect("embedded prelude should exist");
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("spec.k", source),
+        "SPEC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .expect("specification should load");
+    let artifacts = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            check_mode: CheckMode::Proof {
+                definition_module: "DEF".into(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+    .expect("specification should compile");
+    let definition =
+        parse_definition(&artifacts.definition_kore).expect("emitted KORE should parse");
+    let spec = definition
+        .modules
+        .iter()
+        .find(|module| module.name == "SPEC")
+        .expect("the specification module should be emitted");
+    let printer = Printer::pretty(100);
+    let claims = spec
+        .sentences
+        .iter()
+        .filter_map(|sentence| match sentence {
+            Sentence::Claim { pattern, .. } => Some(printer.print_pattern(pattern)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(claims.len(), 1);
+    insta::assert_snapshot!(claims[0]);
+}

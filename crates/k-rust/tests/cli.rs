@@ -7899,3 +7899,333 @@ fn kcompile_writes_no_counter_file_without_krust_counters() {
     assert_eq!(entries, ["base.k", "compiled", "definition.k"]);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// Prove each named claim of an inlined specification on its own and return the verdict word
+/// `krust kprove` reports for it (`proven`, `disproved`, `indeterminate`, ...), or `error` with
+/// its diagnostic on standard error when the prover rejects the claim.
+fn kprove_claim_verdicts(
+    definition: (&str, &str),
+    specification: (&str, &str),
+    main_module: &str,
+    definition_module: &str,
+    claims: &[&str],
+) -> Vec<(String, String)> {
+    let (root, _) = fixture();
+    fs::write(root.join(definition.0), definition.1).unwrap();
+    let specification_path = root.join(specification.0);
+    fs::write(&specification_path, specification.1).unwrap();
+    let verdicts = claims
+        .iter()
+        .map(|claim| {
+            let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+                .args([
+                    "kprove",
+                    specification_path.to_str().unwrap(),
+                    "--main-module",
+                    main_module,
+                    "--definition-module",
+                    definition_module,
+                    "--depth",
+                    "10",
+                    "--claim",
+                    claim,
+                ])
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8(output.stdout).unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let prefix = format!("claim {claim}: ");
+            let verdict = stdout
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .and_then(|rest| rest.split_whitespace().next())
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    eprintln!("{claim}: {}", stderr.trim());
+                    "error".to_owned()
+                });
+            assert_eq!(
+                output.status.success(),
+                verdict == "proven",
+                "{claim}: {stdout}\n{stderr}"
+            );
+            ((*claim).to_owned(), verdict)
+        })
+        .collect();
+    fs::remove_dir_all(root).unwrap();
+    verdicts
+}
+
+fn expected_verdicts(expected: &[(&str, &str)]) -> Vec<(String, String)> {
+    expected
+        .iter()
+        .map(|(claim, verdict)| ((*claim).to_owned(), (*verdict).to_owned()))
+        .collect()
+}
+
+const EXIST_PROBE: &str = r#"
+module EXIST-PROBE
+  imports INT
+  syntax State ::= "start" | st(Int, Int) | "done"
+  configuration <k> $PGM:State </k>
+  rule <k> start => st(!N:Int, 7) </k>
+endmodule
+"#;
+
+/// A claim that does not name the generated counter says nothing about it, so a path that
+/// instantiates a `!` variable (and so advances the counter) can prove it.
+#[test]
+fn kprove_claims_leave_the_generated_counter_to_the_path() {
+    let specification = r#"
+requires "exist-probe.k"
+
+module EXIST-SPEC
+  imports EXIST-PROBE
+
+  claim <k> start => st(?B:Int, ?A:Int) </k> ensures ?A ==Int 7 [label(ab)]
+  claim <k> start => st(?Z:Int, ?A:Int) </k> ensures ?A ==Int 7 [label(za)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> ensures ?A ==Int 8 [label(ab-false)]
+endmodule
+"#;
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("exist-probe.k", EXIST_PROBE),
+            ("exist-spec.k", specification),
+            "EXIST-SPEC",
+            "EXIST-PROBE",
+            &["ab", "za", "ab-false"],
+        ),
+        expected_verdicts(&[
+            ("ab", "proven"),
+            ("za", "proven"),
+            ("ab-false", "disproved")
+        ]),
+    );
+}
+
+/// A claim that names the generated counter states what it says about it.
+#[test]
+fn kprove_claims_naming_the_generated_counter_keep_their_statement() {
+    let specification = r#"
+requires "exist-probe.k"
+
+module EXIST-SPEC2
+  imports EXIST-PROBE
+
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => C </generatedCounter> ensures ?A ==Int 7 [label(same-counter)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => ?C2:Int </generatedCounter> ensures ?A ==Int 7 [label(exists-counter)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => C +Int 1 </generatedCounter> ensures ?A ==Int 7 [label(incremented-counter)]
+  claim <k> start => st(?B:Int, ?A:Int) </k> <generatedCounter> C:Int => C +Int 2 </generatedCounter> ensures ?A ==Int 7 [label(wrong-counter)]
+endmodule
+"#;
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("exist-probe.k", EXIST_PROBE),
+            ("exist-spec2.k", specification),
+            "EXIST-SPEC2",
+            "EXIST-PROBE",
+            &[
+                "same-counter",
+                "exists-counter",
+                "incremented-counter",
+                "wrong-counter"
+            ],
+        ),
+        expected_verdicts(&[
+            ("same-counter", "disproved"),
+            ("exists-counter", "proven"),
+            ("incremented-counter", "proven"),
+            ("wrong-counter", "disproved"),
+        ]),
+    );
+}
+
+/// Both ways of writing a claim across a rule that allocates a fresh value prove: naming the
+/// counter's advance, or leaving the counter out.
+#[test]
+fn kprove_fresh_value_claims_prove_with_and_without_the_counter() {
+    let definition = r#"
+module TEST
+  imports INT
+  syntax Pgm ::= "quux"
+  configuration <k> $PGM:Pgm </k> <c1> .K </c1> <c2> .K </c2>
+  rule <k> quux => .K </k> <c1> .K => !C:Int </c1> <c2> .K => !C:Int </c2>
+endmodule
+"#;
+    let specification = r#"
+requires "test.k"
+
+module FRESH-SPEC
+  imports TEST
+
+  claim <k> quux => .K </k> <c1> .K => ?C </c1> <c2> .K => ?C </c2>
+    <generatedCounter> GC => GC +Int 1 </generatedCounter> [label(explicit)]
+  claim <k> quux => .K </k> <c1> .K => ?C </c1> <c2> .K => ?C </c2> [label(implicit)]
+endmodule
+"#;
+    assert_eq!(
+        kprove_claim_verdicts(
+            ("test.k", definition),
+            ("fresh-spec.k", specification),
+            "FRESH-SPEC",
+            "TEST",
+            &["explicit", "implicit"],
+        ),
+        expected_verdicts(&[("explicit", "proven"), ("implicit", "proven")]),
+    );
+}
+
+const CELL_PROBE: &str = r#"
+module CELL-PROBE
+  imports INT
+  syntax State ::= "start" | "middle" | "done"
+  configuration <k> $PGM:State </k> <n> 0 </n>
+  rule <k> start => middle </k> <n> X => X +Int 1 </n>
+endmodule
+"#;
+
+/// A universal variable of a claim, including the frame variable of a cell the claim leaves out,
+/// denotes the same value in the reached state as in the initial one.
+#[test]
+fn kprove_universal_claim_variables_keep_their_initial_value() {
+    let specification = r#"
+requires "cell-probe.k"
+
+module CELL-SPEC
+  imports CELL-PROBE
+
+  claim <k> start => middle </k> [label(unmentioned)]
+  claim <k> start => middle </k> <n> X => X +Int 1 </n> [label(incremented)]
+  claim <k> start => middle </k> <n> X => X </n> [label(unchanged)]
+  claim <k> start => middle </k> <n> 3 </n> [label(constant)]
+  claim <k> start => done </k> [label(unreachable)]
+endmodule
+"#;
+    let verdicts = kprove_claim_verdicts(
+        ("cell-probe.k", CELL_PROBE),
+        ("cell-spec.k", specification),
+        "CELL-SPEC",
+        "CELL-PROBE",
+        &[
+            "unmentioned",
+            "incremented",
+            "unchanged",
+            "constant",
+            "unreachable",
+        ],
+    );
+    // The increment of an unmentioned cell falsifies the claim; the prover does not refute the
+    // frame equation outright, so it must only not prove it.
+    assert_ne!(verdicts[0].1, "proven", "{verdicts:?}");
+    assert_eq!(
+        verdicts[1..],
+        expected_verdicts(&[
+            ("incremented", "proven"),
+            ("unchanged", "disproved"),
+            ("constant", "disproved"),
+            ("unreachable", "disproved"),
+        ]),
+    );
+}
+
+const CELL_PROBE2: &str = r#"
+module CELL-PROBE2
+  imports INT
+  syntax State ::= "start" | "middle"
+  configuration <k> $PGM:State </k> <n> 0 </n>
+  rule <k> start => middle </k> <n> _ => 5 </n>
+endmodule
+"#;
+
+const CELL_SPEC2: &str = r#"
+requires "cell-probe2.k"
+
+module CELL-SPEC2
+  imports CELL-PROBE2
+
+  claim <k> start => middle </k> <n> X => X </n> [label(free-unchanged)]
+  claim <k> start => middle </k> <n> X => X </n> requires X ==Int 0 [label(constrained-unchanged)]
+  claim <k> start => middle </k> <n> X => 5 </n> requires X ==Int 0 [label(constrained-set)]
+  claim <k> start => middle </k> <n> 0 => 0 </n> [label(concrete-unchanged)]
+endmodule
+"#;
+
+/// A universal claim variable denotes its initial value in the reached state, so the value the path
+/// writes into its cell falsifies the claim whether or not the precondition constrains the variable.
+#[test]
+fn kprove_constrained_universal_claim_variables_are_checked() {
+    let verdicts = kprove_claim_verdicts(
+        ("cell-probe2.k", CELL_PROBE2),
+        ("cell-spec2.k", CELL_SPEC2),
+        "CELL-SPEC2",
+        "CELL-PROBE2",
+        &[
+            "free-unchanged",
+            "constrained-unchanged",
+            "constrained-set",
+            "concrete-unchanged",
+        ],
+    );
+    // `X = 5` is not entailed for an unconstrained `X`, but it is satisfiable, so the prover finds
+    // no refutation of the whole state: the claim must be decided and not proven.
+    assert!(
+        !["proven", "error"].contains(&verdicts[0].1.as_str()),
+        "{verdicts:?}"
+    );
+    assert_eq!(
+        verdicts[1..],
+        expected_verdicts(&[
+            ("constrained-unchanged", "disproved"),
+            ("constrained-set", "proven"),
+            ("concrete-unchanged", "disproved"),
+        ]),
+    );
+}
+
+/// A rule that only reads a cell the claim leaves out keeps the claim's frame; a rule that writes
+/// one does not.
+#[test]
+fn kprove_unmentioned_cells_read_by_the_path_keep_the_frame() {
+    let definition = r#"
+module CELL-PROBE3
+  imports INT
+  syntax State ::= "start" | "middle" | "done"
+  configuration <k> $PGM:State </k> <n> 0 </n> <m> 0 </m>
+  rule <k> start => middle </k> <n> _ </n>
+  rule <k> middle => done </k> <n> X </n> <m> _ => X </m>
+endmodule
+"#;
+    let specification = r#"
+requires "cell-probe3.k"
+
+module CELL-SPEC3
+  imports CELL-PROBE3
+
+  claim <k> start => middle </k> [label(read-only)]
+  claim <k> middle => done </k> <m> _ => ?M </m> [label(copied-exists)]
+  claim <k> middle => done </k> <n> X </n> <m> _ => X </m> [label(copied-universal)]
+  claim <k> middle => done </k> [label(copied-unmentioned)]
+endmodule
+"#;
+    let verdicts = kprove_claim_verdicts(
+        ("cell-probe3.k", definition),
+        ("cell-spec3.k", specification),
+        "CELL-SPEC3",
+        "CELL-PROBE3",
+        &[
+            "read-only",
+            "copied-exists",
+            "copied-universal",
+            "copied-unmentioned",
+        ],
+    );
+    assert_eq!(
+        verdicts[..3],
+        expected_verdicts(&[
+            ("read-only", "proven"),
+            ("copied-exists", "proven"),
+            ("copied-universal", "proven"),
+        ]),
+    );
+    assert_ne!(verdicts[3].1, "proven", "{verdicts:?}");
+}

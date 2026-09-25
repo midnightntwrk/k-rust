@@ -1,0 +1,28 @@
+---
+source: crates/k-rust/tests/module_to_kore.rs
+expression: "claims[0]"
+---
+\implies{SortGeneratedTopCell{}}(
+  \and{SortGeneratedTopCell{}}(
+    \top{SortGeneratedTopCell{}}(),
+    Lbl'-LT-'generatedTop'-GT-'{}(
+      Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortState{}, SortKItem{}}(Lblstart{}()), dotk{}())),
+      Lbl'-LT-'generatedCounter'-GT-'{}(Var'Unds'Gen0:SortInt{})
+    )
+  ),
+  \exists{SortGeneratedTopCell{}}(
+    Var'Ques'B:SortInt{},
+    \exists{SortGeneratedTopCell{}}(
+      Var'QuesUnds'Gen1:SortInt{},
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(inj{SortState{}, SortKItem{}}(Lblst{}(Var'Ques'B:SortInt{})), dotk{}())
+          ),
+          Lbl'-LT-'generatedCounter'-GT-'{}(Var'QuesUnds'Gen1:SortInt{})
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+  )
+)
