@@ -14,6 +14,7 @@ use std::{collections::BTreeSet, convert::Infallible};
 use serde_json::Value;
 
 use crate::definition::AttributeKey;
+use crate::kompile::sort_injections::SortInjectionError;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
@@ -123,21 +124,32 @@ pub(crate) fn add_cool_like_attributes_pass(
 }
 
 /// Generate Java's final positive and `owise` negative sort-predicate rules.
-pub fn generate_sort_predicate_rules(definition: &Definition) -> Definition {
+pub fn generate_sort_predicate_rules(
+    definition: &Definition,
+) -> Result<Definition, SortInjectionError> {
     super::super::pipeline::run_standalone(
         definition,
         generate_sort_predicate_rules_pass,
         Some(GeneratingPass::GenerateSortPredicateRules),
     )
-    .unwrap_or_else(|error| match error {})
 }
 
 pub(crate) fn generate_sort_predicate_rules_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, Infallible> {
+) -> Result<Definition, SortInjectionError> {
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| SortInjectionError::Definition(error.clone()))?;
+    let views = resolved.views();
     let mut output = input.definition.clone();
     for module in &mut output.modules {
+        let module_id = resolved
+            .module_id(&module.name)
+            .expect("resolved definition contains every source module");
+        let subsorts = views
+            .subsorts(module_id)
+            .map_err(|cycle| SortInjectionError::CircularSubsort(cycle.path.clone()))?;
         let predicates = module
             .local_sentences
             .iter()
@@ -154,7 +166,7 @@ pub(crate) fn generate_sort_predicate_rules_pass(
             })
             .collect::<BTreeSet<_>>();
         let mut generated = Vec::new();
-        // Invariant: `generated` holds the predicate rules of every `(predicate, sort)` pair of `predicates` before this one, one rule for the `K` sort and two otherwise; each iteration consumes one pair of the finite set `predicates`.
+        // Invariant: `generated` holds the predicate rules of every `(predicate, sort)` pair of `predicates` before this one: one rule for `K`, a negative rule for an unplaceable sort, and two rules otherwise; each iteration consumes one pair of the finite set `predicates`.
         for (predicate, sort) in predicates {
             if sort.is_builtin(BuiltinSort::K) {
                 generated.push(predicate_rule(
@@ -167,15 +179,17 @@ pub(crate) fn generate_sort_predicate_rules_pass(
                     false,
                 ));
             } else {
-                generated.push(predicate_rule(
-                    &predicate,
-                    Term::Variable {
-                        name: sort.name.clone(),
-                        sort: Some(sort),
-                    },
-                    true,
-                    false,
-                ));
+                if super::placeable(&sort, &Sort::builtin(BuiltinSort::K), subsorts) {
+                    generated.push(predicate_rule(
+                        &predicate,
+                        Term::Variable {
+                            name: sort.name.clone(),
+                            sort: Some(sort),
+                        },
+                        true,
+                        false,
+                    ));
+                }
                 generated.push(predicate_rule(
                     &predicate,
                     Term::Variable {

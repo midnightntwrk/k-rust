@@ -8,7 +8,7 @@ use std::{
 };
 
 use k_rust::kore::{
-    ast::{Attributes, Definition, Pattern, Sentence, Symbol},
+    ast::{Attributes, Definition, Pattern, Sentence, Sort, Symbol, Variable},
     parser::parse_definition,
     parser::parse_pattern,
     printer::Printer,
@@ -523,9 +523,334 @@ fn emitted_kore_matches_the_reference_frontend() {
     let actual_path = env::var("K_RUST_KORE").expect("K_RUST_KORE is required");
     let reference_source = fs::read_to_string(&reference_path).unwrap();
     let actual_source = fs::read_to_string(&actual_path).unwrap();
-    let reference = parse_definition(&reference_source).unwrap();
+    let mut reference = parse_definition(&reference_source).unwrap();
     let actual = parse_definition(&actual_source).unwrap();
+    let (removed, owise) = normalize_unsupported_sort_predicates(&mut reference);
+    println!("unsupported sort-predicate axioms normalized: {removed} true, {owise} owise");
     compare_definitions(reference, actual);
+}
+
+/// Remove only sort-predicate equations whose injected argument has no declared embedding into
+/// `KItem`, along with that equation's one negated applicability disjunct in its owise companion.
+fn normalize_unsupported_sort_predicates(definition: &mut Definition) -> (usize, usize) {
+    let supported = definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom { attributes, .. } => attributes.0.iter().find_map(|attribute| {
+                let Pattern::Application { symbol, arguments } = attribute else {
+                    return None;
+                };
+                (symbol.name == "subsort"
+                    && arguments.is_empty()
+                    && symbol.sort_parameters.len() == 2
+                    && symbol.sort_parameters[1] == kore_sort("SortKItem"))
+                .then(|| symbol.sort_parameters[0].clone())
+            }),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut removed = 0;
+    let mut rewritten = 0;
+    for module in &mut definition.modules {
+        let dropped = module
+            .sentences
+            .iter()
+            .filter_map(|sentence| unsupported_sort_predicate_axiom(sentence, &supported))
+            .collect::<BTreeSet<_>>();
+        removed += module.sentences.len();
+        module
+            .sentences
+            .retain(|sentence| unsupported_sort_predicate_axiom(sentence, &supported).is_none());
+        removed -= module.sentences.len();
+        for sentence in &mut module.sentences {
+            if let Some(key) = owise_unsupported_disjunct(sentence)
+                && dropped.contains(&key)
+                && let Sentence::Axiom { pattern, .. } = sentence
+                && let Pattern::Implies { left, .. } = pattern.as_mut()
+                && let Pattern::And { arguments, .. } = left.as_mut()
+                && let Pattern::Not { argument, .. } = &mut arguments[0]
+                && let Pattern::Or { arguments, .. } = argument.as_mut()
+            {
+                let bottom = arguments
+                    .iter()
+                    .find(|pattern| matches!(pattern, Pattern::Bottom { .. }))
+                    .expect("matched owise disjunct contains bottom")
+                    .clone();
+                **argument = bottom;
+                rewritten += 1;
+            }
+        }
+    }
+    (removed, rewritten)
+}
+
+fn kore_sort(name: &str) -> Sort {
+    Sort::Application {
+        name: name.into(),
+        arguments: vec![],
+    }
+}
+
+fn sort_predicate_equation<'a>(
+    pattern: &'a Pattern,
+    value: &str,
+) -> Option<(&'a str, &'a Variable, &'a Pattern)> {
+    let Pattern::Implies { sort, left, right } = pattern else {
+        return None;
+    };
+    if *sort != Sort::Variable("R".into()) {
+        return None;
+    }
+    let Pattern::Equals {
+        operand_sort,
+        result_sort,
+        left: result_left,
+        right: result_right,
+    } = right.as_ref()
+    else {
+        return None;
+    };
+    if *operand_sort != kore_sort("SortBool") || *result_sort != Sort::Variable("R".into()) {
+        return None;
+    }
+    let Pattern::Application { symbol, arguments } = result_left.as_ref() else {
+        return None;
+    };
+    let [Pattern::Variable(variable)] = arguments.as_slice() else {
+        return None;
+    };
+    let Pattern::And {
+        sort: result_sort,
+        arguments: result,
+    } = result_right.as_ref()
+    else {
+        return None;
+    };
+    let [
+        Pattern::DomainValue { sort, value: token },
+        Pattern::Top { sort: top_sort },
+    ] = result.as_slice()
+    else {
+        return None;
+    };
+    (variable.sort == kore_sort("SortK")
+        && *sort == kore_sort("SortBool")
+        && *result_sort == kore_sort("SortBool")
+        && *top_sort == kore_sort("SortBool")
+        && token == value
+        && symbol.sort_parameters.is_empty()
+        && symbol.name.starts_with("Lblis"))
+    .then_some((&symbol.name, variable, left.as_ref()))
+}
+
+fn single_predicate_match<'a>(pattern: &'a Pattern, argument: &Variable) -> Option<&'a Pattern> {
+    match pattern {
+        Pattern::Top { sort } if *sort == Sort::Variable("R".into()) => None,
+        Pattern::And { sort, arguments } if *sort == Sort::Variable("R".into()) => {
+            let mut found = None;
+            for child in arguments {
+                if matches!(child, Pattern::Top { sort } if *sort == Sort::Variable("R".into())) {
+                    continue;
+                }
+                let next = single_predicate_match(child, argument)?;
+                if found.replace(next).is_some() {
+                    return None;
+                }
+            }
+            found
+        }
+        Pattern::In {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } if *operand_sort == kore_sort("SortK")
+            && *result_sort == Sort::Variable("R".into())
+            && matches!(left.as_ref(), Pattern::Variable(variable) if variable == argument) =>
+        {
+            Some(right.as_ref())
+        }
+        _ => None,
+    }
+}
+
+fn injected_predicate_argument(pattern: &Pattern) -> Option<(Sort, Sort, &Variable)> {
+    let (injection, target_sort) = match pattern {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == "kseq"
+                && symbol.sort_parameters.is_empty()
+                && matches!(arguments.as_slice(), [_, Pattern::Application { symbol: dotk, arguments: empty }] if dotk.name == "dotk" && empty.is_empty()) =>
+        {
+            (&arguments[0], kore_sort("SortKItem"))
+        }
+        other => (other, kore_sort("SortK")),
+    };
+    let Pattern::Application { symbol, arguments } = injection else {
+        return None;
+    };
+    let [source, target] = symbol.sort_parameters.as_slice() else {
+        return None;
+    };
+    let [Pattern::Variable(variable)] = arguments.as_slice() else {
+        return None;
+    };
+    (symbol.name == "inj"
+        && *target == target_sort
+        && *source != kore_sort("SortK")
+        && variable.sort == *source)
+        .then(|| (source.clone(), target.clone(), variable))
+}
+
+fn unsupported_sort_predicate_axiom(
+    sentence: &Sentence,
+    supported: &BTreeSet<Sort>,
+) -> Option<(String, Sort, Sort)> {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    if attributes.0.iter().any(|attribute| {
+        matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "owise")
+    }) {
+        return None;
+    }
+    let (predicate, argument, condition) = sort_predicate_equation(pattern, "true")?;
+    let (source, target, _) =
+        injected_predicate_argument(single_predicate_match(condition, argument)?)?;
+    let sort_name = match &source {
+        Sort::Application { name, arguments } if arguments.is_empty() => {
+            name.strip_prefix("Sort")?
+        }
+        _ => return None,
+    };
+    (predicate == format!("Lblis{sort_name}") && !supported.contains(&source))
+        .then(|| (predicate.to_owned(), source, target))
+}
+
+fn owise_unsupported_disjunct(sentence: &Sentence) -> Option<(String, Sort, Sort)> {
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    if !attributes.0.iter().any(|attribute| {
+        matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "owise")
+    }) {
+        return None;
+    }
+    let (predicate, argument, condition) = sort_predicate_equation(pattern, "false")?;
+    let Pattern::And { arguments, .. } = condition else {
+        return None;
+    };
+    let [
+        Pattern::Not {
+            argument: negated, ..
+        },
+        rest,
+    ] = arguments.as_slice()
+    else {
+        return None;
+    };
+    single_predicate_match(rest, argument)?;
+    let Pattern::Or { arguments, .. } = negated.as_ref() else {
+        return None;
+    };
+    let [first, second] = arguments.as_slice() else {
+        return None;
+    };
+    let exists = match (first, second) {
+        (Pattern::Exists { .. }, Pattern::Bottom { .. }) => first,
+        (Pattern::Bottom { .. }, Pattern::Exists { .. }) => second,
+        _ => return None,
+    };
+    let Pattern::Exists { variable, body, .. } = exists else {
+        return None;
+    };
+    let (source, target, injected) =
+        injected_predicate_argument(single_predicate_match(body, argument)?)?;
+    (variable == injected).then(|| (predicate.to_owned(), source, target))
+}
+
+#[test]
+fn sort_predicate_normalizer_requires_a_missing_subsort_axiom() {
+    let definition = |with_subsort| {
+        let subsort = if with_subsort {
+            r"axiom{R} \exists{R}(Val:SortKItem{}, \equals{SortKItem{}, R}(Val:SortKItem{}, inj{SortFoo{}, SortKItem{}}(From:SortFoo{}))) [subsort{SortFoo{}, SortKItem{}}()]"
+        } else {
+            ""
+        };
+        parse_definition(&[
+            r"[] module TEST
+              sort SortFoo{} []
+              sort SortKItem{} []
+              sort SortK{} []
+              sort SortBool{} []
+              symbol LblisFoo{}(SortK{}) : SortBool{} []",
+            subsort,
+            r#"axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \and{R}(
+                    \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortFoo{}, SortKItem{}}(VarFoo:SortFoo{}), dotk{}())),
+                    \top{R}())),
+                \equals{SortBool{}, R}(LblisFoo{}(X0:SortK{}), \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}()))) []
+              axiom{R} \implies{R}(
+                \and{R}(\not{R}(\or{R}(
+                    \exists{R}(Gen:SortFoo{}, \and{R}(\top{R}(), \and{R}(
+                        \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortFoo{}, SortKItem{}}(Gen:SortFoo{}), dotk{}())),
+                        \top{R}()))),
+                    \bottom{R}())),
+                    \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarK:SortK{}), \top{R}()))),
+                \equals{SortBool{}, R}(LblisFoo{}(X0:SortK{}), \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}()))) [owise{}()]
+            endmodule []"#,
+        ]
+        .join("\n"))
+        .unwrap()
+    };
+
+    let mut supported = definition(true);
+    let original = supported.clone();
+    assert_eq!(
+        normalize_unsupported_sort_predicates(&mut supported),
+        (0, 0)
+    );
+    assert_eq!(
+        supported, original,
+        "a declared embedding must keep both equations"
+    );
+
+    let mut unsupported = definition(false);
+    assert_eq!(
+        normalize_unsupported_sort_predicates(&mut unsupported),
+        (1, 1)
+    );
+    let axioms = unsupported.modules[0]
+        .sentences
+        .iter()
+        .filter(|sentence| matches!(sentence, Sentence::Axiom { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(axioms.len(), 1);
+    let Sentence::Axiom { pattern, .. } = axioms[0] else {
+        unreachable!()
+    };
+    let (predicate, _, condition) = sort_predicate_equation(pattern, "false").unwrap();
+    assert_eq!(predicate, "LblisFoo");
+    assert!(matches!(condition, Pattern::And { arguments, .. }
+        if matches!(arguments.first(), Some(Pattern::Not { argument, .. })
+            if matches!(argument.as_ref(), Pattern::Bottom { .. }))));
+
+    let at_k = parse_pattern("inj{SortFoo{}, SortK{}}(VarFoo:SortFoo{})").unwrap();
+    assert_eq!(
+        injected_predicate_argument(&at_k).map(|(sort, _, _)| sort),
+        Some(kore_sort("SortFoo"))
+    );
 }
 
 #[test]

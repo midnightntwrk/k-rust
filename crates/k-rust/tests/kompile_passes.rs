@@ -6,14 +6,14 @@
 
 use indoc::indoc;
 #[cfg(feature = "z3-inference")]
+use k_rust::kore::{
+    ast::{Pattern as KorePattern, Sentence as KoreSentence},
+    parser::{parse_definition, parse_pattern},
+};
 use k_rust::{
     builtin::embedded,
     definition::AttributeKey,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
-    kore::{
-        ast::{Pattern as KorePattern, Sentence as KoreSentence},
-        parser::{parse_definition, parse_pattern},
-    },
     outer::{LoadOptions, load_with_options},
 };
 use k_rust::{
@@ -4979,7 +4979,7 @@ fn concretizes_cells_inside_generated_simplification_rules() {
     let transformed = add_semantics_module(&transformed).unwrap();
     let transformed = resolve_config_var(&transformed);
     let transformed = add_cool_like_attributes(&transformed);
-    let transformed = generate_sort_predicate_rules(&transformed);
+    let transformed = generate_sort_predicate_rules(&transformed).unwrap();
     let transformed = number_sentences(&transformed);
     add_sort_injections_to_definition(&transformed).unwrap();
 }
@@ -5603,7 +5603,7 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
     "#};
     let definition = generate_sort_predicate_syntax(&parsed(source)).unwrap();
     let definition = add_semantics_module(&definition).unwrap();
-    let definition = number_sentences(&generate_sort_predicate_rules(&definition));
+    let definition = number_sentences(&generate_sort_predicate_rules(&definition).unwrap());
     let language = definition
         .modules
         .iter()
@@ -5642,6 +5642,67 @@ fn finalizes_language_parsing_and_sort_predicate_rules() {
         insta::assert_debug_snapshot!(predicates);
     });
     assert_has_generated_by(&definition, GeneratingPass::GenerateSortPredicateRules);
+}
+
+#[test]
+fn unplaceable_layout_sort_has_only_a_false_predicate_rule() {
+    let source = indoc! {r#"
+        module MAIN
+          imports INT-SYNTAX
+          syntax #Layout [token]
+          syntax Foo ::= "foo"
+        endmodule
+    "#};
+    let prelude = embedded("prelude.md").unwrap();
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("layout.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![prelude],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    let rules = compiled
+        .execution_definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule {
+                body, attributes, ..
+            } if Printer::new().print_term(body).starts_with("`is#Layout`(") => Some((
+                Printer::new().print_term(body),
+                attributes.get("owise").is_some(),
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rules,
+        [(
+            "`is#Layout`(K)=>#token(\"false\",\"Bool\")".to_owned(),
+            true
+        )]
+    );
+    assert!(
+        compiled
+            .definition_kore
+            .contains("symbol Lblis'Hash'Layout{}(SortK{})")
+    );
+    assert!(compiled.definition_kore.contains(
+        "Lblis'Hash'Layout{}(X0:SortK{}),\n        \\and{SortBool{}}(\\dv{SortBool{}}(\"false\")"
+    ));
+    assert!(!compiled.definition_kore.contains("inj{Sort'Hash'Layout"));
 }
 
 #[test]
