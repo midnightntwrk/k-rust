@@ -23,10 +23,12 @@ struct VariableBounds {
     casts: Vec<(Sort, Term)>,
 }
 
-// The order of `subsort_kitem::implicit_less_than_eq`, shared with sort injection: this pass runs
-// before `subsort_kitem` adds the implicit `KItem` edges.
+// A cast bounds the sort of the value at its position, so a variable's sort is acceptable under
+// a bound when compilation can place a term of that sort at a position of the bound's sort
+// (`subsort_kitem::placeable`, the relation sort injection places terms by). This pass runs
+// before `subsort_kitem` declares the implicit `KItem` subsorts, which that relation includes.
 fn below(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
-    super::subsort_kitem::implicit_less_than_eq(actual, expected, subsorts)
+    super::subsort_kitem::placeable(actual, expected, subsorts)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -382,8 +384,7 @@ pub(crate) fn semantic_cast_variable_sorts(
     }
 }
 
-/// Whether `name` is an anonymous variable, each of whose occurrences is a distinct variable.
-pub(crate) fn is_anonymous(name: &str) -> bool {
+fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
 }
 

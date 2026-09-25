@@ -30,11 +30,14 @@ use crate::kast::{FrontendSort, InternalLabel, Label, Sort, Term};
 use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
-use super::passes::implicit_less_than_eq;
+use super::passes::{injectable, placeable};
 
 mod typing;
 use super::view::View;
-pub use typing::{PositionTyping, SentenceTyping, SentenceTypingError, sentence_typing};
+pub use typing::{
+    BranchTyping, PositionTyping, SentenceTyper, SentenceTyping, SentenceTypingError,
+    sentence_typing,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {
@@ -482,15 +485,12 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         }
     }
 
-    /// Whether a term of sort `actual` may stand at a position of sort `expected`: `actual <=
-    /// expected` in the module's subsort order, extended transitively with every sort other than a
-    /// parser sort below `KItem`, and `KItem` below `K` ([`implicit_less_than_eq`], the relation
-    /// semantic-cast resolution also uses).
+    /// Whether compilation can place a term of sort `actual` at a position of sort `expected`
+    /// ([`placeable`]): by one injection along the subsort axioms, including every non-parser sort
+    /// below `KItem`, or through the one-element `K` sequence of a `KItem`.
     ///
-    /// Every non-parser sort is a `KItem` by K's sort structure; the `add KItem subsorts` stage
-    /// materializes that fact as declared subsorts, but the injector also serves callers that never
-    /// ran the stage, so the order used here states it directly and does not depend on the stage.
-    /// A `KItem` is a `K` as the one-element sequence the injector builds for it at a `K` position.
+    /// The injector also serves callers that never ran the `add KItem subsorts` stage, so the
+    /// relation states the implicit `KItem` subsorts itself.
     ///
     /// A sort that mentions a sort variable (`#SortParam`) stands for every instance of it: a
     /// sentence's sort parameters are universally quantified, so the relation must hold for every
@@ -499,17 +499,22 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     /// included), or through `KItem` when the sort's head is not a parser sort; the relation
     /// therefore applies unchanged to such sorts.
     fn below(&self, actual: &Sort, expected: &Sort) -> bool {
-        implicit_less_than_eq(actual, expected, &self.subsorts)
+        placeable(actual, expected, &self.subsorts)
     }
 
-    /// Reject a term of sort `actual` at a position of sort `expected` unless `actual` is below it.
-    fn check_below(
+    /// Whether a single `inj{actual, expected}` is justified ([`injectable`]).
+    fn injects(&self, actual: &Sort, expected: &Sort) -> bool {
+        injectable(actual, expected, &self.subsorts)
+    }
+
+    /// Reject a term of sort `actual` at a position of sort `expected` unless one injection places it.
+    fn check_injects(
         &self,
         term: &Term,
         actual: &Sort,
         expected: &Sort,
     ) -> Result<(), SortInjectionError> {
-        if self.below(actual, expected) {
+        if self.injects(actual, expected) {
             Ok(())
         } else {
             Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
@@ -670,7 +675,7 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
             if actual.name == BuiltinSort::KItem.k_name() {
                 return Ok(Term::Sequence(vec![visited]));
             }
-            self.check_below(term, &actual, &Sort::builtin(BuiltinSort::KItem))?;
+            self.check_injects(term, &actual, &Sort::builtin(BuiltinSort::KItem))?;
             return Ok(Term::Sequence(vec![injection(
                 actual,
                 Sort::builtin(BuiltinSort::KItem),
@@ -685,8 +690,26 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         if let Some(wrapped) = self.user_list_wrapper(&actual, expected, visited.clone()) {
             return Ok(wrapped);
         }
-        self.check_below(term, &actual, expected)?;
-        Ok(injection(actual, expected.clone(), visited))
+        if self.injects(&actual, expected) {
+            return Ok(injection(actual, expected.clone(), visited));
+        }
+        // A position above `K`: the term is a `K` as a one-element sequence, and that `K` is
+        // injected into the position.
+        let k = Sort::builtin(BuiltinSort::K);
+        let k_item = Sort::builtin(BuiltinSort::KItem);
+        if self.injects(&k, expected) && self.injects(&actual, &k_item) {
+            let item = if actual == k_item {
+                visited
+            } else {
+                injection(actual, k_item, visited)
+            };
+            return Ok(injection(k, expected.clone(), Term::Sequence(vec![item])));
+        }
+        Err(SortInjectionError::IllSortedTerm(Box::new(SortMismatch {
+            term: render_term(term),
+            found: actual,
+            required: expected.clone(),
+        })))
     }
 
     fn user_list_wrapper(&self, actual: &Sort, expected: &Sort, visited: Term) -> Option<Term> {

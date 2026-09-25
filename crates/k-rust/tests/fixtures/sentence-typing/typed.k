@@ -11,7 +11,9 @@ module TYPED-SYNTAX
   syntax Exp ::= neg(Exp) [symbol(negExp), overload(neg)]
   syntax Small ::= neg(Small) [symbol(negSmall), overload(neg)]
   syntax Exp ::= plus(Exp, Exp) [symbol(plus)]
+  syntax {S} S ::= id(S) [symbol(id)]
 endmodule
+
 
 module TYPED
   imports TYPED-SYNTAX

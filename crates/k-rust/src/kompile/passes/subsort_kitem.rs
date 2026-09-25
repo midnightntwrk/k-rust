@@ -104,38 +104,84 @@ pub(crate) fn with_kitem_subsorts<'a>(
     )
 }
 
-/// Whether `actual <= expected` in the module's declared subsort order `subsorts` extended with
-/// K's implicit sort structure: every sort that is not a parser sort is below `KItem` (the edges
-/// this stage adds), and `KItem` is below `K`; the extension is transitive.
+/// Whether a single `inj{actual, expected}` is justified: `actual <= expected` along subsort axioms
+/// of the emitted theory.
 ///
-/// Semantic-cast resolution runs before this stage and sort injection may serve callers that never
-/// ran it, so both compare sorts with this one relation rather than relying on the materialized
-/// edges. A path through an implicit edge reaches `KItem` from `actual` (as `KItem` itself, a
-/// declared subsort of `KItem`, a non-parser sort, or a sort declared below a non-parser sort)
-/// and continues from `KItem` or `K` to `expected` along the declared order.
-pub(crate) fn implicit_less_than_eq(
-    actual: &Sort,
-    expected: &Sort,
-    subsorts: &PartialOrder<Sort>,
-) -> bool {
-    if actual == expected || subsorts.less_than_eq(actual, expected) {
+/// Those axioms are the declared subsorts except the ones into `K` (the emitted definition has no
+/// subsort axiom into `K`: a `KItem` becomes a `K` as a one-element sequence, not by injection),
+/// plus `S <= KItem` for every sort `S` that is not a parser sort, which this stage declares and
+/// which semantic-cast resolution and sort injection may need before it has run. The relation is
+/// their transitive closure; it continues above `KItem` only through declared supersorts of
+/// `KItem` that are not reached through `K`.
+pub(crate) fn injectable(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
+    if actual == expected {
         return true;
     }
-    let k_item = Sort::builtin(BuiltinSort::KItem);
     let k = Sort::builtin(BuiltinSort::K);
-    let from_k_item = expected == &k_item
-        || expected == &k
-        || subsorts.less_than_eq(&k_item, expected)
-        || subsorts.less_than_eq(&k, expected);
-    if !from_k_item {
+    if expected == &k {
         return false;
     }
+    let k_item = Sort::builtin(BuiltinSort::KItem);
+    if subsorts.less_than_eq(&k, expected) {
+        return injectable_path(actual, expected, subsorts);
+    }
+    // No path to `expected` passes through `K`, since `K` is not below it.
+    subsorts.less_than_eq(actual, expected)
+        || ((expected == &k_item || subsorts.less_than_eq(&k_item, expected))
+            && reaches_k_item(actual, subsorts))
+}
+
+/// Whether compilation can place a term of sort `actual` at a position of sort `expected`: by one
+/// injection ([`injectable`]); at a `K` position as the one-element sequence of a `KItem`; or at a
+/// position above `K` as the injection of that sequence (`inj{K, expected}` of `actual ~> .K`).
+/// Collection and user-list positions, where the injector also wraps an element, are the
+/// injector's own concern.
+pub(crate) fn placeable(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
+    let k = Sort::builtin(BuiltinSort::K);
+    injectable(actual, expected, subsorts)
+        || (injectable(actual, &Sort::builtin(BuiltinSort::KItem), subsorts)
+            && (expected == &k || injectable(&k, expected, subsorts)))
+}
+
+/// Whether `actual <= KItem` along the axioms of [`injectable`], none of which leads out of `K`.
+fn reaches_k_item(actual: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
+    let k = Sort::builtin(BuiltinSort::K);
+    let k_item = Sort::builtin(BuiltinSort::KItem);
     actual == &k_item
         || subsorts.less_than_eq(actual, &k_item)
         || !is_parser_sort(actual)
-        || subsorts
-            .relations_from(actual)
-            .is_some_and(|supersorts| supersorts.iter().any(|sort| !is_parser_sort(sort)))
+        || subsorts.relations_from(actual).is_some_and(|supersorts| {
+            supersorts
+                .iter()
+                .any(|sort| !is_parser_sort(sort) && !subsorts.less_than_eq(&k, sort))
+        })
+}
+
+/// [`injectable`] for an `expected` above `K`: a search over the axioms, which excludes the
+/// declared edges into `K`.
+// Invariant: `seen` holds every sort reached from `actual` so far, each expanded once, so the search visits at most every declared sort plus `KItem`, scanning the direct relations once per sort.
+fn injectable_path(actual: &Sort, expected: &Sort, subsorts: &PartialOrder<Sort>) -> bool {
+    let k = Sort::builtin(BuiltinSort::K);
+    let k_item = Sort::builtin(BuiltinSort::KItem);
+    let mut seen = std::collections::BTreeSet::from([actual.clone()]);
+    let mut pending = vec![actual.clone()];
+    while let Some(sort) = pending.pop() {
+        if &sort == expected {
+            return true;
+        }
+        let implicit = (!is_parser_sort(&sort)).then(|| k_item.clone());
+        let declared = subsorts
+            .direct_relations()
+            .iter()
+            .filter(|(lesser, greater)| *lesser == sort && *greater != k)
+            .map(|(_, greater)| greater.clone());
+        for next in declared.chain(implicit) {
+            if seen.insert(next.clone()) {
+                pending.push(next);
+            }
+        }
+    }
+    false
 }
 
 /// A sort of K's own term syntax (`K`, `KItem`, `KConfigVar`, `KBott`, `KLabel`, `KList`, `KString`,

@@ -52,9 +52,9 @@ pub use search_pattern::{
     CompileSearchPatternError, CompiledSearchPattern, KoreVariableIdentity, compile_search_pattern,
 };
 pub use sort_injections::{
-    AmbiguousInstance, PositionTyping, SentenceTyping, SentenceTypingError, SortInjectionError,
-    SortInjector, SortMismatch, add_sort_injections, add_sort_injections_from_resolved,
-    add_sort_injections_to_definition, sentence_typing,
+    AmbiguousInstance, BranchTyping, PositionTyping, SentenceTyper, SentenceTyping,
+    SentenceTypingError, SortInjectionError, SortInjector, SortMismatch, add_sort_injections,
+    add_sort_injections_from_resolved, add_sort_injections_to_definition, sentence_typing,
 };
 pub use term_to_kore::{
     TermConversionError, TermConverter, term_to_kore, term_to_kore_from_resolved,
