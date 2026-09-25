@@ -9,7 +9,7 @@
 //!
 //! Final definition-wide transformations before KORE emission.
 
-use std::{collections::BTreeSet, convert::Infallible, sync::Arc};
+use std::{collections::BTreeSet, convert::Infallible};
 
 use serde_json::Value;
 
@@ -17,7 +17,8 @@ use crate::definition::AttributeKey;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{
-        Attributes, Definition, FlatImport, FlatModule, LabelHead, Sentence, retain_new_sentences,
+        Attributes, Definition, FlatImport, FlatModule, LabelHead, Sentence,
+        extend_with_new_sentences,
     },
     kast::{Sort, Term, WellKnownModule},
     provenance::GeneratingPass,
@@ -186,11 +187,7 @@ pub(crate) fn generate_sort_predicate_rules_pass(
                 ));
             }
         }
-        let generated =
-            retain_new_sentences(module.local_sentences.iter().map(Arc::as_ref), generated);
-        module
-            .local_sentences
-            .extend(generated.into_iter().map(Arc::new));
+        extend_with_new_sentences(&mut module.local_sentences, generated);
     }
     Ok(output)
 }

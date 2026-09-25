@@ -275,6 +275,13 @@ impl fmt::Display for LoadError {
 impl Error for LoadError {}
 
 /// A completely loaded and import-resolved source graph.
+///
+/// Contract: `resolved` is the resolution of `definition`. A caller that edits `definition`
+/// must re-resolve it (`ResolvedDefinition::resolve`, or `update` from the unedited
+/// definition) before compiling. The structured input addresses a [`load_structured`] result
+/// carries are trusted only while `resolved` is the resolution that call returned, that is, for
+/// an unedited result; any re-resolution makes compilation address every sentence by its
+/// position in the definition being compiled.
 #[derive(Clone, Debug)]
 pub struct LoadedDefinition {
     /// Parsed files in dependency-first `requires` order.
@@ -596,11 +603,13 @@ fn load_impl(
 /// in [`InputSpace::Structured`](crate::provenance::InputSpace::Structured) (its module and index in `definition`, replacing any address it
 /// already carried) before configurations are expanded, so compilation relates what it emits to
 /// the caller's own sentence positions.
+/// Compilation trusts those addresses only while `resolved` is the one this call returned; a
+/// `LoadedDefinition` whose resolution was rebuilt or updated is addressed in the compile space.
 pub fn load_structured(
     mut definition: Definition,
     options: &LoadOptions,
 ) -> Result<LoadedDefinition, LoadError> {
-    stamp_input_addresses(&mut definition, InputSpace::Structured, true);
+    stamp_input_addresses(&mut definition, InputSpace::Structured, false);
     let kinds = input_sentence_kinds(&definition, InputSpace::Structured);
     let mut resolver = |_: &str, required: &str| {
         builtin::embedded(required)
@@ -653,6 +662,7 @@ pub fn load_structured(
     )
     .map(|(mut loaded, _)| {
         loaded.source_table.set_input_sentence_kinds(kinds);
+        loaded.resolved.structured_input = true;
         loaded
     })
 }

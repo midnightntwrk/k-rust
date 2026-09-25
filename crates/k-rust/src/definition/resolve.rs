@@ -53,7 +53,7 @@ use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
 use super::catalog::ProductionCatalog;
-use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent};
+use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -111,6 +111,14 @@ struct Import {
 }
 
 type SentenceLocation = (ModuleId, usize);
+
+/// One sentence of a module's visible set: its coordinates in the graph and, when equivalent
+/// sentences elsewhere in the set carried input addresses it lacks, the sentence with their union.
+#[derive(Debug)]
+struct VisibleSentence {
+    location: SentenceLocation,
+    united: Option<Arc<Sentence>>,
+}
 
 // These keys may collide, but equivalent sentences must always have equal keys.
 // Attributes and other omitted fields are checked by sentence_equivalent inside each bucket.
@@ -324,8 +332,12 @@ pub struct ResolvedDefinition {
     dependency_order: Vec<ModuleId>,
     // The graph is immutable, with dense node indices and stable local sentence indices.
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
-    visible_sentences: Vec<OnceLock<Arc<[SentenceLocation]>>>,
+    visible_sentences: Vec<OnceLock<Arc<[VisibleSentence]>>>,
     pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
+    /// Whether `outer::load_structured` produced this resolution, so the structured input
+    /// addresses its sentences carry name positions of that call's argument. Any other
+    /// resolution, including an update of this one, clears it.
+    pub(crate) structured_input: bool,
 }
 
 impl fmt::Debug for ResolvedDefinition {
@@ -414,6 +426,7 @@ impl ResolvedDefinition {
             dependency_order,
             visible_sentences,
             production_catalogs: Arc::new(production_catalogs),
+            structured_input: false,
         })
     }
 
@@ -519,6 +532,7 @@ impl ResolvedDefinition {
             dependency_order: self.dependency_order.clone(),
             visible_sentences,
             production_catalogs: Arc::new(production_catalogs),
+            structured_input: false,
         })
     }
 
@@ -589,7 +603,10 @@ impl ResolvedDefinition {
             .get_or_init(|| self.select_sentence_locations(module));
         locations
             .iter()
-            .map(|&(owner, index)| self.module(owner).local_sentences[index].as_ref())
+            .map(|visible| match &visible.united {
+                Some(united) => united.as_ref(),
+                None => self.located_sentence(visible.location),
+            })
             .collect()
     }
 
@@ -599,7 +616,13 @@ impl ResolvedDefinition {
             .get_or_init(|| self.select_sentence_locations(module));
         locations
             .iter()
-            .map(|&(owner, index)| Arc::clone(&self.module(owner).local_sentences[index]))
+            .map(|visible| match &visible.united {
+                Some(united) => Arc::clone(united),
+                None => {
+                    let (owner, index) = visible.location;
+                    Arc::clone(&self.module(owner).local_sentences[index])
+                }
+            })
             .collect()
     }
 
@@ -610,7 +633,11 @@ impl ResolvedDefinition {
         self.module(module).local_sentences.iter().cloned()
     }
 
-    fn select_sentence_locations(&self, module: ModuleId) -> Arc<[SentenceLocation]> {
+    fn located_sentence(&self, (owner, index): SentenceLocation) -> &Sentence {
+        self.module(owner).local_sentences[index].as_ref()
+    }
+
+    fn select_sentence_locations(&self, module: ModuleId) -> Arc<[VisibleSentence]> {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
@@ -628,8 +655,23 @@ impl ResolvedDefinition {
                     .map(move |(index, sentence)| (id, index, sentence.as_ref()))
             })
         {
-            if push_if_inequivalent(&mut unique, sentence) {
-                locations.push((owner, index));
+            match unique.push_or_find(sentence) {
+                None => locations.push(VisibleSentence {
+                    location: (owner, index),
+                    united: None,
+                }),
+                // The view keeps one of two equivalent sentences; the kept one derives from the
+                // input sentences of both.
+                Some(kept) => {
+                    let visible = &mut locations[kept];
+                    let current = match &visible.united {
+                        Some(united) => united.as_ref(),
+                        None => self.located_sentence(visible.location),
+                    };
+                    if let Some(united) = united_inputs(current, sentence) {
+                        visible.united = Some(Arc::new(united));
+                    }
+                }
             }
         }
         locations.into()
@@ -1061,17 +1103,40 @@ fn is_syntax_sentence(sentence: &Sentence) -> bool {
     )
 }
 
+/// The first of each class of equivalent local sentences, carrying the input addresses of every
+/// sentence of its class.
 fn deduplicate_sentences(sentences: &[Arc<Sentence>]) -> Vec<Arc<Sentence>> {
-    dedup_by_equivalence(sentences.iter().map(Arc::as_ref))
-        .into_iter()
-        .map(|sentence| {
-            sentences
-                .iter()
-                .find(|candidate| std::ptr::eq(candidate.as_ref(), sentence))
-                .map(Arc::clone)
-                .expect("equivalence representative came from input")
-        })
-        .collect()
+    let mut unique = EquivalenceAccumulator::new();
+    let mut kept = Vec::<Arc<Sentence>>::new();
+    for sentence in sentences {
+        match unique.push_or_find(sentence) {
+            None => kept.push(Arc::clone(sentence)),
+            Some(index) => {
+                if let Some(united) = united_inputs(&kept[index], sentence) {
+                    kept[index] = Arc::new(united);
+                }
+            }
+        }
+    }
+    kept
+}
+
+/// `kept` with the input addresses of `dropped` added, or `None` when it already carries them.
+fn united_inputs(kept: &Sentence, dropped: &Sentence) -> Option<Sentence> {
+    let carried = kept.attributes().input_addresses();
+    if dropped
+        .attributes()
+        .input_addresses()
+        .iter()
+        .all(|address| carried.contains(address))
+    {
+        return None;
+    }
+    let mut united = kept.clone();
+    united
+        .attributes_mut()
+        .union_input_addresses(dropped.attributes());
+    Some(united)
 }
 
 #[cfg(test)]

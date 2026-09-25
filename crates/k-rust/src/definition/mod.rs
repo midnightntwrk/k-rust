@@ -63,7 +63,8 @@ pub use configuration::{
     ConfigurationError, expand_configurations, expand_configurations_with_diagnostics,
 };
 pub(crate) use equivalence::{
-    EquivalenceAccumulator, dedup_by_equivalence, push_if_inequivalent, retain_new_sentences,
+    EquivalenceAccumulator, dedup_by_equivalence, extend_with_new_sentences, push_if_inequivalent,
+    retain_new_sentences,
 };
 pub use equivalence::{
     canonical_production_payload, production_identity, sentence_equivalent, term_equivalent,

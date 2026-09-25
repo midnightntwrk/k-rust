@@ -26,7 +26,7 @@ use crate::names::BuiltinSort;
 use crate::{
     definition::{
         Attributes, Definition, LabelHead, ProductionItem, ResolvedDefinition, Sentence, SortHead,
-        retain_new_sentences,
+        extend_with_new_sentences, retain_new_sentences,
     },
     kast::{FrontendSort, Label, Sort, Term},
     provenance::GeneratingPass,
@@ -240,11 +240,7 @@ pub(crate) fn generate_sort_projections_pass(
                     }),
             );
         }
-        let generated =
-            retain_new_sentences(module.local_sentences.iter().map(Arc::as_ref), generated);
-        module
-            .local_sentences
-            .extend(generated.into_iter().map(Arc::new));
+        extend_with_new_sentences(&mut module.local_sentences, generated);
     }
     Ok(output)
 }
