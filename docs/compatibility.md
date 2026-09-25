@@ -376,6 +376,8 @@ Evaluation events are diagnostics; which ones occur and in which order depends o
 This shape replaced an earlier one at backend schema version 1, without a version change, in line with the other closed-variant changes of that schema:
 equation, simplification, and builtin applications were `transition` events with a `TransitionId` and the classes `function-equation`, `simplification`, and `builtin`; `transition.class` is now one of `rewrite`, `remainder`, and `claim`, and those three classes moved to `evaluation.class`.
 The event fields are camelCase (`ruleLabel`, `introducedPredicates`), as the TypeScript declarations always stated; the JSON previously spelled them `rule_label` and `introduced_predicates`.
+Builtin failure fields now use the camelCase names in the napi and wasm declarations (`thenSort`, `elseSort`, `exponentBits`, `leftPrecision`, `leftExponentBits`, `rightPrecision`, `rightExponentBits`); search instantiation failures use `missingVariables`.
+These backend schema version 1 JSON fields previously used snake_case; clients reading serialized failures must accept the camelCase names.
 
 ## CLI scope
 
