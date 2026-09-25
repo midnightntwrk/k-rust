@@ -25,14 +25,7 @@ use k_rust::{
     diagnostic::{Diagnostic as NativeDiagnostic, Severity as NativeSeverity},
     kast::{Label as NativeLabel, Sort as NativeSort, Term as NativeTerm},
     kompile,
-    kore::{
-        ast::{
-            Definition as KoreDefinition, Pattern as KorePattern, Sentence as KoreSentence,
-            Sort as KoreSort, Variable as KoreVariable, VariableKind as KoreVariableKind,
-        },
-        parser::parse_definition as parse_kore_definition,
-        printer::Printer as KorePrinter,
-    },
+    kore::parser::parse_definition as parse_kore_definition,
     outer::{LoadOptions as NativeLoadOptions, load_structured},
 };
 use krs_ir::{
@@ -547,7 +540,7 @@ pub fn compile_definition(
     let adapted = adapt_definition(ir).map_err(DefinitionCompileError::Adapter)?;
     let loaded = prepare_definition(adapted.definition.clone(), options.backend)
         .map_err(DefinitionCompileError::Preparation)?;
-    let mut artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
+    let artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
         let authored_existential_keys = authored_existential_sentence_keys(ir);
         let diagnostics = error
             .diagnostics()
@@ -568,13 +561,6 @@ pub fn compile_definition(
             diagnostics,
         }
     })?;
-    artifacts.definition_kore =
-        disambiguate_kore_variable_sorts(&artifacts.definition_kore, options.kore_width).map_err(
-            |message| DefinitionCompileError::KoreReparse {
-                artifact: "definition.kore",
-                message,
-            },
-        )?;
     parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
         DefinitionCompileError::KoreReparse {
             artifact: "definition.kore",
@@ -588,175 +574,6 @@ pub fn compile_definition(
         }
     })?;
     Ok(artifacts)
-}
-
-/// Retain the `fresh-name-sort-collision` repair until qualification gates
-/// show that it never changes the emitted KORE.
-///
-/// KORE identifies a variable by kind and name and requires one sort for that
-/// identity. The pinned frontend's `FreshNames` allocator reserves every name
-/// regardless of sort. If a collision still occurs, rename the later sorted
-/// identities consistently within one sentence. Leave collision-free output
-/// byte-for-byte untouched.
-fn disambiguate_kore_variable_sorts(source: &str, width: usize) -> Result<String, String> {
-    let mut definition = parse_kore_definition(source).map_err(|error| error.to_string())?;
-    let mut repaired = 0_usize;
-    for module in &mut definition.modules {
-        for sentence in &mut module.sentences {
-            repaired += disambiguate_kore_sentence(sentence);
-        }
-    }
-    if repaired == 0 {
-        return Ok(source.to_owned());
-    }
-    ensure_kore_variable_sorts_are_unique(&mut definition)?;
-    let mut rendered = KorePrinter::pretty(width).print_definition(&definition);
-    if !rendered.ends_with('\n') {
-        rendered.push('\n');
-    }
-    Ok(rendered)
-}
-
-fn disambiguate_kore_sentence(sentence: &mut KoreSentence) -> usize {
-    let mut sorts_by_name = BTreeMap::<(KoreVariableKind, String), BTreeSet<KoreSort>>::new();
-    let mut used_names = BTreeSet::new();
-    for pattern in kore_sentence_patterns_mut(sentence) {
-        visit_kore_variables_mut(pattern, &mut |variable| {
-            used_names.insert(variable.name.clone());
-            sorts_by_name
-                .entry((variable.kind, variable.name.clone()))
-                .or_default()
-                .insert(variable.sort.clone());
-        });
-    }
-
-    let mut next = 0_usize;
-    let mut renames = BTreeMap::<(KoreVariableKind, String, KoreSort), String>::new();
-    for ((kind, name), sorts) in sorts_by_name {
-        if sorts.len() < 2 {
-            continue;
-        }
-        for sort in sorts.into_iter().skip(1) {
-            let replacement = loop {
-                let candidate = format!("KRSVar{next}");
-                next += 1;
-                if used_names.insert(candidate.clone()) {
-                    break candidate;
-                }
-            };
-            renames.insert((kind, name.clone(), sort), replacement);
-        }
-    }
-    if renames.is_empty() {
-        return 0;
-    }
-    for pattern in kore_sentence_patterns_mut(sentence) {
-        visit_kore_variables_mut(pattern, &mut |variable| {
-            if let Some(replacement) =
-                renames.get(&(variable.kind, variable.name.clone(), variable.sort.clone()))
-            {
-                variable.name.clone_from(replacement);
-            }
-        });
-    }
-    renames.len()
-}
-
-fn ensure_kore_variable_sorts_are_unique(definition: &mut KoreDefinition) -> Result<(), String> {
-    for module in &mut definition.modules {
-        for sentence in &mut module.sentences {
-            let mut sorts_by_name =
-                BTreeMap::<(KoreVariableKind, String), BTreeSet<KoreSort>>::new();
-            for pattern in kore_sentence_patterns_mut(sentence) {
-                visit_kore_variables_mut(pattern, &mut |variable| {
-                    sorts_by_name
-                        .entry((variable.kind, variable.name.clone()))
-                        .or_default()
-                        .insert(variable.sort.clone());
-                });
-            }
-            if let Some(((kind, name), sorts)) =
-                sorts_by_name.into_iter().find(|(_, sorts)| sorts.len() > 1)
-            {
-                return Err(format!(
-                    "KORE variable {kind:?} {name:?} still has multiple sorts: {sorts:?}"
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn kore_sentence_patterns_mut(sentence: &mut KoreSentence) -> Vec<&mut KorePattern> {
-    match sentence {
-        KoreSentence::Import { attributes, .. }
-        | KoreSentence::SortDeclaration { attributes, .. }
-        | KoreSentence::SymbolDeclaration { attributes, .. } => attributes.0.iter_mut().collect(),
-        KoreSentence::AliasDeclaration {
-            left,
-            right,
-            attributes,
-            ..
-        } => {
-            let mut patterns = vec![left.as_mut(), right.as_mut()];
-            patterns.extend(attributes.0.iter_mut());
-            patterns
-        }
-        KoreSentence::Axiom {
-            pattern,
-            attributes,
-            ..
-        }
-        | KoreSentence::Claim {
-            pattern,
-            attributes,
-            ..
-        } => {
-            let mut patterns = vec![pattern.as_mut()];
-            patterns.extend(attributes.0.iter_mut());
-            patterns
-        }
-    }
-}
-
-fn visit_kore_variables_mut(
-    pattern: &mut KorePattern,
-    visitor: &mut impl FnMut(&mut KoreVariable),
-) {
-    match pattern {
-        KorePattern::Variable(variable) => visitor(variable),
-        KorePattern::Application { arguments, .. }
-        | KorePattern::And { arguments, .. }
-        | KorePattern::Or { arguments, .. }
-        | KorePattern::AssociativeApplication { arguments, .. } => {
-            for argument in arguments {
-                visit_kore_variables_mut(argument, visitor);
-            }
-        }
-        KorePattern::Not { argument, .. }
-        | KorePattern::Next { argument, .. }
-        | KorePattern::Ceil { argument, .. }
-        | KorePattern::Floor { argument, .. } => visit_kore_variables_mut(argument, visitor),
-        KorePattern::Implies { left, right, .. }
-        | KorePattern::Iff { left, right, .. }
-        | KorePattern::Rewrites { left, right, .. }
-        | KorePattern::Equals { left, right, .. }
-        | KorePattern::In { left, right, .. } => {
-            visit_kore_variables_mut(left, visitor);
-            visit_kore_variables_mut(right, visitor);
-        }
-        KorePattern::Exists { variable, body, .. }
-        | KorePattern::Forall { variable, body, .. }
-        | KorePattern::Mu { variable, body }
-        | KorePattern::Nu { variable, body } => {
-            visitor(variable);
-            visit_kore_variables_mut(body, visitor);
-        }
-        KorePattern::String(_)
-        | KorePattern::Top { .. }
-        | KorePattern::Bottom { .. }
-        | KorePattern::DomainValue { .. } => {}
-    }
 }
 
 fn authored_existential_sentence_keys(ir: &DefinitionIr) -> BTreeSet<&str> {
@@ -2060,6 +1877,7 @@ impl Adapter {
             (SetOperation::Empty, 0) => ".Set",
             (SetOperation::Item, 1) => "SetItem",
             (SetOperation::Concat, 2) => "_Set_",
+            (SetOperation::Union, 2) => "_|Set__SET_Set_Set_Set",
             (SetOperation::Contains, 2) => "Set:in",
             _ => {
                 return Err(AdapterError::MissingReference {
@@ -2396,10 +2214,7 @@ fn native_claim_counter(sentence_index: usize) -> NativeTerm {
                 sort: sort.clone(),
             }),
             right: Box::new(NativeTerm::Variable {
-                // K's source claim concretizer allocates its internal counter
-                // after authored existential names. Keep the compatibility
-                // variable in that same deterministic ordering class.
-                name: format!("?KRSCOUNTER{sentence_index}"),
+                name: format!("?KrsCounter{sentence_index}"),
                 sort,
             }),
         },
@@ -2499,7 +2314,7 @@ fn native_variable(
     existential: bool,
 ) -> NativeTerm {
     let name = if existential {
-        format!("?{}", variable.as_str().to_ascii_uppercase())
+        format!("?{}", variable_name(variable))
     } else if let Some(name) = anonymous_name(variable) {
         name.to_owned()
     } else {

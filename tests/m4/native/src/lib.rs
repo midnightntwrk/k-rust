@@ -422,10 +422,16 @@ fn normalize_commuting_exists(pattern: &mut Pattern) {
             binders.push(variable.clone());
             current = body;
         }
-        // Adjacent existential quantifiers commute in KORE because sorts are
-        // non-dependent. Sort only by kind and sort, retaining source order
-        // for indistinguishable binder classes, before alpha normalization.
-        binders.sort_by(|left, right| (left.kind, &left.sort).cmp(&(right.kind, &right.sort)));
+        // Adjacent existential quantifiers commute because their sorts are
+        // non-dependent. Bound occurrence order gives same-sort binders a
+        // name-independent canonical order before alpha normalization.
+        binders.sort_by_key(|variable| {
+            (
+                first_bound_occurrence(current, variable).map_or((true, 0), |index| (false, index)),
+                variable.kind,
+                variable.sort.clone(),
+            )
+        });
         let mut current = pattern;
         for binder in binders {
             let Pattern::Exists { variable, body, .. } = current else {
@@ -435,6 +441,51 @@ fn normalize_commuting_exists(pattern: &mut Pattern) {
             current = body;
         }
     }
+}
+
+fn first_bound_occurrence(pattern: &Pattern, target: &Variable) -> Option<usize> {
+    fn walk(
+        pattern: &Pattern,
+        target: &Variable,
+        position: &mut usize,
+        shadowed: bool,
+    ) -> Option<usize> {
+        match pattern {
+            Pattern::Variable(variable) => {
+                let here = *position;
+                *position += 1;
+                (!shadowed && variable == target).then_some(here)
+            }
+            Pattern::Application { arguments, .. }
+            | Pattern::And { arguments, .. }
+            | Pattern::Or { arguments, .. }
+            | Pattern::AssociativeApplication { arguments, .. } => arguments
+                .iter()
+                .find_map(|argument| walk(argument, target, position, shadowed)),
+            Pattern::Not { argument, .. }
+            | Pattern::Next { argument, .. }
+            | Pattern::Ceil { argument, .. }
+            | Pattern::Floor { argument, .. } => walk(argument, target, position, shadowed),
+            Pattern::Implies { left, right, .. }
+            | Pattern::Iff { left, right, .. }
+            | Pattern::Rewrites { left, right, .. }
+            | Pattern::Equals { left, right, .. }
+            | Pattern::In { left, right, .. } => walk(left, target, position, shadowed)
+                .or_else(|| walk(right, target, position, shadowed)),
+            Pattern::Exists { variable, body, .. }
+            | Pattern::Forall { variable, body, .. }
+            | Pattern::Mu { variable, body }
+            | Pattern::Nu { variable, body } => {
+                walk(body, target, position, shadowed || variable == target)
+            }
+            Pattern::String(_)
+            | Pattern::Top { .. }
+            | Pattern::Bottom { .. }
+            | Pattern::DomainValue { .. } => None,
+        }
+    }
+
+    walk(pattern, target, &mut 0, false)
 }
 
 fn alpha_normalize_pattern(
@@ -1038,6 +1089,69 @@ mod tests {
         alpha_normalize_pattern(&mut reference, &mut reference_names);
         alpha_normalize_pattern(&mut native, &mut native_names);
 
+        assert_eq!(reference, native);
+    }
+
+    #[test]
+    fn same_sort_existential_prefixes_normalize_identically() {
+        let variable = |name: &str| Variable {
+            kind: VariableKind::Element,
+            name: name.to_owned(),
+            sort: sort(),
+        };
+        let prefix = |outer: Variable, inner: Variable, body: Pattern| Pattern::Exists {
+            sort: sort(),
+            variable: outer,
+            body: Box::new(Pattern::Exists {
+                sort: sort(),
+                variable: inner,
+                body: Box::new(body),
+            }),
+        };
+        let x = variable("X");
+        let y = variable("Y");
+        let body = application(
+            "pair",
+            vec![Pattern::Variable(y.clone()), Pattern::Variable(x.clone())],
+        );
+        let mut reference = prefix(x, y, body);
+        let native_x = variable("Alpha");
+        let native_y = variable("Beta");
+        let native_body = application(
+            "pair",
+            vec![
+                Pattern::Variable(native_y.clone()),
+                Pattern::Variable(native_x.clone()),
+            ],
+        );
+        let mut native = prefix(native_y, native_x, native_body);
+
+        normalize_standalone_pattern(&mut reference);
+        normalize_standalone_pattern(&mut native);
+        assert_eq!(reference, native);
+    }
+
+    #[test]
+    fn unused_existential_binder_sorts_after_a_used_binder() {
+        let variable = |name: &str| Variable {
+            kind: VariableKind::Element,
+            name: name.to_owned(),
+            sort: sort(),
+        };
+        let prefix = |outer: Variable, inner: Variable| Pattern::Exists {
+            sort: sort(),
+            variable: outer,
+            body: Box::new(Pattern::Exists {
+                sort: sort(),
+                variable: inner,
+                body: Box::new(Pattern::Variable(variable("Used"))),
+            }),
+        };
+        let mut reference = prefix(variable("Unused"), variable("Used"));
+        let mut native = prefix(variable("Used"), variable("Unused"));
+
+        normalize_standalone_pattern(&mut reference);
+        normalize_standalone_pattern(&mut native);
         assert_eq!(reference, native);
     }
 

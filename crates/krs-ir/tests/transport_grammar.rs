@@ -731,6 +731,7 @@ fn ordinary_set_references_have_closed_wire_shapes_and_exact_arities() {
         (SetOperation::Empty, Vec::<&str>::new()),
         (SetOperation::Item, vec!["value"]),
         (SetOperation::Concat, vec!["set", "set"]),
+        (SetOperation::Union, vec!["set", "set"]),
         (SetOperation::Contains, vec!["value", "set"]),
     ];
     for (operation, arguments) in cases {
@@ -1173,6 +1174,7 @@ type_keys! {
     set_empty_key => (i32, u8),
     set_item_key => (i32, u16),
     set_concat_key => (i32, u32),
+    set_union_key => (i32, i64),
     set_contains_key => (i32, u64),
 }
 
@@ -1264,6 +1266,7 @@ fn registry() -> HostBuiltinRegistry {
         (SetOperation::Empty, set_empty_key as fn() -> TypeId),
         (SetOperation::Item, set_item_key),
         (SetOperation::Concat, set_concat_key),
+        (SetOperation::Union, set_union_key),
         (SetOperation::Contains, set_contains_key),
     ]
     .into_iter()

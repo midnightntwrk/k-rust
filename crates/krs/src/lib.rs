@@ -362,6 +362,10 @@ pub mod builtin {
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Concat<T = ()>(pub Set<T>, pub Set<T>);
 
+        /// Marker for set union, including overlapping elements.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub struct Union<T = ()>(pub Set<T>, pub Set<T>);
+
         /// Marker for set membership.
         #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         pub struct Contains<T = ()>(pub T, pub Set<T>);
@@ -370,6 +374,7 @@ pub mod builtin {
         pub use Contains as contains;
         pub use Empty as empty;
         pub use Item as item;
+        pub use Union as union;
     }
 
     /// Builtin operations and sort marker from K's pinned `INT` domain.
@@ -696,6 +701,7 @@ list_operation_keys! {
     (set_empty_builtin_key, builtin::set::empty),
     (set_item_builtin_key, builtin::set::item),
     (set_concat_builtin_key, builtin::set::concat),
+    (set_union_builtin_key, builtin::set::union),
     (set_contains_builtin_key, builtin::set::contains),
 }
 
@@ -813,6 +819,7 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         (SetOperation::Empty, set_empty_builtin_key as fn() -> TypeId),
         (SetOperation::Item, set_item_builtin_key),
         (SetOperation::Concat, set_concat_builtin_key),
+        (SetOperation::Union, set_union_builtin_key),
         (SetOperation::Contains, set_contains_builtin_key),
     ]
     .into_iter()
@@ -1544,6 +1551,7 @@ mod tests {
             (TypeId::of::<builtin::set::empty>(), SetOperation::Empty),
             (TypeId::of::<builtin::set::item>(), SetOperation::Item),
             (TypeId::of::<builtin::set::concat>(), SetOperation::Concat),
+            (TypeId::of::<builtin::set::union>(), SetOperation::Union),
             (
                 TypeId::of::<builtin::set::contains>(),
                 SetOperation::Contains,

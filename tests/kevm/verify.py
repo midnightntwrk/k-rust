@@ -24,7 +24,7 @@ PORT = semantics.Port(
     label="KEVM",
     key="kevm",
     checkout=ROOT.parent / "inspirations/runtimeverification/evm-semantics",
-    descriptors=1104,
+    descriptors=1100,
     clippy_allow=("clippy::too_many_arguments",),
     hook_namespaces=("KRYPTO",),
 )

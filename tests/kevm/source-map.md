@@ -130,7 +130,7 @@ The KEVM memory rules use them to write individual bytes and extend memory witho
 
 Descriptor protocol 23 and Definition IR schema 16 add typed Map lookup and key membership plus the builtin Set sort and its empty, item, concatenation, and membership operations.
 K's `Set` concatenation is defined only on disjoint operands: concatenating a set with an element it already holds is `#Bottom` in the Haskell backend, although concrete backends such as native K-Rust silently accept it.
-KRS exposes no `|Set` union, so the port inserts access-list, touched-account, and accessed-storage elements through the total `#kevmSetInsert` function, which returns the set unchanged when the element is present, where upstream KEVM uses `|Set`.
+KRS exposes the pinned `|Set` union as `set::union`, so the port inserts access-list, touched-account, and accessed-storage elements with the same operation used by upstream KEVM.
 Descriptor protocol 24 and Definition IR schema 17 add classified repeated-cell multiplicity and collection type, retain nested-cell ancestry for rule emission, and transport readable head-rule `requires` clauses end to end.
 Canonical K and native K-Rust compilation therefore preserve the account collection boundary instead of flattening storage leaves into top-level adapter cells.
 Deterministic reference expansion preserves the same boundary with owner-qualified nested fields, so the independently expanded Rust compiles, re-collects, and emits the same configuration and sentence identities.

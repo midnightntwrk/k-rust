@@ -28,19 +28,11 @@ concatenation. It then applies adjacent-existential and alpha normalization;
 ordinary application argument order remains exact. This proof-result policy
 does not weaken the native definition comparator described above.
 
-The last semantic repair was at the structured adapter boundary. The pinned
-frontend lexically orders existentials before nesting them. K's reference
-frontend places its generated-counter existential outside an authored
-existential repeated in `ensures`, while leaving body-only existentials before
-the counter. KRS now gives ensures-scoped internal existential names a distinct
-ordered namespace while retaining one name at the binder and every use. This
-closed `bmc-loop-concrete`, `bmc-loop-symbolic`, `branching`, and
-`branching-deadcode` without comparator allowances.
+The native comparator treats directly adjacent existential binders as commuting and orders them by first bound occurrence before alpha normalization.
+The pinned frontend documents lexical existential ordering in `docs/compatibility.md`, “Comparison contract”.
+The native adapter keeps injective existential names with a `?` prefix, independently of that lexical order.
 
-The pinned frontend's `FreshNames` allocator reserves every name regardless of sort.
-KRS retains the `fresh-name-sort-collision` repair until the M4, KEVM, KMIR, and KWasm gates show that it never fires.
-If a collision occurs, the repair renames only the later conflicting `(kind, name, sort)` identity.
-Collision-free output remains byte-for-byte unchanged.
+The pinned frontend allocates each generated `_GenN` name once per sentence, whatever its sort, so the adapter emits `definition.kore` unchanged and needs no variable-sort repair.
 
 ## Reproduction contract
 

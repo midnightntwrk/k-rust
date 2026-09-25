@@ -6,17 +6,12 @@
 //! supported substitute for an upstream structured preparation API.
 
 use k_rust::{
+    backend::{Backend as NativeBackend, BackendOptions, ExecuteRequest},
     builtin,
     definition::{Attributes, ProductionItem, ResolvedDefinition, Sentence},
     kast::{Label, Sort, Term},
     kompile::CompilationBackend,
-    kore::{
-        ast::{
-            Attributes as KoreAttributes, Pattern as KorePattern, Sentence as KoreSentence,
-            Sort as KoreSort, Variable as KoreVariable, VariableKind as KoreVariableKind,
-        },
-        parser::parse_definition,
-    },
+    kore::parser::{parse_definition, parse_pattern},
     outer::{LoadOptions, ResolvedSource, load_with_options},
 };
 use krs_ir::{
@@ -579,7 +574,7 @@ fn native_claim_counter_is_a_fresh_rhs_internal() {
         variables,
         vec![
             ("_KrsCounter7".to_owned(), Some("Int".to_owned())),
-            ("?KRSCOUNTER7".to_owned(), Some("Int".to_owned())),
+            ("?KrsCounter7".to_owned(), Some("Int".to_owned())),
         ]
     );
 }
@@ -1162,6 +1157,7 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
         ".Set",
         "SetItem",
         "_Set_",
+        "_|Set__SET_Set_Set_Set",
         "Set:in",
         "makeList(_,_)_LIST_List_Int_KItem",
     ] {
@@ -1188,6 +1184,81 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
         update_all_labels,
         ["updateList(_,_,_)_LIST_List_List_Int_List"]
     );
+}
+
+#[test]
+fn pinned_native_prelude_evaluates_set_union() {
+    let artifacts = compile_definition(&smoke_definition(), CompileOptions::default()).unwrap();
+    let mut backend = NativeBackend::new(
+        &artifacts.definition_kore,
+        "SMOKE",
+        BackendOptions::default(),
+    )
+    .unwrap();
+    let definition = smoke_definition();
+    let mut adapter = Adapter::new(&definition);
+    let item = |value: i32| {
+        format!(
+            "LblSetItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\\dv{{SortInt{{}}}}(\"{value}\")))"
+        )
+    };
+    for (right, expected_items) in [(1, 1), (2, 2)] {
+        let union = DefinitionTerm::set(
+            node("set.union.execution"),
+            DefinitionSortRef::set(),
+            SetOperation::Union,
+            [1, right]
+                .into_iter()
+                .map(|value| {
+                    DefinitionTerm::set(
+                        node("set.item.execution"),
+                        DefinitionSortRef::set(),
+                        SetOperation::Item,
+                        vec![
+                            DefinitionTerm::token(
+                                node("set.value.execution"),
+                                DefinitionSortRef::int(),
+                                value.to_string(),
+                            )
+                            .unwrap(),
+                        ],
+                    )
+                })
+                .collect(),
+        );
+        let lowered = adapter
+            .term(&union, MODULE, 0, Vec::new(), TermContext::Normal, None)
+            .unwrap();
+        assert!(
+            matches!(lowered, Term::Apply { label, .. } if label.name == "_|Set__SET_Set_Set_Set")
+        );
+        let pattern = format!(
+            "Lbl'UndsPipe'Set'UndsUnds'SET'Unds'Set'Unds'Set'Unds'Set{{}}({}, {})",
+            item(1),
+            item(right)
+        );
+        let state: serde_json::Value = serde_json::from_str(
+            &k_rust::kore::json::to_string(&parse_pattern(&pattern).unwrap()).unwrap(),
+        )
+        .unwrap();
+        let result = backend
+            .execute(ExecuteRequest {
+                state,
+                ..ExecuteRequest::default()
+            })
+            .unwrap();
+        assert_eq!(result.leaves.len(), 1, "{result:#?}");
+        let rendered = result.leaves[0].state.to_string();
+        assert!(
+            !rendered.contains("Pipe"),
+            "union remained unevaluated: {rendered}"
+        );
+        assert_eq!(
+            rendered.matches("LblSetItem").count(),
+            expected_items,
+            "{rendered}"
+        );
+    }
 }
 
 #[test]
@@ -1561,7 +1632,7 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
             variables.push(name.clone());
         }
     });
-    assert!(variables.contains(&"?N".to_owned()));
+    assert!(variables.contains(&"?V6E".to_owned()));
     assert!(variables.contains(&"_B".to_owned()));
     assert!(attributes.get("one-path").is_some());
     assert!(attributes.get("circularity").is_some());
@@ -1834,55 +1905,6 @@ fn permanent_structured_compile_replaces_the_bootstrap_default_configuration() {
         .expect("the authored <instrs> configuration must replace the bootstrap <k> configuration");
     assert!(artifacts.definition_kore.contains("instrs"));
     assert!(!artifacts.definition_kore.contains("Lbl'-LT-'k'-GT-'"));
-}
-
-#[test]
-fn permanent_compile_disambiguates_generated_names_reused_at_different_sorts() {
-    let sort = |name: &str| KoreSort::Application {
-        name: name.to_owned(),
-        arguments: Vec::new(),
-    };
-    let variable = |sort: KoreSort| {
-        KorePattern::Variable(KoreVariable {
-            kind: KoreVariableKind::Element,
-            name: "_Gen2".to_owned(),
-            sort,
-        })
-    };
-    let mut sentence = KoreSentence::Axiom {
-        parameters: Vec::new(),
-        pattern: Box::new(KorePattern::And {
-            sort: sort("SortGeneratedTopCell"),
-            arguments: vec![
-                variable(sort("SortKItem")),
-                variable(sort("SortGeneratedCounterCell")),
-            ],
-        }),
-        attributes: KoreAttributes::default(),
-    };
-
-    assert_eq!(super::disambiguate_kore_sentence(&mut sentence), 1);
-    let KoreSentence::Axiom { pattern, .. } = sentence else {
-        unreachable!()
-    };
-    let KorePattern::And { arguments, .. } = pattern.as_ref() else {
-        unreachable!()
-    };
-    let names = arguments
-        .iter()
-        .map(|pattern| match pattern {
-            KorePattern::Variable(variable) => variable.name.as_str(),
-            _ => unreachable!(),
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(names.iter().filter(|name| **name == "_Gen2").count(), 1);
-    assert_eq!(
-        names
-            .iter()
-            .filter(|name| name.starts_with("KRSVar"))
-            .count(),
-        1
-    );
 }
 
 #[test]

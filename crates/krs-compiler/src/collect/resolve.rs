@@ -1690,6 +1690,7 @@ mod tests {
     struct SetOp1;
     struct SetOp2;
     struct SetOp3;
+    struct SetOp4;
 
     fn marker_key<T: 'static>() -> TypeId {
         TypeId::of::<T>()
@@ -1780,6 +1781,7 @@ mod tests {
                     HostTypeKey(marker_key::<SetOp1>),
                     HostTypeKey(marker_key::<SetOp2>),
                     HostTypeKey(marker_key::<SetOp3>),
+                    HostTypeKey(marker_key::<SetOp4>),
                 ])
                 .map(|(operation, target)| HostSetOperationRegistration { operation, target })
                 .collect(),

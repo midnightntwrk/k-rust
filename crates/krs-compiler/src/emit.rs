@@ -2051,6 +2051,11 @@ fn render_set(
             output.push(" ");
             output.append(render(&arguments[1])?);
         }
+        SetOperation::Union if arguments.len() == 2 => {
+            output.append(render(&arguments[0])?);
+            output.push(" |Set ");
+            output.append(render(&arguments[1])?);
+        }
         SetOperation::Contains if arguments.len() == 2 => {
             output.append(render(&arguments[0])?);
             output.push(" in ");
@@ -2464,6 +2469,15 @@ mod tests {
                     vec![set(), set()],
                 ),
                 ".Set .Set",
+            ),
+            (
+                DefinitionTerm::set(
+                    node("set.union"),
+                    DefinitionSortRef::set(),
+                    SetOperation::Union,
+                    vec![set(), set()],
+                ),
+                ".Set |Set .Set",
             ),
             (
                 DefinitionTerm::set(

@@ -1693,7 +1693,7 @@ fn validate_set_application_shape(
     let expected = match operation {
         SetOperation::Empty => 0,
         SetOperation::Item => 1,
-        SetOperation::Concat | SetOperation::Contains => 2,
+        SetOperation::Concat | SetOperation::Union | SetOperation::Contains => 2,
     };
     if arguments.len() != expected {
         return Err(GrammarTransportError::InvalidApplication(

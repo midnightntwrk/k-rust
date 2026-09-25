@@ -952,16 +952,23 @@ pub enum SetOperation {
     Empty,
     /// Singleton set element (`SetItem(K)`).
     Item,
-    /// Associative, commutative, idempotent union (`S1 S2`).
+    /// Associative, commutative concatenation (`S1 S2`), defined on disjoint operands.
     Concat,
+    /// Set union (`S1 |Set S2`), including overlapping operands.
+    Union,
     /// Boolean membership (`K in S`).
     Contains,
 }
 
 impl SetOperation {
     /// Complete ordinary application catalog in stable semantic order.
-    pub const TERM_APPLICATIONS: [Self; 4] =
-        [Self::Empty, Self::Item, Self::Concat, Self::Contains];
+    pub const TERM_APPLICATIONS: [Self; 5] = [
+        Self::Empty,
+        Self::Item,
+        Self::Concat,
+        Self::Union,
+        Self::Contains,
+    ];
 }
 
 /// Locally invalid fixed-state structure.

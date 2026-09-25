@@ -1339,6 +1339,7 @@ fn render_set_operation(operation: SetOperation) -> TokenStream {
         SetOperation::Empty => format_ident!("empty"),
         SetOperation::Item => format_ident!("item"),
         SetOperation::Concat => format_ident!("concat"),
+        SetOperation::Union => format_ident!("union"),
         SetOperation::Contains => format_ident!("contains"),
     };
     quote!(k::builtin::set::#name)

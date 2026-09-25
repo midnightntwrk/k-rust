@@ -3025,7 +3025,7 @@ fn validate_term(
             let valid = match operation {
                 SetOperation::Empty => term.sort == set_sort && arguments.is_empty(),
                 SetOperation::Item => term.sort == set_sort && arguments.len() == 1,
-                SetOperation::Concat => {
+                SetOperation::Concat | SetOperation::Union => {
                     term.sort == set_sort
                         && arguments.len() == 2
                         && arguments.iter().all(|argument| argument.sort == set_sort)

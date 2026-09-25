@@ -441,7 +441,10 @@ impl StructuredTermBuilder<'_> {
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
         let result_sort = match operation {
             SetOperation::Contains => bool_sort.clone(),
-            SetOperation::Empty | SetOperation::Item | SetOperation::Concat => set_sort.clone(),
+            SetOperation::Empty
+            | SetOperation::Item
+            | SetOperation::Concat
+            | SetOperation::Union => set_sort.clone(),
         };
         if let Some(expected) = expected_sort
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
@@ -453,7 +456,7 @@ impl StructuredTermBuilder<'_> {
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
             SetOperation::Empty => vec![],
             SetOperation::Item => vec![None],
-            SetOperation::Concat => vec![Some(&set_sort), Some(&set_sort)],
+            SetOperation::Concat | SetOperation::Union => vec![Some(&set_sort), Some(&set_sort)],
             SetOperation::Contains => vec![None, Some(&set_sort)],
         };
         for (argument, expected) in arguments.into_iter().zip(operand_sorts) {
@@ -476,12 +479,15 @@ impl StructuredTermBuilder<'_> {
         let bool_sort = SemanticSortRef::Builtin(BuiltinSort::Bool);
         let result_sort = match operation {
             SetOperation::Contains => bool_sort,
-            SetOperation::Empty | SetOperation::Item | SetOperation::Concat => set_sort.clone(),
+            SetOperation::Empty
+            | SetOperation::Item
+            | SetOperation::Concat
+            | SetOperation::Union => set_sort.clone(),
         };
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
             SetOperation::Empty => vec![],
             SetOperation::Item => vec![None],
-            SetOperation::Concat => vec![Some(&set_sort), Some(&set_sort)],
+            SetOperation::Concat | SetOperation::Union => vec![Some(&set_sort), Some(&set_sort)],
             SetOperation::Contains => vec![None, Some(&set_sort)],
         };
         let lowered = arguments
@@ -1010,7 +1016,7 @@ fn ordinary_set_arguments(
     let expected = match operation {
         SetOperation::Empty => 0,
         SetOperation::Item => 1,
-        SetOperation::Concat | SetOperation::Contains => 2,
+        SetOperation::Concat | SetOperation::Union | SetOperation::Contains => 2,
     };
     if arguments.len() != expected {
         return Err(format!(
