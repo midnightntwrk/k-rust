@@ -391,6 +391,8 @@ pub enum TransitionClassOutput {
     FunctionEquation,
     Simplification,
     Builtin,
+    /// Reserved for a circularity or trusted claim applied inside an observable proof.
+    /// No operation emits this class yet.
     Claim,
 }
 

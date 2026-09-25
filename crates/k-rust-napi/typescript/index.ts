@@ -240,6 +240,7 @@ export type TransitionClass =
   | 'function-equation'
   | 'simplification'
   | 'builtin'
+  /** Reserved for a circularity or trusted claim applied inside an observable proof; no operation emits it yet. */
   | 'claim'
 
 export interface TransitionObservation {
