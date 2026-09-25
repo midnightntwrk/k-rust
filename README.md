@@ -385,9 +385,11 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
   claim, every destination check on the way was decided, and it has a configuration outside the
   destination with no successor. That configuration is shown either for the whole leaf or for its
   instance that binds every `K` variable, such as the frame of a claim written with `...`, to `.K`.
-  Non-emptiness requires a term built from constructors and values only, and constraints that
-  hold syntactically or are satisfiable by an SMT query over `Int` and `Bool` variables that
-  abstracts no subterm. A one-path step keeps every successor when its applicable rules of equal
+  Non-emptiness requires a term that contains no function application (only constructors, domain
+  values and variables) and is not a conjunction of terms, and constraints that, together with
+  the term's definedness, hold syntactically or are satisfiable by an SMT query that approximates
+  nothing: its variables are `Int` or `Bool`, it abstracts no subterm, and it applies no partial
+  function. A one-path step keeps every successor when its applicable rules of equal
   priority have pairwise disjoint conditions (refuted syntactically or by an `Unsat` answer), each
   follows one collection match, and each rewrites to one term over its left-hand side's variables
   (no `?X` and no disjunction).
