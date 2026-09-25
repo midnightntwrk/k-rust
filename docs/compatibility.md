@@ -18,16 +18,16 @@ An LLVM expected output does not define the behavior of a hook or of a definitio
 A hook's behavior is defined by its `domains.md` contract (see [Hook specification exceptions](#hook-specification-exceptions)); a case that needs a hook neither pinned Kore engine evaluates stays `llvm-only` unless k-rust implements that hook as described below.
 The [hook capability inventory](../crates/k-rust/tests/fixtures/hook-capabilities.toml) records implemented and unsupported operations.
 
-The `FLOAT` hooks are the implemented hooks that neither pinned Kore engine evaluates: Kore registers no `Float` builtin functions (`kore/src/Kore/Builtin.hs`), and Booster has no `FLOAT` builtin module (`booster/library/Booster/Builtin.hs`).
-k-rust implements them because `domains.md` specifies them as IEEE 754 operations, which fixes each result without reference to a backend.
-A `Float` is an IEEE 754 value whose precision and exponent width are named by its suffix (`p24x8` is `binary32`, `p53x11` is `binary64`), the arithmetic hooks round to nearest with ties to even (their `smt-hook` attributes), and the comparison hooks are IEEE 754 comparisons (`NaN =/=Float NaN`, `0.0 ==Float -0.0`).
+Two implemented hook families have no evaluator in either pinned Kore engine: the console IO hooks `IO.getc`, `IO.putc`, `IO.read` and `IO.write`, which only ordinary execution evaluates (see the console paragraph below) (Kore's IO module registers only `IO.logString` in `kore/src/Kore/Builtin/IO.hs`, and Booster has no IO builtin module), and the `FLOAT` hooks, which are pure: Kore registers no `Float` builtin functions (`kore/src/Kore/Builtin.hs`), and Booster has no `FLOAT` builtin module (`booster/library/Booster/Builtin.hs`).
+k-rust implements the `FLOAT` hooks because `domains.md` specifies them as IEEE 754 operations, which fixes each result without reference to a backend.
+A `Float` is an IEEE 754 value whose precision and exponent width are named by its suffix (`p24x8` is `binary32`, `p53x11` is `binary64`), the arithmetic hooks round to nearest with ties to even (their `smt-hook` attributes), and the comparison hooks are IEEE 754 comparisons (`==Float` is IEEE 754 equality, so `0.0 ==Float -0.0` holds and `NaN ==Float NaN` does not; `=/=Float` has no hook and is the K rule `notBool (F1 ==Float F2)`).
 Where `domains.md` names an operation without settling an edge case, k-rust applies the IEEE 754 rule: `Float2Int` rounds ties to even, and `minFloat`/`maxFloat` are IEEE 754-2019 `minimumNumber`/`maximumNumber`, which ignore a NaN operand and order `-0.0` below `0.0`.
 The implementation covers `binary32` and `binary64`, with `rootFloat` at degree 2.
 A ground value in any other format is a builtin error that names the format; any other root degree and the `FLOAT` hooks the inventory lists as unsupported give the unsupported-hook outcome below.
 The divergence is an extension: for every ground `FLOAT` application k-rust evaluates, the pinned Haskell backend has no evaluator and so no value, and k-rust supplies the value `domains.md` specifies.
-No pinned Kore engine can serve as an oracle for these hooks, so the differential manifest's `wasm-execution` case uses the pinned LLVM execution of the WASM semantics as an alternative oracle.
-That LLVM output is evidence checked against `domains.md`; it is not the definition.
-The local gate `krun_executes_float_fixture_to_pinned_kore_results` pins k-rust's results for rounding ties, square root, signed zero, NaN equality, `Float2Int` rounding and `maxValueFloat`.
+No pinned Kore engine can serve as an oracle for these hooks, so the differential manifest's excluded `wasm-execution` row names the pinned LLVM execution of the WASM semantics as the alternative oracle.
+No gate runs that LLVM execution and no LLVM result is committed; an LLVM result obtained by hand is evidence to check against `domains.md`, not the definition.
+The row's only gate is the k-rust-only local gate `krun_executes_float_fixture_to_pinned_kore_results`, which pins k-rust's own results for rounding ties, square root, signed zero, NaN equality, `Float2Int` rounding and `maxValueFloat`.
 
 Ordinary `kcompile --backend rust` output is directly runnable through `krun --definition DIR`.
 The runtime validates the artifact identity, schema version, Rust backend identity, and every payload digest before use.
