@@ -5147,14 +5147,15 @@ fn a_production_sort_parameter_is_not_a_cast_sort_in_rules() {
 #[test]
 fn a_production_sort_parameter_has_no_sort_predicate_in_rules() {
     // Without a sort `Sort1` there is no predicate `isSort1`, so the condition fails to parse
-    // exactly as a predicate of the undeclared sort `Foo` does.
+    // exactly as a predicate of the undeclared sort `Undef` does. The two names have the same
+    // length, so the error positions, which follow the end of the condition, are comparable.
     let module = |sort: &str| {
         format!(
             "module MAIN\n  imports ML-SYNTAX\n  imports INT\n  imports BOOL\n  syntax Int ::= f(Int) [function]\n  rule f(X) => 1 requires is{sort}(X)\nendmodule\n"
         )
     };
     let parameter = sort_parameter_rule_parse_error(&module("Sort1"));
-    let undeclared = sort_parameter_rule_parse_error(&module("Foo"));
+    let undeclared = sort_parameter_rule_parse_error(&module("Undef"));
     assert_eq!(parameter.error, undeclared.error, "{parameter:?}");
 }
 
