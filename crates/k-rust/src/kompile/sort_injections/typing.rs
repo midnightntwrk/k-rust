@@ -331,6 +331,13 @@ struct Walk<'a, 'view, 'definition> {
     /// an as-pattern's alias in the right branch, the operand of a cast the projection drops):
     /// the enclosing requirement applies to them. Inner pairs come first.
     delegates: Vec<(Vec<u32>, Vec<u32>)>,
+    /// Whether the terms being visited are still projected. `rewrite_projection` copies the
+    /// left side of a rewrite as it is, so inside a left side nothing is projected; it projects
+    /// a right side recursively.
+    projecting: bool,
+    /// Whether the terms being visited are injected as a left-hand side, as `visit_children`
+    /// tracks it (sequence items then take `KItem` as their context).
+    is_lhs: bool,
 }
 
 impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
@@ -340,7 +347,26 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
             branch,
             positions: BTreeMap::new(),
             delegates: Vec::new(),
+            projecting: branch != Branch::Only,
+            is_lhs: branch == Branch::Left,
         }
+    }
+
+    /// Visit a child with `(projecting, is_lhs)` set to `mode` for it, restoring them afterwards.
+    fn child_with(
+        &mut self,
+        mode: (bool, bool),
+        loaded: &Term,
+        resolved: &Term,
+        path: &mut Vec<u32>,
+        index: usize,
+        hint: &Sort,
+    ) -> Result<Slot, SortInjectionError> {
+        let saved = (self.projecting, self.is_lhs);
+        (self.projecting, self.is_lhs) = mode;
+        let slot = self.child(loaded, resolved, path, index, hint);
+        (self.projecting, self.is_lhs) = saved;
+        slot
     }
 
     fn finish(mut self) -> BTreeMap<Vec<u32>, PositionTyping> {
@@ -358,11 +384,10 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
 
     /// The term compilation sees at a position: `resolved` with the walk's projection applied.
     fn projected(&self, resolved: &Term) -> Term {
-        let right = match self.branch {
-            Branch::Only => return resolved.clone(),
-            Branch::Left => false,
-            Branch::Right => true,
-        };
+        if !self.projecting {
+            return resolved.clone();
+        }
+        let right = self.branch == Branch::Right;
         let mut projects = false;
         resolved.visit_preorder(&mut |term| {
             projects |=
@@ -460,11 +485,11 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                 };
                 // Resolution replaced the cast by its operand, which occupies this position.
                 let slot = self.child(argument, resolved, path, 0, hint)?;
-                let dropped = matches!(
-                    (argument.unannotated(), self.branch),
-                    (Term::Rewrite { .. }, Branch::Left | Branch::Right)
-                        | (Term::As { .. }, Branch::Right)
-                );
+                let dropped = self.projecting
+                    && matches!(
+                        (argument.unannotated(), self.branch),
+                        (Term::Rewrite { .. }, _) | (Term::As { .. }, Branch::Right)
+                    );
                 if dropped {
                     // The projection drops the cast with the rewrite or as-pattern it annotates.
                     self.delegate(path, 0);
@@ -478,7 +503,7 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                 self.record(path, slot.sort.as_ref().and_then(reported));
                 Ok(slot)
             }
-            Term::Rewrite { left, right } if self.branch != Branch::Only => {
+            Term::Rewrite { left, right } if self.projecting => {
                 let (index, side, resolved_side) = match (self.branch, resolved.unannotated()) {
                     (Branch::Left, Term::Rewrite { left: resolved, .. }) => (0, left, resolved),
                     (
@@ -489,12 +514,16 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                     ) => (1, right, resolved),
                     _ => unreachable!("resolution keeps rewrites"),
                 };
-                let slot = self.child(side, resolved_side, path, index, hint)?;
+                // The projection keeps a left side as it is and projects a right side further.
+                let projecting = index == 1;
+                let is_lhs = self.is_lhs;
+                let slot =
+                    self.child_with((projecting, is_lhs), side, resolved_side, path, index, hint)?;
                 self.delegate(path, index);
                 self.record(path, slot.sort.as_ref().and_then(reported));
                 Ok(slot)
             }
-            Term::As { alias, .. } if self.branch == Branch::Right => {
+            Term::As { alias, .. } if self.projecting && self.branch == Branch::Right => {
                 let Term::As {
                     alias: resolved_alias,
                     ..
@@ -647,7 +676,17 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                     .into_iter()
                     .enumerate()
                 {
-                    let slot = self.child(side, resolved, path, index, &actual)?;
+                    // A rewrite the projection keeps: `visit_children` injects its left side as
+                    // a left-hand side and its right side as a right-hand side.
+                    let projecting = self.projecting;
+                    let slot = self.child_with(
+                        (projecting, index == 0),
+                        side,
+                        resolved,
+                        path,
+                        index,
+                        &actual,
+                    )?;
                     self.place_child(path, index, &slot, &actual)?;
                 }
             }
@@ -662,11 +701,21 @@ impl<'a, 'view, 'definition> Walk<'a, 'view, 'definition> {
                 // it); a sortless alias takes that sort, a sorted one must fit it.
                 let slot = self.child(pattern, resolved_pattern, path, 0, &actual)?;
                 self.place_child(path, 0, &slot, &actual)?;
-                let slot = self.child(alias, resolved_alias, path, 1, &actual)?;
+                // The left projection keeps an as-pattern's alias as it is.
+                let (projecting, is_lhs) =
+                    (self.projecting && self.branch != Branch::Left, self.is_lhs);
+                let slot = self.child_with(
+                    (projecting, is_lhs),
+                    alias,
+                    resolved_alias,
+                    path,
+                    1,
+                    &actual,
+                )?;
                 self.place_child(path, 1, &slot, &actual)?;
             }
             (Term::Sequence(items), Term::Sequence(resolved_items)) => {
-                let context = if self.branch == Branch::Left {
+                let context = if self.is_lhs {
                     Sort::builtin(BuiltinSort::KItem)
                 } else {
                     Sort::builtin(BuiltinSort::K)

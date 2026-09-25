@@ -552,6 +552,29 @@ fn a_nested_rewrite_is_typed_in_each_branch() {
     assert!(kore.contains("Lblid{SortBool{}}"), "{kore}");
 }
 
+// The projection copies a rewrite's left side as it is, so a rewrite nested in it stays a rewrite
+// in the left branch: `s((z => true) => z)` puts `z => true`, whose sides have no sort below
+// `Nat`, at the `Nat` argument of `s`. Compilation rejects it, and so does the view.
+#[test]
+fn a_rewrite_nested_in_a_left_side_is_typed_as_a_rewrite() {
+    let loaded = load();
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let z = || Term::apply("z", vec![]);
+    let sentence = edited(
+        &loaded,
+        "TYPED.increment",
+        &[0],
+        Term::apply("s", vec![rewrite(rewrite(z(), truth), z())]),
+    );
+    let error = sentence_typing(&loaded.resolved, "TYPED", &sentence).unwrap_err();
+    assert!(matches!(error, SentenceTypingError::Sort { .. }), "{error}");
+    let compiled = compiled_kore(&relinked(&loaded, "TYPED", "TYPED.increment", sentence));
+    assert!(compiled.is_err());
+}
+
 // The sides of a nested rewrite occupy their parent's argument position, so they take its
 // requirement even when neither side has a sort of its own.
 #[test]
@@ -616,7 +639,9 @@ fn kore_sort(sort: &Sort) -> Option<String> {
 }
 
 /// For every position of every rule of `module` where the view places a term of one sort at a
-/// position of another, the compiled definition contains the injection that placement emits:
+/// position of another, the rule's own axiom in the compiled definition contains the injection
+/// that placement emits (a loaded path does not survive cell concretization and the later
+/// passes, so the check is per axiom, not per path):
 /// `inj{sort, required}`, or at a `K` position `inj{sort, KItem}`, or above `K`
 /// `inj{K, required}` over `inj{sort, KItem}`. A cast operand's requirement is the cast's bound,
 /// not a placement, and is skipped.
@@ -635,6 +660,11 @@ fn assert_view_injections_are_emitted(loaded: &LoadedDefinition, module: &str) -
         .filter(|sentence| matches!(&***sentence, Sentence::Rule { .. }));
     for sentence in sentences {
         let typing = typer.typing(sentence).unwrap();
+        // Generated rules (configuration initializers) carry no label to find their axiom by.
+        let Some(label) = sentence.attributes().string(AttributeKey::Label) else {
+            continue;
+        };
+        let kore = axiom_of(&kore, label);
         let placements = typing.positions.iter().chain(
             typing
                 .branches
@@ -665,6 +695,18 @@ fn assert_view_injections_are_emitted(loaded: &LoadedDefinition, module: &str) -
         }
     }
     checked
+}
+
+/// The text of the axiom that carries `label`, from its `axiom{` up to the label attribute.
+fn axiom_of<'a>(kore: &'a str, label: &str) -> &'a str {
+    let attribute = format!("label{{}}(\"{label}\")");
+    let end = kore
+        .find(&attribute)
+        .unwrap_or_else(|| panic!("no axiom labelled {label}"));
+    let start = kore[..end]
+        .rfind("axiom{")
+        .expect("an axiom precedes its attributes");
+    &kore[start..end]
 }
 
 fn under_cast(sentence: &Sentence, path: &[u32]) -> bool {
