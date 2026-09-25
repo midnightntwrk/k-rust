@@ -5409,10 +5409,13 @@ fn kprove_one_path_claim_fails_on_the_uncovered_case() {
     let stdout = String::from_utf8(output.stdout).unwrap();
 
     assert!(!output.status.success(), "{stdout}");
-    // A one-path trace may have dropped an applicable alternative, so its stuck leaf fails the
-    // claim without certifying a refutation.
-    assert!(stdout.contains("claim ONEPATH-SPEC.c1: failed"), "{stdout}");
-    assert!(stdout.contains("Stuck at depth 1"), "{stdout}");
+    // `start(I)` with `I <=Int 0` has the one successor `bad` (the two rules' conditions are
+    // disjoint), which has none: no path reaches `good`, a certified refutation.
+    assert!(
+        stdout.contains("claim ONEPATH-SPEC.c1: disproved"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("Stuck (certified) at depth 1"), "{stdout}");
 }
 
 #[test]
@@ -8795,4 +8798,153 @@ endmodule
         &[],
     );
     assert_eq!(leaves, [refuted_leaf("direct")]);
+}
+
+/// A one-path claim is refuted by a leaf only when the trace kept every successor of every
+/// configuration it followed; then that path is the only one. `start(I)` with `I <=Int 0` has the
+/// one successor `bad`, since the two rules' conditions are disjoint, and `bad` has none: the
+/// one-path claim `start(I) => good` is false there. When the rule tried first overlaps a later
+/// one, the sequential step drops the later successor where both apply, and a rule whose
+/// right-hand side chooses a value stands for many successors; the leaves those steps reach
+/// only fail true claims.
+#[test]
+fn kprove_certifies_a_one_path_refutation_only_on_a_trace_that_kept_every_successor() {
+    let definition = r#"
+module ONE-PATH-PROBE
+  imports INT
+  syntax Pgm ::= start(Int) | "good" | "bad" | "pick" | val(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule <k> start(I) => good </k> requires I >Int 0
+  rule <k> start(I) => bad </k> requires I <=Int 0
+  rule <k> pick => val(?X:Int) </k>
+endmodule
+"#;
+    let specification = r#"
+requires "one-path-probe.k"
+
+module ONE-PATH-SPEC
+  imports ONE-PATH-PROBE
+
+  claim <k> start(I) => good </k> [label(disjoint), one-path]
+  claim <k> pick => val(5) </k> [label(chosen-value), one-path]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("one-path-probe.k", definition),
+        ("one-path-spec.k", specification),
+        "ONE-PATH-SPEC",
+        "ONE-PATH-PROBE",
+        &["disjoint", "chosen-value"],
+        &[],
+    );
+    assert_eq!(
+        verdicts_of(&leaves),
+        expected_verdicts(&[("disjoint", "disproved"), ("chosen-value", "failed")]),
+        "{leaves:?}"
+    );
+    assert!(
+        leaves[0].2.iter().any(|leaf| leaf == "Stuck (certified)"),
+        "{leaves:?}"
+    );
+
+    // `bad` is tried first and covers `I ==Int 3`, where `good` also applies: the claim holds
+    // there through `good`, which the sequential step drops.
+    let definition = r#"
+module OVERLAP-PROBE
+  imports INT
+  syntax Pgm ::= start(Int) | "good" | "bad"
+  configuration <k> $PGM:Pgm </k>
+  rule <k> start(I) => bad </k> requires I <Int 5
+  rule <k> start(I) => good </k> requires I >Int 0
+endmodule
+"#;
+    let specification = r#"
+requires "overlap-probe.k"
+
+module OVERLAP-SPEC
+  imports OVERLAP-PROBE
+
+  claim <k> start(3) => good </k> [label(overlap), one-path]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("overlap-probe.k", definition),
+        ("overlap-spec.k", specification),
+        "OVERLAP-SPEC",
+        "OVERLAP-PROBE",
+        &["overlap"],
+        &[],
+    );
+    assert_eq!(leaves, [failed_stuck_leaf("overlap")]);
+}
+
+/// A leaf certifies a refutation through one of its configurations. A claim written with `...`
+/// leaves its frame variable in the `<k>` cell once its code has run, so the leaf still rewrites
+/// when the frame holds more code; its configuration with the empty frame `.K` has no successor
+/// and the counter `1` fails `?M >Int 1`, which refutes the claim. When `.K` itself rewrites, that
+/// configuration certifies nothing.
+#[test]
+fn kprove_certifies_a_leaf_through_its_empty_computation_instance() {
+    let definition = r#"
+module FRAME-PROBE
+  imports INT
+  syntax Pgm ::= count(Int)
+  configuration <k> $PGM:Pgm </k> <n> 0 </n>
+  rule <k> count(I) => count(I -Int 1) ... </k> <n> N => N +Int 1 </n> requires I >Int 0
+  rule <k> count(0) => .K ... </k>
+endmodule
+"#;
+    let specification = r#"
+requires "frame-probe.k"
+
+module FRAME-SPEC
+  imports FRAME-PROBE
+
+  claim <k> count(1) => .K ... </k> <n> 0 => ?M:Int </n> ensures ?M >Int 0 [label(frame-proven)]
+  claim <k> count(1) => .K ... </k> <n> 0 => ?M:Int </n> ensures ?M >Int 1 [label(frame-refuted)]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("frame-probe.k", definition),
+        ("frame-spec.k", specification),
+        "FRAME-SPEC",
+        "FRAME-PROBE",
+        &["frame-proven", "frame-refuted"],
+        &[],
+    );
+    assert_eq!(
+        verdicts_of(&leaves),
+        expected_verdicts(&[("frame-proven", "proven"), ("frame-refuted", "disproved")]),
+        "{leaves:?}"
+    );
+    assert_eq!(leaves[1], refuted_leaf("frame-refuted"));
+
+    let definition = r#"
+module RESTART-PROBE
+  imports INT
+  syntax Pgm ::= count(Int) | "halt"
+  configuration <k> $PGM:Pgm </k> <n> 0 </n>
+  rule <k> count(I) => count(I -Int 1) ... </k> <n> N => N +Int 1 </n> requires I >Int 0
+  rule <k> count(0) => .K ... </k>
+  rule <k> .K => halt </k>
+endmodule
+"#;
+    let specification = r#"
+requires "restart-probe.k"
+
+module RESTART-SPEC
+  imports RESTART-PROBE
+
+  claim <k> count(1) => .K ... </k> <n> 0 => ?M:Int </n> ensures ?M >Int 1 [label(frame-restarts)]
+endmodule
+"#;
+    let leaves = kprove_claim_leaves(
+        ("restart-probe.k", definition),
+        ("restart-spec.k", specification),
+        "RESTART-SPEC",
+        "RESTART-PROBE",
+        &["frame-restarts"],
+        &[],
+    );
+    assert_eq!(leaves, [failed_stuck_leaf("frame-restarts")]);
 }

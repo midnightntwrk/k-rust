@@ -33,7 +33,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
-    rule::{RewriteRule, applicable_rewrite_groups, subject_index, term_index},
+    rule::{Predicate, RewriteRule, RuleRhs, applicable_rewrite_groups, subject_index, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver},
     smt::{Satisfiability, SmtSolver},
     substitution::Substitution,
@@ -42,8 +42,9 @@ use crate::{
 
 use super::{
     AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RemainderSimplification,
-    RewriteResult, RuleAttempt, TrivialApplication, Truth, apply_rule, extend_unique,
-    predicates_truth, violates_finite_constructor_domain,
+    RewriteResult, RuleAttempt, TrivialApplication, Truth,
+    apply::{RuleApplication, RuleApplicationGroup},
+    apply_rule, extend_unique, predicates_truth, violates_finite_constructor_domain,
 };
 
 enum PriorityGroupOutcome {
@@ -423,6 +424,156 @@ fn fold_lower_priority_groups(
     }
 }
 
+/// Whether a sequential step may have dropped a successor of some configuration of its subject.
+///
+/// The sequential step feeds each rule only the part of the subject that no earlier rule covered,
+/// follows one collection candidate per rule, and keeps one symbolic successor for a rule whose
+/// right-hand side chooses a value. A configuration then loses a successor exactly when two
+/// applications of the same priority cover it (the later one is fed the complement of the
+/// earlier), when a rule has a second collection candidate, or when one application stands for
+/// several successors. The tracker is conservative: it reports `dropped` unless each of these is
+/// excluded, a pairwise disjointness by a syntactic refutation or an `Unsat` answer (an
+/// abstracted query can answer `Sat` spuriously, never `Unsat`). Lower-priority rules are not
+/// alternatives where a higher-priority rule applies, so only equal priorities are compared.
+#[derive(Default)]
+pub(super) struct SequentialDeterminism {
+    pub(super) dropped: bool,
+    /// The sub-cases covered so far in this step, each with its priority: the constraints of the
+    /// pattern the rule was applied to and the rule's applicability there.
+    covered: Vec<(u8, Vec<Predicate>)>,
+}
+
+impl SequentialDeterminism {
+    fn may_overlap(left: &[Predicate], right: &[Predicate], solver: &dyn SmtSolver) -> bool {
+        let mut query = left.to_vec();
+        extend_unique(&mut query, right.iter().cloned());
+        match predicates_truth(&query) {
+            Truth::False => false,
+            Truth::True => true,
+            Truth::Unknown => !matches!(
+                solver.is_sat(&query, &Substitution::new()),
+                Ok(Satisfiability::Unsat)
+            ),
+        }
+    }
+
+    /// The sub-cases of `group`, each the constraints of `subject` and one applicability.
+    fn sub_cases(subject: &Pattern, group: &RuleApplicationGroup) -> Vec<Vec<Predicate>> {
+        group
+            .applied
+            .iter()
+            .map(RuleApplication::applicability)
+            .chain(
+                group
+                    .trivial
+                    .iter()
+                    .map(|application| application.applicability.clone()),
+            )
+            .map(|applicability| {
+                let mut case = subject.constraints.clone();
+                extend_unique(&mut case, std::iter::once(applicability));
+                case
+            })
+            .collect()
+    }
+
+    /// Record the attempt of `rule` (priority `priority`) on `remaining`, the subject minus the
+    /// sub-cases covered earlier in the step. `pattern` is the whole subject.
+    #[allow(clippy::too_many_arguments)]
+    fn record(
+        &mut self,
+        definition: &BackendDefinition,
+        rule: &RewriteRule,
+        priority: u8,
+        pattern: &Pattern,
+        remaining: &Pattern,
+        attempt: &RuleAttempt,
+        fresh_counter: u64,
+        simplification_options: SimplificationOptions,
+        solver: &dyn SmtSolver,
+    ) {
+        if self.dropped {
+            return;
+        }
+        // The rule may also cover a configuration an earlier rule of its priority covered, where
+        // the step did not feed it. Try it on the whole subject, on a copy of the fresh-name
+        // counter so that the step's own names do not move.
+        if self.covered.iter().any(|(earlier, _)| *earlier == priority) {
+            let mut counter = fresh_counter;
+            match apply_rule(
+                definition,
+                rule,
+                pattern,
+                &mut counter,
+                simplification_options,
+                solver,
+                false,
+                None,
+            ) {
+                RuleAttempt::NotApplicable => {}
+                RuleAttempt::Indeterminate(_) => {
+                    self.dropped = true;
+                    return;
+                }
+                RuleAttempt::Unified { groups } => {
+                    for group in &groups {
+                        for case in Self::sub_cases(pattern, group) {
+                            if self.covered.iter().any(|(earlier, covered)| {
+                                *earlier == priority && Self::may_overlap(covered, &case, solver)
+                            }) {
+                                self.dropped = true;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let RuleAttempt::Unified { groups } = attempt else {
+            return;
+        };
+        let [group] = groups.as_slice() else {
+            self.dropped = true;
+            return;
+        };
+        if !rule_has_one_successor(rule) {
+            self.dropped = true;
+            return;
+        }
+        let cases = Self::sub_cases(remaining, group);
+        for (position, case) in cases.iter().enumerate() {
+            if cases[..position]
+                .iter()
+                .any(|earlier| Self::may_overlap(earlier, case, solver))
+            {
+                self.dropped = true;
+                return;
+            }
+        }
+        self.covered
+            .extend(cases.into_iter().map(|case| (priority, case)));
+    }
+}
+
+/// A rule instance has one successor: its right-hand side is one term over the variables its
+/// left-hand side binds, with no existential and no variable only the right-hand side or the
+/// ensures clause mention.
+fn rule_has_one_successor(rule: &RewriteRule) -> bool {
+    let RuleRhs::Term(rhs) = &rule.rhs else {
+        return false;
+    };
+    let bound = &rule.lhs.attributes().variables;
+    rule.existentials.is_empty()
+        && rhs.attributes().variables.is_subset(bound)
+        && rule.ensures.iter().all(|predicate| {
+            predicate
+                .free_variables()
+                .iter()
+                .all(|variable| bound.contains(variable))
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_step_any(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -430,6 +581,7 @@ pub(super) fn rewrite_step_any(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     io: Option<&ExecutionIoState>,
+    mut determinism: Option<&mut SequentialDeterminism>,
 ) -> RewriteResult {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
@@ -443,11 +595,30 @@ pub(super) fn rewrite_step_any(
     let mut remainder_conditions = Vec::new();
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
-    for rule in priority_groups.values().flatten() {
+    let rules = priority_groups
+        .iter()
+        .flat_map(|(priority, rules)| rules.iter().map(move |rule| (*priority, rule)));
+    for (priority, rule) in rules {
         if predicates_truth(&remaining.constraints) == Truth::False {
+            // Nothing is left to feed the later rules; the tracker still asks whether they
+            // cover a configuration an earlier rule took.
+            if let Some(determinism) = determinism.as_deref_mut() {
+                determinism.record(
+                    definition,
+                    rule,
+                    priority,
+                    pattern,
+                    &remaining,
+                    &RuleAttempt::NotApplicable,
+                    *fresh_counter,
+                    simplification_options,
+                    solver,
+                );
+                continue;
+            }
             break;
         }
-        match apply_rule(
+        let attempt = apply_rule(
             definition,
             rule,
             &remaining,
@@ -456,7 +627,21 @@ pub(super) fn rewrite_step_any(
             solver,
             false,
             io,
-        ) {
+        );
+        if let Some(determinism) = determinism.as_deref_mut() {
+            determinism.record(
+                definition,
+                rule,
+                priority,
+                pattern,
+                &remaining,
+                &attempt,
+                *fresh_counter,
+                simplification_options,
+                solver,
+            );
+        }
+        match attempt {
             RuleAttempt::NotApplicable => {}
             RuleAttempt::Unified { groups } => {
                 measure::bump(Counter::RewriteRulesApplied);
