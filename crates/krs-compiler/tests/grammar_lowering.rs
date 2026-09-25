@@ -38,6 +38,7 @@ fn origin(key: &str) -> NodeOrigin {
 fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let expr = item("Expr", ItemKind::Sort);
     let id_sort = item("Id", ItemKind::Sort);
+    let g1_point = item("G1Point", ItemKind::Sort);
     let eval = item("EvalInt", ItemKind::Constructor);
     let plus = item("Plus", ItemKind::Constructor);
     let bracket = item("ExprBracket", ItemKind::Constructor);
@@ -46,6 +47,7 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let bn128_valid = item("Bn128Valid", ItemKind::Constructor);
     let bn128_add = item("Bn128Add", ItemKind::Constructor);
     let bn128_mul = item("Bn128Mul", ItemKind::Constructor);
+    let point = item("Point", ItemKind::Constructor);
     let unary = ProductionGroupId::new("unary").unwrap();
     let additive = ProductionGroupId::new("additive").unwrap();
 
@@ -197,6 +199,28 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
         ],
     )
     .unwrap();
+    let point_production = SemanticProduction::new(
+        origin("production.point"),
+        point,
+        SemanticSortRef::Declared(g1_point.clone()),
+        vec![
+            SemanticProductionItem::terminal(origin("point.open"), "(").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("point.x"),
+                ProductionFieldId::new("x").unwrap(),
+                SemanticSortRef::Builtin(BuiltinSort::Int),
+            ),
+            SemanticProductionItem::terminal(origin("point.comma"), ",").unwrap(),
+            SemanticProductionItem::non_terminal(
+                origin("point.y"),
+                ProductionFieldId::new("y").unwrap(),
+                SemanticSortRef::Builtin(BuiltinSort::Int),
+            ),
+            SemanticProductionItem::terminal(origin("point.close"), ")").unwrap(),
+        ],
+        vec![],
+    )
+    .unwrap();
     let bn128_valid_production = SemanticProduction::new(
         origin("production.bn128-valid"),
         bn128_valid,
@@ -206,7 +230,7 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
             SemanticProductionItem::non_terminal(
                 origin("bn128-valid.point"),
                 ProductionFieldId::new("point").unwrap(),
-                SemanticSortRef::Declared(expr.clone()),
+                SemanticSortRef::Declared(g1_point.clone()),
             ),
             SemanticProductionItem::terminal(origin("bn128-valid.close"), ")").unwrap(),
         ],
@@ -227,19 +251,19 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let bn128_add_production = SemanticProduction::new(
         origin("production.bn128-add"),
         bn128_add,
-        SemanticSortRef::Declared(expr.clone()),
+        SemanticSortRef::Declared(g1_point.clone()),
         vec![
             SemanticProductionItem::terminal(origin("bn128-add.open"), "Bn128Add(").unwrap(),
             SemanticProductionItem::non_terminal(
                 origin("bn128-add.left"),
                 ProductionFieldId::new("left").unwrap(),
-                SemanticSortRef::Declared(expr.clone()),
+                SemanticSortRef::Declared(g1_point.clone()),
             ),
             SemanticProductionItem::terminal(origin("bn128-add.comma"), ",").unwrap(),
             SemanticProductionItem::non_terminal(
                 origin("bn128-add.right"),
                 ProductionFieldId::new("right").unwrap(),
-                SemanticSortRef::Declared(expr.clone()),
+                SemanticSortRef::Declared(g1_point.clone()),
             ),
             SemanticProductionItem::terminal(origin("bn128-add.close"), ")").unwrap(),
         ],
@@ -260,13 +284,13 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
     let bn128_mul_production = SemanticProduction::new(
         origin("production.bn128-mul"),
         bn128_mul,
-        SemanticSortRef::Declared(expr.clone()),
+        SemanticSortRef::Declared(g1_point.clone()),
         vec![
             SemanticProductionItem::terminal(origin("bn128-mul.open"), "Bn128Mul(").unwrap(),
             SemanticProductionItem::non_terminal(
                 origin("bn128-mul.point"),
                 ProductionFieldId::new("point").unwrap(),
-                SemanticSortRef::Declared(expr.clone()),
+                SemanticSortRef::Declared(g1_point.clone()),
             ),
             SemanticProductionItem::terminal(origin("bn128-mul.comma"), ",").unwrap(),
             SemanticProductionItem::non_terminal(
@@ -386,6 +410,7 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
         vec![
             SemanticSort::new(origin("sort.expr"), expr.clone()),
             SemanticSort::new(origin("sort.id"), id_sort),
+            SemanticSort::new(origin("sort.g1-point"), g1_point),
         ],
         vec![SemanticSubsort::new(
             origin("subsort.int-expr"),
@@ -398,6 +423,7 @@ fn classified_grammar_and_builtin_rules_emit_canonical_k() {
             bracket_production,
             token_production,
             hook_production,
+            point_production,
             bn128_valid_production,
             bn128_add_production,
             bn128_mul_production,

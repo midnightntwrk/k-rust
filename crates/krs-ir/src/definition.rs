@@ -570,6 +570,7 @@ impl DefinitionIr {
                 }
             }
         }
+        validate_bn128_point_constructors(&self.modules)?;
         validate_definition_precedence_order(&self.modules)?;
         validate_definition_subsort_order(&subsort_parents)?;
         Ok(())
@@ -1712,6 +1713,17 @@ pub enum DefinitionValidationError {
     InvalidFunctionProduction,
     /// A typed hook's declared result or argument sorts did not match its catalog signature.
     InvalidHookSignature(HookOperation),
+    /// A BN128 hook lacks a unique constructor for its required point sort.
+    InvalidBn128PointConstructor {
+        /// The hook requiring the point.
+        hook: HookOperation,
+        /// The declared sort used by the hook, if any.
+        sort: String,
+        /// The point signature required by the backend.
+        expected_signature: &'static str,
+        /// Constructors matching that signature in the definition.
+        matching_constructors: usize,
+    },
     /// Alias and function metadata occurred on the same production.
     InvalidAliasProduction,
     /// A variable is declared twice.
@@ -1951,6 +1963,15 @@ impl fmt::Display for DefinitionValidationError {
                     "hook has invalid production signature {operation:?}"
                 )
             }
+            Self::InvalidBn128PointConstructor {
+                hook,
+                sort,
+                expected_signature,
+                matching_constructors,
+            } => write!(
+                formatter,
+                "hook {hook:?} requires a unique {expected_signature} constructor; sort {sort:?} has {matching_constructors} matching constructors"
+            ),
             Self::InvalidAliasProduction => {
                 formatter.write_str("alias metadata cannot be combined with function metadata")
             }
@@ -3053,6 +3074,128 @@ fn require_definition_group(
             group.clone(),
         ))
     }
+}
+
+#[allow(clippy::too_many_lines)] // Checks each BN128 hook against the backend's point signatures.
+fn validate_bn128_point_constructors(
+    modules: &[DefinitionModule],
+) -> Result<(), DefinitionValidationError> {
+    let sorts = modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::SyntaxSort(sort) => {
+                Some((sort.symbol.id(), sort.symbol.emitted_name()))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let productions = modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            DefinitionSentence::Production(production) => Some(production),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let check = |hook,
+                 expected_sort,
+                 expected_signature,
+                 arity,
+                 used_sort: Option<&DefinitionSortRef>| {
+        let sort = if let Some(used_sort) = used_sort {
+            match used_sort {
+                DefinitionSortRef::Declared(id) => Some(id),
+                DefinitionSortRef::Builtin(_) => None,
+            }
+        } else {
+            sorts
+                .iter()
+                .find(|(_, name)| **name == expected_sort)
+                .map(|(id, _)| *id)
+        };
+        let sort_name = sort
+            .and_then(|id| sorts.get(id).copied())
+            .unwrap_or(expected_sort);
+        let matching_constructors = productions
+            .iter()
+            .filter(|production| {
+                matches!(production.result_sort(), DefinitionSortRef::Declared(id) if Some(id) == sort)
+                    && !production.attributes().iter().any(|attribute| {
+                        matches!(attribute, ProductionAttribute::Function { .. }
+                            | ProductionAttribute::Alias { .. }
+                            | ProductionAttribute::Token { .. }
+                            | ProductionAttribute::Bracket { .. })
+                    })
+                    && production
+                        .items()
+                        .iter()
+                        .filter_map(|item| match item.kind() {
+                            GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>() == vec![&DefinitionSortRef::int(); arity]
+            })
+            .count();
+        if sort_name == expected_sort && matching_constructors == 1 {
+            Ok(())
+        } else {
+            Err(DefinitionValidationError::InvalidBn128PointConstructor {
+                hook,
+                sort: sort_name.to_owned(),
+                expected_signature,
+                matching_constructors,
+            })
+        }
+    };
+    for production in &productions {
+        let Some(hook) = production
+            .attributes()
+            .iter()
+            .find_map(|attribute| match attribute {
+                ProductionAttribute::Hook { operation, .. } => Some(*operation),
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        let first_argument = production
+            .items()
+            .iter()
+            .find_map(|item| match item.kind() {
+                GrammarProductionItemKind::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            });
+        match hook {
+            HookOperation::KryptoBn128Valid => {
+                check(hook, "G1Point", "G1Point(Int, Int)", 2, first_argument)?;
+            }
+            HookOperation::KryptoBn128G2Valid => {
+                check(
+                    hook,
+                    "G2Point",
+                    "G2Point(Int, Int, Int, Int)",
+                    4,
+                    first_argument,
+                )?;
+            }
+            HookOperation::KryptoBn128Add | HookOperation::KryptoBn128Mul => {
+                check(
+                    hook,
+                    "G1Point",
+                    "G1Point(Int, Int)",
+                    2,
+                    Some(production.result_sort()),
+                )?;
+            }
+            HookOperation::KryptoBn128Ate => {
+                check(hook, "G1Point", "G1Point(Int, Int)", 2, None)?;
+                check(hook, "G2Point", "G2Point(Int, Int, Int, Int)", 4, None)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_lines)] // Exhaustively validates the closed production-attribute catalog.
