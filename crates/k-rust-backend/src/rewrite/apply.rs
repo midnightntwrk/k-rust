@@ -42,7 +42,7 @@ use crate::{
     fresh::freshen_existential,
     ite::SplitSide,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
-    rule::{Predicate, RewriteRule, RuleRhs},
+    rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
     simplify::{
         ConditionIndeterminacy, RuleCondition, SimplificationError, SimplificationOptions,
         binds_element_variable_to_set_pattern, decide_condition, simplify_in_execution_with_solver,
@@ -217,6 +217,23 @@ pub(super) fn apply_rule_with_match(
     matched: Option<PartialRuleMatch>,
     io: Option<&ExecutionIoState>,
 ) -> RuleAttempt {
+    // A partial match was computed against the rule this attempt already applies, which is
+    // renamed apart from the subject when it had to be.
+    if matched.is_none()
+        && let Some((renamed, _)) = rename_apart(rule, &pattern.term.attributes().variables)
+    {
+        return apply_rule_with_match(
+            definition,
+            &renamed,
+            pattern,
+            fresh_counter,
+            simplification_options,
+            solver,
+            assume_initial_defined,
+            None,
+            io,
+        );
+    }
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
     measure::bump(Counter::RewriteRuleAttempts);
     let context = RuleContext {

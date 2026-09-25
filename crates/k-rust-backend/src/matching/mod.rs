@@ -388,6 +388,9 @@ fn match_terms_with_context(
         .intersection(&subject.attributes().variables)
         .cloned()
         .collect::<BTreeSet<_>>();
+    // Rule application renames a rule's variables apart from the subject before matching
+    // (`rule::rename_apart`), so this guard only meets callers whose two sides share one scope,
+    // where a variable on both sides is one variable and needs unification.
     if mode != MatchMode::Implies && !shared_variables.is_empty() {
         return match mode {
             // As in `match_term_pairs_in_definition`: the pair is the remainder, not a
