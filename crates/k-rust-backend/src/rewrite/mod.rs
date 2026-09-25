@@ -402,7 +402,8 @@ pub struct ExecutionLeaf {
     pub trace: Vec<TraceEntry>,
     /// Stable semantic path prefix for this leaf when observation was enabled.
     pub branch: Vec<TransitionId>,
-    /// Ordered structured events retained for this branch.
+    /// Ordered structured events retained for this branch: transition events name the elements
+    /// of `branch` in order, and evaluation events are anchored between them.
     pub observations: Vec<ObservationEvent>,
     /// Ordered effects committed by this branch.
     pub effects: Vec<BuiltinEffect>,

@@ -242,14 +242,13 @@ export interface BackendTermPair {
 
 export type BackendEffect = { kind: 'user-log'; message: string }
 
-export type TransitionClass =
-  | 'rewrite'
-  | 'remainder'
-  | 'function-equation'
-  | 'simplification'
-  | 'builtin'
-  | 'claim'
+/** The kind of committed transition. */
+export type TransitionClass = 'rewrite' | 'remainder' | 'claim'
 
+/** The kind of rule applied while normalizing a branch state. */
+export type EvaluationClass = 'function-equation' | 'simplification' | 'builtin'
+
+/** A committed transition; `id` is an element of the branch it is reported on, in order. */
 export interface TransitionObservation {
   kind: 'transition'
   id: TransitionId
@@ -257,6 +256,23 @@ export interface TransitionObservation {
   ruleLabel?: string
   bindings: BackendBinding[]
   introducedPredicates: Kore[]
+  before: Kore
+  after: Kore
+  effects: BackendEffect[]
+}
+
+/**
+ * An equation, simplification, or builtin application that normalized a state of the branch.
+ * `anchor` is the number of branch entries preceding it: the normalized state is the one reached
+ * by the first `anchor` transitions (the initial state when 0). Diagnostic only: presence,
+ * multiplicity, and order depend on the simplifier's strategy.
+ */
+export interface EvaluationObservation {
+  kind: 'evaluation'
+  rule: string
+  class: EvaluationClass
+  ruleLabel?: string
+  anchor: number
   before: Kore
   after: Kore
   effects: BackendEffect[]
@@ -270,7 +286,10 @@ export interface UncommittedObservation {
   reason: 'rolled-back'
 }
 
-export type ObservationEvent = TransitionObservation | UncommittedObservation
+export type ObservationEvent =
+  | TransitionObservation
+  | EvaluationObservation
+  | UncommittedObservation
 
 export interface ObservationOptions {
   /** Exact executable rule ids. Omit to observe every supported semantic activity. */

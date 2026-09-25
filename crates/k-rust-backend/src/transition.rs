@@ -49,18 +49,26 @@ pub struct TransitionId {
     pub target: PatternDigest,
 }
 
-/// The semantic activity represented by a transition observation.
+/// The kind of committed transition a transition observation records.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TransitionClass {
     Rewrite,
     Remainder,
-    FunctionEquation,
-    Simplification,
-    Builtin,
     Claim,
 }
 
-/// Structured evidence for one retained semantic transition.
+/// The kind of rule applied while normalizing a branch state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EvaluationClass {
+    FunctionEquation,
+    Simplification,
+    Builtin,
+}
+
+/// Structured evidence for one committed transition of a branch.
+///
+/// Every transition observation names, by `id`, an element of the branch it is reported on, in
+/// branch order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransitionObservation {
     pub id: TransitionId,
@@ -68,6 +76,43 @@ pub struct TransitionObservation {
     pub rule_label: Option<String>,
     pub bindings: Substitution,
     pub introduced_predicates: Vec<Predicate>,
+    pub before: Pattern,
+    pub after: Pattern,
+    pub effects: Vec<BuiltinEffect>,
+}
+
+/// One equation, simplification, or builtin application performed while normalizing a state of
+/// a branch.
+///
+/// Normalization rewrites a state to an equal state; it is not a transition, and the branch
+/// records no identity for it. `anchor` places it on the branch: it is the number of committed
+/// transitions (branch entries, filtered or not) that precede it, so the normalized state is the
+/// one reached by `branch[..anchor]` (the initial state when `anchor` is 0), or that state
+/// restricted by the negated conditions of higher-priority rules when the next transition is a
+/// lower-priority rewrite. Anchors are non-decreasing along a branch's observations.
+///
+/// Evaluations are recorded for the normalization passes of retained branch states: the term
+/// normalization of the initial state and of every rewrite successor and remainder, the
+/// normalization of a higher-priority remainder before a lower-priority rewrite, and the pattern
+/// normalization of a state leaving the engine as a leaf or search result. Constraint
+/// simplification at the start of a step reports none. Evaluations performed while deciding a
+/// rule's side conditions or building its right-hand side belong to that rule's application,
+/// committed or not, and are not reported; neither is the simplification that decides, at a
+/// branch stop, which candidate successors survive, although a surviving candidate's own later
+/// normalization is. Evaluations of a state that is later dropped (a remainder that simplifies to
+/// bottom, a leaf merged into an equal leaf, leaves the breadth bound discards) are reported
+/// on no branch. Which evaluations occur, how often, and in which order depends on the
+/// simplifier's strategy, so these events are diagnostics: their absence is not evidence that an
+/// equation does not apply.
+///
+/// `before` and `after` are the endpoints of the whole normalization pass, shared by every
+/// evaluation that pass performed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EvaluationObservation {
+    pub rule: String,
+    pub class: EvaluationClass,
+    pub rule_label: Option<String>,
+    pub anchor: usize,
     pub before: Pattern,
     pub after: Pattern,
     pub effects: Vec<BuiltinEffect>,
@@ -91,6 +136,7 @@ pub struct UncommittedObservation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ObservationEvent {
     Transition(TransitionObservation),
+    Evaluation(EvaluationObservation),
     Uncommitted(UncommittedObservation),
 }
 
@@ -289,6 +335,8 @@ pub(crate) type ObservationHead = Option<ObservationNodeId>;
 
 struct ObservationNode {
     parent: ObservationHead,
+    /// Committed transitions on the chain ending at this node, this node's included.
+    transitions: usize,
     transition: Option<TransitionId>,
     event: Option<ObservationEvent>,
 }
@@ -322,11 +370,7 @@ impl ObservationLog {
                 effects: applied.effects.clone(),
             })
         });
-        Some(self.push(ObservationNode {
-            parent,
-            transition: Some(id),
-            event,
-        }))
+        Some(self.push(parent, Some(id), event))
     }
 
     pub(crate) fn append_remainder(
@@ -353,13 +397,11 @@ impl ObservationLog {
                 effects: Vec::new(),
             })
         });
-        Some(self.push(ObservationNode {
-            parent,
-            transition: Some(id),
-            event,
-        }))
+        Some(self.push(parent, Some(id), event))
     }
 
+    /// Record the evaluations of one normalization pass of the state at `parent`'s branch
+    /// position; see [`EvaluationObservation`] for the anchor.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn append_simplification(
         &mut self,
@@ -372,11 +414,12 @@ impl ObservationLog {
         options: Option<&ObservationOptions>,
     ) -> ObservationHead {
         let options = options?;
+        let anchor = self.transitions(parent);
         let mut effects = effects.iter().peekable();
         for rule in applied_rules {
-            let class = transition_class(definition, rule);
+            let class = evaluation_class(definition, rule);
             let attributed_effects = if let Some(hook) = rule.strip_prefix("builtin:")
-                && class == TransitionClass::Builtin
+                && class == EvaluationClass::Builtin
                 && effects.peek().is_some_and(|effect| effect.hook() == hook)
             {
                 vec![effects.next().expect("peeked effect").clone()]
@@ -386,24 +429,19 @@ impl ObservationLog {
             if !options.observes(rule) {
                 continue;
             }
-            let id = TransitionId {
-                rule: rule.clone(),
-                target: PatternDigest::of(after),
-            };
-            parent = Some(self.push(ObservationNode {
+            parent = Some(self.push(
                 parent,
-                transition: None,
-                event: Some(ObservationEvent::Transition(TransitionObservation {
-                    id,
+                None,
+                Some(ObservationEvent::Evaluation(EvaluationObservation {
+                    rule: rule.clone(),
                     class,
                     rule_label: equation_label(definition, rule),
-                    bindings: Substitution::new(),
-                    introduced_predicates: Vec::new(),
+                    anchor,
                     before: before.clone(),
                     after: after.clone(),
                     effects: attributed_effects,
                 })),
-            }));
+            ));
         }
         parent
     }
@@ -429,21 +467,36 @@ impl ObservationLog {
         (branch, events)
     }
 
-    fn push(&mut self, node: ObservationNode) -> ObservationNodeId {
+    fn transitions(&self, head: ObservationHead) -> usize {
+        head.map_or(0, |id| self.nodes[id.0].transitions)
+    }
+
+    fn push(
+        &mut self,
+        parent: ObservationHead,
+        transition: Option<TransitionId>,
+        event: Option<ObservationEvent>,
+    ) -> ObservationNodeId {
+        let transitions = self.transitions(parent) + usize::from(transition.is_some());
         let id = ObservationNodeId(self.nodes.len());
-        self.nodes.push(node);
+        self.nodes.push(ObservationNode {
+            parent,
+            transitions,
+            transition,
+            event,
+        });
         id
     }
 }
 
-fn transition_class(definition: &BackendDefinition, rule_id: &str) -> TransitionClass {
+fn evaluation_class(definition: &BackendDefinition, rule_id: &str) -> EvaluationClass {
     if rule_id.starts_with("builtin:") {
-        return TransitionClass::Builtin;
+        return EvaluationClass::Builtin;
     }
     if theory_contains_rule(&definition.function_theory, rule_id) {
-        TransitionClass::FunctionEquation
+        EvaluationClass::FunctionEquation
     } else {
-        TransitionClass::Simplification
+        EvaluationClass::Simplification
     }
 }
 
@@ -470,7 +523,77 @@ fn theory_contains_rule(theory: &crate::rule::Theory, rule_id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DescriptorTranscriptEntry, ExecutionIoState};
+    use std::collections::BTreeSet;
+
+    use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
+
+    use super::{
+        DescriptorTranscriptEntry, EvaluationClass, ExecutionIoState, ObservationEvent,
+        ObservationOptions,
+    };
+    use crate::{
+        definition::BackendDefinition,
+        rewrite::{ExecutionOptions, Pattern, execute_observed},
+    };
+
+    /// A filtered-out rewrite is still a committed transition of the branch, so the evaluation
+    /// of its successor is anchored after it. The filter is built directly because the public
+    /// allowlist admits rewrite identities only.
+    #[test]
+    fn evaluation_anchor_counts_transitions_the_filter_excludes() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                symbol wrap{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+                symbol value{}() : SortS{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \top{R}()),
+                    \equals{SortS{}, R}(
+                        value{}(),
+                        \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                    )
+                ) [label{}("value")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                    value{}()
+                ) [label{}("step")]
+            endmodule []"#,
+        )
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let initial = Pattern {
+            term: definition
+                .internalize_term(&parse_pattern("wrap{}(value{}())").unwrap(), &[])
+                .unwrap(),
+            constraints: Vec::new(),
+        };
+        let options = ObservationOptions {
+            rules: Some(BTreeSet::from(["value".to_owned()])),
+        };
+
+        let result = execute_observed(&definition, initial, ExecutionOptions::default(), &options);
+
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("expected one leaf: {:?}", result.leaves);
+        };
+        assert_eq!(leaf.branch.len(), 1);
+        assert_eq!(leaf.branch[0].rule, "step");
+        let anchors = leaf
+            .observations
+            .iter()
+            .map(|event| match event {
+                ObservationEvent::Evaluation(evaluation) => {
+                    assert_eq!(evaluation.rule, "value");
+                    assert_eq!(evaluation.class, EvaluationClass::FunctionEquation);
+                    evaluation.anchor
+                }
+                other => panic!("the filter selects only the equation: {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(anchors, [0, 1]);
+    }
 
     #[test]
     fn evaluation_reads_prebuffered_input_in_order() {

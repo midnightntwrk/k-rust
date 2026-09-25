@@ -24,8 +24,8 @@ use k_rust_backend::{
     term::{Sort, Term, TermKind, Variable},
     timeout::StepTimeoutMode,
     transition::{
-        ExecutionIoState, ObservationEvent, ObservationFilterError, ObservationOptions,
-        PatternDigest, TransitionClass, UncommittedReason,
+        EvaluationClass, ExecutionIoState, ObservationEvent, ObservationFilterError,
+        ObservationOptions, PatternDigest, TransitionClass, UncommittedReason,
     },
 };
 use k_rust_kore::{
@@ -6003,6 +6003,160 @@ fn observation_filter_installation_is_atomic() {
     assert!(ObservationOptions::with_rules(&definition, ["left", "right"]).is_ok());
 }
 
+/// A leaf's observation stream without payloads.
+#[derive(Debug, PartialEq)]
+enum Observed<'a> {
+    Transition(&'a str, TransitionClass),
+    Evaluation(&'a str, EvaluationClass, usize),
+}
+
+fn observed(leaf: &ExecutionLeaf) -> Vec<Observed<'_>> {
+    leaf.observations
+        .iter()
+        .map(|event| match event {
+            ObservationEvent::Transition(observation) => {
+                Observed::Transition(observation.id.rule.as_str(), observation.class)
+            }
+            ObservationEvent::Evaluation(observation) => Observed::Evaluation(
+                observation.rule.as_str(),
+                observation.class,
+                observation.anchor,
+            ),
+            ObservationEvent::Uncommitted(_) => panic!("rollback leaked into a leaf"),
+        })
+        .collect()
+}
+
+/// Under unfiltered observation, the transition events are exactly `branch` in order, and every
+/// evaluation is anchored after the transitions that precede it in the stream.
+fn assert_observations_anchor_into_branch(leaf: &ExecutionLeaf) {
+    let mut transitions = Vec::new();
+    for event in &leaf.observations {
+        match event {
+            ObservationEvent::Transition(observation) => transitions.push(observation.id.clone()),
+            ObservationEvent::Evaluation(observation) => {
+                assert_eq!(observation.anchor, transitions.len(), "{observation:?}");
+            }
+            ObservationEvent::Uncommitted(_) => panic!("rollback leaked into a leaf"),
+        }
+    }
+    assert_eq!(transitions, leaf.branch);
+}
+
+/// `value()` evaluates by a function equation; `left` and `right` both apply to any `wrap`, and
+/// only `left`'s successor calls `value()`.
+fn evaluating_branch_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                value{}()
+            ) [label{}("left")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                \dv{SortS{}}("right")
+            ) [label{}("right")]
+            "#,
+    )
+}
+
+#[test]
+fn successor_function_equation_is_an_evaluation_anchored_after_its_rewrite() {
+    let definition = definition(
+        r#"
+            symbol value{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(\top{R}(), \top{R}()),
+                \equals{SortS{}, R}(
+                    value{}(),
+                    \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                )
+            ) [label{}("value")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(X:SortS{}), \top{SortS{}}()),
+                value{}()
+            ) [label{}("step")]
+            "#,
+    );
+    let result = execute_observed(
+        &definition,
+        subject(&definition, "start"),
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf: {:?}", result.leaves);
+    };
+    assert_eq!(
+        observed(leaf),
+        [
+            Observed::Transition("step", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+        ]
+    );
+    assert_observations_anchor_into_branch(leaf);
+    let ObservationEvent::Evaluation(evaluation) = &leaf.observations[1] else {
+        unreachable!("checked above");
+    };
+    assert_eq!(evaluation.rule_label.as_deref(), Some("value"));
+    assert_eq!(evaluation.after, leaf.pattern);
+}
+
+#[test]
+fn sibling_branches_anchor_their_evaluations_into_their_own_branch() {
+    let definition = evaluating_branch_definition();
+    let initial = Pattern {
+        term: internal_term(&definition, r#"wrap{}(value{}())"#),
+        constraints: Vec::new(),
+    };
+    let result = execute_observed(
+        &definition,
+        initial.clone(),
+        ExecutionOptions::default(),
+        &ObservationOptions::all(),
+    );
+
+    let streams = result
+        .leaves
+        .iter()
+        .inspect(|leaf| assert_observations_anchor_into_branch(leaf))
+        .map(observed)
+        .collect::<Vec<_>>();
+    assert_eq!(streams.len(), 2, "{streams:?}");
+    for expected in [
+        vec![
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition("left", TransitionClass::Rewrite),
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 1),
+        ],
+        vec![
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition("right", TransitionClass::Rewrite),
+        ],
+    ] {
+        assert!(streams.contains(&expected), "{streams:?}");
+    }
+
+    let mut unobserved = result.clone();
+    for leaf in &mut unobserved.leaves {
+        leaf.branch.clear();
+        leaf.observations.clear();
+    }
+    assert_eq!(
+        unobserved,
+        execute(&definition, initial, ExecutionOptions::default())
+    );
+}
+
 #[test]
 fn single_rewrite_emits_one_committed_observation() {
     let definition = definition(
@@ -6082,6 +6236,7 @@ fn sibling_branches_own_independent_ordered_streams() {
                 .iter()
                 .map(|event| match event {
                     ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+                    ObservationEvent::Evaluation(_) => panic!("the definition has no equations"),
                     ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
                 })
                 .collect::<Vec<_>>()
@@ -6141,7 +6296,7 @@ fn valid_observation_filter_suppresses_events_but_preserves_branch_identity() {
 }
 
 #[test]
-fn transition_classes_distinguish_function_equations_from_rewrites() {
+fn initial_state_function_equation_is_an_evaluation_at_anchor_zero() {
     let definition = definition(
         r#"
             symbol value{}() : SortS{} [function{}(), total{}()]
@@ -6173,16 +6328,13 @@ fn transition_classes_distinguish_function_equations_from_rewrites() {
     );
 
     assert_eq!(
-        result.leaves[0]
-            .observations
-            .iter()
-            .map(|event| match event {
-                ObservationEvent::Transition(observation) => observation.class,
-                ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
-            })
-            .collect::<Vec<_>>(),
-        [TransitionClass::FunctionEquation, TransitionClass::Rewrite]
+        observed(&result.leaves[0]),
+        [
+            Observed::Evaluation("value", EvaluationClass::FunctionEquation, 0),
+            Observed::Transition("step", TransitionClass::Rewrite),
+        ]
     );
+    assert_observations_anchor_into_branch(&result.leaves[0]);
 }
 
 #[test]
@@ -6214,21 +6366,13 @@ fn terminal_result_simplification_is_observed_in_order() {
     );
 
     assert_eq!(
-        result.leaves[0]
-            .observations
-            .iter()
-            .map(|event| match event {
-                ObservationEvent::Transition(observation) => {
-                    (observation.id.rule.as_str(), observation.class)
-                }
-                ObservationEvent::Uncommitted(_) => panic!("unexpected rollback"),
-            })
-            .collect::<Vec<_>>(),
+        observed(&result.leaves[0]),
         [
-            ("stop", TransitionClass::Rewrite),
-            ("identity", TransitionClass::Simplification),
+            Observed::Transition("stop", TransitionClass::Rewrite),
+            Observed::Evaluation("identity", EvaluationClass::Simplification, 1),
         ]
     );
+    assert_observations_anchor_into_branch(&result.leaves[0]);
 }
 
 #[test]
@@ -6306,12 +6450,14 @@ fn builtin_observation_owns_its_user_log_effect() {
         &ObservationOptions::all(),
     );
 
-    let [ObservationEvent::Transition(observation)] = result.leaves[0].observations.as_slice()
+    let [ObservationEvent::Evaluation(observation)] = result.leaves[0].observations.as_slice()
     else {
         panic!("expected one builtin observation");
     };
-    assert_eq!(observation.id.rule, "builtin:IO.logString");
-    assert_eq!(observation.class, TransitionClass::Builtin);
+    assert_eq!(observation.rule, "builtin:IO.logString");
+    assert_eq!(observation.class, EvaluationClass::Builtin);
+    assert_eq!(observation.anchor, 0);
+    assert!(result.leaves[0].branch.is_empty());
     assert_eq!(observation.before, initial);
     assert_eq!(observation.after, result.leaves[0].pattern);
     assert_eq!(
@@ -6376,7 +6522,9 @@ fn symbolic_remainder_emits_a_distinct_observation_class() {
             {
                 Some(observation)
             }
-            ObservationEvent::Transition(_) | ObservationEvent::Uncommitted(_) => None,
+            ObservationEvent::Transition(_)
+            | ObservationEvent::Evaluation(_)
+            | ObservationEvent::Uncommitted(_) => None,
         })
         .expect("expected one retained symbolic remainder");
     assert_eq!(remainder.id.rule, "remainder:negative");
@@ -6706,6 +6854,7 @@ fn rolled_back_branch_effects_are_classified_without_committing() {
             .iter()
             .map(|event| match event {
                 ObservationEvent::Transition(observation) => observation.id.rule.as_str(),
+                ObservationEvent::Evaluation(_) => panic!("the definition has no equations"),
                 ObservationEvent::Uncommitted(_) => panic!("rollback leaked into leaf"),
             })
             .collect::<Vec<_>>(),

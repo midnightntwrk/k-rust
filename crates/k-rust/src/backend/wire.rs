@@ -22,8 +22,8 @@ use k_rust_backend::{
     substitution::Substitution,
     term::{Sort, Term},
     transition::{
-        ObservationEvent, TransitionClass, TransitionId, TransitionObservation,
-        UncommittedObservation, UncommittedReason,
+        EvaluationClass, EvaluationObservation, ObservationEvent, TransitionClass, TransitionId,
+        TransitionObservation, UncommittedObservation, UncommittedReason,
     },
 };
 
@@ -388,10 +388,15 @@ pub enum IncompleteSearchOutput {
 pub enum TransitionClassOutput {
     Rewrite,
     Remainder,
+    Claim,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EvaluationClassOutput {
     FunctionEquation,
     Simplification,
     Builtin,
-    Claim,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -400,8 +405,21 @@ pub enum UncommittedReasonOutput {
     RolledBack,
 }
 
+/// One observation event of a branch.
+///
+/// A `transition` event names, by `id`, an element of the branch it is reported on, in branch
+/// order. An `evaluation` event records an equation, simplification, or builtin application that
+/// normalized a state of the branch; `anchor` is the number of branch entries that precede it, so
+/// the normalized state is the one reached by the first `anchor` transitions. Evaluation events
+/// are diagnostics whose presence, multiplicity, and order depend on the simplifier's strategy
+/// (`k_rust_backend::transition::EvaluationObservation`).
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
+#[serde(
+    tag = "kind",
+    deny_unknown_fields,
+    rename_all = "kebab-case",
+    rename_all_fields = "camelCase"
+)]
 pub enum ObservationEventOutput {
     Transition {
         id: TransitionIdOutput,
@@ -410,6 +428,16 @@ pub enum ObservationEventOutput {
         rule_label: Option<String>,
         bindings: Vec<BindingOutput>,
         introduced_predicates: Vec<Value>,
+        before: Value,
+        after: Value,
+        effects: Vec<EffectOutput>,
+    },
+    Evaluation {
+        rule: String,
+        class: EvaluationClassOutput,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        rule_label: Option<String>,
+        anchor: usize,
         before: Value,
         after: Value,
         effects: Vec<EffectOutput>,
@@ -549,10 +577,15 @@ fn transition_class_output(class: TransitionClass) -> TransitionClassOutput {
     match class {
         TransitionClass::Rewrite => TransitionClassOutput::Rewrite,
         TransitionClass::Remainder => TransitionClassOutput::Remainder,
-        TransitionClass::FunctionEquation => TransitionClassOutput::FunctionEquation,
-        TransitionClass::Simplification => TransitionClassOutput::Simplification,
-        TransitionClass::Builtin => TransitionClassOutput::Builtin,
         TransitionClass::Claim => TransitionClassOutput::Claim,
+    }
+}
+
+fn evaluation_class_output(class: EvaluationClass) -> EvaluationClassOutput {
+    match class {
+        EvaluationClass::FunctionEquation => EvaluationClassOutput::FunctionEquation,
+        EvaluationClass::Simplification => EvaluationClassOutput::Simplification,
+        EvaluationClass::Builtin => EvaluationClassOutput::Builtin,
     }
 }
 
@@ -566,6 +599,20 @@ fn transition_observation_output(
         rule_label: observation.rule_label,
         bindings: bindings_output(observation.bindings)?,
         introduced_predicates: predicates_output(observation.introduced_predicates, &result_sort)?,
+        before: encode_pattern(&externalize::constrained_pattern(&observation.before))?,
+        after: encode_pattern(&externalize::constrained_pattern(&observation.after))?,
+        effects: effects_output(observation.effects),
+    })
+}
+
+fn evaluation_observation_output(
+    observation: EvaluationObservation,
+) -> Result<ObservationEventOutput, BackendError> {
+    Ok(ObservationEventOutput::Evaluation {
+        rule: observation.rule,
+        class: evaluation_class_output(observation.class),
+        rule_label: observation.rule_label,
+        anchor: observation.anchor,
         before: encode_pattern(&externalize::constrained_pattern(&observation.before))?,
         after: encode_pattern(&externalize::constrained_pattern(&observation.after))?,
         effects: effects_output(observation.effects),
@@ -588,6 +635,7 @@ fn observation_event_output(
 ) -> Result<ObservationEventOutput, BackendError> {
     match event {
         ObservationEvent::Transition(observation) => transition_observation_output(observation),
+        ObservationEvent::Evaluation(observation) => evaluation_observation_output(observation),
         ObservationEvent::Uncommitted(observation) => {
             Ok(uncommitted_observation_output(observation))
         }

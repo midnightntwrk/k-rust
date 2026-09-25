@@ -1742,13 +1742,98 @@ mod tests {
                 rules: None,
             })
             .unwrap();
-        let [ObservationEventOutput::Transition { id, effects, .. }] =
-            observed.leaves[0].observations.as_slice()
+        let [
+            ObservationEventOutput::Evaluation {
+                rule,
+                class,
+                anchor,
+                effects,
+                ..
+            },
+        ] = observed.leaves[0].observations.as_slice()
         else {
-            panic!("expected one committed transition observation")
+            panic!("expected one builtin evaluation observation")
         };
-        assert_eq!(id.rule, "builtin:IO.logString");
+        assert_eq!(rule, "builtin:IO.logString");
+        assert_eq!(*class, EvaluationClassOutput::Builtin);
+        assert_eq!(*anchor, 0);
         assert_eq!(effects, &ordinary.effects);
+    }
+
+    #[test]
+    fn observed_execution_anchors_a_successor_evaluation_after_its_rewrite() {
+        const EVALUATING_DEFINITION: &str = r#"[]
+            module MAIN
+                sort SortS{} [hasDomainValues{}()]
+                sort SortState{} []
+                symbol start{}() : SortState{} [constructor{}()]
+                symbol next{}(SortS{}) : SortState{} [constructor{}()]
+                symbol value{}() : SortS{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(\top{R}(), \top{R}()),
+                    \equals{SortS{}, R}(
+                        value{}(),
+                        \and{SortS{}}(\dv{SortS{}}("value"), \top{SortS{}}())
+                    )
+                ) [label{}("value-equation")]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(start{}(), \top{SortState{}}()),
+                    next{}(value{}())
+                ) [label{}("step")]
+            endmodule []"#;
+        let mut backend =
+            Backend::new(EVALUATING_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let request = ExecuteRequest {
+            state: json("start{}()"),
+            ..ExecuteRequest::default()
+        };
+        let ordinary = backend.execute(request.clone()).unwrap();
+
+        let observed = backend
+            .execute_observed(ObservedRequest {
+                request,
+                rules: None,
+            })
+            .unwrap();
+        let [leaf] = observed.leaves.as_slice() else {
+            panic!("expected one leaf")
+        };
+        let [
+            ObservationEventOutput::Transition { id, class, .. },
+            ObservationEventOutput::Evaluation {
+                rule,
+                class: evaluation_class,
+                rule_label,
+                anchor,
+                after,
+                ..
+            },
+        ] = leaf.observations.as_slice()
+        else {
+            panic!("expected a rewrite then its successor's evaluation: {leaf:?}")
+        };
+        assert_eq!(leaf.branch.as_slice(), std::slice::from_ref(id));
+        assert_eq!(id.rule, "step");
+        assert_eq!(*class, TransitionClassOutput::Rewrite);
+        assert_eq!(rule, "value-equation");
+        assert_eq!(*evaluation_class, EvaluationClassOutput::FunctionEquation);
+        assert_eq!(rule_label.as_deref(), Some("value-equation"));
+        assert_eq!(*anchor, 1);
+        assert_eq!(text(after.clone()), r#"next{}(\dv{SortS{}}("value"))"#);
+        assert_eq!(
+            text(leaf.state.clone()),
+            text(ordinary.leaves[0].state.clone())
+        );
+
+        let wire = serde_json::to_value(&leaf.observations[1]).unwrap();
+        assert_eq!(wire["kind"], "evaluation");
+        assert_eq!(wire["class"], "function-equation");
+        assert_eq!(wire["ruleLabel"], "value-equation");
+        assert_eq!(wire["anchor"], 1);
+        assert_eq!(
+            serde_json::from_value::<ObservationEventOutput>(wire).unwrap(),
+            leaf.observations[1]
+        );
     }
 
     #[test]
