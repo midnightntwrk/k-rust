@@ -127,9 +127,16 @@ Backend error `data` is compared by class: code, message, and the `error` senten
 
 ## Definition verification
 
-The acceptance boundary follows `kore-parser --verify` even where Booster is more permissive.
-Every axiom pattern must be well formed, including axioms ignored by later classification, and domain values require a sort declared with `hasDomainValues`.
-Reflexive subsort axioms are accepted, as Kore accepts them.
+The acceptance boundary is KORE validity as the KORE language specification states it, [`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity).
+Among its conditions, every sort, symbol and alias an axiom uses is declared, each application agrees with its declaration in sort parameters, arity and argument sorts, and each bound variable agrees in sort with its binder.
+A definition is a matching-logic theory, and every axiom belongs to that theory whether or not the backend later classifies it as a rewrite, an equation or an attribute axiom.
+An axiom that is not a valid pattern has no meaning, so a definition containing one does not define a theory, even when execution would never consult that axiom.
+Verification therefore checks every sentence of the modules in scope before classification, including axioms that classification ignores.
+This diverges from Booster, which drops some axiom shapes without internalizing them (a `simplification` axiom whose left-hand side is not an application, and a `functional` or `total` existential; `booster/library/Booster/Syntax/ParsedKore/Internalise.hs:629-630,636-641`), so an ill-formed axiom of those shapes does not stop Booster from loading the definition.
+A `\dv{S}` pattern names a domain value of `S`, and `hasDomainValues` is the declaration that `S` has domain values, so a domain value of a sort declared without it denotes nothing and is rejected.
+A subsort axiom `subsort{S, S}` states `S <= S`.
+The subsort order is the reflexive-transitive closure of the declared pairs, so it contains `S <= S` for every sort without a declaration, and the axiom `\exists V:S. V = inj{S, S}(W:S)` is a valid pattern.
+A reflexive subsort declaration therefore adds nothing to the order and is not rejected for being reflexive.
 The [definition fixture index](../crates/k-rust/tests/fixtures/reference/definition/index.toml) records pinned verification outcomes and diagnostic fragments.
 
 ## Search results
