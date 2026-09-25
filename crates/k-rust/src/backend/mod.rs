@@ -2613,7 +2613,7 @@ endmodule
             assert_eq!(transition.rule, id);
             outcomes.push((
                 text(leaf.state.clone()),
-                leaf.reason.clone(),
+                leaf.reason,
                 serde_json::to_value(&observed_leaf.observations).unwrap(),
             ));
         }
