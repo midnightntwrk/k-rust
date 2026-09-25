@@ -64,7 +64,26 @@ fn differential_manifest_schema_is_complete() {
             .get("expect")
             .and_then(Value::as_str)
             .unwrap_or("accept");
-        assert!(matches!(expect, "accept" | "reject"));
+        assert!(matches!(expect, "accept" | "reject" | "port-accepts"));
+        let reason = entry.get("reason").and_then(Value::as_str);
+        if expect == "port-accepts" {
+            assert!(
+                reason.is_some_and(|reason| !reason.trim().is_empty()),
+                "port-accepts case {name} must state why k-rust accepts what the reference rejects"
+            );
+            assert!(
+                entry
+                    .get("comparisons")
+                    .and_then(Value::as_array)
+                    .is_none_or(Vec::is_empty),
+                "port-accepts case {name} has no reference artifact to compare"
+            );
+            continue;
+        }
+        assert!(
+            entry.get("reason").is_none(),
+            "reason on {expect} case {name} is only read for port-accepts"
+        );
         if expect == "reject" {
             assert!(
                 entry
@@ -908,7 +927,10 @@ fn differential_manifest_is_complete_and_unambiguous() {
     }
 
     for entry in manifest["compile"].as_array().unwrap() {
-        if entry.get("expect").and_then(Value::as_str) == Some("reject") {
+        if matches!(
+            entry.get("expect").and_then(Value::as_str),
+            Some("reject" | "port-accepts")
+        ) {
             continue;
         }
         assert!(
@@ -974,8 +996,8 @@ fn excluded_cases_have_complete_oracle_dispositions() {
     let excluded = manifest["excluded"].as_array().expect("excluded cases");
     assert_eq!(
         excluded.len(),
-        8,
-        "the eight audited exclusions must stay explicit"
+        6,
+        "the six audited exclusions must stay explicit"
     );
 
     let allowed_dispositions =
@@ -986,8 +1008,6 @@ fn excluded_cases_have_complete_oracle_dispositions() {
         "fresh-constants-execution",
         "mir-execution",
         "proof-counterexample-artifact",
-        "semcast3",
-        "semcast4",
         "wasm-execution",
     ]);
     let mut names = BTreeSet::new();
@@ -1014,7 +1034,7 @@ fn excluded_cases_have_complete_oracle_dispositions() {
             "unknown disposition {disposition} on excluded case {name}",
         );
         let expected_disposition = match name {
-            "ecdsa-invalid-execution" | "evm-execution" | "semcast3" | "semcast4" => "local-gate",
+            "ecdsa-invalid-execution" | "evm-execution" => "local-gate",
             "fresh-constants-execution" => "comparison-impossible",
             "mir-execution" | "proof-counterexample-artifact" | "wasm-execution" => {
                 "alternative-oracle"
@@ -1074,11 +1094,198 @@ fn excluded_cases_have_complete_oracle_dispositions() {
 }
 
 #[test]
+fn port_accepts_cases_are_the_adjudicated_divergences() {
+    let manifest = MANIFEST.parse::<Value>().expect("valid differential TOML");
+    let compatibility = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/compatibility.md"),
+    )
+    .expect("docs/compatibility.md");
+    let mut names = BTreeSet::new();
+    for entry in manifest["compile"].as_array().expect("compile cases") {
+        if entry.get("expect").and_then(Value::as_str) != Some("port-accepts") {
+            continue;
+        }
+        let name = entry["name"].as_str().expect("compile name");
+        names.insert(name);
+        let reason = entry["reason"].as_str().expect("port-accepts reason");
+        let anchor = reason
+            .split_whitespace()
+            .find_map(|word| word.strip_prefix("docs/compatibility.md#"))
+            .map(|anchor| anchor.trim_end_matches('.'))
+            .unwrap_or_else(|| {
+                panic!("port-accepts case {name} must link its compatibility section")
+            });
+        let heading = compatibility
+            .lines()
+            .filter_map(|line| line.strip_prefix("## "))
+            .find(|heading| heading.to_lowercase().replace(' ', "-") == anchor)
+            .unwrap_or_else(|| panic!("docs/compatibility.md has no section #{anchor} for {name}"));
+        let section = compatibility
+            .split(&format!("## {heading}\n"))
+            .nth(1)
+            .and_then(|rest| rest.split("\n## ").next())
+            .expect("compatibility section body");
+        assert!(
+            section.contains(&format!("`{name}`")) && section.contains("port-accepts"),
+            "docs/compatibility.md#{anchor} must record {name} as a port-accepts divergence",
+        );
+    }
+    assert_eq!(
+        names,
+        BTreeSet::from(["semcast3", "semcast4"]),
+        "the adjudicated port-accepts set changed",
+    );
+}
+
+#[test]
+fn differential_manifest_requires_a_reason_for_port_accepts() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("manifest-outcomes");
+    let helper = fixture.join("reference-manifest.py");
+    fs::copy(workspace.join("scripts/reference-manifest.py"), &helper).unwrap();
+    for (fields, valid) in [
+        ("", true),
+        ("expect = \"reject\"\n", true),
+        (
+            "expect = \"port-accepts\"\nreason = \"the manual's rule\"\n",
+            true,
+        ),
+        ("expect = \"port-accepts\"\n", false),
+        ("expect = \"port-accepts\"\nreason = \"  \"\n", false),
+        (
+            "expect = \"port-accepts\"\nreason = \"why\"\ncomparisons = [\"semantic-kore\"]\n",
+            false,
+        ),
+        ("expect = \"reject\"\nreason = \"why\"\n", false),
+        ("expect = \"port-rejects\"\n", false),
+    ] {
+        fs::write(
+            fixture.join("reference-differential.toml"),
+            format!(
+                "[[compile]]\nname = \"fixture\"\nrequires = [\"reference-toolchain\"]\n{fields}"
+            ),
+        )
+        .unwrap();
+        let output = Command::new("python3")
+            .arg(&helper)
+            .arg("--validate")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            output.status.code(),
+            Some(if valid { 0 } else { 2 }),
+            "{fields}: {stderr}"
+        );
+        if !valid {
+            assert!(stderr.contains("invalid differential manifest"), "{stderr}");
+        }
+    }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn compile_gate_fails_when_either_side_of_a_port_accepts_case_moves() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let fixture = environment_fixture("port-accepts-gate");
+    let k_checkout = fake_k_checkout(&fixture, &[]);
+    let fake_kompile = fixture.join("kompile");
+    let fake_kore_parser = fixture.join("kore-parser");
+    let fake_cargo = fixture.join("cargo");
+    fs::write(
+        &fake_kompile,
+        "#!/usr/bin/env bash\necho '[Error] Inner Parser: fake rejection'\nexit \"$FAKE_KOMPILE_STATUS\"\n",
+    )
+    .unwrap();
+    fs::write(
+        &fake_kore_parser,
+        "#!/usr/bin/env bash\nexit \"$FAKE_PARSER_STATUS\"\n",
+    )
+    .unwrap();
+    fs::write(
+        &fake_cargo,
+        "#!/usr/bin/env bash\nif [[ \"$1\" == run ]]; then exit \"$FAKE_KRUST_STATUS\"; fi\nexit 0\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for executable in [&fake_kompile, &fake_kore_parser, &fake_cargo] {
+            fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let path = format!(
+        "{}:{}",
+        fixture.display(),
+        std::env::var("PATH").expect("PATH")
+    );
+    let script = workspace.join("scripts/reference-differential.sh");
+    let run = |reference: u8, krust: u8, parser: u8| {
+        let output = Command::new("bash")
+            .arg(&script)
+            .arg("semcast3")
+            .env("PATH", &path)
+            .env("K_CHECKOUT", &k_checkout)
+            .env("K_KOMPILE", &fake_kompile)
+            .env("K_KORE_PARSER", &fake_kore_parser)
+            .env("FAKE_KOMPILE_STATUS", reference.to_string())
+            .env("FAKE_KRUST_STATUS", krust.to_string())
+            .env("FAKE_PARSER_STATUS", parser.to_string())
+            .env("REFERENCE_DIFFERENTIAL_ALLOW_UNPINNED", "1")
+            .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+            .output()
+            .expect("run port-accepts gate fixture");
+        (
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    };
+
+    let (status, stdout, stderr) = run(1, 0, 0);
+    assert_eq!(
+        status,
+        Some(0),
+        "recorded divergence holds: {stdout}\n{stderr}"
+    );
+    assert!(
+        stdout.contains("recorded divergence: The K user manual"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("reference rejection: [Error] Inner Parser"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("verifying k-rust definition.kore"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("corpus passed"), "{stdout}");
+
+    for (reference, krust, parser, diagnostic) in [
+        (
+            0,
+            0,
+            0,
+            "reference frontend accepted port-accepts case semcast3",
+        ),
+        (1, 1, 0, "k-rust rejected port-accepts case semcast3"),
+        (1, 0, 1, "k-rust definition rejected by kore-parser"),
+    ] {
+        let (status, stdout, stderr) = run(reference, krust, parser);
+        assert_eq!(status, Some(1), "{diagnostic}: {stdout}\n{stderr}");
+        assert!(stderr.contains(diagnostic), "{stderr}");
+        assert!(!stdout.contains("corpus passed"), "{stdout}");
+    }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
 fn manual_certification_protocol_names_required_gates() {
     for command in [
         "# scripts/reference-differential.sh append ambiguous-rewrite casts cell-map fresh-variables list-set macro-rewrite parametric-semantic-cast hooked-namespaces star-cell-config overload-constructors owise-functions owise-competitors owise concrete-rw2 cast-inner",
         "# scripts/reference-differential.sh fun-int-list-config",
-        "# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2",
+        "# scripts/reference-differential.sh imp fresh-name-collision parametric assoc-strict undefined-sort semcast2 semcast3 semcast4",
         "# REFERENCE_DIFFERENTIAL_PAIRINGS=haskell/rust scripts/reference-differential.sh wasm mir evm-equivalence",
         "# scripts/reference-kast-differential.sh wasm mir evm-equivalence",
         "# scripts/reference-non-imp-execution-differential.sh imp collections hook-boundaries",

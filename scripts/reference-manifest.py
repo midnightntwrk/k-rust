@@ -51,11 +51,34 @@ def validate_requirements(manifest: dict) -> None:
                     )
 
 
+COMPILE_OUTCOMES = {"accept", "reject", "port-accepts"}
+
+
+def validate_compile_outcomes(manifest: dict) -> None:
+    """Every compile outcome is one the gate enforces; a divergence carries its reason."""
+    for case in manifest.get("compile", []):
+        name = case.get("name")
+        expect = case.get("expect", "accept")
+        if expect not in COMPILE_OUTCOMES:
+            raise ValueError(f"unknown expect {expect!r} on compile case {name}")
+        reason = case.get("reason")
+        if expect == "port-accepts":
+            if not isinstance(reason, str) or not reason.strip():
+                raise ValueError(f"port-accepts compile case {name} needs a written reason")
+            if case.get("comparisons"):
+                raise ValueError(
+                    f"port-accepts compile case {name} has no reference artifact to compare"
+                )
+        elif reason is not None:
+            raise ValueError(f"reason on compile case {name} is only read for port-accepts")
+
+
 def main() -> int:
     try:
         with MANIFEST.open("rb") as source:
             manifest = expand(tomllib.load(source))
         validate_requirements(manifest)
+        validate_compile_outcomes(manifest)
     except (OSError, tomllib.TOMLDecodeError, KeyError, ValueError) as error:
         print(f"error: invalid differential manifest: {error}", file=sys.stderr)
         return 2

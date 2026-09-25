@@ -122,14 +122,15 @@ mapfile -t cases < <(
     ((.["hook-namespaces"] // []) | join(" ")),
     ((.comparisons // []) | join(" ")),
     ((.pairings // ["kore/llvm", "haskell/rust"]) | join(" ")),
-    (.expect // "accept")
+    (.expect // "accept"),
+    (.reason // "")
   ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
 
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
-    comparisons pairings expect <<<"$fixture"
+    comparisons pairings expect reason <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -256,6 +257,32 @@ for fixture in "${cases[@]}"; do
       if ((reference_status == 0 || rust_status == 0)); then
         echo "error: reject case $name must be rejected by both compilers for $pairing" >&2
         exit 1
+      fi
+      continue
+    fi
+    if [[ "$expect" == port-accepts ]]; then
+      # A recorded divergence: both sides are run and pinned, so it fails when either moves.
+      echo "[$name:$pairing] recorded divergence: $reason"
+      echo "[$name:$pairing] reference rejection: $(grep -m1 -E '\[Error\]|error:' "$work/$name/$pairing_key/reference.log" || head -n1 "$work/$name/$pairing_key/reference.log")"
+      if ((reference_status == 0)); then
+        echo "error: reference frontend accepted port-accepts case $name for $pairing; the recorded divergence is gone" >&2
+        exit 1
+      fi
+      if ((rust_status != 0)); then
+        cat "$work/$name/$pairing_key/rust.log" >&2
+        echo "error: k-rust rejected port-accepts case $name for $pairing" >&2
+        exit 1
+      fi
+      if [[ "${REFERENCE_DIFFERENTIAL_VERIFY:-1}" == 0 ]]; then
+        echo "[$name:$pairing] warning: definition verification disabled explicitly"
+      else
+        echo "[$name:$pairing] verifying k-rust definition.kore"
+        if ! run_reference_parser "$kore_parser" "$rust/definition.kore" \
+          >"$work/$name/$pairing_key/verify-rust.log" 2>&1; then
+          cat "$work/$name/$pairing_key/verify-rust.log" >&2
+          echo "error: k-rust definition rejected by kore-parser" >&2
+          exit 1
+        fi
       fi
       continue
     fi
