@@ -23,9 +23,8 @@ use support::chain::{Shape, definition, main_module};
 
 const CHAIN_MODULES: usize = 40;
 const FAN_IN_MODULES: usize = 24;
-// Blow-up detectors retain headroom over the restored-design receipts in
-// draft/EB/evidence/chain/2ce5484d while staying below the pre-regression receipt in
-// draft/EB/evidence/chain/27ee9550.
+// Blow-up detectors allow headroom over the restored design while staying below the
+// previously measured regression peak.
 const CHAIN_PEAK_RSS_BLOWUP_DETECTOR_KIB: u64 = 850 * 1024;
 const FAN_IN_PEAK_RSS_BLOWUP_DETECTOR_KIB: u64 = 850 * 1024;
 
@@ -106,7 +105,6 @@ fn run_scaling_case(label: &str, modules: usize, shape: Shape, peak_limit_kib: u
         .unwrap();
     assert_eq!(integer(&metrics, "exit_code"), 0);
     let peak = integer(&metrics, "peak_rss_kib");
-    // kind: blow-up-detector; see draft/EB/evidence/chain/27ee9550 and 2ce5484d.
     assert!(
         peak <= peak_limit_kib,
         "{label} peaked at {} MiB, above {} MiB",

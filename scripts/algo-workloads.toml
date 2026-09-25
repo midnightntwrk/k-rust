@@ -333,7 +333,7 @@ stdout_absent = ['\or{']
 # Heavy compiles: benchmark.sh's KEVM compile phase and the WASM and MIR cases of
 # scripts/reference-differential.toml in both pairings. The haskell/rust pairing (--backend rust,
 # with --md-selector "k & ! concrete") peaked at 20.5 GiB (WASM) and 29.2 GiB (MIR) at 9c81f35b,
-# almost all of it while writing execution.json (draft/optimization-tickets OT-05), so those two
+# almost all of it while writing execution.json, so those two
 # workloads carry a 40 GiB scope.
 [[workload]]
 name = "kevm-compile"
