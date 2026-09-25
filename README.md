@@ -215,12 +215,12 @@ automatically checked. Source identities currently refer to their original absol
 
 Parse a concrete program as textual KAST or KAST JSON v4:
 
-In the Rust API, the legacy `ProgramParser::parse` omits source spans, while `parse_program` records the caller-provided `SourceId` in term spans.
-
 ```console
 krust kast definition.k --module MAIN --sort Exp --expression '1 + 2'
 krust kast definition.k --module MAIN --sort Exp program.exp --output json
 ```
+
+In the Rust API, the legacy `ProgramParser::parse` omits source spans, while `parse_program` records the caller-provided `SourceId` in term spans.
 
 Write a standalone executable parser for an explicitly selected module and sort:
 
