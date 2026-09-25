@@ -315,12 +315,14 @@ The standalone RPC `simplify` method remains deliberately unbounded.
 
 Execution can return reference-shaped rewrite diagnostics through `log-successful-rewrites` and
 `log-failed-rewrites`. Requests may also select legacy context names through `haskell-logging`;
-the entries whose context carries a selected name are returned in `haskell-log-entries`. The names
-k-rust emits are `Proxy` and the method names `Execute`, `Simplify`, `Implies`, `AddModule`, and
-`GetModel`, plus `Booster`, `Rewrite`, `Simplification`, `Remainder`, `Success`, `Failure`,
-`Indeterminate`, and `Abort` for `execute`. Any other name selects no entry; the selection never
-changes another result field. Why an unmatched name is an empty selection rather than an error is
-in [RPC behavior](docs/compatibility.md#rpc-behavior).
+the selected entries are returned in `haskell-log-entries`. Names match exactly and case-sensitively:
+`Proxy` or the method name (`Execute`, `Simplify`, `Implies`, `AddModule`, `GetModel`) selects the
+proxy entry; for `execute`, `Booster`, `Execute`, `Success`, or the step kind (`Rewrite`,
+`Simplification`, `Remainder`) selects a trace step's success entry, and `Booster`, `Execute`,
+`Failure`, plus `Indeterminate` and `Abort` on an indeterminate halt, select the failure entry.
+Any other name selects no entry; the selection never changes another result field. Why an
+unmatched name is an empty selection rather than an error is in
+[RPC behavior](docs/compatibility.md#rpc-behavior).
 
 Simplify an arbitrary text, KORE JSON v1, or binary KORE pattern. Unlike execution, this accepts
 pure ML predicates without requiring a configuration term:
