@@ -286,6 +286,20 @@ fn differential_special_case_schema_is_complete() {
         }
         assert_eq!(exception["oracle"].as_str(), Some("kore-rpc-booster"));
         assert_eq!(exception["response"].as_str(), Some("implies"));
+        // N19: the payload is claimed equal to the oracle's, so the gate must check that claim
+        // by simplifying both payloads instead of pinning only the port's response.
+        assert_eq!(
+            exception["equivalence"].as_str(),
+            Some("simplified-implication"),
+            "the IMP implication exception must declare the equivalence the gate checks"
+        );
+    }
+    for needle in [
+        "compare_simplified_implication",
+        "simplified-implication",
+        "kore-simplify",
+    ] {
+        assert!(RPC_SCRIPT.contains(needle), "RPC gate lacks {needle}");
     }
 
     for entry in manifest["symbolic"].as_array().expect("symbolic cases") {

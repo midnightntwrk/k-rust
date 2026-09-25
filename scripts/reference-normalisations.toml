@@ -179,8 +179,9 @@ id = "N19"
 gate = "rpc"
 anchor = "scripts/reference-rpc-differential.sh:oracle-exception"
 anchor_symbol = "oracle-exception"
-rule = "Compare an adjudicated response against its committed port expectation and print the recorded reason."
-justification = "Known oracle-side proxy behavior must remain explicit rather than silently normalized."
+anchor_helpers = ["compare_simplified_implication"]
+rule = "Compare an adjudicated response against its committed port expectation, print the recorded reason, and require the oracle response to still differ. An exception that declares equivalence = \"simplified-implication\" must also be an equivalence: both implies responses carry an Implies payload, they are equal outside the payload, and the antecedents and the consequents of the two payloads, each simplified by krust kore-simplify against the reference definition and main module, print identically."
+justification = "Known oracle-side proxy behavior must remain explicit rather than silently normalized. An exception that claims the two responses are equal patterns is checked rather than asserted: simplification replaces a pattern by an equal one, so identical simplified antecedents and consequents make the two implications equal. The evidence depends on the port's simplifier, like C8. See docs/compatibility.md#rpc-behavior."
 
 [[normalisation]]
 id = "N20"

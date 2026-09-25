@@ -140,6 +140,12 @@ An antecedent existential that shares the consequent universal's name is a diffe
 This differs from both pinned engines, which reject such a request with error code 4, `Implication check error`, "The RHS must not have free variables not present in the LHS" (Booster `booster/library/Booster/Pattern/Implies.hs`, Kore `checkSimpleImplication` in `kore/src/Kore/Reachability/Claim.hs`).
 The difference is not measured: the RPC differential's `implies` requests use configurations generated from ground programs, so no consequent has a free variable.
 
+An `implies` response reports its antecedent and consequent after simplification, the patterns the verdict was decided on ([`simplified_implication_response_syntax`](../crates/k-rust/src/rpc.rs)); a simplification failure is reported as a `simplify` fault rather than as an unsimplified pattern beside a verdict computed from the simplified one.
+Simplification replaces a pattern by an equal one, so the payload denotes the requested implication.
+The pinned Booster proxy echoes the request's patterns instead; for the IMP request that is an unevaluated `initGeneratedTopCell` application where k-rust reports the configuration it evaluates to.
+The `rpc.imp` `oracle-exception` records that difference with `equivalence = "simplified-implication"`, and N19 checks the claimed equality rather than asserting it: the two responses must be equal outside the payload, and both payloads' antecedents and consequents, simplified by `krust kore-simplify` against the reference definition, must print identically.
+Like C8, that evidence depends on the port's simplifier.
+
 ## Definition verification
 
 The acceptance boundary follows `kore-parser --verify` even where Booster is more permissive.

@@ -337,6 +337,59 @@ normalize_rpc_response() {
   esac | normalize_backend_error_class
 }
 
+# N19, equivalence = "simplified-implication": an implies response whose implication payload
+# differs from the oracle's is accepted only when the two payloads denote the same patterns.
+# Everything but the payload (status, condition, id) must be equal as it stands; the antecedent
+# and the consequent of each side are then simplified by `krust kore-simplify` against the
+# reference definition, and the two simplified antecedents, and the two simplified consequents,
+# must print identically. Simplification replaces a pattern by an equal one, so identical
+# results show that the payloads are equal patterns. The evidence depends on the port's
+# simplifier, like C8.
+compare_simplified_implication() {
+  local reference=$1
+  local rust=$2
+  local stem=$3
+  local side part input
+  for input in "$reference" "$rust"; do
+    if [[ "$(jq -r '.result.implication.term.tag // empty' "$input")" != Implies ]]; then
+      echo "error: $input carries no Implies implication payload to simplify" >&2
+      exit 1
+    fi
+  done
+  if ! diff -u \
+    <(jq -S 'del(.result.implication)' "$reference") \
+    <(jq -S 'del(.result.implication)' "$rust"); then
+    echo "error: RPC implies response differs outside the implication payload" >&2
+    exit 1
+  fi
+  for part in first second; do
+    for side in reference rust; do
+      input=$reference
+      if [[ "$side" == rust ]]; then
+        input=$rust
+      fi
+      jq --arg part "$part" \
+        '{format: "KORE", version: 1, term: .result.implication.term[$part]}' \
+        "$input" >"$stem-$side-$part.json"
+      (
+        ulimit -v "$rust_memory_kib"
+        "$cargo_target_dir/release/krust" kore-simplify \
+          "$work/kompiled/definition.kore" \
+          --module "$main_module" \
+          --pattern "$stem-$side-$part.json" \
+          --output "$stem-$side-$part.simplified.kore"
+      )
+    done
+    if ! diff -u \
+      "$stem-reference-$part.simplified.kore" \
+      "$stem-rust-$part.simplified.kore"; then
+      echo "error: simplified implication $part differs between the oracle and Rust" >&2
+      exit 1
+    fi
+  done
+  echo "[$name:rpc] implication payloads equal after krust kore-simplify of both sides"
+}
+
 echo "[$name:rpc] compiling the reference Haskell definition"
 (
   ulimit -v "$reference_memory_kib"
@@ -536,6 +589,20 @@ for reference_oracle in "${reference_oracles[@]}"; do
         echo "error: RPC oracle exception for $name:$response is no longer needed" >&2
         exit 1
       fi
+      equivalence=$(jq -r '.equivalence // empty' <<<"$oracle_exception")
+      case "$equivalence" in
+        simplified-implication)
+          compare_simplified_implication \
+            "$work/reference-$rpc_flavour-$response.json" \
+            "$work/rust-$response.json" \
+            "$work/$rpc_flavour-$response"
+          ;;
+        "") ;;
+        *)
+          echo "error: unknown RPC oracle-exception equivalence for $name:$response: $equivalence" >&2
+          exit 2
+          ;;
+      esac
     elif ! diff -u \
       <(normalize_rpc_response "$response" "$work/reference-$rpc_flavour-$response.json") \
       <(normalize_rpc_response "$response" "$work/rust-$response.json"); then
