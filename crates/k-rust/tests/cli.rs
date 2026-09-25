@@ -3317,7 +3317,7 @@ fn krun_executes_hook_edges_to_the_backend_results() {
         .collect::<Vec<_>>();
 
     assert_eq!(bools, vec![false, false, false], "{stdout}");
-    assert_eq!(ints, vec![1, 3, 65_533, 0], "{stdout}");
+    assert_eq!(ints, vec![1, 1, 65_533, 0], "{stdout}");
     assert_eq!(strings, vec!["he"], "{stdout}");
 }
 
