@@ -2261,8 +2261,9 @@ fn normalize_execution_pattern_with(pattern: Pattern, names: &GeneratedNames) ->
 }
 
 fn normalize_execution_disjunct(mut pattern: Pattern, names: &GeneratedNames) -> Pattern {
-    // N16: reference execution can leave an AC remainder variable free while
-    // the port quantifies its corresponding generated variable.
+    // N16: a variable not free in the initial pattern is existentially quantified over its
+    // disjunct (docs/compatibility.md#execution-results), so an outer prefix binding such
+    // variables denotes the same disjunct as its body.
     while let Pattern::Exists { body, .. } = &mut pattern {
         pattern = std::mem::replace(body.as_mut(), Pattern::String(String::new().into()));
     }

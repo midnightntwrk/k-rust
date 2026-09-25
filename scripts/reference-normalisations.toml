@@ -156,7 +156,7 @@ gate = "execution and symbolic execution"
 anchor = "crates/k-rust/tests/reference_differential.rs:normalize_execution_disjunct"
 anchor_symbol = "normalize_execution_disjunct"
 rule = "Drop only the outer existential prefix of each result disjunct before generated-variable renaming."
-justification = "The reference leaves an AC remainder variable free where the port quantifies the corresponding variable."
+justification = "A result variable that is not free in the initial pattern is existentially quantified over its disjunct, so an outer existential prefix over such variables denotes the same disjunct as its body; k-rust leaves that binder implicit. The rule does not check that the dropped binders avoid the initial pattern's names. See docs/compatibility.md#execution-results."
 
 [[normalisation]]
 id = "N17"
