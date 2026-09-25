@@ -46,7 +46,7 @@ Simplification budgets and term nesting depth are k-rust's own resource contract
 
 The simplification budget bounds the rewrite rounds of one fixed-point lineage: sibling subterms each receive a copy of the current budget, and the terms a rewrite produces inherit that rewrite's reduced budget.
 Booster instead counts passes of its whole-term equation loop against `--equation-max-iterations` (`booster/library/Booster/Pattern/ApplyEquations.hs`, `iterateEquations`).
-The bounded surfaces of both default to 100 (k-rust's `kore-simplify` is unbounded), but equal numbers do not denote the same cut, and k-rust's `--max-simplification-iterations` option and RPC `max-simplification-iterations` parameter are not translations of the Booster option.
+The bounded surfaces of both default to 100 (k-rust's `kore-simplify` command and RPC `simplify` method are unbounded), but equal numbers do not denote the same cut, and k-rust's `--max-simplification-iterations` option and RPC `max-simplification-iterations` parameter are not translations of the Booster option.
 The reason is the budget's purpose.
 An equation replaces a term with one equal to it, so the budget never decides what a pattern denotes; it guards only against a chain of rewrites that does not terminate.
 Non-termination is a property of one chain of rewrites of one subterm, so the count belongs to that chain; a whole-term pass count measures a chain's length only through the evaluation schedule, that is, through how far one pass advances each chain, which does not bear on whether the chain terminates.
