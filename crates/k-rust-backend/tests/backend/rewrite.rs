@@ -6118,6 +6118,248 @@ fn observation_on_preserves_non_observation_outputs() {
     assert_eq!(actual, expected);
 }
 
+/// A symbolic rule condition creates a conditional successor and a satisfiable remainder.
+/// The successor's function equation has its own condition, so all three solver-sensitive
+/// stages must take place regardless of observation.
+fn solver_observation_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol checked{}(SortS{}) : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \equals{SortS{}, R}(X:SortS{}, \dv{SortS{}}("expected")),
+                    \and{R}(\in{SortS{}, R}(X0:SortS{}, X:SortS{}), \top{R}())
+                ),
+                \equals{SortS{}, R}(
+                    checked{}(X0:SortS{}),
+                    \and{SortS{}}(X:SortS{}, \top{SortS{}}())
+                )
+            ) [label{}("checked")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, \dv{SortS{}}("expected"))
+                ),
+                checked{}(X:SortS{})
+            ) [label{}("guarded")]
+            "#,
+    )
+}
+
+fn solver_observation_subject(definition: &BackendDefinition) -> Pattern {
+    Pattern {
+        term: internal_term(definition, "wrap{}(Y:SortS{})"),
+        constraints: Vec::new(),
+    }
+}
+
+fn solver_observation_script() -> ScriptedSolver {
+    ScriptedSolver::new(
+        std::iter::repeat_n(Ok(Satisfiability::Sat), 64),
+        std::iter::repeat_n(Ok(Validity::Indeterminate), 64),
+    )
+}
+
+fn assert_solver_observation_transcript(transcript: &[ScriptedQuery]) {
+    assert!(
+        transcript
+            .iter()
+            .filter(|query| matches!(query, ScriptedQuery::CheckPredicates { .. }))
+            .count()
+            >= 2,
+        "rule and function conditions must both query the solver: {transcript:#?}"
+    );
+    assert!(
+        transcript
+            .iter()
+            .any(|query| matches!(query, ScriptedQuery::IsSat { .. })),
+        "the symbolic remainder must query satisfiability: {transcript:#?}"
+    );
+}
+
+#[test]
+fn execute_observation_preserves_solver_queries_and_results() {
+    let definition = solver_observation_definition();
+    let initial = solver_observation_subject(&definition);
+    let options = ExecutionOptions {
+        max_depth: 1,
+        ..ExecutionOptions::default()
+    };
+    let baseline_solver = solver_observation_script();
+    let baseline = execute_with_solver(
+        &definition,
+        initial.clone(),
+        options.clone(),
+        &baseline_solver,
+    );
+    let baseline_queries = baseline_solver.transcript.borrow().clone();
+    assert_solver_observation_transcript(&baseline_queries);
+    assert_eq!(baseline.leaves.len(), 2, "{baseline:#?}");
+    assert!(
+        baseline
+            .leaves
+            .iter()
+            .any(|leaf| leaf.trace.iter().any(|entry| entry.unique_id == "checked"))
+    );
+
+    for observation in [
+        ObservationOptions::all(),
+        ObservationOptions::with_rules(&definition, ["guarded"]).unwrap(),
+    ] {
+        let solver = solver_observation_script();
+        let mut observed = execute_observed_with_solver(
+            &definition,
+            initial.clone(),
+            options.clone(),
+            &solver,
+            &observation,
+        );
+        assert_eq!(*solver.transcript.borrow(), baseline_queries);
+        assert!(
+            observed
+                .leaves
+                .iter()
+                .any(|leaf| !leaf.observations.is_empty())
+        );
+        for leaf in &mut observed.leaves {
+            leaf.branch.clear();
+            leaf.observations.clear();
+        }
+        assert_eq!(observed, baseline);
+    }
+}
+
+#[test]
+fn search_graph_observation_preserves_solver_queries_and_results() {
+    use k_rust_backend::search::{
+        IncompleteSearch, SearchOptions, search_graph_observed_with_solver,
+        search_graph_with_solver,
+    };
+
+    let definition = solver_observation_definition();
+    let initial = solver_observation_subject(&definition);
+    let options = SearchOptions {
+        max_depth: 1,
+        ..SearchOptions::default()
+    };
+    let baseline_solver = solver_observation_script();
+    let baseline =
+        search_graph_with_solver(&definition, initial.clone(), options, &baseline_solver);
+    let baseline_queries = baseline_solver.transcript.borrow().clone();
+    assert_solver_observation_transcript(&baseline_queries);
+    assert_eq!(baseline.states.len(), 2, "{baseline:#?}");
+    assert!(
+        baseline
+            .states
+            .iter()
+            .any(|state| state.trace.iter().any(|entry| entry.unique_id == "checked"))
+    );
+    assert!(
+        baseline
+            .incomplete
+            .iter()
+            .all(|entry| matches!(entry, IncompleteSearch::DepthBound(_)))
+    );
+
+    for observation in [
+        ObservationOptions::all(),
+        ObservationOptions::with_rules(&definition, ["guarded"]).unwrap(),
+    ] {
+        let solver = solver_observation_script();
+        let mut observed = search_graph_observed_with_solver(
+            &definition,
+            initial.clone(),
+            options,
+            &solver,
+            &observation,
+        );
+        assert_eq!(*solver.transcript.borrow(), baseline_queries);
+        assert!(
+            observed
+                .states
+                .iter()
+                .any(|state| !state.observations.is_empty())
+        );
+        for state in &mut observed.states {
+            state.branch.clear();
+            state.observations.clear();
+        }
+        for entry in &mut observed.incomplete {
+            let IncompleteSearch::DepthBound(state) = entry else {
+                panic!("unexpected incomplete search: {entry:#?}");
+            };
+            state.branch.clear();
+            state.observations.clear();
+        }
+        assert_eq!(observed, baseline);
+    }
+}
+
+#[test]
+fn search_paths_observation_preserves_solver_queries_and_results() {
+    use k_rust_backend::search::{
+        IncompleteSearch, SearchOptions, search_paths_observed_with_solver,
+        search_paths_with_solver,
+    };
+
+    let definition = solver_observation_definition();
+    let initial = solver_observation_subject(&definition);
+    let options = SearchOptions {
+        max_depth: 1,
+        ..SearchOptions::default()
+    };
+    let baseline_solver = solver_observation_script();
+    let baseline =
+        search_paths_with_solver(&definition, initial.clone(), options, &baseline_solver);
+    let baseline_queries = baseline_solver.transcript.borrow().clone();
+    assert_solver_observation_transcript(&baseline_queries);
+    assert_eq!(baseline.witnesses.len(), 2, "{baseline:#?}");
+    assert!(baseline.witnesses.iter().any(|witness| {
+        witness
+            .trace
+            .iter()
+            .any(|entry| entry.unique_id == "checked")
+    }));
+    assert!(
+        baseline
+            .incomplete
+            .iter()
+            .all(|entry| matches!(entry, IncompleteSearch::DepthBound(_)))
+    );
+
+    for observation in [
+        ObservationOptions::all(),
+        ObservationOptions::with_rules(&definition, ["guarded"]).unwrap(),
+    ] {
+        let solver = solver_observation_script();
+        let mut observed = search_paths_observed_with_solver(
+            &definition,
+            initial.clone(),
+            options,
+            &solver,
+            &observation,
+        );
+        assert_eq!(*solver.transcript.borrow(), baseline_queries);
+        assert!(
+            observed
+                .witnesses
+                .iter()
+                .any(|witness| !witness.observations.is_empty())
+        );
+        for witness in &mut observed.witnesses {
+            witness.observations.clear();
+        }
+        for entry in &mut observed.incomplete {
+            let IncompleteSearch::DepthBound(state) = entry else {
+                panic!("unexpected incomplete search: {entry:#?}");
+            };
+            state.branch.clear();
+            state.observations.clear();
+        }
+        assert_eq!(observed, baseline);
+    }
+}
+
 #[test]
 fn valid_observation_filter_suppresses_events_but_preserves_branch_identity() {
     let definition = unconditional_branch_definition();
