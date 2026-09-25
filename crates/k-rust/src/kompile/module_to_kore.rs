@@ -350,7 +350,7 @@ impl fmt::Display for ModuleToKoreError {
                 sorts,
             } => write!(
                 formatter,
-                "variable {name} occurs with sorts {} in one axiom ({sentence}); a kompile pass minted a fresh name that another pass already used",
+                "variable {name} occurs with sorts {} in one axiom ({sentence}); this can result from an authored sortless variable used at positions of different sorts or from a kompile pass reusing a variable name",
                 sorts.join(" and ")
             ),
             Self::UnsupportedRuleKind { kind } => {

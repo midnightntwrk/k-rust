@@ -184,6 +184,45 @@ fn conflicting_variable_casts_fail_on_relink_and_structured_paths() {
 }
 
 #[test]
+fn sortless_variable_at_different_position_sorts_reports_both_causes() {
+    for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
+        let base = load(backend);
+        let mut definition = base.definition.clone();
+        fallback(
+            &mut definition,
+            rewrite(
+                app("counter", vec![variable("X", None), app("z", vec![])]),
+                app("choose", vec![variable("X", None)]),
+            ),
+        );
+        let error = compile(&relink(&base, definition), backend).unwrap_err();
+        assert_eq!(error.stage, "emit KORE", "{backend}: {error:?}");
+        assert!(
+            error.message.contains("variable VarX"),
+            "{backend}: {error:?}"
+        );
+        assert!(error.message.contains("SortNat{}"), "{backend}: {error:?}");
+        assert!(error.message.contains("SortBool{}"), "{backend}: {error:?}");
+        assert!(
+            error.message.contains("COUNTER.fallback"),
+            "{backend}: {error:?}"
+        );
+        assert!(
+            error
+                .message
+                .contains("authored sortless variable used at positions of different sorts"),
+            "{backend}: {error:?}"
+        );
+        assert!(
+            error
+                .message
+                .contains("kompile pass reusing a variable name"),
+            "{backend}: {error:?}"
+        );
+    }
+}
+
+#[test]
 fn consistent_annotations_and_bare_occurrences_compile() {
     for backend in [CompilationBackend::Rust, CompilationBackend::Llvm] {
         let base = load(backend);
