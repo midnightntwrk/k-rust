@@ -40,7 +40,7 @@ use kink_native::execution::{
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
-use kink_patch::{CandidateDisposition, CandidateGeneration, Patch};
+use kink_patch::{CandidateDisposition, CandidateGeneration, Patch, SentenceRef};
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionBounds, ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure,
@@ -292,10 +292,10 @@ pub fn run_campaign(
     };
     let mut runtime = match Runtime::prepare(campaign, &baseline) {
         Ok(runtime) => runtime,
-        Err(Preparation::UnknownLabel(label)) => {
+        Err(Preparation::UnknownRule(rule)) => {
             return Err(CampaignFailure::new(
                 CampaignFailureKind::InvalidDeclaration,
-                format!("no baseline rule is labelled {label}"),
+                format!("{rule:?} is not a written baseline rule"),
             ));
         }
         Err(Preparation::Infrastructure) => {
@@ -394,7 +394,7 @@ fn prepare_mutant(campaign: &Campaign<'_>, patch: &Patch) -> Result<Runtime, Mut
         .validator
         .validate(patch)
         .map_err(|rejection| MutantScopeFailure::from(&rejection))?;
-    // The baseline resolved every label, so a failure here is the mutant side's.
+    // The baseline resolved every position, so a failure here is the mutant side's.
     Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)
 }
 
@@ -450,8 +450,8 @@ fn run_tests(
 
 /// Why a compiled side cannot run.
 enum Preparation {
-    /// An observed label names no authored baseline rule: a declaration error.
-    UnknownLabel(String),
+    /// An observed position names no authored baseline rule: a declaration error.
+    UnknownRule(SentenceRef),
     Infrastructure,
 }
 
@@ -470,7 +470,7 @@ impl Runtime {
             .validator
             .observation_manifest(side, campaign.observed_rules)
             .map_err(|failure| match failure {
-                ManifestFailure::UnknownLabel(label) => Preparation::UnknownLabel(label),
+                ManifestFailure::UnknownRule(rule) => Preparation::UnknownRule(rule),
                 ManifestFailure::Identity { .. } | ManifestFailure::Installation(_) => {
                     Preparation::Infrastructure
                 }
@@ -489,7 +489,7 @@ impl Runtime {
                 results: None,
             },
             vocabulary: campaign.vocabulary.clone(),
-            selected_rule_labels: manifest.labels().map(str::to_owned).collect(),
+            selected_rules: manifest.rules().cloned().collect(),
             symbol_sorts,
         };
         Ok(Self {

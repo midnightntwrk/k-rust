@@ -1042,7 +1042,9 @@ fn payload_sort_drift_and_unselected_origin_are_rejected() {
         (
             "unselected-origin",
             |_, context| {
-                context.selected_rule_labels.remove("MEMORY.write");
+                context
+                    .selected_rules
+                    .remove(&support::rule_ref("MEMORY.write"));
             },
             PatternFailureKind::InvalidOrigin,
         ),

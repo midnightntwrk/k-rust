@@ -17,7 +17,7 @@ use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
-use kink_native::execution::{ExecutionAdapter, ExecutionBudget};
+use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget};
 use kink_native::observation::NativeEvent;
 use kink_native::{NativeValidator, RuleSelection, RuleSelector, SelectionFailure, select_rules};
 use kink_patch::{Baseline, SentenceRef};
@@ -68,8 +68,20 @@ fn labels(
     baseline: &Baseline,
     selections: &[RuleSelection],
 ) -> Result<Vec<String>, SelectionFailure> {
-    select_rules(baseline, selections)
-        .map(|rules| rules.into_iter().map(|rule| rule.label).collect())
+    select_rules(baseline, selections).map(|rules| {
+        rules
+            .into_iter()
+            .map(|rule| {
+                baseline
+                    .sentence(&rule.rule)
+                    .expect("rule")
+                    .attributes()
+                    .string(k_rust::definition::AttributeKey::Label)
+                    .unwrap_or("")
+                    .to_owned()
+            })
+            .collect()
+    })
 }
 
 #[test]
@@ -131,17 +143,70 @@ fn selection_failures_publish_no_rule() {
             .collect::<Vec<_>>();
         assert_eq!(labels(&counter, &selections), Err(failure), "{id}");
     }
+}
 
-    // `undecided.k` starts with four unlabelled function equations, which no compiled side
-    // can resolve by label.
-    let undecided = support::load("undecided.k");
+#[test]
+fn all_written_undecided_rules_are_selected_in_definition_order() {
+    let baseline = support::load("undecided.k");
+    let rules = select_rules(&baseline, &[selection(RuleSelector::AllTransitions, 8)])
+        .expect("all eight written rules are selectable");
     assert_eq!(
-        labels(&undecided, &[selection(RuleSelector::AllTransitions, 8)]),
-        Err(SelectionFailure::UnlabelledRule {
-            selection: 0,
-            rule: SentenceRef::new("UNDECIDED", 0),
-        })
+        rules.into_iter().map(|rule| rule.rule).collect::<Vec<_>>(),
+        (0..8)
+            .map(|index| SentenceRef::new("UNDECIDED", index))
+            .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn unlabelled_rules_are_selected_in_definition_order() {
+    let baseline = support::load("unlabelled.k");
+    let rules = select_rules(&baseline, &[selection(RuleSelector::AllTransitions, 3)])
+        .expect("all three written rules are selectable");
+    assert_eq!(
+        rules.into_iter().map(|rule| rule.rule).collect::<Vec<_>>(),
+        (0..3)
+            .map(|index| SentenceRef::new("UNLABELLED", index))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn function_equations_are_not_observable() {
+    let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("baseline");
+    let rules = select_rules(
+        validator.baseline(),
+        &[selection(
+            structural(None, &[0, 0], "Bool", Some("isZero")),
+            2,
+        )],
+    )
+    .expect("two equations selected by position");
+    let manifest = validator
+        .observation_manifest(&side, &rules)
+        .expect("manifest");
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        "UNDECIDED",
+        BackendOptions::default(),
+    )
+    .expect("backend");
+    let state = support::initial_state(
+        kore_application("LblisZero", Vec::new(), vec![z()]),
+        "SortBool",
+    );
+    assert!(matches!(
+        ExecutionAdapter::new(manifest).execute(
+            &mut backend,
+            &state,
+            ExecutionBudget {
+                time: Duration::from_secs(30),
+                max_simplification_iterations: 1000
+            }
+        ),
+        Err(ExecutionAdapterFailure::Backend(_))
+    ));
 }
 
 /// A structural selector that meets a position of unknown sort cannot say whether that rule
@@ -230,7 +295,14 @@ fn observed(selector: RuleSelector, cardinality: usize, state: &Pattern) -> Vec<
                 .events
                 .iter()
                 .map(|event| match event {
-                    NativeEvent::RuleApplied(event) => event.rule_label.clone(),
+                    NativeEvent::RuleApplied(event) => validator
+                        .baseline()
+                        .sentence(&event.rule)
+                        .expect("rule")
+                        .attributes()
+                        .string(k_rust::definition::AttributeKey::Label)
+                        .unwrap_or("")
+                        .to_owned(),
                     NativeEvent::Domain(event) => panic!("no domain events: {event:?}"),
                 })
                 .collect()

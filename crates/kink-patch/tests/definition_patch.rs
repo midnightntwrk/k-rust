@@ -24,6 +24,25 @@ struct Fixture<'a> {
     expected: Option<&'a Baseline>,
 }
 
+fn assert_same_rules_with_insertions(
+    module: &str,
+    mutant: &kink_patch::Mutant,
+    expected: &Definition,
+) {
+    let mut projected = mutant.definition().clone();
+    for output in projected.modules.iter_mut() {
+        for (index, sentence) in output.local_sentences.iter_mut().enumerate() {
+            let at = SentenceRef::new(output.name.clone(), u32::try_from(index).expect("index"));
+            if matches!(mutant.origin(&at), Some(SentenceOrigin::Inserted { .. })) {
+                sentence_mut(sentence)
+                    .attributes_mut()
+                    .set(AttributeKey::Location, serde_json::json!([1, 1, 1, 1]));
+            }
+        }
+    }
+    support::assert_same_authored_rules(module, &projected, expected);
+}
+
 impl Fixture<'_> {
     fn rule(&self, label: &str) -> SentenceRef {
         support::rule(self.baseline, label)
@@ -63,10 +82,24 @@ impl Fixture<'_> {
             .clone()
     }
 
-    /// Duplicate labels are rejected at compile, and patches never write labels.
-    fn unlabelled_clone(&self, label: &str) -> Sentence {
+    /// An insertion has none of the identity or position attributes of its source.
+    fn anonymous_clone(&self, label: &str) -> Sentence {
         let mut sentence = self.sentence(label);
-        sentence.attributes_mut().unset(AttributeKey::Label);
+        for key in [
+            AttributeKey::Label,
+            AttributeKey::UniqueId,
+            AttributeKey::Origin,
+            AttributeKey::Location,
+            AttributeKey::Source,
+            AttributeKey::SourceId,
+            AttributeKey::SentenceStartOffset,
+            AttributeKey::SentenceEndOffset,
+            AttributeKey::ContentStartLine,
+            AttributeKey::ContentStartColumn,
+            AttributeKey::ContentStartOffset,
+        ] {
+            sentence.attributes_mut().unset(key);
+        }
         sentence
     }
 
@@ -74,7 +107,7 @@ impl Fixture<'_> {
         Edit::InsertSentence {
             position,
             ordinal,
-            sentence: self.unlabelled_clone(label),
+            sentence: self.anonymous_clone(label),
         }
     }
 }
@@ -524,11 +557,7 @@ fn patch_rows_apply_or_fail_atomically() {
                     apply(baseline, &patch).unwrap_or_else(|failure| panic!("{id}: {failure}"));
                 let expected = expected.as_ref().expect("loaded above");
                 for module in modules(fixture) {
-                    support::assert_same_authored_rules(
-                        module,
-                        mutant.definition(),
-                        expected.definition(),
-                    );
+                    assert_same_rules_with_insertions(module, &mutant, expected.definition());
                 }
                 let repeated = apply(baseline, &patch).expect("repeat applies");
                 assert_eq!(
@@ -829,7 +858,7 @@ fn identity_and_position_attributes_are_never_edited() {
     };
     let branch = f.rule("COUNTER.branch");
     let label = AttributeKey::Label.as_str().to_owned();
-    let mut labelled_clone = f.unlabelled_clone("COUNTER.fallback");
+    let mut labelled_clone = f.anonymous_clone("COUNTER.fallback");
     labelled_clone.attributes_mut().set(
         AttributeKey::Label,
         Value::String("COUNTER.clone".to_owned()),
@@ -885,6 +914,29 @@ fn identity_and_position_attributes_are_never_edited() {
             "{row}: {failure}"
         );
     }
+}
+
+#[test]
+fn inserted_sentence_carrying_a_location_is_ill_formed() {
+    let baseline = support::load("counter.k");
+    let f = Fixture {
+        baseline: &baseline,
+        expected: None,
+    };
+    let mut sentence = f.anonymous_clone("COUNTER.fallback");
+    sentence.attributes_mut().set(
+        AttributeKey::Location,
+        f.attribute("COUNTER.fallback", AttributeKey::Location.as_str()),
+    );
+    assert!(sentence.attributes().has(AttributeKey::Location));
+    let patch = Patch::new(vec![Edit::InsertSentence {
+        position: InsertPosition::After(f.rule("COUNTER.fallback")),
+        ordinal: 0,
+        sentence,
+    }])
+    .expect("patch");
+    let failure = apply(&baseline, &patch).expect_err("location cannot be copied to an insertion");
+    assert_eq!(failure.kind(), PatchFailureKind::LocallyIllFormed);
 }
 
 #[test]
@@ -947,7 +999,7 @@ fn inserted_sentences_are_anchored_at_their_destination() {
     assert_eq!(mutant.origins().len(), output_count);
     let expected = load_expected("cross-module-insertion", "COUNTER");
     for module in ["COUNTER-SYNTAX", "COUNTER"] {
-        support::assert_same_authored_rules(module, mutant.definition(), expected.definition());
+        assert_same_rules_with_insertions(module, &mutant, expected.definition());
     }
 }
 

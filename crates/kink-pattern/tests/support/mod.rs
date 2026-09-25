@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use k_rust::kore::ast::{Pattern, Sort, Symbol, Variable, VariableKind};
+use kink_patch::SentenceRef;
 use kink_pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, EvaluationContext,
     EvaluationOptions, Event, EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop,
@@ -139,6 +140,16 @@ pub const RULE_LABELS: [&str; 6] = [
     "COUNTER.branch",
 ];
 
+pub fn rule_ref(label: &str) -> SentenceRef {
+    SentenceRef::new(
+        label.split('.').next().expect("module"),
+        RULE_LABELS
+            .iter()
+            .position(|candidate| *candidate == label)
+            .expect("rule") as u32,
+    )
+}
+
 /// Event `name` at `index`, one transition per event.
 pub fn event(name: &str, index: usize) -> Event {
     let (constructor, payload, rule_label) = event_spec(name);
@@ -147,7 +158,7 @@ pub fn event(name: &str, index: usize) -> Event {
         constructor: constructor.to_owned(),
         payload: payload.iter().map(|name| term(name)).collect(),
         origin: EventOrigin {
-            rule_label: rule_label.to_owned(),
+            rule: rule_ref(rule_label),
             transition: TransitionKey {
                 rule: format!("{rule_label}-id"),
                 target: format!("target-{index}"),
@@ -387,10 +398,7 @@ pub fn context(test_id: &str) -> EvaluationContext {
             results: Some(8),
         },
         vocabulary: trace_vocabulary(),
-        selected_rule_labels: RULE_LABELS
-            .iter()
-            .map(|label| (*label).to_owned())
-            .collect(),
+        selected_rules: RULE_LABELS.iter().map(|label| rule_ref(label)).collect(),
         symbol_sorts: symbol_sorts(),
     }
 }

@@ -7,6 +7,7 @@ version.workspace = true
 
 [dependencies]
 k-rust.workspace = true
+kink-patch = { path = "../kink-patch" }
 
 [lints]
 workspace = true

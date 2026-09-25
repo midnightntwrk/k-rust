@@ -1,5 +1,6 @@
 use k_rust::backend::TransitionIdOutput;
 use k_rust::kore::ast::{Definition as KoreDefinition, Pattern, Sentence as KoreSentence, Sort};
+use kink_patch::SentenceRef;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
@@ -436,7 +437,7 @@ pub struct Event {
 /// The rule whose transition emitted an event, and the transition itself.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EventOrigin {
-    pub rule_label: String,
+    pub rule: SentenceRef,
     pub transition: TransitionKey,
 }
 
@@ -465,14 +466,14 @@ pub struct ExecutionBounds {
 }
 
 /// What one evaluation is checked against: the test, its bounds, the vocabulary of the
-/// observed trace, the rule labels whose transitions were observed, and the symbol sorts of
+/// observed trace, the rules whose transitions were observed, and the symbol sorts of
 /// the compiled definition.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EvaluationContext {
     pub test_id: String,
     pub bounds: ExecutionBounds,
     pub vocabulary: EventVocabulary,
-    pub selected_rule_labels: BTreeSet<String>,
+    pub selected_rules: BTreeSet<SentenceRef>,
     pub symbol_sorts: SymbolSorts,
 }
 
@@ -1013,13 +1014,10 @@ fn validate_events(
                 "trace event payload arity or sort differs from the vocabulary",
             ));
         }
-        if !context
-            .selected_rule_labels
-            .contains(&event.origin.rule_label)
-        {
+        if !context.selected_rules.contains(&event.origin.rule) {
             return Err(invalid_origin(format!(
-                "event origin {} is not an observed rule",
-                event.origin.rule_label
+                "event origin {:?} is not an observed rule",
+                event.origin.rule
             )));
         }
         if previous_transition.is_some_and(|previous| event.transition_ordinal < previous) {

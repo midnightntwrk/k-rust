@@ -72,12 +72,113 @@ fn symbol_sorts(side: &ValidatedDefinition) -> SymbolSorts {
     )
 }
 
+fn position(validator: &NativeValidator, label: &str) -> (String, k_rust::definition::Location) {
+    let at = support::rule(validator.baseline(), label);
+    let attrs = validator
+        .baseline()
+        .sentence(&at)
+        .expect("rule")
+        .attributes();
+    (
+        attrs.source().expect("source").to_owned(),
+        attrs.location().expect("location"),
+    )
+}
+
 fn rule_applied(label: &str) -> ObservedRule {
+    let fixture = if label.starts_with("UNDECIDED.") {
+        "undecided.k"
+    } else if label.starts_with("ND.") {
+        "nd.k"
+    } else {
+        "counter.k"
+    };
+    let baseline = support::load(fixture);
     ObservedRule {
-        label: label.to_owned(),
+        rule: support::rule(&baseline, label),
         emit_rule_applied: true,
         domain_events: Vec::new(),
     }
+}
+
+#[test]
+fn mutated_unlabelled_rule_is_observed_on_both_sides() {
+    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+    let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
+    let at = TermRef::new(rule.clone(), [0, 1]);
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        expected: validator.baseline().term(&at).expect("right side").clone(),
+        at,
+        replacement: Term::apply("c", vec![]),
+    }])
+    .expect("patch");
+    let baseline = validator.compile_baseline().expect("baseline");
+    let mutant = validator.validate(&patch).expect("mutant");
+    let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
+    for side in [&baseline, &mutant] {
+        let manifest = validator
+            .observation_manifest(
+                side,
+                &[ObservedRule {
+                    rule: rule.clone(),
+                    emit_rule_applied: true,
+                    domain_events: Vec::new(),
+                }],
+            )
+            .expect("manifest");
+        let mut backend = Backend::new(
+            &side.artifacts().definition_kore,
+            "UNLABELLED",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let execution = ExecutionAdapter::new(manifest)
+            .execute(&mut backend, &state, BUDGET)
+            .expect("observed execute");
+        assert!(execution.leaves().iter().any(|leaf| leaf.branch.events.iter().any(|event| matches!(event, kink_native::observation::NativeEvent::RuleApplied(applied) if applied.rule == rule))));
+    }
+}
+
+#[test]
+fn deleted_unlabelled_rule_is_left_out() {
+    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+    let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
+    let deleted = validator
+        .validate(&Patch::new(vec![Edit::DeleteSentence { at: rule.clone() }]).expect("patch"))
+        .expect("mutant");
+    let manifest = validator
+        .observation_manifest(
+            &deleted,
+            &[ObservedRule {
+                rule,
+                emit_rule_applied: true,
+                domain_events: Vec::new(),
+            }],
+        )
+        .expect("manifest");
+    assert!(manifest.rules().next().is_none());
+}
+
+#[test]
+fn identical_unlabelled_rules_are_not_observable() {
+    let validator = NativeValidator::bind(
+        support::load("duplicate_unlabelled.k"),
+        CompileOptions::default(),
+    );
+    let side = validator
+        .compile_baseline()
+        .expect("duplicate source compiles");
+    let rules = [0, 1].map(|index| ObservedRule {
+        rule: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", index),
+        emit_rule_applied: true,
+        domain_events: Vec::new(),
+    });
+    assert!(matches!(
+        validator.observation_manifest(&side, &rules),
+        Err(ManifestFailure::Installation(
+            kink_native::observation::ObservationFailure::DuplicateRuleIdentity(_)
+        ))
+    ));
 }
 
 /// One observed run of `state` on a compiled side.
@@ -99,7 +200,7 @@ fn run(
     let manifest = validator
         .observation_manifest(side, rules)
         .expect("manifest installs");
-    let selected_rule_labels = manifest.labels().map(str::to_owned).collect();
+    let selected_rules = manifest.rules().cloned().collect();
     let mut backend = Backend::new(
         &side.artifacts().definition_kore,
         module,
@@ -132,7 +233,7 @@ fn run(
                 results: None,
             },
             vocabulary: vocabulary.clone(),
-            selected_rule_labels,
+            selected_rules,
             symbol_sorts: sorts,
         },
     }
@@ -293,11 +394,17 @@ fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() 
     .expect("one edit");
     let mutant = validator.validate(&patch).expect("the mutant compiles");
     assert_ne!(
-        baseline.rule_identity("COUNTER.branch"),
-        mutant.rule_identity("COUNTER.branch")
+        baseline.rule_identity(
+            &position(&validator, "COUNTER.branch").0,
+            position(&validator, "COUNTER.branch").1
+        ),
+        mutant.rule_identity(
+            &position(&validator, "COUNTER.branch").0,
+            position(&validator, "COUNTER.branch").1
+        )
     );
     let rules = [ObservedRule {
-        label: "COUNTER.branch".to_owned(),
+        rule: support::rule(validator.baseline(), "COUNTER.branch"),
         emit_rule_applied: false,
         domain_events: vec![DomainEventSpec {
             constructor: "branchTaken".to_owned(),
@@ -339,7 +446,7 @@ fn domain_payloads_decode_through_kore_json() {
     let validator = counter_validator();
     let baseline = validator.compile_baseline().expect("counter.k compiles");
     let rules = [ObservedRule {
-        label: "COUNTER.increment".to_owned(),
+        rule: support::rule(validator.baseline(), "COUNTER.increment"),
         emit_rule_applied: false,
         domain_events: vec![DomainEventSpec {
             constructor: "incremented".to_owned(),
@@ -463,15 +570,33 @@ fn deleted_observed_rule_is_omitted_from_the_mutant_manifest() {
         validator
             .observation_manifest(side, &rules)
             .expect("manifest")
-            .labels()
-            .map(str::to_owned)
+            .rules()
+            .cloned()
             .collect::<Vec<_>>()
     };
-    assert_eq!(labels(&baseline), ["COUNTER.branch", "COUNTER.fallback"]);
-    assert_eq!(labels(&deleted), ["COUNTER.branch"]);
     assert_eq!(
-        validator.observation_manifest(&baseline, &[rule_applied("COUNTER.nothing")]),
-        Err(ManifestFailure::UnknownLabel("COUNTER.nothing".to_owned()))
+        labels(&baseline),
+        [
+            support::rule(validator.baseline(), "COUNTER.branch"),
+            support::rule(validator.baseline(), "COUNTER.fallback")
+        ]
+    );
+    assert_eq!(
+        labels(&deleted),
+        [support::rule(validator.baseline(), "COUNTER.branch")]
+    );
+    assert_eq!(
+        validator.observation_manifest(
+            &baseline,
+            &[ObservedRule {
+                rule: kink_patch::SentenceRef::new("COUNTER", 999),
+                emit_rule_applied: true,
+                domain_events: Vec::new()
+            }]
+        ),
+        Err(ManifestFailure::UnknownRule(kink_patch::SentenceRef::new(
+            "COUNTER", 999
+        )))
     );
 }
 

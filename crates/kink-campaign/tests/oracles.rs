@@ -263,7 +263,7 @@ fn pattern_failure() -> Result<Evaluation, PatternFailure> {
             results: None,
         },
         vocabulary: vocabulary(),
-        selected_rule_labels: BTreeSet::new(),
+        selected_rules: BTreeSet::new(),
         symbol_sorts: SymbolSorts::default(),
     };
     let bridged = single(Normal, constant("done"));

@@ -228,12 +228,12 @@ fn counter_campaign_kills_by_final_result_and_by_pattern_with_unchanged_final_re
         let vocabulary = vocabulary(&["rule:COUNTER.increment", "branchTaken"]);
         let observed_rules = [
             ObservedRule {
-                label: "COUNTER.increment".to_owned(),
+                rule: support::rule(baseline, "COUNTER.increment"),
                 emit_rule_applied: true,
                 domain_events: Vec::new(),
             },
             ObservedRule {
-                label: "COUNTER.branch".to_owned(),
+                rule: support::rule(baseline, "COUNTER.branch"),
                 emit_rule_applied: false,
                 domain_events: vec![DomainEventSpec {
                     constructor: "branchTaken".to_owned(),
@@ -505,7 +505,11 @@ fn baseline_admission_gates_crashes_and_unknown_labels() {
         };
         let rules = |label: &str| {
             [ObservedRule {
-                label: label.to_owned(),
+                rule: if label == "COUNTER.nothing" {
+                    kink_patch::SentenceRef::new("COUNTER", 999)
+                } else {
+                    support::rule(validator.baseline(), label)
+                },
                 emit_rule_applied: true,
                 domain_events: Vec::new(),
             }]
@@ -650,10 +654,58 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
 
 fn rule_applied(label: &str) -> ObservedRule {
     ObservedRule {
-        label: label.to_owned(),
+        rule: support::rule(
+            &support::load(if label.starts_with("UNDECIDED.") {
+                "undecided.k"
+            } else {
+                "counter.k"
+            }),
+            label,
+        ),
         emit_rule_applied: true,
         domain_events: Vec::new(),
     }
+}
+
+#[test]
+fn selected_function_equation_is_infrastructure_failure() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
+        let observed = [ObservedRule {
+            rule: kink_patch::SentenceRef::new("UNDECIDED", 0),
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }];
+        let vocabulary = vocabulary(&["equation"]);
+        let tests = [TestCase {
+            id: "equation".to_owned(),
+            initial_state: support::initial_state(
+                kore_application(
+                    "LblisZero",
+                    Vec::new(),
+                    vec![kore_application("Lblz", Vec::new(), Vec::new())],
+                ),
+                "SortBool",
+            ),
+            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+        }];
+        let failure = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "UNDECIDED",
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+                classify: &|_| ExecutionTerminalKind::Normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation(validator.baseline(), &[]),
+            ScheduleMode::Full,
+        )
+        .expect_err("equation filter is refused");
+        assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
+    });
 }
 
 /// Review P2.2 (plan row C4): the same folded mutant of `branch`'s `requires` is run and

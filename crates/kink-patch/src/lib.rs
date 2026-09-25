@@ -266,7 +266,7 @@ pub enum Edit {
     DeleteSentence {
         at: SentenceRef,
     },
-    /// Inserted sentences carry no label, `UNIQUE_ID` or origin record.
+    /// Inserted sentences carry no protected identity or source-position attributes.
     /// Several insertions at one position are placed by ascending `ordinal`.
     InsertSentence {
         position: InsertPosition,

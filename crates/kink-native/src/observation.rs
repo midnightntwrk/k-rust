@@ -1,4 +1,4 @@
-//! Atomic exact-label observation installation and branch-local event adaptation.
+//! Atomic source-position observation installation and branch-local event adaptation.
 //!
 //! Events carry backend identities only; a rule label or transition ID is not
 //! emitting-sentence provenance.
@@ -9,12 +9,14 @@ use k_rust::backend::{
     BindingOutput, EffectOutput, ObservationEventOutput, TraceEntry, TransitionClassOutput,
     TransitionIdOutput, UncommittedReasonOutput,
 };
+use kink_patch::SentenceRef;
 use serde_json::Value;
 
-/// One exact frontend rule-label selection and its manifest-ordered emissions.
+/// One written baseline rule and its manifest-ordered emissions.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RuleObservationSpec {
-    pub label: String,
+    pub rule: SentenceRef,
+    pub label: Option<String>,
     /// Exact backend identity passed to the public observed execution selector.
     pub backend_rule_identity: String,
     pub emit_rule_applied: bool,
@@ -52,11 +54,11 @@ impl InstalledObservationManifest {
     /// Definition membership and module visibility are validated atomically by the public
     /// `Backend::*_observed` operation before execution starts.
     pub fn install(specs: Vec<RuleObservationSpec>) -> Result<Self, ObservationFailure> {
-        let mut selected_labels = BTreeSet::new();
+        let mut selected_rules = BTreeSet::new();
         let mut selected_identities = BTreeSet::new();
         for spec in &specs {
-            if !selected_labels.insert(spec.label.clone()) {
-                return Err(ObservationFailure::DuplicateSelector(spec.label.clone()));
+            if !selected_rules.insert(spec.rule.clone()) {
+                return Err(ObservationFailure::DuplicateSelector(spec.rule.clone()));
             }
             if spec.backend_rule_identity.is_empty() {
                 return Err(ObservationFailure::InvalidManifest(
@@ -77,7 +79,7 @@ impl InstalledObservationManifest {
                 }
                 if !constructors.insert(event.constructor.clone()) {
                     return Err(ObservationFailure::DuplicateManifestEvent {
-                        label: spec.label.clone(),
+                        rule: spec.rule.clone(),
                         constructor: event.constructor.clone(),
                     });
                 }
@@ -107,9 +109,9 @@ impl InstalledObservationManifest {
             .collect()
     }
 
-    /// Exact selector labels in manifest order.
-    pub fn labels(&self) -> impl Iterator<Item = &str> {
-        self.rules.iter().map(|rule| rule.spec.label.as_str())
+    /// Written baseline rules in manifest order.
+    pub fn rules(&self) -> impl Iterator<Item = &SentenceRef> {
+        self.rules.iter().map(|rule| &rule.spec.rule)
     }
 }
 
@@ -167,7 +169,8 @@ pub struct RuleAppliedEvent {
     pub emission_ordinal: usize,
     pub transition: TransitionIdOutput,
     pub class: TransitionClassOutput,
-    pub rule_label: String,
+    pub rule: SentenceRef,
+    pub label: Option<String>,
     pub bindings: Vec<BindingOutput>,
     pub introduced_predicates: Vec<Value>,
     pub before: Value,
@@ -183,7 +186,7 @@ pub struct DomainEvent {
     pub emission_ordinal: usize,
     pub constructor: String,
     pub transition: TransitionIdOutput,
-    pub rule_label: String,
+    pub rule: SentenceRef,
     pub payload: Vec<DomainPayload>,
 }
 
@@ -255,7 +258,7 @@ pub(crate) fn adapt_branch(
                     .get(&id.rule)
                     .and_then(|ordinal| manifest.rules.get(*ordinal))
                     .ok_or_else(|| ObservationFailure::UnselectedObservation(id.rule.clone()))?;
-                if rule_label.as_deref() != Some(selected.spec.label.as_str()) {
+                if rule_label.as_ref() != selected.spec.label.as_ref() {
                     return Err(ObservationFailure::RuleLabelMismatch {
                         identity: id.rule,
                         expected: selected.spec.label.clone(),
@@ -271,7 +274,8 @@ pub(crate) fn adapt_branch(
                         emission_ordinal,
                         transition: id.clone(),
                         class,
-                        rule_label: selected.spec.label.clone(),
+                        rule: selected.spec.rule.clone(),
+                        label: selected.spec.label.clone(),
                         bindings: bindings.clone(),
                         introduced_predicates: introduced_predicates.clone(),
                         before: before.clone(),
@@ -302,7 +306,7 @@ pub(crate) fn adapt_branch(
                         emission_ordinal,
                         constructor: spec.constructor.clone(),
                         transition: id.clone(),
-                        rule_label: selected.spec.label.clone(),
+                        rule: selected.spec.rule.clone(),
                         payload,
                     }));
                     emission_ordinal += 1;
@@ -405,9 +409,9 @@ fn payload_value(
 #[derive(Clone, Debug, PartialEq)]
 pub enum ObservationFailure {
     InvalidManifest(String),
-    DuplicateSelector(String),
+    DuplicateSelector(SentenceRef),
     DuplicateManifestEvent {
-        label: String,
+        rule: SentenceRef,
         constructor: String,
     },
     DuplicateRuleIdentity(String),
@@ -422,7 +426,7 @@ pub enum ObservationFailure {
     UnselectedObservation(String),
     RuleLabelMismatch {
         identity: String,
-        expected: String,
+        expected: Option<String>,
         actual: Option<String>,
     },
     MissingPayloadSource(PayloadSource),
@@ -435,7 +439,8 @@ mod tests {
 
     fn spec(label: &str) -> RuleObservationSpec {
         RuleObservationSpec {
-            label: label.into(),
+            rule: SentenceRef::new("TEST", if label == "first" { 0 } else { 1 }),
+            label: Some(label.into()),
             backend_rule_identity: format!("{label}-id"),
             emit_rule_applied: true,
             domain_events: Vec::new(),
@@ -472,10 +477,15 @@ mod tests {
         let duplicate = InstalledObservationManifest::install(vec![spec("first"), spec("first")]);
         assert_eq!(
             duplicate,
-            Err(ObservationFailure::DuplicateSelector("first".into()))
+            Err(ObservationFailure::DuplicateSelector(SentenceRef::new(
+                "TEST", 0
+            )))
         );
         assert_eq!(prior.backend_rule_ids(), ["first-id", "second-id"]);
-        assert_eq!(prior.labels().collect::<Vec<_>>(), ["first", "second"]);
+        assert_eq!(
+            prior.rules().cloned().collect::<Vec<_>>(),
+            [SentenceRef::new("TEST", 0), SentenceRef::new("TEST", 1)]
+        );
     }
 
     #[test]
@@ -656,7 +666,15 @@ mod tests {
                 row.rules
                     .iter()
                     .map(|(label, generic, domain)| RuleObservationSpec {
-                        label: (*label).into(),
+                        rule: SentenceRef::new(
+                            "TEST",
+                            match *label {
+                                "write" => 0,
+                                "middle" => 1,
+                                _ => 2,
+                            },
+                        ),
+                        label: Some((*label).into()),
                         backend_rule_identity: format!("{label}-id"),
                         emit_rule_applied: *generic,
                         domain_events: domain

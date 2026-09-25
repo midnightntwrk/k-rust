@@ -203,16 +203,19 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                 emission_ordinal,
                 constructor,
                 transition,
-                label,
+                rule,
                 payload,
             ) = match event {
                 NativeEvent::RuleApplied(event) => (
                     event.event_ordinal,
                     event.transition_ordinal,
                     event.emission_ordinal,
-                    format!("rule:{}", event.rule_label),
+                    event.label.as_ref().map_or_else(
+                        || format!("rule:{}:{}", event.rule.module, event.rule.index),
+                        |label| format!("rule:{label}"),
+                    ),
                     &event.transition,
-                    &event.rule_label,
+                    &event.rule,
                     Vec::new(),
                 ),
                 NativeEvent::Domain(event) => (
@@ -221,7 +224,7 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                     event.emission_ordinal,
                     event.constructor.clone(),
                     &event.transition,
-                    &event.rule_label,
+                    &event.rule,
                     event
                         .payload
                         .iter()
@@ -243,7 +246,7 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                 constructor,
                 payload,
                 origin: EventOrigin {
-                    rule_label: label.clone(),
+                    rule: (*rule).clone(),
                     transition: TransitionKey::from(transition),
                 },
                 transition_ordinal: widen(transition_ordinal),
@@ -491,7 +494,7 @@ mod tests {
                 emission_ordinal: 0,
                 constructor: "fired".to_owned(),
                 transition,
-                rule_label: "M.fired".to_owned(),
+                rule: kink_patch::SentenceRef::new("M", 0),
                 payload: Vec::new(),
             })],
             rollbacks: Vec::new(),
@@ -543,7 +546,7 @@ mod tests {
                 results: None,
             },
             vocabulary,
-            selected_rule_labels: ["M.fired".to_owned()].into_iter().collect(),
+            selected_rules: [kink_patch::SentenceRef::new("M", 0)].into_iter().collect(),
             symbol_sorts: sorts(),
         };
         evaluate(
@@ -807,7 +810,7 @@ mod tests {
             emission_ordinal: 0,
             constructor: "logged".to_owned(),
             transition: effect.branch.identity[0].clone(),
-            rule_label: "M.logged".to_owned(),
+            rule: kink_patch::SentenceRef::new("M", 1),
             payload: vec![DomainPayload::Effect(EffectOutput::UserLog {
                 message: "hello".to_owned(),
             })],

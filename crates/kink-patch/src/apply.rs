@@ -12,9 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 use std::sync::Arc;
 
-/// Keys no edit may write: the rule label (observation resolves rules by
-/// label on each compiled side, so relabelling would silently retarget it),
-/// kompile identities and source positions.
+/// Keys no edit may write: the rule label, kompile identities and source positions.
 const PROTECTED_KEYS: [AttributeKey; 11] = [
     AttributeKey::Label,
     AttributeKey::UniqueId,
@@ -27,13 +25,6 @@ const PROTECTED_KEYS: [AttributeKey; 11] = [
     AttributeKey::ContentStartLine,
     AttributeKey::ContentStartColumn,
     AttributeKey::ContentStartOffset,
-];
-
-/// Keys an inserted sentence must not carry.
-const IDENTITY_KEYS: [AttributeKey; 3] = [
-    AttributeKey::Label,
-    AttributeKey::UniqueId,
-    AttributeKey::Origin,
 ];
 
 /// A patched definition. It exists only when every edit applied.
@@ -198,7 +189,7 @@ fn preflight(
                 }
             };
             rule_like(sentence)?;
-            if let Some(key) = IDENTITY_KEYS
+            if let Some(key) = PROTECTED_KEYS
                 .into_iter()
                 .find(|key| sentence.attributes().has(*key))
             {

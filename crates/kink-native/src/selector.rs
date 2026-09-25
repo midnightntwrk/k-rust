@@ -1,9 +1,8 @@
 //! Rule selectors that choose which baseline rules an observation manifest observes.
 //!
 //! A selector is evaluated once, over the written rules of the [`Baseline`], and yields
-//! [`ObservedRule`]s by label. Each compiled side then resolves those labels to its own rule
-//! identities ([`crate::NativeValidator::observation_manifest`]), so a mutant never changes
-//! which rules are observed; the label is immutable under patches for that reason.
+//! [`ObservedRule`]s by source position. Each compiled side resolves those positions to its
+//! own rule identities ([`crate::NativeValidator::observation_manifest`]).
 //!
 //! Selection is atomic: any failure publishes no rule. A selection must match exactly its
 //! expected number of rules, and at least one; no rule may be selected twice.
@@ -60,8 +59,6 @@ pub enum SelectionFailure {
         expected: usize,
         actual: usize,
     },
-    /// A matched rule has no label, so no compiled side can resolve it.
-    UnlabelledRule { selection: usize, rule: SentenceRef },
     /// A rule is matched by this selection and an earlier one.
     DuplicateRule { selection: usize, rule: SentenceRef },
     /// Some position's sort could not be decided, so whether the rule matches is unknown.
@@ -79,12 +76,6 @@ impl fmt::Display for SelectionFailure {
                 formatter,
                 "selection {selection} matched {actual} rules, expected {expected}"
             ),
-            Self::UnlabelledRule { selection, rule } => {
-                write!(
-                    formatter,
-                    "selection {selection} matched unlabelled {rule:?}"
-                )
-            }
             Self::DuplicateRule { selection, rule } => write!(
                 formatter,
                 "selection {selection} matched {rule:?}, which an earlier selection matched"
@@ -123,13 +114,7 @@ pub fn select_rules(
                 actual: matched.len(),
             });
         }
-        for (at, label) in matched {
-            let Some(label) = label else {
-                return Err(SelectionFailure::UnlabelledRule {
-                    selection: index,
-                    rule: at,
-                });
-            };
+        for at in matched {
             if !seen.insert(at.clone()) {
                 return Err(SelectionFailure::DuplicateRule {
                     selection: index,
@@ -137,7 +122,7 @@ pub fn select_rules(
                 });
             }
             rules.push(ObservedRule {
-                label,
+                rule: at,
                 emit_rule_applied: selection.emit_rule_applied,
                 domain_events: selection.domain_events.clone(),
             });
@@ -146,12 +131,9 @@ pub fn select_rules(
     Ok(rules)
 }
 
-/// The written rules `selector` matches, in definition order, with their labels; `None` when
+/// The written rules `selector` matches, in definition order; `None` when
 /// a structural selector met a position of undecided sort.
-fn matched_rules(
-    baseline: &Baseline,
-    selector: &RuleSelector,
-) -> Option<Vec<(SentenceRef, Option<String>)>> {
+fn matched_rules(baseline: &Baseline, selector: &RuleSelector) -> Option<Vec<SentenceRef>> {
     let structural = match selector {
         RuleSelector::Structural {
             label,
@@ -205,13 +187,7 @@ fn matched_rules(
                         RuleSelector::AllTransitions => true,
                     }
             })
-            .map(|(at, sentence)| {
-                let label = sentence
-                    .attributes()
-                    .string(AttributeKey::Label)
-                    .map(str::to_owned);
-                (at, label)
-            })
+            .map(|(at, _)| at)
             .collect(),
     )
 }

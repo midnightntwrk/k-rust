@@ -9,7 +9,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use k_rust::{
-    definition::{AttributeKey, Definition, Sentence},
+    definition::{AttributeKey, Definition, Location, Sentence},
     kompile::{CompileError, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition},
     outer::LoadedDefinition,
 };
@@ -97,13 +97,12 @@ impl NativeValidator {
         })
     }
 
-    /// Installs `rules` for one compiled side, resolving each label to that side's
-    /// `UNIQUE_ID`.
+    /// Installs `rules` for one compiled side, resolving each written baseline
+    /// position to that side's `UNIQUE_ID`.
     ///
-    /// A label must name an authored baseline sentence. On a mutant side, a label without
-    /// a compiled rule is left out of the manifest only when the patch deleted that
-    /// baseline sentence; any other unresolved label is a failure, so a mutant can never
-    /// escape observation by losing or changing its label.
+    /// A position must name an authored baseline rule. On a mutant side, a position without
+    /// a compiled rule is left out only when the patch deleted that baseline sentence;
+    /// any other unresolved position is a failure.
     pub fn observation_manifest(
         &self,
         side: &ValidatedDefinition,
@@ -111,34 +110,47 @@ impl NativeValidator {
     ) -> Result<InstalledObservationManifest, ManifestFailure> {
         let mut specs = Vec::with_capacity(rules.len());
         for rule in rules {
-            let at = self
+            let sentence = self
                 .baseline
-                .authored_sentences()
-                .find(|(_, sentence)| {
-                    sentence.attributes().string(AttributeKey::Label) == Some(rule.label.as_str())
+                .sentence(&rule.rule)
+                .filter(|sentence| matches!(sentence, Sentence::Rule { .. }))
+                .filter(|_| {
+                    self.baseline
+                        .authored_sentences()
+                        .any(|(at, _)| at == rule.rule)
                 })
-                .map(|(at, _)| at)
-                .ok_or_else(|| ManifestFailure::UnknownLabel(rule.label.clone()))?;
-            let identity = match side.rule_identity(&rule.label) {
+                .ok_or_else(|| ManifestFailure::UnknownRule(rule.rule.clone()))?;
+            let attributes = sentence.attributes();
+            let source = attributes
+                .source()
+                .ok_or_else(|| ManifestFailure::Identity {
+                    rule: rule.rule.clone(),
+                    error: IdentityError::Missing,
+                })?;
+            let location = attributes
+                .location()
+                .expect("authored sentences have locations");
+            let identity = match side.rule_identity(source, location) {
                 Ok(identity) => identity,
                 Err(IdentityError::Missing)
                     if side.origins().is_some_and(|origins| {
                         !origins
                             .values()
-                            .any(|origin| *origin == SentenceOrigin::Baseline(at.clone()))
+                            .any(|origin| *origin == SentenceOrigin::Baseline(rule.rule.clone()))
                     }) =>
                 {
                     continue;
                 }
                 Err(error) => {
                     return Err(ManifestFailure::Identity {
-                        label: rule.label.clone(),
+                        rule: rule.rule.clone(),
                         error,
                     });
                 }
             };
             specs.push(RuleObservationSpec {
-                label: rule.label.clone(),
+                rule: rule.rule.clone(),
+                label: attributes.string(AttributeKey::Label).map(str::to_owned),
                 backend_rule_identity: identity.to_owned(),
                 emit_rule_applied: rule.emit_rule_applied,
                 domain_events: rule.domain_events.clone(),
@@ -152,10 +164,10 @@ impl NativeValidator {
     }
 }
 
-/// One rule to observe, selected by its module-qualified label on every compiled side.
+/// One written baseline rule to observe by its source position on every compiled side.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ObservedRule {
-    pub label: String,
+    pub rule: SentenceRef,
     pub emit_rule_applied: bool,
     pub domain_events: Vec<DomainEventSpec>,
 }
@@ -163,12 +175,12 @@ pub struct ObservedRule {
 /// Why an observation manifest cannot be installed for a compiled side.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ManifestFailure {
-    /// No authored baseline sentence has the label: a declaration error.
-    UnknownLabel(String),
-    /// The label does not resolve to one compiled rule on this side, and the patch did
+    /// The position is not an authored baseline rule: a declaration error.
+    UnknownRule(SentenceRef),
+    /// The position does not resolve to one compiled rule on this side, and the patch did
     /// not delete its baseline sentence.
     Identity {
-        label: String,
+        rule: SentenceRef,
         error: IdentityError,
     },
     Installation(ObservationFailure),
@@ -224,12 +236,12 @@ impl ValidatedDefinition {
         self.origins.as_ref()
     }
 
-    /// The `UNIQUE_ID` of the rule labelled `label` (module-qualified) in the
-    /// compiled execution definition.
+    /// The `UNIQUE_ID` of the rule at `source` and `location` in the compiled
+    /// execution definition.
     ///
     /// `UNIQUE_ID` is content-derived, so a mutated rule has a different one
     /// on each compiled side; resolve it per side, never across sides.
-    pub fn rule_identity(&self, label: &str) -> Result<&str, IdentityError> {
+    pub fn rule_identity(&self, source: &str, location: Location) -> Result<&str, IdentityError> {
         let mut identities = self
             .artifacts
             .execution_definition
@@ -238,7 +250,8 @@ impl ValidatedDefinition {
             .flat_map(|module| module.local_sentences.iter())
             .filter(|sentence| {
                 matches!(***sentence, Sentence::Rule { .. })
-                    && sentence.attributes().string(AttributeKey::Label) == Some(label)
+                    && sentence.attributes().source() == Some(source)
+                    && sentence.attributes().location() == Some(location)
             })
             .map(|sentence| sentence.attributes().string(AttributeKey::UniqueId));
         let first = identities
@@ -252,20 +265,20 @@ impl ValidatedDefinition {
     }
 }
 
-/// Why a rule label does not resolve to one compiled identity.
+/// Why a source position does not resolve to one compiled rule identity.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityError {
-    /// No compiled rule carries the label, or it has no `UNIQUE_ID`.
+    /// No compiled rule carries the position, or it has no `UNIQUE_ID`.
     Missing,
-    /// Compiled rules with the label carry different `UNIQUE_ID`s.
+    /// Compiled rules with the position carry different `UNIQUE_ID`s.
     Ambiguous,
 }
 
 impl fmt::Display for IdentityError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::Missing => "no compiled rule identity for the label",
-            Self::Ambiguous => "the label names several compiled rule identities",
+            Self::Missing => "no compiled rule identity for the source position",
+            Self::Ambiguous => "the source position names several compiled rule identities",
         })
     }
 }
