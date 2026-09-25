@@ -77,7 +77,12 @@ Anywhere rules have the explicit supported-superset contract below.
 A semantic cast `t:S` requires the sort of `t` to be less than or equal to `S` (K user manual, "Semantic casts"); on a variable this is an upper bound, in both inference engines.
 The variable's sort is then inferred like any other variable's: the same sort at every occurrence, maximal among the solutions, so `rule bar(X:Big) => foo(X)` with `foo(Small)` gives `X` the sort `Small` and compiles to a pattern matching `bar` of an injection of a `Small` into `Big`.
 To make an annotation exact, so that a narrower occurrence is a sort error, write the strict cast `X::S`.
-The pinned K frontend rejects `semcast3` and `semcast4`, whose ambiguous `a(X)` has exactly one well-sorted reading under this bound; Rust accepts them with that reading, and the differential manifest records both as `excluded` with the Rust acceptance as the local gate.
+This is a recorded divergence from the pinned K frontend.
+In `semcast3` (`rule bar(X:Big) => foo(X) ~> a(X)`) and `semcast4` (`rule bar(X:Big) ~> foo(X) => a(X)`), `a(X)` is ambiguous between `aS` over `Small` and `aF` over `Foo`.
+Under the manual's bound `X` may be any sort at most `Big`, and `foo(X)` requires it to be at most `Small`; `aF` would also need it at most `Foo`, and no sort lies below both, so exactly one reading is well-sorted: `aS`, with `X` at `Small`.
+Rust accepts both rules with that reading; the pinned frontend rejects them.
+The compile manifest records both as `expect = "port-accepts"` with this reason and with `reference-error = "Unexpected sort Big for variable X"`, the reference diagnostic the divergence is about.
+The compile gate runs both compilers on them: it requires the reference to reject with output containing that diagnostic, so a rejection for any other cause (a crash, a failed heap reservation, a different error) fails the gate, and requires Rust to accept with a definition `kore-parser` accepts; it fails when either side changes.
 
 ## Resource bounds
 
