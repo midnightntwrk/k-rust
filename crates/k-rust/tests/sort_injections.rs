@@ -431,9 +431,169 @@ fn parametric_argument_with_incomparable_least_instances_is_ambiguous() {
         matches!(
             &error,
             SortInjectionError::AmbiguousInstance(ambiguity)
-                if ambiguity.argument == Sort::new("Byte")
-                    && ambiguity.instances == vec![mint("16"), mint("8")]
+                if ambiguity.arguments == vec![Sort::new("Byte")]
+                    && ambiguity.candidates == vec![vec![mint("16")], vec![mint("8")]]
         ),
+        "{error}"
+    );
+}
+
+const TWO_WIDTHS: &str = indoc! {r#"
+    module MAIN
+      syntax MInt{8}
+      syntax MInt{16}
+      syntax Byte
+      syntax MInt{8} ::= Byte
+      syntax MInt{16} ::= Byte
+      syntax MInt{16} ::= MInt{8}
+      syntax Result
+      syntax {W} Result ::= "use2(" MInt{W} "," MInt{W} ")" [symbol(use2)]
+    endmodule
+"#};
+
+fn use2_of(left: Sort, right: Sort) -> Term {
+    Term::apply(
+        "use2",
+        vec![
+            Term::Variable {
+                name: "X".into(),
+                sort: Some(left),
+            },
+            Term::Variable {
+                name: "Y".into(),
+                sort: Some(right),
+            },
+        ],
+    )
+}
+
+fn injected_use2(left: Sort, right: Sort) -> Result<Term, SortInjectionError> {
+    let (_, resolved) = use_injector(TWO_WIDTHS);
+    SortInjector::new(&resolved, "MAIN")
+        .unwrap()
+        .inject(&use2_of(left, right), &Sort::new("Result"))
+}
+
+// One parameter shared by two arguments is instantiated for both at once: `use2(X:MInt{8},
+// Y:MInt{16})` is well sorted at `W = 16`, where the first argument is injected upward.
+#[test]
+fn shared_parameter_is_instantiated_jointly_over_the_arguments() {
+    let injected = injected_use2(mint("8"), mint("16")).unwrap();
+    let Term::Apply { label, arguments } = injected.unannotated() else {
+        panic!("expected the parametric use2 application");
+    };
+
+    assert_eq!(label.parameters, vec![Sort::new("16")], "{injected}");
+    assert!(
+        matches!(
+            arguments.as_slice(),
+            [Term::Apply { label, .. }, Term::Variable { .. }]
+                if label.name == "inj" && label.parameters == vec![mint("8"), mint("16")]
+        ),
+        "{injected}"
+    );
+}
+
+// Alone, `Byte` would take its least instance `MInt{8}`; a second argument of sort `MInt{16}` rules
+// out `W = 8`, so the joint instantiation is `W = 16` for both arguments.
+#[test]
+fn later_argument_selects_the_instance_for_an_earlier_one() {
+    let injected = injected_use2(Sort::new("Byte"), mint("16")).unwrap();
+    let Term::Apply { label, .. } = injected.unannotated() else {
+        panic!("expected the parametric use2 application");
+    };
+
+    assert_eq!(label.parameters, vec![Sort::new("16")], "{injected}");
+}
+
+// Without `MInt{8} < MInt{16}`, `Byte` has two incomparable least instances; a second argument of
+// sort `MInt{8}` resolves the choice, while two `Byte` arguments leave it ambiguous.
+#[test]
+fn joint_ambiguity_is_resolved_by_another_argument_or_reported() {
+    let source = TWO_WIDTHS.replace("  syntax MInt{16} ::= MInt{8}\n", "");
+    assert_ne!(source, TWO_WIDTHS);
+    let (_, resolved) = use_injector(&source);
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+
+    let resolved_by_second = injector
+        .inject(&use2_of(Sort::new("Byte"), mint("8")), &Sort::new("Result"))
+        .unwrap();
+    let Term::Apply { label, .. } = resolved_by_second.unannotated() else {
+        panic!("expected the parametric use2 application");
+    };
+    assert_eq!(
+        label.parameters,
+        vec![Sort::new("8")],
+        "{resolved_by_second}"
+    );
+
+    let error = injector
+        .inject(
+            &use2_of(Sort::new("Byte"), Sort::new("Byte")),
+            &Sort::new("Result"),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            SortInjectionError::AmbiguousInstance(ambiguity)
+                if ambiguity.candidates
+                    == vec![vec![mint("16"), mint("16")], vec![mint("8"), mint("8")]]
+        ),
+        "{error}"
+    );
+}
+
+fn nat_as_definition() -> ResolvedDefinition {
+    ResolvedDefinition::resolve(&lowered(indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)]
+          syntax Bool ::= "t" [symbol(t)]
+        endmodule
+    "#}))
+    .unwrap()
+}
+
+fn as_pattern(alias_sort: Option<&str>) -> Term {
+    Term::As {
+        pattern: Box::new(Term::apply("z", vec![])),
+        alias: Box::new(Term::Variable {
+            name: "X".into(),
+            sort: alias_sort.map(Sort::new),
+        }),
+    }
+    .with_metadata(TermMetadata {
+        sort: Some(Sort::new("Nat")),
+        ..TermMetadata::default()
+    })
+}
+
+// The alias of `(z #as X):Nat` names a `Nat`: a sortless `X` takes that sort, `X:Nat` is kept, and
+// `X:Bool` is rejected instead of being retyped to `Nat`.
+#[test]
+fn sorted_alias_of_a_cast_as_pattern_must_fit_the_cast() {
+    let resolved = nat_as_definition();
+    let injector = SortInjector::new(&resolved, "MAIN").unwrap();
+    let alias_sort = |injected: &Term| match injected.unannotated() {
+        Term::As { alias, .. } => match alias.unannotated() {
+            Term::Variable { sort, .. } => sort.clone(),
+            other => panic!("alias is not a variable: {other}"),
+        },
+        other => panic!("expected an as-pattern: {other}"),
+    };
+
+    for alias in [None, Some("Nat")] {
+        let injected = injector
+            .inject(&as_pattern(alias), &Sort::new("Nat"))
+            .unwrap();
+        assert_eq!(alias_sort(&injected), Some(Sort::new("Nat")), "{injected}");
+    }
+    let error = injector
+        .inject(&as_pattern(Some("Bool")), &Sort::new("Nat"))
+        .unwrap_err();
+    assert!(
+        matches!(&error, SortInjectionError::IllSortedTerm(mismatch)
+            if mismatch.found == Sort::new("Bool") && mismatch.required == Sort::new("Nat")),
         "{error}"
     );
 }

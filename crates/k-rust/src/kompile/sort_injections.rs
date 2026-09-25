@@ -84,22 +84,20 @@ pub enum SortInjectionError {
     /// (`found`) nor strictly below it, so the cast is neither an upcast (an injection) nor a
     /// downcast (a projection).
     IncomparableCast(Box<SortMismatch>),
-    /// An argument of sort `argument` at a parametric argument sort `declared` that has several
-    /// incomparable least declared instances above the argument, so no instantiation fits it most
-    /// tightly.
+    /// A parametric production whose arguments fit several incomparable least instantiations,
+    /// so no instantiation fits them most tightly.
     AmbiguousInstance(Box<AmbiguousInstance>),
 }
 
-/// A parametric argument sort with several incomparable least declared instances above an
-/// argument's sort.
+/// A parametric production's arguments with several incomparable least instantiations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AmbiguousInstance {
-    /// The production's declared argument sort, with its sort parameters.
-    pub declared: Sort,
-    /// The argument's sort.
-    pub argument: Sort,
-    /// The minimal declared instances of `declared` above `argument`, in catalog order.
-    pub instances: Vec<Sort>,
+    /// The declared argument sorts involved, with their sort parameters.
+    pub declared: Vec<Sort>,
+    /// The sorts of the corresponding arguments.
+    pub arguments: Vec<Sort>,
+    /// For each minimal instantiation, the declared argument sorts it instantiates to.
+    pub candidates: Vec<Vec<Sort>>,
 }
 
 /// A term and the two sorts a sort check found unrelated.
@@ -213,18 +211,27 @@ impl fmt::Display for SortInjectionError {
                 "semantic cast of {} to sort {} is not comparable with its sort {}: it is neither an upcast nor a downcast",
                 mismatch.term, mismatch.required, mismatch.found
             ),
-            Self::AmbiguousInstance(ambiguity) => write!(
-                formatter,
-                "an argument of sort {} fits {} at several incomparable least instances: {}",
-                ambiguity.argument,
-                ambiguity.declared,
-                ambiguity
-                    .instances
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            Self::AmbiguousInstance(ambiguity) => {
+                let list = |sorts: &[Sort]| {
+                    sorts
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                write!(
+                    formatter,
+                    "arguments of sorts ({}) fit ({}) at several incomparable least instantiations: {}",
+                    list(&ambiguity.arguments),
+                    list(&ambiguity.declared),
+                    ambiguity
+                        .candidates
+                        .iter()
+                        .map(|candidate| format!("({})", list(candidate)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
         }
     }
 }
@@ -913,9 +920,17 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 left: Box::new(self.inject_with_position(left, actual, true)?),
                 right: Box::new(self.inject_with_position(right, actual, false)?),
             },
+            // The alias names the value the pattern matches, at the as-pattern's sort. A sortless
+            // alias variable takes that sort; an alias with a sort of its own is placed at that
+            // sort like the pattern, so it is injected when below it and rejected otherwise.
             Term::As { pattern, alias } => Term::As {
                 pattern: Box::new(self.inject_with_position(pattern, actual, is_lhs)?),
-                alias: Box::new(with_variable_sort(alias, actual)),
+                alias: Box::new(match alias.unannotated() {
+                    Term::Variable { sort: Some(_), .. } => {
+                        self.inject_with_position(alias, actual, is_lhs)?
+                    }
+                    _ => with_variable_sort(alias, actual),
+                }),
             },
             Term::Sequence(items) => {
                 let items = items
@@ -1019,7 +1034,22 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 .cloned()
                 .zip(fresh.iter().cloned())
                 .collect::<BTreeMap<_, _>>();
+            // Parameters that occur in argument sorts only strictly inside a parametric sort
+            // (`W` in `MInt{W}`), never as a whole argument sort nor as the result sort, range
+            // over the declared instances of those sorts and are instantiated jointly below.
+            let nested = parameters
+                .iter()
+                .filter(|parameter| {
+                    *parameter != sort
+                        && argument_sorts
+                            .iter()
+                            .any(|argument| contains_sort(argument, parameter))
+                        && !argument_sorts.iter().any(|argument| argument == parameter)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
             let mut matches = BTreeMap::<Sort, Vec<Sort>>::new();
+            let mut actual_sorts = Vec::with_capacity(arguments.len());
             for ((declared, argument), fresh_expected) in argument_sorts.iter().zip(arguments).zip(
                 argument_sorts
                     .iter()
@@ -1030,13 +1060,28 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     Some(&fresh_expected),
                     allow_trailing_arguments,
                 )?;
-                self.match_sort(
-                    parameters,
-                    declared,
-                    &actual,
-                    Instances::AtOrAbove,
-                    &mut matches,
-                )?;
+                if parameters.iter().any(|parameter| {
+                    !nested.contains(parameter) && contains_sort(declared, parameter)
+                }) {
+                    self.match_sort(
+                        parameters,
+                        declared,
+                        &actual,
+                        Instances::AtOrAbove,
+                        &mut matches,
+                    )?;
+                }
+                actual_sorts.push(actual);
+            }
+            let jointly = self.instantiate_nested_parameters(
+                &nested,
+                &argument_sorts,
+                &actual_sorts,
+                sort,
+                &expected,
+            )?;
+            for parameter in &nested {
+                matches.remove(parameter);
             }
             // Invariant: each `parameter` scans `argument_sorts` once, O(|parameters| * |argument_sorts|), and the scan stops at the first parameter that occurs in `sort` but in no argument sort.
             let result_only_parameter = parameters.iter().any(|parameter| {
@@ -1059,6 +1104,9 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 .cloned()
                 .zip(fresh)
                 .map(|(parameter, fallback)| {
+                    if let Some(value) = jointly.get(&parameter) {
+                        return Ok((parameter, value.clone()));
+                    }
                     let inferred = matches
                         .remove(&parameter)
                         .map(|sorts| self.parametric_lub(&sorts, &fallback))
@@ -1080,6 +1128,133 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 .collect(),
             result: substitute_sort(sort, &substitution),
         })
+    }
+
+    /// Instantiate the parameters `nested`, which occur in argument sorts only inside parametric
+    /// sorts, jointly over all arguments.
+    ///
+    /// An instantiation `σ` fits when every argument's sort is at or below its declared sort under
+    /// `σ`, and, when the result sort mentions a parameter and `expected` is a concrete sort, the
+    /// instantiated result is at or below `expected`. Candidate values of each parameter come from
+    /// matching each declared argument sort against the argument's own sort and the declared
+    /// sorts above it. Among fitting instantiations the least one is chosen, in the pointwise
+    /// order on the instantiated argument sorts; several incomparable minimal ones are
+    /// [`SortInjectionError::AmbiguousInstance`]. When every argument is itself an instance and
+    /// the instances agree, that instantiation is taken directly. Parameters with no candidate
+    /// stay uninstantiated, and injecting the arguments then rejects the term.
+    // Invariant: the search visits each assignment of the cartesian product of the parameters' candidate values once, O(product x arguments) subsort queries, and each candidate list holds only sorts matched against a declared sort.
+    fn instantiate_nested_parameters(
+        &self,
+        nested: &[Sort],
+        declared: &[&Sort],
+        actual: &[Sort],
+        result: &Sort,
+        expected: &Sort,
+    ) -> Result<BTreeMap<Sort, Sort>, SortInjectionError> {
+        if nested.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+        let relevant = declared
+            .iter()
+            .zip(actual)
+            .filter(|(declared, _)| {
+                nested
+                    .iter()
+                    .any(|parameter| contains_sort(declared, parameter))
+            })
+            .map(|(declared, actual)| (*declared, actual))
+            .collect::<Vec<_>>();
+
+        let mut exact = BTreeMap::new();
+        if relevant
+            .iter()
+            .all(|(declared, actual)| bind_parameters(nested, declared, actual, &mut exact))
+        {
+            return Ok(exact);
+        }
+
+        let mut values = BTreeMap::<Sort, BTreeSet<Sort>>::new();
+        for (declared, actual) in &relevant {
+            let above = std::iter::once(*actual).chain(
+                self.sorts
+                    .sorted_all_sorts()
+                    .filter(|candidate| self.subsorts.less_than_eq(actual, candidate)),
+            );
+            for candidate in above {
+                let mut binding = BTreeMap::new();
+                if bind_parameters(nested, declared, candidate, &mut binding) {
+                    for (parameter, value) in binding {
+                        values.entry(parameter).or_default().insert(value);
+                    }
+                }
+            }
+        }
+        let mut assignments = vec![BTreeMap::<Sort, Sort>::new()];
+        for (parameter, candidates) in &values {
+            assignments = assignments
+                .into_iter()
+                .flat_map(|assignment| {
+                    candidates.iter().map(move |value| {
+                        let mut extended = assignment.clone();
+                        extended.insert(parameter.clone(), value.clone());
+                        extended
+                    })
+                })
+                .collect();
+        }
+        let constrains_result = nested
+            .iter()
+            .any(|parameter| contains_sort(result, parameter))
+            && !mentions_sort_parameter(expected);
+        let instantiated = |assignment: &BTreeMap<Sort, Sort>| {
+            relevant
+                .iter()
+                .map(|(declared, _)| substitute_sort(declared, assignment))
+                .collect::<Vec<_>>()
+        };
+        let fitting = assignments
+            .into_iter()
+            .filter(|assignment| {
+                relevant.iter().all(|(declared, actual)| {
+                    self.below(actual, &substitute_sort(declared, assignment))
+                }) && (!constrains_result
+                    || self.below(&substitute_sort(result, assignment), expected))
+            })
+            .map(|assignment| {
+                let sorts = instantiated(&assignment);
+                (assignment, sorts)
+            })
+            .collect::<Vec<_>>();
+        let at_most = |left: &[Sort], right: &[Sort]| {
+            left.iter()
+                .zip(right)
+                .all(|(left, right)| self.below(left, right))
+        };
+        let minimal = fitting
+            .iter()
+            .filter(|(_, sorts)| {
+                !fitting
+                    .iter()
+                    .any(|(_, other)| other != sorts && at_most(other, sorts))
+            })
+            .collect::<Vec<_>>();
+        match minimal.as_slice() {
+            [] => Ok(BTreeMap::new()),
+            [(assignment, _)] => Ok(assignment.clone()),
+            several => Err(SortInjectionError::AmbiguousInstance(Box::new(
+                AmbiguousInstance {
+                    declared: relevant
+                        .iter()
+                        .map(|(declared, _)| (*declared).clone())
+                        .collect(),
+                    arguments: relevant
+                        .iter()
+                        .map(|(_, actual)| (*actual).clone())
+                        .collect(),
+                    candidates: several.iter().map(|(_, sorts)| sorts.clone()).collect(),
+                },
+            ))),
+        }
     }
 
     fn has_production(&self, term: &Term, label: &Label) -> bool {
@@ -1167,9 +1342,13 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                     ),
                     (Some(first), Some(second)) => Err(SortInjectionError::AmbiguousInstance(
                         Box::new(AmbiguousInstance {
-                            declared: declared.clone(),
-                            argument: known.clone(),
-                            instances: [first, second].into_iter().chain(least).collect(),
+                            declared: vec![declared.clone()],
+                            arguments: vec![known.clone()],
+                            candidates: [first, second]
+                                .into_iter()
+                                .chain(least)
+                                .map(|instance| vec![instance])
+                                .collect(),
                         }),
                     )),
                 }
@@ -1432,6 +1611,37 @@ pub fn add_sort_injections_from_resolved(
     term: &Term,
 ) -> Result<Term, SortInjectionError> {
     SortInjector::new(definition, module)?.inject_at_top(term)
+}
+
+/// Whether `sort` is or contains a sort variable of a sentence or production.
+fn mentions_sort_parameter(sort: &Sort) -> bool {
+    sort.name == FrontendSort::SortParam.as_str()
+        || sort.parameters.iter().any(mentions_sort_parameter)
+}
+
+/// Extend `binding` so that `declared`, with the sort parameters in `parameters` substituted, is
+/// `concrete`; a parameter occurring twice must be bound to one sort. Returns whether it matched.
+fn bind_parameters(
+    parameters: &[Sort],
+    declared: &Sort,
+    concrete: &Sort,
+    binding: &mut BTreeMap<Sort, Sort>,
+) -> bool {
+    if parameters.contains(declared) {
+        return match binding.get(declared) {
+            Some(bound) => bound == concrete,
+            None => {
+                binding.insert(declared.clone(), concrete.clone());
+                true
+            }
+        };
+    }
+    same_head(declared, concrete)
+        && declared
+            .parameters
+            .iter()
+            .zip(&concrete.parameters)
+            .all(|(declared, concrete)| bind_parameters(parameters, declared, concrete, binding))
 }
 
 /// Whether two sorts have the same head name and parameter count.
