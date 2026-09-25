@@ -1,6 +1,6 @@
 //! Fail-closed native/reference KORE comparison for the M4 complete-IMP gate.
 //!
-//! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives whose order differs between K's `Production.ord` and k-rust's declaration order.
+//! The comparator canonicalizes constructor-tagged no-confusion pairs and no-junk alternatives under k-rust's dependency-first declaration-order contract (`docs/compatibility.md`, Comparison contract; `scripts/reference-normalisations.toml`, N6/N13/N30).
 //! Its only exclusion beyond metadata and per-sentence alpha normalization is a mechanically proven, complete, closed, unused pair made from one structured-adapter named projector declaration and its one defining equation.
 //! A projector-looking prefix is never sufficient.
 
@@ -254,8 +254,12 @@ fn normalize_labels(
                 "label attribute is not exactly one string",
             ));
         };
-        if let Some(mapped) = policy.label_map.get(label) {
-            *label = mapped.clone();
+        let mapped = label
+            .as_utf8()
+            .ok()
+            .and_then(|name| policy.label_map.get(name));
+        if let Some(mapped) = mapped {
+            *label = mapped.as_str().into();
         }
     }
     attributes.0.sort();
@@ -275,7 +279,7 @@ fn alpha_normalize_sentence(sentence: &mut Sentence) {
 /// Canonicalize the commutative alternatives in one generated constructor no-junk axiom.
 ///
 /// Each constructor alternative owns its existential binders.
-/// Normalize those local names before ordering the alternatives so declaration order and `Production.ord` produce the same exact multiset member while retaining every alternative and its complete structure.
+/// Normalize those local names before comparing complete alternatives as a multiset under k-rust's `scripts/reference-normalisations.toml` N6 and N13.
 fn canonicalize_no_junk_axiom(sentence: &mut Sentence) {
     let Sentence::Axiom {
         pattern,
@@ -300,7 +304,7 @@ fn canonicalize_no_junk_axiom(sentence: &mut Sentence) {
 
 /// Canonicalize the commutative constructor pair in one generated no-confusion axiom.
 ///
-/// K orders the pair by `Production.ord`, while current k-rust uses declaration order.
+/// K orders the pair by `Production.ord`; k-rust's `docs/compatibility.md` Comparison contract specifies dependency-first declaration order (normalization N30).
 /// The conjunction is commutative and its generated free variables are alpha-equivalent, so the comparator orders the applications by symbol and argument sorts before its ordinary per-sentence alpha normalization.
 fn canonicalize_no_confusion_pair(sentence: &mut Sentence) {
     let Sentence::Axiom {
@@ -649,7 +653,10 @@ fn string_attribute<'a>(
     match matches.as_slice() {
         [] => Ok(None),
         [arguments] => match arguments.as_slice() {
-            [Pattern::String(value)] => Ok(Some(value)),
+            [Pattern::String(value)] => value
+                .as_utf8()
+                .map(Some)
+                .map_err(|_| CompareError::new(format!("{name} attribute is not UTF-8"))),
             _ => Err(CompareError::new(format!(
                 "{name} attribute is not exactly one string"
             ))),
@@ -977,7 +984,7 @@ mod tests {
         let mut attributes = Attributes(vec![
             application(
                 "symbol'Kywd'",
-                vec![Pattern::String("source-spelling".to_owned())],
+                vec![Pattern::String("source-spelling".into())],
             ),
             application("cool-like", Vec::new()),
             application("all-path", Vec::new()),

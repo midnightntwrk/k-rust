@@ -603,15 +603,20 @@ fn emit_production(
     }
     // A token production denotes domain values of its sort, not a
     // constructor, so it carries no symbol: K's Haskell backend rejects a
-    // constructor on a sort that has domain values. The native adapter omits
-    // the label for the same reason.
-    let is_token = sentence
-        .attributes()
-        .iter()
-        .any(|attribute| matches!(attribute, ProductionAttribute::Token { .. }));
+    // constructor on a sort that has domain values. A bracket production is
+    // parse-only, so no term contains its symbol; Java K declares a labelled
+    // bracket as a constructor in definition.kore while k-rust declares none
+    // (bracket-production-constructor), so an unlabelled bracket is the form
+    // on which both routes agree.
+    let is_parse_only = sentence.attributes().iter().any(|attribute| {
+        matches!(
+            attribute,
+            ProductionAttribute::Token { .. } | ProductionAttribute::Bracket { .. }
+        )
+    });
     writer.push(" [");
     let mut first = true;
-    if !is_token {
+    if !is_parse_only {
         writer.push("symbol(");
         writer.push(sentence.symbol().emitted_name());
         writer.push(")");

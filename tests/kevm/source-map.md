@@ -184,8 +184,8 @@ The development gate executes the full corpus through K-Rust and defers Java ref
 
 The behavior matrix additionally covers present and absent accounts, EIP-161 account emptiness across code, nonce, and balance, warm and cold account access, byte-exact external code copying and hashing, log memory extraction and zero padding, ordered topics, SHA3 empty and expanded-memory hashing, successful/reverted/exceptional warm-account nonempty-code `STATICCALL`, child access-list rollback, revert returndata copying, ECREC/SHA-256/RIPEMD-160/identity/MODEXP/ECADD/ECMUL/ECPAIRING-precompile success and forwarded-gas failure, invalid-signature ECREC success with empty returndata, MODEXP modulus-zero and zero-output-width results, the 200-gas EIP-2565 floor, an above-floor long-exponent vector, ECADD infinity and invalid-point behavior, ECMUL generator-times-two and zero-scalar infinity behavior, ECPAIRING empty-product identity, non-identity generator product, malformed length, invalid G1/G2 points, post-charge mutation, atomic out-of-gas behavior, static rejection, all selected stack-underflow partitions, and self-balance lookup.
 The structured K-Rust behavior SHA-256 is `7d7fd9dac9d3088682fa3ea27686c2a431219ded26f8a13400d2f4025f024673`.
-Clean k-rust main still rejects already-complete nested configuration cells, so the KRS adapter presents those IR terms through the frontend's equivalent closed parser shape.
-This compatibility encoding preserves the pinned behavior digest.
+Cell concretization's rejection of already-complete nested configuration cells was fixed upstream in 23a6efc7 before the pinned revision.
+KRS passes complete fixed-arity cells directly to the structured frontend.
 Six focused definition/hover probes pass with zero rust-analyzer diagnostics.
 
 The K-Rust backend executes all 240 cases through persistent worker processes.

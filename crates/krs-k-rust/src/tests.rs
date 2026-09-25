@@ -680,7 +680,7 @@ fn prepared_with_structured_injection_for_test(
         .find(|module| module.name == MODULE)
         .expect("test bootstrap module must exist")
         .local_sentences
-        .extend(sentences);
+        .extend(sentences.into_iter().map(std::sync::Arc::new));
     loaded.resolved = ResolvedDefinition::resolve(&loaded.definition)
         .expect("structured test injection must resolve");
     loaded
@@ -1149,7 +1149,7 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label), ..
             } => Some(label.name.as_str()),
@@ -1175,7 +1175,7 @@ fn pinned_native_prelude_exposes_the_collection_labels_used_by_the_adapter() {
         .modules
         .iter()
         .flat_map(|module| module.local_sentences.iter())
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: Some(label),
                 attributes,
@@ -1702,7 +1702,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
     let configuration = main
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Configuration { body, .. } => Some(body),
             _ => None,
         })
@@ -1732,7 +1732,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
     let rule = main
         .local_sentences
         .iter()
-        .find_map(|sentence| match sentence {
+        .find_map(|sentence| match &**sentence {
             Sentence::Rule {
                 body, attributes, ..
             } => Some((body, attributes)),
@@ -1758,7 +1758,7 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
     let subsorts = syntax
         .local_sentences
         .iter()
-        .filter_map(|sentence| match sentence {
+        .filter_map(|sentence| match &**sentence {
             Sentence::Production {
                 label: None,
                 sort,
@@ -1892,7 +1892,7 @@ fn transition_sentence_is_preserved_as_a_native_rule() {
         module
             .local_sentences
             .iter()
-            .any(|sentence| matches!(sentence, Sentence::Rule { .. }))
+            .any(|sentence| matches!(**sentence, Sentence::Rule { .. }))
     }));
 }
 

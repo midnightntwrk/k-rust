@@ -18,7 +18,7 @@ Every authored source file is rustc-valid Rust.
 
 The authored and independently expanded IMP packages are checked on the `Krs.lock` MSRV, Rust 1.88.0.
 Native/frontend helpers are additionally qualified on the current stable Rust, which must be at or above that MSRV.
-Clean k-rust main `efda6192785d4113eeea2fa090e4662d30dc8801` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
+Clean k-rust main `d4a50b3fe08331de9968edb05c38c7503730e589` declares and enforces MSRV 1.88, so the gate also checks the workspace and every helper on exact Rust 1.88.0.
 Earlier k-rust revisions used if-let guards, which Rust 1.88.0 rejects; that discrepancy previously blocked this alignment and is now closed.
 The complete M4.1-M4.8 gate passed against that pin on 2026-09-15 JST.
 

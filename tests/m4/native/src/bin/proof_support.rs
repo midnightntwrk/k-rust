@@ -375,7 +375,10 @@ fn string_attribute<'a>(
     match matches.as_slice() {
         [] => Ok(None),
         [arguments] => match arguments.as_slice() {
-            [Pattern::String(value)] => Ok(Some(value)),
+            [Pattern::String(value)] => value
+                .as_utf8()
+                .map(Some)
+                .map_err(|_| failure(format!("attribute {name:?} is not UTF-8"))),
             _ => Err(failure(format!(
                 "attribute {name:?} is not exactly one string"
             ))),
@@ -440,9 +443,9 @@ mod tests {
     #[test]
     fn residual_normalization_is_narrowly_and_map_associative_commutative() {
         let map = "Lbl'Unds'Map'Unds'";
-        let a = Pattern::String("a".to_owned());
-        let b = Pattern::String("b".to_owned());
-        let c = Pattern::String("c".to_owned());
+        let a = Pattern::String("a".into());
+        let b = Pattern::String("b".into());
+        let c = Pattern::String("c".into());
         let mut left = Pattern::And {
             sort: sort(),
             arguments: vec![

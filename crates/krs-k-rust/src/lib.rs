@@ -67,7 +67,7 @@ pub struct FrontendPin {
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
     crate_version: "0.4.0",
-    source_revision: "efda6192785d4113eeea2fa090e4662d30dc8801",
+    source_revision: "d4a50b3fe08331de9968edb05c38c7503730e589",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
@@ -241,33 +241,9 @@ impl AdaptedDefinition {
     }
 }
 
-/// A native capability boundary retained for compatibility with the
-/// provisional oracle harness.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CapabilityError {
-    /// The pinned frontend has no direct upstream structured-preparation
-    /// convenience API. The permanent path supplies [`prepare_definition`]
-    /// instead and does not return this error.
-    StructuredDefinitionPreparationUnavailable,
-}
-
-impl fmt::Display for CapabilityError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::StructuredDefinitionPreparationUnavailable => formatter.write_str(
-                "k-rust 0.3.0 has no direct structured Definition preparation convenience API",
-            ),
-        }
-    }
-}
-
-impl Error for CapabilityError {}
-
 /// Structural Definition-IR adaptation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AdapterError {
-    /// A compatibility capability boundary was crossed.
-    Capability(CapabilityError),
     /// A validated symbol reference could not be found while indexing the IR.
     MissingSymbol {
         /// Origin of the referencing node.
@@ -289,7 +265,6 @@ pub enum AdapterError {
 impl fmt::Display for AdapterError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Capability(error) => error.fmt(formatter),
             Self::MissingSymbol { key, symbol } => write!(
                 formatter,
                 "Definition IR symbol {:?} referenced at {:?} is absent from the adapter index",
@@ -308,15 +283,8 @@ impl fmt::Display for AdapterError {
 impl Error for AdapterError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Capability(error) => Some(error),
             Self::MissingSymbol { .. } | Self::MissingReference { .. } => None,
         }
-    }
-}
-
-impl From<CapabilityError> for AdapterError {
-    fn from(error: CapabilityError) -> Self {
-        Self::Capability(error)
     }
 }
 
@@ -413,9 +381,6 @@ pub struct CompiledArtifacts {
 pub enum DefinitionCompileError {
     /// Definition IR could not be represented by the schema-9 adapter.
     Adapter(AdapterError),
-    /// The adapted source Definition cannot be prepared through a supported
-    /// pinned-frontend API.
-    Capability(CapabilityError),
     /// The pinned public preparation primitives rejected the native graph.
     Preparation(String),
     /// The ordered native compiler rejected the prepared graph.
@@ -440,7 +405,6 @@ impl fmt::Display for DefinitionCompileError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Adapter(error) => error.fmt(formatter),
-            Self::Capability(error) => error.fmt(formatter),
             Self::Preparation(message) => write!(formatter, "native preparation failed: {message}"),
             Self::Compile { stage, message, .. } => {
                 write!(
@@ -459,7 +423,6 @@ impl Error for DefinitionCompileError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Adapter(error) => Some(error),
-            Self::Capability(error) => Some(error),
             Self::Preparation(_) | Self::Compile { .. } | Self::KoreReparse { .. } => None,
         }
     }
@@ -623,14 +586,14 @@ pub fn compile_definition(
     Ok(artifacts)
 }
 
-/// Repair the pinned frontend's sentence-local `_GenN` collision between
-/// `ConcretizeCells` output and its later term-construction minimizer.
+/// Retain the `fresh-name-sort-collision` repair until qualification gates
+/// show that it never changes the emitted KORE.
 ///
 /// KORE identifies a variable by kind and name and requires one sort for that
-/// identity. The pinned compiler can allocate the same `_GenN` name to two
-/// independent terms of different sorts. Rename only the later sorted
-/// identities, consistently across one sentence, and leave collision-free
-/// output byte-for-byte untouched.
+/// identity. The pinned frontend's `FreshNames` allocator reserves every name
+/// regardless of sort. If a collision still occurs, rename the later sorted
+/// identities consistently within one sentence. Leave collision-free output
+/// byte-for-byte untouched.
 fn disambiguate_kore_variable_sorts(source: &str, width: usize) -> Result<String, String> {
     let mut definition = parse_kore_definition(source).map_err(|error| error.to_string())?;
     let mut repaired = 0_usize;
@@ -940,7 +903,7 @@ pub fn compile_loaded_definition(
                 module
                     .local_sentences
                     .iter()
-                    .any(|sentence| matches!(sentence, NativeSentence::Claim { .. }))
+                    .any(|sentence| matches!(**sentence, NativeSentence::Claim { .. }))
             }) {
                 NativeCheckMode::Proof {
                     definition_module: loaded.definition.main_module.clone(),
@@ -1049,7 +1012,7 @@ impl Adapter {
         for sentence in module.sentences() {
             let sentence_index = local_sentences.len();
             let native = self.sentence(sentence, &module_name, sentence_index)?;
-            local_sentences.push(native);
+            local_sentences.push(std::sync::Arc::new(native));
         }
         let mut imports = module
             .imports()
@@ -1198,10 +1161,9 @@ impl Adapter {
                 }
             })
             .collect::<Result<Vec<_>, AdapterError>>()?;
-        // Token values lower to KORE domain values, never applications of
-        // their source-level parser production. Leaving a stable KRS symbol
-        // on that production makes the native frontend emit a constructor on
-        // a hooked/domain-value sort, which the native backend rejects.
+        // token-production-constructor: token values lower to KORE domain
+        // values, never applications of their parser production. Omit the
+        // unused label to match the source frontend's unlabelled-token form.
         let label = attributes
             .get("token")
             .is_none()
@@ -1932,11 +1894,10 @@ impl Adapter {
                     .collect::<Result<Vec<_>, _>>()?;
                 let native = Self::map_term(*operation, arguments, term.origin())?;
                 if *operation == MapOperation::Get {
-                    // Preserve the typed equation's result sort at the rewrite
-                    // root. An upstream semantic cast around heterogeneous
-                    // collection lookup is projected only after its rewrite
-                    // has already widened to KItem, misclassifying function
-                    // equations as ordinary semantic rules.
+                    // semantic-cast-projection-widening: represent a typed
+                    // heterogeneous lookup with the project:<Sort> term used
+                    // by k-rust's semantic downcast. Keep the Definition IR
+                    // result sort explicit.
                     Ok(NativeTerm::apply(
                         format!("project:{}", self.sort(term.sort(), term.origin())?.name),
                         vec![native],

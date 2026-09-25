@@ -1013,8 +1013,8 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
         comparator.extend(["--label", f"{source}={target}"])
     result = run(comparator, timeout=600, environment=env)
     expected_summary = (
-        "PASS native KORE: reference=1206 native=1206 "
-        "reference_projector_pairs=0 native_projector_pairs=40\n"
+        "PASS native KORE: reference=1188 native=1188 "
+        "reference_projector_pairs=0 native_projector_pairs=39\n"
     )
     require_exact_summary(result, expected_summary, "native comparator")
     return result.stdout.strip()

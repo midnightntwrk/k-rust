@@ -8,17 +8,18 @@ review links fail visibly if the evidence regresses.
 
 Reproduced on 2026-09-15 with descriptor protocol 35,
 Definition IR schema 27,
-pinned `k-rust` revision `efda6192785d4113eeea2fa090e4662d30dc8801`, and
+pinned `k-rust` revision `d4a50b3fe08331de9968edb05c38c7503730e589`, and
 pinned K 7.1.337:
 
 ```text
-PASS native KORE: reference=1206 native=1206 reference_projector_pairs=0 native_projector_pairs=40
+PASS native KORE: reference=1188 native=1188 reference_projector_pairs=0 native_projector_pairs=39
 ```
 
 All non-claim sentences and all 20 claims match. The comparator removes five
 enumerated renderer metadata attributes, alpha-normalizes variables per sentence while preserving kind and sort, canonicalizes constructor-tagged no-confusion pairs by symbol and argument sorts, canonicalizes constructor-tagged no-junk alternatives after independent alpha normalization, applies 20 individual reviewed label mappings, and mechanically proves each removed native projector declaration and equation is a complete, closed, unused pair.
-The no-confusion pair normalization accounts only for the commutative conjunction order chosen by K's `Production.ord` versus k-rust's declaration rank.
-The no-junk normalization accounts only for the commutative top-level disjunction of complete existentially wrapped constructor alternatives and retains multiplicity.
+K-rust's `docs/compatibility.md` Comparison contract specifies dependency-first declaration order for emitted sentences.
+The no-confusion pair normalization applies `scripts/reference-normalisations.toml` N30 to the commutative conjunction ordered by K's `Production.ord`.
+The no-junk normalization applies N6 to the commutative top-level disjunction of complete existentially wrapped constructor alternatives and retains multiplicity; N13 compares sentences as a multiset.
 It performs no other parenthesis, associative/commutative, or claim-specific normalization.
 
 The separate incomplete-proof residual comparator permits
@@ -36,11 +37,10 @@ ordered namespace while retaining one name at the binder and every use. This
 closed `bmc-loop-concrete`, `bmc-loop-symbolic`, `branching`, and
 `branching-deadcode` without comparator allowances.
 
-The pinned minimizer can also reuse one `_GenN` name for different sorts in a
-single sentence, yielding invalid KORE. KRS repairs that parsed output by
-alpha-renaming only the later conflicting `(kind, name, sort)` identity.
-Collision-free output remains byte-for-byte unchanged, and the pinned
-`k-rust` checkout is not modified.
+The pinned frontend's `FreshNames` allocator reserves every name regardless of sort.
+KRS retains the `fresh-name-sort-collision` repair until the M4, KEVM, KMIR, and KWasm gates show that it never fires.
+If a collision occurs, the repair renames only the later conflicting `(kind, name, sort)` identity.
+Collision-free output remains byte-for-byte unchanged.
 
 ## Reproduction contract
 

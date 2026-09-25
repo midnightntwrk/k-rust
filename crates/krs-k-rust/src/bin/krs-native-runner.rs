@@ -39,7 +39,7 @@ fn execute(backend: &mut Backend, request: &Value) -> Result<Value, Box<dyn Erro
     };
     let max_simplification_iterations =
         match request.get("max_simplification_iterations") {
-            None => 4_096,
+            None => ExecuteRequest::default().max_simplification_iterations,
             Some(value) => usize::try_from(value.as_u64().ok_or(
                 "request field `max_simplification_iterations` must be an unsigned integer",
             )?)?,

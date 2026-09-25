@@ -43,7 +43,7 @@ LABEL_MAP = {
     "while(_)__IMP-SYNTAX_Stmt_Expr_Stmt": "while",
     "{_}_IMP-SYNTAX_Stmt_Stmt": "block",
     "{}_IMP-SYNTAX_Stmt": "emptyBlock",
-    "(_)_EXPR-SYNTAX_Expr_Expr": "krsGenerated_787219016217a304fd6123cf",
+    "(_)_EXPR-SYNTAX_Expr_Expr": "(_)_KRS-M4-COMPLETE-IMP_Expr_Expr",
     "#SemanticCastToKItem": "#SemanticCastToK",
 }
 for _reference, _actual in tuple(LABEL_MAP.items()):
@@ -104,7 +104,6 @@ def main() -> None:
         identity_names=frozenset(an), known_attributes=frozenset(known),
         metadata_attributes=frozenset(metadata), imports_by_origin={"complete-imp": ()},
         redundant_sort_declarations=frozenset({"KItem", "Expr", "Value", "Stmt", "KResult"}),
-        redundant_production_klabels=frozenset({"krsGenerated_787219016217a304fd6123cf"}),
         joined_terminal_productions=frozenset({"m3dPositive", "m3dPriority", "m3dTotal"}),
     )
     baseline_definition = load_definition(reference)

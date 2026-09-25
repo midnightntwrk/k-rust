@@ -978,8 +978,14 @@ fn named_record_wildcard_bare_constructor_and_generated_bracket_lower() {
     let k = emit_k(&lower_semantic_theory(&semantic).unwrap()).unwrap();
     assert!(k.source().contains("syntax priority"));
     assert!(k.source().contains("syntax left"));
-    assert!(k.source().contains("bracket, format(%1%2%3)"));
-    assert!(k.source().contains("symbol(krsGenerated_"));
+    // A bracket is parse-only and is emitted without a symbol
+    // (bracket-production-constructor).
+    assert!(k.source().contains("[bracket, format(%1%2%3)]"));
+    assert!(
+        !k.source()
+            .lines()
+            .any(|line| line.contains("bracket") && line.contains("symbol("))
+    );
     assert!(
         !k.source()
             .contains("symbol(__krs_generated_semantic_production)")

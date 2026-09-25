@@ -17,12 +17,12 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "efda6192785d4113eeea2fa090e4662d30dc8801"
-tracked_crate_sha256 = "fa370981fb26255cce152cba31e5a5573bf8a24128522119af76dbce56b25359"
+commit = "d4a50b3fe08331de9968edb05c38c7503730e589"
+tracked_crate_sha256 = "845b078f12f265592d46f9350e197c294318be912b8aed043604ce6620a68720"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "852e65b378c07027da83c9fc578662ac6fb6700cf9476f78303c38c2db206b78"
+tracked_backend_sha256 = "9558e3bbf729ba5a45cd3126a8094aea2fd0737a08b3dca2805ef2de8cb3f702"
 kore_version = "0.4.0"
-tracked_kore_sha256 = "e8de6794ce13316e37fdae5dd4de91270418dc9fae5955e46d245e95ad79901b"
+tracked_kore_sha256 = "dea87d5946416597b7c45d564b017d06b3b0fd93f5b1037b985b7c6c918c975d"
 
 [builtin_registry]
 sorts = ["KSequence", "Int", "Bool", "Map", "Id", "Bytes", "String", "List", "Set"]
