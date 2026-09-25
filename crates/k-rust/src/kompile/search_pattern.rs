@@ -27,7 +27,7 @@ use crate::names::BuiltinSort;
 
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
-    expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
+    ResolveSemanticCastsError, expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
     resolve_semantic_casts_with_predicates_in_sentence,
 };
 use super::sort_injections::{SortInjectionError, SortInjector, rewrite_projection};
@@ -67,6 +67,7 @@ pub enum CompileSearchPatternError {
     Rule(RuleError),
     MissingExecutionModule(String),
     CellConcretization(ConcretizeCellsError),
+    SemanticCasts(ResolveSemanticCastsError),
     MacroExpansion(String),
     SortInjection(SortInjectionError),
     TermConversion(TermConversionError),
@@ -84,6 +85,7 @@ impl fmt::Display for CompileSearchPatternError {
                 )
             }
             Self::CellConcretization(error) => error.fmt(formatter),
+            Self::SemanticCasts(error) => error.fmt(formatter),
             Self::MacroExpansion(message) => {
                 write!(
                     formatter,
@@ -114,6 +116,12 @@ impl From<ConcretizeCellsError> for CompileSearchPatternError {
     }
 }
 
+impl From<ResolveSemanticCastsError> for CompileSearchPatternError {
+    fn from(error: ResolveSemanticCastsError) -> Self {
+        Self::SemanticCasts(error)
+    }
+}
+
 impl From<SortInjectionError> for CompileSearchPatternError {
     fn from(error: SortInjectionError) -> Self {
         Self::SortInjection(error)
@@ -141,7 +149,8 @@ pub fn compile_search_pattern(
         .ok_or_else(|| CompileSearchPatternError::MissingExecutionModule(module.to_owned()))?;
 
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
-    let sentence = resolve_semantic_casts_with_predicates_in_sentence(sentence);
+    let sentence =
+        resolve_semantic_casts_with_predicates_in_sentence(execution_definition, module, sentence)?;
     let (sentence, cell_generated) =
         concretize_cells_in_sentence(execution_definition, module, sentence)?;
     generated.extend(cell_generated);

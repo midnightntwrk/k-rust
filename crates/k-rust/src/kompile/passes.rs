@@ -100,7 +100,7 @@ pub(crate) use resolve_io::resolve_io_pass;
 pub use resolve_io::{ResolveIoError, resolve_io};
 pub(crate) use resolve_semantic_casts::resolve_semantic_casts_pass;
 pub use resolve_semantic_casts::{
-    resolve_semantic_casts, resolve_semantic_casts_in_sentence,
+    ResolveSemanticCastsError, resolve_semantic_casts, resolve_semantic_casts_in_sentence,
     resolve_semantic_casts_with_predicates_in_sentence,
 };
 pub(crate) use resolve_strict::resolve_strict_pass;

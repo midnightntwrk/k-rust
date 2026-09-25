@@ -85,7 +85,7 @@ pub(crate) fn subsort_kitem_pass(
     Ok(output)
 }
 
-fn is_parser_sort(sort: &Sort) -> bool {
+pub(super) fn is_parser_sort(sort: &Sort) -> bool {
     [BuiltinSort::K, BuiltinSort::KItem, BuiltinSort::KConfigVar]
         .iter()
         .any(|builtin| sort.name == builtin.k_name())

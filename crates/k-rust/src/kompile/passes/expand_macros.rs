@@ -230,7 +230,12 @@ impl MacroExpansionDefinition {
                     continue;
                 }
                 // Same order as the pipeline: propagation reads the cast-free left side.
-                let mut rule = super::resolve_semantic_casts_in_sentence(Sentence::clone(sentence));
+                let mut rule = super::resolve_semantic_casts_in_sentence(
+                    &original,
+                    &module.name,
+                    Sentence::clone(sentence),
+                )
+                .map_err(|error| error.to_string())?;
                 super::propagate_macro_attribute(&mut rule, views.production_catalog(module_id));
                 *sentence = std::sync::Arc::new(rule);
             }

@@ -223,7 +223,7 @@ fn semantic_casts_instantiate_parametric_production_results() {
           rule pair(a, b):C => pair(a, b):C
         endmodule
     "#};
-    let definition = k_rust::kompile::resolve_semantic_casts(&lowered(source));
+    let definition = k_rust::kompile::resolve_semantic_casts(&lowered(source)).unwrap();
     let resolved = ResolvedDefinition::resolve(&definition).unwrap();
     let injector = SortInjector::new(&resolved, "MAIN").unwrap();
     let rule = definition
@@ -572,7 +572,7 @@ fn semantic_casts_project_heterogeneous_collection_results() {
         .map(std::sync::Arc::new),
     );
 
-    let definition = k_rust::kompile::resolve_semantic_casts(&definition);
+    let definition = k_rust::kompile::resolve_semantic_casts(&definition).unwrap();
     let definition = k_rust::kompile::subsort_kitem(&definition).unwrap();
     let definition = generate_sort_projections(&definition).unwrap();
     let definition = add_sort_injections_to_definition(&definition).unwrap();

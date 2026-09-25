@@ -1280,9 +1280,13 @@ fn semcast3_and_semcast4_take_their_one_well_sorted_reading() {
             "{name}: {text}"
         );
         assert!(!text.contains("aF("), "{name}: {text}");
-        let Sentence::Rule { body, .. } =
-            k_rust::kompile::resolve_semantic_casts_in_sentence((**sentence).clone())
-        else {
+        let resolved_views = k_rust::definition::ResolvedDefinition::resolve(&resolved).unwrap();
+        let Sentence::Rule { body, .. } = k_rust::kompile::resolve_semantic_casts_in_sentence(
+            &resolved_views,
+            "TEST",
+            (**sentence).clone(),
+        )
+        .unwrap() else {
             unreachable!()
         };
         let resolved_body = format!("{:?}", body.unannotated());
@@ -1323,9 +1327,13 @@ fn assert_every_x_is_small_after_resolving_casts(name: &str, source: &str, occur
         .iter()
         .find(|sentence| matches!(&***sentence, Sentence::Rule { .. }))
         .unwrap_or_else(|| panic!("{name}: the rule should be resolved"));
-    let Sentence::Rule { body, .. } =
-        k_rust::kompile::resolve_semantic_casts_in_sentence((**sentence).clone())
-    else {
+    let resolved_views = k_rust::definition::ResolvedDefinition::resolve(&resolved).unwrap();
+    let Sentence::Rule { body, .. } = k_rust::kompile::resolve_semantic_casts_in_sentence(
+        &resolved_views,
+        "TEST",
+        (**sentence).clone(),
+    )
+    .unwrap() else {
         unreachable!()
     };
     let resolved_body = format!("{:?}", body.unannotated());
