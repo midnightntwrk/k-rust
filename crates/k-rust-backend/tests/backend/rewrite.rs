@@ -2757,7 +2757,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "a35579acc1f5e824cf717ad1205e11d3e61c779cca6b8ee5fc1bbc1d7fe801c6",
+        "3571e06490ec34d35dbefd6a1db2222381e389c595b79beb58009851588e9bff",
     );
 }
 
@@ -2798,7 +2798,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "ea380a26a24994f8f20363e3daf30dff00542a67a52ff66f865fe0600e33deb5",
+        "512c0fb1d0f79d76b6f565fb62adb5042576b9a76e99c6056ffe92a9abfb20cf",
     );
 }
 
@@ -2855,7 +2855,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "e859e1363abecd5d7c0435e6487107409af0790d00d68cf339ddc603441eb254",
+        "60eec3d8141eb5a4de4ab7940f9f1d0d475ed1c427817bd7fb8cc1b8c8a937e8",
     );
 }
 
@@ -2916,7 +2916,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "5e2d1522e27fcbdcfaed3393ffad649d3f4f916a8b15610428fc4774741a5949",
+        "272aaac7541a59e29ade395d4d93b158d6e06c7ebf02312e2137ce5c714d7d9d",
     );
 }
 
@@ -2989,7 +2989,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "d7eacc2c8d9892ec1c23364660bdd9afe834e0a50e418872a3ee9843f40d1be8",
+        "415423463ad47040bfa628a46258507a843d0bfe4c4ac50f20c2e8738450edd0",
     );
 }
 
@@ -3059,7 +3059,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "6f3edcdc9cee1d5526a977bbe8aeb730f64713c350a67fc707724247aa31c067",
+        "4f10b71714a7353751fbdf3d9aaad34d3e663ff41f64358112b1703e40c5fbf0",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Cancelled);
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3191,10 +3191,14 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
             subject: BudgetSubject::Term,
         }]
     );
+    assert_eq!(
+        result.leaves[0].diagnostics, diagnostics,
+        "the one leaf's path emitted every diagnostic"
+    );
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "66bc024d90dbebe65c5463cc12e597e46592bfd652c5035bd9f3e3123af1b813",
+        "f9316fd548e1937955273f38cee512079cf195586e80dce52d791393852ae0ff",
     );
 }
 
@@ -3258,7 +3262,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "14a896d829e9c3d23c27f0a0d569f12a4b8b72b382040754a3e7ca08272aae0c",
+        "e46ad102247e0aa294c6f67ed58d6aa46a32093001914ebaab8990b72be9561d",
     );
 }
 
@@ -3320,7 +3324,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "4d0dfcea473c4dbf87ce626639145e48fccd12daad459f2d594f5f79dc73278f",
+        "56c71da18c4a4163b0fef8a4f6fee21d86d0846e7a351fb62785d657402b2066",
     );
 }
 
@@ -3375,7 +3379,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "1ee774e100f1ef533d0e6f83ee0472ff6db36ae982eb6a510fa0caeb8746bf4e",
+        "c27222b51afefbc8e622551c2e38574b0bfa603f7fdfe46387d9390052ee4792",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -4560,6 +4564,143 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
     )
 }
 
+/// `start => g(a)` (and `start => b` when `branching`), with the simplification equation
+/// `g(X) = g(g(X))`: simplifying any `g` application exhausts every budget, and nothing else
+/// in the definition simplifies.
+fn growing_equation_definition(branching: bool) -> BackendDefinition {
+    let right_rule = if branching {
+        r#"
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(), \top{SortS{}}()),
+                    \and{SortS{}}(b{}(), \top{SortS{}}())
+                ) [label{}("to-b")]"#
+    } else {
+        ""
+    };
+    let source = format!(
+        r#"[]
+            module MAIN
+                sort SortS{{}} []
+                symbol start{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol b{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), functional{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \top{{R}}(),
+                    \equals{{SortS{{}}, R}}(
+                        g{{}}(X:SortS{{}}),
+                        \and{{SortS{{}}}}(g{{}}(g{{}}(X:SortS{{}})), \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("grow"), simplification{{}}()]
+                axiom{{}} \rewrites{{SortS{{}}}}(
+                    \and{{SortS{{}}}}(start{{}}(), \top{{SortS{{}}}}()),
+                    \and{{SortS{{}}}}(g{{}}(a{{}}()), \top{{SortS{{}}}}())
+                ) [label{{}}("to-g")]
+                {right_rule}
+            endmodule []"#
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+fn execute_growing_equation(definition: &BackendDefinition) -> ExecutionResult {
+    execute(
+        definition,
+        Pattern {
+            term: internal_term(definition, "start{}()"),
+            constraints: Vec::new(),
+        },
+        ExecutionOptions {
+            max_simplification_iterations: 3,
+            ..ExecutionOptions::default()
+        },
+    )
+}
+
+fn term_budget_exhausted(limit: usize) -> BackendDiagnostic {
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit,
+        subject: BudgetSubject::Term,
+    }
+}
+
+fn leaf_ending_in<'a>(result: &'a ExecutionResult, head: &str) -> &'a ExecutionLeaf {
+    result
+        .leaves
+        .iter()
+        .find(|leaf| {
+            matches!(
+                leaf.pattern.term.kind(),
+                TermKind::Application { symbol, .. } if symbol.name.as_ref() == head
+            )
+        })
+        .unwrap_or_else(|| panic!("no leaf headed by {head}: {:?}", result.leaves))
+}
+
+/// The leaf of a path that exhausted the simplification budget carries the diagnostic itself,
+/// with no collector around the call; the path met the exhaustion at every simplification of
+/// `g(a)` and records it once.
+#[test]
+fn execution_leaf_carries_the_budget_exhaustion_of_its_path_without_a_collector() {
+    let definition = growing_equation_definition(false);
+
+    let result = execute_growing_equation(&definition);
+
+    let [leaf] = result.leaves.as_slice() else {
+        panic!("expected one execution leaf, found {:?}", result.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(leaf.depth, 1);
+    assert_eq!(leaf.diagnostics, [term_budget_exhausted(3)]);
+}
+
+/// Only the path that reaches the exhausting equation carries its diagnostic: the sibling that
+/// rewrote to a constructor shares the parent state, which emitted nothing, and no later state.
+#[test]
+fn execution_attributes_a_diagnostic_to_the_branch_that_emitted_it_only() {
+    let definition = growing_equation_definition(true);
+
+    let result = execute_growing_equation(&definition);
+
+    assert_eq!(result.leaves.len(), 2, "{:?}", result.leaves);
+    let exhausted = leaf_ending_in(&result, "g");
+    let normal = leaf_ending_in(&result, "b");
+    assert_eq!(exhausted.halt_reason, HaltReason::Stuck);
+    assert_eq!(exhausted.diagnostics, [term_budget_exhausted(3)]);
+    assert_eq!(normal.halt_reason, HaltReason::Stuck);
+    assert_eq!(normal.diagnostics, []);
+}
+
+/// A caller collecting around the whole execution, as a same-thread adapter does, still receives
+/// every diagnostic in emission order under the collection's rules, although the execution now
+/// collects per state inside. The expected list is the one this collection returned before
+/// execution collected per state (d4a50b3f): one exhaustion for each simplification of a `g`
+/// state (the term simplification before the step and the externalisation of the stuck leaf).
+#[test]
+fn a_collector_around_execution_sees_every_diagnostic_of_every_path() {
+    let definition = growing_equation_definition(true);
+
+    let (result, diagnostics) = diagnostic::collect(|| execute_growing_equation(&definition));
+
+    assert_eq!(diagnostics, COLLECTED_AROUND_GROWING_BRANCHES);
+    assert_eq!(
+        leaf_ending_in(&result, "g").diagnostics,
+        [term_budget_exhausted(3)]
+    );
+    assert_eq!(leaf_ending_in(&result, "b").diagnostics, []);
+}
+
+const COLLECTED_AROUND_GROWING_BRANCHES: &[BackendDiagnostic] = &[
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit: 3,
+        subject: BudgetSubject::Term,
+    },
+    BackendDiagnostic::SimplificationBudgetExhausted {
+        limit: 3,
+        subject: BudgetSubject::Term,
+    },
+];
+
 #[test]
 fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
     let definition = definition(&long_requires_chain());
@@ -4591,6 +4732,7 @@ fn execution_keeps_partial_simplification_and_records_budget_exhaustion() {
             subject: BudgetSubject::Predicates,
         }]
     );
+    assert_eq!(leaf.diagnostics, diagnostics);
 }
 
 /// Stack bytes that one nesting level of the `size` recursion may use.
@@ -5217,6 +5359,16 @@ fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
 
     assert_stuck_on_unevaluated_prepare(&run.result);
     assert_only_prepare_exhaustions(&run.diagnostics, 1);
+    // The single leaf's path emitted every diagnostic; it records each distinct one once, so the
+    // budget exhaustion the two qualified rules share appears once, before both qualifiers.
+    let mut path = Vec::new();
+    for diagnostic in &run.diagnostics {
+        if !path.contains(diagnostic) {
+            path.push(diagnostic.clone());
+        }
+    }
+    assert_eq!(path.len(), 3, "{path:?}");
+    assert_eq!(run.result.leaves[0].diagnostics, path);
 }
 
 #[test]
@@ -5674,6 +5826,7 @@ fn execution_stops_before_work_when_the_request_is_cancelled() {
             effects: Vec::new(),
             io: k_rust_backend::transition::ExecutionIoState::default(),
             halt_reason: HaltReason::Cancelled,
+            diagnostics: Vec::new(),
         }]
     );
 }

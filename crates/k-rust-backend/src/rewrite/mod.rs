@@ -44,6 +44,7 @@ use std::{collections::BTreeSet, hash::Hash, time::Duration};
 use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
+    diagnostic::BackendDiagnostic,
     matching::SortGraph,
     rule::Predicate,
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
@@ -409,6 +410,16 @@ pub struct ExecutionLeaf {
     /// Buffered console state retained by this branch.
     pub io: ExecutionIoState,
     pub halt_reason: HaltReason,
+    /// The backend diagnostics emitted while the states of this leaf's path were processed, in
+    /// the order the path first met them, each distinct diagnostic once.
+    ///
+    /// A non-empty list means the leaf's pattern may not be the normal form a larger budget
+    /// would reach, or that a condition or predicate was left undecided on the path: the
+    /// configuration is equivalent to the one reached, but not known normalized and its
+    /// constraints not known refuted. A `RuleConditionUnsimplified` qualifies an earlier
+    /// `SimplificationBudgetExhausted` over `Predicates` with the same limit. A caller collecting
+    /// with `diagnostic::collect` around the execution still receives every diagnostic.
+    pub diagnostics: Vec<BackendDiagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

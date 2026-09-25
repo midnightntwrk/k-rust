@@ -4,12 +4,13 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use crate::{
     builtin::UnsupportedHookReason,
+    diagnostic::BackendDiagnostic,
     rewrite::{
         AppliedRule, ExecutionLeaf, ExecutionResult, HaltReason, IndeterminateReason, Pattern,
         RemainderBranch, RemainderSimplification, TrivialApplication, UndecidedStep,
     },
     rule::Predicate,
-    simplify::SimplificationError,
+    simplify::{ConditionIndeterminacy, SimplificationError},
     smt::{SmtError, TranslationError},
     substitution::{Substitution, substitute},
     term::{
@@ -1274,6 +1275,8 @@ impl AlphaComparable for ExecutionLeaf {
         }
         self.halt_reason
             .collect_alpha(&other.halt_reason, context)?;
+        self.diagnostics
+            .collect_alpha(&other.diagnostics, context)?;
         if self.depth != other.depth
             || self.trace != other.trace
             || self.effects != other.effects
@@ -1310,6 +1313,94 @@ impl AlphaComparable for ExecutionLeaf {
             effects: self.effects.clone(),
             io: self.io.clone(),
             halt_reason: self.halt_reason.rename_alpha(context)?,
+            diagnostics: self.diagnostics.rename_alpha(context)?,
+        })
+    }
+}
+
+fn collect_condition_indeterminacy(
+    left: &ConditionIndeterminacy,
+    right: &ConditionIndeterminacy,
+    context: &mut AlphaContext,
+) -> Result<(), String> {
+    match (left, right) {
+        (
+            ConditionIndeterminacy::Untranslatable(left),
+            ConditionIndeterminacy::Untranslatable(right),
+        ) => collect_translation_error(left, right, context),
+        (left, right) if left == right => Ok(()),
+        _ => Err(format!(
+            "condition indeterminacies differ: {left:?} versus {right:?}"
+        )),
+    }
+}
+
+fn rename_condition_indeterminacy(
+    reason: &ConditionIndeterminacy,
+    context: &AlphaContext,
+) -> ConditionIndeterminacy {
+    match reason {
+        ConditionIndeterminacy::Untranslatable(error) => {
+            ConditionIndeterminacy::Untranslatable(rename_translation_error(error, context))
+        }
+        reason => reason.clone(),
+    }
+}
+
+impl AlphaComparable for BackendDiagnostic {
+    fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
+        use BackendDiagnostic::*;
+        match (self, other) {
+            (
+                UndecidedCondition {
+                    rule_id: li,
+                    reason: lr,
+                    predicates: lp,
+                },
+                UndecidedCondition {
+                    rule_id: ri,
+                    reason: rr,
+                    predicates: rp,
+                },
+            ) if li == ri => {
+                collect_condition_indeterminacy(lr, rr, context)?;
+                collect_slice(lp, rp, context, collect_predicate)
+            }
+            (
+                UndecidedPredicate {
+                    predicate: lp,
+                    reason: lr,
+                },
+                UndecidedPredicate {
+                    predicate: rp,
+                    reason: rr,
+                },
+            ) => {
+                collect_predicate(lp, rp, context)?;
+                collect_condition_indeterminacy(lr, rr, context)
+            }
+            (left, right) if left == right => Ok(()),
+            _ => Err(format!("diagnostics differ: {self:?} versus {other:?}")),
+        }
+    }
+
+    fn rename_alpha(&self, context: &AlphaContext) -> Result<Self, String> {
+        use BackendDiagnostic::*;
+        Ok(match self {
+            UndecidedCondition {
+                rule_id,
+                reason,
+                predicates,
+            } => UndecidedCondition {
+                rule_id: rule_id.clone(),
+                reason: rename_condition_indeterminacy(reason, context),
+                predicates: rename_predicates(predicates, context),
+            },
+            UndecidedPredicate { predicate, reason } => UndecidedPredicate {
+                predicate: rename_predicate(predicate, context),
+                reason: rename_condition_indeterminacy(reason, context),
+            },
+            diagnostic => diagnostic.clone(),
         })
     }
 }
@@ -1398,6 +1489,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
             effects: Vec::new(),
             io: ExecutionIoState::default(),
             halt_reason: HaltReason::Stuck,
+            diagnostics: Vec::new(),
         }],
         effects: Vec::new(),
         discarded: Vec::new(),

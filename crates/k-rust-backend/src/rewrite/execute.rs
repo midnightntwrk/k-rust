@@ -41,6 +41,7 @@ use crate::{
     builtin::BuiltinEffect,
     cancellation::cancellation_requested,
     definition::BackendDefinition,
+    diagnostic::{self, BackendDiagnostic},
     rule::Predicate,
     simplify::{
         PatternSimplification, SimplificationError, SimplificationOptions,
@@ -96,7 +97,7 @@ pub(super) fn execute_using(
 /// A phase either hands the state on or ends it as a leaf.
 type Phase<T> = Result<T, ExecutionLeaf>;
 
-/// What expanding one state did to the worklist.
+/// What enqueueing the successors of one state did to the worklist.
 enum Expansion {
     /// Successors (or none) were enqueued; the loop goes on.
     Queued,
@@ -151,6 +152,7 @@ impl<'a> Execution<'a> {
                     io: initial_io.clone(),
                     io_enabled,
                     is_initial_input: true,
+                    diagnostics: Vec::new(),
                 }
             })
             .collect::<VecDeque<_>>();
@@ -207,7 +209,15 @@ impl<'a> Execution<'a> {
         )
     }
 
-    /// E1: pop each unexpanded state, count the step, time it, and expand it.
+    /// E1: pop each unexpanded state, count the step, time it, expand it, and enqueue its
+    /// successors or record its leaf.
+    ///
+    /// The backend diagnostics emitted while one state is expanded are facts about the path
+    /// through that state: every emission site lies in the simplification and the rewrite step
+    /// of this state or of the successors it simplifies on the way out. They are collected around
+    /// the expansion and appended to the path's list, which the leaf the state becomes, or every
+    /// successor it hands on, carries from then on. The collection forwards to any collector the
+    /// caller holds around the execution.
     fn run(&mut self, timeout_controller: &StepTimeoutController) {
         // `pending` is a stack: `enqueue_execution_states` pushes successors to the front, so a
         // state's children are expanded before its siblings (depth-first). Each push either
@@ -217,22 +227,34 @@ impl<'a> Execution<'a> {
         while let Some(state) = self.pending.pop_front() {
             measure::bump(Counter::RewriteSteps);
             let mut step_timer = timeout_controller.begin_step();
-            match self.expand(state, &mut step_timer) {
-                Ok(Expansion::Queued) => {}
-                Ok(Expansion::BreadthBound) => break,
-                Err(leaf) => self.leaves.push(leaf),
+            let (expansion, diagnostics) =
+                diagnostic::collect(|| self.expand(state, &mut step_timer));
+            match expansion {
+                Ok(mut successors) => {
+                    for successor in &mut successors {
+                        diagnostic::extend_path(&mut successor.diagnostics, &diagnostics);
+                    }
+                    enqueue_execution_states(&mut self.pending, successors);
+                    if let Expansion::BreadthBound = self.breadth_checked() {
+                        break;
+                    }
+                }
+                Err(mut leaf) => {
+                    diagnostic::extend_path(&mut leaf.diagnostics, &diagnostics);
+                    self.leaves.push(leaf);
+                }
             }
         }
     }
 
     /// The per-state pipeline E2 to E7; the interruption checks sit where the loop body had
     /// them (before constraint simplification, after it, after term simplification, after the
-    /// rewrite step, and inside E6 and E7).
+    /// rewrite step, and inside E6 and E7). Returns the successors `run` enqueues.
     fn expand(
         &mut self,
         state: ExecutionState,
         step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Expansion> {
+    ) -> Phase<Vec<ExecutionState>> {
         let state = self.check_interrupted(state, step_timer)?;
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
             return Err(state.leaf(
@@ -545,13 +567,13 @@ impl<'a> Execution<'a> {
 
     /// E6: one rule applied. A cut-point rule ends the state as a `CutPointRule` leaf with the
     /// simplified successor; a terminal rule ends the successor as a `TerminalRule` (or
-    /// `Trivial`) leaf; otherwise the successor is pushed and the breadth bound checked.
+    /// `Trivial`) leaf; otherwise the successor is returned.
     fn finished(
         &mut self,
         mut state: ExecutionState,
         applied: AppliedRule,
         step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Expansion> {
+    ) -> Phase<Vec<ExecutionState>> {
         if let Some(rule) = selected_stop_rule(&applied, &self.options.cut_point_rules) {
             let mut applied = applied;
             for simplification in &applied.remainder_simplifications {
@@ -661,13 +683,12 @@ impl<'a> Execution<'a> {
             };
             return Err(next.leaf(halt_reason, &self.observation_log));
         }
-        enqueue_execution_states(&mut self.pending, vec![next]);
-        Ok(self.breadth_checked())
+        Ok(vec![next])
     }
 
     /// E7: several rules applied, or one with a complete remainder. Under `StopAtBranch`, the
     /// original and every child are simplified and reported together. Under `ExploreAll`, applied
-    /// branches and the remainder become queued successors.
+    /// branches and the remainder become the returned successors.
     fn branch(
         &mut self,
         mut state: ExecutionState,
@@ -676,7 +697,7 @@ impl<'a> Execution<'a> {
         mut remainder: Option<RemainderBranch>,
         trivial: Vec<TrivialApplication>,
         step_timer: &mut StepTimer<'_>,
-    ) -> Phase<Expansion> {
+    ) -> Phase<Vec<ExecutionState>> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
             let original = match simplify_result_pattern(
@@ -801,29 +822,25 @@ impl<'a> Execution<'a> {
                 }
                 (1, false) => {
                     let applied = branches.pop().expect("one branch remains");
-                    enqueue_execution_states(
-                        &mut self.pending,
-                        vec![next_state(
-                            self.definition,
-                            state,
-                            applied,
-                            &mut self.observation_log,
-                            self.observation,
-                        )],
-                    );
+                    return Ok(vec![next_state(
+                        self.definition,
+                        state,
+                        applied,
+                        &mut self.observation_log,
+                        self.observation,
+                    )]);
                 }
                 (0, true) => {
                     let remainder = remainder.take().expect("one remainder remains");
                     let before = state.pattern.clone();
-                    let remaining = remaining_state(
+                    return Ok(vec![remaining_state(
                         self.definition,
                         state,
                         before,
                         remainder,
                         &mut self.observation_log,
                         self.observation,
-                    );
-                    enqueue_execution_states(&mut self.pending, vec![remaining]);
+                    )]);
                 }
                 _ => {
                     return Err(state.leaf_with_pattern(
@@ -836,7 +853,6 @@ impl<'a> Execution<'a> {
                     ));
                 }
             }
-            return Ok(self.breadth_checked());
         }
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         for applied in branches {
@@ -860,8 +876,7 @@ impl<'a> Execution<'a> {
             );
             next.push(remaining);
         }
-        enqueue_execution_states(&mut self.pending, next);
-        Ok(self.breadth_checked())
+        Ok(next)
     }
 
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound drains it
@@ -917,7 +932,9 @@ fn pattern_supports_execution_io(pattern: &Pattern) -> bool {
 /// Kore's `MultiOr.make` over final configurations (Exec.hs:340-342), extended with branch-local
 /// observable state: leaves collapse only when their structural term, constraint set, committed
 /// effects, and console state agree. Bottom leaves carry no configuration, so whole-state trivial
-/// and vacuous outcomes remain distinct.
+/// and vacuous outcomes remain distinct. The retained leaf keeps its own trace, branch, and
+/// diagnostics: they describe the one path the leaf reports, and the merged paths ended in the
+/// same configuration, so whether that configuration is normalized is the same for each.
 fn merge_equal_final_leaves(leaves: Vec<ExecutionLeaf>) -> Vec<ExecutionLeaf> {
     let mut seen = Vec::new();
     leaves
@@ -1278,6 +1295,9 @@ struct ExecutionState {
     /// Whether the console capability remains available on this concrete execution prefix.
     io_enabled: bool,
     is_initial_input: bool,
+    /// The backend diagnostics emitted while the states of this path before this one were
+    /// expanded (`diagnostic::extend_path` order).
+    diagnostics: Vec<BackendDiagnostic>,
 }
 
 impl ExecutionState {
@@ -1292,6 +1312,7 @@ impl ExecutionState {
             effects: self.effects.into_committed(),
             io: self.io,
             halt_reason,
+            diagnostics: self.diagnostics,
         }
     }
 
@@ -1350,6 +1371,7 @@ mod tests {
             effects: Vec::new(),
             io: ExecutionIoState::default(),
             halt_reason,
+            diagnostics: Vec::new(),
         };
 
         let leaves = merge_equal_final_leaves(vec![
@@ -1394,6 +1416,7 @@ mod tests {
             effects: Vec::new(),
             io,
             halt_reason: HaltReason::Stuck,
+            diagnostics: Vec::new(),
         };
 
         let cursor_leaves = merge_equal_final_leaves(vec![leaf(cursor_zero), leaf(cursor_one)]);
