@@ -31,7 +31,10 @@ use crate::names::{BuiltinSort, WellKnownSymbol};
 use crate::provenance::GeneratingPass;
 
 use super::passes::implicit_less_than_eq;
+
+mod typing;
 use super::view::View;
+pub use typing::{PositionTyping, SentenceTyping, SentenceTypingError, sentence_typing};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SortInjectionError {

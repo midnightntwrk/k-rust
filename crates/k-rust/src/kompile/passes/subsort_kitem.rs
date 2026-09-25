@@ -87,6 +87,23 @@ pub(crate) fn subsort_kitem_pass(
     Ok(output)
 }
 
+/// `subsorts` with the `KItem ::= S` subsorts this stage adds for every sort `S` of `sorts` that is
+/// not a parser sort: the order sort injection works in after this stage has run.
+pub(crate) fn with_kitem_subsorts<'a>(
+    subsorts: &PartialOrder<Sort>,
+    sorts: impl IntoIterator<Item = &'a Sort>,
+) -> Result<PartialOrder<Sort>, crate::definition::PartialOrderCycle<Sort>> {
+    let kitem = Sort::builtin(BuiltinSort::KItem);
+    PartialOrder::new(
+        subsorts.direct_relations().iter().cloned().chain(
+            sorts
+                .into_iter()
+                .filter(|sort| !is_parser_sort(sort))
+                .map(|sort| (sort.clone(), kitem.clone())),
+        ),
+    )
+}
+
 /// Whether `actual <= expected` in the module's declared subsort order `subsorts` extended with
 /// K's implicit sort structure: every sort that is not a parser sort is below `KItem` (the edges
 /// this stage adds), and `KItem` is below `K`; the extension is transitive.

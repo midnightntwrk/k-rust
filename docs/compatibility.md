@@ -131,6 +131,9 @@ A sort that mentions a sort parameter stands for every instance of it, since a s
 A cast on a K sequence, an injected label, or a sorted variable is compared with the operand's own sort like a cast on an application; a cast on a rewrite or `as` pattern is the sort both sides are injected at; an `as` alias variable with its own sort is placed at that sort like the pattern, and only a sortless alias takes it.
 The check applies to every rule-like sentence `compile_loaded_definition` emits, whether parsed from source, supplied through `load_structured`, or edited in a `LoadedDefinition`; a pass that meets an ill-sorted term earlier may reject it first with its own message.
 [Sort-injection tests](../crates/k-rust/tests/sort_injections.rs) pin the rejections and their controls.
+`kompile::sentence_typing` reads the same computation on a loaded rule or claim: for each path (the field, then rewrite sides, as-pattern children, application arguments with casts included, and sequence items) it reports the term's sort and the sort its position requires, with the variable sorts semantic-cast resolution determines, and it returns the compiler's own error for a sentence the checks reject.
+It types the sentence in the order the injector uses after every user sort is declared below `KItem`, reports no sort for `#cells`, `#dots`, `#noDots`, and variables nothing types, and states as requirements only what compilation enforces at that position; compilation additionally accepts a projected downcast below a cast and an element a collection or user list wraps.
+[Typing-view tests](../crates/k-rust/tests/sentence_typing.rs) check it on hand-picked positions and on every loaded rule of the prelude.
 
 ## Resource bounds
 

@@ -98,15 +98,17 @@ pub(crate) use resolve_heat_cool::resolve_heat_cool_attributes_pass;
 pub use resolve_heat_cool::{ResolveHeatCoolError, resolve_heat_cool_attributes};
 pub(crate) use resolve_io::resolve_io_pass;
 pub use resolve_io::{ResolveIoError, resolve_io};
-pub(crate) use resolve_semantic_casts::resolve_semantic_casts_pass;
 pub use resolve_semantic_casts::{
     ResolveSemanticCastsError, resolve_semantic_casts, resolve_semantic_casts_in_sentence,
     resolve_semantic_casts_with_predicates_in_sentence,
 };
+pub(crate) use resolve_semantic_casts::{
+    is_anonymous, resolve_semantic_casts_pass, semantic_cast_variable_sorts,
+};
 pub(crate) use resolve_strict::resolve_strict_pass;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};
 pub use subsort_kitem::{SubsortKItemError, subsort_kitem};
-pub(crate) use subsort_kitem::{implicit_less_than_eq, subsort_kitem_pass};
+pub(crate) use subsort_kitem::{implicit_less_than_eq, subsort_kitem_pass, with_kitem_subsorts};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolveCommError {

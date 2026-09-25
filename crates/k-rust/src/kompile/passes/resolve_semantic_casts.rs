@@ -169,11 +169,78 @@ fn resolve_semantic_casts_in_sentence_mut(
         _ => return Ok(()),
     };
 
+    let (casts, typed_variables, errors) = {
+        let shared = roots.iter().map(|root| &**root).collect::<Vec<&Term>>();
+        collect_cast_bounds(&shared, subsorts)
+    };
+    if !errors.is_empty() {
+        drop(roots);
+        return Err(ResolveSemanticCastsError {
+            diagnostics: errors
+                .into_iter()
+                .flat_map(|message| sentence_error(message, sentence).diagnostics)
+                .collect(),
+        });
+    }
+    for root in roots {
+        let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
+        *root = transform(taken, &casts, &typed_variables);
+    }
+
+    if !add_predicates
+        || casts.is_empty()
+        || sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
+    {
+        return Ok(());
+    }
+
+    let predicate = casts
+        .iter()
+        .map(|cast| {
+            let Term::Apply { label, .. } = cast else {
+                unreachable!("only semantic-cast applications were collected")
+            };
+            let sort = label
+                .semantic_cast_sort()
+                .expect("the cast set contains semantic-cast applications");
+            Term::Apply {
+                label: Label::sort_predicate(&sort),
+                arguments: vec![transform(cast.clone(), &casts, &typed_variables)],
+            }
+        })
+        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
+        .expect("at least one semantic cast was collected");
+
+    let requires = match sentence {
+        Sentence::Rule { requires, .. }
+        | Sentence::Claim { requires, .. }
+        | Sentence::Context { requires, .. }
+        | Sentence::ContextAlias { requires, .. } => requires,
+        _ => return Ok(()),
+    };
+    let prior = std::mem::replace(requires, bool_true());
+    *requires = if is_true(&prior) {
+        predicate
+    } else {
+        Term::apply("_andBool_", vec![predicate, prior])
+    };
+    Ok(())
+}
+
+/// The sort semantic-cast resolution gives each named variable of a sentence with the term roots
+/// `roots`: its explicit sort, or else the least of its direct cast bounds.
+///
+/// Returns the semantic casts seen, the variable sorts, and one message per conflict (an explicit
+/// sort outside a cast bound, conflicting explicit sorts, or cast bounds without a least one).
+fn collect_cast_bounds(
+    roots: &[&Term],
+    subsorts: &PartialOrder<Sort>,
+) -> (BTreeSet<Term>, BTreeMap<String, Sort>, Vec<String>) {
     let mut casts = BTreeSet::new();
     let mut variables = BTreeMap::<String, VariableBounds>::new();
     let mut errors = Vec::new();
     // Invariant: `casts` holds semantic casts seen so far, and `variables` holds every explicit sort and direct cast bound of each named variable in the visited roots.
-    for root in &roots {
+    for root in roots {
         root.visit_preorder(&mut |term| {
             if let Term::Variable {
                 name,
@@ -273,61 +340,50 @@ fn resolve_semantic_casts_in_sentence_mut(
             }
         }
     }
-    if !errors.is_empty() {
-        drop(roots);
-        return Err(ResolveSemanticCastsError {
+    (casts, typed_variables, errors)
+}
+
+/// The sorts semantic-cast resolution gives the named variables of a rule-like sentence, or the
+/// resolution's error when its variables' annotations and casts disagree.
+///
+/// `subsorts` is the visible subsort order of the sentence's module. A variable with neither an
+/// explicit sort nor a direct cast has no entry; anonymous variables have none either, since each
+/// occurrence is a distinct variable.
+pub(crate) fn semantic_cast_variable_sorts(
+    sentence: &Sentence,
+    subsorts: &PartialOrder<Sort>,
+) -> Result<BTreeMap<String, Sort>, ResolveSemanticCastsError> {
+    let roots: Vec<&Term> = match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => vec![body, requires, ensures],
+        Sentence::Context { body, requires, .. } => vec![body, requires],
+        _ => return Ok(BTreeMap::new()),
+    };
+    let (_, typed_variables, errors) = collect_cast_bounds(&roots, subsorts);
+    if errors.is_empty() {
+        Ok(typed_variables)
+    } else {
+        Err(ResolveSemanticCastsError {
             diagnostics: errors
                 .into_iter()
                 .flat_map(|message| sentence_error(message, sentence).diagnostics)
                 .collect(),
-        });
-    }
-    for root in roots {
-        let taken = std::mem::replace(root, Term::Sequence(Vec::new()));
-        *root = transform(taken, &casts, &typed_variables);
-    }
-
-    if !add_predicates
-        || casts.is_empty()
-        || sentence.attributes().has_any(&AttributeKey::MACRO_LIKE)
-    {
-        return Ok(());
-    }
-
-    let predicate = casts
-        .iter()
-        .map(|cast| {
-            let Term::Apply { label, .. } = cast else {
-                unreachable!("only semantic-cast applications were collected")
-            };
-            let sort = label
-                .semantic_cast_sort()
-                .expect("the cast set contains semantic-cast applications");
-            Term::Apply {
-                label: Label::sort_predicate(&sort),
-                arguments: vec![transform(cast.clone(), &casts, &typed_variables)],
-            }
         })
-        .reduce(|left, right| Term::apply("_andBool_", vec![left, right]))
-        .expect("at least one semantic cast was collected");
-
-    let requires = match sentence {
-        Sentence::Rule { requires, .. }
-        | Sentence::Claim { requires, .. }
-        | Sentence::Context { requires, .. }
-        | Sentence::ContextAlias { requires, .. } => requires,
-        _ => return Ok(()),
-    };
-    let prior = std::mem::replace(requires, bool_true());
-    *requires = if is_true(&prior) {
-        predicate
-    } else {
-        Term::apply("_andBool_", vec![predicate, prior])
-    };
-    Ok(())
+    }
 }
 
-fn is_anonymous(name: &str) -> bool {
+/// Whether `name` is an anonymous variable, each of whose occurrences is a distinct variable.
+pub(crate) fn is_anonymous(name: &str) -> bool {
     matches!(name, "_" | "?_" | "!_" | "@_")
 }
 
