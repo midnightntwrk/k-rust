@@ -498,6 +498,7 @@ pub enum ObservationEventOutput {
         introduced_predicates: Vec<Value>,
         before: Value,
         after: Value,
+        /// Attributes the leaf's committed effects to this observed transition.
         effects: Vec<EffectOutput>,
     },
     Evaluation {
@@ -514,6 +515,7 @@ pub enum ObservationEventOutput {
         id: TransitionIdOutput,
         #[serde(skip_serializing_if = "Option::is_none")]
         rule_label: Option<String>,
+        /// Effects attempted by this rolled-back transition; no leaf commits them.
         effects: Vec<EffectOutput>,
         reason: UncommittedReasonOutput,
     },
@@ -1236,6 +1238,7 @@ pub(super) fn execution_response(
                     detail,
                     trace: leaf.trace.into_iter().map(trace_entry).collect(),
                     branch: leaf.branch.into_iter().map(transition_id_output).collect(),
+                    effects: effects_output(leaf.effects),
                     observations: observations_output(leaf.observations)?,
                 })
             })

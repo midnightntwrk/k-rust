@@ -36,6 +36,10 @@ The intended workspace structure is:
 Keeping the backend independent from frontend ASTs preserves KORE as the semantic boundary while
 avoiding a package dependency cycle when the CLI links both halves into one static binary.
 
+The public `Backend::execute` result carries the ordered effects committed on each `ExecutionLeaf`, including when observation is disabled.
+`ExecutionResult.effects` is a compatibility copy when execution retains exactly one leaf; it is empty for multiple leaves, whose effects remain on their respective leaves.
+An observed transition's effects attribute committed branch effects to that activity.
+
 ## Module map
 
 Run `cargo run -p algo-graph -- render module-map` to write the generated backend module-map projection to `target/algo/module-map.md`; it groups source-card algorithm IDs by their declared `k-rust-backend` site module and derives each module's counters from the graph's `measured-by` edges.
