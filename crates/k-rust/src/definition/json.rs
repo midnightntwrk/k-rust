@@ -49,7 +49,9 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 ///
 /// Version 3 writes each distinct origin set once, in the envelope's `originSets` table, and a
 /// receipt's `origins` is an index into that table. Version 4 adds `KContextAlias` sentences.
-pub const PROVENANCE_VERSION: u32 = 4;
+/// Version 5 lets the source table hold one logical source once per distinct offset map (one
+/// entry per Markdown extraction), and a source reference names its entry by `extraction`.
+pub const PROVENANCE_VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum DefinitionEnvelopeKind {
@@ -197,6 +199,14 @@ struct ProvenanceEnvelope {
 struct JsonLogicalSource {
     logical: String,
     content_hash: String,
+    /// Which of the source table's extractions of this logical source is meant, counted in table
+    /// order; omitted for the first.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    extraction: usize,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Serialize, Deserialize)]
@@ -377,22 +387,19 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
     }
     let mut source_table = SourceTable::default();
     for (index, source) in envelope.sources.into_iter().enumerate() {
-        let id = source_table.intern(
+        let id = source_table.intern_extraction(
             JsonLogicalSource {
                 logical: source.logical,
                 content_hash: source.content_hash,
+                extraction: 0,
             }
             .try_into()?,
+            source.offset_map.map(TryInto::try_into).transpose()?,
         );
         if id.0 != index {
             return Err(Error::InvalidProvenance(
                 "provenance source table contains a duplicate identity".into(),
             ));
-        }
-        if let Some(offset_map) = source.offset_map {
-            source_table
-                .set_offset_map(id, offset_map.try_into()?)
-                .map_err(Error::InvalidProvenance)?;
         }
     }
     let origin_sets = decode_origin_sets(envelope.origin_sets, &source_table)?;
@@ -452,10 +459,11 @@ fn map_definition_attributes(
     Ok(())
 }
 
-/// Encoder state of one `KRUST-PROVENANCE` document: the source table the definition's source
-/// ids index, and the table of distinct origin sets written so far.
-struct ProvenanceEncoder<'a> {
-    source_table: &'a SourceTable,
+/// Encoder state of one `KRUST-PROVENANCE` document: the wire references of the source table the
+/// definition's source ids index, and the table of distinct origin sets written so far.
+struct ProvenanceEncoder {
+    // The wire reference of every source id, indexed by id.
+    source_references: Vec<JsonLogicalSource>,
     origin_sets: Vec<Vec<JsonProvenanceLink>>,
     // Table index of every origin set already written, keyed by its links.
     by_links: HashMap<Arc<[ProvenanceLink]>, u32>,
@@ -464,10 +472,24 @@ struct ProvenanceEncoder<'a> {
     by_allocation: HashMap<*const ProvenanceLink, (u32, Arc<[ProvenanceLink]>)>,
 }
 
-impl<'a> ProvenanceEncoder<'a> {
-    fn new(source_table: &'a SourceTable) -> Self {
+impl ProvenanceEncoder {
+    fn new(source_table: &SourceTable) -> Self {
+        let source_references = (0..source_table.iter().len())
+            .map(|index| {
+                let id = SourceId(index);
+                let mut reference = JsonLogicalSource::from(
+                    source_table
+                        .get(id)
+                        .expect("every index below the length is interned"),
+                );
+                reference.extraction = source_table
+                    .extraction_ordinal(id)
+                    .expect("every index below the length is interned");
+                reference
+            })
+            .collect();
         Self {
-            source_table,
+            source_references,
             origin_sets: Vec::new(),
             by_links: HashMap::new(),
             by_allocation: HashMap::new(),
@@ -491,7 +513,7 @@ impl<'a> ProvenanceEncoder<'a> {
                     .map_err(|_| Error::InvalidProvenance("too many origin sets".into()))?;
                 let links = origins
                     .iter()
-                    .map(|link| encode_link(link, self.source_table))
+                    .map(|link| encode_link(link, &self.source_references))
                     .collect::<Result<_, _>>()?;
                 self.origin_sets.push(links);
                 self.by_links.insert(Arc::clone(origins), index);
@@ -530,7 +552,7 @@ impl<'a> ProvenanceEncoder<'a> {
                 .and_then(|source| usize::try_from(source).ok())
                 .map(SourceId)
                 .ok_or_else(|| Error::InvalidProvenance("source id is not a valid index".into()))?;
-            *source = serde_json::to_value(json_source(self.source_table, id)?)?;
+            *source = serde_json::to_value(json_source(&self.source_references, id)?)?;
         }
         if let Some(receipt) = attributes.origin_receipt() {
             let receipt = match receipt.record() {
@@ -552,7 +574,7 @@ impl<'a> ProvenanceEncoder<'a> {
         Ok(JsonTermMetadata {
             span: metadata
                 .span
-                .map(|span| encode_span(span, self.source_table))
+                .map(|span| encode_span(span, &self.source_references))
                 .transpose()?,
             production: metadata.production.map(ProductionIdentity::to_hex),
             sort: metadata.sort.as_ref().map(Into::into),
@@ -640,7 +662,7 @@ fn source_id_from_value(value: Value, source_table: &SourceTable) -> Result<Sour
 
 fn collect_definition_metadata(
     definition: &Definition,
-    encoder: &mut ProvenanceEncoder<'_>,
+    encoder: &mut ProvenanceEncoder,
     output: &mut Vec<JsonTermMetadataEntry>,
 ) -> Result<(), Error> {
     for (module_index, module) in definition.modules.iter().enumerate() {
@@ -664,7 +686,7 @@ fn collect_definition_metadata(
 // Invariant: `path` holds the child indices from the root of sentence term `field` to `term`, and each recursive call through `collect_metadata_child` pushes one index and descends into a strict subterm of `term`, so the size of `term` bounds the calls.
 fn collect_term_metadata(
     term: &Term,
-    encoder: &mut ProvenanceEncoder<'_>,
+    encoder: &mut ProvenanceEncoder,
     module_index: u32,
     sentence_index: u32,
     field: u32,
@@ -752,7 +774,7 @@ fn collect_term_metadata(
 fn collect_metadata_child(
     term: &Term,
     child: u32,
-    encoder: &mut ProvenanceEncoder<'_>,
+    encoder: &mut ProvenanceEncoder,
     module_index: u32,
     sentence_index: u32,
     field: u32,
@@ -822,9 +844,9 @@ fn decode_term_metadata(
     })
 }
 
-fn encode_span(span: TermSpan, source_table: &SourceTable) -> Result<JsonTermSpan, Error> {
+fn encode_span(span: TermSpan, sources: &[JsonLogicalSource]) -> Result<JsonTermSpan, Error> {
     Ok(JsonTermSpan {
-        source: json_source(source_table, span.source)?,
+        source: json_source(sources, span.source)?,
         start: span.start,
         end: span.end,
     })
@@ -840,11 +862,11 @@ fn decode_span(span: JsonTermSpan, source_table: &SourceTable) -> Result<TermSpa
 
 fn encode_link(
     link: &ProvenanceLink,
-    source_table: &SourceTable,
+    sources: &[JsonLogicalSource],
 ) -> Result<JsonProvenanceLink, Error> {
     Ok(match link {
         ProvenanceLink::Source { span } => JsonProvenanceLink::Source {
-            source: json_source(source_table, span.source)?,
+            source: json_source(sources, span.source)?,
             start: span.start,
             end: span.end,
         },
@@ -905,23 +927,24 @@ fn decode_destination(destination: JsonDestinationAnchor) -> DestinationAnchor {
     }
 }
 
-fn json_source(source_table: &SourceTable, source: SourceId) -> Result<JsonLogicalSource, Error> {
-    source_table
-        .get(source)
-        .map(JsonLogicalSource::from)
+fn json_source(
+    sources: &[JsonLogicalSource],
+    source: SourceId,
+) -> Result<JsonLogicalSource, Error> {
+    sources
+        .get(source.0)
+        .cloned()
         .ok_or_else(|| Error::InvalidProvenance(format!("source id {} is not interned", source.0)))
 }
 
 fn source_id(source_table: &SourceTable, source: &JsonLogicalSource) -> Result<SourceId, Error> {
+    let extraction = source.extraction;
     let identity = LogicalSourceId::try_from(source.clone())?;
     source_table
-        .iter()
-        // Invariant: every entry of `source_table` before `candidate` differs from `identity`; the scan consumes one entry per step, so the length of `source_table` bounds it.
-        .position(|candidate| candidate == &identity)
-        .map(SourceId)
+        .find_extraction(&identity, extraction)
         .ok_or_else(|| {
             Error::InvalidProvenance(format!(
-                "logical source {:?} is absent from the source table",
+                "logical source {:?} extraction {extraction} is absent from the source table",
                 identity.logical
             ))
         })
@@ -932,6 +955,7 @@ impl From<&LogicalSourceId> for JsonLogicalSource {
         Self {
             logical: source.logical.clone(),
             content_hash: encode_hash(&source.content_hash),
+            extraction: 0,
         }
     }
 }

@@ -13,7 +13,7 @@
 //! ```toml algorithm
 //! id = "definition.provenance.source_identity"
 //! name = "interning and offset mapping of logical source identities"
-//! sites = ["LogicalSourceId::new", "SourceTable::intern", "SourceOffsetMap::new"]
+//! sites = ["LogicalSourceId::new", "SourceTable::intern_extraction", "SourceOffsetMap::new"]
 //! variable = "B = source bytes; S = offset-map segments; F = sources already in the table"
 //! counters = []
 //! no_counter = "logical source interning and offset mapping have no dedicated counter"
@@ -23,8 +23,8 @@
 //! bound = "O(B + S)"
 //!
 //! [[cost]]
-//! mode = "SourceTable::intern"
-//! bound = "O(F) LogicalSourceId comparisons"
+//! mode = "SourceTable::intern_extraction"
+//! bound = "O(F) LogicalSourceId and offset-map comparisons"
 //! ```
 //!
 //! Provenance records before/after sentence counterparts and recursively annotates changed terms with first-encounter-ordered origin unions.
@@ -199,7 +199,12 @@ impl SourceOffsetMap {
     }
 }
 
-/// Interned logical sources referenced by semantic metadata.
+/// Interned source extractions referenced by semantic metadata.
+///
+/// A [`SourceId`] names one extraction of one raw source: the raw source's [`LogicalSourceId`]
+/// and the offset map from the extracted semantic text, which spans index, back to the raw bytes.
+/// Two Markdown selectors can extract different text from the same raw file, so the same
+/// logical source can appear once per distinct offset map.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SourceTable {
     sources: Vec<LogicalSourceId>,
@@ -207,18 +212,57 @@ pub struct SourceTable {
 }
 
 impl SourceTable {
+    /// Intern a source whose spans index its raw bytes directly.
     pub fn intern(&mut self, source: LogicalSourceId) -> SourceId {
-        // Invariant: `self.sources` holds pairwise distinct sources indexed by `SourceId`; `position` compares `source` against the entries of `self.sources` in order, so one call is O(|sources|) and interning F sources is O(F^2).
+        self.intern_extraction(source, None)
+    }
+
+    /// Intern one extraction of `source`; `offset_map` is `None` when spans index raw bytes.
+    pub fn intern_extraction(
+        &mut self,
+        source: LogicalSourceId,
+        offset_map: Option<SourceOffsetMap>,
+    ) -> SourceId {
+        // Invariant: the entries of `self.sources` paired with their offset maps are pairwise distinct and indexed by `SourceId`; `position` compares the pair against each entry in order, so one call is O(|sources|) and interning F sources is O(F^2).
         if let Some(index) = self
             .sources
             .iter()
-            .position(|candidate| candidate == &source)
+            .enumerate()
+            .position(|(index, candidate)| {
+                candidate == &source
+                    && self.offset_maps.get(&SourceId(index)) == offset_map.as_ref()
+            })
         {
             return SourceId(index);
         }
         let id = SourceId(self.sources.len());
         self.sources.push(source);
+        if let Some(offset_map) = offset_map {
+            self.offset_maps.insert(id, offset_map);
+        }
         id
+    }
+
+    /// The ordinal of `id` among the table's extractions of the same logical source, in table
+    /// order; `None` when `id` is not interned.
+    pub fn extraction_ordinal(&self, id: SourceId) -> Option<usize> {
+        let source = self.get(id)?;
+        Some(
+            self.sources[..id.0]
+                .iter()
+                .filter(|candidate| *candidate == source)
+                .count(),
+        )
+    }
+
+    /// The `ordinal`-th extraction of `source` in table order.
+    pub fn find_extraction(&self, source: &LogicalSourceId, ordinal: usize) -> Option<SourceId> {
+        self.sources
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| *candidate == source)
+            .nth(ordinal)
+            .map(|(index, _)| SourceId(index))
     }
 
     pub fn get(&self, id: SourceId) -> Option<&LogicalSourceId> {
@@ -231,18 +275,6 @@ impl SourceTable {
 
     pub fn is_empty(&self) -> bool {
         self.sources.is_empty()
-    }
-
-    pub fn set_offset_map(
-        &mut self,
-        source: SourceId,
-        offset_map: SourceOffsetMap,
-    ) -> Result<(), String> {
-        if self.get(source).is_none() {
-            return Err(format!("source id {} is not interned", source.0));
-        }
-        self.offset_maps.insert(source, offset_map);
-        Ok(())
     }
 
     pub fn offset_map(&self, source: SourceId) -> Option<&SourceOffsetMap> {

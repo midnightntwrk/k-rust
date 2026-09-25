@@ -5308,6 +5308,19 @@ fn kprove_rejects_a_prepared_directory_without_its_lossless_definition() {
     let definition = compiled.join(manifest["definition"].as_str().unwrap());
     assert!(definition.is_file(), "{manifest}");
 
+    // The named file is a symbolic link to a definition outside the bundle.
+    let outside = root.join("outside.provenance.json");
+    fs::rename(&definition, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &definition).unwrap();
+    let escaped = kprove_spec_against(&specification, &compiled);
+    assert!(!escaped.status.success());
+    let stderr = String::from_utf8_lossy(&escaped.stderr);
+    assert!(
+        stderr.contains("outside the prepared directory")
+            && stderr.contains(definition.to_str().unwrap()),
+        "{stderr}"
+    );
+
     fs::remove_file(&definition).unwrap();
     let missing = kprove_spec_against(&specification, &compiled);
     assert!(!missing.status.success());

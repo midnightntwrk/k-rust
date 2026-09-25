@@ -387,10 +387,10 @@ fn rejects_non_unique_main_modules_and_unrepresentable_sentences() {
 #[test]
 fn provenance_export_round_trips_sources_attributes_and_term_metadata() {
     let mut sources = SourceTable::default();
-    let source = sources.intern(LogicalSourceId::new("src/definition.k", b"module MAIN\n"));
-    sources
-        .set_offset_map(source, SourceOffsetMap::identity("module MAIN\n".len()))
-        .unwrap();
+    let source = sources.intern_extraction(
+        LogicalSourceId::new("src/definition.k", b"module MAIN\n"),
+        Some(SourceOffsetMap::identity("module MAIN\n".len())),
+    );
     let span = TermSpan {
         source,
         start: 7,
@@ -581,10 +581,14 @@ fn provenance_attribute_manifest_matches_the_enforced_round_trip_subset() {
         json::from_provenance_str(&provenance_with_placeholder.to_string()),
         Err(json::Error::InvalidProvenance(_))
     ));
-    let old_version = encoded.replace("\"version\":4", "\"version\":3");
+    let previous = json::PROVENANCE_VERSION - 1;
+    let old_version = encoded.replace(
+        &format!("\"version\":{}", json::PROVENANCE_VERSION),
+        &format!("\"version\":{previous}"),
+    );
     assert!(matches!(
         json::from_provenance_str(&old_version),
-        Err(json::Error::UnsupportedVersion(3))
+        Err(json::Error::UnsupportedVersion(version)) if version == previous
     ));
     let kast: Value = serde_json::from_str(&json::to_string(&context_alias).unwrap()).unwrap();
     let mut kast_with_alias = kast;
@@ -670,10 +674,10 @@ fn provenance_export_rejects_malformed_source_attributes() {
 #[test]
 fn provenance_decoder_rejects_malformed_wire_forms() {
     let mut sources = SourceTable::default();
-    let source = sources.intern(LogicalSourceId::new("src/definition.k", b"X"));
-    sources
-        .set_offset_map(source, SourceOffsetMap::identity(1))
-        .unwrap();
+    let source = sources.intern_extraction(
+        LogicalSourceId::new("src/definition.k", b"X"),
+        Some(SourceOffsetMap::identity(1)),
+    );
     let origin = OriginRecord {
         pass: GeneratingPass::MacroExpansion,
         origins: vec![ProvenanceLink::Source {

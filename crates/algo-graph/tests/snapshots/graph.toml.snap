@@ -3148,7 +3148,7 @@ symbol = "LogicalSourceId::new"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
-symbol = "SourceTable::intern"
+symbol = "SourceTable::intern_extraction"
 
 [[node.sites]]
 crate = "k-rust"
@@ -3160,8 +3160,8 @@ mode = "one source"
 bound = "O(B + S)"
 
 [[node.cost]]
-mode = "SourceTable::intern"
-bound = "O(F) LogicalSourceId comparisons"
+mode = "SourceTable::intern_extraction"
+bound = "O(F) LogicalSourceId and offset-map comparisons"
 
 [[node]]
 kind = "algorithm"

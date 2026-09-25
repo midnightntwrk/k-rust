@@ -1221,3 +1221,110 @@ proptest! {
         let _ = load(ResolvedSource::new("fuzz.k", source), "FUZZ", &mut resolver);
     }
 }
+
+/// The raw text a rule body's span denotes, resolved through `source_table`.
+fn rule_body_raw_text<'a>(
+    definition: &k_rust::definition::Definition,
+    source_table: &k_rust::provenance::SourceTable,
+    module: &str,
+    raw: &'a str,
+) -> (SourceId, &'a str) {
+    let module = definition
+        .modules
+        .iter()
+        .find(|candidate| candidate.name == module)
+        .unwrap();
+    let body = module
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(body),
+            _ => None,
+        })
+        .unwrap();
+    let span = body.metadata().and_then(|metadata| metadata.span).unwrap();
+    let range = source_table.raw_range(span).unwrap();
+    (span.source, &raw[range])
+}
+
+#[test]
+fn a_prepared_markdown_source_reloaded_under_another_selector_is_a_distinct_extraction() {
+    // The `spec` block follows the `k` block, so the two selectors extract different texts from
+    // the same raw bytes; each set of spans must resolve through its own extraction's map.
+    let text = indoc! {r#"
+        ```k
+        module TEST
+          syntax Value ::= "a" [symbol(aValue)] | "b" [symbol(bValue)]
+          rule b => a
+        endmodule
+        ```
+        Prose between the blocks.
+        ```spec
+        module SPEC
+          imports TEST
+          rule a => b
+        endmodule
+        ```
+    "#};
+    let mut no_requires = |_: &str, required: &str| Err(format!("unexpected {required}"));
+    let base = load_with_options(
+        ResolvedSource::new("test.md", text),
+        "TEST",
+        &mut no_requires,
+        &LoadOptions {
+            markdown_selector: "k".into(),
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let declarations = prepared_module_declarations(&base.files, &base.definition);
+    let prepared = k_rust::definition::json::ProvenanceDefinition {
+        definition: base.definition.clone(),
+        source_table: base.source_table.clone(),
+    };
+    let loaded = load_with_prepared_base(
+        ResolvedSource::new("test.md", text),
+        "SPEC",
+        &mut no_requires,
+        &LoadOptions {
+            markdown_selector: "k|spec".into(),
+            ..LoadOptions::default()
+        },
+        &prepared,
+        &["test.md".to_owned()],
+        &declarations,
+    )
+    .unwrap();
+
+    let (base_source, base_text) =
+        rule_body_raw_text(&loaded.definition, &loaded.source_table, "TEST", text);
+    let (spec_source, spec_text) =
+        rule_body_raw_text(&loaded.definition, &loaded.source_table, "SPEC", text);
+    assert_eq!(base_text, "b => a");
+    assert_eq!(spec_text, "a => b");
+    assert_ne!(base_source, spec_source);
+    assert_eq!(
+        loaded.source_table.get(base_source),
+        loaded.source_table.get(spec_source)
+    );
+    assert_eq!(
+        loaded.source_table.offset_map(base_source),
+        base.source_table.offset_map(base_source)
+    );
+
+    // The serialized form distinguishes the two extractions of one logical source.
+    let encoded =
+        k_rust::definition::json::to_provenance_string(&loaded.definition, &loaded.source_table)
+            .unwrap();
+    let decoded = k_rust::definition::json::from_provenance_str(&encoded).unwrap();
+    assert_eq!(decoded.source_table, loaded.source_table);
+    assert_eq!(decoded.definition, loaded.definition);
+    assert_eq!(
+        rule_body_raw_text(&decoded.definition, &decoded.source_table, "SPEC", text),
+        (spec_source, "a => b")
+    );
+    assert_eq!(
+        rule_body_raw_text(&decoded.definition, &decoded.source_table, "TEST", text),
+        (base_source, "b => a")
+    );
+}
