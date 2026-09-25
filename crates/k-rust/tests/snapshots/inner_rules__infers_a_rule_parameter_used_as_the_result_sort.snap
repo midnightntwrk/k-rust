@@ -5,7 +5,7 @@ description: "K definition:\n\nmodule MAIN\n  syntax Int ::= r\"[0-9]+\" [token]
 [
     SentenceSummary {
         kind: "rule",
-        body: "box(same{Int}(#token(\"1\",\"Int\")))=>box(#token(\"1\",\"Int\"))",
+        body: "box(same(#token(\"1\",\"Int\")))=>box(#token(\"1\",\"Int\"))",
         requires: "#token(\"true\",\"Bool\")",
         ensures: Some(
             "#token(\"true\",\"Bool\")",

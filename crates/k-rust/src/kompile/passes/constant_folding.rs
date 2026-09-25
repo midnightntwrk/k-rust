@@ -230,6 +230,12 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         let Some(tokens) = tokens else {
             return Ok(None);
         };
+        // A parametric production's result sort is known only through its label's instance;
+        // a label without one (as loaded from source, before sort injection solves it) has
+        // no result sort to give the folded token.
+        if parameters.len() != label.parameters.len() {
+            return Ok(None);
+        }
         let substitution = parameters
             .iter()
             .cloned()
