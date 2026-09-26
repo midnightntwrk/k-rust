@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "definition.provenance.record"
 //! name = "recording of generation-origin receipts"
-//! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "insert_link"]
+//! sites = ["record_generated_origins", "sentence_counterparts", "annotate_term", "insert_link", "CarrierOrigins::origins"]
 //! variable = "N = sentences and changed term nodes; k = origin links per visited node; M = modules; D = total size of the local sentences cloned and compared; s = maximum semantic sentence size"
 //! counters = ["ProvenanceLinkDedupProbes", "KompileSentenceCopies"]
 //!

@@ -1,6 +1,21 @@
+//! ```toml algorithm-site
+//! id = "kompile.sort_injections.insert"
+//! role = "variant"
+//! sites = ["SentenceTyper::typing", "SentenceTyper::typing_of", "Walk::visit", "Walk::injected", "Walk::projected"]
+//! ```
+//!
 //! A read-only typing view of a loaded rule-like sentence, computed by the sort injector on the
 //! sentence as compilation hands it to injection: semantic casts resolved, and a body with a
 //! rewrite projected into its left and right branches.
+//!
+//! Cost: the body is walked at most four times (a sort walk and a placement walk per branch of a
+//! body with a rewrite, one of each otherwise) and the conditions once. At every node the walk
+//! records the node's path in an ordered map, copies or projects the resolved subterm there
+//! (`Walk::projected`, linear in the subterm), and asks the injector for the node's sort and
+//! placement as injection does. For N nodes of height h that is O(N x h x (log N + P + S)) with
+//! the injector's P and S, plus the parametric instance searches and one semantic-cast
+//! resolution of the sentence. `kompile.macros.expand` computes this view once per rewrite of a
+//! sentence when some macro rule has a parametric head.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};

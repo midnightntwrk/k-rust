@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "kore.printer.build"
 //! name = "construction of KORE pretty-print documents"
-//! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "SyntaxOps::next", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "attributes_doc", "declaration_pattern_doc", "delimited", "join"]
+//! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "SyntaxOps::next", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "attributes_doc", "declaration_pattern_doc", "delimited", "join", "expand"]
 //! variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the definition, module, sentence, sentence-body nest, and attribute-list delimited levels, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack; Printer::write_pattern pulls those ops on demand from inside the render span, so its construction time is measured together with rendering"
 //! counters = []
 //! no_counter = "KORE document construction has no dedicated counter"

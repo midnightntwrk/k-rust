@@ -1,6 +1,5 @@
 ---
 source: crates/algo-graph/tests/freshness.rs
-assertion_line: 27
 expression: canonical
 ---
 [[node]]
@@ -1286,6 +1285,11 @@ symbol = "freshen_claim"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
 symbol = "rename_apart"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
+symbol = "fresh_renaming"
 
 [[node.cost]]
 mode = "shared counter"
@@ -3145,6 +3149,11 @@ crate = "k-rust"
 file = "crates/k-rust/src/provenance.rs"
 symbol = "insert_link"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/provenance.rs"
+symbol = "CarrierOrigins::origins"
+
 [[node.cost]]
 mode = "one order-preserving generating pass with distinct fallback bucket keys"
 bound = "O(M^2 + D + N + sum k) expected"
@@ -4674,6 +4683,31 @@ symbol = "compile_search_pattern"
 
 [[node.sites]]
 crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections/typing.rs"
+symbol = "SentenceTyper::typing"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections/typing.rs"
+symbol = "SentenceTyper::typing_of"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections/typing.rs"
+symbol = "Walk::visit"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections/typing.rs"
+symbol = "Walk::injected"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections/typing.rs"
+symbol = "Walk::projected"
+
+[[node.sites]]
+crate = "k-rust"
 file = "crates/k-rust/src/kompile/sort_injections.rs"
 symbol = "SortInjector::inject_sentence"
 
@@ -4962,6 +4996,11 @@ symbol = "delimited"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "join"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "expand"
 
 [[node.cost]]
 mode = "one syntax tree"
@@ -6044,6 +6083,11 @@ symbol = "Grammar::infer_sorts"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/inference.rs"
 symbol = "Grammar::infer_ambiguous_sorts_portable"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/inference.rs"
+symbol = "Grammar::maximal_typing_groups"
 
 [[node.cost]]
 mode = "one tree"

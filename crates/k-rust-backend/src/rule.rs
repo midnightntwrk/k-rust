@@ -2214,7 +2214,7 @@ fn next_apart_counter() -> u64 {
 /// ```toml algorithm-site
 /// id = "backend.fresh.variables"
 /// role = "part"
-/// sites = ["rename_apart"]
+/// sites = ["rename_apart", "fresh_renaming"]
 /// ```
 pub(crate) fn rename_apart(
     rule: &RewriteRule,
