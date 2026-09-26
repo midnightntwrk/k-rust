@@ -1428,3 +1428,26 @@ fn reports_duplicate_map_keys() {
         MatchResult::Failed(FailReason::DuplicateKeys(found, _)) if found == key
     ));
 }
+
+#[test]
+fn reports_the_least_duplicate_map_key() {
+    let definition = map_definition();
+    let key = |name| domain_value(Sort::simple("MapKey"), name);
+    let value = |name| domain_value(Sort::simple("MapValue"), name);
+    let subject = Term::map(
+        definition.clone(),
+        vec![
+            (key("b"), value("one")),
+            (key("b"), value("two")),
+            (key("a"), value("one")),
+            (key("a"), value("two")),
+        ],
+        None,
+    );
+    let pattern = Term::map(definition, Vec::new(), None);
+
+    assert!(matches!(
+        match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+        MatchResult::Failed(FailReason::DuplicateKeys(found, _)) if found == key("a")
+    ));
+}

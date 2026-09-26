@@ -1598,11 +1598,25 @@ fn check_duplicate_keys(
     entries: &[(Term, Term)],
     rest: &Option<Term>,
 ) -> Result<(), FailReason> {
-    let mut counts = BTreeMap::new();
-    for (key, _) in entries {
-        *counts.entry(key.clone()).or_insert(0usize) += 1;
-    }
-    if let Some((key, _)) = counts.into_iter().find(|(_, count)| *count > 1) {
+    // The least key that occurs twice. In entries sorted by key, as `Term::map` stores them,
+    // equal keys are adjacent, so one pass over neighbours finds it without copying a key;
+    // entries in another order (a pattern's, after its keys were substituted) are counted.
+    let duplicate = if entries.is_sorted_by(|left, right| left.0 <= right.0) {
+        entries
+            .windows(2)
+            .find(|pair| pair[0].0 == pair[1].0)
+            .map(|pair| pair[0].0.clone())
+    } else {
+        let mut counts = BTreeMap::new();
+        for (key, _) in entries {
+            *counts.entry(key).or_insert(0usize) += 1;
+        }
+        counts
+            .into_iter()
+            .find(|(_, count)| *count > 1)
+            .map(|(key, _)| key.clone())
+    };
+    if let Some(key) = duplicate {
         return Err(FailReason::DuplicateKeys(
             key,
             Term::map(definition.clone(), entries.to_vec(), rest.clone()),
