@@ -41,7 +41,9 @@ use krs_ir::{
 use serde_json::json;
 
 pub use k_rust::definition::Definition as NativeDefinition;
+pub use k_rust::kompile::EmittedSentenceProvenance;
 pub use k_rust::outer::LoadedDefinition;
+pub use k_rust::provenance::{GeneratingPass, InputAddress, InputSentenceKind, InputSpace};
 
 /// Metadata for the source and builtin revisions forming the native frontend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -194,6 +196,9 @@ pub enum NativeNodeRole {
 }
 
 /// Sidecar seam from an IR origin to its structural native destination.
+///
+/// Sub-sentence roles serve diagnostics and editor mapping only. Emitted rule
+/// and claim identities join through the `Sentence` role.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OriginMapping {
     /// Stable key shared with KRS source-map sidecars.
@@ -370,7 +375,143 @@ pub struct CompiledArtifacts {
     pub macros_kore: String,
     /// Non-fatal frontend diagnostics.
     pub diagnostics: Vec<FrontendDiagnostic>,
+    /// Rule and claim identities joined to KRS source origins.
+    pub sentence_provenance: SentenceProvenance,
 }
+
+/// Textual KORE artifacts with the native, unjoined input relation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RawCompiledArtifacts {
+    /// Semantics definition consumed by a backend.
+    pub definition_kore: String,
+    /// Syntax-only definition used by parser tooling.
+    pub syntax_definition_kore: String,
+    /// Compiled macro rules.
+    pub macros_kore: String,
+    /// Non-fatal frontend diagnostics.
+    pub diagnostics: Vec<FrontendDiagnostic>,
+    /// Native rule and claim relation, keyed by `UNIQUE_ID`.
+    pub sentence_provenance: BTreeMap<String, EmittedSentenceProvenance>,
+}
+
+/// One input author of an emitted rule or claim.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Author {
+    /// A sentence in the KRS Definition IR.
+    Krs {
+        /// Emitted module name.
+        module: String,
+        /// Module-local sentence index.
+        index: u32,
+        /// Input sentence kind before compilation.
+        kind: InputSentenceKind,
+        /// Complete KRS source origin.
+        origin: NodeOrigin,
+    },
+    /// A sentence in the pinned prelude or builtin closure.
+    Builtin {
+        /// Native module name.
+        module: String,
+        /// Module-local sentence index.
+        index: u32,
+        /// Input sentence kind before compilation.
+        kind: InputSentenceKind,
+    },
+}
+
+/// Provenance of one emitted rule or claim identity.
+///
+/// Exactly one of nonempty `authors` and `generated_by` is present.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmittedProvenance {
+    authors: Vec<Author>,
+    generated_by: Option<GeneratingPass>,
+}
+
+impl EmittedProvenance {
+    /// Input authors in the native frontend's order.
+    #[must_use]
+    pub fn authors(&self) -> &[Author] {
+        &self.authors
+    }
+
+    /// Generating pass when the identity has no input author.
+    #[must_use]
+    pub const fn generated_by(&self) -> Option<GeneratingPass> {
+        self.generated_by
+    }
+}
+
+/// `UNIQUE_ID` relation for emitted rules and claims.
+///
+/// Declarations and generated axioms without a `UNIQUE_ID` are outside this relation.
+/// The current native pin may also report execution-definition identities from
+/// modules outside the emitted main-module closure; KRS preserves that relation.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SentenceProvenance {
+    by_id: BTreeMap<String, EmittedProvenance>,
+    by_source: BTreeMap<SourceMapKey, Vec<String>>,
+}
+
+impl SentenceProvenance {
+    /// Look up an emitted rule or claim identity.
+    #[must_use]
+    pub fn get(&self, id: &str) -> Option<&EmittedProvenance> {
+        self.by_id.get(id)
+    }
+
+    /// All emitted identities contributed by a KRS source key, in identity order.
+    #[must_use]
+    pub fn emitted_by(&self, key: &SourceMapKey) -> &[String] {
+        self.by_source.get(key).map_or(&[], Vec::as_slice)
+    }
+
+    /// Iterate over emitted identities in `UNIQUE_ID` order.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &EmittedProvenance)> {
+        self.by_id
+            .iter()
+            .map(|(id, provenance)| (id.as_str(), provenance))
+    }
+}
+
+/// Invalid relationship between native input addresses and KRS source sentences.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProvenanceError {
+    /// Two sentence mappings occupy the same adapted address.
+    DuplicateSentenceMapping {
+        /// Adapted module name.
+        module: String,
+        /// Module-local sentence index.
+        index: u32,
+    },
+    /// A structured address has no sentence mapping.
+    MissingSentenceMapping(InputAddress),
+    /// A compile-space address points into a KRS-authored module.
+    LossyCompileAddress(InputAddress),
+    /// An address exceeds the module's input sentence count.
+    IndexOutOfRange(InputAddress),
+    /// The native source kind differs from the corresponding IR sentence.
+    KindMismatch {
+        /// Input address whose kind differs.
+        address: InputAddress,
+        /// Kind expected from the IR.
+        expected: InputSentenceKind,
+        /// Kind reported by the native relation.
+        actual: InputSentenceKind,
+    },
+    /// Native relation lacks a kind for an input address.
+    MissingKind(InputAddress),
+    /// A native identity has neither authors nor a generating pass, or both.
+    InvalidIdentity(String),
+}
+
+impl fmt::Display for ProvenanceError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "invalid native sentence provenance: {self:?}")
+    }
+}
+
+impl Error for ProvenanceError {}
 
 /// Permanent structured compilation failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -379,6 +520,8 @@ pub enum DefinitionCompileError {
     Adapter(AdapterError),
     /// The pinned public preparation primitives rejected the native graph.
     Preparation(String),
+    /// Native input provenance did not join to the adapted Definition IR.
+    Provenance(ProvenanceError),
     /// The ordered native compiler rejected the prepared graph.
     Compile {
         /// Native pipeline stage.
@@ -402,6 +545,7 @@ impl fmt::Display for DefinitionCompileError {
         match self {
             Self::Adapter(error) => error.fmt(formatter),
             Self::Preparation(message) => write!(formatter, "native preparation failed: {message}"),
+            Self::Provenance(error) => error.fmt(formatter),
             Self::Compile { stage, message, .. } => {
                 write!(
                     formatter,
@@ -419,6 +563,7 @@ impl Error for DefinitionCompileError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Adapter(error) => Some(error),
+            Self::Provenance(error) => Some(error),
             Self::Preparation(_) | Self::Compile { .. } | Self::KoreReparse { .. } => None,
         }
     }
@@ -435,6 +580,8 @@ pub enum ProvisionalCompileError {
     Resolution(String),
     /// The ordered native compilation pipeline rejected the definition.
     Compile(CompileError),
+    /// Native input provenance did not join to the adapted Definition IR.
+    Provenance(ProvenanceError),
     /// One emitted KORE artifact was not accepted by the pinned KORE parser.
     KoreReparse {
         /// Artifact which failed (`definition.kore` or
@@ -462,6 +609,7 @@ impl fmt::Display for ProvisionalCompileError {
                 )
             }
             Self::Compile(error) => error.fmt(formatter),
+            Self::Provenance(error) => error.fmt(formatter),
             Self::KoreReparse { artifact, message } => {
                 write!(formatter, "pinned parser rejected {artifact}: {message}")
             }
@@ -474,6 +622,7 @@ impl Error for ProvisionalCompileError {
         match self {
             Self::Adapter(error) => Some(error),
             Self::Compile(error) => Some(error),
+            Self::Provenance(error) => Some(error),
             Self::Configuration(_) | Self::Resolution(_) | Self::KoreReparse { .. } => None,
         }
     }
@@ -572,7 +721,16 @@ pub fn compile_definition(
             message: error.to_string(),
         }
     })?;
-    Ok(artifacts)
+    let sentence_provenance =
+        join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
+            .map_err(DefinitionCompileError::Provenance)?;
+    Ok(CompiledArtifacts {
+        definition_kore: artifacts.definition_kore,
+        syntax_definition_kore: artifacts.syntax_definition_kore,
+        macros_kore: artifacts.macros_kore,
+        diagnostics: artifacts.diagnostics,
+        sentence_provenance,
+    })
 }
 
 fn authored_existential_sentence_keys(ir: &DefinitionIr) -> BTreeSet<&str> {
@@ -629,7 +787,142 @@ pub fn compile_definition_provisional_oracle(
             message: error.to_string(),
         }
     })?;
-    Ok(artifacts)
+    let sentence_provenance =
+        join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
+            .map_err(ProvisionalCompileError::Provenance)?;
+    Ok(CompiledArtifacts {
+        definition_kore: artifacts.definition_kore,
+        syntax_definition_kore: artifacts.syntax_definition_kore,
+        macros_kore: artifacts.macros_kore,
+        diagnostics: artifacts.diagnostics,
+        sentence_provenance,
+    })
+}
+
+fn input_kind(sentence: &DefinitionSentence) -> InputSentenceKind {
+    match sentence {
+        DefinitionSentence::SyntaxSort(_) => InputSentenceKind::SyntaxSort,
+        DefinitionSentence::Subsort(_) | DefinitionSentence::Production(_) => {
+            InputSentenceKind::Production
+        }
+        DefinitionSentence::Precedence(_) => InputSentenceKind::SyntaxPriority,
+        DefinitionSentence::Associativity(_) => InputSentenceKind::SyntaxAssociativity,
+        DefinitionSentence::Configuration(_) => InputSentenceKind::Configuration,
+        DefinitionSentence::ContextAlias(_) => InputSentenceKind::ContextAlias,
+        DefinitionSentence::Rule(rule) if rule.claim().is_some() => InputSentenceKind::Claim,
+        DefinitionSentence::Rule(_) => InputSentenceKind::Rule,
+    }
+}
+
+#[allow(clippy::too_many_lines)] // Validates both address spaces and every sentence kind in one join.
+fn join_sentence_provenance(
+    ir: &DefinitionIr,
+    adapted: &AdaptedDefinition,
+    loaded: &LoadedDefinition,
+    raw: &BTreeMap<String, EmittedSentenceProvenance>,
+) -> Result<SentenceProvenance, ProvenanceError> {
+    let modules = ir
+        .modules()
+        .iter()
+        .map(|module| (module.id().as_str(), module))
+        .collect::<BTreeMap<_, _>>();
+    let mut mappings = BTreeMap::new();
+    for mapping in adapted
+        .origins()
+        .iter()
+        .filter(|mapping| mapping.role == NativeNodeRole::Sentence)
+    {
+        let index = mapping
+            .sentence_index
+            .expect("Sentence-role mappings always carry a sentence index");
+        if mappings
+            .insert((mapping.module.as_str(), index), mapping)
+            .is_some()
+        {
+            return Err(ProvenanceError::DuplicateSentenceMapping {
+                module: mapping.module.clone(),
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+            });
+        }
+    }
+    let mut relation = SentenceProvenance::default();
+    for (id, entry) in raw {
+        if entry.input_addresses.is_empty() == entry.generated_by.is_none() {
+            return Err(ProvenanceError::InvalidIdentity(id.clone()));
+        }
+        let mut authors = Vec::with_capacity(entry.input_addresses.len());
+        for address in &entry.input_addresses {
+            let kind = *entry
+                .input_sentence_kinds
+                .get(address)
+                .ok_or_else(|| ProvenanceError::MissingKind(address.clone()))?;
+            let index = address.index as usize;
+            match address.input {
+                InputSpace::Structured => {
+                    let Some(module) = modules.get(address.module.as_str()) else {
+                        return Err(ProvenanceError::MissingSentenceMapping(address.clone()));
+                    };
+                    let Some(sentence) = module.sentences().get(index) else {
+                        return Err(ProvenanceError::IndexOutOfRange(address.clone()));
+                    };
+                    let Some(mapping) = mappings.get(&(address.module.as_str(), index)) else {
+                        return Err(ProvenanceError::MissingSentenceMapping(address.clone()));
+                    };
+                    let expected = input_kind(sentence);
+                    if kind != expected {
+                        return Err(ProvenanceError::KindMismatch {
+                            address: address.clone(),
+                            expected,
+                            actual: kind,
+                        });
+                    }
+                    authors.push(Author::Krs {
+                        module: address.module.clone(),
+                        index: address.index,
+                        kind,
+                        origin: mapping.origin.clone(),
+                    });
+                    let ids = relation.by_source.entry(mapping.key.clone()).or_default();
+                    if !ids.contains(id) {
+                        ids.push(id.clone());
+                    }
+                }
+                InputSpace::Compile => {
+                    if modules.contains_key(address.module.as_str()) {
+                        return Err(ProvenanceError::LossyCompileAddress(address.clone()));
+                    }
+                    let sentence = loaded
+                        .definition
+                        .modules
+                        .iter()
+                        .find(|module| module.name == address.module)
+                        .and_then(|module| module.local_sentences.get(index))
+                        .ok_or_else(|| ProvenanceError::IndexOutOfRange(address.clone()))?;
+                    let expected = InputSentenceKind::of(sentence);
+                    if kind != expected {
+                        return Err(ProvenanceError::KindMismatch {
+                            address: address.clone(),
+                            expected,
+                            actual: kind,
+                        });
+                    }
+                    authors.push(Author::Builtin {
+                        module: address.module.clone(),
+                        index: address.index,
+                        kind,
+                    });
+                }
+            }
+        }
+        relation.by_id.insert(
+            id.clone(),
+            EmittedProvenance {
+                authors,
+                generated_by: entry.generated_by,
+            },
+        );
+    }
+    Ok(relation)
 }
 
 /// Failure from a named stage of the native frontend pipeline.
@@ -684,12 +977,15 @@ impl Error for CompileError {
     }
 }
 
-/// Compile an already-prepared native definition to textual KORE.
+/// Compile an already-prepared native definition to textual KORE and its raw
+/// input-address relation.
 ///
 /// `loaded` must have been prepared with the backend-specific module filter
 /// returned by `k-rust` and must contain a resolved graph consistent with its
 /// flat definition. This adapter intentionally does not expose an unchecked
 /// structured-definition preparation shortcut.
+/// The raw relation is not joined to KRS origins because this route has no
+/// `OriginMapping`; use [`compile_definition`] for the joined relation.
 ///
 /// # Errors
 ///
@@ -698,7 +994,7 @@ impl Error for CompileError {
 pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
-) -> Result<CompiledArtifacts, CompileError> {
+) -> Result<RawCompiledArtifacts, CompileError> {
     let backend = match options.backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm,
         Backend::Haskell => kompile::CompilationBackend::Rust,
@@ -732,11 +1028,12 @@ pub fn compile_loaded_definition(
     )
     .map_err(CompileError::from)?;
 
-    Ok(CompiledArtifacts {
+    Ok(RawCompiledArtifacts {
         definition_kore: artifacts.definition_kore,
         syntax_definition_kore: artifacts.syntax_definition_kore,
         macros_kore: artifacts.macros_kore,
         diagnostics: artifacts.diagnostics.iter().map(Into::into).collect(),
+        sentence_provenance: artifacts.sentence_provenance,
     })
 }
 
