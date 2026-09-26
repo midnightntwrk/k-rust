@@ -1,9 +1,9 @@
-//! Live symbolic memory observations and path-level smoke checks.
+//! Live symbolic memory observations and path-level acceptance checks.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
@@ -16,9 +16,9 @@ use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, Payl
 use kink_native::{NativeValidator, ObservedRule, ValidatedDefinition};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, Evaluation, EvaluationContext, EvaluationOptions,
-    EventVocabulary, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
-    PatternPlan, PayloadClause, Relation, SearchPolicy, SymbolSorts, TermRelation, evaluate,
-    evaluate_with,
+    EventVocabulary, ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm,
+    PatternOutcome, PatternPlan, PayloadClause, Relation, SearchPolicy, SymbolSorts, TermRelation,
+    evaluate, evaluate_with,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -91,7 +91,6 @@ fn p2() -> Pattern {
         seq(free(addr(z())), seq(load(addr(nat("X")), nat("W")), halt())),
     )
 }
-#[allow(dead_code)] // P3 is exercised by SYM-3A-05.
 fn p3() -> Pattern {
     seq(
         load(addr(nat("X")), nat("W")),
@@ -104,29 +103,24 @@ fn p4() -> Pattern {
         seq(load(addr(nat("X")), nat("W")), halt()),
     )
 }
-#[allow(dead_code)] // P5-P9 are exercised by SYM-3A-05 and SYM-3A-06.
 fn p5() -> Pattern {
     fork(p1(), seq(load(addr(nat("X")), nat("W")), halt()))
 }
-#[allow(dead_code)]
 fn p6() -> Pattern {
     seq(
         write(addr(nat("X")), nat("V")),
         seq(load(addr(nat("Y")), nat("W")), halt()),
     )
 }
-#[allow(dead_code)]
 fn p7() -> Pattern {
     seq(
         write(addr(z()), nat("V")),
         seq(load(addr(s(nat("Y"))), nat("W")), halt()),
     )
 }
-#[allow(dead_code)]
 fn p8() -> Pattern {
     p1()
 }
-#[allow(dead_code)]
 fn p9() -> Pattern {
     fork(
         p1(),
@@ -385,18 +379,15 @@ fn wl(vocabulary: &EventVocabulary, sort: &str, relation: Relation) -> PatternPl
     .expect("plan")
 }
 
-#[allow(dead_code)] // Symmem plans are used by SYM-3A-05.
 fn wl_next(vocabulary: &EventVocabulary) -> PatternPlan {
     wl(vocabulary, "SortAddress", Relation::NextEvent)
 }
-#[allow(dead_code)]
 fn wl_after(vocabulary: &EventVocabulary) -> PatternPlan {
     wl(vocabulary, "SortAddress", Relation::EventuallyAfter)
 }
 fn gwl_after(vocabulary: &EventVocabulary) -> PatternPlan {
     wl(vocabulary, "SortInt", Relation::EventuallyAfter)
 }
-#[allow(dead_code)]
 fn w_only(vocabulary: &EventVocabulary) -> PatternPlan {
     PatternPlan::new(
         vocabulary,
@@ -678,37 +669,258 @@ fn ground_guard_is_decided_without_z3() {
     );
 }
 
-/// Live smoke check of the backend decider and leaf feasibility (SYM-3A-04); SYM-3A-05 owns
-/// the full README 6.1 rows.
-#[test]
-fn backend_decider_decides_symbolic_address_rows() {
-    // P6: distinct symbolic addresses match under the unifier's assumption X = Y.
-    let (mut p6, vocabulary) = run(Fixture::Sym, p6(), BUDGET);
-    let plan = wl_after(&vocabulary);
-    assert_eq!(outcome(&p6, &plan).outcome, PatternOutcome::Unknown);
-    let evaluation = decided(&mut p6, &plan);
-    assert_eq!(evaluation.outcome, PatternOutcome::Match);
+fn assert_both(
+    run: &mut Run,
+    plan: &PatternPlan,
+    expected: PatternOutcome,
+    failure: Option<PathStop>,
+) -> Evaluation {
+    let plain = outcome(run, plan);
+    assert_eq!((plain.outcome, plain.failure), (expected, failure));
+    let evaluation = decided(run, plan);
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        (expected, failure)
+    );
+    assert_witness_paths(run, &evaluation);
+    for witness in &evaluation.witnesses {
+        assert_eq!(witness.bindings.len(), 1);
+        assert_eq!(witness.bindings[0].name, "A");
+        assert_eq!(witness.bindings[0].term, addr(nat("X")));
+        assert!(witness.assumptions.is_empty());
+        assert_eq!(
+            witness.path_predicate,
+            Pattern::Top {
+                sort: kore_sort("SortGeneratedTopCell")
+            }
+        );
+    }
+    evaluation
+}
+
+fn assert_witness_paths(run: &Run, evaluation: &Evaluation) {
+    for witness in &evaluation.witnesses {
+        let path = run
+            .bridged
+            .paths
+            .iter()
+            .find(|path| path.path_ordinal == witness.path_ordinal)
+            .expect("witness path ordinal");
+        assert!(path.path_key.is_some());
+        assert_eq!(witness.path_key, path.path_key);
+        assert!(path.stop.has_real_prefix());
+        assert_eq!(witness.stop_reason, path.stop);
+        assert_eq!(witness.path_predicate, path.path_predicate);
+        assert_eq!(
+            witness.events,
+            witness
+                .event_indices
+                .iter()
+                .map(|&index| path.events[index].clone())
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+fn only_witness_path<'a>(run: &'a Run, evaluation: &Evaluation) -> &'a PathInput {
     let [witness] = evaluation.witnesses.as_slice() else {
-        panic!("one witness")
+        panic!("exactly one witness: {evaluation:?}")
     };
+    run.bridged
+        .paths
+        .iter()
+        .find(|path| path.path_ordinal == witness.path_ordinal)
+        .expect("witness path")
+}
+
+#[test]
+fn symbolic_write_then_load_matches_consecutive_and_separated() {
+    let (mut first, vocabulary) = run(Fixture::Sym, p1(), BUDGET);
+    for plan in [wl_next(&vocabulary), wl_after(&vocabulary)] {
+        let evaluation = assert_both(&mut first, &plan, PatternOutcome::Match, None);
+        assert_eq!(evaluation.witnesses.len(), 1);
+        assert_eq!(evaluation.witnesses[0].event_indices, [0, 1]);
+        assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::Terminal);
+    }
+
+    let (mut separated, vocabulary) = run(Fixture::Sym, p2(), BUDGET);
+    let evaluation = assert_both(
+        &mut separated,
+        &wl_next(&vocabulary),
+        PatternOutcome::NoMatch,
+        None,
+    );
+    assert!(evaluation.complete_coverage);
+    assert!(evaluation.witnesses.is_empty());
+    let evaluation = assert_both(
+        &mut separated,
+        &wl_after(&vocabulary),
+        PatternOutcome::Match,
+        None,
+    );
+    let path = only_witness_path(&separated, &evaluation);
+    assert_eq!(evaluation.witnesses[0].event_indices, [0, 2]);
+    assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::Terminal);
+    assert_eq!(path.events[1].constructor, "memoryFree");
+}
+
+#[test]
+fn symbolic_reversed_order_does_not_match() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p3(), BUDGET);
+    let evaluation = assert_both(
+        &mut run,
+        &wl_after(&vocabulary),
+        PatternOutcome::NoMatch,
+        None,
+    );
+    assert!(evaluation.complete_coverage);
+    assert!(evaluation.witnesses.is_empty());
+    let [path] = run.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!(path.stop, PathStop::Terminal);
+    assert_eq!(path.events[0].constructor, "memoryLoad");
+    assert_eq!(path.events[1].constructor, "memoryWrite");
+}
+
+#[test]
+fn sibling_write_and_load_never_form_a_witness() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p4(), BUDGET);
+    let evaluation = assert_both(
+        &mut run,
+        &wl_after(&vocabulary),
+        PatternOutcome::NoMatch,
+        None,
+    );
+    assert!(evaluation.complete_coverage);
+    assert!(evaluation.witnesses.is_empty());
+    assert_eq!(run.bridged.paths.len(), 2);
+    assert!(
+        run.bridged
+            .paths
+            .iter()
+            .all(|path| path.complete && path.stop == PathStop::Terminal && path.events.len() == 1)
+    );
+    assert_ne!(run.bridged.paths[0].path_key, run.bridged.paths[1].path_key);
+}
+
+#[test]
+fn witness_stays_on_its_own_sibling() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p5(), BUDGET);
+    let evaluation = assert_both(
+        &mut run,
+        &wl_after(&vocabulary),
+        PatternOutcome::Match,
+        None,
+    );
+    let path = only_witness_path(&run, &evaluation);
+    assert_eq!(evaluation.witnesses[0].event_indices, [0, 1]);
+    assert_eq!(
+        path.events
+            .iter()
+            .map(|event| event.constructor.as_str())
+            .collect::<Vec<_>>(),
+        ["memoryWrite", "memoryLoad"]
+    );
+    assert_eq!(path.stop, PathStop::Terminal);
+    assert_eq!(run.bridged.paths.len(), 2);
+    let other = run
+        .bridged
+        .paths
+        .iter()
+        .find(|other| other.path_key != path.path_key)
+        .expect("other sibling");
+    assert_eq!(other.stop, PathStop::Terminal);
+    assert_eq!(other.events.len(), 1);
+    assert_eq!(other.events[0].constructor, "memoryLoad");
+}
+
+#[test]
+fn shared_symbolic_address_binds_one_term() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p1(), BUDGET);
+    let evaluation = assert_both(
+        &mut run,
+        &wl_after(&vocabulary),
+        PatternOutcome::Match,
+        None,
+    );
+    let path = only_witness_path(&run, &evaluation);
+    let witness = &evaluation.witnesses[0];
+    assert_eq!(witness.bindings.len(), 1);
+    assert_eq!(witness.bindings[0].name, "A");
+    assert_eq!(witness.bindings[0].term, addr(nat("X")));
+    assert!(witness.assumptions.is_empty());
+    assert_eq!(
+        witness.path_predicate,
+        Pattern::Top {
+            sort: kore_sort("SortGeneratedTopCell")
+        }
+    );
+    assert_eq!(path.stop, PathStop::Terminal);
+}
+
+#[test]
+fn distinct_symbolic_addresses_match_under_unifier_assumption() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p6(), BUDGET);
+    let plan = wl_after(&vocabulary);
+    let plain = outcome(&run, &plan);
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+    );
+    let evaluation = decided(&mut run, &plan);
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        (PatternOutcome::Match, None)
+    );
+    assert_witness_paths(&run, &evaluation);
+    let path = only_witness_path(&run, &evaluation);
+    let witness = &evaluation.witnesses[0];
+    assert_eq!(witness.event_indices, [0, 1]);
+    assert_eq!(witness.bindings.len(), 1);
+    assert_eq!(witness.bindings[0].name, "A");
+    assert_eq!(witness.bindings[0].term, addr(nat("X")));
     assert_eq!(
         witness.assumptions,
         [TermRelation {
             left: nat("X"),
-            right: nat("Y"),
+            right: nat("Y")
         }]
     );
+    assert_eq!(
+        witness.path_predicate,
+        Pattern::Top {
+            sort: kore_sort("SortGeneratedTopCell")
+        }
+    );
+    assert_eq!(path.stop, PathStop::Terminal);
+}
 
-    // P7: addr(z) against addr(s(Y)) is a constructor clash.
-    let (mut p7, _) = run(Fixture::Sym, p7(), BUDGET);
-    assert_eq!(outcome(&p7, &plan).outcome, PatternOutcome::Unknown);
-    let evaluation = decided(&mut p7, &plan);
-    assert_eq!(evaluation.outcome, PatternOutcome::NoMatch);
+#[test]
+fn clashing_symbolic_addresses_do_not_match() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p7(), BUDGET);
+    let plan = wl_after(&vocabulary);
+    let plain = outcome(&run, &plan);
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+    );
+    let evaluation = decided(&mut run, &plan);
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        (PatternOutcome::NoMatch, None)
+    );
     assert!(evaluation.complete_coverage);
+    assert!(evaluation.witnesses.is_empty());
+    let [path] = run.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!(path.stop, PathStop::Terminal);
+}
 
-    // P8: the symbolic depth cut is shown feasible, so it keeps DepthLimit and its prefix
-    // witnesses; absence stays unknown.
-    let (mut p8, _) = run(
+#[test]
+fn symbolic_depth_bound_absence_is_unknown_depth_limit() {
+    let (mut run, vocabulary) = run(
         Fixture::Sym,
         p8(),
         ExecutionBudget {
@@ -716,19 +928,74 @@ fn backend_decider_decides_symbolic_address_rows() {
             ..BUDGET
         },
     );
-    let [leaf] = p8.execution.leaves() else {
+    let [leaf] = run.execution.leaves() else {
         panic!("one leaf")
     };
     assert_eq!(
         (leaf.halt, leaf.feasibility),
         (HaltClass::DepthBound, LeafFeasibility::Syntactic)
     );
-    let evaluation = decided(&mut p8, &plan);
-    assert_eq!(
-        (evaluation.outcome, evaluation.failure),
-        (PatternOutcome::Unknown, Some(PathStop::DepthLimit))
+    let evaluation = assert_both(
+        &mut run,
+        &wl_after(&vocabulary),
+        PatternOutcome::Unknown,
+        Some(PathStop::DepthLimit),
     );
-    let evaluation = decided(&mut p8, &w_only(&vocabulary));
-    assert_eq!(evaluation.outcome, PatternOutcome::Match);
+    assert!(evaluation.witnesses.is_empty());
+    assert_eq!(run.bridged.paths[0].stop, PathStop::DepthLimit);
+}
+
+#[test]
+fn depth_cut_prefix_still_witnesses() {
+    let (mut run, vocabulary) = run(
+        Fixture::Sym,
+        p8(),
+        ExecutionBudget {
+            max_depth: Some(1),
+            ..BUDGET
+        },
+    );
+    let evaluation = assert_both(&mut run, &w_only(&vocabulary), PatternOutcome::Match, None);
+    let path = only_witness_path(&run, &evaluation);
+    assert_eq!(evaluation.witnesses[0].event_indices, [0]);
     assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::DepthLimit);
+    assert_eq!(path.stop, PathStop::DepthLimit);
+    assert!(!path.complete);
+}
+
+#[test]
+fn breadth_bound_absence_is_unknown_branch_limit() {
+    let (mut run, vocabulary) = run(
+        Fixture::Sym,
+        p9(),
+        ExecutionBudget {
+            max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
+            ..BUDGET
+        },
+    );
+    assert_eq!(run.execution.leaves().len(), 2);
+    assert!(
+        run.execution
+            .leaves()
+            .iter()
+            .all(|leaf| (leaf.halt, leaf.feasibility)
+                == (HaltClass::BreadthBound, LeafFeasibility::Syntactic)
+                && leaf.branch.events.is_empty())
+    );
+    let evaluation = assert_both(
+        &mut run,
+        &wl_after(&vocabulary),
+        PatternOutcome::Unknown,
+        Some(PathStop::BranchLimit),
+    );
+    assert!(evaluation.witnesses.is_empty());
+    assert_eq!(run.bridged.paths.len(), 2);
+    assert!(
+        run.bridged
+            .paths
+            .iter()
+            .all(|path| path.stop == PathStop::BranchLimit
+                && !path.complete
+                && path.events.is_empty())
+    );
 }
