@@ -11,8 +11,9 @@ pub use pattern::{
     Atom, AttributionUnknownReason, Binding, CollectionEvidence, CollectionStop, Constructor,
     EmptySearchDecision, Evaluation, EvaluationContext, EvaluationOptions, Event, EventAttribution,
     EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm, PatternFailure,
-    PatternFailureKind, PatternOutcome, PatternPlan, PayloadClause, Relation, SearchPolicy,
-    SideCondition, SideConditionResult, SideConditionRow, SideConditionTable, SymbolSorts,
-    TermRelation, Witness, evaluate,
+    ExecutionTerminalKind, Feasibility, MatchMode, PathInput, PathStop, PatternArm, PatternFailure,
+    PatternFailureKind, PatternOutcome, PatternPlan, PayloadClause, Relation, RelationDecider,
+    RelationDecision, SearchPolicy, SideCondition, SideConditionResult, SideConditionRow,
+    SideConditionTable, StructuralDecider, SymbolSorts, TermRelation, Witness, evaluate,
+    evaluate_with,
 };

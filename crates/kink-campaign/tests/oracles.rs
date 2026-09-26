@@ -227,6 +227,7 @@ fn evaluation(
                         term: constant(term),
                     })
                     .collect(),
+                assumptions: Vec::new(),
                 path_predicate: top(),
                 stop_reason: PathStop::Terminal,
                 execution_stop_reason: ExecutionStop::Terminal,

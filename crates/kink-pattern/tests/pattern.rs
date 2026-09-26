@@ -3,11 +3,13 @@
 
 mod support;
 
+use k_rust::kore::ast::Pattern;
 use kink_pattern::{
     Atom, AttributionUnknownReason, CollectionEvidence, CollectionStop, EmptySearchDecision,
     EvaluationOptions, EventAttribution, EventVocabulary, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, PathInput, PathStop, PatternArm, PatternFailureKind, PatternOutcome,
-    PatternPlan, Relation, SearchPolicy, SideCondition, TermRelation, evaluate,
+    ExecutionTerminalKind, Feasibility, PathInput, PathStop, PatternArm, PatternFailureKind,
+    PatternOutcome, PatternPlan, Relation, RelationDecider, RelationDecision, SearchPolicy,
+    SideCondition, StructuralDecider, TermRelation, evaluate, evaluate_with,
 };
 use support::{
     PathSpec, app, bind, collection, context, done, exhaustive_options, make_match_stop, path,
@@ -453,6 +455,256 @@ fn every_execution_pattern_row_matches_its_denotation() {
             assert_eq!(result.witnesses.len(), count, "{id}");
         }
     }
+}
+
+/// Term-pool relations `(left, right)`.
+type Pairs = &'static [(&'static str, &'static str)];
+
+/// A scripted relation answer; `EqualIf` names term-pool relations.
+#[derive(Clone, Copy)]
+enum Answer {
+    Equal,
+    Unequal,
+    EqualIf(Pairs),
+    Indeterminate,
+}
+
+/// A decider that answers only what its row scripts: `relate` by exact assumptions and terms,
+/// otherwise `Indeterminate`, and `feasible` by exact assumptions, otherwise `Unknown`. It
+/// panics when asked about empty assumptions, which `evaluate_with` never does.
+struct ScriptedDecider {
+    /// `(assumed, left, right, answer)`.
+    relations: &'static [(Pairs, &'static str, &'static str, Answer)],
+    feasibility: &'static [(Pairs, Feasibility)],
+}
+
+fn relations(pairs: Pairs) -> Vec<TermRelation> {
+    pairs
+        .iter()
+        .map(|(left, right)| TermRelation {
+            left: term(left),
+            right: term(right),
+        })
+        .collect()
+}
+
+impl RelationDecider for ScriptedDecider {
+    fn relate(
+        &self,
+        _path: &PathInput,
+        assumed: &[TermRelation],
+        left: &Pattern,
+        right: &Pattern,
+    ) -> RelationDecision {
+        let answer = self
+            .relations
+            .iter()
+            .find(|(script, l, r, _)| {
+                relations(script) == assumed && term(l) == *left && term(r) == *right
+            })
+            .map_or(Answer::Indeterminate, |row| row.3);
+        match answer {
+            Answer::Equal => RelationDecision::Equal,
+            Answer::Unequal => RelationDecision::Unequal,
+            Answer::EqualIf(pairs) => RelationDecision::EqualIf(relations(pairs)),
+            Answer::Indeterminate => RelationDecision::Indeterminate,
+        }
+    }
+
+    fn feasible(&self, _path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+        assert!(
+            !assumptions.is_empty(),
+            "feasibility asked without assumptions"
+        );
+        self.feasibility
+            .iter()
+            .find(|(script, _)| relations(script) == assumptions)
+            .map_or(Feasibility::Unknown, |row| row.1)
+    }
+}
+
+const X_IS_Y: Pairs = &[("symbolicX", "symbolicY")];
+const X_IS_Z: Pairs = &[("symbolicX", "symbolicZ")];
+const X_IS_Y_AND_Z: Pairs = &[("symbolicX", "symbolicY"), ("symbolicX", "symbolicZ")];
+
+struct DecidedCase {
+    id: &'static str,
+    plan: &'static str,
+    stable: bool,
+    paths: &'static [PathSpec],
+    relations: &'static [(Pairs, &'static str, &'static str, Answer)],
+    feasibility: &'static [(Pairs, Feasibility)],
+    outcome: PatternOutcome,
+    complete_coverage: bool,
+    failure: Option<PathStop>,
+    /// The assumptions of every witness, in witness order.
+    assumptions: &'static [Pairs],
+    /// The result is invariant under path reversal.
+    permuted: bool,
+}
+
+const DECIDED: DecidedCase = DecidedCase {
+    id: "",
+    plan: "write-eventually-load",
+    stable: true,
+    paths: &[done("p0", &["wSymbolicX", "lSymbolicY"])],
+    relations: &[(&[], "symbolicX", "symbolicY", Answer::EqualIf(X_IS_Y))],
+    feasibility: &[(X_IS_Y, Feasibility::Sat)],
+    outcome: Match,
+    complete_coverage: true,
+    failure: None,
+    assumptions: &[X_IS_Y],
+    permuted: false,
+};
+
+const DECIDED_CASES: [DecidedCase; 7] = [
+    DecidedCase {
+        id: "conditional-equality-sat-is-match",
+        ..DECIDED
+    },
+    DecidedCase {
+        id: "conditional-equality-unsat-is-mismatch",
+        feasibility: &[(X_IS_Y, Feasibility::Unsat)],
+        outcome: NoMatch,
+        assumptions: &[],
+        ..DECIDED
+    },
+    DecidedCase {
+        id: "conditional-equality-unknown-is-unknown",
+        feasibility: &[(X_IS_Y, Feasibility::Unknown)],
+        outcome: Unknown,
+        complete_coverage: false,
+        failure: Some(SolverUnknown),
+        assumptions: &[],
+        ..DECIDED
+    },
+    // The free comparison is scripted only under the load's assumption, so it is decided
+    // only if that assumption reaches it.
+    DecidedCase {
+        id: "assumptions-accumulate-across-atoms",
+        plan: "write-eventually-load-eventually-free",
+        paths: &[done("p0", &["wSymbolicX", "lSymbolicY", "fSymbolicZ"])],
+        relations: &[
+            (&[], "symbolicX", "symbolicY", Answer::EqualIf(X_IS_Y)),
+            (X_IS_Y, "symbolicX", "symbolicZ", Answer::EqualIf(X_IS_Z)),
+        ],
+        feasibility: &[(X_IS_Y_AND_Z, Feasibility::Sat)],
+        assumptions: &[X_IS_Y_AND_Z],
+        ..DECIDED
+    },
+    // The structural decider would leave these distinct variables indeterminate.
+    DecidedCase {
+        id: "unequal-decision-prunes",
+        relations: &[(&[], "symbolicX", "symbolicY", Answer::Unequal)],
+        feasibility: &[],
+        outcome: NoMatch,
+        assumptions: &[],
+        ..DECIDED
+    },
+    // Side-condition and real-prefix gates come first: a satisfiable assumption on a path
+    // whose feasibility is open is still no witness.
+    DecidedCase {
+        id: "assumptions-need-a-real-prefix",
+        paths: &[stopped("p0", SolverUnknown, &["wSymbolicX", "lSymbolicY"])],
+        outcome: Unknown,
+        complete_coverage: false,
+        failure: Some(SolverUnknown),
+        assumptions: &[],
+        ..DECIDED
+    },
+    // Trace shape orders the symbolic paths before the ground one, and a path's witnesses
+    // by event indices; assumptions follow bindings.
+    DecidedCase {
+        id: "unkeyed-assumption-witnesses-are-permutation-invariant",
+        stable: false,
+        paths: &[
+            unkeyed(&["wSymbolicX", "lSymbolicY", "lSymbolicZ"]),
+            unkeyed(&["wSymbolicX", "lSymbolicZ"]),
+            unkeyed(&["wa", "la"]),
+        ],
+        relations: &[
+            (&[], "symbolicX", "symbolicY", Answer::EqualIf(X_IS_Y)),
+            (&[], "symbolicX", "symbolicZ", Answer::EqualIf(X_IS_Z)),
+            (&[], "a", "a", Answer::Equal),
+        ],
+        feasibility: &[(X_IS_Y, Feasibility::Sat), (X_IS_Z, Feasibility::Sat)],
+        assumptions: &[X_IS_Y, X_IS_Z, X_IS_Z, &[]],
+        permuted: true,
+        ..DECIDED
+    },
+];
+
+/// SYM-3A-03: rows whose relations and assumption feasibility come from a scripted decider
+/// through `evaluate_with`.
+#[test]
+fn decided_rows_match_their_denotation() {
+    for case in &DECIDED_CASES {
+        let id = case.id;
+        let plan = plan(case.plan);
+        let paths = paths(case.paths, id);
+        let context = context(id);
+        let collection = collection(&paths, SearchPolicy::Exhaustive);
+        let options = EvaluationOptions {
+            stable_path_keys: case.stable,
+            ..exhaustive_options()
+        };
+        let decider = ScriptedDecider {
+            relations: case.relations,
+            feasibility: case.feasibility,
+        };
+        let evaluate_paths = |paths: &[PathInput]| {
+            evaluate_with(&context, &plan, paths, &collection, None, options, &decider)
+                .unwrap_or_else(|error| panic!("{id}: {error}"))
+        };
+        let result = evaluate_paths(&paths);
+        assert_eq!(result.outcome, case.outcome, "{id}");
+        assert_eq!(result.complete_coverage, case.complete_coverage, "{id}");
+        assert_eq!(result.failure, case.failure, "{id}");
+        assert_eq!(
+            result
+                .witnesses
+                .iter()
+                .map(|witness| witness.assumptions.clone())
+                .collect::<Vec<_>>(),
+            case.assumptions
+                .iter()
+                .map(|pairs| relations(pairs))
+                .collect::<Vec<_>>(),
+            "{id}"
+        );
+        for witness in &result.witnesses {
+            assert!(
+                witness.assumptions.windows(2).all(|pair| pair[0] < pair[1]),
+                "{id}: assumptions are sorted and deduplicated"
+            );
+        }
+        if case.permuted {
+            let mut reversed = paths.clone();
+            reversed.reverse();
+            assert_eq!(result, evaluate_paths(&reversed), "{id}");
+        }
+    }
+}
+
+/// The structural decider makes no assumption and so can decide none but the empty set.
+#[test]
+fn structural_decider_decides_only_empty_assumptions() {
+    let id = "structural-decider";
+    let path = path(&done("p0", &["wa"]), id, 0);
+    assert_eq!(StructuralDecider.feasible(&path, &[]), Feasibility::Sat);
+    assert_eq!(
+        StructuralDecider.feasible(&path, &relations(X_IS_Y)),
+        Feasibility::Unknown
+    );
+    assert_eq!(
+        StructuralDecider.relate(
+            &path,
+            &relations(X_IS_Y),
+            &term("symbolicX"),
+            &term("symbolicY")
+        ),
+        RelationDecision::Indeterminate
+    );
 }
 
 /// Review P1: an occurrence is a witness only on a path whose prefix is real. A complete

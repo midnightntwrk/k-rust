@@ -624,6 +624,10 @@ pub struct Witness {
     pub event_indices: Vec<usize>,
     pub events: Vec<Event>,
     pub bindings: Vec<Binding>,
+    /// The relations under which this occurrence holds, in the solved form its decider chose,
+    /// sorted and deduplicated. Empty when every `Use` comparison was unconditionally equal;
+    /// otherwise the decider answered `Feasibility::Sat` for them on this path.
+    pub assumptions: Vec<TermRelation>,
     pub path_predicate: Pattern,
     pub stop_reason: PathStop,
     pub execution_stop_reason: ExecutionStop,
@@ -643,11 +647,78 @@ pub struct Evaluation {
     pub bounds: ExecutionBounds,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RelationResult {
+/// How two payload terms relate on one path, given the assumptions already made there.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RelationDecision {
+    /// Equal on every instance of the path that satisfies the assumptions.
     Equal,
+    /// Unequal on every instance of the path that satisfies the assumptions.
     Unequal,
+    /// Equal exactly on the instances that also satisfy these relations. They are added to
+    /// the assumptions; an empty list means `Equal`.
+    EqualIf(Vec<TermRelation>),
     Indeterminate,
+}
+
+/// Whether a path and a set of assumptions have a common instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Feasibility {
+    Sat,
+    Unsat,
+    Unknown,
+}
+
+/// Decides payload relations and the feasibility of witness assumptions for `evaluate_with`.
+///
+/// An answer must be sound for the path it names: `Unequal` and `Unsat` prune a candidate, so
+/// they must be proved; anything the decider cannot prove is `Indeterminate` or `Unknown`,
+/// which leaves the candidate indeterminate.
+pub trait RelationDecider {
+    /// How `left` (a bound value) and `right` (an event payload) relate on `path` when every
+    /// relation in `assumed` (sorted, deduplicated) holds.
+    fn relate(
+        &self,
+        path: &PathInput,
+        assumed: &[TermRelation],
+        left: &Pattern,
+        right: &Pattern,
+    ) -> RelationDecision;
+
+    /// Whether `path` has an instance satisfying every relation in `assumptions` (sorted,
+    /// deduplicated). `evaluate_with` asks only for a nonempty list on a path with a real
+    /// prefix, whose own feasibility the producer already decided; `feasible(path, [])` must
+    /// therefore be `Sat` on such a path.
+    fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility;
+}
+
+/// The decider behind `evaluate`: equal when structurally equal or related by a path
+/// equivalence, unequal through an asserted inequality or when both are ground, and otherwise
+/// indeterminate. It never makes an assumption.
+///
+/// The ground rule assumes constructor-normal payloads: two distinct ground terms that
+/// contain function symbols (`1 +Int 1` and `2`) may be equal, and this decider would still
+/// call them unequal.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StructuralDecider;
+
+impl RelationDecider for StructuralDecider {
+    fn relate(
+        &self,
+        path: &PathInput,
+        _assumed: &[TermRelation],
+        left: &Pattern,
+        right: &Pattern,
+    ) -> RelationDecision {
+        term_relation(left, right, path)
+    }
+
+    fn feasible(&self, _path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
+        if assumptions.is_empty() {
+            Feasibility::Sat
+        } else {
+            Feasibility::Unknown
+        }
+    }
 }
 
 /// Everything a path carries except its ordinal and key. In unkeyed mode it is the only way
@@ -692,7 +763,8 @@ struct PendingWitness<'a> {
     witness: Witness,
 }
 
-/// Evaluates a validated plan over supplied finite path-local traces.
+/// Evaluates a validated plan over supplied finite path-local traces with the
+/// `StructuralDecider`.
 ///
 /// A witness lies only on a path whose stop has a real prefix (`PathStop::has_real_prefix`);
 /// an occurrence on any other path is an indeterminate candidate, so it can leave the
@@ -704,6 +776,33 @@ pub fn evaluate(
     collection: &CollectionEvidence,
     side_table: Option<&SideConditionTable>,
     options: EvaluationOptions,
+) -> Result<Evaluation, PatternFailure> {
+    evaluate_with(
+        context,
+        plan,
+        paths,
+        collection,
+        side_table,
+        options,
+        &StructuralDecider,
+    )
+}
+
+/// `evaluate` with an explicit relation decider.
+///
+/// Each `Use` comparison asks `decider.relate` under the assumptions of the earlier
+/// comparisons of the same occurrence. `EqualIf` adds to them, `Unequal` is a mismatch and
+/// `Indeterminate` an indeterminate candidate. A complete occurrence with assumptions passes
+/// the side condition and the real-prefix gate first, and then needs `decider.feasible`:
+/// `Sat` makes it a witness, `Unsat` a mismatch and `Unknown` an indeterminate candidate.
+pub fn evaluate_with(
+    context: &EvaluationContext,
+    plan: &PatternPlan,
+    paths: &[PathInput],
+    collection: &CollectionEvidence,
+    side_table: Option<&SideConditionTable>,
+    options: EvaluationOptions,
+    decider: &dyn RelationDecider,
 ) -> Result<Evaluation, PatternFailure> {
     let EvaluationOptions {
         stable_path_keys,
@@ -779,11 +878,12 @@ pub fn evaluate(
                 arm,
                 arm_ordinal,
                 side_table,
+                decider,
                 path_order: &path_order,
                 pending: &mut pending,
                 indeterminate: &mut path_indeterminate,
             };
-            extend_occurrence(&mut context, 0, &[], &BTreeMap::new());
+            extend_occurrence(&mut context, 0, &[], &BTreeMap::new(), &[]);
         }
         indeterminate |= path_indeterminate;
         match_stop_indeterminate |= path_indeterminate && path.stop == PathStop::MatchFound;
@@ -793,6 +893,7 @@ pub fn evaluate(
             .cmp(&right.path_order)
             .then_with(|| left.witness.event_indices.cmp(&right.witness.event_indices))
             .then_with(|| left.witness.bindings.cmp(&right.witness.bindings))
+            .then_with(|| left.witness.assumptions.cmp(&right.witness.assumptions))
             .then_with(|| left.witness.arm_ordinal.cmp(&right.witness.arm_ordinal))
     });
     let witnesses = pending
@@ -1064,6 +1165,7 @@ struct ExtendContext<'a, 'b> {
     arm: &'a PatternArm,
     arm_ordinal: usize,
     side_table: Option<&'a SideConditionTable>,
+    decider: &'a dyn RelationDecider,
     path_order: &'b PathOrder<'a>,
     pending: &'b mut Vec<PendingWitness<'a>>,
     indeterminate: &'b mut bool,
@@ -1074,6 +1176,7 @@ fn extend_occurrence(
     atom_ordinal: usize,
     indices: &[usize],
     bindings: &BTreeMap<String, Pattern>,
+    assumptions: &[TermRelation],
 ) {
     if atom_ordinal == context.arm.atoms.len() {
         let ordered = context
@@ -1113,6 +1216,16 @@ fn extend_occurrence(
             *context.indeterminate = true;
             return;
         }
+        if !assumptions.is_empty() {
+            match context.decider.feasible(context.path, assumptions) {
+                Feasibility::Sat => {}
+                Feasibility::Unsat => return,
+                Feasibility::Unknown => {
+                    *context.indeterminate = true;
+                    return;
+                }
+            }
+        }
         context.pending.push(PendingWitness {
             path_order: context.path_order.clone(),
             witness: Witness {
@@ -1125,6 +1238,7 @@ fn extend_occurrence(
                     .map(|index| context.path.events[*index].clone())
                     .collect(),
                 bindings: ordered,
+                assumptions: assumptions.to_vec(),
                 path_predicate: context.path.path_predicate.clone(),
                 stop_reason: context.path.stop,
                 execution_stop_reason: context.path.execution_stop,
@@ -1145,12 +1259,20 @@ fn extend_occurrence(
             &context.arm.atoms[atom_ordinal],
             &context.path.events[index],
             bindings,
+            assumptions,
             context.path,
+            context.decider,
         ) {
-            AtomMatch::Matched(next) => {
+            AtomMatch::Matched(next, next_assumptions) => {
                 let mut next_indices = indices.to_vec();
                 next_indices.push(index);
-                extend_occurrence(context, atom_ordinal + 1, &next_indices, &next);
+                extend_occurrence(
+                    context,
+                    atom_ordinal + 1,
+                    &next_indices,
+                    &next,
+                    &next_assumptions,
+                );
             }
             AtomMatch::Indeterminate => *context.indeterminate = true,
             AtomMatch::Mismatch => {}
@@ -1159,7 +1281,8 @@ fn extend_occurrence(
 }
 
 enum AtomMatch {
-    Matched(BTreeMap<String, Pattern>),
+    /// The extended bindings and the extended sorted, deduplicated assumptions.
+    Matched(BTreeMap<String, Pattern>, Vec<TermRelation>),
     Indeterminate,
     Mismatch,
 }
@@ -1168,7 +1291,9 @@ fn match_atom(
     atom: &Atom,
     event: &Event,
     bindings: &BTreeMap<String, Pattern>,
+    assumptions: &[TermRelation],
     path: &PathInput,
+    decider: &dyn RelationDecider,
 ) -> AtomMatch {
     if atom.constructor != event.constructor {
         return AtomMatch::Mismatch;
@@ -1177,6 +1302,7 @@ fn match_atom(
         return AtomMatch::Indeterminate;
     }
     let mut resolved = bindings.clone();
+    let mut assumed = assumptions.to_vec();
     for clause in &atom.payload {
         let Some(term) = event.payload.get(clause.position) else {
             return AtomMatch::Mismatch;
@@ -1191,22 +1317,27 @@ fn match_atom(
                 let Some(bound) = resolved.get(&clause.variable) else {
                     return AtomMatch::Mismatch;
                 };
-                match term_relation(bound, term, path) {
-                    RelationResult::Equal => {}
-                    RelationResult::Unequal => return AtomMatch::Mismatch,
-                    RelationResult::Indeterminate => return AtomMatch::Indeterminate,
+                match decider.relate(path, &assumed, bound, term) {
+                    RelationDecision::Equal => {}
+                    RelationDecision::EqualIf(relations) => {
+                        assumed.extend(relations);
+                        assumed.sort();
+                        assumed.dedup();
+                    }
+                    RelationDecision::Unequal => return AtomMatch::Mismatch,
+                    RelationDecision::Indeterminate => return AtomMatch::Indeterminate,
                 }
             }
         }
     }
-    AtomMatch::Matched(resolved)
+    AtomMatch::Matched(resolved, assumed)
 }
 
 /// Equal when structurally equal or related by a path equivalence, unequal through an
 /// asserted inequality or when both are ground, and otherwise indeterminate.
-fn term_relation(left: &Pattern, right: &Pattern, path: &PathInput) -> RelationResult {
+fn term_relation(left: &Pattern, right: &Pattern, path: &PathInput) -> RelationDecision {
     if left == right || connected(left, right, &path.equivalences) {
-        return RelationResult::Equal;
+        return RelationDecision::Equal;
     }
     if path.inequalities.iter().any(|pair| {
         connected(left, &pair.left, &path.equivalences)
@@ -1214,11 +1345,11 @@ fn term_relation(left: &Pattern, right: &Pattern, path: &PathInput) -> RelationR
             || connected(left, &pair.right, &path.equivalences)
                 && connected(right, &pair.left, &path.equivalences)
     }) {
-        RelationResult::Unequal
+        RelationDecision::Unequal
     } else if !left.free_variables().is_empty() || !right.free_variables().is_empty() {
-        RelationResult::Indeterminate
+        RelationDecision::Indeterminate
     } else {
-        RelationResult::Unequal
+        RelationDecision::Unequal
     }
 }
 

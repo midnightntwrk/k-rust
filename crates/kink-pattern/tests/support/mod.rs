@@ -1,6 +1,7 @@
 //! Rust builders for the execution-pattern rows, replacing the former
 //! `execution-pattern-vectors.json`: its terms as KORE patterns, its event pool, its origins
-//! as rule labels, its two vocabularies, its nine plans and its side-condition table.
+//! as rule labels, its two vocabularies, its nine plans and its side-condition table. The
+//! relation-decider rows add a third symbolic address, its events and a three-atom plan.
 #![allow(dead_code)]
 
 use k_rust::backend::TransitionIdOutput;
@@ -65,6 +66,7 @@ pub fn term(name: &str) -> Pattern {
         "symbolicA" => var("A0", "SortAddress"),
         "symbolicX" => var("X", "SortAddress"),
         "symbolicY" => var("Y", "SortAddress"),
+        "symbolicZ" => var("Z", "SortAddress"),
         other => panic!("no term {other}"),
     }
 }
@@ -125,6 +127,8 @@ fn event_spec(name: &str) -> (&'static str, &'static [&'static str], &'static st
         "lSymbolic" => ("memoryLoad", &["symbolicA", "v8"], "MEMORY.load"),
         "wSymbolicX" => ("memoryWrite", &["symbolicX", "v7"], "MEMORY.write"),
         "lSymbolicY" => ("memoryLoad", &["symbolicY", "v8"], "MEMORY.load"),
+        "lSymbolicZ" => ("memoryLoad", &["symbolicZ", "v8"], "MEMORY.load"),
+        "fSymbolicZ" => ("memoryFree", &["symbolicZ"], "MEMORY.free"),
         "counterIncrement" => ("counterIncrement", &["v7", "v8"], "COUNTER.increment"),
         "branchTaken" => ("branchTaken", &["v8"], "COUNTER.branch"),
         other => panic!("no event {other}"),
@@ -303,6 +307,19 @@ pub fn plan_parts(name: &str) -> PlanParts {
                 write_then(Relation::EventuallyAfter, "memoryLoad"),
                 write_then(Relation::EventuallyAfter, "memoryLoad"),
             ],
+            None,
+        ),
+        "write-eventually-load-eventually-free" => (
+            false,
+            address(),
+            vec![PatternArm {
+                atoms: vec![
+                    atom("memoryWrite", vec![bind(0, "A")]),
+                    atom("memoryLoad", vec![use_(0, "A")]),
+                    atom("memoryFree", vec![use_(0, "A")]),
+                ],
+                relations: vec![Relation::EventuallyAfter, Relation::EventuallyAfter],
+            }],
             None,
         ),
         "increment-eventually-branch" => (
