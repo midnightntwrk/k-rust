@@ -419,8 +419,7 @@ impl fmt::Display for IdentityError {
 impl std::error::Error for IdentityError {}
 
 #[cfg(test)]
-#[path = "../../../testdata/k/support.rs"]
-mod support;
+use crate::support;
 
 #[cfg(test)]
 mod tests {

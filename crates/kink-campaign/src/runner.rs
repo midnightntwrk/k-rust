@@ -794,6 +794,7 @@ impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
             | ExecutionAdapterFailure::InvalidState(_)
             | ExecutionAdapterFailure::Backend(_)
             | ExecutionAdapterFailure::ContractViolation(_)
+            | ExecutionAdapterFailure::UninhabitedVariable(_)
             | ExecutionAdapterFailure::Observation(_) => Self::Infrastructure,
         }
     }

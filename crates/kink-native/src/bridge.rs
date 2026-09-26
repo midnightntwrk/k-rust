@@ -6,8 +6,12 @@
 //!
 //! A path's events are evidence for `Match` only when its prefix is real
 //! (`PathStop::has_real_prefix`). Without a solver, a symbolic or constrained state may be
-//! infeasible: a stuck or bounded leaf whose state is not one ground term without a path
-//! condition is `SolverUnknown`, as are vacuous and trivial leaves.
+//! infeasible. A bounded leaf keeps its limit stop when its state is one ground term without a
+//! path condition, or when the adapter showed it feasible ([`LeafFeasibility::Syntactic`]);
+//! otherwise it is `SolverUnknown`. A stuck leaf is complete only for a ground term without a
+//! path condition: feasibility does not make a symbolic stuck state complete, because `Stuck`
+//! on a symbolic state is not a completeness claim. Vacuous and trivial leaves are
+//! `SolverUnknown`.
 
 use k_rust::backend::EffectOutput;
 use k_rust::kore::{
@@ -20,6 +24,7 @@ use kink_pattern::{
 };
 
 use crate::execution::{AdaptedExecution, HaltClass};
+use crate::feasibility::LeafFeasibility;
 use crate::observation::{AdaptedBranch, DomainPayload, NativeEvent};
 
 /// What the bridge needs besides the adapted response.
@@ -64,7 +69,8 @@ pub(crate) enum LeafPath {
 /// violation it is. `None` is a stuck leaf: it is complete exactly when its state is a ground
 /// terminal term, and `SolverUnknown` otherwise, because the no-Z3 profile does not refute
 /// path conditions and a symbolic or constrained stuck leaf may be infeasible. A requested
-/// depth or breadth bound becomes a limit stop only for a decided state (see `decided_stop`).
+/// depth or breadth bound keeps its limit stop only for a decided or feasible state (see
+/// `decided_stop`).
 /// The adapter rejects unrequested bound halts. Exhaustive over `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
     Ok(Some(match halt {
@@ -83,10 +89,11 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
     }))
 }
 
-/// `stop`, or `SolverUnknown` when `stop` vouches for a real prefix but the state is not
-/// decided: a symbolic or constrained state may be infeasible without a solver.
-pub(crate) const fn decided_stop(stop: PathStop, decided: bool) -> PathStop {
-    if stop.has_real_prefix() && !decided {
+/// `stop`, or `SolverUnknown` when `stop` vouches for a real prefix but the state is neither
+/// decided nor shown feasible: a symbolic or constrained state may be infeasible without a
+/// solver.
+pub(crate) const fn decided_stop(stop: PathStop, feasible: bool) -> PathStop {
+    if stop.has_real_prefix() && !feasible {
         PathStop::SolverUnknown
     } else {
         stop
@@ -95,14 +102,18 @@ pub(crate) const fn decided_stop(stop: PathStop, decided: bool) -> PathStop {
 
 /// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `decided` is the
 /// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck leaf that is
-/// its terminal term.
+/// its terminal term. `feasible` says the adapter showed a predicate-free state feasible; it
+/// keeps a limit stop real but never completes a stuck leaf.
 pub(crate) fn leaf_path(
     halt: HaltClass,
     decided: Option<Pattern>,
+    feasible: bool,
     classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Result<LeafPath, BridgeFailure> {
     Ok(match (halt_stop(halt)?, decided) {
-        (Some(stop), decided) => LeafPath::Incomplete(decided_stop(stop, decided.is_some())),
+        (Some(stop), decided) => {
+            LeafPath::Incomplete(decided_stop(stop, decided.is_some() || feasible))
+        }
         (None, Some(term)) => LeafPath::Complete(ExecutionTerminal {
             kind: classify(&term),
             state: term,
@@ -320,7 +331,11 @@ impl<'a> PathSet<'a> {
         let branch = &leaf.branch;
         let halt = leaf.halt;
         let split = split_state(&branch.state, self.context.sorts)?;
-        let mapped = match leaf_path(halt, split.decided_term(), self.context.classify)? {
+        // The adapter checked the internalized state; the split must agree that no path
+        // condition is left, so a feasible cut path always has predicate `\top`.
+        let feasible =
+            leaf.feasibility == LeafFeasibility::Syntactic && split.predicates.is_empty();
+        let mapped = match leaf_path(halt, split.decided_term(), feasible, self.context.classify)? {
             _ if !leaf.diagnostics.is_empty()
                 || leaf
                     .candidate_diagnostics
@@ -449,6 +464,7 @@ mod tests {
     use crate::observation::DomainEvent;
 
     use HaltClass as H;
+    use LeafFeasibility::{Syntactic as F, Unknown as U};
     use PathStop as P;
 
     const GROUND: &str = r"Lbla{}()";
@@ -579,35 +595,51 @@ mod tests {
     }
 
     /// The leaf mapping, one row per halt class; a stuck leaf also per terminal shape, and a
-    /// limit also over an undecided state. `None` is a contract violation. Every leaf carries
-    /// one event, which is a witness only on a real prefix (review P1): never on a vacuous,
-    /// trivial, symbolic or constrained leaf.
+    /// limit also over an undecided state, with and without adapter feasibility. `None` is a
+    /// contract violation. Every leaf carries one event, which is a witness only on a real
+    /// prefix (review P1): never on a vacuous, trivial or constrained leaf, nor on a symbolic
+    /// leaf the adapter did not show feasible. Feasibility never completes a stuck leaf (Q4).
     #[test]
     fn execution_leaf_rows_map_to_paths() {
         use ExecutionTerminalKind::{Normal, SemanticCrash};
-        // (halt, leaf state, expected complete terminal kind or incomplete stop)
+        // (halt, leaf state, adapter feasibility, expected complete terminal kind or
+        // incomplete stop)
         type Expected = Option<Result<ExecutionTerminalKind, PathStop>>;
-        let rows: [(HaltClass, &str, Expected); 20] = [
-            (H::Stuck, GROUND, Some(Ok(Normal))),
-            (H::Stuck, CRASH, Some(Ok(SemanticCrash))),
-            (H::Stuck, SYMBOLIC, Some(Err(P::SolverUnknown))),
-            (H::Stuck, CONSTRAINED, Some(Err(P::SolverUnknown))),
-            (H::Trivial, GROUND, Some(Err(P::SolverUnknown))),
-            (H::Vacuous, GROUND, Some(Err(P::SolverUnknown))),
-            (H::Branch, GROUND, None),
-            (H::CutPoint, GROUND, None),
-            (H::TerminalRule, GROUND, None),
-            (H::DepthBound, GROUND, Some(Err(P::DepthLimit))),
-            (H::DepthBound, CONSTRAINED, Some(Err(P::SolverUnknown))),
-            (H::BreadthBound, GROUND, Some(Err(P::BranchLimit))),
-            (H::BreadthBound, SYMBOLIC, Some(Err(P::SolverUnknown))),
-            (H::Indeterminate, GROUND, Some(Err(P::BackendLimit))),
-            (H::UnsupportedHook, GROUND, Some(Err(P::BackendLimit))),
-            (H::SimplificationError, GROUND, Some(Err(P::BackendLimit))),
-            (H::Timeout, GROUND, None),
-            (H::Timeout, CONSTRAINED, None),
-            (H::Cancelled, GROUND, Some(Err(P::Error))),
-            (H::Vacuous, BOTTOM, Some(Err(P::SolverUnknown))),
+        let rows: [(HaltClass, &str, LeafFeasibility, Expected); 27] = [
+            (H::Stuck, GROUND, U, Some(Ok(Normal))),
+            (H::Stuck, CRASH, U, Some(Ok(SemanticCrash))),
+            (H::Stuck, SYMBOLIC, U, Some(Err(P::SolverUnknown))),
+            (H::Stuck, SYMBOLIC, F, Some(Err(P::SolverUnknown))),
+            (H::Stuck, CONSTRAINED, U, Some(Err(P::SolverUnknown))),
+            (H::Trivial, GROUND, U, Some(Err(P::SolverUnknown))),
+            (H::Trivial, SYMBOLIC, F, Some(Err(P::SolverUnknown))),
+            (H::Vacuous, GROUND, U, Some(Err(P::SolverUnknown))),
+            (H::Branch, GROUND, U, None),
+            (H::CutPoint, GROUND, U, None),
+            (H::TerminalRule, GROUND, U, None),
+            (H::DepthBound, GROUND, U, Some(Err(P::DepthLimit))),
+            (H::DepthBound, SYMBOLIC, U, Some(Err(P::SolverUnknown))),
+            (H::DepthBound, SYMBOLIC, F, Some(Err(P::DepthLimit))),
+            (H::DepthBound, CONSTRAINED, U, Some(Err(P::SolverUnknown))),
+            // A feasibility claim over a state that still splits off a path condition is
+            // ignored.
+            (H::DepthBound, CONSTRAINED, F, Some(Err(P::SolverUnknown))),
+            (H::BreadthBound, GROUND, U, Some(Err(P::BranchLimit))),
+            (H::BreadthBound, SYMBOLIC, U, Some(Err(P::SolverUnknown))),
+            (H::BreadthBound, SYMBOLIC, F, Some(Err(P::BranchLimit))),
+            (H::Indeterminate, GROUND, U, Some(Err(P::BackendLimit))),
+            (H::Indeterminate, SYMBOLIC, F, Some(Err(P::BackendLimit))),
+            (H::UnsupportedHook, GROUND, U, Some(Err(P::BackendLimit))),
+            (
+                H::SimplificationError,
+                GROUND,
+                U,
+                Some(Err(P::BackendLimit)),
+            ),
+            (H::Timeout, GROUND, U, None),
+            (H::Timeout, CONSTRAINED, U, None),
+            (H::Cancelled, GROUND, U, Some(Err(P::Error))),
+            (H::Vacuous, BOTTOM, U, Some(Err(P::SolverUnknown))),
         ];
         let covered = rows
             .iter()
@@ -615,11 +647,12 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(covered.into_iter().collect::<Vec<_>>(), HaltClass::ALL);
         let sorts = sorts();
-        for (halt, state, expected) in rows {
-            let id = format!("{halt:?} {state}");
+        for (halt, state, feasibility, expected) in rows {
+            let id = format!("{halt:?} {state} {feasibility:?}");
             let execution = AdaptedExecution {
                 leaves: vec![AdaptedLeaf {
                     halt,
+                    feasibility,
                     branch: branch(0, state),
                     diagnostics: Vec::new(),
                     candidate_diagnostics: Vec::new(),
@@ -728,6 +761,7 @@ mod tests {
         let sorts = sorts();
         let clean = AdaptedLeaf {
             halt: H::Stuck,
+            feasibility: U,
             branch: branch(0, GROUND),
             diagnostics: Vec::new(),
             candidate_diagnostics: Vec::new(),
@@ -769,6 +803,7 @@ mod tests {
             leaves: vec![
                 AdaptedLeaf {
                     halt: H::Stuck,
+                    feasibility: U,
                     branch: branch(0, GROUND),
                     diagnostics: Vec::new(),
                     candidate_diagnostics: Vec::new(),
@@ -776,6 +811,7 @@ mod tests {
                 },
                 AdaptedLeaf {
                     halt: H::Stuck,
+                    feasibility: U,
                     branch: branch(0, CRASH),
                     diagnostics: Vec::new(),
                     candidate_diagnostics: Vec::new(),

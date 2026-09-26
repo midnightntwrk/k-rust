@@ -5,12 +5,18 @@
 //! - [`observation`] installs source-position rule observations and adapts branch-local events;
 //!   [`select_rules`] chooses those positions by label, attribute, term structure, or every rewrite rule.
 //! - [`bridge`] maps adapted executions to kink-pattern paths and collection evidence.
+//! - [`feasibility`] decides solver-free leaf feasibility and payload relations with the
+//!   backend's definition and unifier ([`feasibility::BackendRelations`]).
 //!
 pub mod bridge;
 mod equivalence;
 pub mod execution;
+pub mod feasibility;
 pub mod observation;
 mod selector;
+#[cfg(test)]
+#[path = "../../../testdata/k/support.rs"]
+mod support;
 mod validator;
 
 pub use equivalence::equivalent_compilation;

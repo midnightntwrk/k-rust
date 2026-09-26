@@ -1,6 +1,8 @@
 //! Observed, time-bounded path-set execution through the public k-rust facade.
 //! Each explored path retains its own halt, observations, effects, and diagnostics.
 //! A watchdog cancels execution when the time budget expires.
+//! Each leaf also records whether its state is shown feasible without a solver
+//! ([`crate::feasibility`]).
 
 use std::{
     num::NonZeroUsize,
@@ -14,13 +16,14 @@ use std::{
 };
 
 use k_rust::backend::{
-    Backend, BackendDiagnosticOutput, EffectOutput, ExecuteRequest, ExecutionResult,
+    Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionResult,
     ExecutionStrategy, HaltReasonOutput, ObservedRequest, ResultModalityOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
 use kink_pattern::ExecutionBounds;
 
+use crate::feasibility::{Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable};
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
 };
@@ -124,11 +127,14 @@ impl ExecutionBudget {
     }
 }
 
-/// One execution leaf with its typed halt class, diagnostics, and adapted branch.
+/// One execution leaf with its typed halt class, diagnostics, adapted branch, and state
+/// feasibility.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptedLeaf {
     pub halt: HaltClass,
     pub branch: AdaptedBranch,
+    /// `Unknown` for every leaf of a timed-out run, whose states are not decoded.
+    pub feasibility: LeafFeasibility,
     pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
     pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
@@ -170,6 +176,9 @@ pub enum ExecutionAdapterFailure {
     Backend(String),
     /// A leaf reports a halt excluded by the adapter's request.
     ContractViolation(HaltClass),
+    /// A free element variable of the initial state has a sort with no value shown by the
+    /// definition, so the state may have no instance.
+    UninhabitedVariable(k_rust::kore::ast::Variable),
     Observation(ObservationFailure),
 }
 
@@ -226,6 +235,14 @@ impl ExecutionAdapter {
         }
         let encoded = codec::to_value(state)
             .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let inhabitation = with_definition(backend, |definition| {
+            let inhabitation = Inhabitation::of(definition);
+            match uninhabited_variable(definition, &inhabitation, state) {
+                Ok(None) => Ok(inhabitation),
+                Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
+                Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
+            }
+        })?;
         let token = CancellationToken::new();
         let fired = Arc::new(AtomicBool::new(false));
         let (done, finished) = mpsc::channel::<()>();
@@ -252,7 +269,18 @@ impl ExecutionAdapter {
             outcome.map_err(|error| ExecutionAdapterFailure::Backend(error.to_string()))?;
         assert_eq!(result.modality, ResultModalityOutput::PathSet);
         let timed_out = fired.load(Ordering::Acquire);
-        self.adapt(result, timed_out, &budget)
+        let feasibility = if timed_out {
+            vec![LeafFeasibility::Unknown; result.leaves.len()]
+        } else {
+            with_definition(backend, |definition| {
+                Ok(result
+                    .leaves
+                    .iter()
+                    .map(|leaf| leaf_feasibility(definition, &inhabitation, &leaf.state))
+                    .collect())
+            })?
+        };
+        self.adapt(result, timed_out, &budget, feasibility)
     }
 
     fn adapt(
@@ -260,17 +288,20 @@ impl ExecutionAdapter {
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
+        feasibility: Vec<LeafFeasibility>,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
             .into_iter()
-            .map(|leaf| {
+            .zip(feasibility)
+            .map(|(leaf, feasibility)| {
                 let halt = HaltClass::from_output(leaf.reason);
                 if !halt.adapter_admits(budget) {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
                 }
                 Ok(AdaptedLeaf {
                     halt,
+                    feasibility,
                     diagnostics: leaf.diagnostics,
                     candidate_diagnostics: leaf
                         .candidates
@@ -300,6 +331,22 @@ impl ExecutionAdapter {
     }
 }
 
+/// Runs `operation` on the definition of `backend`'s default module.
+fn with_definition<T>(
+    backend: &mut Backend,
+    operation: impl FnOnce(
+        &k_rust_backend::definition::BackendDefinition,
+    ) -> Result<T, ExecutionAdapterFailure>,
+) -> Result<T, ExecutionAdapterFailure> {
+    backend.with_solver(None, |definition, _| operation(definition))
+}
+
+impl From<BackendError> for ExecutionAdapterFailure {
+    fn from(value: BackendError) -> Self {
+        Self::Backend(value.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,6 +358,58 @@ mod tests {
         for class in HaltClass::ALL {
             assert!(actual.contains(&class), "{class:?}");
         }
+    }
+
+    /// The adapter refuses an initial state with a variable of an uninhabited sort before it
+    /// executes anything.
+    #[test]
+    fn uninhabited_initial_variable_is_rejected() {
+        use k_rust::backend::BackendOptions;
+        use k_rust::kore::ast::{Sort, Variable, VariableKind};
+        let mut backend = Backend::new(
+            r"[]
+            module MAIN
+                sort SortS{} []
+                sort SortEmpty{} []
+                symbol Lbla{}() : SortS{} [constructor{}()]
+                symbol Lblwrap{}(SortEmpty{}) : SortS{} [constructor{}()]
+            endmodule []",
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        let adapter = ExecutionAdapter::new(
+            InstalledObservationManifest::install_with_authors(
+                Vec::new(),
+                std::collections::BTreeMap::new(),
+            )
+            .expect("empty manifest"),
+        );
+        let variable = Variable {
+            kind: VariableKind::Element,
+            name: "VarE".to_owned(),
+            sort: Sort::Application {
+                name: "SortEmpty".to_owned(),
+                arguments: Vec::new(),
+            },
+        };
+        let state = Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: "Lblwrap".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: vec![Pattern::Variable(variable.clone())],
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(10),
+            max_simplification_iterations: 10,
+            max_depth: None,
+            max_breadth: None,
+        };
+        assert_eq!(
+            adapter.execute(&mut backend, &state, budget),
+            Err(ExecutionAdapterFailure::UninhabitedVariable(variable))
+        );
     }
 
     #[test]

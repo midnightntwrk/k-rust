@@ -11,12 +11,14 @@ use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, codec, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
 use kink_native::execution::{AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass};
+use kink_native::feasibility::{LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule, ValidatedDefinition};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, Evaluation, EvaluationContext, EvaluationOptions,
     EventVocabulary, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
-    PatternPlan, PayloadClause, Relation, SearchPolicy, SymbolSorts, evaluate,
+    PatternPlan, PayloadClause, Relation, SearchPolicy, SymbolSorts, TermRelation, evaluate,
+    evaluate_with,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -49,7 +51,6 @@ fn integer(name: &str) -> Pattern {
 fn z() -> Pattern {
     support::app("Lblz", vec![])
 }
-#[allow(dead_code)] // P7 is exercised by SYM-3A-05.
 fn s(value: Pattern) -> Pattern {
     support::app("Lbls", vec![value])
 }
@@ -198,6 +199,8 @@ struct Run {
     execution: AdaptedExecution,
     bridged: BridgedPaths,
     context: EvaluationContext,
+    backend: Backend,
+    state: Pattern,
 }
 
 fn vocabulary(fixture: Fixture) -> EventVocabulary {
@@ -328,6 +331,8 @@ fn run_side(
             selected_rules,
             symbol_sorts: sorts,
         },
+        backend,
+        state,
     }
 }
 
@@ -425,6 +430,27 @@ fn outcome(run: &Run, plan: &PatternPlan) -> Evaluation {
             input_error: false,
         },
     )
+    .expect("evaluation")
+}
+
+/// `outcome` with the backend's relation decider instead of the structural one.
+fn decided(run: &mut Run, plan: &PatternPlan) -> Evaluation {
+    with_backend_relations(&mut run.backend, &run.state, |relations| {
+        evaluate_with(
+            &run.context,
+            plan,
+            &run.bridged.paths,
+            &run.bridged.collection,
+            None,
+            EvaluationOptions {
+                stable_path_keys: true,
+                search_policy: SearchPolicy::Exhaustive,
+                input_error: false,
+            },
+            relations,
+        )
+    })
+    .expect("backend definition")
     .expect("evaluation")
 }
 
@@ -650,4 +676,59 @@ fn ground_guard_is_decided_without_z3() {
         outcome(&run, &gwl_after(&vocabulary)).outcome,
         PatternOutcome::Match
     );
+}
+
+/// Live smoke check of the backend decider and leaf feasibility (SYM-3A-04); SYM-3A-05 owns
+/// the full README 6.1 rows.
+#[test]
+fn backend_decider_decides_symbolic_address_rows() {
+    // P6: distinct symbolic addresses match under the unifier's assumption X = Y.
+    let (mut p6, vocabulary) = run(Fixture::Sym, p6(), BUDGET);
+    let plan = wl_after(&vocabulary);
+    assert_eq!(outcome(&p6, &plan).outcome, PatternOutcome::Unknown);
+    let evaluation = decided(&mut p6, &plan);
+    assert_eq!(evaluation.outcome, PatternOutcome::Match);
+    let [witness] = evaluation.witnesses.as_slice() else {
+        panic!("one witness")
+    };
+    assert_eq!(
+        witness.assumptions,
+        [TermRelation {
+            left: nat("X"),
+            right: nat("Y"),
+        }]
+    );
+
+    // P7: addr(z) against addr(s(Y)) is a constructor clash.
+    let (mut p7, _) = run(Fixture::Sym, p7(), BUDGET);
+    assert_eq!(outcome(&p7, &plan).outcome, PatternOutcome::Unknown);
+    let evaluation = decided(&mut p7, &plan);
+    assert_eq!(evaluation.outcome, PatternOutcome::NoMatch);
+    assert!(evaluation.complete_coverage);
+
+    // P8: the symbolic depth cut is shown feasible, so it keeps DepthLimit and its prefix
+    // witnesses; absence stays unknown.
+    let (mut p8, _) = run(
+        Fixture::Sym,
+        p8(),
+        ExecutionBudget {
+            max_depth: Some(1),
+            ..BUDGET
+        },
+    );
+    let [leaf] = p8.execution.leaves() else {
+        panic!("one leaf")
+    };
+    assert_eq!(
+        (leaf.halt, leaf.feasibility),
+        (HaltClass::DepthBound, LeafFeasibility::Syntactic)
+    );
+    let evaluation = decided(&mut p8, &plan);
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        (PatternOutcome::Unknown, Some(PathStop::DepthLimit))
+    );
+    let evaluation = decided(&mut p8, &w_only(&vocabulary));
+    assert_eq!(evaluation.outcome, PatternOutcome::Match);
+    assert_eq!(evaluation.witnesses[0].stop_reason, PathStop::DepthLimit);
 }

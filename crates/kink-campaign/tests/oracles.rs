@@ -743,6 +743,7 @@ fn exhaustive_adapter_failure(failure: &ExecutionAdapterFailure) {
         | ExecutionAdapterFailure::InvalidState(_)
         | ExecutionAdapterFailure::Backend(_)
         | ExecutionAdapterFailure::ContractViolation(_)
+        | ExecutionAdapterFailure::UninhabitedVariable(_)
         | ExecutionAdapterFailure::Observation(_) => {}
     }
 }
@@ -855,6 +856,11 @@ fn runner_mapping_is_exhaustive() {
         ExecutionAdapterFailure::InvalidState(String::new()),
         ExecutionAdapterFailure::Backend(String::new()),
         ExecutionAdapterFailure::ContractViolation(H::Branch),
+        ExecutionAdapterFailure::UninhabitedVariable(k_rust::kore::ast::Variable {
+            kind: k_rust::kore::ast::VariableKind::Element,
+            name: "VarX".to_owned(),
+            sort: kore_sort("SortEmpty"),
+        }),
         ExecutionAdapterFailure::Observation(ObservationFailure::MissingInstallation),
     ];
     for failure in &adapter {
