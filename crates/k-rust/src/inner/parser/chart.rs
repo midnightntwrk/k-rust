@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.chart.insert"
 //! name = "coverage-aware Earley chart insertion"
-//! sites = ["Chart::add_with_status", "Derivations::insert"]
+//! sites = ["Chart::add_with_status", "Chart::add_extensions_with_status", "Derivations::insert", "Derivations::insert_uncovered", "Derivations::covers_extension"]
 //! variable = "D = stored derivations; W = child width"
 //! counters = ["ParserChartAddCalls", "ParserChartStateChanges"]
 //!
@@ -274,40 +274,37 @@ pub(super) enum Derivations {
 
 impl Derivations {
     pub(super) fn insert(&mut self, candidate: Derivation) -> bool {
-        match std::mem::take(self) {
-            Self::Empty => {
-                *self = Self::One(candidate);
-                true
-            }
+        if self
+            .iter()
+            .any(|existing| derivation_covers(existing, &candidate))
+        {
+            return false;
+        }
+        self.insert_uncovered(candidate);
+        true
+    }
+
+    /// Insert a derivation that no stored derivation covers, dropping the stored derivations it
+    /// covers; the represented parse set grows.
+    fn insert_uncovered(&mut self, candidate: Derivation) {
+        *self = match std::mem::take(self) {
+            Self::Empty => Self::One(candidate),
             Self::One(existing) => {
-                if derivation_covers(&existing, &candidate) {
-                    *self = Self::One(existing);
-                    false
-                } else if derivation_covers(&candidate, &existing) {
-                    *self = Self::One(candidate);
-                    true
+                if derivation_covers(&candidate, &existing) {
+                    Self::One(candidate)
                 } else {
                     let mut stored = BTreeSet::from([existing, candidate]);
                     factor_derivations(&mut stored);
-                    *self = Self::from_set(stored);
-                    true
+                    Self::from_set(stored)
                 }
             }
             Self::Many(mut stored) => {
-                if stored
-                    .iter()
-                    .any(|existing| derivation_covers(existing, &candidate))
-                {
-                    *self = Self::Many(stored);
-                    return false;
-                }
                 stored.retain(|existing| !derivation_covers(&candidate, existing));
                 stored.insert(candidate);
                 factor_derivations(&mut stored);
-                *self = Self::from_set(stored);
-                true
+                Self::from_set(stored)
             }
-        }
+        };
     }
 
     fn from_set(mut stored: BTreeSet<Derivation>) -> Self {
@@ -326,6 +323,19 @@ impl Derivations {
             Self::One(derivation) => DerivationIter::One(Some(derivation)),
             Self::Many(derivations) => DerivationIter::Many(derivations.iter()),
         }
+    }
+
+    /// Whether a stored derivation covers `prefix` followed by `last`, without building it.
+    fn covers_extension(&self, prefix: &[Rc<PackedTerm>], last: Option<&Rc<PackedTerm>>) -> bool {
+        self.iter().any(|existing| {
+            existing.len() == prefix.len() + usize::from(last.is_some())
+                && existing
+                    .iter()
+                    .zip(prefix.iter().chain(last))
+                    .all(|(existing, candidate)| {
+                        parsed_term_covers(existing.as_ref(), candidate.as_ref())
+                    })
+        })
     }
 
     pub(super) fn len(&self) -> usize {
@@ -441,6 +451,57 @@ impl Chart {
         // `changed` is true exactly when the represented parse set grows.
         for derivation in derivations {
             changed |= stored.insert(derivation);
+        }
+        if !changed {
+            return Ok((false, new_state));
+        }
+        measure::bump(Counter::ParserChartStateChanges);
+        #[cfg(test)]
+        update_chart_work_counters(|counters| {
+            if new_state {
+                counters.new_state_changes += 1;
+            } else {
+                counters.existing_state_growth_changes += 1;
+            }
+            counters.agenda_enqueues += 1;
+        });
+        self.agenda.push_back(state);
+        Ok((true, new_state))
+    }
+
+    /// `add_with_status` of every derivation of `prefixes`, each extended by `last` when given,
+    /// in the order of `prefixes`.
+    ///
+    /// Inserting a derivation that a stored one covers leaves the state unchanged, so such a
+    /// candidate is skipped before it is built; every other candidate is built and inserted
+    /// exactly as `add_with_status` would insert it.
+    pub(super) fn add_extensions_with_status(
+        &mut self,
+        state: State,
+        prefixes: &Derivations,
+        last: Option<&Rc<PackedTerm>>,
+    ) -> Result<(bool, bool), ParseError> {
+        measure::bump(Counter::ParserChartAddCalls);
+        #[cfg(test)]
+        update_chart_work_counters(|counters| counters.add_calls += 1);
+        if prefixes.len() == 0 {
+            return Ok((false, !self.states.contains_key(&state)));
+        }
+        let (stored, new_state) = match self.states.entry(state) {
+            Entry::Occupied(entry) => (entry.into_mut(), false),
+            Entry::Vacant(entry) => (entry.insert(Derivations::Empty), true),
+        };
+        let mut changed = false;
+        // Invariant: as in `add_with_status`, with covered candidates never built.
+        for prefix in prefixes {
+            if stored.covers_extension(prefix, last) {
+                continue;
+            }
+            let mut candidate = Vec::with_capacity(prefix.len() + usize::from(last.is_some()));
+            candidate.extend(prefix.iter().cloned());
+            candidate.extend(last.cloned());
+            stored.insert_uncovered(candidate);
+            changed = true;
         }
         if !changed {
             return Ok((false, new_state));

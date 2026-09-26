@@ -765,8 +765,31 @@ impl Grammar {
         state: State,
         derivations: impl IntoIterator<Item = Derivation>,
     ) -> Result<bool, ParseError> {
-        let production = &self.productions[state.production];
         let (changed, new_state) = chart.add_with_status(state, derivations)?;
+        Ok(self.record_chart_addition(chart, state, changed, new_state))
+    }
+
+    /// Add each of `prefixes` extended by `last` (when given) to `state`; see
+    /// `Chart::add_extensions_with_status`.
+    fn add_chart_extensions(
+        &self,
+        chart: &mut Chart,
+        state: State,
+        prefixes: &Derivations,
+        last: Option<&Rc<PackedTerm>>,
+    ) -> Result<bool, ParseError> {
+        let (changed, new_state) = chart.add_extensions_with_status(state, prefixes, last)?;
+        Ok(self.record_chart_addition(chart, state, changed, new_state))
+    }
+
+    fn record_chart_addition(
+        &self,
+        chart: &mut Chart,
+        state: State,
+        changed: bool,
+        new_state: bool,
+    ) -> bool {
+        let production = &self.productions[state.production];
         if changed && state.dot == production.items.len() {
             chart.invalidate_completed_node(production.result_id, state.origin);
         }
@@ -789,7 +812,7 @@ impl Grammar {
                     .push(state);
             }
         }
-        Ok(changed)
+        changed
     }
 
     pub fn parse(&self, start: &Sort, input: &str) -> Result<Term, ParseError> {
@@ -1076,14 +1099,14 @@ impl Grammar {
                             &mut first_violation,
                         );
                         if !completed.is_empty() {
-                            let advanced = append_nodes(&derivations, &completed);
-                            self.add_chart_state(
+                            self.add_chart_extensions(
                                 &mut charts[position],
                                 State {
                                     dot: state.dot + 1,
                                     ..state
                                 },
-                                advanced,
+                                &derivations,
+                                Some(&pack_alternatives(&completed)),
                             )?;
                         }
                     }
@@ -1101,13 +1124,14 @@ impl Grammar {
                                 )
                             })
                         {
-                            self.add_chart_state(
+                            self.add_chart_extensions(
                                 &mut charts[end],
                                 State {
                                     dot: state.dot + 1,
                                     ..state
                                 },
-                                derivations.clone(),
+                                &derivations,
+                                None,
                             )?;
                         }
                     }
@@ -1167,13 +1191,14 @@ impl Grammar {
                                 &mut first_violation,
                             );
                             if !completed.is_empty() {
-                                self.add_chart_state(
+                                self.add_chart_extensions(
                                     chart,
                                     State {
                                         dot: caller.dot + 1,
                                         ..caller
                                     },
-                                    append_nodes(caller_derivations, &completed),
+                                    caller_derivations,
+                                    Some(&pack_alternatives(&completed)),
                                 )?;
                             }
                             Ok(())

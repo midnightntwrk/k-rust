@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "parser.forest.pack"
 //! name = "packed parse-forest construction"
-//! sites = ["build_packed_term", "pack_alternatives", "append_nodes", "PackedTerm::unpack"]
+//! sites = ["build_packed_term", "pack_alternatives", "PackedTerm::unpack"]
 //! variable = "C = children packed; N = nodes unpacked"
 //! counters = ["ParserUnpackedNodes"]
 //! produces = [{ type = "k_rust::inner::parser::forest::PackedTerm", role = "packed forest" }]
@@ -59,7 +59,6 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::kast::{FrontendSort, Sort, Term, TermMetadata};
 
-use super::chart::Derivations;
 #[cfg(test)]
 use super::{PACKED_STRUCTURAL_COMPARISONS, UNPACKED_NODES};
 use super::{ParseProvenance, Production, mint_literal_sort, term_metadata};
@@ -509,25 +508,6 @@ pub(super) fn pack_alternatives(nodes: &BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTe
         }
     }
     PackedTerm::ambiguity(alternatives)
-}
-
-/// Extend every derivation of a state with the packed alternatives of its next child.
-///
-/// A state's derivations are distinct and have one length, so appending one node to each keeps
-/// them distinct and in the order of the state's set; the result is yielded in that order
-/// without building another ordered set.
-pub(super) fn append_nodes<'a>(
-    derivations: &'a Derivations,
-    nodes: &BTreeSet<Rc<PackedTerm>>,
-) -> impl Iterator<Item = Derivation> + 'a {
-    let node = (!nodes.is_empty()).then(|| pack_alternatives(nodes));
-    derivations.iter().filter_map(move |derivation| {
-        let node = node.clone()?;
-        let mut combined = Vec::with_capacity(derivation.len() + 1);
-        combined.extend(derivation.iter().cloned());
-        combined.push(node);
-        Some(combined)
-    })
 }
 
 pub(super) fn build_packed_term(

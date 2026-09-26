@@ -5364,7 +5364,22 @@ symbol = "Chart::add_with_status"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add_extensions_with_status"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
 symbol = "Derivations::insert"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Derivations::insert_uncovered"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Derivations::covers_extension"
 
 [[node.cost]]
 mode = "one insertion"
@@ -5871,11 +5886,6 @@ symbol = "build_packed_term"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/forest.rs"
 symbol = "pack_alternatives"
-
-[[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/inner/parser/forest.rs"
-symbol = "append_nodes"
 
 [[node.sites]]
 crate = "k-rust"
