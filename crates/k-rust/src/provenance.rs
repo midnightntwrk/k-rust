@@ -629,9 +629,20 @@ impl InputAddresses {
     }
 
     pub(crate) fn value(&self) -> &Value {
-        self.value.get_or_init(|| {
-            Value::Array(self.addresses.iter().map(InputAddress::to_value).collect())
-        })
+        self.value.get_or_init(|| self.render())
+    }
+
+    /// The wire form for one read: the cached form when present, otherwise a rendering the
+    /// caller drops, so a transient reader does not grow the shared carrier.
+    pub(crate) fn transient_value(&self) -> std::borrow::Cow<'_, Value> {
+        match self.value.get() {
+            Some(value) => std::borrow::Cow::Borrowed(value),
+            None => std::borrow::Cow::Owned(self.render()),
+        }
+    }
+
+    fn render(&self) -> Value {
+        Value::Array(self.addresses.iter().map(InputAddress::to_value).collect())
     }
 
     /// The first-occurrence union of two carriers; `None` when `right` adds nothing to `left`.
@@ -775,6 +786,7 @@ fn link_value(link: &ProvenanceLink) -> Value {
 pub struct OriginReceipt {
     record: Option<OriginRecord>,
     value: OnceLock<Value>,
+    text: OnceLock<Box<str>>,
 }
 
 impl OriginReceipt {
@@ -782,6 +794,7 @@ impl OriginReceipt {
         Self {
             record: Some(record),
             value: OnceLock::new(),
+            text: OnceLock::new(),
         }
     }
 
@@ -789,6 +802,7 @@ impl OriginReceipt {
         Self {
             record: None,
             value: OnceLock::from(value),
+            text: OnceLock::new(),
         }
     }
 
@@ -816,8 +830,39 @@ impl OriginReceipt {
         })
     }
 
+    /// The JSON form of the receipt for one read: the cached form when some caller already
+    /// rendered it, otherwise a fresh rendering that the caller drops.
+    ///
+    /// A shared receipt lives as long as any sentence that carries it, so caching a rendering
+    /// requested by a reader that only looks at it once (production text for diagnostics) would
+    /// keep the whole JSON tree resident for the rest of the compile.
+    pub fn transient_value(&self) -> std::borrow::Cow<'_, Value> {
+        match self.value.get() {
+            Some(value) => std::borrow::Cow::Borrowed(value),
+            None => {
+                measure::bump(Counter::ProvenanceReceiptRenders);
+                std::borrow::Cow::Owned(self.expect_record().to_value())
+            }
+        }
+    }
+
+    /// The compact JSON text of [`Self::value`], rendered at most once per shared receipt.
+    ///
+    /// Readers that only print the receipt, such as production text, use this rather than the
+    /// JSON tree: the text is an order of magnitude smaller than the tree, so caching it keeps
+    /// one rendering per receipt without keeping the tree resident for the rest of the compile.
+    pub fn text(&self) -> &str {
+        self.text.get_or_init(|| match self.value.get() {
+            Some(value) => value.to_string().into_boxed_str(),
+            None => {
+                measure::bump(Counter::ProvenanceReceiptRenders);
+                self.expect_record().to_value().to_string().into_boxed_str()
+            }
+        })
+    }
+
     pub fn into_value(self) -> Value {
-        let Self { record, value } = self;
+        let Self { record, value, .. } = self;
         match value.into_inner() {
             Some(value) => value,
             None => record

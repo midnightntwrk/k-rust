@@ -34,6 +34,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
+use crate::definition::ast::TransientWireValue;
 use crate::definition::{
     AttributeKey, Attributes, PartialOrder, ProductionCatalog, ProductionItem, Regex as KRegex,
     Sentence, compute_associativities, compute_disambiguation_subsorts, compute_overloads,
@@ -896,8 +897,11 @@ pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
         .map(render_production_item)
         .collect::<Vec<_>>()
         .join(" ");
+    // Production text is built for every production of every grammar; the shared origin receipt
+    // is printed from its cached text, so its JSON tree is neither kept on the definition for
+    // the rest of the compile nor rebuilt per production.
     let attributes = attributes
-        .wire_entries()
+        .transient_wire_entries()
         .filter(|(key, _)| {
             !matches!(
                 AttributeKey::from_name(key),
@@ -912,10 +916,18 @@ pub(super) fn render_production(sentence: &Sentence) -> Option<String> {
             )
         })
         .map(|(key, value)| match value {
-            serde_json::Value::String(value) if value.is_empty() => key.to_owned(),
-            serde_json::Value::Null => key.to_owned(),
-            serde_json::Value::String(value) => format!("{key}({value})"),
-            value => format!("{key}({value})"),
+            // A record-backed receipt renders to a JSON object, whose compact text is what the
+            // structured-value arm below prints; a receipt loaded from a stored value may hold any
+            // JSON value and goes through that match like every other entry.
+            TransientWireValue::Origin(origin) if origin.record().is_some() => {
+                format!("{key}({})", origin.text())
+            }
+            value => match value.get().as_ref() {
+                serde_json::Value::String(value) if value.is_empty() => key.to_owned(),
+                serde_json::Value::Null => key.to_owned(),
+                serde_json::Value::String(value) => format!("{key}({value})"),
+                value => format!("{key}({value})"),
+            },
         })
         .collect::<Vec<_>>();
     let attributes = if attributes.is_empty() {
@@ -992,6 +1004,41 @@ mod tests {
     use super::*;
     use crate::kast::{Term, TermMetadata};
     use crate::provenance::SourceId;
+
+    #[test]
+    fn production_text_prints_a_stored_origin_value_like_any_attribute() {
+        let text = |origin: serde_json::Value| {
+            let attributes = Attributes::new(BTreeMap::from([(
+                AttributeKey::Origin.as_str().to_owned(),
+                origin,
+            )]));
+            render_production(&Sentence::Production {
+                label: Some(Label::new("lbl")),
+                parameters: vec![],
+                sort: Sort::new("S"),
+                items: vec![ProductionItem::Terminal("x".into())],
+                attributes,
+            })
+            .expect("a production has a text")
+        };
+        let key = AttributeKey::Origin.as_str();
+        assert_eq!(
+            text(serde_json::json!("foo")),
+            format!("syntax S ::= \"x\" [{key}(foo)]")
+        );
+        assert_eq!(
+            text(serde_json::Value::Null),
+            format!("syntax S ::= \"x\" [{key}]")
+        );
+        assert_eq!(
+            text(serde_json::json!("")),
+            format!("syntax S ::= \"x\" [{key}]")
+        );
+        assert_eq!(
+            text(serde_json::json!({"pass": "p"})),
+            format!("syntax S ::= \"x\" [{key}({{\"pass\":\"p\"}})]")
+        );
+    }
 
     #[test]
     fn retains_productive_cycles_after_a_viable_prefix() {

@@ -112,6 +112,24 @@ impl fmt::Debug for Attributes {
     }
 }
 
+/// One wire value of [`Attributes::transient_wire_entries`], rendered only when read.
+pub(crate) enum TransientWireValue<'a> {
+    Entry(&'a Value),
+    Origin(&'a OriginReceipt),
+    Inputs(&'a InputAddresses),
+}
+
+impl<'a> TransientWireValue<'a> {
+    /// The value: borrowed when stored or already rendered, otherwise rendered for the caller.
+    pub(crate) fn get(&self) -> std::borrow::Cow<'a, Value> {
+        match self {
+            Self::Entry(value) => std::borrow::Cow::Borrowed(value),
+            Self::Origin(origin) => origin.transient_value(),
+            Self::Inputs(inputs) => inputs.transient_value(),
+        }
+    }
+}
+
 impl Attributes {
     pub fn new(mut entries: BTreeMap<String, Value>) -> Self {
         let origin = entries
@@ -134,8 +152,9 @@ impl Attributes {
     /// Iterate over the wire representation, including the compiler-only origin receipt and
     /// input-address carrier.
     ///
-    /// The temporary vector is deliberately scoped to this call; unlike the former cached map,
-    /// rendering a receipt never becomes part of the sentence's retained state.
+    /// The temporary vector is deliberately scoped to this call, but a structured receipt or
+    /// carrier caches the rendering it returns on the shared value, which lives as long as any
+    /// sentence that carries it; one-off readers in this crate use `transient_wire_entries`.
     pub fn wire_entries(&self) -> impl Iterator<Item = (&str, &Value)> {
         let mut entries = self
             .entries
@@ -155,6 +174,36 @@ impl Attributes {
                 .binary_search_by(|(candidate, _)| (*candidate).cmp(key))
                 .unwrap_or_else(|index| index);
             entries.insert(index, (key, inputs.value()));
+        }
+        entries.into_iter()
+    }
+
+    /// Iterate over the wire representation like [`Self::wire_entries`], for one-off readers:
+    /// each value is produced on demand by [`TransientWireValue::get`], and a receipt or carrier
+    /// whose JSON form has not been rendered yet is rendered for that call only instead of being
+    /// cached on the shared value, which outlives the reader. A reader that filters on the key
+    /// first renders nothing for the entries it skips.
+    pub(crate) fn transient_wire_entries(
+        &self,
+    ) -> impl Iterator<Item = (&str, TransientWireValue<'_>)> {
+        let mut entries = self
+            .entries
+            .iter()
+            .map(|(key, value)| (key.as_str(), TransientWireValue::Entry(value)))
+            .collect::<Vec<_>>();
+        if let Some(origin) = &self.origin {
+            let key = AttributeKey::Origin.as_str();
+            let index = entries
+                .binary_search_by(|(candidate, _)| (*candidate).cmp(key))
+                .unwrap_or_else(|index| index);
+            entries.insert(index, (key, TransientWireValue::Origin(origin)));
+        }
+        if let Some(inputs) = &self.inputs {
+            let key = AttributeKey::InputAddresses.as_str();
+            let index = entries
+                .binary_search_by(|(candidate, _)| (*candidate).cmp(key))
+                .unwrap_or_else(|index| index);
+            entries.insert(index, (key, TransientWireValue::Inputs(inputs)));
         }
         entries.into_iter()
     }
