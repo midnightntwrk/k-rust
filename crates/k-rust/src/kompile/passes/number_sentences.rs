@@ -49,7 +49,13 @@ pub(crate) fn number_sentences_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
-            number_sentence(crate::definition::sentence_mut(sentence));
+            // Only rules and claims without an identifier change; taking a mutable sentence
+            // copies a shared one.
+            if matches!(&**sentence, Sentence::Rule { attributes, .. } | Sentence::Claim { attributes, .. }
+                if !attributes.has(AttributeKey::UniqueId))
+            {
+                number_sentence(crate::definition::sentence_mut(sentence));
+            }
         }
     }
     Ok(output)

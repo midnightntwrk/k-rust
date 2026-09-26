@@ -87,6 +87,16 @@ pub(crate) fn add_implicit_computation_cell_pass(
         let productions = views.production_catalog(module_id);
 
         for sentence in &mut module.local_sentences {
+            // Skipped sentences and other kinds than rules, claims and contexts never change;
+            // taking a mutable sentence copies a shared one.
+            if skip_sentence(sentence)
+                || !matches!(
+                    &**sentence,
+                    Sentence::Rule { .. } | Sentence::Claim { .. } | Sentence::Context { .. }
+                )
+            {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
             if skip_sentence(sentence) {
                 continue;

@@ -66,6 +66,12 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
         let sorts = views.sort_catalog(module_id);
         // Invariant: every heat or cool rule or context of `module.local_sentences` before `sentence` has its `requires` conjoined with its result predicate on `HOLE` (negated for heat), and `diagnostics` holds one error for each such sentence whose predicate is missing; each iteration consumes one sentence.
         for sentence in &mut module.local_sentences {
+            // Only heat and cool sentences change; taking a mutable sentence copies a shared one.
+            if !sentence.attributes().has(AttributeKey::Heat)
+                && !sentence.attributes().has(AttributeKey::Cool)
+            {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
             let attributes = sentence.attributes();
             let heat = attributes.has(AttributeKey::Heat);

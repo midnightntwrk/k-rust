@@ -85,6 +85,10 @@ pub(crate) fn constant_fold_pass(
             .expect("resolved definition contains every source module");
         let folder = Folder::new(&views, module_id);
         for sentence in &mut module.local_sentences {
+            // Only rules change; taking a mutable sentence copies a shared one.
+            if !matches!(&**sentence, Sentence::Rule { .. }) {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body,

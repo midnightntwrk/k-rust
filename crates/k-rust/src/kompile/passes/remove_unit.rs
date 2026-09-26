@@ -54,6 +54,10 @@ pub(crate) fn remove_unit_pass(
             .expect("resolved definition contains every source module");
         let productions = views.production_catalog(module_id);
         for sentence in &mut module.local_sentences {
+            // Only rules change; taking a mutable sentence copies a shared one.
+            if !matches!(&**sentence, Sentence::Rule { .. }) {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Rule {
                 body,

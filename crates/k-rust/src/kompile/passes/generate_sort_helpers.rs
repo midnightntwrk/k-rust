@@ -155,6 +155,13 @@ pub(crate) fn regenerate_sort_predicate_syntax_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            // Only labeled predicate productions change; taking a mutable sentence copies a
+            // shared one.
+            if !matches!(&**sentence, Sentence::Production { label: Some(_), attributes, .. }
+                if attributes.has(AttributeKey::Predicate))
+            {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
             let Sentence::Production {
                 label: Some(label),

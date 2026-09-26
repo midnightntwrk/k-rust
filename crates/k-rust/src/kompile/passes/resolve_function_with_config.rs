@@ -237,6 +237,10 @@ pub(crate) fn resolve_config_var_pass(
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
+            // Only rules and claims change; taking a mutable sentence copies a shared one.
+            if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
             let (body, requires, ensures) = match sentence {
                 Sentence::Rule {
