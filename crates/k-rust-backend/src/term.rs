@@ -56,10 +56,42 @@ pub mod names;
 
 pub type Name = Arc<str>;
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Sort {
     Application { name: Name, arguments: Vec<Sort> },
     Variable(Name),
+}
+
+impl PartialOrd for Sort {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Sort {
+    /// The order of the variants, then of the names, then of the arguments; two handles of
+    /// one name allocation are equal names without reading them.
+    fn cmp(&self, other: &Self) -> Ordering {
+        let names = |left: &Name, right: &Name| {
+            if Arc::ptr_eq(left, right) {
+                Ordering::Equal
+            } else {
+                left.cmp(right)
+            }
+        };
+        match (self, other) {
+            (
+                Self::Application { name, arguments },
+                Self::Application {
+                    name: other_name,
+                    arguments: other_arguments,
+                },
+            ) => names(name, other_name).then_with(|| arguments.cmp(other_arguments)),
+            (Self::Variable(name), Self::Variable(other_name)) => names(name, other_name),
+            (Self::Application { .. }, Self::Variable(_)) => Ordering::Less,
+            (Self::Variable(_), Self::Application { .. }) => Ordering::Greater,
+        }
+    }
 }
 
 impl Sort {
