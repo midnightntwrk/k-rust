@@ -1375,6 +1375,11 @@ impl PartialOrd for Term {
 
 impl Ord for Term {
     fn cmp(&self, other: &Self) -> Ordering {
+        // A shared term equals itself; without this, comparing two handles of one large term
+        // (a substitution binding copied into several solutions) walks it in full.
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return Ordering::Equal;
+        }
         self.0.kind.cmp(&other.0.kind)
     }
 }
