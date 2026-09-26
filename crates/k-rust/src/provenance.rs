@@ -71,6 +71,7 @@
 //! origin set.
 
 use std::{
+    borrow::Borrow,
     cell::OnceCell,
     collections::{BTreeMap, HashMap, HashSet},
     ops::Range,
@@ -922,38 +923,33 @@ fn record_generated_origins_inner(
 ) -> Definition {
     // Invariant: every module of `after.modules` before `module` has had its generated sentences stamped with `pass` origin records and its terms annotated, unless it was skipped as unchanged under `skip_unchanged`; each iteration handles one module, and its counterpart lookup is a linear `find` over `before.modules`, so the lookups cost O(modules^2) name comparisons.
     for module in &mut after.modules {
-        let before_sentences = before
+        let before_sentences: &[Arc<Sentence>] = before
             .modules
             .iter()
             .find(|candidate| candidate.name == module.name)
-            .map(|candidate| {
-                candidate
-                    .local_sentences
-                    .iter()
-                    .map(|sentence| (**sentence).clone())
-                    .collect::<Vec<_>>()
-            })
+            .map(|candidate| candidate.local_sentences.as_slice())
             .unwrap_or_default();
-        let after_snapshot = module
-            .local_sentences
-            .iter()
-            .map(|sentence| (**sentence).clone())
-            .collect::<Vec<_>>();
-        if skip_unchanged && before_sentences == after_snapshot {
+        // `Arc` equality compares a shared sentence by identity before its structure, so a pass
+        // that carried a sentence through unchanged costs one pointer comparison.
+        if skip_unchanged && before_sentences == module.local_sentences.as_slice() {
             continue;
         }
         // One module-wide origin set per pass, shared by every generated sentence that has no
         // narrower derivation of its own; computed only if some sentence falls back to it.
-        let module_origins = ModuleOrigins::new(&before_sentences, pass);
-        let counterparts = sentence_counterparts(&before_sentences, &after_snapshot);
-        let mut carrier_origins = CarrierOrigins::new(&before_sentences);
+        let module_origins = ModuleOrigins::new(before_sentences, pass);
+        let counterparts = sentence_counterparts(before_sentences, &module.local_sentences);
+        let mut carrier_origins = CarrierOrigins::new(before_sentences);
         for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
             let sentence_index =
                 u32::try_from(sentence_offset).expect("module sentence count fits u32");
             let before_sentence =
-                counterparts[sentence_offset].map(|index| &before_sentences[index]);
+                counterparts[sentence_offset].map(|index| &*before_sentences[index]);
+            // A sentence equal to its counterpart is not generated, and each of its terms equals
+            // the counterpart's, so the pass records nothing on it: leave it shared, uncopied.
+            if before_sentence.is_some_and(|candidate| same_sentence(candidate, sentence)) {
+                continue;
+            }
             let sentence = crate::definition::sentence_mut(sentence);
-            let generated = before_sentence.is_none_or(|candidate| candidate != sentence);
             let sentence_name = sentence_name(sentence, sentence_offset);
             let origins = sentence_origins(
                 before_sentence,
@@ -961,19 +957,17 @@ fn record_generated_origins_inner(
                 &mut carrier_origins,
                 &module_origins,
             );
-            if generated {
-                let record = OriginRecord {
-                    pass,
-                    origins: Arc::clone(&origins),
-                    destination: Some(DestinationAnchor {
-                        module: module.name.clone(),
-                        sentence: sentence_name.clone(),
-                        sentence_index,
-                        path: Vec::new(),
-                    }),
-                };
-                sentence.attributes_mut().set_origin_record(record);
-            }
+            let record = OriginRecord {
+                pass,
+                origins: Arc::clone(&origins),
+                destination: Some(DestinationAnchor {
+                    module: module.name.clone(),
+                    sentence: sentence_name.clone(),
+                    sentence_index,
+                    path: Vec::new(),
+                }),
+            };
+            sentence.attributes_mut().set_origin_record(record);
             annotate_sentence_terms(
                 sentence,
                 before_sentence,
@@ -1022,7 +1016,17 @@ fn sentence_origins(
     origins.into()
 }
 
-fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<usize>> {
+/// Sentence equality that answers for one shared sentence without walking it.
+fn same_sentence(left: &Sentence, right: &Sentence) -> bool {
+    std::ptr::eq(left, right) || left == right
+}
+
+fn sentence_counterparts<S: Borrow<Sentence>>(before: &[S], after: &[S]) -> Vec<Option<usize>> {
+    let before = before
+        .iter()
+        .map(Borrow::borrow)
+        .collect::<Vec<&Sentence>>();
+    let after = after.iter().map(Borrow::borrow).collect::<Vec<&Sentence>>();
     let mut counterparts = vec![None; after.len()];
     let mut used = vec![false; before.len()];
     let mut before_index = 0;
@@ -1031,7 +1035,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
     // Most passes preserve order. Compare each aligned pair once, stepping over a single
     // insertion or removal when an adjacent sentence restores alignment.
     while before_index < before.len() && after_index < after.len() {
-        if before[before_index] == after[after_index] {
+        if same_sentence(before[before_index], after[after_index]) {
             counterparts[after_index] = Some(before_index);
             used[before_index] = true;
             before_index += 1;
@@ -1040,7 +1044,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             first_gap.get_or_insert(after_index);
             if before
                 .get(before_index + 1)
-                .is_some_and(|candidate| candidate == &after[after_index])
+                .is_some_and(|candidate| same_sentence(candidate, after[after_index]))
             {
                 before_index += 1;
             } else {
@@ -1073,7 +1077,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
             if let Some(candidates) = buckets.get_mut(&sentence_bucket_key(sentence))
                 && let Some(position) = candidates
                     .iter()
-                    .position(|candidate| before[*candidate] == *sentence)
+                    .position(|candidate| same_sentence(before[*candidate], sentence))
             {
                 let before_index = candidates.remove(position);
                 counterparts[index] = Some(before_index);
@@ -1084,8 +1088,8 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
     // A carrier names the input sentences a sentence derives from. Two sentences with one carrier
     // value unique on both sides are the same derivation before and after the pass, whatever the
     // pass changed; this is the only key that survives a change before UNIQUE_ID exists.
-    let after_by_inputs = sentences_by_inputs(after);
-    let before_by_inputs = sentences_by_inputs(before);
+    let after_by_inputs = sentences_by_inputs(&after);
+    let before_by_inputs = sentences_by_inputs(&before);
     for (after_index, sentence) in after.iter().enumerate() {
         if counterparts[after_index].is_some() {
             continue;
@@ -1108,8 +1112,8 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
     // Invariant: counterparts already assigned by a stronger key remain fixed and each `before`
     // index marked in `used` is paired exactly once.
     for key in [AttributeKey::UniqueId, AttributeKey::Label] {
-        let after_by_value = sentences_by_attribute(after, key);
-        let before_by_value = sentences_by_attribute(before, key);
+        let after_by_value = sentences_by_attribute(&after, key);
+        let before_by_value = sentences_by_attribute(&before, key);
         for (after_index, sentence) in after.iter().enumerate() {
             if counterparts[after_index].is_some() {
                 continue;
@@ -1137,7 +1141,7 @@ fn sentence_counterparts(before: &[Sentence], after: &[Sentence]) -> Vec<Option<
     counterparts
 }
 
-fn sentences_by_inputs(sentences: &[Sentence]) -> HashMap<&[InputAddress], Vec<usize>> {
+fn sentences_by_inputs<'a>(sentences: &[&'a Sentence]) -> HashMap<&'a [InputAddress], Vec<usize>> {
     let mut by_inputs = HashMap::<&[InputAddress], Vec<usize>>::new();
     for (index, sentence) in sentences.iter().enumerate() {
         let inputs = sentence.attributes().input_addresses();
@@ -1151,13 +1155,13 @@ fn sentences_by_inputs(sentences: &[Sentence]) -> HashMap<&[InputAddress], Vec<u
 /// The origins of the sentences before a pass that share an input address with a sentence after
 /// it, computed once per carrier value and shared by every sentence that carries it.
 struct CarrierOrigins<'a> {
-    before: &'a [Sentence],
+    before: &'a [Arc<Sentence>],
     by_address: Option<HashMap<&'a InputAddress, Vec<usize>>>,
     by_carrier: HashMap<Vec<InputAddress>, Option<Arc<[ProvenanceLink]>>>,
 }
 
 impl<'a> CarrierOrigins<'a> {
-    fn new(before: &'a [Sentence]) -> Self {
+    fn new(before: &'a [Arc<Sentence>]) -> Self {
         Self {
             before,
             by_address: None,
@@ -1263,7 +1267,10 @@ fn sentence_bucket_key(sentence: &Sentence) -> SentenceBucketKey {
     }
 }
 
-fn sentences_by_attribute(sentences: &[Sentence], key: AttributeKey) -> BTreeMap<&str, Vec<usize>> {
+fn sentences_by_attribute<'a>(
+    sentences: &[&'a Sentence],
+    key: AttributeKey,
+) -> BTreeMap<&'a str, Vec<usize>> {
     let mut by_value = BTreeMap::new();
     for (index, sentence) in sentences.iter().enumerate() {
         if let Some(value) = sentence.attributes().string(key) {
@@ -1392,13 +1399,13 @@ pub(crate) fn seed_generated_sentence_origin(
 
 /// The module-wide origin set of one pass over one module, computed on first use.
 struct ModuleOrigins<'a> {
-    before: &'a [Sentence],
+    before: &'a [Arc<Sentence>],
     pass: GeneratingPass,
     links: OnceCell<Arc<[ProvenanceLink]>>,
 }
 
 impl<'a> ModuleOrigins<'a> {
-    fn new(before: &'a [Sentence], pass: GeneratingPass) -> Self {
+    fn new(before: &'a [Arc<Sentence>], pass: GeneratingPass) -> Self {
         Self {
             before,
             pass,
@@ -1412,18 +1419,20 @@ impl<'a> ModuleOrigins<'a> {
     }
 }
 
-fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {
+fn module_origin_links<S: Borrow<Sentence>>(
+    before_sentences: &[S],
+    pass: GeneratingPass,
+) -> Vec<ProvenanceLink> {
+    let sentences = || before_sentences.iter().map(Borrow::borrow);
     if pass == GeneratingPass::ConfigurationExpansion {
         let configuration_sources = united_origin_links(
-            before_sentences
-                .iter()
-                .filter(|sentence| matches!(sentence, Sentence::Configuration { .. })),
+            sentences().filter(|sentence| matches!(sentence, Sentence::Configuration { .. })),
         );
         if !configuration_sources.is_empty() {
             return configuration_sources;
         }
     }
-    united_origin_links(before_sentences)
+    united_origin_links(sentences())
 }
 
 /// The first-encounter-ordered union of the origin links of `sentences`.
