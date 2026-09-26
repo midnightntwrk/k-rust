@@ -29,6 +29,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 
 use crate::definition::{
     AttributeKey, Definition, DefinitionViews, LabelHead, ModuleId, PartialOrder,
@@ -166,9 +167,9 @@ impl<'definition> TermConverter<'definition, 'definition> {
             .map_err(|cycle| TermConversionError::CircularSubsort(cycle.path))?;
         Ok(Self {
             productions: View::Shared(definition.production_catalog(module)),
-            sorts: View::Owned(definition.sort_catalog(module)),
+            sorts: View::Shared(Arc::new(definition.sort_catalog(module))),
             token_sorts: None,
-            subsorts: View::Owned(subsorts),
+            subsorts: View::Shared(Arc::new(subsorts)),
             sort_variables: BTreeSet::new(),
             generated_anonymous: None,
         })
@@ -209,7 +210,9 @@ impl<'definition> TermConverter<'definition, 'definition> {
             .module_id(token_module)
             .ok_or_else(|| TermConversionError::MissingModule(token_module.to_owned()))?;
         let mut converter = Self::new(definition, module)?;
-        converter.token_sorts = Some(View::Owned(definition.sort_catalog(token_module)));
+        converter.token_sorts = Some(View::Shared(Arc::new(
+            definition.sort_catalog(token_module),
+        )));
         Ok(converter)
     }
 
