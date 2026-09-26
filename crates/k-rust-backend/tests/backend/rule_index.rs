@@ -16,8 +16,12 @@ use proptest::prelude::*;
 use super::support::internal_term;
 
 fn definition() -> BackendDefinition {
+    definition_with("")
+}
+
+fn definition_with(extra_axioms: &str) -> BackendDefinition {
     let syntax = parse_definition(
-        r#"[]
+        &(r#"[]
         module MAIN
           sort SortK{} []
           sort SortKItem{} []
@@ -60,7 +64,10 @@ fn definition() -> BackendDefinition {
             ),
             top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(X:SortKItem{}, dotk{}())))
           ) [label{}("wild"), priority{}("50")]
-        endmodule []"#,
+        "#
+        .to_owned()
+            + extra_axioms
+            + "endmodule []"),
     )
     .expect("index definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("index definition should internalize")
@@ -106,13 +113,14 @@ fn indexed(definition: &BackendDefinition, head: &str) -> k_rust_backend::term::
 }
 
 #[test]
-fn anything_on_either_side_disables_filtering_and_none_covers_nothing() {
+fn anything_on_either_side_disables_filtering_and_none_covers_only_anything() {
     let concrete = CellIndex::Constructor(Name::from("A"));
     assert!(CellIndex::Anything.covers(&concrete));
     assert!(concrete.covers(&CellIndex::Anything));
     assert!(concrete.covers(&concrete));
     assert!(!CellIndex::None.covers(&CellIndex::None));
     assert!(!CellIndex::None.covers(&concrete));
+    assert!(CellIndex::None.covers(&CellIndex::Anything));
 }
 
 #[test]
@@ -128,31 +136,82 @@ fn meet_is_commutative_idempotent_and_rejects_conflicts() {
     );
 }
 
+/// A conjunction's key covers every subject key both conjuncts' keys cover, and a function
+/// conjunct, keyed `Anything` since the matcher evaluates or defers it, leaves the other key.
+#[test]
+fn meet_covers_what_both_conjuncts_cover() {
+    let keys = [
+        CellIndex::None,
+        CellIndex::Anything,
+        CellIndex::Constructor(Name::from("A")),
+        CellIndex::Constructor(Name::from("B")),
+        CellIndex::Anywhere(Name::from("h")),
+        CellIndex::Anywhere(Name::from("i")),
+        CellIndex::Value(KoreString::from(b"1".to_vec())),
+        CellIndex::Map,
+        CellIndex::List,
+        CellIndex::Set,
+    ];
+    for left in &keys {
+        for right in &keys {
+            let meet = left.clone().meet(right.clone());
+            assert_eq!(
+                meet,
+                right.clone().meet(left.clone()),
+                "{left:?} /\\ {right:?}"
+            );
+            for subject in &keys {
+                if left.covers(subject) && right.covers(subject) {
+                    assert!(
+                        meet.covers(subject),
+                        "{left:?} /\\ {right:?} = {meet:?} drops {subject:?}"
+                    );
+                }
+            }
+        }
+    }
+    let a = CellIndex::Constructor(Name::from("A"));
+    assert_eq!(CellIndex::Anything.meet(a.clone()), a);
+}
+
 #[test]
 fn indexes_the_injection_stripped_k_sequence_head() {
     let definition = definition();
     let term = indexed(&definition, "inj{SortKItem{}, SortKItem{}}(A{}())");
     assert_eq!(
         rule_index(&definition, &term).cells(),
-        &[CellIndex::Constructor(Name::from("A"))]
+        &[CellIndex::Constructor(Name::from("A")), CellIndex::Anything]
     );
 }
 
 #[test]
-fn subject_functions_are_wildcards_but_rule_functions_are_not() {
+fn functions_are_wildcards_and_anywhere_heads_are_rigid_only_in_rules() {
     let definition = definition();
     let term = indexed(&definition, "f{}()");
     assert_eq!(
         rule_index(&definition, &term).cells(),
-        &[CellIndex::Function(Name::from("f"))]
+        &[CellIndex::Anything, CellIndex::Anything]
     );
     assert_eq!(
         subject_index(&definition, &term).cells(),
-        &[CellIndex::Anything]
+        &[CellIndex::Anything, CellIndex::Anything]
     );
     assert_eq!(
         candidate_ids(&definition, &term),
         ["A-first", "B-only", "A-second", "wild"]
+    );
+    let definition = shape_definition();
+    let anywhere = internal_term(
+        &definition,
+        "top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS1{}, SortKItem{}}(h1{}()), dotk{}())))",
+    );
+    assert_eq!(
+        rule_index(&definition, &anywhere).cells(),
+        &[CellIndex::Anywhere(Name::from("h1")), CellIndex::Anything]
+    );
+    assert_eq!(
+        subject_index(&definition, &anywhere).cells(),
+        &[CellIndex::Anything, CellIndex::Anything]
     );
 }
 
@@ -168,7 +227,10 @@ fn indexes_domain_values_without_losing_bytes() {
         .expect("frontend-validated injection should internalize");
     assert_eq!(
         rule_index(&definition, &term).cells(),
-        &[CellIndex::Value(KoreString::from(vec![0xff]))]
+        &[
+            CellIndex::Value(KoreString::from(vec![0xff])),
+            CellIndex::Anything
+        ]
     );
 }
 
@@ -179,11 +241,65 @@ fn absent_or_unstructured_k_cells_are_wildcards() {
     let malformed = internal_term(&definition, "top{}(Lbl'-LT-'k'-GT-'{}(dotk{}()))");
     assert_eq!(
         rule_index(&definition, &absent).cells(),
-        &[CellIndex::Anything]
+        &[CellIndex::Anything, CellIndex::Anything]
     );
     assert_eq!(
         rule_index(&definition, &malformed).cells(),
-        &[CellIndex::Constructor(Name::from("dotk"))]
+        &[
+            CellIndex::Constructor(Name::from("dotk")),
+            CellIndex::Anything
+        ]
+    );
+}
+
+/// A rule `<k> X ~> NEXT ~> R </k>` with a rigid `NEXT`, as a cooling rule is.
+fn next_item_rule(label: &str, next: &str) -> String {
+    format!(
+        r#"axiom{{}} \rewrites{{SortGeneratedTopCell{{}}}}(
+            \and{{SortGeneratedTopCell{{}}}}(
+              top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(X:SortKItem{{}}, kseq{{}}({next}, R:SortK{{}})))),
+              \top{{SortGeneratedTopCell{{}}}}()
+            ),
+            top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(X:SortKItem{{}}, R:SortK{{}})))
+          ) [label{{}}("{label}"), priority{{}}("50")]
+        "#
+    )
+}
+
+fn next_item_definition() -> BackendDefinition {
+    definition_with(
+        &(next_item_rule("then-A", "A{}()")
+            + &next_item_rule("then-B", "B{}()")
+            + &next_item_rule("then-f", "f{}()")),
+    )
+}
+
+#[test]
+fn indexes_the_item_after_the_k_sequence_head() {
+    let definition = next_item_definition();
+    let then_a = |head: &str, next: &str| {
+        internal_term(
+            &definition,
+            &format!(
+                "top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, kseq{{}}({next}, dotk{{}}()))))"
+            ),
+        )
+    };
+    assert_eq!(
+        subject_index(&definition, &then_a("B{}()", "A{}()")).cells(),
+        &[
+            CellIndex::Constructor(Name::from("B")),
+            CellIndex::Constructor(Name::from("A"))
+        ]
+    );
+    assert_eq!(
+        candidate_ids(&definition, &then_a("B{}()", "A{}()")),
+        ["B-only", "wild", "then-A", "then-f"]
+    );
+    // A subject-side function in the next position may still evaluate to anything.
+    assert_eq!(
+        candidate_ids(&definition, &then_a("B{}()", "f{}()")),
+        ["B-only", "wild", "then-A", "then-B", "then-f"]
     );
 }
 
@@ -212,6 +328,33 @@ proptest! {
     }
 
     #[test]
+    fn every_filtered_rigid_next_item_would_have_failed_matching(
+        head_a in any::<bool>(),
+        next in prop::sample::select(vec!["A{}()", "B{}()", "f{}()"]),
+    ) {
+        let definition = next_item_definition();
+        let head = if head_a { "A{}()" } else { "B{}()" };
+        let subject = internal_term(
+            &definition,
+            &format!("top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, kseq{{}}({next}, dotk{{}}()))))"),
+        );
+        let subject_index = subject_index(&definition, &subject);
+        for stored in old_candidates(&definition, &term_index(&subject)) {
+            if !stored.index.covers(&subject_index) {
+                prop_assert!(matches!(
+                    match_terms_in_definition(
+                        MatchMode::Rewrite,
+                        &definition,
+                        &stored.lhs,
+                        &subject,
+                    ),
+                    MatchResult::Failed(_)
+                ));
+            }
+        }
+    }
+
+    #[test]
     fn every_filtered_rigid_head_would_have_failed_matching(use_a in any::<bool>()) {
         let definition = definition();
         let subject = indexed(&definition, if use_a { "A{}()" } else { "B{}()" });
@@ -230,4 +373,186 @@ proptest! {
             }
         }
     }
+}
+
+/// `<k>` items of every shape the index keys: constructors of a sort, of its supersort and of
+/// an unrelated sort, a function, domain values, map and list units, variables (of `KItem` and
+/// under an injection), an overloaded constructor and an overloaded `anywhere` production, and
+/// `anywhere` productions of two sorts that are in no overload relation. The
+/// rule side adds conjunctions: an `#as` pattern, two conflicting constructors, and a
+/// constructor with a function.
+const SHAPE_ITEMS: [&str; 15] = [
+    "inj{SortS1{}, SortKItem{}}(a1{}())",
+    "inj{SortS1{}, SortKItem{}}(b1{}())",
+    "inj{SortS2{}, SortKItem{}}(a2{}())",
+    "inj{SortS3{}, SortKItem{}}(a3{}())",
+    "inj{SortS1{}, SortKItem{}}(f1{}())",
+    r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1"))"#,
+    r#"inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("2"))"#,
+    "inj{SortMap{}, SortKItem{}}(mapUnit{}())",
+    "inj{SortList{}, SortKItem{}}(listUnit{}())",
+    "VAR:SortKItem{}",
+    "inj{SortS1{}, SortKItem{}}(VARS1:SortS1{})",
+    "inj{SortVal{}, SortKItem{}}(appv{}(v{}(), v{}()))",
+    "inj{SortExp{}, SortKItem{}}(app{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())))",
+    "inj{SortS1{}, SortKItem{}}(h1{}())",
+    "inj{SortS3{}, SortKItem{}}(h3{}())",
+];
+
+const SHAPE_RULE_CONJUNCTIONS: [&str; 5] = [
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(a1{}()), VARAS:SortKItem{})",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(a1{}()), inj{SortS1{}, SortKItem{}}(b1{}()))",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(a1{}()), inj{SortS1{}, SortKItem{}}(f1{}()))",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(h1{}()), inj{SortS3{}, SortKItem{}}(h3{}()))",
+    r"\and{SortKItem{}}(inj{SortS1{}, SortKItem{}}(h1{}()), inj{SortVal{}, SortKItem{}}(appv{}(v{}(), v{}())))",
+];
+
+fn shape_definition() -> BackendDefinition {
+    let rule = |label: String, contents: String| {
+        format!(
+            r#"axiom{{}} \rewrites{{SortGeneratedTopCell{{}}}}(
+                \and{{SortGeneratedTopCell{{}}}}(
+                  top{{}}(Lbl'-LT-'k'-GT-'{{}}({contents})),
+                  \top{{SortGeneratedTopCell{{}}}}()
+                ),
+                top{{}}(Lbl'-LT-'k'-GT-'{{}}(dotk{{}}()))
+              ) [label{{}}("{label}"), priority{{}}("50")]
+            "#
+        )
+    };
+    let mut rules = String::new();
+    for (position, item) in SHAPE_ITEMS
+        .iter()
+        .chain(&SHAPE_RULE_CONJUNCTIONS)
+        .enumerate()
+    {
+        let item = item.replace("VAR", "RULEVAR");
+        rules += &rule(
+            format!("head-{position}"),
+            format!("kseq{{}}({item}, REST:SortK{{}})"),
+        );
+        rules += &rule(
+            format!("next-{position}"),
+            format!("kseq{{}}(FIRST:SortKItem{{}}, kseq{{}}({item}, REST:SortK{{}}))"),
+        );
+    }
+    let subsort = |sub: &str, sup: &str| {
+        format!(
+            r"axiom{{R}} \exists{{R}}(
+                Value:Sort{sup}{{}},
+                \equals{{Sort{sup}{{}}, R}}(Value:Sort{sup}{{}}, inj{{Sort{sub}{{}}, Sort{sup}{{}}}}(From:Sort{sub}{{}}))
+            ) [subsort{{Sort{sub}{{}}, Sort{sup}{{}}}}()]
+            "
+        )
+    };
+    let subsorts = [
+        ("S1", "S2"),
+        ("S1", "KItem"),
+        ("S2", "KItem"),
+        ("S3", "KItem"),
+        ("Int", "KItem"),
+        ("Map", "KItem"),
+        ("List", "KItem"),
+        ("Val", "Exp"),
+        ("Val", "KItem"),
+        ("Exp", "KItem"),
+    ]
+    .iter()
+    .map(|(sub, sup)| subsort(sub, sup))
+    .collect::<String>();
+    let syntax = parse_definition(
+        &(r#"[]
+        module MAIN
+          sort SortK{} []
+          sort SortKItem{} []
+          sort SortKCell{} []
+          sort SortGeneratedTopCell{} []
+          sort SortS1{} []
+          sort SortS2{} []
+          sort SortS3{} []
+          sort SortVal{} []
+          sort SortExp{} []
+          sort SortInt{} [hasDomainValues{}()]
+          hooked-sort SortMap{}
+            [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+          hooked-sort SortList{}
+            [hook{}("LIST.List"), unit{}(listUnit{}()), element{}(listItem{}()), concat{}(listConcat{}())]
+          symbol inj{From, To}(From) : To [sortInjection{}()]
+          symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}()]
+          symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+          symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), total{}()]
+          symbol top{}(SortKCell{}) : SortGeneratedTopCell{} [constructor{}(), total{}()]
+          symbol a1{}() : SortS1{} [constructor{}(), total{}()]
+          symbol b1{}() : SortS1{} [constructor{}(), total{}()]
+          symbol a2{}() : SortS2{} [constructor{}(), total{}()]
+          symbol a3{}() : SortS3{} [constructor{}(), total{}()]
+          symbol f1{}() : SortS1{} [function{}(), total{}()]
+          symbol h1{}() : SortS1{} [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+          symbol h3{}() : SortS3{} [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+          symbol v{}() : SortVal{} [constructor{}(), total{}()]
+          symbol appv{}(SortVal{}, SortVal{}) : SortVal{} [constructor{}(), total{}()]
+          symbol app{}(SortExp{}, SortExp{}) : SortExp{}
+            [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+          hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+          hooked-symbol mapItem{}(SortKItem{}, SortKItem{}) : SortMap{}
+            [function{}(), total{}(), hook{}("MAP.element")]
+          hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+            [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+          hooked-symbol listUnit{}() : SortList{} [function{}(), total{}(), hook{}("LIST.unit")]
+          hooked-symbol listItem{}(SortKItem{}) : SortList{}
+            [function{}(), total{}(), hook{}("LIST.element")]
+          hooked-symbol listConcat{}(SortList{}, SortList{}) : SortList{}
+            [function{}(), total{}(), hook{}("LIST.concat"), assoc{}()]
+          axiom{} \equals{SortExp{}, SortExp{}}(
+              app{}(inj{SortVal{}, SortExp{}}(V1:SortVal{}), inj{SortVal{}, SortExp{}}(V2:SortVal{})),
+              inj{SortVal{}, SortExp{}}(appv{}(V1:SortVal{}, V2:SortVal{}))
+          ) [symbol-overload{}(app{}(), appv{}())]
+        "#
+        .to_owned()
+            + &subsorts
+            + &rules
+            + "endmodule []"),
+    )
+    .expect("shape definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("shape definition should internalize")
+}
+
+/// Every rule the index drops for a subject fails to match it, over every pair of item shapes
+/// at the `<k>` head and after it, on both sides.
+#[test]
+fn every_rule_the_index_drops_fails_to_match_for_every_item_shape() {
+    let definition = shape_definition();
+    let mut dropped = 0;
+    for head in SHAPE_ITEMS {
+        for next in SHAPE_ITEMS {
+            let head = head.replace("VAR", "SUBJECTHEAD");
+            let next = next.replace("VAR", "SUBJECTNEXT");
+            let subject = internal_term(
+                &definition,
+                &format!(
+                    "top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, kseq{{}}({next}, dotk{{}}()))))"
+                ),
+            );
+            let subject_index = subject_index(&definition, &subject);
+            for stored in old_candidates(&definition, &term_index(&subject)) {
+                if stored.index.covers(&subject_index) {
+                    continue;
+                }
+                dropped += 1;
+                let result = match_terms_in_definition(
+                    MatchMode::Rewrite,
+                    &definition,
+                    &stored.lhs,
+                    &subject,
+                );
+                assert!(
+                    matches!(result, MatchResult::Failed(_)),
+                    "{} dropped for <k> {head} ~> {next}, but matching gives {result:?}",
+                    stored.attributes.label.as_deref().unwrap_or("?"),
+                );
+            }
+        }
+    }
+    // The index drops something for most subjects; a vacuous pass would drop nothing.
+    assert!(dropped > 1000, "only {dropped} dropped candidates");
 }

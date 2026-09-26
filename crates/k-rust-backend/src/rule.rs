@@ -18,16 +18,25 @@
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
-//! rewrite rules additionally filter by the head of their `<k>` cell. Candidate count is the old
+//! rewrite rules additionally filter by the head of their `<k>` cell and by the item after it
+//! (the frozen context a cooling rule waits for). Candidate count is the old
 //! exact-symbol then variable-symbol sequence filtered by `rule.index.covers(subject_index)`, so
 //! priority and declaration order remain unchanged. Selection costs O(log k) index lookups plus
 //! one `covers` check per rule stored under the subject's key and the `Variable` key;
 //! `Counter::RewriteRuleAttempts` is bumped by the caller per candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, overloaded heads,
-//! associative or idempotent heads, and subject-side functions. It strips injections and meets
-//! conjunctions. These conservative cases correspond to the matcher's overload, AC, variable,
-//! injection, and symbolic-function paths; a later matcher extension must keep this list sound.
+//! functions, associative or idempotent heads, subject-side `anywhere` heads, and `anywhere`
+//! heads in the item after the head; a rule's `anywhere` head is `Anywhere`. It strips
+//! injections and meets conjunctions (`CellIndex::meet`); `None`, two distinct rigid
+//! conjuncts, covers only `Anything`. These
+//! conservative cases correspond to the matcher's overload, AC, variable, injection, and
+//! symbolic-function paths; a later matcher extension must keep this list sound.
+//!
+//! A subject's keys hold for the term they were computed from, and only for it: the matcher
+//! refutes a dropped candidate against that term. A function keyed `Anything`, or the `<k>`
+//! cell itself, can change when the term is simplified, so a caller that applies rules to a
+//! simplified term (the remainder of a step) selects them again for it.
 
 use std::{
     cell::Cell,
@@ -217,10 +226,18 @@ pub enum TermIndex {
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CellIndex {
+    /// A conjunction of two distinct rigid heads (`meet`): it matches no rigid head, and only a
+    /// wildcard (a variable or a function, keyed `Anything`) on the other side leaves the
+    /// matcher undecided.
     None,
     Anything,
     Constructor(Name),
-    Function(Name),
+    /// A production with `anywhere` equations that is not a declared function and is in no
+    /// `symbol-overload` relation. The rewrite matcher treats it as rigid (`is_rewrite_rigid`)
+    /// and refutes it against a different rigid head. Only a rule's key uses it: a subject's
+    /// `anywhere` head, which its equations may still rewrite, is `Anything` (`subject_index`).
+    /// A function that is evaluated rather than matched is `Anything` on both sides.
+    Anywhere(Name),
     Value(KoreString),
     Map,
     List,
@@ -229,12 +246,15 @@ pub enum CellIndex {
 
 impl CellIndex {
     pub fn covers(&self, subject: &Self) -> bool {
-        !matches!(self, Self::None)
-            && (matches!(self, Self::Anything)
-                || matches!(subject, Self::Anything)
-                || self == subject)
+        matches!(self, Self::Anything)
+            || matches!(subject, Self::Anything)
+            || (self == subject && !matches!(self, Self::None))
     }
 
+    /// The key of a conjunction `left /\ right`. The matcher matches each conjunct against the
+    /// same term, so the conjunction is refuted where either conjunct is, and the key must still
+    /// cover every term that both conjuncts' keys cover. A function conjunct is `Anything` and
+    /// leaves the other key; two distinct keys share only `Anything`, which `None` covers.
     pub fn meet(self, other: Self) -> Self {
         match (self, other) {
             (Self::None, _) | (_, Self::None) => Self::None,
@@ -1327,16 +1347,29 @@ pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
         1 => fetch_k_cell(term),
         _ => None,
     };
-    RuleIndex(vec![
-        cell.and_then(k_cell_head)
-            .map_or(CellIndex::Anything, |head| cell_index(definition, head)),
-    ])
+    // The second key is the item after the head, when the cell is `kseq(head, kseq(next, _))`:
+    // `kseq` is a constructor, so a pattern and a subject that both have that shape match only
+    // if their next items match. The key rejects only a pair of distinct rigid items (a
+    // constructor, a domain value, a collection), which the matcher refutes; a function
+    // application or an `anywhere` head on either side is a wildcard.
+    // Any other tail (`.K`, a variable, a function) keys nothing.
+    let head = cell
+        .and_then(k_cell_head)
+        .map_or(CellIndex::Anything, |head| cell_index(definition, head));
+    let next = match cell
+        .and_then(k_cell_next)
+        .map(|next| cell_index(definition, next))
+    {
+        None | Some(CellIndex::Anywhere(_)) => CellIndex::Anything,
+        Some(next) => next,
+    };
+    RuleIndex(vec![head, next])
 }
 
 pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
     let mut index = rule_index(definition, term);
     for cell in &mut index.0 {
-        if matches!(cell, CellIndex::Function(_)) {
+        if matches!(cell, CellIndex::Anywhere(_)) {
             *cell = CellIndex::Anything;
         }
     }
@@ -1468,6 +1501,38 @@ fn k_cell_head(cell: &Term) -> Option<&Term> {
     }
 }
 
+/// The item after the head of a `<k>` cell whose contents are `kseq(head, kseq(next, _))`.
+fn k_cell_next(cell: &Term) -> Option<&Term> {
+    let TermKind::Application {
+        arguments: cell_arguments,
+        ..
+    } = cell.kind()
+    else {
+        return None;
+    };
+    let [contents] = cell_arguments.as_slice() else {
+        return None;
+    };
+    let tail = match contents.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } if symbol.is(WellKnownSymbol::KSeq) => match arguments.as_slice() {
+            [_head, tail] => tail,
+            _ => return None,
+        },
+        _ => return None,
+    };
+    match tail.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } if symbol.is(WellKnownSymbol::KSeq) => match arguments.as_slice() {
+            [next, _rest] => Some(next),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
     match term.kind() {
         TermKind::Injection { term, .. } => cell_index(definition, term),
@@ -1484,7 +1549,14 @@ fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
         }
         TermKind::Application { symbol, .. } => match symbol.attributes.symbol_type {
             SymbolType::Constructor => CellIndex::Constructor(symbol.name.clone()),
-            SymbolType::Function(_) => CellIndex::Function(symbol.name.clone()),
+            SymbolType::Function(_)
+                if symbol.attributes.anywhere && !symbol.attributes.declared_function =>
+            {
+                CellIndex::Anywhere(symbol.name.clone())
+            }
+            // The rewrite matcher evaluates or defers a function application; it refutes it
+            // against no head.
+            SymbolType::Function(_) => CellIndex::Anything,
         },
         TermKind::DomainValue { value, .. } => CellIndex::Value(value.clone()),
         TermKind::Map { .. } => CellIndex::Map,
