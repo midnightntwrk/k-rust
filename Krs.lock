@@ -17,10 +17,10 @@ pyk_source_sha256 = "2b6ebc05e7c110927d2cab7d1bd08e0a1f80c9090a621ee541e82665147
 
 [k_rust]
 version = "0.4.0"
-commit = "d4a50b3fe08331de9968edb05c38c7503730e589"
-tracked_crate_sha256 = "845b078f12f265592d46f9350e197c294318be912b8aed043604ce6620a68720"
+commit = "5275055dbdc06f779487402256812aac6bb9926c"
+tracked_crate_sha256 = "4f045b1567e63373f3260c598b02f5071f9a7404101c03bfebce4b6562afab61"
 backend_version = "0.3.0"
-tracked_backend_sha256 = "9558e3bbf729ba5a45cd3126a8094aea2fd0737a08b3dca2805ef2de8cb3f702"
+tracked_backend_sha256 = "3e8cbc50fb16e191d308ad4be2786d6bbaf92a74a92cda3223c2c33afbca50b3"
 kore_version = "0.4.0"
 tracked_kore_sha256 = "dea87d5946416597b7c45d564b017d06b3b0fd93f5b1037b985b7c6c918c975d"
 

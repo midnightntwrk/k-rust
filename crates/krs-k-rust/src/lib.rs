@@ -60,7 +60,7 @@ pub struct FrontendPin {
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
     crate_version: "0.4.0",
-    source_revision: "d4a50b3fe08331de9968edb05c38c7503730e589",
+    source_revision: "5275055dbdc06f779487402256812aac6bb9926c",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
