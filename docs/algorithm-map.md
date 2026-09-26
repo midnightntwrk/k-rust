@@ -165,7 +165,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - kompile.metadata.retarget — O(N log R) — at k-rust/kompile/retarget.rs `retarget_production_identities`
 - kompile.modules.rewrite_order — O((M + E) x (d + log M) + R log R + u x s) — at k-rust/kompile/compile.rs `collect_execution_rewrite_order`
 - kore.pattern.walk — O(|p|) — at kore/kore/walk.rs `children`
-- kore.printer.build — O(N) — at kore/kore/printer.rs `definition_doc`
+- kore.printer.build — O(N) — at kore/kore/printer.rs `definition_ops`
 - kore.printer.fits — O(k) — at kore/kore/printer/document.rs `fits`
 - kore.printer.render — O(N * k + o) — at kore/kore/printer/document.rs `render`
 - parser.bison.priorities — O(Q x P) — at k-rust/bison/grammar.rs `transform_priority_and_associativity`

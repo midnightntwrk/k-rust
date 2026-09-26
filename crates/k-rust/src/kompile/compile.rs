@@ -358,10 +358,10 @@ pub fn compile_loaded_definition_timed(
 
     let printer = KorePrinter::pretty(options.kore_width);
     let definition_kore = timings.time(emission_phase::PRINT_DEFINITION_KORE, || {
-        with_newline(printer.print_definition(&generated.semantics_definition()))
+        with_newline(generated.print_semantics_definition(printer))
     });
     let syntax_definition_kore = timings.time(emission_phase::PRINT_SYNTAX_DEFINITION_KORE, || {
-        with_newline(printer.print_definition(&generated.syntax_definition()))
+        with_newline(generated.print_syntax_definition(printer))
     });
     let macros_kore = timings.time(emission_phase::PRINT_MACROS_KORE, || {
         with_newline(

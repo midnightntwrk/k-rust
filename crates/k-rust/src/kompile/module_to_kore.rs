@@ -152,6 +152,28 @@ impl DeclarationModules {
         self.definition_with(self.syntax.clone())
     }
 
+    /// Print [`Self::semantics_definition`] without cloning the semantics module into it.
+    pub fn print_semantics_definition(&self, printer: crate::kore::printer::Printer) -> String {
+        self.print_definition_with(printer, &self.semantics)
+    }
+
+    /// Print [`Self::syntax_definition`] without cloning the syntax module into it.
+    pub fn print_syntax_definition(&self, printer: crate::kore::printer::Printer) -> String {
+        self.print_definition_with(printer, &self.syntax)
+    }
+
+    fn print_definition_with(
+        &self,
+        printer: crate::kore::printer::Printer,
+        module: &Module,
+    ) -> String {
+        let prelude = standard_kore_prelude();
+        printer.print_definition_parts(
+            &self.definition_attributes,
+            prelude.modules.iter().chain(std::iter::once(module)),
+        )
+    }
+
     fn definition_with(&self, module: Module) -> KoreDefinition {
         let mut definition = standard_kore_prelude();
         definition.attributes = self.definition_attributes.clone();

@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "kore.printer.build"
 //! name = "construction of KORE pretty-print documents"
-//! sites = ["definition_doc", "module_doc", "sentence_doc", "pattern_doc", "syntax_doc", "SyntaxOps::next", "Printer::print_definition", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "attributes_doc", "declaration_pattern_doc", "delimited", "join", "expand"]
-//! variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the definition, module, sentence, sentence-body nest, and attribute-list delimited levels, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack; Printer::write_pattern pulls those ops on demand from inside the render span, so its construction time is measured together with rendering"
+//! sites = ["definition_ops", "module_ops", "sentence_doc", "pattern_doc", "syntax_doc", "SyntaxOps::next", "Printer::print_definition", "Printer::print_definition_parts", "Printer::print_module", "Printer::print_sentence", "Printer::print_pattern", "Printer::write_pattern", "attributes_doc", "declaration_pattern_doc", "delimited", "join", "expand"]
+//! variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack; Printer::write_pattern pulls those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
 //! counters = []
 //! no_counter = "KORE document construction has no dedicated counter"
 //! span = "per call"
@@ -16,7 +16,7 @@
 //! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling fixed task sequences and delimited groups directly onto that stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
 //! A pattern is printed by feeding `SyntaxOps` straight to the renderer (`Printer::write_pattern`), so neither its op sequence nor its text is held whole; `print_pattern` is the same path into a byte buffer.
 //! Static syntax tokens borrow their text while generated names and quoted values own theirs; both yield the same text bytes to the renderer.
-//! Definitions, modules, and sentences are built as a `Doc` first and then rendered by the same function.
+//! Definitions and modules are op iterators (`definition_ops`, `module_ops`) that build each sentence's `Doc` only when the renderer reaches it, so a whole definition's document is never held; a sentence is built as a `Doc` first and then rendered by the same function.
 //! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; no dedicated counter.
 //!
 //! Compact and width-aware textual KORE printing.
@@ -99,13 +99,26 @@ impl Printer {
     }
 
     pub fn print_definition(self, definition: &Definition) -> String {
+        self.print_definition_parts(&definition.attributes, &definition.modules)
+    }
+
+    /// The text `print_definition` gives for a definition with these attributes and modules,
+    /// without gathering borrowed modules into an owned `Definition` first.
+    ///
+    /// Each sentence's document is built only when the renderer reaches it, so the memory held
+    /// beyond the modules and the text is one sentence's ops plus the fits look-ahead.
+    pub fn print_definition_parts<'a>(
+        self,
+        attributes: &Attributes,
+        modules: impl IntoIterator<Item = &'a Module>,
+    ) -> String {
         let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
-        self.render(definition_doc(definition, self.options.indent))
+        self.render_ops(definition_ops(attributes, modules, self.options.indent))
     }
 
     pub fn print_module(self, module: &Module) -> String {
         let _span = measure::algorithm_span(Algorithm::KorePrinterBuild);
-        self.render(module_doc(module, self.options.indent))
+        self.render_ops(module_ops(module, self.options.indent))
     }
 
     pub fn print_sentence(self, sentence: &Sentence) -> String {
@@ -139,6 +152,13 @@ impl Printer {
 
     fn render(self, document: Doc) -> String {
         render_to_string(document, self.render_mode(), self.options.width)
+    }
+
+    fn render_ops(self, ops: impl Iterator<Item = Op>) -> String {
+        let mut output = Vec::new();
+        render(ops, self.render_mode(), self.options.width, &mut output)
+            .expect("writing to a Vec does not fail");
+        String::from_utf8(output).expect("rendered ops are UTF-8 strings")
     }
 
     const fn render_mode(self) -> RenderMode {
@@ -210,32 +230,34 @@ impl Display for Variable {
     }
 }
 
-fn definition_doc(definition: &Definition, indent: usize) -> Doc {
-    let mut documents = vec![attributes_doc(&definition.attributes, indent)];
-    for module in &definition.modules {
-        documents.push(Doc::hard_line());
-        documents.push(module_doc(module, indent));
-    }
-    Doc::concat(documents)
+/// The ops of a definition: its attributes, then each module after a hard line.
+fn definition_ops<'a>(
+    attributes: &Attributes,
+    modules: impl IntoIterator<Item = &'a Module>,
+    indent: usize,
+) -> impl Iterator<Item = Op> {
+    attributes_doc(attributes, indent).into_ops().chain(
+        modules.into_iter().flat_map(move |module| {
+            std::iter::once(Op::HardLine).chain(module_ops(module, indent))
+        }),
+    )
 }
 
-fn module_doc(module: &Module, indent: usize) -> Doc {
-    let mut body = Vec::new();
-    for (index, sentence) in module.sentences.iter().enumerate() {
-        if index > 0 {
-            body.push(Doc::hard_line());
-        }
-        body.push(sentence_doc(sentence, indent));
-    }
-
-    let mut documents = vec![Doc::text(format!("module {}", module.name))];
-    if !body.is_empty() {
-        documents.push(Doc::concat(std::iter::once(Doc::hard_line()).chain(body)).nest(indent));
-    }
-    documents.push(Doc::hard_line());
-    documents.push(Doc::text("endmodule "));
-    documents.push(attributes_doc(&module.attributes, indent));
-    Doc::concat(documents)
+/// The ops of a module: its header, its sentences each after a hard line and nested by
+/// `indent` when there are any, then the `endmodule` line with the module attributes. A
+/// sentence's document is built when the iterator reaches it.
+fn module_ops(module: &Module, indent: usize) -> impl Iterator<Item = Op> {
+    let body = (!module.sentences.is_empty()).then(|| {
+        std::iter::once(Op::NestStart(indent))
+            .chain(module.sentences.iter().flat_map(move |sentence| {
+                std::iter::once(Op::HardLine).chain(sentence_doc(sentence, indent).into_ops())
+            }))
+            .chain(std::iter::once(Op::NestEnd(indent)))
+    });
+    std::iter::once(Op::Text(Cow::Owned(format!("module {}", module.name))))
+        .chain(body.into_iter().flatten())
+        .chain([Op::HardLine, Op::Text(Cow::Borrowed("endmodule "))])
+        .chain(attributes_doc(&module.attributes, indent).into_ops())
 }
 
 fn sentence_doc(sentence: &Sentence, indent: usize) -> Doc {

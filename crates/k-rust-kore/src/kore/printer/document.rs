@@ -76,6 +76,7 @@ impl Doc {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn hard_line() -> Self {
         Self {
             ops: vec![Op::HardLine],
