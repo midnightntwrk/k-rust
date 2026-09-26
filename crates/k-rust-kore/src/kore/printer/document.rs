@@ -16,8 +16,8 @@
 //! ```toml algorithm
 //! id = "kore.printer.render"
 //! name = "width-aware streaming rendering of KORE documents"
-//! sites = ["render"]
-//! variable = "N = document ops; o = output characters; k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width"
+//! sites = ["render", "write_spaces"]
+//! variable = "N = document ops; o = output characters; k = the longest fits look-ahead, at most N and, in the printer's documents, bounded by a constant times the line width; indentation is written in 16 KiB chunks"
 //! counters = []
 //! no_counter = "document rendering has no dedicated counter"
 //! invariant = "every op taken from the source and not in the look-ahead queue has been written to output; modes holds the base mode plus one mode per open group; indentation is the sum of open nest amounts; column is the number of characters since the last written newline"
@@ -250,7 +250,7 @@ fn fits(
 }
 
 fn write_spaces<W: io::Write + ?Sized>(output: &mut W, count: usize) -> io::Result<()> {
-    const SPACES: [u8; 64] = [b' '; 64];
+    const SPACES: [u8; 16 * 1024] = [b' '; 16 * 1024];
     let mut left = count;
     while left > 0 {
         let chunk = left.min(SPACES.len());
@@ -344,7 +344,26 @@ mod tests {
 
     use proptest::prelude::*;
 
-    use super::{Doc, Op, RenderMode, render, whole_document_render};
+    use super::{Doc, Op, RenderMode, render, whole_document_render, write_spaces};
+
+    #[test]
+    fn indentation_is_exact_across_chunk_boundaries_and_partial_writes() {
+        for count in [
+            0,
+            1,
+            16 * 1024 - 1,
+            16 * 1024,
+            16 * 1024 + 1,
+            2 * 16 * 1024 + 7,
+        ] {
+            let mut output = Trickle {
+                bytes: Vec::new(),
+                limit: 7_000,
+            };
+            write_spaces(&mut output, count).unwrap();
+            assert_eq!(output.bytes, vec![b' '; count]);
+        }
+    }
 
     /// A writer that accepts at most `limit` bytes per call, so `render` is exercised through
     /// partial writes as a pipe or socket gives them.
