@@ -177,14 +177,15 @@ pub(in crate::inner) struct Scanner {
 }
 
 impl Scanner {
+    /// Register the lexeme of a terminal or regex item and return its id; a nonterminal has none.
     pub(super) fn register(
         &mut self,
         item: &Item,
         precedence: Option<&str>,
         mut declaration: TokenPrecedenceDeclaration,
-    ) -> Result<(), ParseError> {
+    ) -> Result<Option<usize>, ParseError> {
         let Some(key) = lexeme_key(item) else {
-            return Ok(());
+            return Ok(None);
         };
         if let Some(existing) = self.ids.get(&key).copied() {
             let candidate = token_precedence(item, precedence, true)?;
@@ -198,7 +199,7 @@ impl Scanner {
                     declarations,
                 });
             }
-            return Ok(());
+            return Ok(Some(existing));
         }
 
         let precedence = token_precedence(item, precedence, false)?;
@@ -211,27 +212,23 @@ impl Scanner {
             precedence,
             declaration,
         });
-        Ok(())
+        Ok(Some(index))
     }
 
+    /// The end of the scanner's winning token at `position` when that token is lexeme `target`.
     pub(super) fn matches(
         &self,
         layout: &Layout,
-        item: &Item,
+        target: usize,
         input: &str,
         position: usize,
         cached: &mut ScanCacheEntry,
-    ) -> Vec<usize> {
-        let Some(target) = self.lexeme_id(item) else {
-            return Vec::new();
-        };
+    ) -> Option<usize> {
         self.winner(layout, input, position, cached)
             .and_then(|winner| match winner {
                 ScanWinner::Token { lexeme, end } if lexeme == target => Some(end),
                 _ => None,
             })
-            .into_iter()
-            .collect()
     }
 
     // IDs belong to this scanner and remain stable across append-only registration and clones.

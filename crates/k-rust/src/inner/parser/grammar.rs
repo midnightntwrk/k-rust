@@ -670,13 +670,17 @@ impl Grammar {
             precedence: 0,
         };
         let mut compiled_items = Vec::new();
+        let mut item_lexeme_ids = Vec::new();
         for item in items
             .iter()
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
         {
             let item = compile_item(item, lexical)?;
-            self.scanner
-                .register(&item, options.precedence, declaration.clone())?;
+            item_lexeme_ids.push(self.scanner.register(
+                &item,
+                options.precedence,
+                declaration.clone(),
+            )?);
             compiled_items.push(item);
         }
         let items = compiled_items;
@@ -728,6 +732,7 @@ impl Grammar {
             declared_items,
             items,
             item_sort_ids,
+            item_lexeme_ids,
             label,
             token: options.token,
             transparent: options.transparent,

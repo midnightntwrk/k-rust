@@ -483,6 +483,10 @@ struct Production {
     /// declared item sort, except where `Grammar::admit_rewrites_in_argument_positions`
     /// widened a position to the rule-scaffolding sort that also derives a rewrite of it.
     item_sort_ids: Vec<Option<usize>>,
+    /// The scanner's lexeme id of each terminal or regex item, returned when the item was
+    /// registered. The grammar's scanner only grows, and a production is never moved to another
+    /// scanner, so the ids stay valid for the grammar and its clones.
+    item_lexeme_ids: Vec<Option<usize>>,
     label: Option<Label>,
     token: bool,
     transparent: bool,
@@ -1082,16 +1086,20 @@ impl Grammar {
                             )?;
                         }
                     }
-                    Some(item) => {
+                    Some(_) => {
                         #[cfg(test)]
                         record_chart_dispatch(ChartDispatchKind::Scan, derivation_count, revisit);
-                        for end in self.scanner.matches(
-                            &self.layout,
-                            item,
-                            input,
-                            position,
-                            &mut scanner_cache[position],
-                        ) {
+                        if let Some(end) =
+                            production.item_lexeme_ids[state.dot].and_then(|lexeme| {
+                                self.scanner.matches(
+                                    &self.layout,
+                                    lexeme,
+                                    input,
+                                    position,
+                                    &mut scanner_cache[position],
+                                )
+                            })
+                        {
                             self.add_chart_state(
                                 &mut charts[end],
                                 State {
