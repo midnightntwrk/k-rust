@@ -2005,3 +2005,213 @@ mod edited_loaded_rules {
         assert_compiles(&[1], cast("KItem", token("true", "Bool")));
     }
 }
+
+/// The instance a cast on a parametric application selects, through the public compilation and
+/// typing paths. The cast target is the position the solver sees for its operand.
+mod cast_instances {
+    use k_rust::builtin;
+    use k_rust::definition::{AttributeKey, ResolvedDefinition, Sentence};
+    use k_rust::kast::{Sort, Term};
+    use k_rust::kompile::{
+        CompilationBackend, CompileError, CompileOptions, SentenceTyping, SentenceTypingError,
+        SortInjectionError, compile_loaded_definition, sentence_typing,
+    };
+    use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation};
+
+    const SOURCE: &str = include_str!("fixtures/sort-check/cast-instance.k");
+    const PRELUDE: &str = include_str!("fixtures/sort-check/portable-prelude.k");
+    const MODULE: &str = "CAST-INSTANCE";
+
+    fn load() -> LoadedDefinition {
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        load_for_compilation(
+            ResolvedSource::new("cast-instance.k", SOURCE.to_owned()),
+            MODULE,
+            None,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![
+                    builtin::embedded("kast.md").unwrap(),
+                    ResolvedSource::new("portable-prelude.k", PRELUDE.to_owned()),
+                ],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust
+                        .excluded_module_attribute()
+                        .to_owned(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{error}"))
+        .0
+    }
+
+    /// `start(Z:A) => right`, relinked into the loaded definition, with the edited sentence.
+    fn with_right_side(right: Term) -> (LoadedDefinition, Sentence) {
+        let base = load();
+        let mut definition = base.definition.clone();
+        let module = definition
+            .modules
+            .iter_mut()
+            .find(|module| module.name == MODULE)
+            .unwrap();
+        let slot = module
+            .local_sentences
+            .iter_mut()
+            .find(|sentence| {
+                sentence.attributes().string(AttributeKey::Label) == Some("CAST-INSTANCE.holder")
+            })
+            .unwrap();
+        let sentence = k_rust::definition::sentence_mut(slot);
+        let Sentence::Rule { body, .. } = sentence else {
+            panic!("expected a rule")
+        };
+        let mut term: &mut Term = body;
+        while let Term::Annotated { term: inner, .. } = term {
+            term = inner;
+        }
+        let Term::Rewrite { right: slot, .. } = term else {
+            panic!("expected a rewrite, found {term}")
+        };
+        **slot = right;
+        let edited = sentence.clone();
+        let loaded = LoadedDefinition {
+            files: base.files.clone(),
+            source_table: base.source_table.clone(),
+            resolved: ResolvedDefinition::resolve(&definition).expect("edited definition resolves"),
+            definition,
+            diagnostics: base.diagnostics.clone(),
+        };
+        (loaded, edited)
+    }
+
+    fn cast(sort: &str, term: Term) -> Term {
+        Term::apply(format!("#SemanticCastTo{sort}"), vec![term])
+    }
+
+    fn applied(label: &str) -> Term {
+        Term::apply(
+            label,
+            vec![Term::Variable {
+                name: "Z".into(),
+                sort: Some(Sort::new("A")),
+            }],
+        )
+    }
+
+    fn compiled(
+        right: Term,
+    ) -> (
+        Result<String, CompileError>,
+        Result<SentenceTyping, SentenceTypingError>,
+    ) {
+        let (loaded, edited) = with_right_side(right);
+        // Without layout whitespace, so a pattern the printer breaks across lines is one string.
+        let kore = compile_loaded_definition(&loaded, CompileOptions::default())
+            .map(|artifacts| artifacts.definition_kore.split_whitespace().collect());
+        let typing = sentence_typing(&loaded.resolved, MODULE, &edited);
+        (kore, typing)
+    }
+
+    /// The sort the typing view requires of `Z`, the argument of the cast application.
+    fn argument_requirement(typing: &SentenceTyping) -> Option<Sort> {
+        typing
+            .positions
+            .get(&vec![0, 1, 0, 0])
+            .unwrap_or_else(|| panic!("no argument position in {:#?}", typing.positions))
+            .required
+            .clone()
+    }
+
+    // `wrap(Z:A)` has the least instance `MInt{A}`, which is not below `Wide`; the larger instance
+    // `MInt{B}` is. The cast places the application at `Wide`, so the solver takes the least
+    // instance that fits both the argument and that position, and `Z` is injected into `B`.
+    #[test]
+    fn a_cast_selects_a_larger_instance_when_only_it_fits() {
+        let (kore, typing) = compiled(cast("Wide", applied("wrap")));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains("Lblwrap{SortB{}}(inj{SortA{},SortB{}}(VarZ:SortA{}))"),
+            "{kore}"
+        );
+        let typing = typing.unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(argument_requirement(&typing), Some(Sort::new("B")));
+    }
+
+    // Every instance is below `KItem`, so the least one, `MInt{A}`, is chosen and `Z` needs no
+    // injection.
+    #[test]
+    fn a_cast_the_least_instance_fits_keeps_it() {
+        let (kore, typing) = compiled(cast("KItem", applied("wrap")));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(kore.contains("Lblwrap{SortA{}}(VarZ:SortA{})"), "{kore}");
+        let typing = typing.unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(argument_requirement(&typing), Some(Sort::new("A")));
+    }
+
+    // Both `MInt{B}` and `MInt{C}` fit the argument and `Both`, and neither is below the other.
+    #[test]
+    fn a_cast_two_incomparable_instances_fit_is_ambiguous() {
+        let (kore, typing) = compiled(cast("Both", applied("wrap")));
+        let error = kore.expect_err("the instance is ambiguous");
+        assert_eq!(error.stage, "add sort injections", "{error}");
+        assert!(
+            error.message.contains("cast-instance.k:28: ")
+                && error
+                    .message
+                    .contains("several incomparable least instantiations"),
+            "{error}"
+        );
+        let error = typing.expect_err("the instance is ambiguous");
+        assert!(
+            matches!(
+                &error,
+                SentenceTypingError::Sort {
+                    error: SortInjectionError::AmbiguousInstance(ambiguity),
+                    ..
+                } if ambiguity.candidates.len() == 2
+            ),
+            "{error}"
+        );
+    }
+
+    // No instance of `id(Z:A)` has a result at or below `T` or `Low`, so the least instance that
+    // fits the argument, `id{A}`, is kept and the cast decides: `T` is incomparable with `A` and
+    // is rejected, while `Low` is strictly below `A`, so that downcast projects `id{A}(Z)`.
+    #[test]
+    fn a_cast_no_instance_fits_is_decided_on_the_least_argument_instance() {
+        let (kore, typing) = compiled(cast("T", applied("id")));
+        let error = kore.expect_err("T is incomparable with A");
+        assert_eq!(error.stage, "add sort injections", "{error}");
+        assert!(
+            error.message.contains("cast-instance.k:28: ")
+                && error
+                    .message
+                    .contains("to sort T is not comparable with its sort A"),
+            "{error}"
+        );
+        let error = typing.expect_err("T is incomparable with A");
+        assert!(
+            matches!(
+                &error,
+                SentenceTypingError::Sort {
+                    error: SortInjectionError::IncomparableCast(mismatch),
+                    ..
+                } if mismatch.found == Sort::new("A") && mismatch.required == Sort::new("T")
+            ),
+            "{error}"
+        );
+
+        let (kore, typing) = compiled(cast("Low", applied("id")));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains(
+                "Lblproject'Coln'Low{}(kseq{}(inj{SortA{},SortKItem{}}(Lblid{SortA{}}(VarZ:SortA{})),dotk{}()))"
+            ),
+            "{kore}"
+        );
+        typing.unwrap_or_else(|error| panic!("{error}"));
+    }
+}
