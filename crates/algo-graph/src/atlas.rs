@@ -1144,6 +1144,8 @@ fn nesting(
         .collect::<Vec<_>>();
     let mut reachable = BTreeSet::<&str>::new();
     let mut stack = roots.clone();
+    // Invariant: every id reachable from `roots` is in `reachable` or reachable from a member of
+    // `stack`; an id's children are pushed only when `reachable.insert` admits it, so once per id.
     while let Some(id) = stack.pop() {
         if reachable.insert(id) {
             stack.extend(
@@ -1161,6 +1163,7 @@ fn nesting(
         if !reachable.contains(id) {
             roots.push(id);
             let mut stack = vec![id];
+            // Invariant: as for the root walk above, with `id` as the only new root.
             while let Some(id) = stack.pop() {
                 if reachable.insert(id) {
                     stack.extend(

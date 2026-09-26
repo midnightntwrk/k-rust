@@ -926,6 +926,9 @@ fn closure(index: &Index<'_>, origin: &str, stage_order: bool) -> Vec<(String, V
     let mut order = vec![(origin.to_owned(), Vec::<Hop>::new())];
     first_path.insert(origin.to_owned(), 0);
     let mut queue = VecDeque::from([(start, Vec::<Hop>::new())]);
+    // Invariant: `seen` holds every state ever enqueued, so each state is expanded once; `queue`
+    // holds the unexpanded states in nondecreasing path length, so the path `order` records for a
+    // node when it is first reached is a shortest one.
     while let Some(((current, entry), path)) = queue.pop_front() {
         for (hop, next_entry) in steps(index, origin, &current, entry, stage_order) {
             let state = (hop.to.clone(), next_entry);
