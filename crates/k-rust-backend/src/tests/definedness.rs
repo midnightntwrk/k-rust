@@ -1,4 +1,4 @@
-//! OT-01: the `ceil_free` shortcut of `definedness::ceil_term_recursive` against the walk that
+//! Compare the `ceil_free` shortcut of `definedness::ceil_term_recursive` against the walk that
 //! never reads the attribute (`ceil_term_without_attribute`), over terms of every `TermKind`
 //! built by the public constructors (`lean_bridge::generators::term_with_ground_keys`).
 //!

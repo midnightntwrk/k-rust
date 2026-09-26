@@ -873,11 +873,11 @@ fn cast_of_a_k_sequence_to_an_incomparable_sort_is_rejected() {
     );
 }
 
-fn wem10_bound_definition(source: &str) -> ResolvedDefinition {
+fn semantic_bound_definition(source: &str) -> ResolvedDefinition {
     ResolvedDefinition::resolve(&lowered(source)).unwrap()
 }
 
-fn wem10_bound_injector() -> ResolvedDefinition {
+fn semantic_bound_injector() -> ResolvedDefinition {
     let definition = lowered(indoc! {r#"
         module MAIN
           syntax MInt{8}
@@ -907,8 +907,8 @@ fn rewrite_tokens(left: Sort, right: Sort) -> Term {
 }
 
 #[test]
-fn wem10_bound_resolves_unfixed_parametric_entry_through_declared_instantiations() {
-    let definition = wem10_bound_injector();
+fn semantic_bound_resolves_unfixed_parametric_entry_through_declared_instantiations() {
+    let definition = semantic_bound_injector();
     let injector = SortInjector::new(&definition, "MAIN").unwrap();
     let unresolved = Sort::with_parameters(
         "MInt",
@@ -923,8 +923,8 @@ fn wem10_bound_resolves_unfixed_parametric_entry_through_declared_instantiations
 }
 
 #[test]
-fn wem10_bound_filters_concrete_seed_bounds_through_declared_instantiations() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_filters_concrete_seed_bounds_through_declared_instantiations() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax Int
           syntax Bool
@@ -952,8 +952,8 @@ fn wem10_bound_filters_concrete_seed_bounds_through_declared_instantiations() {
 }
 
 #[test]
-fn wem10_bound_excludes_kbott_and_lower_parser_sorts() {
-    let definition = wem10_bound_injector();
+fn semantic_bound_excludes_kbott_and_lower_parser_sorts() {
+    let definition = semantic_bound_injector();
     let injector = SortInjector::new(&definition, "MAIN").unwrap();
     let rewrite = rewrite_tokens(Sort::new("KBott"), Sort::new("KBott"));
 
@@ -964,8 +964,8 @@ fn wem10_bound_excludes_kbott_and_lower_parser_sorts() {
 }
 
 #[test]
-fn wem10_bound_excludes_a_strict_lower_parser_sort() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_excludes_a_strict_lower_parser_sort() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B
@@ -986,8 +986,8 @@ fn wem10_bound_excludes_a_strict_lower_parser_sort() {
 }
 
 #[test]
-fn wem10_bound_rejects_sorts_above_k() {
-    let definition = wem10_bound_injector();
+fn semantic_bound_rejects_sorts_above_k() {
+    let definition = semantic_bound_injector();
     let injector = SortInjector::new(&definition, "MAIN").unwrap();
     let rewrite = rewrite_tokens(Sort::new("KList"), Sort::new("KList"));
 
@@ -998,8 +998,8 @@ fn wem10_bound_rejects_sorts_above_k() {
 }
 
 #[test]
-fn wem10_bound_rejects_a_distinct_common_bound_above_k() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_rejects_a_distinct_common_bound_above_k() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B
@@ -1019,8 +1019,8 @@ fn wem10_bound_rejects_a_distinct_common_bound_above_k() {
 }
 
 #[test]
-fn wem10_bound_retains_a_relation_free_singleton() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_retains_a_relation_free_singleton() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
         endmodule
@@ -1032,8 +1032,8 @@ fn wem10_bound_retains_a_relation_free_singleton() {
 }
 
 #[test]
-fn wem10_bound_retains_a_unique_semantic_bound() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_retains_a_unique_semantic_bound() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B
@@ -1048,8 +1048,8 @@ fn wem10_bound_retains_a_unique_semantic_bound() {
 }
 
 #[test]
-fn wem10_bound_rejects_ambiguous_minima() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_rejects_ambiguous_minima() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B
@@ -1069,8 +1069,8 @@ fn wem10_bound_rejects_ambiguous_minima() {
 }
 
 #[test]
-fn wem10_bound_rejects_absent_common_bound() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_rejects_absent_common_bound() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B
@@ -1086,8 +1086,8 @@ fn wem10_bound_rejects_absent_common_bound() {
 }
 
 #[test]
-fn wem10_bound_preserves_the_expected_sort_ceiling() {
-    let definition = wem10_bound_definition(indoc! {r#"
+fn semantic_bound_preserves_the_expected_sort_ceiling() {
+    let definition = semantic_bound_definition(indoc! {r#"
         module MAIN
           syntax A
           syntax B

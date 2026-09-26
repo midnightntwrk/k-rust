@@ -1,4 +1,4 @@
-//! OT-02: the stored `has_macro_or_alias` and `k_cells` attributes against the walks they
+//! Compare the stored `has_macro_or_alias` and `k_cells` attributes against the walks they
 //! replace, over terms of every `TermKind` built by the public constructors
 //! (`lean_bridge::generators::term`).
 //!

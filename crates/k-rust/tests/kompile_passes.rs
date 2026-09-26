@@ -973,7 +973,7 @@ fn stdin_unblocking_rejects_multiple_matches_and_generates_one_for_single_match(
     *body = Term::Sequence(vec![body.clone(), body.clone()]);
     *rule_attributes = attributes(&[
         ("label", json!("consume")),
-        ("org.kframework.attributes.Source", json!("wem14.k")),
+        ("org.kframework.attributes.Source", json!("stdin-rule.k")),
         ("org.kframework.attributes.Location", json!([7, 3, 9, 20])),
     ]);
 
@@ -989,7 +989,7 @@ fn stdin_unblocking_rejects_multiple_matches_and_generates_one_for_single_match(
         diagnostic.message,
         "A stdin rule may match the stream cell at most once."
     );
-    assert_eq!(diagnostic.source.as_deref(), Some("wem14.k"));
+    assert_eq!(diagnostic.source.as_deref(), Some("stdin-rule.k"));
     assert_eq!(
         diagnostic.location,
         Some(k_rust::definition::Location {

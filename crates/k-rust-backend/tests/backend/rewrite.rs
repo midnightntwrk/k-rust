@@ -3341,7 +3341,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
 }
 
 /// T16 / cut_terminal. Both complete results captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d;
-/// re-pinned by KK-37, where the sole surviving candidate honours the stop rules.
+/// re-pinned after the branch-stop fix, where the sole surviving candidate honours the stop rules.
 #[test]
 fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     let definition = be08_portable_definition(
