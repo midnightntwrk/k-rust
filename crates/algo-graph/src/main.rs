@@ -35,7 +35,8 @@ enum Command {
         output: Option<PathBuf>,
     },
     /// Write the generated algorithm map, the whole graph in one Markdown document for work that
-    /// spans algorithms: pipelines, representations, contracts, fallbacks, and entry sites.
+    /// spans algorithms: pipelines with each algorithm's first site, representations, contracts,
+    /// and fallbacks.
     Map {
         /// Destination path. Defaults to docs/algorithm-map.md below the repository root, the
         /// checked-in copy that the freshness test compares with the rendered map.

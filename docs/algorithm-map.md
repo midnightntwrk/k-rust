@@ -8,7 +8,7 @@ Graph: nodes 111 algorithm, 3 contract, 1 invariant, 60 observation, 62 phase, 1
 
 - `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.
 - `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.
-- An algorithm line is `id — bound — in: consumed → out: produced`, without a side the card does not declare; `query show` prints the card's name.
+- An algorithm line is `id — bound — in: consumed → out: produced — at file site`, without a side the card does not declare; the site is the first site of the primary card, and `query show` prints the card's name and every site.
 - A bound is the card's first cost mode, cut at 50 characters with `…`; `+n modes` counts the modes left out.
 - `[role]` names a representation (`[Type: role]` when types share a role). Paths write `crates/<crate>/src/` as `<crate>/` and types `k_rust_<crate>::` as `<crate>::`, both without the `k-rust-` prefix.
 
@@ -29,75 +29,75 @@ Phases:
   - 0 resolve entry source · 1 read prepared definition · 2 parse sources · 3 select source files · 4 lower files · 5 apply sort synonyms · 6 check outer modules · 7 select modules · 8 resolve configuration bubbles · 9 expand configurations · 10 resolve and check sorts · 11 resolve rule bubbles · 12 resolve rule bubbles / grammars · 13 resolve rule bubbles / parse
 - `prologue_descriptions` 14–16, follows:
   - 14 expand structured configurations
-    - definition.configuration.expand — O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus… — in: [parsed configuration bubbles] → out: [expanded configurations]
+    - definition.configuration.expand — O(N + G^2 x (log G + k x eq) + M^2 + C x D), plus… — in: [parsed configuration bubbles] → out: [expanded configurations] — at k-rust/definition/configuration.rs `expand_configurations`
   - 15 resolve structured configurations
-    - definition.resolve.imports — O(M log M + E log E + sum l_m^2 + sum l_m x k x… +1 mode — in: [expanded configurations], [lowered source], [parsed rule bubbles] → out: [resolved definition]
+    - definition.resolve.imports — O(M log M + E log E + sum l_m^2 + sum l_m x k x… +1 mode — in: [expanded configurations], [lowered source], [parsed rule bubbles] → out: [resolved definition] — at k-rust/definition/resolve.rs `ResolvedDefinition::resolve`
   - 16 definition checks
-    - definition.checks.run — O(M x (S x (P + 1) + catalog work))
+    - definition.checks.run — O(M x (S x (P + 1) + catalog work)) — at k-rust/definition/checks.rs `check_definition_with_options`
 - `TRANSFORM_STAGES` + `EMISSION_STAGES` 17–50, follows:
   - 17 resolve commutative rules
   - 18 resolve I/O streams
-    - kompile.streams.resolve — O(M x V + S x N + (L + g) x g)
+    - kompile.streams.resolve — O(M x V + S x N + (L + g) x g) — at k-rust/kompile/passes/resolve_io.rs `resolve_io`
   - 19 resolve local functions
-    - kompile.functions.lift — O(N + (L + G) x G) plus one…
+    - kompile.functions.lift — O(N + (L + G) x G) plus one… — at k-rust/kompile/passes/resolve_fun.rs `resolve_fun`
   - 20 seed sort predicate syntax
-    - kompile.sort_helpers.generate — O(M x (S + V log V)) +1 mode
+    - kompile.sort_helpers.generate — O(M x (S + V log V)) +1 mode — at k-rust/kompile/passes/generate_sort_helpers.rs `generate_sort_predicate_syntax`
   - 21 resolve function configuration
   - 22 resolve strictness
-    - kompile.strictness.resolve — O(L + P x k^2 x a + C^2)
+    - kompile.strictness.resolve — O(L + P x k^2 x a + C^2) — at k-rust/kompile/passes/resolve_strict.rs `resolve_strict`
   - 23 resolve anonymous variables
   - 24 resolve contexts
-    - kompile.contexts.resolve — O(N + V + P log P + C^2 x s)
+    - kompile.contexts.resolve — O(N + V + P log P + C^2 x s) — at k-rust/kompile/passes/resolve_contexts.rs `resolve_contexts`
   - 25 number sentences
-    - kompile.sentences.number — O(N x h)
+    - kompile.sentences.number — O(N x h) — at k-rust/kompile/passes/number_sentences.rs `number_sentences`
   - 26 resolve heat/cool attributes → 27 resolve semantic casts
   - 28 add KItem subsorts: = kompile.sort_helpers.generate (phase 20)
   - 29 constant folding
-    - kompile.constant_folding.evaluate — O(N x h) plus hook-specific arithmetic cost
+    - kompile.constant_folding.evaluate — O(N x h) plus hook-specific arithmetic cost — at k-rust/kompile/passes/constant_folding.rs `constant_fold`
   - 30 propagate macro attributes → 31 guard or-patterns → 32 resolve fresh configuration constants
   - 33 generate sort predicate syntax: = kompile.sort_helpers.generate (phase 20)
   - 34 generate sort projections: = kompile.sort_helpers.generate (phase 20)
   - 35 expand macros
-    - kompile.macros.expand — O(N x R) plus recursive expansion of substituted… +2 modes
+    - kompile.macros.expand — O(N x R) plus recursive expansion of substituted… +2 modes — at k-rust/kompile/passes/expand_macros.rs `expand_macros`
   - 36 add implicit computation cell
   - 37 resolve fresh constants
-    - kompile.fresh_constants.resolve — O(N + F log F + L) plus one…
+    - kompile.fresh_constants.resolve — O(N + F log F + L) plus one… — at k-rust/kompile/passes/resolve_fresh_constants.rs `resolve_fresh_constants`
   - 38 regenerate sort predicate syntax: = kompile.sort_helpers.generate (phase 20)
   - 39 regenerate sort projections: = kompile.sort_helpers.generate (phase 20)
   - 40 check simplification rules
   - 41 finalize KItem subsorts: = kompile.sort_helpers.generate (phase 20)
   - 42 concretize cells
-    - kompile.cells.concretize — O(P + C x |children| + r^2) per module plus the… +1 mode
+    - kompile.cells.concretize — O(P + C x |children| + r^2) per module plus the… +1 mode — at k-rust/kompile/passes/concretize_cells.rs `concretize_cells`
   - 43 add semantics module → 44 resolve configuration variables → 45 add cool-like attributes
   - 46 generate sort predicate rules: = kompile.sort_helpers.generate (phase 20)
   - 47 number sentences (final): = kompile.sentences.number (phase 25)
   - 48 add sort injections
-    - kompile.sort_injections.insert — O(N x (P + S)) +1 mode
+    - kompile.sort_injections.insert — O(N x (P + S)) +1 mode — at k-rust/kompile/sort_injections.rs `SortInjector::inject_sentence`
   - 49 remove units
   - 50 minimize term construction
-    - kompile.terms.minimize — O(N x h) subtree clones plus O(N log N)…
+    - kompile.terms.minimize — O(N x h) subtree clones plus O(N log N)… — at k-rust/kompile/passes/minimize_term_construction.rs `minimize_term_construction`
 - `EMISSION_PHASES` 51–61, table order:
   - 51 collect execution rewrite order · 52 resolve transformed definition · 53 singleton overload checks · 54 collect configuration variables · 55 hook namespace checks · 56 emit KORE · 57 print definition.kore · 58 print syntaxDefinition.kore · 59 print macros.kore · 60 generate bison parser · 61 write artifacts
 
 Representation flow into [prepared definition manifest], [compiled definition]:
 
-- [0] definition.outer.parse — O(B + sum over bubbles of u x a) — out: [parsed source]
-- [0] parser.forest.pack — O(C + N) — out: [packed forest]
-- [0] parser.programs.parse — O(g + sum p) — out: [parsed program]
-- [1] definition.outer.lower — O(S + I x c + g x t log t) — in: [parsed source] → out: [lowered source]
-- [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree]
-- [1] parser.inference.z3 — O(H + G^2 + R) plus one PartialOrder::new… +5 modes — in: [packed forest] → out: [sorted tree]
-- [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles]
-- [2] parser.lower.term — O(N x h), one subtree clone per lowered node — in: [sorted tree] → out: [parsed term]
+- [0] definition.outer.parse — O(B + sum over bubbles of u x a) — out: [parsed source] — at k-rust/outer/parser.rs `parse`
+- [0] parser.forest.pack — O(C + N) — out: [packed forest] — at k-rust/inner/parser/forest.rs `build_packed_term`
+- [0] parser.programs.parse — O(g + sum p) — out: [parsed program] — at k-rust/inner/programs.rs `ProgramParser::parse`
+- [1] definition.outer.lower — O(S + I x c + g x t log t) — in: [parsed source] → out: [lowered source] — at k-rust/outer/lower.rs `lower`
+- [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/inference.rs `Grammar::infer_sorts_portable`
+- [1] parser.inference.z3 — O(H + G^2 + R) plus one PartialOrder::new… +5 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
+- [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
+- [2] parser.lower.term — O(N x h), one subtree clone per lowered node — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
 - [3] = definition.configuration.expand (phase 14)
-- [4] parser.bubble.rules — O(g + sum over b of p) — in: [expanded configurations] → out: [parsed rule bubbles]
+- [4] parser.bubble.rules — O(g + sum over b of p) — in: [expanded configurations] → out: [parsed rule bubbles] — at k-rust/inner/rules.rs `resolve_rule_bubbles`
 - [5] = definition.resolve.imports (phase 15)
-- [6] definition.catalog.production — O(n x p + n log n + l x (log n + k x eq)) +1 mode — in: [resolved definition] → out: [production lookup]
-- [6] definition.catalog.sort — O(V log V) — in: [resolved definition] → out: [sort lookup]
-- [7] definition.relations.build — O(P^2 + C) +2 modes — in: [production lookup], [resolved definition] → out: [priority order], [subsort order]
-- [8] kompile.kore.convert_term — O(N x O) +1 mode — in: [subsort order], [production lookup], [sort lookup], [parsed program], [parsed term] → out: [converted term]
-- [9] kompile.kore.rules — O(R x (I + C)) — in: [converted term] → out: [rule sentence]
-- [10] kompile.kore.declarations — O(P x A + V x A + R + S_c x P) plus one… — in: [subsort order], [production lookup], [resolved definition], [sort lookup], [rule sentence] → out: [prepared definition manifest], [compiled definition]
+- [6] definition.catalog.production — O(n x p + n log n + l x (log n + k x eq)) +1 mode — in: [resolved definition] → out: [production lookup] — at k-rust/definition/catalog.rs `ResolvedDefinition::production_catalog`
+- [6] definition.catalog.sort — O(V log V) — in: [resolved definition] → out: [sort lookup] — at k-rust/definition/sort_catalog.rs `SortCatalog`
+- [7] definition.relations.build — O(P^2 + C) +2 modes — in: [production lookup], [resolved definition] → out: [priority order], [subsort order] — at k-rust/definition/relations.rs `compute_subsorts`
+- [8] kompile.kore.convert_term — O(N x O) +1 mode — in: [subsort order], [production lookup], [sort lookup], [parsed program], [parsed term] → out: [converted term] — at k-rust/kompile/term_to_kore.rs `TermConverter::convert`
+- [9] kompile.kore.rules — O(R x (I + C)) — in: [converted term] → out: [rule sentence] — at k-rust/kompile/module_to_kore/equations.rs `emit_rule_or_claim`
+- [10] kompile.kore.declarations — O(P x A + V x A + R + S_c x P) plus one… — in: [subsort order], [production lookup], [resolved definition], [sort lookup], [rule sentence] → out: [prepared definition manifest], [compiled definition] — at k-rust/kompile/module_to_kore.rs `declaration_modules`
 
 ### kprove
 
@@ -105,13 +105,13 @@ Representation flow into [proof result]:
 
 - from kompile flow [8]: kompile.kore.convert_term → [converted term]
 - from kompile flow [10]: kompile.kore.declarations → [compiled definition]
-- [0] backend.definition.internalize — O(d) for the module, sort and symbol passes, plus… +1 mode — in: [compiled definition], [converted term] → out: [internalized theory], [internalized pattern], [internalized term]
-- [0] backend.substitution.extract — O(r x (V + E)) +1 mode — out: [extracted substitution]
-- [0] backend.unification.syntactic — O(n x s x t) — out: [unification result]
-- [1] ⟲ backend.matching.collections — O((n+1)^k) solve_term_pair assignments with… +2 modes — in: [match result], [unification result] → out: [collection solution]
-- [1] ⟲ backend.matching.syntactic — O(p x (a + s x t)) — in: [collection solution] → out: [match result]
-- [1] backend.rewrite.step — O(c) rule attempts plus one SAT check per… +2 modes — in: [internalized theory], [internalized pattern] → out: [rewrite result]
-- [2] backend.proof.search — O(s) x (simplification + one is_sat + implication… — in: [claim], [match result], [rewrite result], [extracted substitution], [unification result] → out: [proof result]
+- [0] backend.definition.internalize — O(d) for the module, sort and symbol passes, plus… +1 mode — in: [compiled definition], [converted term] → out: [internalized theory], [internalized pattern], [internalized term] — at backend/definition.rs `BackendDefinition::internalize`
+- [0] backend.substitution.extract — O(r x (V + E)) +1 mode — out: [extracted substitution] — at backend/substitution.rs `extract_substitution_with`
+- [0] backend.unification.syntactic — O(n x s x t) — out: [unification result] — at backend/unification.rs `unify_term_pairs`
+- [1] ⟲ backend.matching.collections — O((n+1)^k) solve_term_pair assignments with… +2 modes — in: [match result], [unification result] → out: [collection solution] — at backend/matching/collections.rs `solve_collection_pairs_in_definition`
+- [1] ⟲ backend.matching.syntactic — O(p x (a + s x t)) — in: [collection solution] → out: [match result] — at backend/matching/mod.rs `match_terms_with_context`
+- [1] backend.rewrite.step — O(c) rule attempts plus one SAT check per… +2 modes — in: [internalized theory], [internalized pattern] → out: [rewrite result] — at backend/rewrite/step.rs `rewrite_step_all`
+- [2] backend.proof.search — O(s) x (simplification + one is_sat + implication… — in: [claim], [match result], [rewrite result], [extracted substitution], [unification result] → out: [proof result] — at backend/proof.rs `prove_claim`
 
 ### krun
 
@@ -119,85 +119,85 @@ Representation flow into [execution result]:
 
 - from kprove flow [0]: backend.definition.internalize → [internalized theory], [internalized pattern]
 - from kprove flow [1]: backend.rewrite.step → [rewrite result]
-- [0] backend.rewrite.execute — O(states), with states at most b^d when both… +1 mode — in: [internalized theory], [internalized pattern], [rewrite result] → out: [execution result]
+- [0] backend.rewrite.execute — O(states), with states at most b^d when both… +1 mode — in: [internalized theory], [internalized pattern], [rewrite result] → out: [execution result] — at backend/rewrite/execute.rs `execute_using`
 
 ### Without a declared position
 
 No phase contains these algorithms and no representation connects them to a command's roots; the graph does not say which command runs them or when.
 
-- backend.alias.unfold — O(o + b x (p + r)) +1 mode
-- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +1 mode — in: [match result]
-- backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode
-- backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode
-- backend.fresh.variables — O(c) per name, amortized O(1) +3 modes
-- backend.implication.check — O(r) matching problems and antecedent… +1 mode — in: [match result], [extracted substitution]
-- backend.matching.relation_query — O(g x log |S|) +2 modes
-- backend.rewrite.apply — one matching problem, at most one is_sat query… +1 mode — in: [match result], [extracted substitution]
-- backend.rewrite.recover — each strategy either declines or returns matches… +1 mode — in: [match result], [collection solution], [unification result]
-- backend.rule.select — O(log k) index lookups plus O(r) covers checks… +1 mode
-- backend.search.configurations — O(n) rewrite steps plus O(r) pattern comparisons… +1 mode — in: [rewrite result]
-- backend.search.paths — exponential in b and d, plus O(d) visited-list… — in: [rewrite result]
-- backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result]
-- backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… — in: [match result]
-- backend.simplify.term — O(r x |t| x c), with the rounds that are not… +1 mode — in: [match result]
-- backend.smt.cache — O(L x log E) for the key comparison, after an… +1 mode
-- backend.substitution.apply — O(t x v log s), with O(1) skipping of… +1 mode
-- backend.substitution.extract_output — O(c^2 x t)
-- backend.term.macro_or_alias — O(1) +1 mode
-- definition.catalog.rule — O(n^2 x eq + n log n)
-- definition.equivalence.deduplicate — O(n^2 x eq) +1 mode
-- definition.equivalence.sentence — O(N)
-- definition.json.encode — O(N + L)
-- definition.order.partial — O((V + E) log V + C log V)
-- definition.outer.checks — O(N)
-- definition.outer.markdown — O(B)
-- definition.outer.requires — O(F x (F + F_b) + E x P + B) plus… +1 mode — in: [prepared definition manifest], [resolved source text] → out: [loaded definition]
-- definition.outer.select_modules — O(M x (M + E) log M + S)
-- definition.outer.virtual_path — O(P)
-- definition.provenance.record — O(M^2 + D + N + sum k) expected +1 mode
-- definition.provenance.source_identity — O(B + S) +1 mode
-- definition.regex.parse — O(B)
-- definition.resolve.sentences — O((M + E) log M + n_m log n_m + n_m x k x eq +…
-- kompile.fresh_names.mint — O(R log R) +1 mode
-- kompile.kore.axioms — O(P^2 + S x (P + S log S) + O^2 + R)
-- kompile.kore.owise — O(O x R x c + R x I)
-- kompile.labels.backward_closure — O((R + N_f) log V + E) +1 mode
-- kompile.metadata.retarget — O(N log R)
-- kompile.modules.rewrite_order — O((M + E) x (d + log M) + R log R + u x s)
-- kore.pattern.walk — O(|p|)
-- kore.printer.build — O(N)
-- kore.printer.fits — O(k)
-- kore.printer.render — O(N * k + o)
-- parser.bison.priorities — O(Q x P)
-- parser.bison.reachable_sorts — O(S x P)
-- parser.chart.completed_memo — O(log M + k) +1 mode
-- parser.chart.insert — O(D x W) with O(D log D) boundary factoring
-- parser.diagnostic.ambiguity — O(A)
-- parser.diagnostic.no_parse — O(B + K x log E) plus O(L) per scanner.winner…
-- parser.disambiguation.collapse_records — O(N + X x F) plus the structural ordering of each…
-- parser.disambiguation.factor_packed — O(N x A)
-- parser.disambiguation.filter_overloads — O(N + t x R) plus one clone, f and one equality… +1 mode
-- parser.disambiguation.insert_empty_lists — O(N x C) plus one PartialOrder::new over the…
-- parser.disambiguation.lift_top_lhs — O(N)
-- parser.disambiguation.priority — O(N) +1 mode
-- parser.disambiguation.remove_brackets_casts — O(N)
-- parser.disambiguation.reserve_names — O(N)
-- parser.disambiguation.resolve_ambiguity — O(N x h) plus, per alternative, one clone of its… — in: [sorted tree]
-- parser.disambiguation.resolve_applications — O(N x a x R)
-- parser.disambiguation.resolve_terminators — O(N x L + K x R)
-- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) +2 modes
-- parser.forest.order — O(1) unless the fingerprints tie, then O(N) +2 modes
-- parser.grammar.build — O(S x I) plus declared relation and…
-- parser.grammar.lists — O(R + L x R) +1 mode
-- parser.grammar.parametric — O(S x P + T)
-- parser.grammar.program_signature — O(M x S) EquivalenceAccumulator insertions
-- parser.grammar.records — O(F)
-- parser.grammar.unary_cycles — O(U x V x E)
-- parser.location.span — O(B)
-- parser.lower.regex — O(e)
-- parser.prediction.first_sets — O(S x L x R)
-- parser.prediction.nullability — O(I)
-- parser.scanner.winner — O(B x (L + Y) x m)
+- backend.alias.unfold — O(o + b x (p + r)) +1 mode — at backend/alias.rs `expand`
+- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +1 mode — in: [match result] — at backend/definedness.rs `discharge_rewrite_definedness`
+- backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode — at backend/definition.rs `build_sort_graph`
+- backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode — at backend/builtin/substitution.rs `evaluate`
+- backend.fresh.variables — O(c) per name, amortized O(1) +3 modes — at backend/fresh.rs `fresh_name`
+- backend.implication.check — O(r) matching problems and antecedent… +1 mode — in: [match result], [extracted substitution] — at backend/implication.rs `check_implication_with_existentials_and_options_and_policy`
+- backend.matching.relation_query — O(g x log |S|) +2 modes — at backend/matching/mod.rs `SortGraph::check_subsort`
+- backend.rewrite.apply — one matching problem, at most one is_sat query… +1 mode — in: [match result], [extracted substitution] — at backend/rewrite/apply.rs `apply_rule_with_match`
+- backend.rewrite.recover — each strategy either declines or returns matches… +1 mode — in: [match result], [collection solution], [unification result] — at backend/rewrite/recover.rs `recover_indeterminate_match`
+- backend.rule.select — O(log k) index lookups plus O(r) covers checks… +1 mode — at backend/rule.rs `applicable_groups`
+- backend.search.configurations — O(n) rewrite steps plus O(r) pattern comparisons… +1 mode — in: [rewrite result] — at backend/search.rs `search_graph_using`
+- backend.search.paths — exponential in b and d, plus O(d) visited-list… — in: [rewrite result] — at backend/search.rs `search_paths_using`
+- backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result] — at backend/search.rs `search_pattern_using`
+- backend.simplify.predicates — n predicate simplifications plus up to n rebuilds… — in: [match result] — at backend/simplify.rs `simplify_predicates_with_solver`
+- backend.simplify.term — O(r x |t| x c), with the rounds that are not… +1 mode — in: [match result] — at backend/simplify.rs `simplify_with_optional_execution`
+- backend.smt.cache — O(L x log E) for the key comparison, after an… +1 mode — at backend/smt/z3.rs `Z3Solver::solve`
+- backend.substitution.apply — O(t x v log s), with O(1) skipping of… +1 mode — at backend/substitution.rs `substitute`
+- backend.substitution.extract_output — O(c^2 x t) — at backend/search.rs `normalize_match_condition`
+- backend.term.macro_or_alias — O(1) +1 mode — at backend/term.rs `Term::macro_or_alias_symbol`
+- definition.catalog.rule — O(n^2 x eq + n log n) — at k-rust/definition/rule_catalog.rs `RuleCatalog`
+- definition.equivalence.deduplicate — O(n^2 x eq) +1 mode — at k-rust/definition/equivalence.rs `dedup_by_equivalence`
+- definition.equivalence.sentence — O(N) — at k-rust/definition/equivalence.rs `sentence_equivalent`
+- definition.json.encode — O(N + L) — at k-rust/definition/json.rs `to_string`
+- definition.order.partial — O((V + E) log V + C log V) — at k-rust/definition/partial_order.rs `PartialOrder`
+- definition.outer.checks — O(N) — at k-rust/outer/checks.rs `check_list_declarations`
+- definition.outer.markdown — O(B) — at k-rust/outer/markdown.rs `extract_fenced_k_code`
+- definition.outer.requires — O(F x (F + F_b) + E x P + B) plus… +1 mode — in: [prepared definition manifest], [resolved source text] → out: [loaded definition] — at k-rust/outer/loader.rs `Loader::visit`
+- definition.outer.select_modules — O(M x (M + E) log M + S) — at k-rust/outer/loader/selection.rs `select_modules`
+- definition.outer.virtual_path — O(P) — at k-rust/outer/virtual_path.rs `normalize_virtual_path`
+- definition.provenance.record — O(M^2 + D + N + sum k) expected +1 mode — at k-rust/provenance.rs `record_generated_origins`
+- definition.provenance.source_identity — O(B + S) +1 mode — at k-rust/provenance.rs `LogicalSourceId::new`
+- definition.regex.parse — O(B) — at k-rust/definition/regex.rs `parse`
+- definition.resolve.sentences — O((M + E) log M + n_m log n_m + n_m x k x eq +… — at k-rust/definition/resolve.rs `ResolvedDefinition::select_sentence_locations`
+- kompile.fresh_names.mint — O(R log R) +1 mode — at k-rust/kompile/fresh_names.rs `FreshNames::for_terms`
+- kompile.kore.axioms — O(P^2 + S x (P + S log S) + O^2 + R) — at k-rust/kompile/module_to_kore/axioms.rs `generated_axioms`
+- kompile.kore.owise — O(O x R x c + R x I) — at k-rust/kompile/module_to_kore/equations.rs `emit_owise_equation`
+- kompile.labels.backward_closure — O((R + N_f) log V + E) +1 mode — at k-rust/kompile/label_graph.rs `LabelDependencyGraph::build`
+- kompile.metadata.retarget — O(N log R) — at k-rust/kompile/retarget.rs `retarget_production_identities`
+- kompile.modules.rewrite_order — O((M + E) x (d + log M) + R log R + u x s) — at k-rust/kompile/compile.rs `collect_execution_rewrite_order`
+- kore.pattern.walk — O(|p|) — at kore/kore/walk.rs `children`
+- kore.printer.build — O(N) — at kore/kore/printer.rs `definition_doc`
+- kore.printer.fits — O(k) — at kore/kore/printer/document.rs `fits`
+- kore.printer.render — O(N * k + o) — at kore/kore/printer/document.rs `render`
+- parser.bison.priorities — O(Q x P) — at k-rust/bison/grammar.rs `transform_priority_and_associativity`
+- parser.bison.reachable_sorts — O(S x P) — at k-rust/bison/grammar.rs `reachable_sorts`
+- parser.chart.completed_memo — O(log M + k) +1 mode — at k-rust/inner/parser/chart.rs `completed_nodes`
+- parser.chart.insert — O(D x W) with O(D log D) boundary factoring — at k-rust/inner/parser/chart.rs `Chart::add_with_status`
+- parser.diagnostic.ambiguity — O(A) — at k-rust/inner/parser.rs `AmbiguousParse`
+- parser.diagnostic.no_parse — O(B + K x log E) plus O(L) per scanner.winner… — at k-rust/inner/parser.rs `Grammar::no_parse`
+- parser.disambiguation.collapse_records — O(N + X x F) plus the structural ordering of each… — at k-rust/inner/parser/record.rs `Grammar::collapse_packed_record_productions`
+- parser.disambiguation.factor_packed — O(N x A) — at k-rust/inner/parser/disambiguation.rs `Grammar::factor_pre_inference_packed_ambiguities`
+- parser.disambiguation.filter_overloads — O(N + t x R) plus one clone, f and one equality… +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_overloads_prefer_avoid`
+- parser.disambiguation.insert_empty_lists — O(N x C) plus one PartialOrder::new over the… — at k-rust/inner/parser/lists.rs `Grammar::add_empty_lists`
+- parser.disambiguation.lift_top_lhs — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::push_top_lhs_packed_ambiguity_up`
+- parser.disambiguation.priority — O(N) +1 mode — at k-rust/inner/parser/disambiguation.rs `Grammar::filter_packed_priority`
+- parser.disambiguation.remove_brackets_casts — O(N) — at k-rust/inner/parser/disambiguation.rs `Grammar::remove_brackets_and_syntactic_casts`
+- parser.disambiguation.reserve_names — O(N) — at k-rust/inner/parser/forest.rs `packed_variable_names`
+- parser.disambiguation.resolve_ambiguity — O(N x h) plus, per alternative, one clone of its… — in: [sorted tree] — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_ambiguities`
+- parser.disambiguation.resolve_applications — O(N x a x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_packed_applications`
+- parser.disambiguation.resolve_terminators — O(N x L + K x R) — at k-rust/inner/parser/disambiguation.rs `Grammar::resolve_overloaded_terminators`
+- parser.earley.recognize — O(B x s) chart allocation plus O(p x d) +2 modes — at k-rust/inner/parser.rs `Grammar::parse_attempt`
+- parser.forest.order — O(1) unless the fingerprints tie, then O(N) +2 modes — at k-rust/inner/parser/forest.rs `cmp_packed_structurally`
+- parser.grammar.build — O(S x I) plus declared relation and… — at k-rust/inner/parser/grammar.rs `Grammar::from_collected_sentences`
+- parser.grammar.lists — O(R + L x R) +1 mode — at k-rust/inner/parser/lists.rs `Grammar::initialize_user_lists`
+- parser.grammar.parametric — O(S x P + T) — at k-rust/inner/parser/parametric.rs `concretize_parametric_productions`
+- parser.grammar.program_signature — O(M x S) EquivalenceAccumulator insertions — at k-rust/inner/programs.rs `collect_public_signature`
+- parser.grammar.records — O(F) — at k-rust/inner/parser/record.rs `Grammar::add_record_productions`
+- parser.grammar.unary_cycles — O(U x V x E) — at k-rust/inner/parser/grammar.rs `Grammar::identify_productive_unary_cycles`
+- parser.location.span — O(B) — at k-rust/inner/location.rs `span_location`
+- parser.lower.regex — O(e) — at k-rust/inner/parser.rs `expand_regex_body`
+- parser.prediction.first_sets — O(S x L x R) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
+- parser.prediction.nullability — O(I) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`
+- parser.scanner.winner — O(B x (L + Y) x m) — at k-rust/inner/parser/scanner.rs `Scanner::winner`
 
 ## Representations
 
@@ -276,90 +276,4 @@ Each card with a `lean` key names theorems of `lean/theorems.txt` whose models m
 
 - parser.inference.portable falls back to parser.inference.z3 (fallback 1)
 - backend.substitution.extract_output is a variant of backend.substitution.extract
-
-## Entry sites
-
-The first site of each algorithm's primary card, grouped by file.
-
-| file | algorithm `first site` |
-| --- | --- |
-| backend/alias.rs | backend.alias.unfold `expand` |
-| backend/builtin/substitution.rs | backend.fresh.object_language `evaluate` |
-| backend/definedness.rs | backend.definedness.discharge `discharge_rewrite_definedness` |
-| backend/definition.rs | backend.definition.closure `build_sort_graph`; backend.definition.internalize `BackendDefinition::internalize` |
-| backend/fresh.rs | backend.fresh.variables `fresh_name` |
-| backend/implication.rs | backend.implication.check `check_implication_with_existentials_and_options_and_policy` |
-| backend/matching/collections.rs | backend.matching.collections `solve_collection_pairs_in_definition` |
-| backend/matching/mod.rs | backend.matching.relation_query `SortGraph::check_subsort`; backend.matching.syntactic `match_terms_with_context` |
-| backend/proof.rs | backend.proof.search `prove_claim` |
-| backend/rewrite/apply.rs | backend.rewrite.apply `apply_rule_with_match` |
-| backend/rewrite/execute.rs | backend.rewrite.execute `execute_using` |
-| backend/rewrite/recover.rs | backend.rewrite.recover `recover_indeterminate_match` |
-| backend/rewrite/step.rs | backend.rewrite.step `rewrite_step_all` |
-| backend/rule.rs | backend.rule.select `applicable_groups` |
-| backend/search.rs | backend.search.configurations `search_graph_using`; backend.search.paths `search_paths_using`; backend.search.patterns `search_pattern_using`; backend.substitution.extract_output `normalize_match_condition` |
-| backend/simplify.rs | backend.simplify.predicates `simplify_predicates_with_solver`; backend.simplify.term `simplify_with_optional_execution` |
-| backend/smt/z3.rs | backend.smt.cache `Z3Solver::solve` |
-| backend/substitution.rs | backend.substitution.apply `substitute`; backend.substitution.extract `extract_substitution_with` |
-| backend/term.rs | backend.term.macro_or_alias `Term::macro_or_alias_symbol` |
-| backend/unification.rs | backend.unification.syntactic `unify_term_pairs` |
-| k-rust/bison/grammar.rs | parser.bison.priorities `transform_priority_and_associativity`; parser.bison.reachable_sorts `reachable_sorts` |
-| k-rust/definition/catalog.rs | definition.catalog.production `ResolvedDefinition::production_catalog` |
-| k-rust/definition/checks.rs | definition.checks.run `check_definition_with_options` |
-| k-rust/definition/configuration.rs | definition.configuration.expand `expand_configurations` |
-| k-rust/definition/equivalence.rs | definition.equivalence.deduplicate `dedup_by_equivalence`; definition.equivalence.sentence `sentence_equivalent` |
-| k-rust/definition/json.rs | definition.json.encode `to_string` |
-| k-rust/definition/partial_order.rs | definition.order.partial `PartialOrder` |
-| k-rust/definition/regex.rs | definition.regex.parse `parse` |
-| k-rust/definition/relations.rs | definition.relations.build `compute_subsorts` |
-| k-rust/definition/resolve.rs | definition.resolve.imports `ResolvedDefinition::resolve`; definition.resolve.sentences `ResolvedDefinition::select_sentence_locations` |
-| k-rust/definition/rule_catalog.rs | definition.catalog.rule `RuleCatalog` |
-| k-rust/definition/sort_catalog.rs | definition.catalog.sort `SortCatalog` |
-| k-rust/inner/config.rs | parser.bubble.configurations `resolve_configuration_bubbles` |
-| k-rust/inner/location.rs | parser.location.span `span_location` |
-| k-rust/inner/parser.rs | parser.diagnostic.ambiguity `AmbiguousParse`; parser.diagnostic.no_parse `Grammar::no_parse`; parser.earley.recognize `Grammar::parse_attempt`; parser.lower.regex `expand_regex_body`; parser.lower.term `lower_term` |
-| k-rust/inner/parser/chart.rs | parser.chart.completed_memo `completed_nodes`; parser.chart.insert `Chart::add_with_status` |
-| k-rust/inner/parser/disambiguation.rs | parser.disambiguation.factor_packed `Grammar::factor_pre_inference_packed_ambiguities`; parser.disambiguation.filter_overloads `Grammar::filter_overloads_prefer_avoid`; parser.disambiguation.lift_top_lhs `Grammar::push_top_lhs_packed_ambiguity_up`; parser.disambiguation.priority `Grammar::filter_packed_priority`; parser.disambiguation.remove_brackets_casts `Grammar::remove_brackets_and_syntactic_casts`; parser.disambiguation.resolve_ambiguity `Grammar::resolve_ambiguities`; parser.disambiguation.resolve_applications `Grammar::resolve_packed_applications`; parser.disambiguation.resolve_terminators `Grammar::resolve_overloaded_terminators` |
-| k-rust/inner/parser/forest.rs | parser.disambiguation.reserve_names `packed_variable_names`; parser.forest.order `cmp_packed_structurally`; parser.forest.pack `build_packed_term` |
-| k-rust/inner/parser/grammar.rs | parser.grammar.build `Grammar::from_collected_sentences`; parser.grammar.unary_cycles `Grammar::identify_productive_unary_cycles` |
-| k-rust/inner/parser/inference.rs | parser.inference.portable `Grammar::infer_sorts_portable` |
-| k-rust/inner/parser/lists.rs | parser.disambiguation.insert_empty_lists `Grammar::add_empty_lists`; parser.grammar.lists `Grammar::initialize_user_lists` |
-| k-rust/inner/parser/parametric.rs | parser.grammar.parametric `concretize_parametric_productions` |
-| k-rust/inner/parser/prediction.rs | parser.prediction.first_sets `PredictionAnalysis::new`; parser.prediction.nullability `PredictionAnalysis::new` |
-| k-rust/inner/parser/record.rs | parser.disambiguation.collapse_records `Grammar::collapse_packed_record_productions`; parser.grammar.records `Grammar::add_record_productions` |
-| k-rust/inner/parser/scanner.rs | parser.scanner.winner `Scanner::winner` |
-| k-rust/inner/parser/z3_inference.rs | parser.inference.z3 `Grammar::infer_packed_sorts_z3` |
-| k-rust/inner/programs.rs | parser.grammar.program_signature `collect_public_signature`; parser.programs.parse `ProgramParser::parse` |
-| k-rust/inner/rules.rs | parser.bubble.rules `resolve_rule_bubbles` |
-| k-rust/kompile/compile.rs | kompile.modules.rewrite_order `collect_execution_rewrite_order` |
-| k-rust/kompile/fresh_names.rs | kompile.fresh_names.mint `FreshNames::for_terms` |
-| k-rust/kompile/label_graph.rs | kompile.labels.backward_closure `LabelDependencyGraph::build` |
-| k-rust/kompile/module_to_kore.rs | kompile.kore.declarations `declaration_modules` |
-| k-rust/kompile/module_to_kore/axioms.rs | kompile.kore.axioms `generated_axioms` |
-| k-rust/kompile/module_to_kore/equations.rs | kompile.kore.owise `emit_owise_equation`; kompile.kore.rules `emit_rule_or_claim` |
-| k-rust/kompile/passes/concretize_cells.rs | kompile.cells.concretize `concretize_cells` |
-| k-rust/kompile/passes/constant_folding.rs | kompile.constant_folding.evaluate `constant_fold` |
-| k-rust/kompile/passes/expand_macros.rs | kompile.macros.expand `expand_macros` |
-| k-rust/kompile/passes/generate_sort_helpers.rs | kompile.sort_helpers.generate `generate_sort_predicate_syntax` |
-| k-rust/kompile/passes/minimize_term_construction.rs | kompile.terms.minimize `minimize_term_construction` |
-| k-rust/kompile/passes/number_sentences.rs | kompile.sentences.number `number_sentences` |
-| k-rust/kompile/passes/resolve_contexts.rs | kompile.contexts.resolve `resolve_contexts` |
-| k-rust/kompile/passes/resolve_fresh_constants.rs | kompile.fresh_constants.resolve `resolve_fresh_constants` |
-| k-rust/kompile/passes/resolve_fun.rs | kompile.functions.lift `resolve_fun` |
-| k-rust/kompile/passes/resolve_io.rs | kompile.streams.resolve `resolve_io` |
-| k-rust/kompile/passes/resolve_strict.rs | kompile.strictness.resolve `resolve_strict` |
-| k-rust/kompile/retarget.rs | kompile.metadata.retarget `retarget_production_identities` |
-| k-rust/kompile/sort_injections.rs | kompile.sort_injections.insert `SortInjector::inject_sentence` |
-| k-rust/kompile/term_to_kore.rs | kompile.kore.convert_term `TermConverter::convert` |
-| k-rust/outer/checks.rs | definition.outer.checks `check_list_declarations` |
-| k-rust/outer/loader.rs | definition.outer.requires `Loader::visit` |
-| k-rust/outer/loader/selection.rs | definition.outer.select_modules `select_modules` |
-| k-rust/outer/lower.rs | definition.outer.lower `lower` |
-| k-rust/outer/markdown.rs | definition.outer.markdown `extract_fenced_k_code` |
-| k-rust/outer/parser.rs | definition.outer.parse `parse` |
-| k-rust/outer/virtual_path.rs | definition.outer.virtual_path `normalize_virtual_path` |
-| k-rust/provenance.rs | definition.provenance.record `record_generated_origins`; definition.provenance.source_identity `LogicalSourceId::new` |
-| kore/kore/printer.rs | kore.printer.build `definition_doc` |
-| kore/kore/printer/document.rs | kore.printer.fits `fits`; kore.printer.render `render` |
-| kore/kore/walk.rs | kore.pattern.walk `children` |
 

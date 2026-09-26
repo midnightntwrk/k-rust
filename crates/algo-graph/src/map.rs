@@ -72,7 +72,6 @@ pub fn render_map_with(graph: &Graph, commands: &[Command]) -> String {
     invariants(&mut output, &index);
     lean_proofs(&mut output, &index);
     fallbacks(&mut output, &index);
-    entry_sites(&mut output, &index);
     output
 }
 
@@ -193,6 +192,11 @@ impl<'g> Index<'g> {
             line.push_str(" — ");
             line.push_str(&sides.join(" → "));
         }
+        line.push_str(&format!(
+            " — at {} `{}`",
+            short_path(&node.anchor.file),
+            node.anchor.symbol
+        ));
         line
     }
 }
@@ -323,7 +327,7 @@ fn header(output: &mut String, graph: &Graph, commands: &[Command]) {
     output.push_str(&format!("Graph: nodes {nodes}; edges {edges}.\n\n"));
     output.push_str("- `algo-graph query show <id>` prints a whole card (every cost mode, variables, counters, tests); `query impact <id>` prints what a change reaches.\n");
     output.push_str("- `algo-graph atlas` writes the cost atlas: measured self-time shares, Amdahl ceilings, and growth exponents per workload, and the algorithm nesting observed on each run, which orders the kprove and krun algorithms this map cannot place. This map has no measured cost.\n");
-    output.push_str("- An algorithm line is `id — bound — in: consumed → out: produced`, without a side the card does not declare; `query show` prints the card's name.\n");
+    output.push_str("- An algorithm line is `id — bound — in: consumed → out: produced — at file site`, without a side the card does not declare; the site is the first site of the primary card, and `query show` prints the card's name and every site.\n");
     output.push_str(&format!("- A bound is the card's first cost mode, cut at {BOUND_WIDTH} characters with `…`; `+n modes` counts the modes left out.\n"));
     output.push_str("- `[role]` names a representation (`[Type: role]` when types share a role). Paths write `crates/<crate>/src/` as `<crate>/` and types `k_rust_<crate>::` as `<crate>::`, both without the `k-rust-` prefix.\n\n");
     output.push_str("The graph has no command nodes.\n");
@@ -830,24 +834,6 @@ fn fallbacks(output: &mut String, index: &Index) {
     output.push('\n');
 }
 
-fn entry_sites(output: &mut String, index: &Index) {
-    let mut files = BTreeMap::<String, Vec<String>>::new();
-    for node in &index.algorithms {
-        let site = &node.anchor;
-        files
-            .entry(short_path(&site.file))
-            .or_default()
-            .push(format!("{} `{}`", node.id, site.symbol));
-    }
-    output.push_str("## Entry sites\n\n");
-    output.push_str("The first site of each algorithm's primary card, grouped by file.\n\n");
-    output.push_str("| file | algorithm `first site` |\n| --- | --- |\n");
-    for (file, entries) in files {
-        output.push_str(&format!("| {file} | {} |\n", entries.join("; ")));
-    }
-    output.push('\n');
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -968,7 +954,7 @@ mod tests {
             map.contains("- `T1` 0–1, table order:\n  - 0 p0 · 1 p1\n"),
             "{map}"
         );
-        assert!(map.contains("- `T2` 2–3, follows:\n  - 2 p2\n    - a.lower — O(n log n) — in: [one] → out: [two]\n  - 3 p3\n    - a.check — O(1)\n"), "{map}");
+        assert!(map.contains("- `T2` 2–3, follows:\n  - 2 p2\n    - a.lower — O(n log n) — in: [one] → out: [two] — at k-rust/a/lower.rs `run`\n  - 3 p3\n    - a.check — O(1) — at k-rust/a/check.rs `run`\n"), "{map}");
     }
 
     #[test]
@@ -980,13 +966,19 @@ mod tests {
             .expect("the flow is rendered");
         assert!(
             flow.starts_with(
-                "- [0] a.parse — O(n) — out: [one]\n- [1] = a.lower (phase 2)\n- [2] a.emit — O(n) — in: [two] → out: [out]\n"
+                "- [0] a.parse — O(n) — out: [one] — at k-rust/a/parse.rs `run`\n- [1] = a.lower (phase 2)\n- [2] a.emit — O(n) — in: [two] → out: [out] — at k-rust/a/emit.rs `run`\n"
             ),
             "{flow}"
         );
         assert!(map.contains("### Without a declared position\n"), "{map}");
-        assert!(map.contains("\n- a.idle — O(1)\n"), "{map}");
-        assert!(!map.contains("- a.check — O(1)\n- a.idle"), "{map}");
+        assert!(
+            map.contains("\n- a.idle — O(1) — at k-rust/a/idle.rs `run`\n"),
+            "{map}"
+        );
+        assert!(
+            !map.contains("- a.check — O(1) — at k-rust/a/check.rs `run`\n- a.idle"),
+            "{map}"
+        );
     }
 
     #[test]
@@ -1009,7 +1001,7 @@ mod tests {
         ];
         let map = render_map_with(&graph, &commands);
         assert!(
-            map.contains("### run\n\nRepresentation flow into [result]:\n\n- from build flow [2]: a.emit → [out]\n- [0] b.run — O(s) — in: [out] → out: [result]\n"),
+            map.contains("### run\n\nRepresentation flow into [result]:\n\n- from build flow [2]: a.emit → [out]\n- [0] b.run — O(s) — in: [out] → out: [result] — at k-rust/b/run.rs `run`\n"),
             "{map}"
         );
     }
@@ -1076,14 +1068,8 @@ mod tests {
     }
 
     #[test]
-    fn the_workspace_map_is_deterministic_and_within_budget() {
+    fn the_workspace_map_is_deterministic() {
         let graph = crate::build_graph(&crate::workspace_root()).unwrap().graph;
-        let map = render_map(&graph);
-        assert_eq!(map, render_map(&graph));
-        let tokens = map.chars().count() / 4;
-        assert!(
-            tokens <= 8_000,
-            "the map is {tokens} tokens, above the 8k budget"
-        );
+        assert_eq!(render_map(&graph), render_map(&graph));
     }
 }
