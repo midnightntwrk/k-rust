@@ -40,7 +40,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet, hash_map::DefaultHasher},
+    collections::{BTreeMap, BTreeSet},
     hash::{Hash, Hasher},
     sync::{Arc, OnceLock},
 };
@@ -49,6 +49,7 @@ use k_rust_kore::kore::ast::KoreString;
 use k_rust_kore::measure::{self, Counter};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 use num_bigint::BigInt;
+use rustc_hash::FxHasher;
 
 use crate::smt::SmtType;
 
@@ -1397,7 +1398,7 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
 }
 
 fn calculate_hash(kind: &TermKind) -> u64 {
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = FxHasher::default();
     kind.hash(&mut hasher);
     hasher.finish()
 }
@@ -1543,6 +1544,23 @@ mod tests {
         assert_eq!(raw, same);
         assert_eq!(calculate_hash(raw.kind()), calculate_hash(same.kind()));
         assert_ne!(raw, utf8);
+    }
+
+    #[test]
+    fn sequential_values_and_wrappers_have_distinct_hashes() {
+        let sort = Sort::builtin(BuiltinSort::Int);
+        let wrapper = Arc::new(Symbol::constructor(
+            "hashWrapper",
+            vec![sort.clone()],
+            sort.clone(),
+        ));
+        let mut hashes = std::collections::HashSet::new();
+        for value in 0..10_000 {
+            let child = Term::domain_value(sort.clone(), value.to_string());
+            let wrapped = Term::application(wrapper.clone(), Vec::new(), vec![child.clone()]);
+            assert!(hashes.insert(child.attributes().hash));
+            assert!(hashes.insert(wrapped.attributes().hash));
+        }
     }
 
     #[test]
