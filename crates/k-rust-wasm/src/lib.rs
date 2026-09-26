@@ -104,6 +104,14 @@ struct CompiledDefinition {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct WasmInputAddress {
+    input: String,
+    module: String,
+    index: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WasmDiagnostic {
     severity: String,
     code: String,
@@ -113,6 +121,7 @@ struct WasmDiagnostic {
     start_column: Option<u32>,
     end_line: Option<u32>,
     end_column: Option<u32>,
+    input_addresses: Vec<WasmInputAddress>,
 }
 
 /// A persistent portable backend. SMT-dependent operations report an explicit capability error.
@@ -545,6 +554,15 @@ impl From<Diagnostic> for WasmDiagnostic {
             start_column,
             end_line,
             end_column,
+            input_addresses: diagnostic
+                .input_addresses
+                .into_iter()
+                .map(|address| WasmInputAddress {
+                    input: address.input.as_str().to_owned(),
+                    module: address.module,
+                    index: address.index,
+                })
+                .collect(),
         }
     }
 }

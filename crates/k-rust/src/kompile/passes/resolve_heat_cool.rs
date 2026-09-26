@@ -52,6 +52,7 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
             message: error.to_string(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         }],
     })?;
     let views = resolved.views();

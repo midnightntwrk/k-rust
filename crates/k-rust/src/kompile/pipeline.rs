@@ -928,6 +928,7 @@ mod tests {
             message: "bad attribute".into(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         };
         let error = super::super::ResolveCommError {
             diagnostics: vec![diagnostic.clone()],

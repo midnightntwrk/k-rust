@@ -6,9 +6,10 @@ use k_rust::{
 };
 use k_rust::{
     definition::{
-        AttributeKey, Attributes, Definition, FlatImport, FlatModule, ProductionItem,
+        AttributeKey, Attributes, CheckMode, Definition, FlatImport, FlatModule, ProductionItem,
         ResolvedDefinition, Sentence,
     },
+    diagnostic::DiagnosticCode,
     kast::{Label, Sort, Term},
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
     kore::parser::parse_definition,
@@ -51,6 +52,94 @@ fn hand_built_definition_conforms_to_the_complete_public_compiler_pipeline() {
         assert!(artifacts.definition_kore.contains("SortExp"));
         assert_eq!(artifacts.macros_kore, "\n");
     });
+}
+
+#[test]
+fn unsupported_existential_claim_names_its_structured_input_sentence() {
+    let mut definition = structured_definition(false);
+    let index = u32::try_from(definition.modules[0].local_sentences.len()).unwrap();
+    definition.modules[0].local_sentences.push(
+        Sentence::Claim {
+            body: Term::Rewrite {
+                left: Box::new(Term::Token {
+                    token: "0".into(),
+                    sort: Sort::new("Int"),
+                }),
+                right: Box::new(Term::variable("?X")),
+            },
+            requires: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes: Attributes::default(),
+        }
+        .into(),
+    );
+    let loaded = load_structured(
+        definition,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            excluded_module_attributes: vec![
+                CompilationBackend::Llvm.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let error = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            backend: CompilationBackend::Llvm,
+            check_mode: CheckMode::Proof {
+                definition_module: "MAIN".into(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+    .expect_err("an existential variable is unsupported by the concrete backend");
+    let diagnostics = error
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable)
+        .collect::<Vec<_>>();
+    assert_eq!(diagnostics.len(), 1, "{error:#?}");
+    assert_eq!(
+        diagnostics[0].input_addresses,
+        vec![InputAddress::new(InputSpace::Structured, "MAIN", index)]
+    );
+
+    let resolved = ResolvedDefinition::resolve(&loaded.definition).unwrap();
+    let compile_loaded = LoadedDefinition {
+        files: loaded.files.clone(),
+        source_table: loaded.source_table.clone(),
+        definition: loaded.definition.clone(),
+        resolved,
+        diagnostics: loaded.diagnostics.clone(),
+    };
+    let error = compile_loaded_definition(
+        &compile_loaded,
+        CompileOptions {
+            backend: CompilationBackend::Llvm,
+            check_mode: CheckMode::Proof {
+                definition_module: "MAIN".into(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+    .expect_err("the re-resolved definition has the same unsupported claim");
+    let diagnostic = error
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == DiagnosticCode::UnsupportedExistentialVariable)
+        .expect("the claim diagnostic survives compile restamping");
+    assert_eq!(
+        diagnostic.input_addresses,
+        vec![InputAddress::new(InputSpace::Compile, "MAIN", index)]
+    );
 }
 
 #[test]

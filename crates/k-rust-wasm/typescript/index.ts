@@ -127,6 +127,13 @@ export interface Diagnostic {
   startColumn?: number
   endLine?: number
   endColumn?: number
+  inputAddresses: readonly InputAddress[]
+}
+
+export interface InputAddress {
+  input: 'structured' | 'compile'
+  module: string
+  index: number
 }
 
 export interface ParsedProgram {

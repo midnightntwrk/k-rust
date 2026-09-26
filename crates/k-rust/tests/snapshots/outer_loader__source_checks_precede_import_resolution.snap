@@ -19,6 +19,7 @@ SourceDiagnostics(
                     end_column: 39,
                 },
             ),
+            input_addresses: [],
         },
     ],
 )

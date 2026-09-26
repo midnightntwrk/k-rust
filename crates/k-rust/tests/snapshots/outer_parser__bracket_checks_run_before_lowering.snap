@@ -18,6 +18,7 @@ description: "K source:\n\nmodule BRACKETS\n  syntax Exp ::= \"(\" Int \")\" [br
                 end_column: 39,
             },
         ),
+        input_addresses: [],
     },
     Diagnostic {
         severity: Error,
@@ -34,5 +35,6 @@ description: "K source:\n\nmodule BRACKETS\n  syntax Exp ::= \"(\" Int \")\" [br
                 end_column: 41,
             },
         ),
+        input_addresses: [],
     },
 ]

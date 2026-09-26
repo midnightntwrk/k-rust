@@ -117,6 +117,13 @@ export interface CompileDefinitionOptions {
 
 export interface Diagnostic extends NativeDiagnostic {
   severity: 'error' | 'warning'
+  inputAddresses: InputAddress[]
+}
+
+export interface InputAddress {
+  input: 'structured' | 'compile'
+  module: string
+  index: number
 }
 
 export interface ParsedProgram {

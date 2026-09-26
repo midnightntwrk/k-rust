@@ -1338,6 +1338,7 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         message: message.into(),
         source: None,
         location: None,
+        input_addresses: Vec::new(),
     }
 }
 
@@ -1345,6 +1346,9 @@ fn located_at(mut diagnostic: Diagnostic, sentence: &Sentence) -> Diagnostic {
     if diagnostic.source.is_none() && diagnostic.location.is_none() {
         diagnostic.source = sentence.attributes().source().map(str::to_owned);
         diagnostic.location = sentence.attributes().location();
+        if diagnostic.input_addresses.is_empty() {
+            diagnostic.input_addresses = sentence.attributes().input_addresses().to_vec();
+        }
     }
     diagnostic
 }

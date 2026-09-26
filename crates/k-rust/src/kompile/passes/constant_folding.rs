@@ -73,6 +73,7 @@ pub(crate) fn constant_fold_pass(
             message: error.to_string(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         }],
     })?;
     let views = resolved.views();

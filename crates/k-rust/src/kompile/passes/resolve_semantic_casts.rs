@@ -74,6 +74,7 @@ fn unlocated_error(message: impl Into<String>) -> ResolveSemanticCastsError {
             message: message.into(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         }],
     }
 }

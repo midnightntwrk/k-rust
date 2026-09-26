@@ -1,6 +1,7 @@
 //! Portable, renderer-independent frontend diagnostics.
 
 use crate::definition::{Attributes, Location, Sentence};
+use crate::provenance::InputAddress;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Severity {
@@ -184,6 +185,7 @@ pub struct Diagnostic {
     pub message: String,
     pub source: Option<String>,
     pub location: Option<Location>,
+    pub input_addresses: Vec<InputAddress>,
 }
 
 impl Diagnostic {
@@ -223,6 +225,7 @@ impl Diagnostic {
             message: message.into(),
             source: Some(source.into()),
             location: Some(location),
+            input_addresses: Vec::new(),
         }
     }
 
@@ -238,6 +241,7 @@ impl Diagnostic {
             message: message.into(),
             source: Some(source.into()),
             location: Some(location),
+            input_addresses: Vec::new(),
         }
     }
 
@@ -262,6 +266,7 @@ impl Diagnostic {
             message: message.into(),
             source: attributes.source().map(str::to_owned),
             location: attributes.location(),
+            input_addresses: attributes.input_addresses().to_vec(),
         }
     }
 }
@@ -269,6 +274,41 @@ impl Diagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provenance::InputSpace;
+
+    #[test]
+    fn attribute_diagnostics_copy_input_addresses() {
+        let addresses = vec![InputAddress::new(InputSpace::Structured, "MAIN", 2)];
+        let mut attributes = Attributes::default();
+        attributes.set_input_addresses(addresses.clone());
+        for diagnostic in [
+            Diagnostic::error_at(DiagnosticCode::InvalidAttribute, "bad", &attributes),
+            Diagnostic::warning_at(DiagnosticCode::InvalidAttribute, "bad", &attributes),
+        ] {
+            assert_eq!(diagnostic.input_addresses, addresses);
+        }
+    }
+
+    #[test]
+    fn location_only_diagnostics_have_no_input_address() {
+        let location = Location {
+            start_line: 1,
+            start_column: 2,
+            end_line: 1,
+            end_column: 3,
+        };
+        for diagnostic in [
+            Diagnostic::error_at_location(DiagnosticCode::InvalidAttribute, "bad", "a.k", location),
+            Diagnostic::warning_at_location(
+                DiagnosticCode::InvalidAttribute,
+                "bad",
+                "a.k",
+                location,
+            ),
+        ] {
+            assert!(diagnostic.input_addresses.is_empty());
+        }
+    }
 
     fn diagnostic(severity: Severity, code: DiagnosticCode) -> Diagnostic {
         Diagnostic {
@@ -277,6 +317,7 @@ mod tests {
             message: "message".into(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         }
     }
 

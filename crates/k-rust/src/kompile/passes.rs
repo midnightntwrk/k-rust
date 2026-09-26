@@ -150,6 +150,7 @@ pub(crate) fn resolve_comm_pass(
             message: error.to_string(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         }],
     })?;
     let mut output = input.definition.clone();

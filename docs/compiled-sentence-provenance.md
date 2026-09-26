@@ -16,4 +16,8 @@ An `InputAddress` has an `input` space, module name, and module-local sentence i
 The loaded source table preserves the original kinds of structured sentences that loading removes.
 Callers that keep their own source or mutant identifiers should map those identifiers to input addresses and compose that map with `sentence_provenance`.
 
+Frontend `Diagnostic::input_addresses` copies the addresses of the sentence or attributes that raised it, in their existing order.
+Diagnostics built from a source location alone have an empty list.
+The napi and wasm diagnostic objects expose the same list as `inputAddresses`, with each address represented by `{ input: "structured" | "compile", module: string, index: number }`.
+
 The input-address carrier and origin receipts do not appear in KORE or KAST v4 and do not affect `UNIQUE_ID` digests.

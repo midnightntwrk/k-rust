@@ -827,5 +827,6 @@ fn plain_error(message: impl Into<String>) -> Diagnostic {
         message: message.into(),
         source: None,
         location: None,
+        input_addresses: Vec::new(),
     }
 }

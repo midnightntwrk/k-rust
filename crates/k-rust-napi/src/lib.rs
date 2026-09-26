@@ -61,6 +61,13 @@ pub struct NativeCompileDefinitionOptions {
 }
 
 #[napi(object)]
+pub struct NativeInputAddress {
+    pub input: String,
+    pub module: String,
+    pub index: u32,
+}
+
+#[napi(object)]
 pub struct NativeDiagnostic {
     pub severity: String,
     pub code: String,
@@ -70,6 +77,7 @@ pub struct NativeDiagnostic {
     pub start_column: Option<u32>,
     pub end_line: Option<u32>,
     pub end_column: Option<u32>,
+    pub input_addresses: Vec<NativeInputAddress>,
 }
 
 #[napi(object)]
@@ -503,6 +511,15 @@ impl From<Diagnostic> for NativeDiagnostic {
             start_column,
             end_line,
             end_column,
+            input_addresses: diagnostic
+                .input_addresses
+                .into_iter()
+                .map(|address| NativeInputAddress {
+                    input: address.input.as_str().to_owned(),
+                    module: address.module,
+                    index: address.index,
+                })
+                .collect(),
         }
     }
 }
