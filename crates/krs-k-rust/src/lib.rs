@@ -6,9 +6,8 @@
 //!
 //! [`compile_definition_provisional_oracle`] exists only as an explicitly
 //! provisional single-cell oracle. It parses no K source (and in particular never
-//! parses emitted candidate `.k`); it uses the public configuration-expansion
-//! and graph-resolution passes before isolating the unavoidable public-field
-//! assembly in one function.
+//! parses emitted candidate `.k`); it prepares the adapted definition through
+//! [`prepare_definition`] and reparses both compiled KORE definitions.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -600,20 +599,16 @@ fn native_source_map_key(source: &str) -> Option<&str> {
 
 /// Provisional test-oracle compilation through public frontend passes.
 ///
-/// This function parses **no source fragment**. In particular, emitted
-/// candidate `.k` is never an input. It structurally adapts Definition IR,
-/// invokes the public configuration expander, verifies that the expander's one
-/// generated initializer label equals the IR-owned emitted name, resolves the
-/// flat graph, and isolates public-field `LoadedDefinition` assembly here.
-/// Both returned KORE definitions are reparsed before success is reported.
-///
-/// This route resolves builtin imports against the same pinned native closure
-/// as the permanent structured compiler.
+/// This function parses **no source fragment**. Emitted candidate `.k` is
+/// never an input. It structurally adapts Definition IR, prepares it through
+/// [`prepare_definition`] with the pinned builtin closure and backend module
+/// filter, then compiles the loaded definition. Both returned KORE definitions
+/// are reparsed before success is reported.
 ///
 /// # Errors
 ///
 /// Returns [`ProvisionalCompileError`] for adaptation, preparation,
-/// compilation, initializer-identity, or KORE-reparse failures.
+/// compilation, or KORE-reparse failures.
 pub fn compile_definition_provisional_oracle(
     ir: &DefinitionIr,
     options: CompileOptions,
