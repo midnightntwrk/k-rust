@@ -284,7 +284,7 @@ impl Grammar {
             label,
             ProductionOptions {
                 source_production,
-                source_production_text: source_production_text.as_deref(),
+                source_production_text: source_production_text.as_ref(),
                 source: attributes.source(),
                 location: attributes.location(),
                 ..production_options(&attributes)

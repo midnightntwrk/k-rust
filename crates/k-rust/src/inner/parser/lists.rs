@@ -243,7 +243,7 @@ impl Grammar {
             terminator.label.clone(),
             ProductionOptions {
                 source_production: terminator.source_production,
-                source_production_text: terminator.source_production_text.as_deref(),
+                source_production_text: terminator.source_production_text.as_ref(),
                 ..ProductionOptions::default()
             },
             &BTreeMap::new(),
@@ -270,7 +270,7 @@ impl Grammar {
             recursive.label.clone(),
             ProductionOptions {
                 source_production: recursive.source_production,
-                source_production_text: recursive.source_production_text.as_deref(),
+                source_production_text: recursive.source_production_text.as_ref(),
                 ..ProductionOptions::default()
             },
             &BTreeMap::new(),

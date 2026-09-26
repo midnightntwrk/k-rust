@@ -13,7 +13,6 @@ kompile.partial_orders_built = 1193
 kompile.injections_inserted = 51
 kompile.owise_competitor_scans = 65
 provenance.link_dedup_probes = 22660
-provenance.receipt_renders = 6
 kompile.sentence_copies = 18964
 kompile.production_identity_digests = 44264
 parser.parse_attempts = 202

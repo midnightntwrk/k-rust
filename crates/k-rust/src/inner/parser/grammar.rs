@@ -31,6 +31,7 @@
 //! O(|unary productions| * |sorts| * |unary edges|) and runs once after construction.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::sync::{Arc, OnceLock};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
@@ -43,10 +44,8 @@ use crate::definition::{
 use crate::kast::{FrontendSort, Label, ProductionIdentity, Sort};
 
 use super::disambiguation::parse_apply_priority;
-use super::scanner::{Item, Layout, Scanner, compile_item};
-use super::{
-    Grammar, ParseError, ParserRole, Production, ProductionOptions, TokenPrecedenceDeclaration,
-};
+use super::scanner::{DeclarationSite, Item, Layout, Scanner, compile_item};
+use super::{Grammar, ParseError, ParserRole, Production, ProductionOptions};
 
 impl Grammar {
     pub(in crate::inner) fn from_program_sentences<'a>(
@@ -193,7 +192,7 @@ impl Grammar {
             .catalog
             .productions()
             .filter_map(|(id, sentence)| {
-                render_production(sentence).map(|text| (source_links.catalog.identity(id), text))
+                ProductionText::of(sentence).map(|text| (source_links.catalog.identity(id), text))
             })
             .collect();
         let overload_order = {
@@ -256,7 +255,7 @@ impl Grammar {
             }
             let source_production = source_links.resolve(sentence);
             let source_production_text =
-                source_production.and_then(|_| render_production(sentence));
+                source_production.and_then(|_| ProductionText::of(sentence));
             grammar.add_production_with_lexical(
                 sort.clone(),
                 items,
@@ -274,7 +273,7 @@ impl Grammar {
                     prefer: attributes.has(AttributeKey::Prefer),
                     avoid: attributes.has(AttributeKey::Avoid),
                     source_production,
-                    source_production_text: source_production_text.as_deref(),
+                    source_production_text: source_production_text.as_ref(),
                     source: attributes.source(),
                     location: attributes.location(),
                     user_list: attributes.has(AttributeKey::UserList),
@@ -409,6 +408,7 @@ impl Grammar {
         transparent: bool,
         source_production_text: &str,
     ) -> Result<(), ParseError> {
+        let source_production_text = ProductionText::rendered(source_production_text.to_owned());
         self.add_production_with_lexical(
             result,
             &items,
@@ -416,7 +416,7 @@ impl Grammar {
             ProductionOptions {
                 token,
                 transparent,
-                source_production_text: Some(source_production_text),
+                source_production_text: Some(&source_production_text),
                 ..ProductionOptions::default()
             },
             &BTreeMap::new(),
@@ -435,16 +435,15 @@ impl Grammar {
             self.scanner.register(
                 &compiled,
                 Some(precedence),
-                TokenPrecedenceDeclaration {
+                &DeclarationSite {
                     source: None,
                     location: None,
-                    production: render_added_production(
+                    production: ProductionText::rendered(render_added_production(
                         &result,
                         std::slice::from_ref(&item),
                         true,
                         Some(precedence),
-                    ),
-                    precedence: 0,
+                    )),
                 },
             )?;
             return Ok(());
@@ -660,14 +659,17 @@ impl Grammar {
                 ProductionItem::RegexTerminal { .. } | ProductionItem::Terminal(_) => None,
             })
             .collect();
-        let declaration = TokenPrecedenceDeclaration {
+        let declaration = DeclarationSite {
             source: options.source.map(str::to_owned),
             location: options.location,
-            production: options.source_production_text.map_or_else(
-                || render_added_production(&result, items, options.token, options.precedence),
-                str::to_owned,
-            ),
-            precedence: 0,
+            production: options.source_production_text.cloned().unwrap_or_else(|| {
+                ProductionText::rendered(render_added_production(
+                    &result,
+                    items,
+                    options.token,
+                    options.precedence,
+                ))
+            }),
         };
         let mut compiled_items = Vec::new();
         let mut item_lexeme_ids = Vec::new();
@@ -676,11 +678,10 @@ impl Grammar {
             .filter(|item| !matches!(item, ProductionItem::Terminal(value) if value.is_empty()))
         {
             let item = compile_item(item, lexical)?;
-            item_lexeme_ids.push(self.scanner.register(
-                &item,
-                options.precedence,
-                declaration.clone(),
-            )?);
+            item_lexeme_ids.push(
+                self.scanner
+                    .register(&item, options.precedence, &declaration)?,
+            );
             compiled_items.push(item);
         }
         let items = compiled_items;
@@ -745,7 +746,7 @@ impl Grammar {
             prefer: options.prefer,
             avoid: options.avoid,
             source_production: options.source_production,
-            source_production_text: options.source_production_text.map(str::to_owned),
+            source_production_text: options.source_production_text.cloned(),
             user_list: options.user_list,
             user_list_nonempty: options.user_list_nonempty,
             field_names,
@@ -872,6 +873,52 @@ pub(super) fn catalog_production(
     catalog
         .find_equivalent(sentence)
         .map(|production| catalog.identity(production))
+}
+
+/// A production's diagnostic text, `syntax {P} S ::= items [attributes]`, rendered on first read.
+///
+/// Rendering the attribute list materializes and prints a generated production's origin
+/// receipt, which can be tens of kilobytes of JSON, and a grammar build would do so for every
+/// production in scope; only diagnostics read the text, so the grammar keeps the sentence and
+/// renders it once when one does. The rendered text is exactly `render_production`'s.
+#[derive(Clone, Debug)]
+pub(super) struct ProductionText(Arc<LazyProductionText>);
+
+#[derive(Debug)]
+struct LazyProductionText {
+    sentence: Option<Sentence>,
+    text: OnceLock<String>,
+}
+
+impl ProductionText {
+    /// The text of a production sentence; `None` for any other sentence.
+    pub(super) fn of(sentence: &Sentence) -> Option<Self> {
+        matches!(sentence, Sentence::Production { .. }).then(|| {
+            Self(Arc::new(LazyProductionText {
+                sentence: Some(sentence.clone()),
+                text: OnceLock::new(),
+            }))
+        })
+    }
+
+    /// A text already rendered by the caller.
+    pub(super) fn rendered(text: String) -> Self {
+        Self(Arc::new(LazyProductionText {
+            sentence: None,
+            text: OnceLock::from(text),
+        }))
+    }
+
+    pub(super) fn as_str(&self) -> &str {
+        self.0.text.get_or_init(|| {
+            let sentence = self
+                .0
+                .sentence
+                .as_ref()
+                .expect("an unrendered production text keeps its sentence");
+            render_production(sentence).expect("a production sentence has a text")
+        })
+    }
 }
 
 pub(super) fn render_production(sentence: &Sentence) -> Option<String> {

@@ -1088,14 +1088,16 @@ impl Grammar {
     fn reported_production(&self, term: &ParsedTerm) -> Option<String> {
         match term {
             ParsedTerm::Production { production, .. }
-            | ParsedTerm::InstantiatedProduction { production, .. } => {
-                self.productions[*production].source_production_text.clone()
-            }
+            | ParsedTerm::InstantiatedProduction { production, .. } => self.productions
+                [*production]
+                .source_production_text
+                .as_ref()
+                .map(|text| text.as_str().to_owned()),
             ParsedTerm::Term(term) => term
                 .metadata()
                 .and_then(|metadata| metadata.production)
                 .and_then(|production| self.source_production_texts.get(&production))
-                .cloned(),
+                .map(|text| text.as_str().to_owned()),
             ParsedTerm::Ambiguity(_) => None,
         }
     }

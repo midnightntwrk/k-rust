@@ -3188,7 +3188,8 @@ fn collect_declared_nats(sort: &Sort, formals: &[Sort], declared: &mut BTreeSet<
 fn production_text(production: &Production) -> String {
     production
         .source_production_text
-        .clone()
+        .as_ref()
+        .map(|text| text.as_str().to_owned())
         .unwrap_or_else(|| {
             super::render_added_production(
                 &production.result,

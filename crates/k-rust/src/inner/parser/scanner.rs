@@ -28,6 +28,7 @@ use k_rust_kore::measure::{self, Counter};
 use crate::definition::{ProductionItem, Regex as KRegex, parse_regex};
 use crate::kast::Sort;
 
+use super::grammar::ProductionText;
 use super::{ParseError, TokenPrecedenceDeclaration, expand_regex_body};
 
 pub(crate) const DEFAULT_LAYOUT: [&str; 3] = [
@@ -168,7 +169,27 @@ struct Lexeme {
     key: LexemeKey,
     item: Item,
     precedence: i32,
-    declaration: TokenPrecedenceDeclaration,
+    declaration: DeclarationSite,
+}
+
+/// Where a lexeme was declared, for a token-precedence conflict; the production's text is
+/// rendered only when a conflict reports it.
+#[derive(Clone, Debug)]
+pub(super) struct DeclarationSite {
+    pub(super) source: Option<String>,
+    pub(super) location: Option<crate::definition::Location>,
+    pub(super) production: ProductionText,
+}
+
+impl DeclarationSite {
+    fn declaration(&self, precedence: i32) -> TokenPrecedenceDeclaration {
+        TokenPrecedenceDeclaration {
+            source: self.source.clone(),
+            location: self.location,
+            production: self.production.as_str().to_owned(),
+            precedence,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -187,17 +208,19 @@ impl Scanner {
         &mut self,
         item: &Item,
         precedence: Option<&str>,
-        mut declaration: TokenPrecedenceDeclaration,
+        declaration: &DeclarationSite,
     ) -> Result<Option<usize>, ParseError> {
         let Some(key) = lexeme_key(item) else {
             return Ok(None);
         };
         if let Some(existing) = self.ids.get(&key).copied() {
             let candidate = token_precedence(item, precedence, true)?;
-            declaration.precedence = candidate;
-            if self.lexemes[existing].precedence != candidate {
-                let mut declarations =
-                    vec![self.lexemes[existing].declaration.clone(), declaration];
+            let lexeme = &self.lexemes[existing];
+            if lexeme.precedence != candidate {
+                let mut declarations = vec![
+                    lexeme.declaration.declaration(lexeme.precedence),
+                    declaration.declaration(candidate),
+                ];
                 declarations.sort();
                 return Err(ParseError::InconsistentTokenPrecedence {
                     token: item.description(),
@@ -208,7 +231,6 @@ impl Scanner {
         }
 
         let precedence = token_precedence(item, precedence, false)?;
-        declaration.precedence = precedence;
         let index = self.lexemes.len();
         self.ids.insert(key.clone(), index);
         match item {
@@ -223,7 +245,7 @@ impl Scanner {
             key,
             item: item.clone(),
             precedence,
-            declaration,
+            declaration: declaration.clone(),
         });
         Ok(Some(index))
     }
@@ -508,12 +530,11 @@ mod tests {
 
     use super::*;
 
-    fn declaration(terminal: &str) -> TokenPrecedenceDeclaration {
-        TokenPrecedenceDeclaration {
+    fn declaration(terminal: &str) -> DeclarationSite {
+        DeclarationSite {
             source: None,
             location: None,
-            production: format!("syntax S ::= {terminal:?}"),
-            precedence: 0,
+            production: ProductionText::rendered(format!("syntax S ::= {terminal:?}")),
         }
     }
 
@@ -549,7 +570,7 @@ mod tests {
                 let mut scanner = Scanner::default();
                 for terminal in terminals {
                     let item = Item::Terminal(terminal.clone());
-                    scanner.register(&item, None, declaration(terminal)).unwrap();
+                    scanner.register(&item, None, &declaration(terminal)).unwrap();
                 }
                 scanner
             };

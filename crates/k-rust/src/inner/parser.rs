@@ -98,6 +98,7 @@ mod z3_inference;
 use self::chart::*;
 use self::disambiguation::PackedPriorityMemos;
 use self::forest::*;
+use self::grammar::ProductionText;
 use self::grammar::catalog_production;
 pub(super) use self::grammar::named_projection_productions;
 #[cfg(feature = "z3-inference")]
@@ -499,7 +500,7 @@ struct Production {
     prefer: bool,
     avoid: bool,
     source_production: Option<ProductionIdentity>,
-    source_production_text: Option<String>,
+    source_production_text: Option<ProductionText>,
     user_list: bool,
     user_list_nonempty: bool,
     field_names: Vec<Option<String>>,
@@ -574,7 +575,7 @@ struct ProductionOptions<'a> {
     prefer: bool,
     avoid: bool,
     source_production: Option<ProductionIdentity>,
-    source_production_text: Option<&'a str>,
+    source_production_text: Option<&'a ProductionText>,
     source: Option<&'a str>,
     location: Option<crate::definition::Location>,
     user_list: bool,
@@ -709,7 +710,7 @@ pub struct Grammar {
     by_result: Vec<Vec<usize>>,
     scanner: Scanner,
     prediction_analysis: OnceLock<PredictionAnalysis>,
-    source_production_texts: BTreeMap<ProductionIdentity, String>,
+    source_production_texts: BTreeMap<ProductionIdentity, ProductionText>,
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
