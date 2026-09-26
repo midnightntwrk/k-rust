@@ -1207,8 +1207,8 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
     ///   sort and the declared sorts above it; where the result contains `p`, those that match it
     ///   against the position and the declared sorts below it;
     /// - a parameter that occurs in no argument: the position itself when the result is the
-    ///   parameter, otherwise every value that matches the result against the position and the
-    ///   declared sorts below it, so every instance whose result fits the position.
+    ///   parameter, otherwise every value under which the whole result is the position or a
+    ///   declared sort below it, so every declared instance whose result fits the position.
     ///
     /// A parameter without candidates keeps its uninstantiated fallback (a sort variable of an
     /// argument, or the fresh parameter), and injecting the arguments then decides. The exact
@@ -1289,16 +1289,31 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                         .expect("every parameter has a candidate set")
                         .insert(position.clone());
                 } else if contains_sort(result, parameter) {
-                    // Every instance whose result fits the position is a candidate; the search
-                    // orders them by their instantiated result, since no argument does.
-                    let mut matches = BTreeMap::new();
-                    self.match_sort_below(parameters, result, position, &mut matches);
-                    if let Some(values) = matches.remove(parameter) {
-                        candidates
-                            .get_mut(parameter)
-                            .expect("every parameter has a candidate set")
-                            .extend(values.into_iter().filter(concrete));
-                    }
+                    // Every instance whose result fits the position is a candidate: the whole
+                    // result is matched against the position and each declared sort below it,
+                    // so a value is kept only when its instantiated result is one of those
+                    // sorts. The search orders them by their instantiated result, since no
+                    // argument does.
+                    let below = std::iter::once(position).chain(
+                        self.sorts
+                            .sorted_all_sorts()
+                            .filter(|candidate| self.subsorts.less_than_eq(candidate, position)),
+                    );
+                    let values = below
+                        .filter_map(|sort| {
+                            let mut binding = BTreeMap::new();
+                            bind_parameters(parameters, result, sort, &mut binding)
+                                .then(|| binding.remove(parameter))
+                                .flatten()
+                        })
+                        // The declared result itself, written with the formal parameters, is
+                        // no instance.
+                        .filter(|value| concrete(value) && !mentions_parameter(value))
+                        .collect::<Vec<_>>();
+                    candidates
+                        .get_mut(parameter)
+                        .expect("every parameter has a candidate set")
+                        .extend(values);
                 }
                 continue;
             }
@@ -1577,47 +1592,6 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
                 .productions
                 .productions_for(&LabelHead::from(label))
                 .is_empty()
-    }
-
-    /// Collect the bindings under which the parametric result sort `declared` is instantiated to
-    /// `known` or a declared sort below it: the candidates for a parameter that occurs only in
-    /// the result, which must fit its position of sort `known`.
-    // Invariant: each `match_sort_below` to `match_sort_below_parameters` to `match_sort_below` round descends one level into `declared.parameters`, so the depth of `declared` bounds the recursion; `matches` accumulates, per formal parameter, every sort bound so far.
-    fn match_sort_below(
-        &self,
-        formal_parameters: &[Sort],
-        declared: &Sort,
-        known: &Sort,
-        matches: &mut BTreeMap<Sort, Vec<Sort>>,
-    ) {
-        if formal_parameters.contains(declared) {
-            matches
-                .entry(declared.clone())
-                .or_default()
-                .push(known.clone());
-            return;
-        }
-        self.match_sort_below_parameters(formal_parameters, declared, known, matches);
-        // Invariant: `matches` includes the bindings from `known` and from every declared sort strictly below `known` before `candidate` in `sorts.sorted_all_sorts()`; each candidate is visited once.
-        for candidate in self.sorts.sorted_all_sorts() {
-            if candidate != known && self.subsorts.less_than_eq(candidate, known) {
-                self.match_sort_below_parameters(formal_parameters, declared, candidate, matches);
-            }
-        }
-    }
-
-    fn match_sort_below_parameters(
-        &self,
-        formal_parameters: &[Sort],
-        declared: &Sort,
-        known: &Sort,
-        matches: &mut BTreeMap<Sort, Vec<Sort>>,
-    ) {
-        if same_head(declared, known) {
-            for (declared, known) in declared.parameters.iter().zip(&known.parameters) {
-                self.match_sort_below(formal_parameters, declared, known, matches);
-            }
-        }
     }
 
     fn production(&self, term: &Term, label: &Label) -> Result<&Sentence, SortInjectionError> {

@@ -2033,6 +2033,12 @@ mod cast_instances {
         module: "CAST-INSTANCE",
     };
 
+    const NESTED_RESULT: Fixture = Fixture {
+        file: "nested-result-instance.k",
+        source: include_str!("fixtures/sort-check/nested-result-instance.k"),
+        module: "NESTED-RESULT-INSTANCE",
+    };
+
     const RESULT: Fixture = Fixture {
         file: "result-instance.k",
         source: include_str!("fixtures/sort-check/result-instance.k"),
@@ -2330,5 +2336,47 @@ mod cast_instances {
             kore.contains("Lblwrap{SortA{}}(Lblinner{SortA{}}(Lblka{}()))"),
             "{kore}"
         );
+    }
+
+    // `mkn`'s result `MInt{MInt{W}}` has one declared instance, `MInt{MInt{B}}`. `W = A` matches
+    // the inner sort below `MInt{B}`, but `MInt{MInt{A}}` is not declared, so it is no instance
+    // and `mkn` at `KItem` is `mkn{B}`, not ambiguous. The typing view is checked: compiling a
+    // production with a nested parametric result fails earlier, in a generated sentence.
+    #[test]
+    fn a_result_only_candidate_is_a_declared_instance_of_the_whole_result() {
+        let (loaded, edited) =
+            with_right_side(&NESTED_RESULT, cast("KItem", Term::apply("mkn", vec![])));
+        let typing = sentence_typing(&loaded.resolved, NESTED_RESULT.module, &edited)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mint = |sort: Sort| Sort::with_parameters("MInt", vec![sort]);
+        assert_eq!(
+            typing
+                .positions
+                .get(&vec![0, 1, 0])
+                .unwrap_or_else(|| panic!("no operand position in {:#?}", typing.positions))
+                .sort,
+            Some(mint(mint(Sort::new("B"))))
+        );
+    }
+
+    // While `outer` is solved, its argument `inner2` sits at `MInt{S}` with `S` unsolved, so
+    // `inner2`'s instance is left open. `outer` takes the least instance whose result fits the
+    // cast, `MInt{A} < MInt{B}`, and `inner2` is then placed at the instantiated argument sort
+    // `MInt{A}` and takes `A` from it, although `outer`'s result is not a bare parameter.
+    #[test]
+    fn an_unconstrained_inner_instance_is_fixed_through_the_outer_instance() {
+        let (kore, typing) = compiled_in(
+            &RESULT,
+            cast(
+                "MInt{B}",
+                Term::apply("outer", vec![Term::apply("inner2", vec![])]),
+            ),
+        );
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains("Lblouter{SortA{}}(Lblinner2{SortA{}}())"),
+            "{kore}"
+        );
+        typing.unwrap_or_else(|error| panic!("{error}"));
     }
 }

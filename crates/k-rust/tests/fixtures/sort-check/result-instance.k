@@ -16,6 +16,8 @@ module RESULT-INSTANCE-SYNTAX
   syntax Narrow ::= MInt{A}
   syntax Pair ::= MInt{C} | MInt{D}
   syntax {W} MInt{W} ::= "mk" [symbol(mk)]
+  syntax {T} MInt{T} ::= "inner2" [symbol(inner2)]
+  syntax {S} MInt{S} ::= outer(MInt{S}) [symbol(outer)]
   syntax {W, V} MInt{V} ::= mk2(MInt{W}) [symbol(mk2)]
   syntax {T} T ::= inner(MInt{T}) [symbol(inner)]
   syntax {S} S ::= wrap(S) [symbol(wrap)]
