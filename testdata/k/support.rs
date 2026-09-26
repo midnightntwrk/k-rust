@@ -13,7 +13,7 @@ use k_rust::kompile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
     compile_loaded_definition,
 };
-use k_rust::kore::ast::Pattern;
+use k_rust::kore::ast::{Pattern, Variable, VariableKind};
 use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource};
 use kink_patch::{Baseline, SentenceRef};
 use serde_json::Value;
@@ -94,6 +94,25 @@ pub fn rule(baseline: &Baseline, label: &str) -> SentenceRef {
 
 pub fn compile(loaded: &LoadedDefinition) -> Result<CompiledKoreArtifacts, CompileError> {
     compile_loaded_definition(loaded, CompileOptions::default())
+}
+
+pub fn var(name: &str, sort: &str) -> Pattern {
+    Pattern::Variable(Variable {
+        kind: VariableKind::Element,
+        name: name.to_owned(),
+        sort: kore_sort(sort),
+    })
+}
+
+pub fn app(symbol: &str, args: Vec<Pattern>) -> Pattern {
+    kore_application(symbol, Vec::new(), args)
+}
+
+pub fn int(value: i64) -> Pattern {
+    Pattern::DomainValue {
+        sort: kore_sort("SortInt"),
+        value: value.to_string().into(),
+    }
 }
 
 /// The initial configuration `<generatedTop>(<k>(program ~> .K), <generatedCounter>(0))`
