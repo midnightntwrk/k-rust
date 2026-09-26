@@ -1,6 +1,6 @@
 // A parametric production whose instances have different results, so a cast on an application
-// decides which instance fits. `MInt{B}` and `MInt{C}` are incomparable instances above the
-// argument sort `A`; only `MInt{B}` is below `Wide`, and both are below `Both`.
+// decides which instance fits. The parameter values `B` and `C` are incomparable and both above
+// the argument sort `A`; only `MInt{B}` is below `Wide`, and both `MInt{B}` and `MInt{C}` are below `Both`.
 module CAST-INSTANCE-SYNTAX
   imports SORT-BOOL
   syntax Low ::= "low" [symbol(low)]

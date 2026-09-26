@@ -2018,17 +2018,34 @@ mod cast_instances {
     };
     use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation};
 
-    const SOURCE: &str = include_str!("fixtures/sort-check/cast-instance.k");
     const PRELUDE: &str = include_str!("fixtures/sort-check/portable-prelude.k");
-    const MODULE: &str = "CAST-INSTANCE";
 
-    fn load() -> LoadedDefinition {
+    /// A fixture whose main module has a rule labelled `holder` with a rewrite body.
+    struct Fixture {
+        file: &'static str,
+        source: &'static str,
+        module: &'static str,
+    }
+
+    const CAST: Fixture = Fixture {
+        file: "cast-instance.k",
+        source: include_str!("fixtures/sort-check/cast-instance.k"),
+        module: "CAST-INSTANCE",
+    };
+
+    const RESULT: Fixture = Fixture {
+        file: "result-instance.k",
+        source: include_str!("fixtures/sort-check/result-instance.k"),
+        module: "RESULT-INSTANCE",
+    };
+
+    fn load(fixture: &Fixture) -> LoadedDefinition {
         let mut resolver = |_: &str, required: &str| {
             builtin::embedded(required).ok_or_else(|| required.to_owned())
         };
         load_for_compilation(
-            ResolvedSource::new("cast-instance.k", SOURCE.to_owned()),
-            MODULE,
+            ResolvedSource::new(fixture.file, fixture.source.to_owned()),
+            fixture.module,
             None,
             &mut resolver,
             &LoadOptions {
@@ -2048,20 +2065,22 @@ mod cast_instances {
         .0
     }
 
-    /// `start(Z:A) => right`, relinked into the loaded definition, with the edited sentence.
-    fn with_right_side(right: Term) -> (LoadedDefinition, Sentence) {
-        let base = load();
+    /// The `holder` rule with `right` as its right side, relinked into the loaded definition, with
+    /// the edited sentence.
+    fn with_right_side(fixture: &Fixture, right: Term) -> (LoadedDefinition, Sentence) {
+        let base = load(fixture);
         let mut definition = base.definition.clone();
         let module = definition
             .modules
             .iter_mut()
-            .find(|module| module.name == MODULE)
+            .find(|module| module.name == fixture.module)
             .unwrap();
+        let holder = format!("{}.holder", fixture.module);
         let slot = module
             .local_sentences
             .iter_mut()
             .find(|sentence| {
-                sentence.attributes().string(AttributeKey::Label) == Some("CAST-INSTANCE.holder")
+                sentence.attributes().string(AttributeKey::Label) == Some(holder.as_str())
             })
             .unwrap();
         let sentence = k_rust::definition::sentence_mut(slot);
@@ -2101,18 +2120,22 @@ mod cast_instances {
         )
     }
 
-    fn compiled(
-        right: Term,
-    ) -> (
+    type Outcome = (
         Result<String, CompileError>,
         Result<SentenceTyping, SentenceTypingError>,
-    ) {
-        let (loaded, edited) = with_right_side(right);
+    );
+
+    fn compiled_in(fixture: &Fixture, right: Term) -> Outcome {
+        let (loaded, edited) = with_right_side(fixture, right);
         // Without layout whitespace, so a pattern the printer breaks across lines is one string.
         let kore = compile_loaded_definition(&loaded, CompileOptions::default())
             .map(|artifacts| artifacts.definition_kore.split_whitespace().collect());
-        let typing = sentence_typing(&loaded.resolved, MODULE, &edited);
+        let typing = sentence_typing(&loaded.resolved, fixture.module, &edited);
         (kore, typing)
+    }
+
+    fn compiled(right: Term) -> Outcome {
+        compiled_in(&CAST, right)
     }
 
     /// The sort the typing view requires of `Z`, the argument of the cast application.
@@ -2213,5 +2236,99 @@ mod cast_instances {
             "{kore}"
         );
         typing.unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    // `mk`'s parameter occurs only in its result, so the instances whose result fits the position
+    // are its candidates and the least by result is chosen: `MInt{A}` and `MInt{B}` both fit
+    // `Wide`, and `MInt{A} < MInt{B}` although the values `A` and `B` are unrelated.
+    #[test]
+    fn a_result_only_parameter_takes_the_least_instance_that_fits() {
+        let (kore, typing) = compiled_in(&RESULT, cast("Wide", Term::apply("mk", vec![])));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains("kseq{}(inj{SortMInt{SortA{}},SortKItem{}}(Lblmk{SortA{}}())"),
+            "{kore}"
+        );
+        typing.unwrap_or_else(|error| panic!("{error}"));
+
+        // Only `MInt{A}` fits `Narrow`: the single candidate completes the assignment directly.
+        let (kore, typing) = compiled_in(&RESULT, cast("Narrow", Term::apply("mk", vec![])));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains("kseq{}(inj{SortMInt{SortA{}},SortKItem{}}(Lblmk{SortA{}}())"),
+            "{kore}"
+        );
+        typing.unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    // `mk2`'s `W` is fixed by its argument and its `V` occurs only in the result; they are solved
+    // as independent groups, and `V` is the least instance whose result fits `Wide`.
+    #[test]
+    fn a_result_only_parameter_is_solved_beside_an_argument_parameter() {
+        let (kore, typing) = compiled_in(
+            &RESULT,
+            cast("Wide", Term::apply("mk2", vec![Term::apply("kb", vec![])])),
+        );
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains(
+                "kseq{}(inj{SortMInt{SortA{}},SortKItem{}}(Lblmk2{SortB{},SortA{}}(Lblkb{}()))"
+            ),
+            "{kore}"
+        );
+        typing.unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    // `MInt{C}` and `MInt{D}` both fit `Pair` and neither is below the other.
+    #[test]
+    fn a_result_only_parameter_with_incomparable_fitting_instances_is_ambiguous() {
+        let (kore, typing) = compiled_in(&RESULT, cast("Pair", Term::apply("mk", vec![])));
+        let error = kore.expect_err("the instance is ambiguous");
+        assert_eq!(error.stage, "add sort injections", "{error}");
+        assert!(
+            error
+                .message
+                .contains("the position Pair fits the result MInt{W}"),
+            "{error}"
+        );
+        let error = typing.expect_err("the instance is ambiguous");
+        let SentenceTypingError::Sort {
+            error: SortInjectionError::AmbiguousInstance(ambiguity),
+            ..
+        } = &error
+        else {
+            panic!("{error}")
+        };
+        let mint = |width: &str| Sort::with_parameters("MInt", vec![Sort::new(width)]);
+        assert_eq!(
+            ambiguity.candidates,
+            vec![vec![mint("C")], vec![mint("D")]],
+            "{error}"
+        );
+    }
+
+    // `wrap`'s parameter is its result and its argument sort, so its argument is placed at the
+    // cast `B`; `inner`'s parameter is its result too, so `B` constrains it in turn and selects
+    // `inner{B}` over the least argument instance `inner{A}`.
+    #[test]
+    fn an_enclosing_result_parameter_places_its_argument_at_the_position() {
+        let inner = Term::apply("inner", vec![Term::apply("ka", vec![])]);
+        let (kore, typing) =
+            compiled_in(&RESULT, cast("B", Term::apply("wrap", vec![inner.clone()])));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains(
+                "Lblwrap{SortB{}}(Lblinner{SortB{}}(inj{SortMInt{SortA{}},SortMInt{SortB{}}}(Lblka{}())))"
+            ),
+            "{kore}"
+        );
+        typing.unwrap_or_else(|error| panic!("{error}"));
+
+        let (kore, _) = compiled_in(&RESULT, Term::apply("wrap", vec![inner]));
+        let kore = kore.unwrap_or_else(|error| panic!("{error}"));
+        assert!(
+            kore.contains("Lblwrap{SortA{}}(Lblinner{SortA{}}(Lblka{}()))"),
+            "{kore}"
+        );
     }
 }
