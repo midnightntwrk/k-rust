@@ -6738,6 +6738,125 @@ fn equal_content_rules_keep_their_own_addresses_under_one_unique_id() {
     );
 }
 
+#[test]
+fn emitted_sentence_provenance_matches_kore_ids_with_unimported_prelude_modules() {
+    let source = "module MAIN\n  imports INT\n  syntax Exp ::= Int | e() | f() [macro]\n  rule e() => 5\n  rule f() => e()\nendmodule\n";
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("main.k", source),
+        "MAIN",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let artifacts = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+    let emitted_ids = [&artifacts.definition_kore, &artifacts.macros_kore]
+        .into_iter()
+        .flat_map(|kore| kore.split("UNIQUE'Unds'ID{}(\"").skip(1))
+        .map(|rest| rest.split('"').next().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    assert!(!artifacts.macros_kore.trim().is_empty());
+    let resolved = ResolvedDefinition::resolve(&artifacts.execution_definition).unwrap();
+    let main = resolved.module_id("MAIN").unwrap();
+    let mut import_closure = resolved
+        .transitive_imports(main)
+        .into_iter()
+        .map(|id| resolved.module(id).name.as_str())
+        .collect::<BTreeSet<_>>();
+    import_closure.insert("MAIN");
+    assert!(artifacts.execution_definition.modules.iter().any(|module| {
+        !import_closure.contains(module.name.as_str())
+            && module.local_sentences.iter().any(|sentence| {
+                matches!(&**sentence, Sentence::Rule { .. })
+                    && sentence
+                        .attributes()
+                        .string(k_rust::definition::AttributeKey::UniqueId)
+                        .is_some_and(|id| !emitted_ids.contains(id))
+            })
+    }));
+    assert_eq!(
+        artifacts
+            .sentence_provenance
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        emitted_ids
+    );
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn emitted_sentence_provenance_includes_proof_claims() {
+    let source = indoc! {r#"
+        module DEF
+          syntax State ::= "a" [symbol(a)] | "b" [symbol(b)]
+          configuration <k> $PGM:State </k>
+          rule <k> a => b </k>
+        endmodule
+        module SPEC
+          imports DEF
+          claim [reach]: <k> a => b </k>
+        endmodule
+    "#};
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let loaded = load_with_options(
+        ResolvedSource::new("spec.k", source),
+        "SPEC",
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").unwrap()],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap();
+    let artifacts = compile_loaded_definition(
+        &loaded,
+        CompileOptions {
+            check_mode: k_rust::definition::CheckMode::Proof {
+                definition_module: "DEF".into(),
+            },
+            default_claims_to_all_path: true,
+            ..CompileOptions::default()
+        },
+    )
+    .unwrap();
+    let emitted_ids = artifacts
+        .definition_kore
+        .split("UNIQUE'Unds'ID{}(\"")
+        .skip(1)
+        .map(|rest| rest.split('"').next().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    let claim_id = artifacts
+        .execution_definition
+        .modules
+        .iter()
+        .find(|module| module.name == "SPEC")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(&***sentence, Sentence::Claim { .. }))
+        .unwrap()
+        .attributes()
+        .string(AttributeKey::UniqueId)
+        .unwrap();
+    assert!(emitted_ids.contains(claim_id));
+    assert_eq!(
+        artifacts
+            .sentence_provenance
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>(),
+        emitted_ids
+    );
+}
+
 fn compile_address(module: &str, index: u32) -> InputAddress {
     InputAddress::new(InputSpace::Compile, module, index)
 }

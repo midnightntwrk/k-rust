@@ -48,11 +48,10 @@ use crate::{
 };
 
 use super::module_to_kore::BUILTIN_HOOK_NAMESPACES;
+use super::module_to_kore::module_to_kore_from_resolved_with_options_and_sources;
 use super::passes::number_sentence;
 use super::pipeline::{emission_phase, prologue_phase};
-use super::{
-    ModuleToKoreOptions, module_to_kore_from_resolved_with_options, rust_backend_hook_namespaces,
-};
+use super::{ModuleToKoreOptions, rust_backend_hook_namespaces};
 
 /// Backend whose KORE input should be generated.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -185,7 +184,8 @@ pub struct CompiledKoreArtifacts {
     /// KORE emission structurally sorts rules, so source-backed execution joins this order to the
     /// emitted axioms by their final `UNIQUE_ID`. Equivalent duplicate rules occur only once.
     pub execution_rewrite_order: Vec<String>,
-    /// The input sentences behind each execution rule or claim, keyed by its backend UNIQUE_ID.
+    /// The input sentences behind each emitted rule or claim in `definition_kore` or
+    /// `macros_kore`, keyed by its backend UNIQUE_ID.
     /// Equal-content sentences with one UNIQUE_ID contribute all of their input addresses.
     pub sentence_provenance: BTreeMap<String, EmittedSentenceProvenance>,
 }
@@ -193,7 +193,7 @@ pub struct CompiledKoreArtifacts {
 /// Input provenance of one emitted rule or claim identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedSentenceProvenance {
-    /// Distinct input addresses in execution-definition module and local sentence order.
+    /// Distinct input addresses in emission order.
     pub input_addresses: Vec<InputAddress>,
     /// Original kind of each addressed input sentence.
     pub input_sentence_kinds: BTreeMap<InputAddress, InputSentenceKind>,
@@ -340,8 +340,8 @@ pub fn compile_loaded_definition_timed(
             diagnostics,
         ));
     }
-    let generated = stage(timings, emission_phase::EMIT_KORE, || {
-        module_to_kore_from_resolved_with_options(
+    let (generated, emitted_sources) = stage(timings, emission_phase::EMIT_KORE, || {
+        module_to_kore_from_resolved_with_options_and_sources(
             &resolved,
             &definition.main_module,
             ModuleToKoreOptions {
@@ -373,8 +373,9 @@ pub fn compile_loaded_definition_timed(
                 .join("\n"),
         )
     });
-    let sentence_provenance = collect_sentence_provenance(&execution_definition, loaded)
-        .map_err(|message| CompileError::from_error("emitted sentence provenance", message))?;
+    let sentence_provenance =
+        collect_sentence_provenance(&emitted_sources, &execution_definition, loaded)
+            .map_err(|message| CompileError::from_error("emitted sentence provenance", message))?;
     timings.set_span_seconds(span_started.elapsed().as_secs_f64());
     Ok((
         CompiledKoreArtifacts {
@@ -392,6 +393,7 @@ pub fn compile_loaded_definition_timed(
 }
 
 fn collect_sentence_provenance(
+    emitted_sources: &[crate::definition::Attributes],
     execution: &Definition,
     loaded: &LoadedDefinition,
 ) -> Result<BTreeMap<String, EmittedSentenceProvenance>, String> {
@@ -400,43 +402,49 @@ fn collect_sentence_provenance(
         &loaded.definition,
         InputSpace::Compile,
     ));
+    // Sort injection can replace a generated rule's receipt after the pass that created it.
+    // Keep that generating pass from the execution definition, while emission alone selects IDs.
+    let mut generating_passes = BTreeMap::new();
+    for sentence in execution
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+    {
+        if let Sentence::Rule { .. } | Sentence::Claim { .. } = &**sentence
+            && let Some(id) = sentence.attributes().string(AttributeKey::UniqueId)
+            && let Some(record) = sentence.attributes().origin_record()
+        {
+            generating_passes.entry(id).or_insert(record.pass);
+        }
+    }
     let mut relation = BTreeMap::<String, EmittedSentenceProvenance>::new();
-    for module in &execution.modules {
-        for (index, sentence) in module.local_sentences.iter().enumerate() {
-            if !matches!(&**sentence, Sentence::Rule { .. } | Sentence::Claim { .. }) {
-                continue;
-            }
-            let attributes = sentence.attributes();
-            let id = attributes.string(AttributeKey::UniqueId).ok_or_else(|| {
-                format!(
-                    "rule or claim in {} at local sentence {index} has no UNIQUE_ID",
-                    module.name
-                )
+    for (index, attributes) in emitted_sources.iter().enumerate() {
+        let id = attributes
+            .string(AttributeKey::UniqueId)
+            .ok_or_else(|| format!("emitted rule or claim at index {index} has no UNIQUE_ID"))?;
+        let entry = relation
+            .entry(id.to_owned())
+            .or_insert_with(|| EmittedSentenceProvenance {
+                input_addresses: Vec::new(),
+                input_sentence_kinds: BTreeMap::new(),
+                generated_by: None,
+            });
+        for address in attributes.input_addresses() {
+            let kind = kinds.get(address).ok_or_else(|| {
+                format!("rule or claim {id} names unknown input address {address:?}")
             })?;
-            let entry =
-                relation
-                    .entry(id.to_owned())
-                    .or_insert_with(|| EmittedSentenceProvenance {
-                        input_addresses: Vec::new(),
-                        input_sentence_kinds: BTreeMap::new(),
-                        generated_by: None,
-                    });
-            for address in attributes.input_addresses() {
-                let kind = kinds.get(address).ok_or_else(|| {
-                    format!("rule or claim {id} names unknown input address {address:?}")
-                })?;
-                if !entry.input_sentence_kinds.contains_key(address) {
-                    entry.input_addresses.push(address.clone());
-                    entry.input_sentence_kinds.insert(address.clone(), *kind);
-                }
+            if !entry.input_sentence_kinds.contains_key(address) {
+                entry.input_addresses.push(address.clone());
+                entry.input_sentence_kinds.insert(address.clone(), *kind);
             }
-            if entry.input_addresses.is_empty() {
-                entry.generated_by = entry
-                    .generated_by
-                    .or(attributes.origin_record().map(|record| record.pass));
-            } else {
-                entry.generated_by = None;
-            }
+        }
+        if entry.input_addresses.is_empty() {
+            entry.generated_by = entry
+                .generated_by
+                .or(generating_passes.get(id).copied())
+                .or(attributes.origin_record().map(|record| record.pass));
+        } else {
+            entry.generated_by = None;
         }
     }
     for (id, entry) in &relation {

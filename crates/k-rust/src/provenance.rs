@@ -57,9 +57,9 @@
 //! equal sentences unites their carriers in first-occurrence order.
 //! A sentence with an empty carrier is generated without an input author (a sort predicate, a
 //! projection), never attributed to a guessed one.
-//! `kompile::CompiledKoreArtifacts::sentence_provenance` groups execution rules and claims by
-//! their backend `UNIQUE_ID`. It unions carriers across equal-content sentences in execution
-//! module and local sentence order, retains the original kinds of addressed input sentences, and
+//! `kompile::CompiledKoreArtifacts::sentence_provenance` groups the emitted rules and claims by
+//! their backend `UNIQUE_ID`. It unions carriers across equal-content sentences in emission
+//! order, retains the original kinds of addressed input sentences, and
 //! reports the generating pass when an identity has no input address.
 //!
 //! The origin receipt ([`OriginRecord`]) records the generating pass and the source spans or

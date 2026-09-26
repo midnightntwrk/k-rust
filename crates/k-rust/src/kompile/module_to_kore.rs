@@ -705,6 +705,16 @@ pub fn module_to_kore_from_resolved_with_options(
     module: &str,
     options: ModuleToKoreOptions,
 ) -> Result<DeclarationModules, ModuleToKoreError> {
+    module_to_kore_from_resolved_with_options_and_sources(definition, module, options)
+        .map(|(modules, _)| modules)
+}
+
+/// Return the source attributes of exactly the rules and claims emitted into the two KORE views.
+pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
+    definition: &ResolvedDefinition,
+    module: &str,
+    options: ModuleToKoreOptions,
+) -> Result<(DeclarationModules, Vec<KAttributes>), ModuleToKoreError> {
     let mut modules = declaration_modules_from_resolved_with_options(
         definition,
         module,
@@ -772,6 +782,7 @@ pub fn module_to_kore_from_resolved_with_options(
         module_rules: &module_rules,
         default_reachability,
     };
+    let mut emitted_sources = Vec::new();
     // Invariant: `modules.macros` and `modules.semantics.sentences` hold the emitted sentences of the rules of `module_rules` before `rule`, and `owise_injections` caches every injection an owise competitor scan has computed so far; each rule is emitted once.
     for rule in &module_rules {
         let emitted = emit_rule_or_claim(rule, false, &emission_context, &mut owise_injections)?;
@@ -781,6 +792,7 @@ pub fn module_to_kore_from_resolved_with_options(
         } else {
             modules.semantics.sentences.push(emitted);
         }
+        emitted_sources.push(rule.attributes().clone());
     }
     for claim in specification_claims(
         definition,
@@ -796,8 +808,9 @@ pub fn module_to_kore_from_resolved_with_options(
         let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_injections)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
         modules.semantics.sentences.push(emitted);
+        emitted_sources.push(claim.attributes().clone());
     }
-    Ok(modules)
+    Ok((modules, emitted_sources))
 }
 
 /// Scala's `Module.sentencesExcept(definition)` restricted to claims: the module's local claims
