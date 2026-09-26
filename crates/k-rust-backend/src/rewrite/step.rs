@@ -1,8 +1,8 @@
 //! ```toml algorithm
 //! id = "backend.rewrite.step"
 //! name = "priority-grouped rewriting with a complete remainder"
-//! sites = ["rewrite_step_all", "rewrite_step_any", "apply_priority_group", "first_productive_group", "fold_lower_priority_groups"]
-//! variable = "c = candidate rules"
+//! sites = ["rewrite_step_all", "rewrite_step_any", "apply_priority_group", "first_productive_group", "fold_lower_priority_groups", "SequentialDeterminism::record"]
+//! variable = "c = candidate rules; k = sub-cases the dropped-successor tracker compares within one priority"
 //! counters = ["RewriteRulesApplied"]
 //! span = "per call"
 //! consumes = [
@@ -18,6 +18,10 @@
 //! [[cost]]
 //! mode = "Any"
 //! bound = "O(c) rule attempts plus one predicate simplification per applied rule and one SAT check per step"
+//!
+//! [[cost]]
+//! mode = "Any with dropped-successor tracking (SequentialDeterminism)"
+//! bound = "the Any cost plus up to c rule attempts on the whole subject (one per candidate of a priority that already applied, including candidates after the remaining subject is refuted) and O(k^2) is_sat overlap queries, until the tracker first reports a possible drop"
 //! ```
 //!
 //! Priority-grouped rewrite step with remainder: `All` mode folds the remainder through every
@@ -25,7 +29,10 @@
 //! sequentially (Kore `applyRewriteRulesSequence`). The returned remainder is complete in both
 //! modes. O(c) rule attempts per step for the c candidates of `rule::applicable_rewrite_groups`
 //! plus one SAT check per productive group (`All`) or one predicate simplification per applied
-//! rule and one SAT check per step (`Any`); `Counter::RewriteRulesApplied`.
+//! rule and one SAT check per step (`Any`); `Counter::RewriteRulesApplied`. A one-path proof step
+//! also asks `Any` whether it may have dropped a successor (`SequentialDeterminism`): a rule of a
+//! priority that already applied is attempted once more on the whole subject, and the sub-cases of
+//! one priority are compared pairwise for overlap.
 
 use std::sync::Arc;
 

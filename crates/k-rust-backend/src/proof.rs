@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.proof.search"
 //! name = "reachability-logic proof search"
-//! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim"]
+//! sites = ["prove_claim", "extend_frontier", "finish_at_breadth_limit", "apply_claim", "stuck_leaf"]
 //! variable = "s = explored states; c = circularities; u = states still pending when the breadth limit is reached"
 //! counters = ["ProofStatesExplored", "ProofImplicationChecks"]
 //! span = "per problem"
@@ -16,14 +16,17 @@
 //!
 //! [[cost]]
 //! mode = "one proof"
-//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit"
+//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps"
 //! ```
 //!
 //! Reachability-logic proof search (Kore proveClaim; pyk APR): per explored state one
 //! simplification, one subsumption check (`Counter::ProofImplicationChecks`), circularity
-//! application at depth > 0, one rewrite step; breadth- or depth-first by option, no state
+//! application at depth > 0, one rewrite step (one-path: tracking whether it may drop a
+//! successor, until one may have been dropped); breadth- or depth-first by option, no state
 //! deduplication; O(explored states) x (simplification + implication + |circularities| x
-//! claim application + one step), `Counter::ProofStatesExplored`.
+//! claim application + one step), `Counter::ProofStatesExplored`. A `Stuck` leaf is certified
+//! as a refutation by at most two more satisfiability queries and two more rewrite steps
+//! (`stuck_leaf`).
 
 use std::{
     collections::{BTreeSet, VecDeque},

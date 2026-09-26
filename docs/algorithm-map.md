@@ -110,7 +110,7 @@ Representation flow into [proof result]:
 - [0] backend.unification.syntactic — O(n x s x t) — out: [unification result]
 - [1] ⟲ backend.matching.collections — O((n+1)^k) solve_term_pair assignments with… +2 modes — in: [match result], [unification result] → out: [collection solution]
 - [1] ⟲ backend.matching.syntactic — O(p x (a + s x t)) — in: [collection solution] → out: [match result]
-- [1] backend.rewrite.step — O(c) rule attempts plus one SAT check per… +1 mode — in: [internalized theory], [internalized pattern] → out: [rewrite result]
+- [1] backend.rewrite.step — O(c) rule attempts plus one SAT check per… +2 modes — in: [internalized theory], [internalized pattern] → out: [rewrite result]
 - [2] backend.proof.search — O(s) x (simplification + one is_sat + implication… — in: [claim], [match result], [rewrite result], [extracted substitution], [unification result] → out: [proof result]
 
 ### krun

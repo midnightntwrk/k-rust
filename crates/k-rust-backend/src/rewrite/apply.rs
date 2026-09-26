@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "indeterminate recovery"
-//! bound = "up to eleven recovery strategies with recursion depth at most |r| + 1, each split re-entering once for each of its f partial matches"
+//! bound = "up to eleven recovery strategies with recursion depth at most |r| + 1 below one renaming-apart re-entry, each split re-entering once for each of its f partial matches"
 //! ```
 //!
 //! One-rule conditional rewriting step (Booster applyRule with a Kore-style unification
@@ -24,7 +24,8 @@
 //! requires, validity, applicability, RHS instantiation, the thirteen phases P1 to P13 of
 //! `apply_rule_with_match`. Cost: one matching problem per attempt; on an indeterminate match up
 //! to eleven recovery strategies, each re-entering once per split with an empty or strictly
-//! shorter remainder (recursion depth <= |remainder| + 1); up to three SMT calls per attempt.
+//! shorter remainder (recursion depth <= |remainder| + 1, below the one re-entry with the rule
+//! renamed apart from the subject); up to three SMT calls per attempt.
 //! `Counter::RewriteRuleAttempts`, `Counter::RewriteMatchFailures`, `Counter::SmtQueries`;
 //! O(c) attempts per step for the c candidates the step hands over.
 
@@ -231,7 +232,9 @@ type Phase<T> = Result<T, RuleAttempt>;
 /// bindings extracted from conditions) carries the accumulated `inherited_conditions`, which
 /// only grow, and either an empty or strictly shorter `remainder` or a binding of a previously
 /// unbound `lhs` variable, so the recursion depth is at most |remainder| + 1 and the
-/// constructor-like re-entry cannot repeat.
+/// constructor-like re-entry cannot repeat. Before them, an attempt without a partial match
+/// re-enters at most once with the rule renamed apart from the subject; the renamed rule meets
+/// no scope variable, so it is not renamed again, and that re-entry counts no attempt.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_rule_with_match(
     definition: &BackendDefinition,

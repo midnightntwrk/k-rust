@@ -1,5 +1,6 @@
 ---
 source: crates/algo-graph/tests/freshness.rs
+assertion_line: 27
 expression: canonical
 ---
 [[node]]
@@ -1554,9 +1555,14 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/proof.rs"
 symbol = "apply_claim"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/proof.rs"
+symbol = "stuck_leaf"
+
 [[node.cost]]
 mode = "one proof"
-bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit"
+bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps"
 
 [[node]]
 kind = "algorithm"
@@ -1610,7 +1616,7 @@ bound = "one matching problem, at most one is_sat query, and at most 1 + 2a deci
 
 [[node.cost]]
 mode = "indeterminate recovery"
-bound = "up to eleven recovery strategies with recursion depth at most |r| + 1, each split re-entering once for each of its f partial matches"
+bound = "up to eleven recovery strategies with recursion depth at most |r| + 1 below one renaming-apart re-entry, each split re-entering once for each of its f partial matches"
 
 [[node]]
 kind = "algorithm"
@@ -1762,7 +1768,7 @@ id = "backend.rewrite.step"
 provenance = "declared"
 area = "backend"
 name = "priority-grouped rewriting with a complete remainder"
-variable = "c = candidate rules"
+variable = "c = candidate rules; k = sub-cases the dropped-successor tracker compares within one priority"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "BackendRewriteStep"
@@ -1797,6 +1803,11 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/step.rs"
 symbol = "fold_lower_priority_groups"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/step.rs"
+symbol = "SequentialDeterminism::record"
+
 [[node.cost]]
 mode = "All"
 bound = "O(c) rule attempts plus one SAT check per productive group and one remainder term simplification before the first lower group and after each productive lower group"
@@ -1804,6 +1815,10 @@ bound = "O(c) rule attempts plus one SAT check per productive group and one rema
 [[node.cost]]
 mode = "Any"
 bound = "O(c) rule attempts plus one predicate simplification per applied rule and one SAT check per step"
+
+[[node.cost]]
+mode = "Any with dropped-successor tracking (SequentialDeterminism)"
+bound = "the Any cost plus up to c rule attempts on the whole subject (one per candidate of a priority that already applied, including candidates after the remaining subject is refuted) and O(k^2) is_sat overlap queries, until the tracker first reports a possible drop"
 
 [[node]]
 kind = "algorithm"
