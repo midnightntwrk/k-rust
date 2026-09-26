@@ -103,6 +103,7 @@ pub(super) use self::grammar::named_projection_productions;
 #[cfg(feature = "z3-inference")]
 use self::grammar::{render_added_production, render_production};
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -1051,7 +1052,7 @@ impl Grammar {
 
                         // Aycock/Horspool nullable fix: a completed nullable
                         // production may have been processed before this caller.
-                        let (completed, violation) = completed_nodes(
+                        let completed = completed_nodes(
                             &charts[position],
                             self,
                             sort_id,
@@ -1062,11 +1063,11 @@ impl Grammar {
                             &priority_memos,
                         );
                         if first_violation.is_none() {
-                            first_violation = violation;
+                            first_violation.clone_from(&completed.violation);
                         }
                         let completed = self.filter_associative_boundary(
                             state,
-                            &completed,
+                            &completed.nodes,
                             &mut first_violation,
                         );
                         if !completed.is_empty() {
@@ -1191,7 +1192,7 @@ impl Grammar {
             if self.canonical_position(input, position, &mut scanner_cache) != input.len() {
                 continue;
             }
-            let (completed, violation) = completed_nodes(
+            let completed = completed_nodes(
                 chart,
                 self,
                 start_id,
@@ -1201,9 +1202,9 @@ impl Grammar {
                 provenance,
                 &priority_memos,
             );
-            parses.extend(completed);
+            parses.extend(completed.nodes.iter().cloned());
             if first_violation.is_none() {
-                first_violation = violation;
+                first_violation.clone_from(&completed.violation);
             }
         }
         if parses.is_empty() {
@@ -1259,41 +1260,51 @@ impl Grammar {
     /// would occupy. Rejecting those boundaries before the caller packs its derivations keeps a
     /// long associative chain from expanding into a Catalan-sized forest. Every other boundary
     /// check waits for the priority pass over the completed caller.
-    fn filter_associative_boundary(
+    fn filter_associative_boundary<'a>(
         &self,
         caller: State,
-        nodes: &BTreeSet<Rc<PackedTerm>>,
+        nodes: &'a BTreeSet<Rc<PackedTerm>>,
         first_violation: &mut Option<ParseError>,
-    ) -> BTreeSet<Rc<PackedTerm>> {
+    ) -> Cow<'a, BTreeSet<Rc<PackedTerm>>> {
         let production = &self.productions[caller.production];
         let Some(parent) = production.parse_label.as_deref() else {
-            return nodes.clone();
+            return Cow::Borrowed(nodes);
         };
         let (relation, side) = if caller.dot == 0 {
             (&self.associativities.right, "left")
         } else if caller.dot + 1 == production.items.len() {
             (&self.associativities.left, "right")
         } else {
-            return nodes.clone();
+            return Cow::Borrowed(nodes);
         };
-        nodes
-            .iter()
-            .filter(|node| {
-                let Some(child) = self.packed_top_parse_label(node) else {
-                    return true;
-                };
-                if !relation.contains(&(parent.to_owned(), child.to_owned())) {
-                    return true;
-                }
-                first_violation.get_or_insert_with(|| ParseError::Associativity {
-                    parent: parent.to_owned(),
-                    child: child.to_owned(),
-                    side,
-                });
-                false
-            })
-            .cloned()
-            .collect()
+        let violates = |node: &PackedTerm| {
+            self.packed_top_parse_label(node)
+                .is_some_and(|child| relation.contains(&(parent.to_owned(), child.to_owned())))
+        };
+        // Most boundaries reject nothing; they pass the caller's set through without copying it.
+        if !nodes.iter().any(|node| violates(node)) {
+            return Cow::Borrowed(nodes);
+        }
+        Cow::Owned(
+            nodes
+                .iter()
+                .filter(|node| {
+                    let Some(child) = self.packed_top_parse_label(node) else {
+                        return true;
+                    };
+                    if !relation.contains(&(parent.to_owned(), child.to_owned())) {
+                        return true;
+                    }
+                    first_violation.get_or_insert_with(|| ParseError::Associativity {
+                        parent: parent.to_owned(),
+                        child: child.to_owned(),
+                        side,
+                    });
+                    false
+                })
+                .cloned()
+                .collect(),
+        )
     }
 
     /// Cross the shared packed-forest boundary only after Java's pre-inference transforms.

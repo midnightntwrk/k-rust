@@ -176,7 +176,16 @@ pub(super) struct State {
 }
 
 type CompletedNodeKey = (usize, usize);
-type CompletedNodeResult = (BTreeSet<Rc<PackedTerm>>, Option<ParseError>);
+
+/// The packed terms completed for one `(sort_id, origin)` boundary and the first priority
+/// violation met while building them.
+///
+/// The memo shares one result among every caller of the boundary; callers read it in place.
+#[derive(Debug)]
+pub(super) struct CompletedNodes {
+    pub(super) nodes: BTreeSet<Rc<PackedTerm>>,
+    pub(super) violation: Option<ParseError>,
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct Chart {
@@ -193,7 +202,7 @@ pub(super) struct Chart {
     #[cfg(any(test, feature = "measure"))]
     pub(super) popped: BTreeSet<State>,
     // Java exposes one completed node for each stable (sort, origin, end) chart boundary.
-    pub(super) completed_nodes: RefCell<BTreeMap<CompletedNodeKey, CompletedNodeResult>>,
+    pub(super) completed_nodes: RefCell<BTreeMap<CompletedNodeKey, Rc<CompletedNodes>>>,
 }
 
 impl Default for Chart {
@@ -473,7 +482,7 @@ fn factor_derivations(derivations: &mut BTreeSet<Derivation>) {
         let packed = (0..spans.len())
             .map(|index| {
                 pack_alternatives(
-                    group
+                    &group
                         .iter()
                         .map(|derivation| Rc::clone(&derivation[index]))
                         .collect(),
@@ -517,7 +526,7 @@ pub(super) fn completed_nodes(
     input: &str,
     provenance: ParseProvenance,
     priority_memos: &RefCell<PackedPriorityMemos>,
-) -> (BTreeSet<Rc<PackedTerm>>, Option<ParseError>) {
+) -> Rc<CompletedNodes> {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
     // derivation once; the memo is populated only with the complete packed result and first error.
     #[cfg(test)]
@@ -527,7 +536,7 @@ pub(super) fn completed_nodes(
         measure::bump(Counter::ParserCompletedNodesHits);
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.completed_nodes_hits += 1);
-        return completed.clone();
+        return Rc::clone(completed);
     }
     measure::bump(Counter::ParserCompletedNodesMisses);
     #[cfg(test)]
@@ -566,11 +575,11 @@ pub(super) fn completed_nodes(
         }
     }
     let violation = (!invalid.is_empty()).then(|| canonical_packed_error(invalid));
-    let completed = (nodes, violation);
+    let completed = Rc::new(CompletedNodes { nodes, violation });
     chart
         .completed_nodes
         .borrow_mut()
-        .insert(key, completed.clone());
+        .insert(key, Rc::clone(&completed));
     completed
 }
 
@@ -762,10 +771,19 @@ mod tests {
         };
 
         let memos = RefCell::new(PackedPriorityMemos::default());
-        let mut first = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
-        let mut second = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
-        let first = first.pop_first().expect("first completed node exists");
-        let second = second.pop_first().expect("second completed node exists");
+        let first = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
+        let second = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
+        assert!(Rc::ptr_eq(&first, &second));
+        let first = first
+            .nodes
+            .first()
+            .cloned()
+            .expect("first completed node exists");
+        let second = second
+            .nodes
+            .first()
+            .cloned()
+            .expect("second completed node exists");
 
         assert!(Rc::ptr_eq(&first, &second));
 
@@ -776,10 +794,12 @@ mod tests {
                 [derivation(variable("A"))],
             )
             .unwrap();
-        let mut after_other_boundary =
-            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
+        let after_other_boundary =
+            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
         let after_other_boundary = after_other_boundary
-            .pop_first()
+            .nodes
+            .first()
+            .cloned()
             .expect("completed node survives another boundary change");
         assert!(Rc::ptr_eq(&first, &after_other_boundary));
 
@@ -787,10 +807,11 @@ mod tests {
             .add_chart_state(&mut chart, state, [derivation(variable("B"))])
             .unwrap();
         let after_same_boundary =
-            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos).0;
-        assert_eq!(after_same_boundary.len(), 2);
+            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
+        assert_eq!(after_same_boundary.nodes.len(), 2);
         assert!(
             after_same_boundary
+                .nodes
                 .iter()
                 .all(|completed| !Rc::ptr_eq(&first, completed))
         );

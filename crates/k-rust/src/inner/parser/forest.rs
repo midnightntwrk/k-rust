@@ -495,16 +495,16 @@ impl ParsedTerm {
     }
 }
 
-pub(super) fn pack_alternatives(mut nodes: BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTerm> {
+pub(super) fn pack_alternatives(nodes: &BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTerm> {
     if nodes.len() == 1 {
-        return nodes.pop_first().expect("one alternative exists");
+        return Rc::clone(nodes.first().expect("one alternative exists"));
     }
     let mut alternatives = BTreeSet::new();
     for node in nodes {
         match &node.node {
             PackedNode::Ambiguity(nested) => alternatives.extend(nested.iter().cloned()),
             _ => {
-                alternatives.insert(node);
+                alternatives.insert(Rc::clone(node));
             }
         }
     }
@@ -515,7 +515,7 @@ pub(super) fn append_nodes(
     derivations: &Derivations,
     nodes: &BTreeSet<Rc<PackedTerm>>,
 ) -> BTreeSet<Derivation> {
-    let node = (!nodes.is_empty()).then(|| pack_alternatives(nodes.clone()));
+    let node = (!nodes.is_empty()).then(|| pack_alternatives(nodes));
     derivations
         .iter()
         .filter_map(|derivation| {
