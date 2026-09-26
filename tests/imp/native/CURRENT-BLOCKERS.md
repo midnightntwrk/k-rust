@@ -8,7 +8,7 @@ review links fail visibly if the evidence regresses.
 
 Reproduced on 2026-09-15 with descriptor protocol 35,
 Definition IR schema 27,
-pinned `k-rust` revision `5275055dbdc06f779487402256812aac6bb9926c`, and
+pinned `k-rust` revision `bb52c3e9a4d2b9b2a0d3f2e3eaf37b3961de816f`, and
 pinned K 7.1.337:
 
 ```text
