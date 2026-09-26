@@ -17,7 +17,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
-from support.checkouts import git_revision  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
 from support.lock import k_version  # noqa: E402
 from support.pins import table  # noqa: E402
@@ -36,7 +36,6 @@ SEMANTIC_REJECTED = HERE / "corpus" / "rejected" / "semantic"
 PINS = HERE / "pins.json"
 M3B = HERE.parent / "m3b" / "fixtures"
 UPSTREAM = ROOT.parent / "inspirations" / "runtimeverification" / "imp-semantics"
-UPSTREAM_DEFINITION = UPSTREAM / "src" / "kimp" / "kdist" / "imp-semantics"
 
 MODULE = "KRS-M3C-IMP"
 SYNTAX_MODULE = "KRS-M3C-IMP-SYNTAX"
@@ -208,20 +207,13 @@ def verify_pins(results: Results) -> dict[str, Any]:
         "PASS" if layered == pins.get("m3b_sha256") else "FAIL",
         f"the inherited expression/state oracle is exact; hashes={layered}",
     )
-    upstream_hashes = {
-        name: sha256_file(UPSTREAM_DEFINITION / name) for name in ("expr.k", "calc.k", "imp.k")
-    }
     try:
-        actual_revision = git_revision(UPSTREAM)
-    except GateError:
-        actual_revision = ""
-    results.add(
-        "upstream_sources",
-        "PASS"
-        if upstream_hashes == pins.get("upstream_sha256") and actual_revision == upstream_commit
-        else "FAIL",
-        f"modern IMP {actual_revision or '<unknown>'}; hashes={upstream_hashes}",
-    )
+        verify_checkout(UPSTREAM, str(upstream_commit), label="modern IMP")
+        detail = f"modern IMP {upstream_commit}, clean"
+        status = "PASS"
+    except GateError as error:
+        detail, status = str(error), "FAIL"
+    results.add("upstream_sources", status, detail)
     surface = IMP.read_text(encoding="utf-8")
     required = (
         'requires "../../m3b/fixtures/calc.k"',

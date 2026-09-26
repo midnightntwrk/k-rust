@@ -190,13 +190,5 @@
   },
   "upstream_imp": {
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
-  },
-  "upstream_sha256": {
-    "definition/calc.k": "7a6535283b8985ac5710f529f8e04b7bf97feefbcde6ef48146441d4c67ee2b8",
-    "definition/expr.k": "8aff9b14929cc0573545beb9724b213623a227c91635b784bab2f27a3799f3a0",
-    "definition/imp-verification.k": "4a53c3c621edf14b7fb81c3c473d5c2bc8f35165432a78a5506ef7418b2d8c04",
-    "definition/imp.k": "4786bda6a993f21b78a7b7b1b4a88d47cfc812e3acc585f0aa3121d272dbfd2b",
-    "specs/imp-simple-spec.k": "5a3e6c9df81c59a0a9aec8d8830a1f50580bae07f283cea793ef63e25b350c67",
-    "specs/imp-sum-spec.k": "4b0caa1bdbe11cdfbdc4fe9bbf43602585643b88373329a1d3e240950d10913d"
   }
 }

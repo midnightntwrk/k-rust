@@ -74,11 +74,11 @@ the M3B--M3D ledgers, IMP checks those corpora against the ledgers'
 
 `pins.json` holds three kinds of values:
 
-- inputs IMP does not control: the IMP revision, the digests of the external
-  k-rust and IMP files it relies on (`external_sha256`), and the corpus digest.
-  The K and k-rust revisions, their tracked-tree digests, the K, kore-exec, LLVM
-  backend, pyk, and Z3 versions, the MSRV, and the schema versions come from
-  `Krs.lock`;
+- inputs IMP does not control: the IMP revision and the corpus digest.
+  The K and k-rust revisions, the K, kore-exec, LLVM backend, pyk, and Z3
+  versions, the MSRV, and the schema versions come from `Krs.lock`.
+  Each external checkout must be clean at its pinned revision, which fixes every
+  external file, so no external file is digested separately;
 - outputs KRS produces: the artifact and native artifact digests, the
   source-definition projection digests, the LLVM capability diagnostic digest,
   the behavior summary, and the compatibility report digest;

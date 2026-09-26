@@ -158,23 +158,6 @@ class HashingTests(unittest.TestCase):
             with self.assertRaisesRegex(GateError, "artifact set differs"):
                 hashing.exact_directory(first, second, ["x"])
 
-    def test_tracked_tree_digest_and_untracked_rejection(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            checkout = Path(temporary)
-            (checkout / "tree").mkdir()
-            (checkout / "tree/a.txt").write_text("a")
-            process.run(["git", "init", "-q"], cwd=checkout)
-            process.run(["git", "add", "tree"], cwd=checkout)
-            digest = hashing.tracked_tree_sha256(checkout, "tree")
-            (checkout / "tree/__pycache__").mkdir()
-            (checkout / "tree/__pycache__/a.pyc").write_bytes(b"")
-            self.assertEqual(hashing.tracked_tree_sha256(checkout, "tree", reject_untracked=True), digest)
-            (checkout / "tree/b.txt").write_text("b")
-            with self.assertRaisesRegex(GateError, "untracked files"):
-                hashing.tracked_tree_sha256(checkout, "tree", reject_untracked=True)
-            with self.assertRaisesRegex(GateError, "tracked tree is empty"):
-                hashing.tracked_tree_sha256(checkout, "absent")
-
 
 class PinTests(unittest.TestCase):
     def test_loaders_and_table(self) -> None:

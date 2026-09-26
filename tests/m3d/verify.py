@@ -213,16 +213,6 @@ def corpus_paths() -> dict[str, Path]:
     }
 
 
-def upstream_paths() -> dict[str, Path]:
-    return {
-        f"definition/{name}": IMP_DEFINITION / name
-        for name in ("expr.k", "calc.k", "imp.k", "imp-verification.k")
-    } | {
-        f"specs/{name}": IMP_SPECS / name
-        for name in ("imp-simple-spec.k", "imp-sum-spec.k")
-    }
-
-
 def observed_ledger(outcomes: dict[str, dict[str, Any]], upstream_commit: str) -> dict[str, Any]:
     selected_names = {
         "addition-1",
@@ -253,7 +243,6 @@ def observed_ledger(outcomes: dict[str, dict[str, Any]], upstream_commit: str) -
             "claim": "functional reconstruction; original blobs unavailable",
         },
         "corpus_sha256": {name: sha256_file(path) for name, path in corpus_paths().items()},
-        "upstream_sha256": {name: sha256_file(path) for name, path in upstream_paths().items()},
         "static_execution": {
             "program": "corpus/static-evaluation.imp",
             "environment": {"x": 6, "y": 0},
@@ -301,9 +290,9 @@ def main() -> int:
     kompile = k_tool("kompile", k_version())
     kprove = k_tool("kprove", k_version())
     krun = k_tool("krun", k_version())
-    verify_checkout(K, k_commit(), label="K", clean=False)
+    verify_checkout(K, k_commit(), label="K")
     upstream_commit = str(load_json(PINS).get("upstream_imp", {}).get("commit"))
-    verify_checkout(IMP, upstream_commit, label="IMP", clean=False)
+    verify_checkout(IMP, upstream_commit, label="IMP")
 
     with tempfile.TemporaryDirectory(prefix="krs-m3d-reconstructed-") as temporary:
         workspace = Path(temporary)

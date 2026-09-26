@@ -1,14 +1,13 @@
-"""Digests the gates pin: files, text, canonical JSON, trees, and artifact sets."""
+"""Digests the gates pin: files, text, canonical JSON, and artifact sets."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from support import GateError
-from support.process import run
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -39,43 +38,6 @@ def canonical_json(value: Any) -> str:
 
 def json_sha256(value: Any) -> str:
     return sha256_text(canonical_json(value))
-
-
-def relevant_untracked(paths: Iterable[str]) -> list[str]:
-    """Drop interpreter-generated Python cache entries from an untracked listing."""
-
-    return sorted(
-        relative
-        for relative in paths
-        if "__pycache__" not in Path(relative).parts and Path(relative).suffix != ".pyc"
-    )
-
-
-def tracked_tree_sha256(checkout: Path, prefix: str, *, reject_untracked: bool = False) -> str:
-    """Digest every Git-tracked file under `prefix` by path and content.
-
-    With `reject_untracked`, an untracked file other than Python cache output
-    fails the digest, because it could change a build of the tree.
-    """
-
-    listing = run(["git", "-C", checkout, "ls-files", prefix], timeout=60)
-    paths = sorted(line for line in listing.stdout.splitlines() if line)
-    if not paths:
-        raise GateError(f"tracked tree is empty: {checkout}/{prefix}")
-    if reject_untracked:
-        others = run(["git", "-C", checkout, "ls-files", "--others", prefix], timeout=60)
-        untracked = relevant_untracked(others.stdout.splitlines())
-        if untracked:
-            raise GateError(
-                f"untracked files can affect pinned source tree {checkout}/{prefix}: {untracked}"
-            )
-    digest = hashlib.sha256()
-    for relative in paths:
-        digest.update(relative.encode())
-        digest.update(b"\0")
-        digest.update(sha256_file(checkout / relative).encode())
-        digest.update(b"\n")
-    return digest.hexdigest()
 
 
 def exact_directory(first: Path, second: Path, names: Sequence[str]) -> dict[str, str]:

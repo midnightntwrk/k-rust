@@ -23,11 +23,6 @@
     "expr.k": "261c7a86a160132d888aeac85cd7b49310083283579671d9f1150a636e046c41",
     "calc.k": "17bfdf19e47ca455921ae7b948d6637531317cd1cb16547bc3698631c3cd4a64"
   },
-  "upstream_sha256": {
-    "expr.k": "8aff9b14929cc0573545beb9724b213623a227c91635b784bab2f27a3799f3a0",
-    "calc.k": "7a6535283b8985ac5710f529f8e04b7bf97feefbcde6ef48146441d4c67ee2b8",
-    "imp.k": "4786bda6a993f21b78a7b7b1b4a88d47cfc812e3acc585f0aa3121d272dbfd2b"
-  },
   "upstream_imp": {
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
   },

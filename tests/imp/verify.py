@@ -23,14 +23,13 @@ from typing import Any, Callable, Mapping, TypeVar, cast
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support import lock  # noqa: E402
-from support.checkouts import git_revision  # noqa: E402
+from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import (  # noqa: E402
     canonical_json,
     exact_directory,
     json_sha256,
     sha256_file,
     sha256_text,
-    tracked_tree_sha256,
 )
 from support.kdefinition import split_claims  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
@@ -386,15 +385,6 @@ class SourceDefinitions:
         return f"parsed/compiled fail-closed projection: {self.comparison}"
 
 
-KRS_LOCK_EXTERNAL_TREES = (
-    ("k", "pyk_source_sha256", "k", "pyk/src", True),
-    ("k_rust", "tracked_crate_sha256", "k_rust", "crates/k-rust", False),
-    ("k_rust", "tracked_backend_sha256", "k_rust", "crates/k-rust-backend", False),
-    ("k_rust", "tracked_kore_sha256", "k_rust", "crates/k-rust-kore", False),
-)
-"""`Krs.lock` digests of external source trees: (section, key, checkout, prefix, reject untracked)."""
-
-
 def phase_preflight(context: Context) -> str:
     """Check the input pins: external checkouts, their files, the corpus, and tools.
 
@@ -434,18 +424,10 @@ def phase_preflight(context: Context) -> str:
         "imp": table(table(pins.get("revisions"), "pins.revisions").get("imp"), "revisions.imp").get("commit"),
         "k_rust": str(lock.value("k_rust", "commit")),
     }
-    observed = {name: git_revision(path) for name, path in checkouts.items()}
-    if observed != expected:
-        raise GateError(f"checkout revision differs: expected={expected}, actual={observed}")
-    for relative, digest in table(pins.get("external_sha256"), "pins.external_sha256").items():
-        if sha256_file(ROOT / relative) != digest:
-            raise GateError(f"external input differs from its pin: {relative}")
-    for section, key, checkout, prefix, reject_untracked in KRS_LOCK_EXTERNAL_TREES:
-        digest = tracked_tree_sha256(
-            checkouts[checkout], prefix, reject_untracked=reject_untracked
-        )
-        if digest != lock.value(section, key):
-            raise GateError(f"{checkout} {prefix} differs from Krs.lock [{section}] {key}")
+    # A clean checkout at the pinned commit fixes every input file; the gate
+    # does not digest external files separately.
+    for name, path in checkouts.items():
+        verify_checkout(path, str(expected[name]), label=name)
     for crate, key in (
         ("k-rust", "version"), ("k-rust-backend", "backend_version"), ("k-rust-kore", "kore_version")
     ):

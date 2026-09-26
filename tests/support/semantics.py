@@ -123,8 +123,8 @@ def artifacts_only_summary(port: Port) -> str:
 def preflight(port: Port, pins: Ledger, corpus: Mapping[str, Any]) -> dict[str, str]:
     """Check the input pins and return the build environment.
 
-    Inputs are the external checkout revision, its K release, the digests of
-    every external file the corpus cites, and the corpus itself. Schema
+    Inputs are the clean external checkout at its pinned revision, its K
+    release, the external files the corpus cites, and the corpus itself. Schema
     constants must agree with `Krs.lock`. KRS source is deliberately not pinned.
     """
 
@@ -138,16 +138,13 @@ def preflight(port: Port, pins: Ledger, corpus: Mapping[str, Any]) -> dict[str, 
     if release != checkout_pin.get("version"):
         raise GateError(f"{port.label} K release differs: {release}")
 
-    expected_external = pins.table("external_sha256")
+    # The clean checkout at the pinned commit fixes every evidence file.
     evidence = corpus.get("source_evidence")
     if not isinstance(evidence, list) or not evidence:
         raise GateError("source evidence is empty")
-    evidence_paths = {str(entry["path"]) for entry in evidence}
-    if set(expected_external) != evidence_paths:
-        raise GateError("external evidence-ledger path set differs")
-    for relative in sorted(evidence_paths):
-        if sha256_file(port.checkout / relative) != expected_external[relative]:
-            raise GateError(f"external {port.label} evidence differs: {relative}")
+    for relative in sorted({str(entry["path"]) for entry in evidence}):
+        if not (port.checkout / relative).is_file():
+            raise GateError(f"external {port.label} evidence is missing: {relative}")
 
     return {**z3_environment(), "CARGO_NET_OFFLINE": "true"}
 
