@@ -37,6 +37,66 @@ use k_rust_kore::measure::{self, Counter};
 use super::Sort;
 use super::{Grammar, Item};
 
+/// A set of scanner lexeme ids, one bit per id; ids are dense indexes into the scanner.
+#[derive(Clone, Default, Eq, PartialEq)]
+struct LexemeSet {
+    words: Vec<u64>,
+}
+
+impl LexemeSet {
+    fn insert(&mut self, id: usize) {
+        let (word, bit) = (id / 64, id % 64);
+        if self.words.len() <= word {
+            self.words.resize(word + 1, 0);
+        }
+        self.words[word] |= 1 << bit;
+    }
+
+    fn contains(&self, id: usize) -> bool {
+        self.words
+            .get(id / 64)
+            .is_some_and(|word| word & (1 << (id % 64)) != 0)
+    }
+
+    /// Add every id of `other`; true exactly when the set grew.
+    fn union_with(&mut self, other: &Self) -> bool {
+        if self.words.len() < other.words.len() {
+            self.words.resize(other.words.len(), 0);
+        }
+        let mut grew = false;
+        for (word, added) in self.words.iter_mut().zip(&other.words) {
+            grew |= *added & !*word != 0;
+            *word |= added;
+        }
+        grew
+    }
+
+    fn is_empty(&self) -> bool {
+        self.words.iter().all(|word| *word == 0)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = usize> + '_ {
+        self.words.iter().enumerate().flat_map(|(index, word)| {
+            (0..64)
+                .filter(move |bit| word & (1 << bit) != 0)
+                .map(move |bit| index * 64 + bit)
+        })
+    }
+}
+
+impl std::fmt::Debug for LexemeSet {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_set().entries(self.iter()).finish()
+    }
+}
+
+#[cfg(test)]
+impl PartialEq<BTreeSet<usize>> for LexemeSet {
+    fn eq(&self, other: &BTreeSet<usize>) -> bool {
+        self.iter().eq(other.iter().copied())
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Symbol {
     NonTerminal(usize),
@@ -76,7 +136,7 @@ impl Iterator for PredictionCandidates<'_> {
 pub(super) struct PredictionAnalysis {
     first_items: Vec<Option<Symbol>>,
     epsilon: Vec<bool>,
-    first: Vec<BTreeSet<usize>>,
+    first: Vec<LexemeSet>,
     buckets: Vec<PredictionBucket>,
 }
 
@@ -168,7 +228,7 @@ impl PredictionAnalysis {
         }
 
         // Java computeFirstSet's monotone unions, scheduled only for changed child sorts.
-        let mut first = vec![BTreeSet::new(); grammar.sorts.len()];
+        let mut first = vec![LexemeSet::default(); grammar.sorts.len()];
         let mut dependents = vec![BTreeSet::new(); grammar.sorts.len()];
         for (result, items) in &productions {
             for item in items {
@@ -181,7 +241,9 @@ impl PredictionAnalysis {
                     }
                     Symbol::Lexical(lexeme) => {
                         // Unregistered items cannot match Scanner::matches either.
-                        first[*result].extend(lexeme);
+                        if let Some(lexeme) = lexeme {
+                            first[*result].insert(*lexeme);
+                        }
                         break;
                     }
                 }
@@ -200,9 +262,7 @@ impl PredictionAnalysis {
             queued[sort] = false;
             let tokens = first[sort].clone();
             for parent in &dependents[sort] {
-                let previous = first[*parent].len();
-                first[*parent].extend(&tokens);
-                if previous != first[*parent].len() && !queued[*parent] {
+                if first[*parent].union_with(&tokens) && !queued[*parent] {
                     queued[*parent] = true;
                     pending.push_back(*parent);
                 }
@@ -246,7 +306,7 @@ impl PredictionAnalysis {
         match self.first_items[production] {
             Some(Symbol::Lexical(target)) => target.is_none() || target != winner,
             Some(Symbol::NonTerminal(child)) => {
-                winner.is_none_or(|winner| !self.first[child].contains(&winner))
+                winner.is_none_or(|winner| !self.first[child].contains(winner))
             }
             None => false,
         }
@@ -697,7 +757,7 @@ mod tests {
             analysis.first[id(&Sort::new("Mandatory"))],
             BTreeSet::from([zero])
         );
-        assert!(!analysis.first[id(&Sort::new("Mandatory"))].contains(&token("x")));
+        assert!(!analysis.first[id(&Sort::new("Mandatory"))].contains(token("x")));
         for (parameter, text) in [("Int", "i"), ("Bool", "t")] {
             assert_eq!(
                 analysis.first[id(&Sort::with_parameters("Box", vec![Sort::new(parameter)]))],
