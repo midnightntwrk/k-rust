@@ -39,7 +39,7 @@ use crate::{
     definition::{
         Attributes, Definition, DefinitionViews, LabelHead, ModuleId, ProductionCatalog,
         ResolvedDefinition, Sentence, SortCatalog,
-        checks::{check_functions, check_smt_lemmas},
+        checks::{self, check_functions_with_internal_labels, check_smt_lemmas},
     },
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
@@ -110,6 +110,9 @@ pub(crate) fn expand_macros_pass(
                 continue;
             }
         };
+        // The internal labels depend only on the module's catalogs; they are computed once, when
+        // the first sentence of the module is expanded.
+        let mut internal_labels = None;
         for sentence in &mut module.local_sentences {
             let sentence = crate::definition::sentence_mut(sentence);
             if matches!(sentence, Sentence::Rule { attributes, .. } if attributes.has_any(&AttributeKey::MACRO_LIKE))
@@ -124,10 +127,13 @@ pub(crate) fn expand_macros_pass(
                 match expander.expand_sentence(original) {
                     Ok(expanded) => {
                         *sentence = expanded;
-                        diagnostics.extend(check_functions(
+                        let internal_labels = internal_labels.get_or_insert_with(|| {
+                            checks::internal_labels(expander.productions, expander.sorts)
+                        });
+                        diagnostics.extend(check_functions_with_internal_labels(
                             &[sentence],
                             expander.productions,
-                            expander.sorts,
+                            internal_labels,
                         ));
                         diagnostics.extend(check_smt_lemmas(&[sentence], expander.productions));
                         if matches!(sentence, Sentence::Rule { .. } | Sentence::Claim { .. })

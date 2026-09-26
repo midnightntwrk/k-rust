@@ -14,7 +14,7 @@ use crate::definition::{
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::kast::{FrontendSort, GeneratedCell, InternalLabel, Label, Sort, Term};
 
-pub(super) fn internal_labels(
+pub(crate) fn internal_labels(
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
 ) -> BTreeSet<String> {

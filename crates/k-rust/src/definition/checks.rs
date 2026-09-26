@@ -44,10 +44,12 @@ mod term_position;
 pub use attributes::{check_attribute_semantics, check_attributes};
 pub use deprecated::check_deprecated_productions;
 pub use functions::check_functions;
+pub(crate) use functions::check_functions_with_internal_labels;
 pub use kompile_checks::{
     check_claims_in_definition, check_is_sort_predicates, check_proof_module,
 };
 use kompile_checks::{check_is_sort_predicates_with_views, check_proof_module_with_views};
+pub(crate) use labels::internal_labels;
 pub use labels::{
     check_duplicate_klabels, check_duplicate_overloads, check_function_rule_attributes,
     check_klabels, check_singleton_overloads, check_unused_symbols,

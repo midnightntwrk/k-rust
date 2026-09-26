@@ -33,7 +33,20 @@ pub fn check_functions(
     productions: &ProductionCatalog<'_>,
     sorts: &SortCatalog<'_>,
 ) -> Vec<Diagnostic> {
-    let internal_labels = internal_labels(productions, sorts);
+    check_functions_with_internal_labels(
+        sentences,
+        productions,
+        &internal_labels(productions, sorts),
+    )
+}
+
+/// [`check_functions`] against the internal labels of the module whose catalogs are supplied,
+/// for a caller that checks one module's sentences in several calls and computes them once.
+pub(crate) fn check_functions_with_internal_labels(
+    sentences: &[&Sentence],
+    productions: &ProductionCatalog<'_>,
+    internal_labels: &BTreeSet<String>,
+) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     for sentence in sentences {
         let body = match sentence {
@@ -48,7 +61,7 @@ pub fn check_functions(
             body,
             TermPosition::BODY,
             &mut at_top,
-            &internal_labels,
+            internal_labels,
             productions,
             sentence,
             &mut diagnostics,
