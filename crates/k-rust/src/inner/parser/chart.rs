@@ -14,12 +14,12 @@
 //! id = "parser.chart.completed_memo"
 //! name = "completed-node memoization for Earley charts"
 //! sites = ["completed_nodes", "Chart::invalidate_completed_node"]
-//! variable = "M = memo entries; k = packed terms in the memoized result; S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation"
+//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation"
 //! counters = ["ParserCompletedNodesHits", "ParserCompletedNodesMisses", "ParserCompletedNodesInvalidated", "ParserChartCompletionCandidates"]
 //!
 //! [[cost]]
 //! mode = "memo hit"
-//! bound = "O(log M + k)"
+//! bound = "O(1) expected: one hashed lookup returning the shared result"
 //!
 //! [[cost]]
 //! mode = "memo miss"
@@ -29,7 +29,7 @@
 //! Earley chart insertion with coverage-aware derivations and completed-node memoization.
 //!
 //! An insertion costs O(stored derivations * child width), with boundary factoring at O(d log d).
-//! Completed-node lookup is O(log memo) on a hit and scans matching completed states on a miss.
+//! Completed-node lookup is one hashed lookup on a hit and scans matching completed states on a miss.
 //! Chart adds, state changes, memo hits, misses, and completion candidates have dedicated counters.
 
 #[cfg(test)]
@@ -179,15 +179,16 @@ pub(super) struct State {
     pub(super) origin: usize,
 }
 
-/// Multiplicative word hasher for chart states.
+/// Multiplicative word hasher for chart keys.
 ///
-/// A state is three indices the parser assigns, so the flooding resistance of the default hasher
-/// buys nothing, while every agenda pop and chart insertion hashes one. No result depends on
-/// the order of a hashed chart map: the only walk over one collects into an ordered set.
+/// Chart keys are indices the parser assigns (a state's production, dot and origin; sort ids;
+/// origins), so the flooding resistance of the default hasher buys nothing, while every agenda
+/// pop, chart insertion and completion hashes some. No result depends on the order of a hashed
+/// chart map: the only walk over one collects into an ordered set.
 #[derive(Clone, Copy, Debug, Default)]
-pub(super) struct StateHasher(u64);
+pub(super) struct IndexHasher(u64);
 
-impl Hasher for StateHasher {
+impl Hasher for IndexHasher {
     fn write(&mut self, bytes: &[u8]) {
         for byte in bytes {
             self.write_u64(u64::from(*byte));
@@ -208,9 +209,9 @@ impl Hasher for StateHasher {
     }
 }
 
-pub(super) type StateMap<V> = HashMap<State, V, BuildHasherDefault<StateHasher>>;
+pub(super) type IndexMap<K, V> = HashMap<K, V, BuildHasherDefault<IndexHasher>>;
 #[cfg(any(test, feature = "measure"))]
-pub(super) type StateSet = HashSet<State, BuildHasherDefault<StateHasher>>;
+pub(super) type StateSet = HashSet<State, BuildHasherDefault<IndexHasher>>;
 
 type CompletedNodeKey = (usize, usize);
 
@@ -226,20 +227,20 @@ pub(super) struct CompletedNodes {
 
 #[derive(Clone, Debug)]
 pub(super) struct Chart {
-    pub(super) states: StateMap<Derivations>,
+    pub(super) states: IndexMap<State, Derivations>,
     // Each bucket is considered once at this position. Its marker also permits omission of
     // impossible callers that would not expand the same bucket again. Caller-specific nullable
     // completion must still run on every request.
     pub(super) predicted: Vec<bool>,
-    pub(super) waiting: BTreeMap<usize, Vec<State>>,
-    pub(super) completed: BTreeMap<usize, Vec<State>>,
+    pub(super) waiting: IndexMap<usize, Vec<State>>,
+    pub(super) completed: IndexMap<usize, Vec<State>>,
     pub(super) agenda: VecDeque<State>,
     // Revisit accounting (`parser.chart_revisit_pops`) needs the set of states popped so far;
     // it is kept only where something reads it.
     #[cfg(any(test, feature = "measure"))]
     pub(super) popped: StateSet,
     // Java exposes one completed node for each stable (sort, origin, end) chart boundary.
-    pub(super) completed_nodes: RefCell<BTreeMap<CompletedNodeKey, Rc<CompletedNodes>>>,
+    pub(super) completed_nodes: RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>>,
 }
 
 impl Default for Chart {
@@ -251,14 +252,14 @@ impl Default for Chart {
 impl Chart {
     pub(super) fn new(sort_count: usize) -> Self {
         Self {
-            states: StateMap::default(),
+            states: IndexMap::default(),
             predicted: vec![false; sort_count],
-            waiting: BTreeMap::new(),
-            completed: BTreeMap::new(),
+            waiting: IndexMap::default(),
+            completed: IndexMap::default(),
             agenda: VecDeque::new(),
             #[cfg(any(test, feature = "measure"))]
             popped: StateSet::default(),
-            completed_nodes: RefCell::new(BTreeMap::new()),
+            completed_nodes: RefCell::new(IndexMap::default()),
         }
     }
 }

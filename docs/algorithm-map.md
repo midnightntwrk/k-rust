@@ -170,7 +170,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - kore.printer.render — O(N * k + o) — at kore/kore/printer/document.rs `render`
 - parser.bison.priorities — O(Q x P) — at k-rust/bison/grammar.rs `transform_priority_and_associativity`
 - parser.bison.reachable_sorts — O(S x P) — at k-rust/bison/grammar.rs `reachable_sorts`
-- parser.chart.completed_memo — O(log M + k) +1 mode — at k-rust/inner/parser/chart.rs `completed_nodes`
+- parser.chart.completed_memo — O(1) expected: one hashed lookup returning the… +1 mode — at k-rust/inner/parser/chart.rs `completed_nodes`
 - parser.chart.insert — O(D x W) with O(D log D) boundary factoring — at k-rust/inner/parser/chart.rs `Chart::add_with_status`
 - parser.diagnostic.ambiguity — O(A) — at k-rust/inner/parser.rs `AmbiguousParse`
 - parser.diagnostic.no_parse — O(B + K x log E) plus O(L) per scanner.winner… — at k-rust/inner/parser.rs `Grammar::no_parse`
