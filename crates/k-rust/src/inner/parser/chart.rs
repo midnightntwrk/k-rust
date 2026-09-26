@@ -35,7 +35,9 @@
 #[cfg(test)]
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::hash_map::Entry;
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Counter};
@@ -168,12 +170,43 @@ pub(super) fn record_chart_dispatch(kind: ChartDispatchKind, derivations: usize,
     });
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct State {
     pub(super) production: usize,
     pub(super) dot: usize,
     pub(super) origin: usize,
 }
+
+/// Multiplicative word hasher for chart states.
+///
+/// A state is three indices the parser assigns, so the flooding resistance of the default hasher
+/// buys nothing, while every agenda pop and chart insertion hashes one. No result depends on
+/// the order of a hashed chart map: the only walk over one collects into an ordered set.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct StateHasher(u64);
+
+impl Hasher for StateHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.write_u64(u64::from(*byte));
+        }
+    }
+
+    fn write_u64(&mut self, word: u64) {
+        const SEED: u64 = 0x51_7c_c1_b7_27_22_0a_95;
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(SEED);
+    }
+
+    fn write_usize(&mut self, word: usize) {
+        self.write_u64(word as u64);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+pub(super) type StateMap<V> = HashMap<State, V, BuildHasherDefault<StateHasher>>;
 
 type CompletedNodeKey = (usize, usize);
 
@@ -189,7 +222,7 @@ pub(super) struct CompletedNodes {
 
 #[derive(Clone, Debug)]
 pub(super) struct Chart {
-    pub(super) states: BTreeMap<State, Derivations>,
+    pub(super) states: StateMap<Derivations>,
     // Each bucket is considered once at this position. Its marker also permits omission of
     // impossible callers that would not expand the same bucket again. Caller-specific nullable
     // completion must still run on every request.
@@ -214,7 +247,7 @@ impl Default for Chart {
 impl Chart {
     pub(super) fn new(sort_count: usize) -> Self {
         Self {
-            states: BTreeMap::new(),
+            states: StateMap::default(),
             predicted: vec![false; sort_count],
             waiting: BTreeMap::new(),
             completed: BTreeMap::new(),
@@ -391,11 +424,13 @@ impl Chart {
         #[cfg(test)]
         update_chart_work_counters(|counters| counters.add_calls += 1);
         let mut derivations = derivations.into_iter().peekable();
-        let new_state = !self.states.contains_key(&state);
         if derivations.peek().is_none() {
-            return Ok((false, new_state));
+            return Ok((false, !self.states.contains_key(&state)));
         }
-        let stored = self.states.entry(state).or_default();
+        let (stored, new_state) = match self.states.entry(state) {
+            Entry::Occupied(entry) => (entry.into_mut(), false),
+            Entry::Vacant(entry) => (entry.insert(Derivations::Empty), true),
+        };
         let mut changed = false;
         // Invariant: `stored` is an antichain under derivation coverage after every insertion;
         // `changed` is true exactly when the represented parse set grows.
