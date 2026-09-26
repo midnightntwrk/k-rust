@@ -13,6 +13,7 @@ mod equivalence;
 pub mod execution;
 pub mod feasibility;
 pub mod observation;
+pub mod report;
 mod selector;
 #[cfg(test)]
 #[path = "../../../testdata/k/support.rs"]
