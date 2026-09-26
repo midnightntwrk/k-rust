@@ -15,6 +15,7 @@
 //! KORE pretty printing produces a sequence of ops and renders it through `document::render`, which writes to an `io::Write` as it goes.
 //! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling fixed task sequences and delimited groups directly onto that stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
 //! A pattern is printed by feeding `SyntaxOps` straight to the renderer (`Printer::write_pattern`), so neither its op sequence nor its text is held whole; `print_pattern` is the same path into a byte buffer.
+//! Static syntax tokens borrow their text while generated names and quoted values own theirs; both yield the same text bytes to the renderer.
 //! Definitions, modules, and sentences are built as a `Doc` first and then rendered by the same function.
 //! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; no dedicated counter.
 //!
@@ -23,6 +24,7 @@
 mod document;
 
 use std::{
+    borrow::Cow,
     fmt::{self, Display, Formatter},
     io,
 };
@@ -392,7 +394,7 @@ enum SyntaxTask<'a> {
     Sort(&'a Sort),
     Symbol(&'a Symbol),
     Variable(&'a Variable),
-    Text(String),
+    Text(Cow<'static, str>),
     Line(&'static str),
     NestStart,
     NestEnd,
@@ -484,7 +486,12 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
         | SyntaxTask::GroupEnd => unreachable!("SyntaxOps::next returns leaf tasks as ops"),
         SyntaxTask::Delimited { open, close, items } => {
             if items.is_empty() {
-                stack.push(SyntaxTask::Text(format!("{open}{close}")));
+                let text = match (open, close) {
+                    ("{", "}") => Cow::Borrowed("{}"),
+                    ("(", ")") => Cow::Borrowed("()"),
+                    _ => Cow::Owned(format!("{open}{close}")),
+                };
+                stack.push(SyntaxTask::Text(text));
                 return;
             }
             stack.push(SyntaxTask::GroupEnd);
@@ -504,10 +511,10 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
             stack.push(SyntaxTask::GroupStart);
         }
         SyntaxTask::Sort(sort) => match sort {
-            Sort::Variable(name) => stack.push(SyntaxTask::Text(name.clone())),
+            Sort::Variable(name) => stack.push(SyntaxTask::Text(name.clone().into())),
             Sort::Application { name, arguments } => {
                 stack.push(delimited("{", "}", arguments.iter().map(SyntaxTask::Sort)));
-                stack.push(SyntaxTask::Text(name.clone()));
+                stack.push(SyntaxTask::Text(name.clone().into()));
             }
         },
         SyntaxTask::Symbol(symbol) => {
@@ -516,14 +523,14 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 "}",
                 symbol.sort_parameters.iter().map(SyntaxTask::Sort),
             ));
-            stack.push(SyntaxTask::Text(symbol.name.clone()));
+            stack.push(SyntaxTask::Text(symbol.name.clone().into()));
         }
         SyntaxTask::Variable(variable) => {
             stack.push(SyntaxTask::Sort(&variable.sort));
-            stack.push(SyntaxTask::Text(format!("{}:", variable.name)));
+            stack.push(SyntaxTask::Text(format!("{}:", variable.name).into()));
         }
         SyntaxTask::Pattern(pattern) => match pattern {
-            Pattern::String(value) => stack.push(SyntaxTask::Text(string::quote(value))),
+            Pattern::String(value) => stack.push(SyntaxTask::Text(string::quote(value).into())),
             Pattern::Variable(variable) => stack.push(SyntaxTask::Variable(variable)),
             Pattern::Application { symbol, arguments } => {
                 stack.push(delimited(
@@ -552,7 +559,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}{{")),
+                        SyntaxTask::Text(format!("\\{name}{{").into()),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
                         delimited("(", ")", arguments.iter().map(SyntaxTask::Pattern)),
@@ -568,7 +575,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}{{")),
+                        SyntaxTask::Text(format!("\\{name}{{").into()),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
                         delimited("(", ")", [SyntaxTask::Pattern(argument)]),
@@ -586,7 +593,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}{{")),
+                        SyntaxTask::Text(format!("\\{name}{{").into()),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
                         delimited(
@@ -615,7 +622,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}{{")),
+                        SyntaxTask::Text(format!("\\{name}{{").into()),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
                         delimited(
@@ -635,7 +642,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}{{}}")),
+                        SyntaxTask::Text(format!("\\{name}{{}}").into()),
                         delimited(
                             "(",
                             ")",
@@ -662,7 +669,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}")),
+                        SyntaxTask::Text(format!("\\{name}").into()),
                         delimited(
                             "{",
                             "}",
@@ -695,7 +702,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}")),
+                        SyntaxTask::Text(format!("\\{name}").into()),
                         delimited(
                             "{",
                             "}",
@@ -713,7 +720,9 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 );
             }
             Pattern::DomainValue { sort, value } => {
-                stack.push(SyntaxTask::Text(format!("}}({})", string::quote(value))));
+                stack.push(SyntaxTask::Text(
+                    format!("}}({})", string::quote(value)).into(),
+                ));
                 stack.push(SyntaxTask::Sort(sort));
                 stack.push(SyntaxTask::Text("\\dv{".into()));
             }
@@ -729,7 +738,7 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 push_grouped(
                     stack,
                     [
-                        SyntaxTask::Text(format!("\\{name}{{}}(")),
+                        SyntaxTask::Text(format!("\\{name}{{}}(").into()),
                         SyntaxTask::Symbol(symbol),
                         delimited("(", ")", arguments.iter().map(SyntaxTask::Pattern)),
                         SyntaxTask::Text(")".into()),

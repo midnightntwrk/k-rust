@@ -35,7 +35,7 @@
 //! No dedicated counter measures printing.
 //!
 
-use std::{collections::VecDeque, io};
+use std::{borrow::Cow, collections::VecDeque, io};
 
 use crate::measure::{self, Algorithm};
 
@@ -46,7 +46,7 @@ pub(super) struct Doc {
 
 #[derive(Clone, Debug)]
 pub(super) enum Op {
-    Text(String),
+    Text(Cow<'static, str>),
     Line(&'static str),
     HardLine,
     NestStart(usize),
@@ -61,7 +61,7 @@ impl Doc {
     }
 
     pub(super) fn text(value: impl Into<String>) -> Self {
-        Self::from_ops(vec![Op::Text(value.into())])
+        Self::from_ops(vec![Op::Text(Cow::Owned(value.into()))])
     }
 
     pub(super) fn line() -> Self {
@@ -230,7 +230,7 @@ fn fits(
             lookahead.push_back(op);
         }
         let flat = match &lookahead[index] {
-            Op::Text(value) => value.as_str(),
+            Op::Text(value) => value.as_ref(),
             Op::Line(flat) => flat,
             Op::HardLine => return false,
             Op::NestStart(_) | Op::NestEnd(_) => "",
