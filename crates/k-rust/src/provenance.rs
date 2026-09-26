@@ -71,7 +71,8 @@
 //! origin set.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    cell::OnceCell,
+    collections::{BTreeMap, HashMap, HashSet},
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -942,9 +943,8 @@ fn record_generated_origins_inner(
             continue;
         }
         // One module-wide origin set per pass, shared by every generated sentence that has no
-        // narrower derivation of its own.
-        let module_origins: Arc<[ProvenanceLink]> =
-            module_origin_links(&before_sentences, pass).into();
+        // narrower derivation of its own; computed only if some sentence falls back to it.
+        let module_origins = ModuleOrigins::new(&before_sentences, pass);
         let counterparts = sentence_counterparts(&before_sentences, &after_snapshot);
         let mut carrier_origins = CarrierOrigins::new(&before_sentences);
         for (sentence_offset, sentence) in module.local_sentences.iter_mut().enumerate() {
@@ -996,7 +996,7 @@ fn sentence_origins(
     before: Option<&Sentence>,
     after: &Sentence,
     carrier_origins: &mut CarrierOrigins<'_>,
-    module_origins: &Arc<[ProvenanceLink]>,
+    module_origins: &ModuleOrigins<'_>,
 ) -> Arc<[ProvenanceLink]> {
     if let Some(shared) = before.and_then(stored_sentence_origins) {
         return shared;
@@ -1017,7 +1017,7 @@ fn sentence_origins(
         origins = sentence_source_links(after);
     }
     if origins.is_empty() {
-        return Arc::clone(module_origins);
+        return Arc::clone(module_origins.get());
     }
     origins.into()
 }
@@ -1390,25 +1390,63 @@ pub(crate) fn seed_generated_sentence_origin(
     });
 }
 
-fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {
-    let configuration_sources = unique_links(
-        before_sentences
-            .iter()
-            .filter(|sentence| matches!(sentence, Sentence::Configuration { .. }))
-            .flat_map(sentence_origin_links),
-    );
-    if pass == GeneratingPass::ConfigurationExpansion && !configuration_sources.is_empty() {
-        return configuration_sources;
-    }
-    unique_links(before_sentences.iter().flat_map(sentence_origin_links))
+/// The module-wide origin set of one pass over one module, computed on first use.
+struct ModuleOrigins<'a> {
+    before: &'a [Sentence],
+    pass: GeneratingPass,
+    links: OnceCell<Arc<[ProvenanceLink]>>,
 }
 
-fn unique_links(links: impl IntoIterator<Item = ProvenanceLink>) -> Vec<ProvenanceLink> {
-    links
-        .into_iter()
-        .collect::<IndexSet<_>>()
-        .into_iter()
-        .collect()
+impl<'a> ModuleOrigins<'a> {
+    fn new(before: &'a [Sentence], pass: GeneratingPass) -> Self {
+        Self {
+            before,
+            pass,
+            links: OnceCell::new(),
+        }
+    }
+
+    fn get(&self) -> &Arc<[ProvenanceLink]> {
+        self.links
+            .get_or_init(|| module_origin_links(self.before, self.pass).into())
+    }
+}
+
+fn module_origin_links(before_sentences: &[Sentence], pass: GeneratingPass) -> Vec<ProvenanceLink> {
+    if pass == GeneratingPass::ConfigurationExpansion {
+        let configuration_sources = united_origin_links(
+            before_sentences
+                .iter()
+                .filter(|sentence| matches!(sentence, Sentence::Configuration { .. })),
+        );
+        if !configuration_sources.is_empty() {
+            return configuration_sources;
+        }
+    }
+    united_origin_links(before_sentences)
+}
+
+/// The first-encounter-ordered union of the origin links of `sentences`.
+fn united_origin_links<'a>(
+    sentences: impl IntoIterator<Item = &'a Sentence>,
+) -> Vec<ProvenanceLink> {
+    let mut links = IndexSet::new();
+    // Generated sentences of one module share one stored origin set; a set already united adds
+    // no link, so each shared allocation is scanned once however many sentences carry it.
+    let mut united = HashSet::<*const ProvenanceLink>::new();
+    // Invariant: `links` is the ordered union of the origin links of the sentences already
+    // scanned, and `united` names every shared stored set already scanned.
+    for sentence in sentences {
+        match stored_sentence_origins(sentence) {
+            Some(stored) => {
+                if united.insert(stored.as_ptr()) {
+                    links.extend(stored.iter().cloned());
+                }
+            }
+            None => links.extend(sentence_origin_links(sentence)),
+        }
+    }
+    links.into_iter().collect()
 }
 
 fn collect_source_links(term: &Term, links: &mut IndexSet<ProvenanceLink>) {
