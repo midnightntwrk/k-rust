@@ -12,7 +12,8 @@
 //!
 //! K global-winner scanning: longest match, then precedence, then lexeme key.
 //!
-//! A winner costs O(L) lexeme attempts plus one attempt per layout pattern, each a regex match
+//! A winner costs O(L) lexeme attempts (terminals only when they start with the input's next
+//! byte) plus one attempt per layout pattern, each a regex match
 //! whose precede restriction scans the input prefix; it is memoized per position, giving
 //! O(input bytes * (L + layout patterns)) attempts per parse attempt.
 //! `ParserScannerWinnerComputations` counts cache misses.
@@ -174,6 +175,10 @@ struct Lexeme {
 pub(in crate::inner) struct Scanner {
     lexemes: Vec<Lexeme>,
     ids: BTreeMap<LexemeKey, usize>,
+    // Invariant: every lexeme id is in exactly one of these: a nonempty terminal under its first
+    // byte, any other lexeme (a regex, or an empty terminal) in `unindexed`.
+    terminals_by_first_byte: BTreeMap<u8, Vec<usize>>,
+    unindexed: Vec<usize>,
 }
 
 impl Scanner {
@@ -206,6 +211,14 @@ impl Scanner {
         declaration.precedence = precedence;
         let index = self.lexemes.len();
         self.ids.insert(key.clone(), index);
+        match item {
+            Item::Terminal(terminal) if !terminal.is_empty() => self
+                .terminals_by_first_byte
+                .entry(terminal.as_bytes()[0])
+                .or_default()
+                .push(index),
+            _ => self.unindexed.push(index),
+        }
         self.lexemes.push(Lexeme {
             key,
             item: item.clone(),
@@ -247,10 +260,19 @@ impl Scanner {
             Some(winner) => *winner,
             None => {
                 measure::bump(Counter::ParserScannerWinnerComputations);
-                let token = self
-                    .lexemes
+                // A terminal matches only where the input continues with its first byte, so only
+                // that byte's terminals are attempted. The comparison below orders distinct
+                // lexemes strictly (their keys differ), so the maximum does not depend on the
+                // order in which candidates are attempted.
+                let terminals = input
+                    .as_bytes()
+                    .get(position)
+                    .and_then(|byte| self.terminals_by_first_byte.get(byte))
+                    .map_or(&[][..], Vec::as_slice);
+                let token = terminals
                     .iter()
-                    .enumerate()
+                    .chain(&self.unindexed)
+                    .map(|index| (*index, &self.lexemes[*index]))
                     .filter_map(|(index, lexeme)| {
                         match_lexeme(&lexeme.item, input, position).map(|end| (index, lexeme, end))
                     })
