@@ -1401,10 +1401,11 @@ impl Matcher<'_> {
     }
 
     fn bind(&mut self, variable: Variable, term: Term) -> Result<(), FailReason> {
-        if let Some(old) = self.substitution.get(&variable).cloned() {
-            if old == term {
+        if let Some(old) = self.substitution.get(&variable) {
+            if *old == term {
                 return Ok(());
             }
+            let old = old.clone();
             if old.attributes().constructor_like && term.attributes().constructor_like {
                 return Err(FailReason::VariableConflict(variable, old, term));
             }
@@ -1419,9 +1420,15 @@ impl Matcher<'_> {
             }
             return Err(FailReason::VariableRecursion(variable, term));
         }
-        let singleton = Substitution::from([(variable.clone(), term.clone())]);
+        // Only a value that mentions `variable` changes under the singleton substitution;
+        // every other value is kept as it is instead of being rebuilt into an equal handle.
+        let mut singleton = None;
         for value in self.substitution.values_mut() {
-            *value = substitute(value, &singleton);
+            if value.attributes().variables.contains(&variable) {
+                let singleton = singleton
+                    .get_or_insert_with(|| Substitution::from([(variable.clone(), term.clone())]));
+                *value = substitute(value, singleton);
+            }
         }
         self.substitution.insert(variable, term);
         Ok(())
