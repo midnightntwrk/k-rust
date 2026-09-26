@@ -41,8 +41,8 @@ use kink_native::{
 use kink_patch::{CandidateDisposition, CandidateGeneration, Patch, SentenceRef};
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
-    ExecutionBounds, ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure,
-    PatternOutcome, PatternPlan, SearchPolicy, SymbolSorts, evaluate,
+    ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure, PatternOutcome,
+    PatternPlan, SearchPolicy, SymbolSorts, evaluate,
 };
 
 use crate::campaign::check_manifest;
@@ -495,12 +495,7 @@ impl Runtime {
             .map_err(|_| Preparation::Infrastructure)?;
         let context = EvaluationContext {
             test_id: String::new(),
-            bounds: ExecutionBounds {
-                depth: None,
-                time_ms: Some(u64::try_from(campaign.budget.time.as_millis()).unwrap_or(u64::MAX)),
-                branches: None,
-                results: None,
-            },
+            bounds: campaign.budget.bounds(),
             vocabulary: campaign.vocabulary.clone(),
             selected_rules: manifest.rules().cloned().collect(),
             symbol_sorts,

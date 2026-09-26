@@ -6,7 +6,7 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::time::Duration;
+use std::{num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::definition::AttributeKey;
@@ -23,14 +23,16 @@ use kink_native::{
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
     Atom, AttributionUnknownReason, CollectionStop, Constructor, EvaluationContext,
-    EvaluationOptions, EventAttribution, EventVocabulary, ExecutionBounds, ExecutionTerminalKind,
-    MatchMode, PathStop, PatternArm, PatternOutcome, PatternPlan, PayloadClause, SearchPolicy,
-    SymbolSorts, evaluate,
+    EvaluationOptions, EventAttribution, EventVocabulary, ExecutionTerminalKind, MatchMode,
+    PathStop, PatternArm, PatternOutcome, PatternPlan, PayloadClause, SearchPolicy, SymbolSorts,
+    evaluate,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
     time: Duration::from_secs(30),
     max_simplification_iterations: 1000,
+    max_depth: None,
+    max_breadth: None,
 };
 
 fn counter_validator() -> NativeValidator {
@@ -395,12 +397,7 @@ fn run(
         bridged,
         context: EvaluationContext {
             test_id: "t".to_owned(),
-            bounds: ExecutionBounds {
-                depth: None,
-                time_ms: Some(u64::try_from(budget.time.as_millis()).expect("budget")),
-                branches: None,
-                results: None,
-            },
+            bounds: budget.bounds(),
             vocabulary: vocabulary.clone(),
             selected_rules,
             symbol_sorts: sorts,
@@ -660,6 +657,103 @@ fn converging_branches_reach_pattern_no_match_with_both_events() {
     let result = outcome(&run, &single_atom(&vocabulary, "rule:ND.spin", None));
     assert_eq!(result.outcome, PatternOutcome::NoMatch);
     assert!(result.complete_coverage);
+}
+
+#[test]
+fn depth_bound_ground_absence_is_unknown() {
+    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
+    let baseline = validator.compile_baseline().expect("nd.k compiles");
+    let start = support::initial_state(
+        kore_application("Lblstart", Vec::new(), Vec::new()),
+        "SortS",
+    );
+    let vocabulary = vocabulary(&[
+        ("rule:ND.left", &[]),
+        ("rule:ND.right", &[]),
+        ("rule:ND.l2", &[]),
+    ]);
+    let run = run(
+        &validator,
+        &baseline,
+        "ND",
+        &[
+            rule_applied("ND.left"),
+            rule_applied("ND.right"),
+            rule_applied("ND.l2"),
+        ],
+        &vocabulary,
+        &start,
+        ExecutionBudget {
+            max_depth: Some(1),
+            ..BUDGET
+        },
+    );
+    assert_eq!(run.bridged.paths.len(), 2);
+    assert!(
+        run.execution
+            .leaves()
+            .iter()
+            .all(|leaf| leaf.halt == HaltClass::DepthBound)
+    );
+    assert!(
+        run.bridged
+            .paths
+            .iter()
+            .all(|path| path.stop == PathStop::DepthLimit)
+    );
+    assert_eq!(run.bridged.collection.stop, CollectionStop::DepthLimit);
+    let left = outcome(&run, &single_atom(&vocabulary, "rule:ND.left", None));
+    assert_eq!(left.outcome, PatternOutcome::Match);
+    assert!(
+        left.witnesses
+            .iter()
+            .any(|witness| witness.stop_reason == PathStop::DepthLimit)
+    );
+    let l2 = outcome(&run, &single_atom(&vocabulary, "rule:ND.l2", None));
+    assert_eq!(l2.outcome, PatternOutcome::Unknown);
+    assert_eq!(l2.failure, Some(PathStop::DepthLimit));
+}
+
+#[test]
+fn breadth_bound_ground_absence_is_unknown() {
+    let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
+    let baseline = validator.compile_baseline().expect("nd.k compiles");
+    let start = support::initial_state(
+        kore_application("Lblstart", Vec::new(), Vec::new()),
+        "SortS",
+    );
+    let vocabulary = vocabulary(&[
+        ("rule:ND.left", &[]),
+        ("rule:ND.right", &[]),
+        ("rule:ND.l2", &[]),
+    ]);
+    let run = run(
+        &validator,
+        &baseline,
+        "ND",
+        &[
+            rule_applied("ND.left"),
+            rule_applied("ND.right"),
+            rule_applied("ND.l2"),
+        ],
+        &vocabulary,
+        &start,
+        ExecutionBudget {
+            max_breadth: Some(NonZeroUsize::new(1).unwrap()),
+            ..BUDGET
+        },
+    );
+    assert_eq!(run.execution.leaves().len(), 2);
+    assert!(
+        run.execution
+            .leaves()
+            .iter()
+            .all(|leaf| leaf.halt == HaltClass::BreadthBound)
+    );
+    assert_eq!(run.bridged.collection.stop, CollectionStop::BranchLimit);
+    let l2 = outcome(&run, &single_atom(&vocabulary, "rule:ND.l2", None));
+    assert_eq!(l2.outcome, PatternOutcome::Unknown);
+    assert_eq!(l2.failure, Some(PathStop::BranchLimit));
 }
 
 /// Critique C2: a nonterminating run is cancelled by the watchdog and reported as timed out;

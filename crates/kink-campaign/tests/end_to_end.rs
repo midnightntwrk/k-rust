@@ -33,6 +33,8 @@ use OracleOutcome::{Agree, Distinguish};
 const BUDGET: ExecutionBudget = ExecutionBudget {
     time: Duration::from_secs(30),
     max_simplification_iterations: 1000,
+    max_depth: None,
+    max_breadth: None,
 };
 
 /// Runs `body` with stack headroom for compilation and execution.

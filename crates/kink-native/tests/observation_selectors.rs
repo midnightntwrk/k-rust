@@ -380,6 +380,8 @@ fn observed(selector: RuleSelector, cardinality: usize, state: &Pattern) -> Vec<
             ExecutionBudget {
                 time: Duration::from_secs(30),
                 max_simplification_iterations: 1000,
+                max_depth: None,
+                max_breadth: None,
             },
         )
         .expect("execution adapts");

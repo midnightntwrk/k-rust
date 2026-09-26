@@ -808,8 +808,9 @@ fn runner_mapping_is_exhaustive() {
         (H::Branch, infrastructure.clone()),
         (H::CutPoint, infrastructure.clone()),
         (H::TerminalRule, infrastructure.clone()),
-        (H::DepthBound, infrastructure.clone()),
-        (H::BreadthBound, infrastructure.clone()),
+        // Requested bounds are incomplete paths; the adapter rejects an unrequested one first.
+        (H::DepthBound, Ok(OracleSide::Unknown)),
+        (H::BreadthBound, Ok(OracleSide::Unknown)),
         (H::Indeterminate, Ok(OracleSide::Unknown)),
         (H::UnsupportedHook, Ok(OracleSide::Unknown)),
         (H::SimplificationError, Ok(OracleSide::Unknown)),

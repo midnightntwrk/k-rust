@@ -1,12 +1,12 @@
 //! Maps adapted executions to kink-pattern paths and collection evidence.
 //!
-//! An unbounded PathSet run records exhaustion only when every leaf completes without a
-//! diagnostic. A frontier, failure halt, cancellation, or diagnostic keeps the result open.
+//! A PathSet run records exhaustion only when every leaf completes without a diagnostic.
+//! A bounded frontier, failure halt, cancellation, or diagnostic keeps the result open.
 //! Diagnostics affect their own path; a clean sibling remains usable evidence.
 //!
 //! A path's events are evidence for `Match` only when its prefix is real
 //! (`PathStop::has_real_prefix`). Without a solver, a symbolic or constrained state may be
-//! infeasible: a stuck or limit-cut leaf whose state is not one ground term without a path
+//! infeasible: a stuck or bounded leaf whose state is not one ground term without a path
 //! condition is `SolverUnknown`, as are vacuous and trivial leaves.
 
 use k_rust::backend::EffectOutput;
@@ -63,9 +63,9 @@ pub(crate) enum LeafPath {
 /// The stop of a leaf with halt class `halt`, before its state is read, or the contract
 /// violation it is. `None` is a stuck leaf: it is complete exactly when its state is a ground
 /// terminal term, and `SolverUnknown` otherwise, because the no-Z3 profile does not refute
-/// path conditions and a symbolic or constrained stuck leaf may be infeasible. A limit stop
-/// likewise holds only for a decided state (see `decided_stop`). Exhaustive over
-/// `HaltClass`.
+/// path conditions and a symbolic or constrained stuck leaf may be infeasible. A requested
+/// depth or breadth bound becomes a limit stop only for a decided state (see `decided_stop`).
+/// The adapter rejects unrequested bound halts. Exhaustive over `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
     Ok(Some(match halt {
         HaltClass::Stuck => return Ok(None),
@@ -73,14 +73,11 @@ pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailur
         HaltClass::Indeterminate | HaltClass::UnsupportedHook | HaltClass::SimplificationError => {
             PathStop::BackendLimit
         }
+        HaltClass::DepthBound => PathStop::DepthLimit,
+        HaltClass::BreadthBound => PathStop::BranchLimit,
         // Until upstream tells cancellation from timeout.
         HaltClass::Cancelled => PathStop::Error,
-        HaltClass::Branch
-        | HaltClass::CutPoint
-        | HaltClass::TerminalRule
-        | HaltClass::DepthBound
-        | HaltClass::BreadthBound
-        | HaltClass::Timeout => {
+        HaltClass::Branch | HaltClass::CutPoint | HaltClass::TerminalRule | HaltClass::Timeout => {
             return Err(BridgeFailure::ContractViolation(halt));
         }
     }))
@@ -448,7 +445,7 @@ mod tests {
     };
     use serde_json::Value;
 
-    use crate::execution::AdaptedLeaf;
+    use crate::execution::{AdaptedLeaf, ExecutionBudget};
     use crate::observation::DomainEvent;
 
     use HaltClass as H;
@@ -600,10 +597,10 @@ mod tests {
             (H::Branch, GROUND, None),
             (H::CutPoint, GROUND, None),
             (H::TerminalRule, GROUND, None),
-            (H::DepthBound, GROUND, None),
-            (H::DepthBound, CONSTRAINED, None),
-            (H::BreadthBound, GROUND, None),
-            (H::BreadthBound, SYMBOLIC, None),
+            (H::DepthBound, GROUND, Some(Err(P::DepthLimit))),
+            (H::DepthBound, CONSTRAINED, Some(Err(P::SolverUnknown))),
+            (H::BreadthBound, GROUND, Some(Err(P::BranchLimit))),
+            (H::BreadthBound, SYMBOLIC, Some(Err(P::SolverUnknown))),
             (H::Indeterminate, GROUND, Some(Err(P::BackendLimit))),
             (H::UnsupportedHook, GROUND, Some(Err(P::BackendLimit))),
             (H::SimplificationError, GROUND, Some(Err(P::BackendLimit))),
@@ -682,11 +679,47 @@ mod tests {
 
     #[test]
     fn halt_stop_rejects_exactly_the_classes_the_adapter_excludes() {
-        let mismatches = HaltClass::ALL
+        let unbounded = ExecutionBudget {
+            time: std::time::Duration::from_secs(1),
+            max_simplification_iterations: 1,
+            max_depth: None,
+            max_breadth: None,
+        };
+        let bounded = ExecutionBudget {
+            max_depth: Some(1),
+            max_breadth: Some(std::num::NonZeroUsize::new(1).unwrap()),
+            ..unbounded
+        };
+        let excluded = |budget: &ExecutionBudget| {
+            HaltClass::ALL
+                .into_iter()
+                .filter(|halt| !halt.adapter_admits(budget))
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let always_excluded = [H::Branch, H::CutPoint, H::TerminalRule, H::Timeout]
             .into_iter()
-            .filter(|halt| halt_stop(*halt).is_err() != !halt.adapter_admits())
-            .collect::<Vec<_>>();
-        assert!(mismatches.is_empty(), "{mismatches:?}");
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            excluded(&unbounded),
+            [
+                H::Branch,
+                H::CutPoint,
+                H::TerminalRule,
+                H::DepthBound,
+                H::BreadthBound,
+                H::Timeout,
+            ]
+            .into_iter()
+            .collect()
+        );
+        assert_eq!(excluded(&bounded), always_excluded);
+        assert_eq!(
+            HaltClass::ALL
+                .into_iter()
+                .filter(|halt| halt_stop(*halt).is_err())
+                .collect::<std::collections::BTreeSet<_>>(),
+            always_excluded
+        );
     }
 
     #[test]

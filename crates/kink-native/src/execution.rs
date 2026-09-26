@@ -3,6 +3,7 @@
 //! A watchdog cancels execution when the time budget expires.
 
 use std::{
+    num::NonZeroUsize,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -18,6 +19,7 @@ use k_rust::backend::{
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
+use kink_pattern::ExecutionBounds;
 
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
@@ -58,9 +60,9 @@ impl HaltClass {
         Self::Cancelled,
     ];
 
-    /// Whether the adapter's own unbounded request can yield this halt.
+    /// Whether the adapter's request can yield this halt under `budget`.
     #[must_use]
-    pub const fn adapter_admits(self) -> bool {
+    pub const fn adapter_admits(self, budget: &ExecutionBudget) -> bool {
         match self {
             Self::Stuck
             | Self::Trivial
@@ -69,12 +71,9 @@ impl HaltClass {
             | Self::UnsupportedHook
             | Self::SimplificationError
             | Self::Cancelled => true,
-            Self::Branch
-            | Self::CutPoint
-            | Self::TerminalRule
-            | Self::DepthBound
-            | Self::BreadthBound
-            | Self::Timeout => false,
+            Self::DepthBound => budget.max_depth.is_some(),
+            Self::BreadthBound => budget.max_breadth.is_some(),
+            Self::Branch | Self::CutPoint | Self::TerminalRule | Self::Timeout => false,
         }
     }
 
@@ -106,6 +105,23 @@ pub struct ExecutionBudget {
     pub time: Duration,
     /// Simplifier iterations per rewrite step. Exhaustion is a backend diagnostic.
     pub max_simplification_iterations: usize,
+    /// Maximum rewrite depth of each path.
+    pub max_depth: Option<u64>,
+    /// Maximum pending-frontier width.
+    pub max_breadth: Option<NonZeroUsize>,
+}
+
+impl ExecutionBudget {
+    /// Pattern bounds. `branches` is k-rust's pending-frontier width, not a total branch count.
+    #[must_use]
+    pub fn bounds(&self) -> ExecutionBounds {
+        ExecutionBounds {
+            depth: self.max_depth,
+            time_ms: Some(u64::try_from(self.time.as_millis()).unwrap_or(u64::MAX)),
+            branches: self.max_breadth.map(|breadth| breadth.get() as u64),
+            results: None,
+        }
+    }
 }
 
 /// One execution leaf with its typed halt class, diagnostics, and adapted branch.
@@ -163,12 +179,12 @@ impl From<ObservationFailure> for ExecutionAdapterFailure {
     }
 }
 
-/// The unbounded PathSet request.
+/// The bounded PathSet request.
 fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest {
     ExecuteRequest {
         state,
-        max_depth: None,
-        max_breadth: None,
+        max_depth: budget.max_depth,
+        max_breadth: budget.max_breadth.map(NonZeroUsize::get),
         max_simplification_iterations: budget.max_simplification_iterations,
         strategy: ExecutionStrategy::All,
         stop_at_branch: false,
@@ -236,20 +252,21 @@ impl ExecutionAdapter {
             outcome.map_err(|error| ExecutionAdapterFailure::Backend(error.to_string()))?;
         assert_eq!(result.modality, ResultModalityOutput::PathSet);
         let timed_out = fired.load(Ordering::Acquire);
-        self.adapt(result, timed_out)
+        self.adapt(result, timed_out, &budget)
     }
 
     fn adapt(
         &self,
         result: ExecutionResult,
         timed_out: bool,
+        budget: &ExecutionBudget,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
             .into_iter()
             .map(|leaf| {
                 let halt = HaltClass::from_output(leaf.reason);
-                if !halt.adapter_admits() {
+                if !halt.adapter_admits(budget) {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
                 }
                 Ok(AdaptedLeaf {
@@ -294,5 +311,16 @@ mod tests {
         for class in HaltClass::ALL {
             assert!(actual.contains(&class), "{class:?}");
         }
+    }
+
+    #[test]
+    fn unrequested_depth_bound_is_a_contract_violation() {
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(1),
+            max_simplification_iterations: 1,
+            max_depth: None,
+            max_breadth: None,
+        };
+        assert!(!HaltClass::DepthBound.adapter_admits(&budget));
     }
 }
