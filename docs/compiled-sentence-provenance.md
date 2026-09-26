@@ -2,8 +2,9 @@
 
 `kompile::compile_loaded_definition` returns `CompiledKoreArtifacts::sentence_provenance` alongside `definition_kore` and `execution_definition`.
 The map key is the `UNIQUE_ID` that a backend reports for an emitted rule or claim.
-Every rule and claim in `execution_definition` contributes an entry.
-Equal-content sentences can have one `UNIQUE_ID`; their input addresses are combined in execution-definition module order and local sentence order, with each address listed once.
+The key set covers the rules and claims emitted in `definition_kore` and `macros_kore`.
+Rules and claims in execution modules outside the emitted main module's visible catalog have no entry.
+Equal-content sentences can have one `UNIQUE_ID`; their input addresses are combined in emission order, with each address listed once.
 
 An `EmittedSentenceProvenance` entry has `input_addresses`, `input_sentence_kinds`, and `generated_by`.
 The kind map is keyed by each listed address and records the sentence kind at the input boundary, before loading or compilation can remove or expand it.
