@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "variable realization"
-//! bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations per inference"
+//! bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 //! ```
 //!
 //! Portable bound-propagation sort inference for monomorphic trees and forests.
@@ -321,7 +321,7 @@ impl Grammar {
             .filter(|tree| {
                 !typed
                     .iter()
-                    .any(|other| strictly_exceeds(&order, &top, &other.typing, &tree.typing))
+                    .any(|other| strictly_exceeds(order, &top, &other.typing, &tree.typing))
             })
             .collect::<Vec<_>>();
         // A kept tree's typing, with every variable it lacks at the top sort, is the one maximal
@@ -498,7 +498,7 @@ impl Grammar {
             .then(|| self.top_rewrite_node(&term))
             .flatten()
             .map(std::ptr::from_ref);
-        let mut solver = Solver::new(&order);
+        let mut solver = Solver::new(order);
         let inferred = solver.infer(self, &term, anywhere_top, "root")?;
         // Synthetic rule-grammar result sorts describe parser context, not bounds on a
         // rewrite's formal result parameter. Concrete caller sorts remain real constraints.
@@ -535,8 +535,8 @@ impl Grammar {
         })
     }
 
-    fn sort_order(&self) -> Result<PartialOrder<Sort>, PortableError> {
-        PartialOrder::new(self.subsort_relations.iter().cloned()).map_err(|cycle| {
+    fn sort_order(&self) -> Result<&PartialOrder<Sort>, PortableError> {
+        self.subsort_relations.order().map_err(|cycle| {
             PortableError::Malformed(inference_error(format!(
                 "cannot infer sorts with a circular subsort relation: {}",
                 cycle

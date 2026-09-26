@@ -5528,7 +5528,7 @@ symbol = "Grammar::add_empty_lists_with_order"
 
 [[node.cost]]
 mode = "one parsed tree"
-bound = "O(N x C) plus one PartialOrder::new over the subsort relations"
+bound = "O(N x C), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 
 [[node]]
 kind = "algorithm"
@@ -6123,7 +6123,7 @@ bound = "O(T x V x E) for the per-tree inferences plus O(T^2 x V) order checks f
 
 [[node.cost]]
 mode = "variable realization"
-bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations per inference"
+bound = "O(V x q) concrete_bounds calls, plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 
 [[node]]
 kind = "algorithm"
@@ -6249,7 +6249,7 @@ symbol = "or_all"
 
 [[node.cost]]
 mode = "encoding construction"
-bound = "O(H + G^2 + R) plus one PartialOrder::new construction"
+bound = "O(H + G^2 + R) plus one clone of the grammar's subsort order (built by PartialOrder::new on its first use)"
 
 [[node.cost]]
 mode = "one inference"

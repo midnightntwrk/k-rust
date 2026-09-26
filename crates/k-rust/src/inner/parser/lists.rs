@@ -26,7 +26,7 @@
 //!
 //! [[cost]]
 //! mode = "one parsed tree"
-//! bound = "O(N x C) plus one PartialOrder::new over the subsort relations"
+//! bound = "O(N x C), plus one PartialOrder::new over the subsort relations the first time a grammar needs its order"
 //! ```
 //!
 //! Scala-compatible implicit user-list constructors, terminators, and reconstruction.
@@ -340,9 +340,13 @@ impl Grammar {
         expected: &Sort,
     ) -> Result<ParsedTerm, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationInsertEmptyLists);
-        let subsorts = PartialOrder::new(self.subsort_relations.iter().cloned())
-            .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
-        self.add_empty_lists_with_order(term, expected, &subsorts)
+        let subsorts =
+            self.subsort_relations
+                .order()
+                .map_err(|cycle| ParseError::CircularSubsorts {
+                    path: cycle.path.clone(),
+                })?;
+        self.add_empty_lists_with_order(term, expected, subsorts)
     }
 
     fn add_empty_lists_with_order(

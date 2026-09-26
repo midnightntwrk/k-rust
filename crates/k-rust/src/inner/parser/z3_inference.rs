@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "encoding construction"
-//! bound = "O(H + G^2 + R) plus one PartialOrder::new construction"
+//! bound = "O(H + G^2 + R) plus one clone of the grammar's subsort order (built by PartialOrder::new on its first use)"
 //!
 //! [[cost]]
 //! mode = "one inference"
@@ -760,12 +760,17 @@ impl EncodingBase {
         term_sorts: &TermSorts,
     ) -> Result<Self, ParseError> {
         measure::bump(Counter::ParserZ3EncodingBuilds);
-        let semantic = PartialOrder::new(grammar.subsort_relations.iter().cloned())
-            .map_err(|cycle| ParseError::CircularSubsorts { path: cycle.path })?;
+        let semantic = grammar
+            .subsort_relations
+            .order()
+            .cloned()
+            .map_err(|cycle| ParseError::CircularSubsorts {
+                path: cycle.path.clone(),
+            })?;
         let mut heads = BTreeSet::new();
         let mut ground_sorts = BTreeSet::new();
         collect_sort(top_sort, &mut heads, &mut ground_sorts);
-        for (lesser, greater) in &grammar.subsort_relations {
+        for (lesser, greater) in grammar.subsort_relations.iter() {
             collect_sort(lesser, &mut heads, &mut ground_sorts);
             collect_sort(greater, &mut heads, &mut ground_sorts);
         }
@@ -3784,7 +3789,7 @@ mod tests {
                 false,
             )
             .unwrap();
-        grammar.subsort_relations = oriented_pairs(semantic, sort_count);
+        *grammar.subsort_relations = oriented_pairs(semantic, sort_count);
         let top_sort = Sort::with_parameters("Box", vec![Sort::new("S0")]);
         (grammar, top_sort, TermSorts::default())
     }
@@ -3967,8 +3972,8 @@ mod tests {
         };
         let mut syntactic = oriented(extra_syntactic);
         syntactic.extend(semantic.iter().cloned());
-        grammar.subsort_relations = semantic.clone();
-        grammar.syntactic_subsort_relations = syntactic;
+        *grammar.subsort_relations = semantic.clone();
+        *grammar.syntactic_subsort_relations = syntactic;
 
         let mut indexes = Vec::new();
         for (k, (result, first, second)) in productions.iter().enumerate() {

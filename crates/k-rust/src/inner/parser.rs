@@ -115,8 +115,8 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 #[cfg(test)]
 use crate::definition::Sentence;
 use crate::definition::{
-    AssociativityRelations, AttributeKey, Attributes, PartialOrder, ProductionItem,
-    Regex as KRegex, RegexBody,
+    AssociativityRelations, AttributeKey, Attributes, PartialOrder, PartialOrderCycle,
+    ProductionItem, Regex as KRegex, RegexBody,
 };
 use crate::kast::{
     FrontendSort, InternalLabel, Label, ProductionIdentity, Sort, Term, TermMetadata, TermSpan,
@@ -656,6 +656,41 @@ fn chart_completion_candidates() -> usize {
     CHART_COMPLETION_CANDIDATES.get()
 }
 
+/// A grammar's subsort relation with the partial order it generates, built on first use.
+///
+/// The order is a function of the relation alone, so every parse over one grammar shares one
+/// construction. Mutable access goes through `DerefMut`, which discards the built order, so the
+/// order can never describe an earlier relation.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SubsortRelations {
+    relations: BTreeSet<(Sort, Sort)>,
+    order: OnceLock<Result<PartialOrder<Sort>, PartialOrderCycle<Sort>>>,
+}
+
+impl SubsortRelations {
+    /// The partial order of the relation, or the cycle that prevents one.
+    pub(crate) fn order(&self) -> Result<&PartialOrder<Sort>, &PartialOrderCycle<Sort>> {
+        self.order
+            .get_or_init(|| PartialOrder::new(self.relations.iter().cloned()))
+            .as_ref()
+    }
+}
+
+impl std::ops::Deref for SubsortRelations {
+    type Target = BTreeSet<(Sort, Sort)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.relations
+    }
+}
+
+impl std::ops::DerefMut for SubsortRelations {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.order.take();
+        &mut self.relations
+    }
+}
+
 /// A reusable inner grammar derived from visible productions.
 ///
 /// Parametric productions are concretized for parsing while retaining a link to
@@ -673,8 +708,8 @@ pub struct Grammar {
     layout: Layout,
     priorities: PartialOrder<String>,
     associativities: AssociativityRelations,
-    subsort_relations: BTreeSet<(Sort, Sort)>,
-    syntactic_subsort_relations: BTreeSet<(Sort, Sort)>,
+    subsort_relations: SubsortRelations,
+    syntactic_subsort_relations: SubsortRelations,
     overloads: PartialOrder<ProductionIdentity>,
     user_lists: BTreeMap<Sort, UserList>,
     productive_unary_cycles: BTreeSet<usize>,
@@ -702,8 +737,8 @@ impl Default for Grammar {
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
             associativities: AssociativityRelations::default(),
-            subsort_relations: BTreeSet::new(),
-            syntactic_subsort_relations: BTreeSet::new(),
+            subsort_relations: SubsortRelations::default(),
+            syntactic_subsort_relations: SubsortRelations::default(),
             overloads: PartialOrder::new([]).expect("an empty relation is acyclic"),
             user_lists: BTreeMap::new(),
             productive_unary_cycles: BTreeSet::new(),

@@ -2020,9 +2020,10 @@ impl Grammar {
         else {
             return alternatives;
         };
-        let order =
-            crate::definition::PartialOrder::new(self.syntactic_subsort_relations.iter().cloned())
-                .expect("the grammar rejected syntactic subsort cycles during construction");
+        let order = self
+            .syntactic_subsort_relations
+            .order()
+            .expect("the grammar rejected syntactic subsort cycles during construction");
         let minimal = productions
             .iter()
             .filter(|candidate| {
@@ -2031,7 +2032,7 @@ impl Grammar {
                         && bracket_production_less_than(
                             &self.productions[*other],
                             &self.productions[**candidate],
-                            &order,
+                            order,
                         )
                 })
             })
