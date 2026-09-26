@@ -1,15 +1,13 @@
 //! Maps adapted executions to kink-pattern paths and collection evidence.
 //!
-//! Only an execution taken on [`ExecutionRoute::SinglePath`] can be complete. An explore-all
-//! execution's collection stop is `ExhaustionUnrecorded`, because k-rust may have merged
-//! converging branches together with their events. It still holds every distinct final state.
+//! An unbounded PathSet run records exhaustion only when every leaf completes without a
+//! diagnostic. A frontier, failure halt, cancellation, or diagnostic keeps the result open.
+//! Diagnostics affect their own path; a clean sibling remains usable evidence.
 //!
 //! A path's events are evidence for `Match` only when its prefix is real
 //! (`PathStop::has_real_prefix`). Without a solver, a symbolic or constrained state may be
 //! infeasible: a stuck or limit-cut leaf whose state is not one ground term without a path
-//! condition is `SolverUnknown`, as are vacuous and trivial leaves. A run that collected a
-//! backend diagnostic may have kept an infeasible branch or dropped a condition, so every one
-//! of its paths is `BackendLimit`.
+//! condition is `SolverUnknown`, as are vacuous and trivial leaves.
 
 use k_rust::backend::EffectOutput;
 use k_rust::kore::{
@@ -18,7 +16,7 @@ use k_rust::kore::{
 };
 use kink_pattern::{
     CollectionEvidence, CollectionStop, Event, EventOrigin, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, PathInput, PathStop, SymbolSorts, TransitionKey,
+    ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
 };
 
 use crate::execution::{AdaptedExecution, ExecutionRoute, HaltClass};
@@ -247,7 +245,7 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                 payload,
                 origin: EventOrigin {
                     rule: (*rule).clone(),
-                    transition: TransitionKey::from(transition),
+                    transition: transition.clone(),
                 },
                 transition_ordinal: widen(transition_ordinal),
                 emission_ordinal: widen(emission_ordinal),
@@ -295,27 +293,34 @@ const fn collection_stop(stop: PathStop) -> CollectionStop {
 /// same stop is one path; two different branches with one key are a failure.
 struct PathSet<'a> {
     context: &'a BridgeContext<'a>,
-    /// The run collected a backend diagnostic: every leaf is `BackendLimit`.
-    diagnosed: bool,
     entries: Vec<(String, AdaptedBranch, PathInput)>,
     /// Incomplete stops of every item, including items that add no path.
     incomplete: Vec<PathStop>,
 }
 
 impl<'a> PathSet<'a> {
-    const fn new(context: &'a BridgeContext<'a>, diagnosed: bool) -> Self {
+    const fn new(context: &'a BridgeContext<'a>) -> Self {
         Self {
             context,
-            diagnosed,
             entries: Vec::new(),
             incomplete: Vec::new(),
         }
     }
 
-    fn push(&mut self, branch: &AdaptedBranch, halt: HaltClass) -> Result<(), BridgeFailure> {
+    fn push(&mut self, leaf: &crate::execution::AdaptedLeaf) -> Result<(), BridgeFailure> {
+        let branch = &leaf.branch;
+        let halt = leaf.halt;
         let split = split_state(&branch.state, self.context.sorts)?;
         let mapped = match leaf_path(halt, split.decided_term(), self.context.classify)? {
-            _ if self.diagnosed => LeafPath::Incomplete(PathStop::BackendLimit),
+            _ if !leaf.diagnostics.is_empty()
+                || leaf
+                    .candidate_diagnostics
+                    .iter()
+                    .any(|diagnostics| !diagnostics.is_empty())
+                || !leaf.remainder_diagnostics.is_empty() =>
+            {
+                LeafPath::Incomplete(PathStop::BackendLimit)
+            }
             mapped => mapped,
         };
         let (complete, stop, execution_terminal) = match mapped {
@@ -375,22 +380,15 @@ impl<'a> PathSet<'a> {
         Ok(())
     }
 
-    /// The least severe incomplete stop, else the stop of `route` running out of work: only a
-    /// single-path execution records exhaustion.
+    /// The most constraining incomplete stop, or exhaustion when all leaves complete.
     fn finish(self, route: ExecutionRoute) -> BridgedPaths {
-        let otherwise = match route {
-            ExecutionRoute::SinglePath => CollectionStop::SearchExhausted,
-            ExecutionRoute::ExploreAll => CollectionStop::ExhaustionUnrecorded,
-        };
-        // A diagnostic taints the whole response, so a less severe stop must not hide it.
-        let stop = if self.diagnosed {
-            CollectionStop::BackendLimit
-        } else {
-            self.incomplete
-                .iter()
-                .min()
-                .map_or(otherwise, |stop| collection_stop(*stop))
-        };
+        let stop = self
+            .incomplete
+            .iter()
+            .min()
+            .map_or(CollectionStop::SearchExhausted, |stop| {
+                collection_stop(*stop)
+            });
         BridgedPaths {
             paths: self.entries.into_iter().map(|(.., path)| path).collect(),
             route,
@@ -422,9 +420,9 @@ pub fn paths_from_execution(
     if execution.leaves.is_empty() {
         return Err(BridgeFailure::NoLeaves);
     }
-    let mut paths = PathSet::new(context, !execution.diagnostics.is_empty());
+    let mut paths = PathSet::new(context);
     for leaf in &execution.leaves {
-        paths.push(&leaf.branch, leaf.halt)?;
+        paths.push(leaf)?;
     }
     Ok(paths.finish(execution.route))
 }
@@ -617,9 +615,11 @@ mod tests {
                 leaves: vec![AdaptedLeaf {
                     halt,
                     branch: branch(0, state),
+                    diagnostics: Vec::new(),
+                    candidate_diagnostics: Vec::new(),
+                    remainder_diagnostics: Vec::new(),
                 }],
                 effects: Vec::new(),
-                diagnostics: Vec::new(),
                 timed_out: false,
             };
             let bridged = paths_from_execution(&execution, &bridge_context(&sorts));
@@ -680,164 +680,45 @@ mod tests {
         assert!(mismatches.is_empty(), "{mismatches:?}");
     }
 
-    /// Complete evidence needs the single-path route, no diagnostic and no timeout, and a
-    /// witness needs a real prefix: a diagnostic makes every path of its run `BackendLimit`,
-    /// so its events are no witness even on a stuck ground leaf (review P1), and the
-    /// collection says so even beside a less severe limit.
     #[test]
-    fn execution_collection_rows_never_overclaim() {
+    fn clean_sibling_survives_diagnosed_path() {
+        use k_rust::backend::BackendDiagnosticOutput;
         let sorts = sorts();
-        let leaf = |marker, halt| AdaptedLeaf {
-            halt,
-            branch: branch(marker, GROUND),
+        let clean = AdaptedLeaf {
+            halt: H::Stuck,
+            branch: branch(0, GROUND),
+            diagnostics: Vec::new(),
+            candidate_diagnostics: Vec::new(),
+            remainder_diagnostics: Vec::new(),
         };
-        let execution = |route, leaves, diagnostics, timed_out| AdaptedExecution {
-            route,
-            leaves,
-            effects: Vec::new(),
-            diagnostics,
-            timed_out,
+        let diagnostic = BackendDiagnosticOutput::UnsupportedHookUnevaluated {
+            hook: "TEST.hook".into(),
+            reason: "unavailable".into(),
         };
-        let budget = k_rust_backend::diagnostic::BackendDiagnostic::SimplificationBudgetExhausted {
-            limit: 1,
-            subject: k_rust_backend::simplify::BudgetSubject::Term,
-        };
-        // (id, execution, expected collection stop, paths, occurrence of every leaf's event)
-        let rows = [
-            (
-                "single-path-is-complete",
-                execution(
-                    ExecutionRoute::SinglePath,
-                    vec![leaf(0, H::Stuck)],
-                    Vec::new(),
-                    false,
-                ),
-                CollectionStop::SearchExhausted,
-                1,
-                PatternOutcome::Match,
-            ),
-            (
-                "explore-all-records-no-exhaustion",
-                execution(
-                    ExecutionRoute::ExploreAll,
-                    vec![leaf(0, H::Stuck), leaf(1, H::Stuck)],
-                    Vec::new(),
-                    false,
-                ),
-                CollectionStop::ExhaustionUnrecorded,
-                2,
-                PatternOutcome::Match,
-            ),
-            (
-                "explore-all-reports-a-backend-limit",
-                execution(
-                    ExecutionRoute::ExploreAll,
-                    vec![leaf(0, H::Stuck), leaf(1, H::Indeterminate)],
-                    Vec::new(),
-                    false,
-                ),
-                CollectionStop::BackendLimit,
-                2,
-                PatternOutcome::Match,
-            ),
-            (
-                "explore-all-reports-the-least-severe-incomplete-stop",
-                execution(
-                    ExecutionRoute::ExploreAll,
-                    vec![
-                        leaf(0, H::Cancelled),
-                        leaf(1, H::Indeterminate),
-                        leaf(2, H::Trivial),
-                    ],
-                    Vec::new(),
-                    false,
-                ),
-                CollectionStop::SolverUnknown,
-                3,
-                PatternOutcome::Unknown,
-            ),
-            (
-                "a-diagnostic-makes-the-single-path-incomplete",
-                execution(
-                    ExecutionRoute::SinglePath,
-                    vec![leaf(0, H::Stuck)],
-                    vec![budget.clone()],
-                    false,
-                ),
-                CollectionStop::BackendLimit,
-                1,
-                PatternOutcome::Unknown,
-            ),
-            (
-                "a-diagnostic-makes-every-explored-path-a-backend-limit",
-                execution(
-                    ExecutionRoute::ExploreAll,
-                    vec![leaf(0, H::Stuck), leaf(1, H::Indeterminate)],
-                    vec![budget],
-                    false,
-                ),
-                CollectionStop::BackendLimit,
-                2,
-                PatternOutcome::Unknown,
-            ),
-            (
-                "a-timed-out-run-is-not-decoded",
-                execution(
-                    ExecutionRoute::SinglePath,
-                    vec![leaf(0, H::Stuck)],
-                    Vec::new(),
-                    true,
-                ),
-                CollectionStop::TimeLimit,
-                0,
-                PatternOutcome::Unknown,
-            ),
-        ];
-        for (id, execution, stop, paths, occurrence) in rows {
-            let bridged = paths_from_execution(&execution, &bridge_context(&sorts))
-                .unwrap_or_else(|failure| panic!("{id}: {failure:?}"));
-            assert_eq!(bridged.collection.stop, stop, "{id}");
-            assert_eq!(bridged.route, execution.route, "{id}");
-            assert_eq!(bridged.paths.len(), paths, "{id}");
-            assert_eq!(presence(&bridged), occurrence, "{id}");
-            if !execution.diagnostics.is_empty() {
-                for path in &bridged.paths {
-                    assert!(!path.complete && path.execution_terminal.is_none(), "{id}");
-                    assert_eq!(path.stop, P::BackendLimit, "{id}");
-                }
+        for source in 0..3 {
+            let mut diagnosed = clean.clone();
+            diagnosed.branch = branch(1, GROUND);
+            match source {
+                0 => diagnosed.diagnostics.push(diagnostic.clone()),
+                1 => diagnosed
+                    .candidate_diagnostics
+                    .push(vec![diagnostic.clone()]),
+                2 => diagnosed.remainder_diagnostics.push(diagnostic.clone()),
+                _ => unreachable!(),
             }
-            assert_eq!(
-                absence(&bridged) == PatternOutcome::NoMatch,
-                stop == CollectionStop::SearchExhausted,
-                "{id}"
-            );
+            let execution = AdaptedExecution {
+                route: ExecutionRoute::ExploreAll,
+                leaves: vec![clean.clone(), diagnosed],
+                effects: Vec::new(),
+                timed_out: false,
+            };
+            let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+            assert_eq!(bridged.collection.stop, CollectionStop::BackendLimit);
+            assert!(bridged.paths[0].complete);
+            assert_eq!(bridged.paths[1].stop, P::BackendLimit);
+            assert_eq!(presence(&bridged), PatternOutcome::Match);
+            assert_eq!(absence(&bridged), PatternOutcome::Unknown);
         }
-        assert_eq!(
-            paths_from_execution(
-                &execution(ExecutionRoute::ExploreAll, Vec::new(), Vec::new(), false),
-                &bridge_context(&sorts)
-            ),
-            Err(BridgeFailure::NoLeaves)
-        );
-        let mut effect = leaf(0, H::Stuck);
-        effect.branch.events = vec![NativeEvent::Domain(DomainEvent {
-            event_ordinal: 0,
-            transition_ordinal: 0,
-            emission_ordinal: 0,
-            constructor: "logged".to_owned(),
-            transition: effect.branch.identity[0].clone(),
-            rule: kink_patch::SentenceRef::new("M", 1),
-            payload: vec![DomainPayload::Effect(EffectOutput::UserLog {
-                message: "hello".to_owned(),
-            })],
-        })];
-        assert_eq!(
-            paths_from_execution(
-                &execution(ExecutionRoute::SinglePath, vec![effect], Vec::new(), false),
-                &bridge_context(&sorts)
-            ),
-            Err(BridgeFailure::UnsupportedPayload)
-        );
     }
 
     #[test]
@@ -849,14 +730,19 @@ mod tests {
                 AdaptedLeaf {
                     halt: H::Stuck,
                     branch: branch(0, GROUND),
+                    diagnostics: Vec::new(),
+                    candidate_diagnostics: Vec::new(),
+                    remainder_diagnostics: Vec::new(),
                 },
                 AdaptedLeaf {
                     halt: H::Stuck,
                     branch: branch(0, CRASH),
+                    diagnostics: Vec::new(),
+                    candidate_diagnostics: Vec::new(),
+                    remainder_diagnostics: Vec::new(),
                 },
             ],
             effects: Vec::new(),
-            diagnostics: Vec::new(),
             timed_out: false,
         };
         assert_eq!(

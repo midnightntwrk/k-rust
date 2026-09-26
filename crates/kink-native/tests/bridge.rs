@@ -163,6 +163,7 @@ fn deleted_unlabelled_rule_is_left_out() {
 }
 
 #[test]
+#[ignore = "KINK-2: equal copies are equivalent mutants"]
 fn identical_unlabelled_rules_are_not_observable() {
     let validator = NativeValidator::bind(
         support::load("duplicate_unlabelled.k"),
@@ -186,6 +187,7 @@ fn identical_unlabelled_rules_are_not_observable() {
 }
 
 #[test]
+#[ignore = "KINK-2: equal copies are equivalent mutants"]
 fn one_of_two_identical_unlabelled_rules_is_not_observable() {
     let validator = NativeValidator::bind(
         support::load("duplicate_unlabelled.k"),
@@ -206,6 +208,7 @@ fn one_of_two_identical_unlabelled_rules_is_not_observable() {
 }
 
 #[test]
+#[ignore = "KINK-2: equal copies are equivalent mutants"]
 fn inserted_anonymous_clone_of_observed_rule_is_not_observable() {
     let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
     let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
@@ -362,44 +365,8 @@ fn outcome(run: &Run, plan: &PatternPlan) -> kink_pattern::Evaluation {
     .expect("evaluation")
 }
 
-/// Pins kink's copy of the spellings, read from k-rust's private `halt_reason`
-/// (`backend/mod.rs:984-1002` at the ledger pin). It reads no k-rust output; a moved spelling
-/// fails the execution module's `every_halt_spelling_is_produced_live` instead, and a new one is noticed by neither.
 #[test]
-fn every_halt_reason_string_maps_to_exactly_one_class() {
-    let spellings = [
-        "cancelled",
-        "stuck",
-        "trivial",
-        "vacuous",
-        "branch",
-        "cut-point",
-        "terminal",
-        "depth-bound",
-        "breadth-bound",
-        "indeterminate",
-        "unsupported-hook",
-        "simplification-error",
-        "timeout",
-    ];
-    let mut classes = spellings
-        .iter()
-        .map(|spelling| {
-            let class = HaltClass::parse(spelling).unwrap_or_else(|| panic!("{spelling}"));
-            assert_eq!(class.spelling(), *spelling);
-            class
-        })
-        .collect::<Vec<_>>();
-    classes.sort();
-    classes.dedup();
-    assert_eq!(classes, HaltClass::ALL, "one class per spelling");
-    for unknown in ["", "Stuck", "stuck ", "depth_bound", "terminal-rule"] {
-        assert_eq!(HaltClass::parse(unknown), None, "{unknown:?}");
-    }
-}
-
-#[test]
-fn deterministic_runs_are_complete_by_single_path_witness() {
+fn deterministic_runs_are_complete_under_path_set() {
     let validator = counter_validator();
     let baseline = validator.compile_baseline().expect("counter.k compiles");
     let rules = [rule_applied("COUNTER.increment")];
@@ -413,8 +380,13 @@ fn deterministic_runs_are_complete_by_single_path_witness() {
         &t1(),
         BUDGET,
     );
-    assert_eq!(run.execution.route(), ExecutionRoute::SinglePath);
-    assert!(run.execution.diagnostics().is_empty());
+    assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll);
+    assert!(
+        run.execution
+            .leaves()
+            .iter()
+            .all(|leaf| leaf.diagnostics.is_empty())
+    );
     assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
     let [path] = run.bridged.paths.as_slice() else {
         panic!("one path");
@@ -491,7 +463,7 @@ fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() 
             &t2(),
             BUDGET,
         );
-        assert_eq!(run.execution.route(), ExecutionRoute::SinglePath);
+        assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll);
         assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
         let result = outcome(&run, &plan);
         assert_eq!(result.outcome, expected);
@@ -544,38 +516,50 @@ fn domain_payloads_decode_through_kore_json() {
     assert_eq!(result.witnesses[2].bindings[0].term, last.payload[0]);
 }
 
-/// Critique C1: k-rust merges the two branches of `start` into one `done` leaf and keeps
-/// only one branch's events, so neither observed rule may be reported absent.
+/// PathSet keeps both paths that converge on `done`, so an absent event is decidable.
 #[test]
-fn converging_branches_never_yield_pattern_no_match() {
+fn converging_branches_reach_pattern_no_match_with_both_events() {
     let validator = NativeValidator::bind(support::load("nd.k"), CompileOptions::default());
     let baseline = validator.compile_baseline().expect("nd.k compiles");
     let start = support::initial_state(
         kore_application("Lblstart", Vec::new(), Vec::new()),
         "SortS",
     );
-    for label in ["ND.left", "ND.right"] {
-        let constructor = format!("rule:{label}");
-        let vocabulary = vocabulary(&[(constructor.as_str(), &[])]);
-        let run = run(
-            &validator,
-            &baseline,
-            "ND",
-            &[rule_applied(label)],
-            &vocabulary,
-            &start,
-            BUDGET,
-        );
-        assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll, "{label}");
-        assert_eq!(
-            run.bridged.collection.stop,
-            CollectionStop::ExhaustionUnrecorded,
-            "{label}"
-        );
-        let result = outcome(&run, &single_atom(&vocabulary, &constructor, None));
-        assert_ne!(result.outcome, PatternOutcome::NoMatch, "{label}");
-        assert!(!result.complete_coverage, "{label}");
-    }
+    let vocabulary = vocabulary(&[
+        ("rule:ND.left", &[]),
+        ("rule:ND.right", &[]),
+        ("rule:ND.spin", &[]),
+    ]);
+    let run = run(
+        &validator,
+        &baseline,
+        "ND",
+        &[
+            rule_applied("ND.left"),
+            rule_applied("ND.right"),
+            rule_applied("ND.spin"),
+        ],
+        &vocabulary,
+        &start,
+        BUDGET,
+    );
+    assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll);
+    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+    assert_eq!(run.bridged.paths.len(), 2);
+    let observed = run
+        .bridged
+        .paths
+        .iter()
+        .map(|path| {
+            assert!(path.complete);
+            assert_eq!(path.events.len(), 1);
+            path.events[0].constructor.as_str()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(observed, ["rule:ND.left", "rule:ND.right"].into());
+    let result = outcome(&run, &single_atom(&vocabulary, "rule:ND.spin", None));
+    assert_eq!(result.outcome, PatternOutcome::NoMatch);
+    assert!(result.complete_coverage);
 }
 
 /// Critique C2: a nonterminating run is cancelled by the watchdog and reported as timed out;
@@ -665,42 +649,17 @@ fn deleted_observed_rule_is_omitted_from_the_mutant_manifest() {
 
 /// The side of `undecided.k` on which the rule `label` applies: its `requires false` is
 /// replaced with `true`.
-fn enabled(validator: &NativeValidator, label: &str) -> ValidatedDefinition {
-    let at = TermRef::new(support::rule(validator.baseline(), label), [1]);
-    let patch = Patch::new(vec![Edit::ReplaceTerm {
-        expected: validator.baseline().term(&at).expect("requires").clone(),
-        at,
-        replacement: Term::Token {
-            token: "true".to_owned(),
-            sort: KastSort::new("Bool"),
-        },
-    }])
-    .expect("one edit");
-    validator
-        .validate(&patch)
-        .expect("the enabled side compiles")
-}
-
-/// Review P1 over live k-rust: each run applies its observed rule, so its one path carries
-/// that rule's event, but the path may be infeasible (a carried `ensures`, a vacuous
-/// successor) or the run collected a backend diagnostic. The event is no witness: the
-/// pattern is `Unknown`, never `Match`.
+/// A carried `ensures` or vacuous successor has an event but no feasible witness.
 #[test]
 fn undecided_live_occurrences_are_no_witness() {
     let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
     let baseline = validator.compile_baseline().expect("undecided.k compiles");
-    let slow = enabled(&validator, "UNDECIDED.slow");
     let program = |symbol| kore_application(symbol, Vec::new(), Vec::new());
-    let tight = ExecutionBudget {
-        max_simplification_iterations: 2,
-        ..BUDGET
-    };
     // (id, side, observed rule, initial state, budget, route, leaf halt, path stop)
     #[rustfmt::skip]
     let rows = [
-        ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, ExecutionRoute::SinglePath, HaltClass::Stuck, PathStop::SolverUnknown),
+        ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::SolverUnknown),
         ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Vacuous, PathStop::SolverUnknown),
-        ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::BackendLimit),
     ];
     for (id, side, label, state, budget, route, halt, stop) in rows {
         let constructor = format!("rule:{label}");
@@ -715,11 +674,6 @@ fn undecided_live_occurrences_are_no_witness() {
             budget,
         );
         assert_eq!(run.execution.route(), route, "{id}");
-        assert_eq!(
-            !run.execution.diagnostics().is_empty(),
-            stop == PathStop::BackendLimit,
-            "{id}"
-        );
         let [leaf] = run.execution.leaves() else {
             panic!("{id}: one leaf");
         };

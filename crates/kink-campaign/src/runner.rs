@@ -611,21 +611,12 @@ const fn path_stop_side(stop: PathStop) -> OracleSide {
     }
 }
 
-/// The side a collection stop of paths obtained on `route` stands for, or `None` when that
-/// route ran out of work. An explore-all execution has no exhaustion record, but merging
-/// converging branches keeps every distinct final state, so its `ExhaustionUnrecorded` is
-/// complete for state oracles. A stop its route cannot produce is not evidence.
-/// Exhaustive over `CollectionStop` and `ExecutionRoute`.
-const fn collection_stop_side(route: ExecutionRoute, stop: CollectionStop) -> Option<OracleSide> {
+/// The side of a collection stop. A PathSet run records clean exhaustion on either
+/// route, while an unrecorded stop remains unknown.
+const fn collection_stop_side(_route: ExecutionRoute, stop: CollectionStop) -> Option<OracleSide> {
     match stop {
-        CollectionStop::SearchExhausted => match route {
-            ExecutionRoute::SinglePath => None,
-            ExecutionRoute::ExploreAll => Some(OracleSide::Unknown),
-        },
-        CollectionStop::ExhaustionUnrecorded => match route {
-            ExecutionRoute::ExploreAll => None,
-            ExecutionRoute::SinglePath => Some(OracleSide::Unknown),
-        },
+        CollectionStop::SearchExhausted => None,
+        CollectionStop::ExhaustionUnrecorded => Some(OracleSide::Unknown),
         CollectionStop::Error => Some(OracleSide::Error),
         CollectionStop::TimeLimit => Some(OracleSide::Timeout),
         CollectionStop::MatchFound
@@ -795,7 +786,6 @@ impl From<&ExecutionAdapterFailure> for ExecutionFailureKind {
             ExecutionAdapterFailure::SolverProfileMismatch
             | ExecutionAdapterFailure::InvalidState(_)
             | ExecutionAdapterFailure::Backend(_)
-            | ExecutionAdapterFailure::UnknownHaltReason(_)
             | ExecutionAdapterFailure::ContractViolation(_)
             | ExecutionAdapterFailure::Observation(_) => Self::Infrastructure,
         }

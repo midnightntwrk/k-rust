@@ -407,23 +407,6 @@ impl SideConditionTable {
     }
 }
 
-/// A backend transition identity with a total order; built from `TransitionIdOutput`, which
-/// derives only `PartialEq`.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TransitionKey {
-    pub rule: String,
-    pub target: String,
-}
-
-impl From<&TransitionIdOutput> for TransitionKey {
-    fn from(value: &TransitionIdOutput) -> Self {
-        Self {
-            rule: value.rule.clone(),
-            target: value.target.clone(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Event {
     pub index: usize,
@@ -438,7 +421,7 @@ pub struct Event {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct EventOrigin {
     pub rule: SentenceRef,
-    pub transition: TransitionKey,
+    pub transition: TransitionIdOutput,
 }
 
 /// Closed execution terminal kinds carried by a trace.

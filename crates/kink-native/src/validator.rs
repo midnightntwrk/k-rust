@@ -9,9 +9,11 @@
 use std::{collections::BTreeMap, fmt};
 
 use k_rust::{
+    backend::{Backend, BackendOptions, CompiledRuleKind},
     definition::{AttributeKey, Definition, Location, Sentence},
     kompile::{CompileError, CompileOptions, CompiledKoreArtifacts, compile_loaded_definition},
     outer::LoadedDefinition,
+    provenance::InputSpace,
 };
 use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
 
@@ -109,6 +111,20 @@ impl NativeValidator {
         rules: &[ObservedRule],
     ) -> Result<InstalledObservationManifest, ManifestFailure> {
         let mut specs = Vec::with_capacity(rules.len());
+        let backend = rules
+            .first()
+            .map(|first| {
+                Backend::new(
+                    &side.artifacts.definition_kore,
+                    &first.rule.module,
+                    BackendOptions::default(),
+                )
+            })
+            .transpose()
+            .map_err(|_| ManifestFailure::Identity {
+                rule: rules[0].rule.clone(),
+                error: IdentityError::Missing,
+            })?;
         for rule in rules {
             let sentence = self
                 .baseline
@@ -121,16 +137,7 @@ impl NativeValidator {
                 })
                 .ok_or_else(|| ManifestFailure::UnknownRule(rule.rule.clone()))?;
             let attributes = sentence.attributes();
-            let source = attributes
-                .source()
-                .ok_or_else(|| ManifestFailure::Identity {
-                    rule: rule.rule.clone(),
-                    error: IdentityError::Missing,
-                })?;
-            let location = attributes
-                .location()
-                .expect("authored sentences have locations");
-            let identity = match side.rule_identity(source, location) {
+            let identity = match side.rule_identity_for(&rule.rule) {
                 Ok(identity) => identity,
                 Err(IdentityError::Missing)
                     if side.origins().is_some_and(|origins| {
@@ -148,6 +155,30 @@ impl NativeValidator {
                     });
                 }
             };
+            let backend = backend.as_ref().expect("nonempty rules created a backend");
+            let catalog = backend.rule_catalog(Some(&rule.rule.module)).map_err(|_| {
+                ManifestFailure::Identity {
+                    rule: rule.rule.clone(),
+                    error: IdentityError::Missing,
+                }
+            })?;
+            if catalog
+                .iter()
+                .any(|entry| entry.id == identity && entry.shared_identity)
+            {
+                return Err(ManifestFailure::Identity {
+                    rule: rule.rule.clone(),
+                    error: IdentityError::Ambiguous,
+                });
+            }
+            if !catalog.iter().any(|entry| {
+                entry.id == identity && entry.kind == CompiledRuleKind::Rewrite && entry.executable
+            }) {
+                return Err(ManifestFailure::Identity {
+                    rule: rule.rule.clone(),
+                    error: IdentityError::Missing,
+                });
+            }
             specs.push(RuleObservationSpec {
                 rule: rule.rule.clone(),
                 label: attributes.string(AttributeKey::Label).map(str::to_owned),
@@ -236,44 +267,80 @@ impl ValidatedDefinition {
         self.origins.as_ref()
     }
 
-    /// The `UNIQUE_ID` of the rule at `source` and `location` in the compiled
-    /// execution definition.
-    ///
-    /// `UNIQUE_ID` is content-derived and can be shared by different positions.
-    /// The resolved ID must belong to exactly one compiled rule on this side,
-    /// including builtins.
-    pub fn rule_identity(&self, source: &str, location: Location) -> Result<&str, IdentityError> {
-        let rules = self
+    /// Compiled identity of a written sentence, joined by its compile input address.
+    pub fn rule_identity_for(&self, at: &SentenceRef) -> Result<&str, IdentityError> {
+        let positions = self.definition.modules.iter().flat_map(|module| {
+            module
+                .local_sentences
+                .iter()
+                .enumerate()
+                .map(move |(index, _)| {
+                    SentenceRef::new(
+                        &module.name,
+                        u32::try_from(index).expect("sentence index fits in u32"),
+                    )
+                })
+        });
+        let authors = positions
+            .filter(|position| match &self.origins {
+                Some(origins) => {
+                    origins.get(position) == Some(&SentenceOrigin::Baseline(at.clone()))
+                }
+                None => position == at,
+            })
+            .collect::<Vec<_>>();
+        let ids = self
             .artifacts
-            .execution_definition
+            .sentence_provenance
+            .iter()
+            .filter_map(|(id, provenance)| {
+                provenance
+                    .input_addresses
+                    .iter()
+                    .any(|address| {
+                        address.input == InputSpace::Compile
+                            && authors.iter().any(|author| {
+                                author.module == address.module && author.index == address.index
+                            })
+                    })
+                    .then_some(id.as_str())
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        match ids.len() {
+            0 => Err(IdentityError::Missing),
+            1 => Ok(ids.into_iter().next().expect("one identity")),
+            _ => Err(IdentityError::Ambiguous),
+        }
+    }
+
+    /// Resolve a source and location to a written sentence, then use the typed relation.
+    pub fn rule_identity(&self, source: &str, location: Location) -> Result<&str, IdentityError> {
+        let positions = self
+            .definition
             .modules
             .iter()
-            .flat_map(|module| module.local_sentences.iter())
-            .filter(|sentence| matches!(***sentence, Sentence::Rule { .. }))
-            .collect::<Vec<_>>();
-        let mut identities = rules
-            .iter()
-            .filter(|sentence| {
-                sentence.attributes().source() == Some(source)
-                    && sentence.attributes().location() == Some(location)
+            .flat_map(|module| {
+                module
+                    .local_sentences
+                    .iter()
+                    .enumerate()
+                    .filter(move |(_, sentence)| {
+                        sentence.attributes().source() == Some(source)
+                            && sentence.attributes().location() == Some(location)
+                    })
+                    .map(move |(index, _)| {
+                        SentenceRef::new(
+                            &module.name,
+                            u32::try_from(index).expect("sentence index fits in u32"),
+                        )
+                    })
             })
-            .map(|sentence| sentence.attributes().string(AttributeKey::UniqueId));
-        let first = identities
-            .next()
-            .ok_or(IdentityError::Missing)?
-            .ok_or(IdentityError::Missing)?;
-        if identities.any(|other| other != Some(first))
-            || rules
-                .iter()
-                .filter(|sentence| {
-                    sentence.attributes().string(AttributeKey::UniqueId) == Some(first)
-                })
-                .count()
-                != 1
-        {
-            return Err(IdentityError::Ambiguous);
+            .collect::<Vec<_>>();
+        match positions.as_slice() {
+            [at] => self.rule_identity_for(at),
+            [] => Err(IdentityError::Missing),
+            _ => Err(IdentityError::Ambiguous),
         }
-        Ok(first)
     }
 }
 
@@ -304,10 +371,10 @@ mod support;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ClassificationFailure, RewriteRules};
+    use crate::RewriteRules;
 
     #[test]
-    fn all_transitions_refuses_rewrite_rules_without_authored_positions() {
+    fn all_transitions_uses_typed_provenance_without_source_attributes() {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
         let baseline = validator.compile_baseline().expect("baseline");
@@ -344,7 +411,7 @@ mod tests {
             }
             assert_eq!(
                 RewriteRules::classify(&validator, &side, "COUNTER"),
-                Err(ClassificationFailure::UnmappedRewriteIdentity(id.clone())),
+                RewriteRules::classify(&validator, &baseline, "COUNTER"),
                 "{name}"
             );
         }

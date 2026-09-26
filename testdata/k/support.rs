@@ -36,16 +36,12 @@ const POSITION_KEYS: [AttributeKey; 9] = [
     AttributeKey::Origin,
 ];
 
-/// `kast.md` plus the portable prelude, with the Rust backend's module
-/// exclusion, as the no-Z3 profile requires.
+/// `kast.md` plus `prelude.md`, with the Rust backend's module exclusion.
 pub fn options() -> LoadOptions {
     LoadOptions {
         implicit_sources: vec![
             builtin::embedded("kast.md").expect("kast.md is embedded"),
-            ResolvedSource::new(
-                "portable-prelude.k",
-                read(&Path::new(DIR).join("portable-prelude.k")),
-            ),
+            builtin::embedded("prelude.md").expect("prelude.md is embedded"),
         ],
         excluded_module_attributes: vec![
             CompilationBackend::Rust
@@ -102,7 +98,7 @@ pub fn compile(loaded: &LoadedDefinition) -> Result<CompiledKoreArtifacts, Compi
 
 /// The initial configuration `<generatedTop>(<k>(program ~> .K), <generatedCounter>(0))`
 /// of a definition whose only declared cell is `<k>`, for a `program` of KORE sort `sort`.
-/// Built by hand: k-rust's initializer needs `Map`, which the portable prelude lacks.
+/// Built by hand for these tests' fixed configuration shape.
 pub fn initial_state(program: Pattern, sort: &str) -> Pattern {
     let item = kore_application(
         "inj",

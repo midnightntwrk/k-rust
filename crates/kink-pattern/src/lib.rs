@@ -13,5 +13,5 @@ pub use pattern::{
     ExecutionBounds, ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, MatchMode, PathInput,
     PathStop, PatternArm, PatternFailure, PatternFailureKind, PatternOutcome, PatternPlan,
     PayloadClause, Relation, SearchPolicy, SideCondition, SideConditionResult, SideConditionRow,
-    SideConditionTable, SymbolSorts, TermRelation, TransitionKey, Witness, evaluate,
+    SideConditionTable, SymbolSorts, TermRelation, Witness, evaluate,
 };

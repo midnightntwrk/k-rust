@@ -16,12 +16,12 @@ use k_rust::definition::{Sentence, sentence_mut};
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
-use k_rust::kore::{ast::Pattern, parser::parse_definition};
-use k_rust_backend::transition::{ObservationFilterError, ObservationOptions};
-use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget};
+use k_rust::kore::ast::Pattern;
+use kink_native::execution::{ExecutionAdapter, ExecutionBudget};
 use kink_native::observation::NativeEvent;
 use kink_native::{
-    NativeValidator, RewriteRules, RuleSelection, RuleSelector, SelectionFailure, select_rules,
+    IdentityError, ManifestFailure, NativeValidator, RewriteRules, RuleSelection, RuleSelector,
+    SelectionFailure, select_rules,
 };
 use kink_patch::{Baseline, CandidateFailureKind, Edit, Patch, SentenceRef};
 use serde_json::Value;
@@ -267,46 +267,12 @@ fn selected_rewrite_reclassified_as_equation_fails_closed() {
     let mutant = validator
         .validate(&patch)
         .expect("anywhere equation compiles");
-    let attributes = validator
-        .baseline()
-        .sentence(&support::rule(validator.baseline(), "UNDECIDED.step"))
-        .expect("step")
-        .attributes();
-    let id = mutant
-        .rule_identity(
-            attributes.source().expect("source"),
-            attributes.location().expect("location"),
-        )
-        .expect("mutant rule identity");
-    let syntax = parse_definition(&mutant.artifacts().definition_kore).expect("KORE");
-    let definition = Backend::internalize_definition(&syntax, "UNDECIDED").expect("definition");
     assert!(matches!(
-        ObservationOptions::with_rules(&definition, [id]),
-        Err(ObservationFilterError::UnknownRule(rule)) if rule == id
-    ));
-    let manifest = validator
-        .observation_manifest(&mutant, &rules)
-        .expect("manifest");
-    let mut backend = Backend::new(
-        &mutant.artifacts().definition_kore,
-        "UNDECIDED",
-        BackendOptions::default(),
-    )
-    .expect("backend");
-    let state = support::initial_state(
-        kore_application("Lblvacuous", Vec::new(), Vec::new()),
-        "SortS",
-    );
-    assert!(matches!(
-        ExecutionAdapter::new(manifest).execute(
-            &mut backend,
-            &state,
-            ExecutionBudget {
-                time: Duration::from_secs(30),
-                max_simplification_iterations: 1000,
-            },
-        ),
-        Err(ExecutionAdapterFailure::Backend(_))
+        validator.observation_manifest(&mutant, &rules),
+        Err(ManifestFailure::Identity {
+            error: IdentityError::Missing,
+            ..
+        })
     ));
 }
 
@@ -323,29 +289,12 @@ fn function_equations_are_not_observable() {
         )],
     )
     .expect("two equations selected by position");
-    let manifest = validator
-        .observation_manifest(&side, &rules)
-        .expect("manifest");
-    let mut backend = Backend::new(
-        &side.artifacts().definition_kore,
-        "UNDECIDED",
-        BackendOptions::default(),
-    )
-    .expect("backend");
-    let state = support::initial_state(
-        kore_application("LblisZero", Vec::new(), vec![z()]),
-        "SortBool",
-    );
     assert!(matches!(
-        ExecutionAdapter::new(manifest).execute(
-            &mut backend,
-            &state,
-            ExecutionBudget {
-                time: Duration::from_secs(30),
-                max_simplification_iterations: 1000
-            }
-        ),
-        Err(ExecutionAdapterFailure::Backend(_))
+        validator.observation_manifest(&side, &rules),
+        Err(ManifestFailure::Identity {
+            error: IdentityError::Missing,
+            ..
+        })
     ));
 }
 

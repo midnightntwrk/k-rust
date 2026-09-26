@@ -743,7 +743,6 @@ fn exhaustive_adapter_failure(failure: &ExecutionAdapterFailure) {
         ExecutionAdapterFailure::SolverProfileMismatch
         | ExecutionAdapterFailure::InvalidState(_)
         | ExecutionAdapterFailure::Backend(_)
-        | ExecutionAdapterFailure::UnknownHaltReason(_)
         | ExecutionAdapterFailure::ContractViolation(_)
         | ExecutionAdapterFailure::Observation(_) => {}
     }
@@ -762,9 +761,8 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
 }
 
 /// Review P2.1: complete paths are a state value only when their route ran out of work, and
-/// a single-path run records exhaustion, and an explore-all run keeps every distinct final
-/// state without recording it. A stop its route cannot produce is not evidence. One row per route and
-/// out-of-work stop.
+/// both execution routes record PathSet exhaustion. An unrecorded stop does not certify
+/// a complete state value. One row per route and out-of-work stop.
 #[test]
 fn state_values_need_an_execution_route_that_ran_out_of_work() {
     use CollectionStop::{ExhaustionUnrecorded, SearchExhausted};
@@ -777,8 +775,8 @@ fn state_values_need_an_execution_route_that_ran_out_of_work() {
     let rows = [
         ("single-path-exhausted", SinglePath, SearchExhausted, value.clone()),
         ("single-path-unrecorded", SinglePath, ExhaustionUnrecorded, OracleSide::Unknown),
-        ("explore-all-exhausted", ExploreAll, SearchExhausted, OracleSide::Unknown),
-        ("explore-all-unrecorded", ExploreAll, ExhaustionUnrecorded, value),
+        ("explore-all-exhausted", ExploreAll, SearchExhausted, value.clone()),
+        ("explore-all-unrecorded", ExploreAll, ExhaustionUnrecorded, OracleSide::Unknown),
     ];
     for (id, route, stop, expected) in rows {
         let bridged = BridgedPaths {
@@ -839,8 +837,7 @@ fn runner_mapping_is_exhaustive() {
     let shapes = [
         ("single-crash-is-its-terminal-term", single(SemanticCrash, crash.clone()), OracleSide::SemanticCrash(crash.clone())),
         ("crash-among-terminals-is-unknown", run(vec![terminal(0, Normal, done.clone()), terminal(1, SemanticCrash, crash.clone())]), OracleSide::Unknown),
-        // Explore-all: no exhaustion record, but every distinct final state is kept.
-        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, configuration("done", "2"))], route: ExecutionRoute::ExploreAll, collection: collection(CollectionStop::ExhaustionUnrecorded) }, value(&[done.clone(), configuration("done", "2")])),
+        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, configuration("done", "2"))], route: ExecutionRoute::ExploreAll, collection: collection(CollectionStop::SearchExhausted) }, value(&[done.clone(), configuration("done", "2")])),
         ("error-over-timeout", run(vec![incomplete(0, PathStop::TimeLimit), incomplete(1, PathStop::Error)]), OracleSide::Error),
         ("timeout-over-unknown", run(vec![incomplete(0, PathStop::DepthLimit), incomplete(1, PathStop::TimeLimit)]), OracleSide::Timeout),
         ("no-paths-is-error", run(Vec::new()), OracleSide::Error),
@@ -861,7 +858,6 @@ fn runner_mapping_is_exhaustive() {
         ExecutionAdapterFailure::SolverProfileMismatch,
         ExecutionAdapterFailure::InvalidState(String::new()),
         ExecutionAdapterFailure::Backend(String::new()),
-        ExecutionAdapterFailure::UnknownHaltReason("halted".to_owned()),
         ExecutionAdapterFailure::ContractViolation(H::Branch),
         ExecutionAdapterFailure::Observation(ObservationFailure::MissingInstallation),
     ];

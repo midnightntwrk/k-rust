@@ -3,6 +3,7 @@
 //! as rule labels, its two vocabularies, its nine plans and its side-condition table.
 #![allow(dead_code)]
 
+use k_rust::backend::TransitionIdOutput;
 use k_rust::kore::ast::{Pattern, Sort, Symbol, Variable, VariableKind};
 use kink_patch::SentenceRef;
 use kink_pattern::{
@@ -10,7 +11,7 @@ use kink_pattern::{
     EvaluationOptions, Event, EventOrigin, EventVocabulary, ExecutionBounds, ExecutionStop,
     ExecutionTerminal, ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm,
     PatternPlan, PayloadClause, Relation, SearchPolicy, SideCondition, SideConditionResult,
-    SideConditionRow, SideConditionTable, SymbolSorts, TermRelation, TransitionKey,
+    SideConditionRow, SideConditionTable, SymbolSorts, TermRelation,
 };
 
 pub fn sort(name: &str) -> Sort {
@@ -159,7 +160,7 @@ pub fn event(name: &str, index: usize) -> Event {
         payload: payload.iter().map(|name| term(name)).collect(),
         origin: EventOrigin {
             rule: rule_ref(rule_label),
-            transition: TransitionKey {
+            transition: TransitionIdOutput {
                 rule: format!("{rule_label}-id"),
                 target: format!("target-{index}"),
             },

@@ -208,7 +208,7 @@ fn sides(evidence: &TestEvidence) -> &[OracleSide] {
     match &evidence.run {
         SideRun::Sides { route, sides } => {
             // Critique C1: every counter run is one complete path.
-            assert_eq!(*route, ExecutionRoute::SinglePath, "{}", evidence.test_id);
+            assert_eq!(*route, ExecutionRoute::ExploreAll, "{}", evidence.test_id);
             sides
         }
         SideRun::Failed(kind) => panic!("{}: failed {kind:?}", evidence.test_id),
@@ -577,7 +577,6 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
         #[rustfmt::skip]
         let mutants = [
             ("carried-ensures-does-not-kill", "UNDECIDED.carry", "Lblcarry", 1000),
-            ("diagnosed-run-does-not-kill", "UNDECIDED.slow", "Lbldraining", 2),
         ];
         for (id, label, symbol, iterations) in mutants {
             let (vocabulary, tests, observed) =

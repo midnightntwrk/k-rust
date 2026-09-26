@@ -21,13 +21,14 @@
 //! its address. An equal clone is a different baseline to this check, which
 //! refuses it conservatively.
 
-use crate::sort::Typing;
+use crate::sort::site_sorts;
 use crate::{
     Baseline, Edit, InsertPosition, Patch, PatchFailure, SentenceRef, TermRef, apply, child,
     field_term,
 };
 use k_rust::definition::{AttributeKey, Sentence};
 use k_rust::kast::{Label, Sort, Term};
+use k_rust::kompile::SentenceTyper;
 use std::collections::BTreeSet;
 use std::fmt;
 
@@ -594,9 +595,9 @@ pub fn derive_sites<'b>(
         })
         .collect::<Vec<_>>();
     let resolved = &baseline.loaded().resolved;
-    let views = resolved.views();
     let mut exhaustive = true;
     let mut sites = Vec::new();
+    let mut typers = std::collections::BTreeMap::new();
     for (sentence_ref, sentence) in baseline.authored_sentences() {
         if !matches!(sentence, Sentence::Rule { .. })
             || !selector.iter().all(|clause| match clause {
@@ -608,8 +609,12 @@ pub fn derive_sites<'b>(
         {
             continue;
         }
-        let typing =
-            (!sorts.is_empty()).then(|| Typing::new(resolved, &views, &sentence_ref.module));
+        let typing = (!sorts.is_empty()).then(|| {
+            let typer = typers
+                .entry(sentence_ref.module.clone())
+                .or_insert_with(|| SentenceTyper::new(resolved, &sentence_ref.module).ok());
+            typer.as_ref().and_then(|typer| typer.typing(sentence).ok())
+        });
         for field in 0..3 {
             let Some(root) = field_term(sentence, field) else {
                 continue;
@@ -628,12 +633,13 @@ pub fn derive_sites<'b>(
                 });
                 let sorted = match &typing {
                     Some(typing) if matched => {
-                        let actual = typing
-                            .as_ref()
-                            .ok()
-                            .and_then(|typing| typing.site_sort(sentence, &path).ok());
+                        let actual = typing.as_ref().and_then(|typing| site_sorts(typing, &path));
                         exhaustive &= actual.is_some();
-                        actual.is_some_and(|actual| sorts.iter().all(|wanted| actual == **wanted))
+                        actual.is_some_and(|actual| {
+                            actual
+                                .iter()
+                                .all(|actual| sorts.iter().all(|wanted| *actual == *wanted))
+                        })
                     }
                     _ => true,
                 };

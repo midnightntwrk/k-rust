@@ -1,12 +1,10 @@
 //! Atomic application of a [`Patch`] to a [`Baseline`].
 
 use crate::failure::{PatchFailure, PatchFailureKind};
-use crate::sort::Typing;
 use crate::{Baseline, Edit, InsertPosition, Patch, Region, SentenceRef, Target, path_in};
-use k_rust::definition::{
-    AttributeKey, Definition, DefinitionViews, ResolvedDefinition, Sentence, sentence_mut,
-};
+use k_rust::definition::{AttributeKey, Definition, ResolvedDefinition, Sentence, sentence_mut};
 use k_rust::kast::Term;
+use k_rust::kompile::SentenceTyper;
 use k_rust::outer::LoadedDefinition;
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
@@ -84,19 +82,17 @@ impl Mutant {
 
 /// Applies every edit of `patch` or none.
 ///
-/// Every edit is checked against the immutable baseline before anything is
-/// written, then edits are checked against each other; the output is built
-/// only after both passed.
+/// Every edit is checked against the immutable baseline, then edits are
+/// checked against each other. The patched rule sentences are typed after
+/// all edits are assembled, and no output is published unless every check passes.
 ///
 /// # Errors
 ///
 /// Returns the first failure in canonical edit order. A failure carries only
 /// its class and a diagnostic.
 pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure> {
-    let resolved = &baseline.loaded().resolved;
-    let views = resolved.views();
     for edit in patch.edits() {
-        preflight(baseline, resolved, &views, edit)?;
+        preflight(baseline, edit)?;
     }
     check_targets(patch.edits())?;
 
@@ -107,6 +103,7 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
     let origins = rebuild_modules(&mut definition, patch.edits())?;
     let resolved = ResolvedDefinition::resolve(&definition)
         .map_err(|error| ill_formed(format!("the patched definition does not resolve: {error}")))?;
+    check_edited_sentences(&definition, &resolved, &origins, patch.edits())?;
     Ok(Mutant {
         definition,
         resolved,
@@ -114,13 +111,7 @@ pub fn apply(baseline: &Baseline, patch: &Patch) -> Result<Mutant, PatchFailure>
     })
 }
 
-fn preflight(
-    baseline: &Baseline,
-    resolved: &ResolvedDefinition,
-    views: &DefinitionViews<'_>,
-    edit: &Edit,
-) -> Result<(), PatchFailure> {
-    let typing = |module: &str| Typing::new(resolved, views, module).map_err(ill_formed);
+fn preflight(baseline: &Baseline, edit: &Edit) -> Result<(), PatchFailure> {
     match edit {
         Edit::ReplaceTerm {
             at,
@@ -140,11 +131,7 @@ fn preflight(
             if replacement == current {
                 return Err(no_change(format!("{at:?} already holds {current}")));
             }
-            let typing = typing(&at.sentence.module)?;
-            let sort = typing
-                .position_sort(sentence, &at.path.0)
-                .map_err(ill_formed)?;
-            typing.check(replacement, &sort).map_err(ill_formed)
+            Ok(())
         }
         Edit::ReplaceSentence { at, replacement } => {
             let current = existing(baseline, at)?;
@@ -163,18 +150,15 @@ fn preflight(
                     )));
                 }
             }
-            typing(&at.module)?
-                .check_fields(replacement, Some(current))
-                .map_err(ill_formed)
+            Ok(())
         }
         Edit::DeleteSentence { at } => existing(baseline, at).map(|_| ()),
         Edit::InsertSentence {
             position, sentence, ..
         } => {
-            let module = match position {
+            match position {
                 InsertPosition::Before(anchor) | InsertPosition::After(anchor) => {
                     existing(baseline, anchor)?;
-                    &anchor.module
                 }
                 InsertPosition::ModuleStart(module) | InsertPosition::ModuleEnd(module) => {
                     if !baseline
@@ -185,9 +169,8 @@ fn preflight(
                     {
                         return Err(stale(format!("module {module} does not exist")));
                     }
-                    module
                 }
-            };
+            }
             rule_like(sentence)?;
             if let Some(key) = PROTECTED_KEYS
                 .into_iter()
@@ -198,9 +181,7 @@ fn preflight(
                     key.as_str()
                 )));
             }
-            typing(module)?
-                .check_fields(sentence, None)
-                .map_err(ill_formed)
+            Ok(())
         }
         Edit::AddAttribute { at, key, .. } => {
             let current = existing(baseline, at)?;
@@ -232,6 +213,55 @@ fn preflight(
             }
         }
     }
+}
+
+/// Check the edited rule-like sentences with the same typer compilation uses.
+/// A module typer is reused for every changed sentence in that module.
+fn check_edited_sentences(
+    definition: &Definition,
+    resolved: &ResolvedDefinition,
+    origins: &BTreeMap<SentenceRef, SentenceOrigin>,
+    edits: &[Edit],
+) -> Result<(), PatchFailure> {
+    let changed = edits
+        .iter()
+        .filter_map(|edit| match edit {
+            Edit::ReplaceTerm { at, .. } => Some(&at.sentence),
+            Edit::ReplaceSentence { at, .. } => Some(at),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut typers = BTreeMap::new();
+    for (at, origin) in origins {
+        let edited = match origin {
+            SentenceOrigin::Baseline(original) => changed.contains(original),
+            SentenceOrigin::Inserted { .. } => true,
+        };
+        if !edited {
+            continue;
+        }
+        let sentence = definition
+            .modules
+            .iter()
+            .find(|module| module.name == at.module)
+            .and_then(|module| module.local_sentences.get(at.index as usize))
+            .ok_or_else(|| ill_formed(format!("{at:?} does not resolve after patching")))?;
+        if !matches!(
+            sentence.as_ref(),
+            Sentence::Rule { .. } | Sentence::Claim { .. }
+        ) {
+            continue;
+        }
+        let typer = typers.entry(at.module.as_str()).or_insert_with(|| {
+            SentenceTyper::new(resolved, &at.module).map_err(|error| ill_formed(error.to_string()))
+        });
+        typer
+            .as_ref()
+            .map_err(Clone::clone)?
+            .typing(sentence)
+            .map_err(|error| ill_formed(error.to_string()))?;
+    }
+    Ok(())
 }
 
 fn existing<'a>(baseline: &'a Baseline, at: &SentenceRef) -> Result<&'a Sentence, PatchFailure> {

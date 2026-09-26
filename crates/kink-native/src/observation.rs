@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::backend::{
-    BindingOutput, EffectOutput, ObservationEventOutput, TraceEntry, TransitionClassOutput,
-    TransitionIdOutput, UncommittedReasonOutput,
+    BindingOutput, EffectOutput, EvaluationClassOutput, ObservationEventOutput, TraceEntry,
+    TransitionClassOutput, TransitionIdOutput, UncommittedReasonOutput,
 };
 use kink_patch::SentenceRef;
 use serde_json::Value;
@@ -314,6 +314,23 @@ pub(crate) fn adapt_branch(
                     emission_ordinal += 1;
                 }
             }
+            ObservationEventOutput::Evaluation {
+                rule: _,
+                class,
+                rule_label: _,
+                anchor,
+                before: _,
+                after: _,
+                effects,
+            } => {
+                inventory_evaluation_class(class);
+                inventory_effects(&effects);
+                if anchor > identity.len() || anchor < next_branch_ordinal {
+                    return Err(ObservationFailure::InvalidEvaluationAnchor(anchor));
+                }
+                // Evaluation covers successor normalization only. It is diagnostic
+                // activity; absence cannot establish a negative pattern result.
+            }
             ObservationEventOutput::Uncommitted {
                 id,
                 rule_label,
@@ -346,10 +363,15 @@ fn inventory_transition_class(class: TransitionClassOutput) {
     match class {
         TransitionClassOutput::Rewrite
         | TransitionClassOutput::Remainder
-        | TransitionClassOutput::FunctionEquation
-        | TransitionClassOutput::Simplification
-        | TransitionClassOutput::Builtin
         | TransitionClassOutput::Claim => {}
+    }
+}
+
+fn inventory_evaluation_class(class: EvaluationClassOutput) {
+    match class {
+        EvaluationClassOutput::FunctionEquation
+        | EvaluationClassOutput::Simplification
+        | EvaluationClassOutput::Builtin => {}
     }
 }
 
@@ -432,6 +454,7 @@ pub enum ObservationFailure {
         actual: Option<String>,
     },
     MissingPayloadSource(PayloadSource),
+    InvalidEvaluationAnchor(usize),
 }
 
 #[cfg(test)]
@@ -530,6 +553,32 @@ mod tests {
         assert_ne!(first.identity, second.identity);
         assert_eq!(first.events.len(), 1);
         assert_eq!(second.events.len(), 1);
+    }
+
+    #[test]
+    fn successor_evaluation_is_anchored_without_becoming_transition_evidence() {
+        let branch = adapt_branch(
+            Some(&installed()),
+            vec![transition_id("first-id", 0)],
+            Value::from(2),
+            1,
+            Vec::new(),
+            vec![
+                transition("first-id", "first", 0),
+                ObservationEventOutput::Evaluation {
+                    rule: "equation-id".into(),
+                    class: EvaluationClassOutput::FunctionEquation,
+                    rule_label: Some("equation".into()),
+                    anchor: 1,
+                    before: Value::from(1),
+                    after: Value::from(2),
+                    effects: Vec::new(),
+                },
+            ],
+        )
+        .expect("evaluation at committed successor");
+        assert_eq!(branch.events.len(), 1);
+        assert!(matches!(branch.events[0], NativeEvent::RuleApplied(_)));
     }
 
     #[test]

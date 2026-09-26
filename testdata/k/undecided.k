@@ -1,6 +1,5 @@
 // Evidence the no-Z3 profile cannot decide. `open(z)` has no equation, so an
-// `ensures open(z)` is carried as a path condition; `drain` needs more simplifier
-// iterations than a small budget allows, which is a backend diagnostic; and `isZero`
+// `ensures open(z)` is carried as a path condition; and `isZero`
 // refutes the substitution of `support::deferred_vacuous_state` only after `step`.
 // `carry` and `slow` never apply in the baseline; their mutants replace `requires false`.
 module UNDECIDED-SYNTAX

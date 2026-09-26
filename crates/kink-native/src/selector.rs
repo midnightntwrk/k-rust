@@ -10,17 +10,16 @@
 use std::{collections::BTreeSet, fmt};
 
 use k_rust::{
-    backend::Backend,
+    backend::{Backend, BackendOptions, CompiledRuleKind},
     definition::{AttributeKey, Sentence},
     kast::Sort,
-    kore::parser::parse_definition,
+    provenance::InputSpace,
 };
-use k_rust_backend::transition::ObservationOptions;
 use kink_patch::{Baseline, CandidateFailure, SentenceRef, SiteSelector, derive_sites};
 use serde_json::Value;
 
 use crate::observation::DomainEventSpec;
-use crate::{IdentityError, NativeValidator, ObservedRule, ValidatedDefinition};
+use crate::{NativeValidator, ObservedRule, ValidatedDefinition};
 
 /// Which written rules of the baseline one selection observes.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,10 +52,7 @@ pub struct RewriteRules(BTreeSet<SentenceRef>);
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ClassificationFailure {
     MutantBaseline,
-    Parse(String),
     Internalize(String),
-    ObservationFilter(String),
-    MissingSource(SentenceRef),
     AmbiguousRule(SentenceRef),
     /// A rewrite identity cannot be assigned to a written rule or a known builtin.
     UnmappedRewriteIdentity(String),
@@ -68,16 +64,8 @@ impl fmt::Display for ClassificationFailure {
             Self::MutantBaseline => {
                 formatter.write_str("rewrite classification requires a compiled baseline")
             }
-            Self::Parse(error) => write!(formatter, "could not parse compiled KORE: {error}"),
             Self::Internalize(error) => {
                 write!(formatter, "could not internalize compiled KORE: {error}")
-            }
-            Self::ObservationFilter(error) => write!(
-                formatter,
-                "rewrite theory does not install as an observation filter: {error}"
-            ),
-            Self::MissingSource(rule) => {
-                write!(formatter, "{rule:?} has no written source position")
             }
             Self::AmbiguousRule(rule) => {
                 write!(formatter, "{rule:?} has ambiguous compiled identities")
@@ -109,69 +97,58 @@ impl RewriteRules {
         if baseline.origins().is_some() {
             return Err(ClassificationFailure::MutantBaseline);
         }
-        let syntax = parse_definition(&baseline.artifacts().definition_kore)
-            .map_err(|error| ClassificationFailure::Parse(error.to_string()))?;
-        let definition = Backend::internalize_definition(&syntax, module)
+        let backend = Backend::new(
+            &baseline.artifacts().definition_kore,
+            module,
+            BackendOptions::default(),
+        )
+        .map_err(|error| ClassificationFailure::Internalize(error.to_string()))?;
+        let catalog = backend
+            .rule_catalog(Some(module))
             .map_err(|error| ClassificationFailure::Internalize(error.to_string()))?;
-        // This is the same theory traversal ObservationOptions::with_rules uses.
-        let ids = definition
-            .rewrite_theory
-            .values()
-            .flat_map(|priorities| priorities.values())
-            .flat_map(|rules| rules.iter())
-            .map(|rule| rule.rule.attributes.unique_id.as_str())
+        let authored = validator
+            .baseline()
+            .authored_sentences()
+            .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+            .map(|(at, _)| at)
             .collect::<BTreeSet<_>>();
-        ObservationOptions::with_rules(&definition, ids.iter().copied())
-            .map_err(|error| ClassificationFailure::ObservationFilter(format!("{error:?}")))?;
         let mut selected = BTreeSet::new();
-        let mut resolved_ids = BTreeSet::new();
-        for (at, sentence) in validator.baseline().authored_sentences() {
-            if !matches!(sentence, Sentence::Rule { .. }) {
+        for entry in catalog
+            .into_iter()
+            .filter(|entry| entry.kind == CompiledRuleKind::Rewrite && entry.executable)
+        {
+            let authors = baseline
+                .artifacts()
+                .sentence_provenance
+                .get(&entry.id)
+                .into_iter()
+                .flat_map(|provenance| &provenance.input_addresses)
+                .filter(|address| address.input == InputSpace::Compile)
+                .map(|address| SentenceRef::new(&address.module, address.index))
+                .filter(|at| authored.contains(at))
+                .collect::<BTreeSet<_>>();
+            if entry.shared_identity {
+                if let Some(first) = authors.into_iter().next() {
+                    return Err(ClassificationFailure::AmbiguousRule(first));
+                }
                 continue;
             }
-            let attributes = sentence.attributes();
-            let (Some(source), Some(location)) = (attributes.source(), attributes.location())
-            else {
-                return Err(ClassificationFailure::MissingSource(at));
-            };
-            match baseline.rule_identity(source, location) {
-                Ok(id) if ids.contains(id) => {
-                    resolved_ids.insert(id);
-                    selected.insert(at);
-                }
-                Ok(_) | Err(IdentityError::Missing) => {}
-                Err(IdentityError::Ambiguous) => {
-                    return Err(ClassificationFailure::AmbiguousRule(at));
+            if authors.is_empty() {
+                let known_builtin = !entry.origins.is_empty()
+                    && entry.origins.iter().all(|origin| {
+                        origin.source.as_ref().is_some_and(|source| {
+                            baseline
+                                .compile_options()
+                                .builtin_source_prefixes
+                                .iter()
+                                .any(|prefix| source.starts_with(prefix))
+                        })
+                    });
+                if !known_builtin {
+                    return Err(ClassificationFailure::UnmappedRewriteIdentity(entry.id));
                 }
             }
-        }
-        for id in ids.difference(&resolved_ids) {
-            let carrying_rules = baseline
-                .artifacts()
-                .execution_definition
-                .modules
-                .iter()
-                .flat_map(|module| module.local_sentences.iter())
-                .filter(|sentence| {
-                    matches!(***sentence, Sentence::Rule { .. })
-                        && sentence.attributes().string(AttributeKey::UniqueId) == Some(id)
-                })
-                .collect::<Vec<_>>();
-            let known_builtin = !carrying_rules.is_empty()
-                && carrying_rules.iter().all(|sentence| {
-                    sentence.attributes().source().is_some_and(|source| {
-                        baseline
-                            .compile_options()
-                            .builtin_source_prefixes
-                            .iter()
-                            .any(|prefix| source.starts_with(prefix))
-                    })
-                });
-            if !known_builtin {
-                return Err(ClassificationFailure::UnmappedRewriteIdentity(
-                    (*id).to_owned(),
-                ));
-            }
+            selected.extend(authors);
         }
         Ok(Self(selected))
     }

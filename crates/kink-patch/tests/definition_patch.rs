@@ -651,18 +651,13 @@ fn raw_term_mut<'a>(sentence: &'a mut Sentence, path: &[u32]) -> &'a mut Term {
 }
 
 #[test]
-fn local_sort_check_rejects_what_k_rust_compiles() {
+fn ill_sorted_edits_are_rejected_by_k_rust() {
     let counter = support::load("counter.k");
     let f = Fixture {
         baseline: &counter,
         expected: None,
     };
-    // Signatures come from the baseline's productions (`ProductionCatalog`).
-    // `ReplaceSentence` accepts only rule-like sentences, which declare no
-    // productions, so an edit cannot change a signature. A relabelled
-    // application is checked against its declared signature in the
-    // `arity-drift` and `unknown-label` rows.
-    // (row, path, replacement, whether k-rust itself compiles the raw edit)
+    // (row, path, replacement, whether the raw edit is checked upstream)
     let rows: &[(&str, &[u32], Term, bool)] = &[
         (
             "bool-token-in-nat-position",
@@ -687,19 +682,10 @@ fn local_sort_check_rejects_what_k_rust_compiles() {
             "original-reference-sort-drift",
             &[0, 1, 0],
             f.term("COUNTER.increment", &[0, 0]),
-            false,
-        ),
-        (
-            "bare-variable",
-            &[0, 1, 0, 0],
-            Term::Variable {
-                name: "N".to_owned(),
-                sort: None,
-            },
-            false,
+            true,
         ),
     ];
-    for (row, path, replacement, pin_upstream_gap) in rows {
+    for (row, path, replacement, check_upstream) in rows {
         let patch = Patch::new(vec![f.replace(
             "COUNTER.increment",
             path,
@@ -712,10 +698,7 @@ fn local_sort_check_rejects_what_k_rust_compiles() {
             PatchFailureKind::LocallyIllFormed,
             "{row}: {failure}"
         );
-        if *pin_upstream_gap {
-            // Ledger request structured-term-sort-check: k-rust accepts the
-            // same edit made without kink-patch. When this starts failing,
-            // upstream checks sorts and this row can say so.
+        if *check_upstream {
             let increment = f.rule("COUNTER.increment");
             let mut definition = counter.definition().clone();
             let module = definition
@@ -725,10 +708,33 @@ fn local_sort_check_rejects_what_k_rust_compiles() {
                 .expect("module");
             let sentence = sentence_mut(&mut module.local_sentences[increment.index as usize]);
             *raw_term_mut(sentence, path) = replacement.clone();
-            support::compile(&relink(&counter, definition))
-                .unwrap_or_else(|error| panic!("{row}: k-rust now rejects it: {error:?}"));
+            assert!(
+                support::compile(&relink(&counter, definition)).is_err(),
+                "{row}: k-rust accepted an ill-sorted edit"
+            );
         }
     }
+}
+
+#[test]
+fn a_bare_variable_accepted_by_k_rust_can_be_patched() {
+    let counter = support::load("counter.k");
+    let f = Fixture {
+        baseline: &counter,
+        expected: None,
+    };
+    let replacement = Term::Variable {
+        name: "N".to_owned(),
+        sort: None,
+    };
+    let patch = Patch::new(vec![f.replace(
+        "COUNTER.increment",
+        &[0, 1, 0, 0],
+        replacement,
+    )])
+    .expect("patch");
+    let mutant = apply(&counter, &patch).expect("k-rust accepts the variable at this position");
+    support::compile(&mutant.to_loaded(&counter)).expect("the mutant compiles");
 }
 
 #[test]
@@ -764,6 +770,20 @@ fn path_through_semantic_cast_is_typed_at_the_cast_sort() {
         failure.kind(),
         PatchFailureKind::LocallyIllFormed,
         "{failure}"
+    );
+
+    let mut definition = counter.definition().clone();
+    let increment = f.rule("COUNTER.increment");
+    let module = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == increment.module)
+        .expect("module");
+    let sentence = sentence_mut(&mut module.local_sentences[increment.index as usize]);
+    *raw_term_mut(sentence, &path) = boolean("true");
+    assert!(
+        support::compile(&relink(&counter, definition)).is_err(),
+        "k-rust must reject a Bool below a Nat cast"
     );
 }
 
