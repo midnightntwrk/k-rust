@@ -925,11 +925,19 @@ impl Matcher<'_> {
 
     fn resolve_overloads(&self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
         let definition = self.definition?;
-        let pattern_view = OverloadView::new(pattern)?;
-        let subject_view = OverloadView::new(subject)?;
-        if pattern_view.symbol.name == subject_view.symbol.name {
+        let pattern_name = &overload_head(pattern)?.name;
+        let subject_name = &overload_head(subject)?.name;
+        // A symbol outside every overload relation neither overloads the other head nor shares
+        // an overload with it, so no common production exists: most pairs of distinct heads
+        // end here, before a view of either side is built.
+        if pattern_name == subject_name
+            || !definition.overloads.is_overloaded(pattern_name)
+            || !definition.overloads.is_overloaded(subject_name)
+        {
             return None;
         }
+        let pattern_view = OverloadView::new(pattern)?;
+        let subject_view = OverloadView::new(subject)?;
         let common_name = if definition
             .overloads
             .is_overloading(&pattern_view.symbol.name, &subject_view.symbol.name)
@@ -978,7 +986,7 @@ impl Matcher<'_> {
         let Some(definition) = self.definition else {
             return false;
         };
-        let Some(pattern) = OverloadView::new(pattern) else {
+        let Some(pattern) = overload_head(pattern) else {
             return false;
         };
         let TermKind::Injection { term, .. } = subject.kind() else {
@@ -989,7 +997,7 @@ impl Matcher<'_> {
         };
         definition
             .overloads
-            .overloaded_by(&pattern.symbol.name)
+            .overloaded_by(&pattern.name)
             .into_iter()
             .filter_map(|name| definition.symbols.get(&name))
             .any(|symbol| {
@@ -1481,6 +1489,19 @@ fn symbol_parameters(
 fn instantiated_symbol_sort(symbol: &crate::term::Symbol, sort_arguments: &[Sort]) -> Option<Sort> {
     let parameters = symbol_parameters(symbol, sort_arguments)?;
     Some(substitute_sort_parameters(&symbol.result_sort, &parameters))
+}
+
+/// The symbol of the application `term` is, directly or under one injection: the head an
+/// [`OverloadView`] of `term` has.
+fn overload_head(term: &Term) -> Option<&Arc<crate::term::Symbol>> {
+    let application = match term.kind() {
+        TermKind::Injection { term, .. } => term,
+        _ => term,
+    };
+    match application.kind() {
+        TermKind::Application { symbol, .. } => Some(symbol),
+        _ => None,
+    }
 }
 
 impl OverloadView {
