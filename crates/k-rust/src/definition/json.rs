@@ -163,11 +163,29 @@ pub fn to_string_pretty(definition: &Definition) -> Result<String, Error> {
     serialize(definition, serde_json::to_string_pretty)
 }
 
+/// Write the pretty-printed JSON of [`to_string_pretty`] to the file at `path`, streaming the
+/// text so the document is never held whole in memory. The definition is encoded before the
+/// file is created, so an encoding error leaves no file behind, as with writing the string.
+pub fn write_pretty_file(definition: &Definition, path: &std::path::Path) -> Result<(), Error> {
+    use std::io::Write as _;
+    let envelope = envelope(definition)?;
+    let mut writer =
+        std::io::BufWriter::new(std::fs::File::create(path).map_err(serde_json::Error::io)?);
+    serde_json::to_writer_pretty(&mut writer, &envelope)?;
+    writer
+        .flush()
+        .map_err(|error| Error::Json(serde_json::Error::io(error)))
+}
+
 fn serialize(
     definition: &Definition,
     serializer: impl FnOnce(&Envelope) -> Result<String, serde_json::Error>,
 ) -> Result<String, Error> {
-    serializer(&Envelope {
+    serializer(&envelope(definition)?).map_err(Into::into)
+}
+
+fn envelope(definition: &Definition) -> Result<Envelope, Error> {
+    Ok(Envelope {
         format: term_json::FORMAT.into(),
         version: term_json::VERSION,
         term: JsonDefinition::encode(
@@ -176,7 +194,6 @@ fn serialize(
             &mut |attributes| Ok(attributes.into()),
         )?,
     })
-    .map_err(Into::into)
 }
 
 /// A definition and its logical-source table decoded from `KRUST-PROVENANCE`.

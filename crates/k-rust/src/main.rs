@@ -1911,9 +1911,9 @@ fn kcompile(options: KcompileOptions) -> Result<(), Box<dyn Error>> {
                 );
                 definition
             };
-            fs::write(
-                options.output_directory.join("parsed.json"),
-                definition_json::to_string_pretty(&definition)?,
+            definition_json::write_pretty_file(
+                &definition,
+                &options.output_directory.join("parsed.json"),
             )?;
             // `parsed.json` is the KAST interchange artifact and marks sentences that vocabulary
             // cannot hold, such as context aliases, as `badsentence`. A later specification
