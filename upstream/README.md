@@ -28,6 +28,6 @@ Requests that KRS already tracks against k-rust are listed under `[[krs_owned]]`
 
 ## Moving the reference pin
 
-k-rust is consumed as an on-disk path dependency, so moving the pin means building against the checkout's current commit.
-Run `cargo test --workspace`, then re-screen every `open` and `partial` request at the new commit and update `status_basis` and `[reference_pin]`.
-kink-native's `every_halt_spelling_is_produced_live` fails on a moved spelling of k-rust's private `halt_reason`, but no test notices a new one, so also compare its spellings with kink-native's `HaltClass` (`execution-leaf-completeness`).
+k-rust is consumed as an on-disk path dependency through a read-only `git archive` export of the pinned commit.
+Run `cargo test --workspace` against that export, then re-screen every `open` and `partial` request at the new commit and update `status_basis` and `[reference_pin]`.
+kink-native's `every_halt_variant_is_classified_exhaustively` maps the closed `HaltReasonOutput` enum to `HaltClass` and checks every variant. A new upstream variant requires an exhaustive Rust match update (`execution-leaf-completeness`).

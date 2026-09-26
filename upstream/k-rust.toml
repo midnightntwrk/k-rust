@@ -4,21 +4,22 @@
 # and status-report.html; those files remain in git history.
 
 schema = 1
-updated = "2026-09-25"
+updated = "2026-09-27"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
-k_rust_commit = "985e0086f06e1ec05c2c533f26fb6f949c6b84fa"
+k_rust_commit = "347f693e21ae220f1844005499da262f15ca3988"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
 k_rust_backend_version = "0.3.0"
 k_release = "7.1.337"
-# While k-rust main is mid-refactor, the workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-985e0086"
+# The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
+checkout = "../k-rust-347f693e"
 live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [retired_pins]
+"985e0086f06e1ec05c2c533f26fb6f949c6b84fa" = "Former K-in-K2 read-only archive pin; retired by KINK-1 on 2026-09-27."
 "5fc7a083c3bdfe07b485df271e0299924823d327" = "more-semantics head audited on 2026-08-29; the branch was never merged and its fixes were reimplemented on main."
 "c41caa8bede96e279e0b058577dce504e4144f65" = "Former kink-native pin through the shared k-rust-krs-main worktree; not on main after the 2026-09-08 history rewrite (patch-equivalent: dd6215d8)."
 
@@ -26,37 +27,31 @@ source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [[request]]
 id = "nested-provenance-residual"
-title = "Context aliases are exported lossily without a typed diagnostic"
+title = "Lossless nested definition provenance and context-alias persistence"
 kind = "correctness"
-status = "partial"
-status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (provenance lib tests 14/14 and provenance integration tests pass)"
+status = "fixed"
+fixed_in = "present at 347f693e"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native all_transitions_uses_typed_provenance_without_source_attributes and rule_identities_resolve_by_source_position_per_compiled_side), plus k-rust KRUST-PROVENANCE v7 contract; K-in-K2 has no serialization test yet"
 blocking = false
 needed_by = ["emitting-sentence provenance"]
-summary = """
-crates/k-rust/src/provenance.rs provides logical source identities, absolute spans, 25 generating passes, origin records, and destination anchors.
-Sentence::ContextAlias is still exported as a lossy badsentence node without an error (definition/json.rs:1467), and the module decoder filters it silently (json.rs:1194).
-README.md:615-617 still lists nested-span mapping as a TODO; the legacy program parser has no nested spans (tests/inner_programs.rs:124).
-"""
-reproducer = "Export a definition containing a context alias through the lossless structured export."
+summary = "KRUST-PROVENANCE v7 round-trips definitions and source tables, including context aliases and nested spans. KAST v4 is not a lossless context-alias archive; its unsupported marker is rejected on decode. K-in-K2 currently uses the in-process typed sentence relation and has not implemented SemanticInput serialization."
+reproducer = "Historical at 985e0086: export a definition containing a context alias through KAST v4. At this pin KRUST-PROVENANCE v7 is the lossless format; KAST v4 rejects unsupported aliases on decode."
 local_workaround = "none"
-requested_action = "Return a typed error when a context alias is exported, and either retire or scope the README.md:615-617 TODO."
+requested_action = "Satisfied by KRUST-PROVENANCE v7 for lossless persistence; use to_provenance_string/from_provenance_str with the source table. KAST v4 remains unsuitable as a lossless context-alias archive."
 sources = ["k-rust-agent-requests.toml KRUST-UP-001", "upstream-issues.toml KRUST-UP-001"]
 
 [[request]]
 id = "claim-observation"
-title = "TransitionClass::Claim has no producer and observation invariance does not cover solver calls"
+title = "Proof claim observation remains unavailable"
 kind = "missing-feature"
 status = "partial"
-status_basis = "test run and static screen of source at 985e0086 on 2026-09-24 (observation tests 17/17 and search:: 60/60 pass)"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not), plus k-rust claim-observation answer; K-in-K2 has no proof caller or claim-specific test"
 blocking = false
-needed_by = ["claim and proof observation, only if K-in-K2 observes proofs"]
-summary = """
-Committed, branch-local transition observation is present (k-rust-backend/src/transition.rs:44-95).
-Claim activity is never observed (transition.rs:438-447), no test asserts that enabling observation leaves solver calls unchanged, and the attribution contract for result-global effects is undocumented.
-"""
+needed_by = ["none in the goal; proofs and claim observation are outside its delivery steps"]
+summary = "Observed and unobserved execution preserve solver queries and non-observation results. Leaf effects retain the committed transcript. Claim remains a reserved transition class with no producer; proof claim applications are not observed."
 reproducer = "Prove a claim with observation enabled; no TransitionClass::Claim observation is emitted."
 local_workaround = "none"
-requested_action = "Emit claim observations with a compiled sentence identity that distinguishes claims at different authored positions even when their contents are identical, assert solver-call invariance under observation, and document effect attribution when observation is disabled."
+requested_action = "Proof claim observation remains open outside the K-in-K2 goal. Any future claim event should use compiled identity with all written origins; a per-written-position execution identity is declined."
 sources = ["k-rust-agent-requests.toml KRUST-UP-002", "upstream-issues.toml KRUST-UP-002"]
 
 [[request]]
@@ -64,10 +59,10 @@ id = "malformed-deep-json"
 title = "Malformed deeply nested KORE JSON can overflow the stack on the persistent host routes"
 kind = "bug"
 status = "partial"
-status_basis = "static screen of source at 985e0086 on 2026-09-24 plus a scratch serde_json probe that overflows an 8 MiB thread at depth 50,000"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native deterministic_runs_are_complete_under_path_set), plus k-rust malformed-deep-json answer; K-in-K2 has no host JSON ingress or malformed-host-input test"
 blocking = false
-needed_by = ["none while K-in-K2 calls k-rust in process"]
-summary = "Valid deep results decode through the iterative KORE JSON tree, but the napi, wasm, and RPC routes parse request text into serde_json::Value first (k-rust-napi/src/lib.rs:434-440, k-rust-wasm/src/lib.rs:461-475, rpc.rs:1468-1473)."
+needed_by = ["none in the goal; K-in-K2 calls k-rust in process and has no host JSON request ingress"]
+summary = "The in-process K-in-K2 execution path does not parse host request JSON. Deep malformed input remains a concern for separate napi, wasm, and JSON-RPC ingress routes at this pin."
 reproducer = "Submit a 200,000-deep malformed KORE JSON request through the napi execute route."
 local_workaround = "none"
 requested_action = "Parse host request text with the iterative decoder and add a malformed-deep-input regression."
@@ -75,108 +70,77 @@ sources = ["k-rust-agent-requests.toml KRUST-COMPAT-001", "krs draft/upstream/k-
 
 [[request]]
 id = "execution-leaf-completeness"
-title = "Execution leaves have no typed halt reason and may be dropped or merged without a record"
+title = "Typed halts and complete path leaves for observed execution"
 kind = "correctness"
-status = "open"
-status_basis = "test run at 985e0086 on 2026-09-25 (kink-native converging_branches_never_yield_pattern_no_match; kink-native src/execution.rs every_halt_spelling_is_produced_live, which makes k-rust produce all 13 halt spellings; a scratch reproducer in which one stuck branch hides a depth-bound branch and one converging observed branch loses its events) plus static screen of k-rust-backend/src/rewrite/execute.rs, docs/backend-port.md and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-25"
-blocking = true
-needed_by = ["execution-pattern NoMatch on branching executions", "binding sets on branching executions", "state-set oracles without a trust assumption"]
-summary = """
-ExecutionLeaf.reason is a String (crates/k-rust/src/backend/mod.rs:150-153), so a caller classifies halts by spelling. The hand-written TypeScript union (k-rust-napi/typescript/index.ts:193-205) lists 12 of the 13 Rust spellings and omits unsupported-hook.
-Every DepthBound leaf is dropped without a record once any leaf is stuck, trivial or vacuous, in two places: SelectedExecutionLeaves::push (k-rust-backend/src/rewrite/execute.rs:937-951) drops them as leaves arrive on the normal run path, and select_got_stuck_over_depth_bound (execute.rs:917-928) applies the same selection again in collect (:883-885). A finite max_depth under an explore-all execution can therefore hide unfinished branches.
-merge_equal_final_leaves (execute.rs:973-1003, applied by collect at :883-885 and at :197) keys leaves on term, constraints, effects and io only. Branch identity, trace and observation events are not in the key, so of two branches that converge on one final state only one branch's events survive.
-The merge is documented behaviour (docs/backend-port.md:110-111: equal final configurations collapse "while preserving the first leaf's trace and halt reason"), and its key was later extended with effects and console state, so leaving the branch out looks deliberate for unobserved runs; what is missing is a record of the merged branches when observation is enabled.
-Nothing documents or tests that an unbounded explore-all execute returns every distinct final state.
-"""
-reproducer = """
-Definition with start => mid1, start => mid2, mid1 => done and mid2 => done, labelled left and right on the first step. An explore-all execute_observed from start that observes ND.right returns one stuck leaf whose events are [], although right fires on a real path (kink-native tests/bridge.rs converging_branches_never_yield_pattern_no_match, over testdata/k/nd.k).
-"""
-local_workaround = """
-kink-native's ExecutionAdapter runs with stop_at_branch first: a ground initial state that ends in exactly one stuck leaf, with no backend diagnostic and within the time budget, is a single-path witness and complete evidence.
-Otherwise it reruns explore-all without a depth bound. State-set oracles are then complete only under the assumption that every distinct final state is returned; an execution-pattern oracle reaches at most Match, NoMatch and binding sets are Unknown, and the collection stop is ExhaustionUnrecorded.
-kink-native HaltClass::parse accepts exactly the 13 spellings of the private halt_reason (crates/k-rust/src/backend/mod.rs:984-1002) at the pin. every_halt_reason_string_maps_to_exactly_one_class checks kink's copy of that list, not k-rust output.
-All 13 spellings are live-checked: kink-native src/execution.rs every_halt_spelling_is_produced_live makes k-rust produce each one over an inline KORE definition and asserts the class it maps to.
-Seven are produced through ExecutionAdapter::execute: stuck, trivial, vacuous, indeterminate, unsupported-hook, simplification-error and cancelled.
-Six are produced only through Backend::execute_observed with one field of the adapter's explore-all request changed: branch (stop_at_branch; the adapter discards its stop_at_branch run unless that run ended in one stuck leaf), cut-point (cut_point_rules), terminal (terminal_rules), depth-bound (max_depth), breadth-bound (max_breadth) and timeout (step_timeout_ms); for these the row checks HaltClass::parse and requires the adapter to reject the result as a contract violation.
-A moved spelling fails that test and makes the execution adapter fail closed with UnknownHaltReason, which the runner reports as Error. A new halt reason is noticed by no test, so re-read halt_reason when moving the pin.
-"""
-requested_action = """
-Give ExecutionLeaf a typed halt reason.
-Document, and test, that an unbounded explore-all execute returns every distinct final state.
-Report DepthBound leaves dropped by SelectedExecutionLeaves::push and by select_got_stuck_over_depth_bound, as a count or as the leaves.
-When observation is enabled, include branch identity and observations in the merge key of merge_equal_final_leaves, or report the merged leaves with their traces.
-"""
+status = "fixed"
+fixed_in = "present at 347f693e"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native converging_branches_reach_pattern_no_match_with_both_events, every_halt_variant_is_classified_exhaustively, execution_leaf_rows_map_to_paths)"
+blocking = false
+needed_by = ["execution-pattern NoMatch on branching executions", "binding sets on branching executions", "path-complete evidence without a StateSet merge assumption"]
+summary = "HaltReasonOutput is a closed enum. PathSet retains each explored path, including convergent paths with distinct observations; StateSet retains distinct final configurations. DepthBound frontier leaves are kept beside completed leaves, and BreadthBound retains finished leaves. StateSet merge-key behavior was deliberately not changed."
+reproducer = "Historical at 985e0086: a StateSet explore-all run of converging paths could merge away the observed ND.right branch. At 347f693e, converging_branches_reach_pattern_no_match_with_both_events exercises PathSet and keeps both paths."
+local_workaround = "retired: kink-native makes one PathSet request and maps the typed halt enum exhaustively; no stop-at-branch probe, rerun, or halt spelling parser remains."
+requested_action = "Satisfied for path evidence by PathSet, typed halts, and retained depth and breadth frontier leaves. A StateSet merge-key change was declined; use PathSet when path identity or observations matter."
 sources = ["k-in-k2 k-rust migration design, section 8 risk 3 and critique C1"]
 
 [[request]]
 id = "execution-diagnostics"
-title = "Execution and search responses do not carry the backend diagnostics of the run"
+title = "Execution and search responses retain path diagnostics"
 kind = "missing-feature"
-status = "open"
-status_basis = "test run at 985e0086 on 2026-09-25 (kink-native tests/bridge.rs undecided_live_occurrences_are_no_witness and a scratch crate running the reproducer below, where only diagnostic::collect returns the backend diagnostic) plus static screen of k-rust-backend/src/diagnostic.rs, simplify.rs, crates/k-rust/src/backend/mod.rs and README.md at 985e0086 on 2026-09-25"
+status = "fixed"
+fixed_in = "present at 347f693e"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native clean_sibling_survives_diagnosed_path and undecided_live_occurrences_are_no_witness; kink-campaign undecided_occurrences_neither_kill_nor_pass_admission)"
 blocking = false
 needed_by = ["execution oracle slots that must tell budget exhaustion from a result"]
-summary = """
-Simplification-budget exhaustion, undecided conditions and predicates, and unevaluated hooks are emitted as BackendDiagnostic into a thread-local sink (k-rust-backend/src/diagnostic.rs:12-31, emitted at simplify.rs:271, :479, :755, :826, :2590).
-Only a caller that wraps the call in diagnostic::collect (diagnostic.rs:59-66) sees them; no production route does, and ExecutionResult (crates/k-rust/src/backend/mod.rs:141-147) and the search response have no diagnostics field.
-After budget exhaustion execution continues with a partially simplified term, so a leaf can look stuck when it is not, and a Final search returns the partially simplified state with an empty incomplete list.
-README.md:257 says exhaustion "is reported as a simplification iteration-limit stop", but no response field carries such a stop.
-"""
-reproducer = "Define a function g with the simplification equation g(X) = g(g(X)) and the rule start => g(a). Execute from start with max_simplification_iterations = 3: the one leaf is stuck with 1226 unevaluated g calls, and only diagnostic::collect returns SimplificationBudgetExhausted { limit: 3, .. }. A Final search from start under the same budget returns that state with an empty incomplete list."
-local_workaround = "kink-native wraps every execute call in diagnostic::collect and treats any diagnostic as an incomplete run: every path is a BackendLimit, so state-set slots and a pattern Match or NoMatch become Unknown."
-requested_action = "Return the run's diagnostics as a typed field on ExecutionResult and on the search response, so a caller on another thread or across the wire sees them (KRS KR-07, in review, adds the diagnostic kinds for equation conditions). Count budget exhaustion as a reason a search is incomplete, and align README.md:257 with the behaviour."
+summary = "Typed diagnostics are attached to the affected execution leaf, branch or cut-point candidate, and remainder; search entries retain their path diagnostics. There is no run-wide diagnostics list by design. A clean sibling remains usable evidence."
+reproducer = "Historical at 985e0086: recursive g simplification with budget 3 yielded a stuck leaf while the budget diagnostic was only in diagnostic::collect. At this pin the affected leaf carries SimplificationBudgetExhausted; undecided_live_occurrences_are_no_witness asserts that diagnosed path is not evidence."
+local_workaround = "retired: kink-native reads leaf, candidate, and remainder diagnostic fields and marks only diagnosed paths BackendLimit."
+requested_action = "Satisfied by per-path diagnostics. Inspect candidates and remainders as well as leaves; a run-wide list is not part of the contract."
 sources = ["k-in-k2 k-rust migration design, section 8 risk 4 and critique C3"]
 
 [[request]]
 id = "structured-term-sort-check"
-title = "Structured rule terms are not sort-checked by load_structured or compile_loaded_definition"
+title = "Compiler-owned sort checks for structured rule terms"
 kind = "correctness"
-status = "open"
-status_basis = "test run at 985e0086 on 2026-09-24 (kink-patch local_sort_check_rejects_what_k_rust_compiles, rows bool-token-in-nat-position and non-bool-requires)"
+status = "fixed"
+fixed_in = "present at 347f693e"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-patch ill_sorted_edits_are_rejected_by_k_rust and path_through_semantic_cast_is_typed_at_the_cast_sort)"
 blocking = false
 needed_by = ["mutant validity without a local sort check"]
-summary = """
-A rule term supplied as a KAST term, rather than parsed by the inner parser, is not sort-checked.
-A Bool token in a Nat position compiles with an injection between unrelated sorts, and a non-Bool requires clause compiles.
-"""
-reproducer = "Load counter.k, replace the term at path [0, 1, 0] of COUNTER.increment (the s(N) argument on the right side) with the Bool token true, or its requires clause with z, relink the loaded definition, and call compile_loaded_definition: it succeeds."
-local_workaround = "kink-patch sort.rs re-implements a conservative local sort check: an undecidable sort is a rejection, and a rewrite must not widen its left sort. The two rows above pin the upstream behaviour and fail once k-rust rejects the edits."
-requested_action = "Sort-check sentence terms that load_structured or compile_loaded_definition did not parse, or expose the inner parser's sort inference for a given term in a module."
+summary = "The k-rust compiler rejects ill-placed terms, incomparable casts, ambiguous parametric instances, conflicting variable cast bounds, and invalid token domains on every compile entry path. sentence_typing and SentenceTyper expose the compiler-owned per-position typing."
+reproducer = "The former counter.k Bool token in a Nat position and non-Bool requires edits now fail in compile_loaded_definition; ill_sorted_edits_are_rejected_by_k_rust exercises these cases."
+local_workaround = "retired: kink-patch uses SentenceTyper for position and site sorts; compiler rejection determines mutant validity."
+requested_action = "Satisfied by compile-time validity checks and sentence_typing. K-in-K2 may still apply narrower operator generation policy without treating it as a compiler validity rule."
 sources = ["k-in-k2 k-rust migration design, section 8 risk 2"]
 
 [[request]]
 id = "transition-id-ordering"
-title = "TransitionIdOutput derives PartialEq only"
+title = "TransitionIdOutput supports ordered identity keys"
 kind = "api"
-status = "open"
-status_basis = "static screen of crates/k-rust/src/backend/wire.rs at 985e0086 on 2026-09-24"
+status = "fixed"
+fixed_in = "present at 347f693e"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-pattern every_execution_pattern_row_matches_its_denotation and kink-native converging_branches_reach_pattern_no_match_with_both_events)"
 blocking = false
 needed_by = ["ordered transition identities in execution patterns"]
-summary = "TransitionIdOutput (crates/k-rust/src/backend/wire.rs:139-144) derives Clone, Debug, Deserialize, PartialEq and Serialize, but not Eq, Ord or Hash, although both fields are Strings."
+summary = "TransitionIdOutput derives Eq, PartialOrd, Ord, and Hash over its rule and target strings; K-in-K2 uses it directly as its ordered transition identity."
 reproducer = "Use TransitionIdOutput as a BTreeMap key."
-local_workaround = "kink-pattern TransitionKey copies its rule and target and derives Eq, Hash and Ord."
-requested_action = "Derive Eq, Ord and Hash on TransitionIdOutput and the other wire identity types."
+local_workaround = "retired: kink-pattern TransitionKey was removed."
+requested_action = "Satisfied for TransitionIdOutput with Eq, Ord, and Hash. Other wire records are outside this identity-key request."
 sources = ["k-in-k2 k-rust migration design, section 8 risk 7"]
 
 [[request]]
 id = "rewrite-rule-classification"
-title = "No stable public way to tell which written rules are rewrite rules, and equation applications cannot be observed"
+title = "Public rule classification and diagnostic evaluation events"
 kind = "missing-feature"
-status = "open"
-status_basis = "test run at 985e0086 on 2026-09-25 (kink-native one_of_two_identical_unlabelled_rules_is_not_observable, inserted_anonymous_clone_of_observed_rule_is_not_observable and selected_rewrite_reclassified_as_equation_fails_closed) plus static screen of crates/k-rust/src/kompile/passes/number_sentences.rs, crates/k-rust/src/kompile/module_to_kore/equations.rs, crates/k-rust-backend/src/definition.rs, crates/k-rust-backend/src/transition.rs, and crates/k-rust/src/backend/mod.rs at 985e0086 on 2026-09-25"
+status = "fixed"
+fixed_in = "present at 347f693e"
+status_basis = "test run at 347f693e on 2026-09-27 (cargo test --workspace; kink-native all_undecided_rewrite_rules_are_selected_in_definition_order, observed_rule_merged_with_unobserved_author_is_unknown, two_equal_observed_rules_with_same_spec_attribute_normally, and selected_rewrite_reclassified_as_equation_fails_closed)"
 blocking = false
-needed_by = ["AllTransitions as every rewrite rule without a second internalize", "function-equation applications as pattern evidence"]
-summary = """
-k-rust classifies rewrite rules against equations at kompile time in the private equation_info (crates/k-rust/src/kompile/module_to_kore/equations.rs:240-291).
-The only public view is BackendDefinition::rewrite_theory after internalize (crates/k-rust-backend/src/definition.rs:214,487), a backend field with no stability promise and keyed by UNIQUE_ID, so a client internalizes the whole definition a second time.
-Nothing maps a written sentence to its kind.
-UNIQUE_ID hashes the rule body, requires, ensures and seven semantic attributes; it excludes source position and label (crates/k-rust/src/kompile/passes/number_sentences.rs:29-37,58-79). Distinct written rules can therefore share one observation identity.
-The observation allowlist accepts only rewrite_theory IDs (crates/k-rust-backend/src/transition.rs:224-256).
-Unfiltered, k-rust emits FunctionEquation and Simplification events (transition.rs:376-447), but they carry no branch transition (transition: None at :395), so a client that anchors events to committed transitions cannot use them.
-"""
-reproducer = "Over k-in-k2 testdata/k/undecided.k, observe the isZero(z) => true equation in an observed execute; the backend rejects the filter with ObservationFilterError::UnknownRule."
-local_workaround = "kink-native RewriteRules::classify internalizes the compiled baseline through Backend::internalize_definition and reads rewrite_theory membership. It fails if an executable rewrite identity cannot be mapped to an authored position or a known builtin. An observed position is admitted only when its UNIQUE_ID belongs to exactly one compiled rule across the execution definition, including builtins; otherwise baseline admission or mutant preparation fails. Explicitly selected equations fail closed (function_equations_are_not_observable; selected_rewrite_reclassified_as_equation_fails_closed)."
-requested_action = "Provide (a) a stable public query on a compiled definition or CompiledKoreArtifacts that classifies each written rule by source position as a rewrite rule, function equation, simplification, or not executed (macro, non-executable), with a per-sentence observation identity unique across compiled rules even when contents match; and (b) an account of whether function-equation and simplification applications can be observed under an allowlist with an anchor to the committed transition they occur in, or why not. Including source position in UNIQUE_ID or exposing a separate position-unique identity would address the identity collision."
+needed_by = ["AllTransitions as every rewrite rule without a second internalize"]
+summary = "Backend::rule_catalog classifies compiled rules without a second internalization; Evaluation events use branch ordinals and are diagnostic evidence. Equal written rules, including label-only differences, share one compiled execution identity with all authors. The requested per-written-position execution identity was declined because equal executable rules are indistinguishable. K-in-K2 attributes a multi-author event to one authored rule only when all authors have the same observation specification; otherwise attribution is Unknown."
+reproducer = "Historical at 985e0086: an observed execute filtered to the isZero(z) equation rejected its ID as UnknownRule. At this pin rule_catalog classifies equations and Evaluation records can report successor normalization; selected_rewrite_reclassified_as_equation_fails_closed preserves K-in-K2 transition-only observation policy."
+local_workaround = "retired: kink-native uses rule_catalog and typed sentence_provenance; K-in-K2 multi-author attribution is the local policy for shared identities, not a workaround."
+requested_action = "Satisfied by rule_catalog and Evaluation records. Per-written-position execution identity declined; K-in-K2 retains written positions as provenance and applies its multi-author attribution policy."
 sources = ["k-in-k2 milestone 4, AllTransitions as every rewrite rule"]
 
 # ---------------------------------------------------------------- tracked by KRS
@@ -190,9 +154,7 @@ note = "Reproduced open at 985e0086 on 2026-09-24: the rewrite's least upper bou
 [[krs_owned]]
 krs_id = "z3-free-structured-compile"
 note = """
-K-in-K2 builds k-rust without z3-inference, and that build cannot load the embedded prelude.md (Z3InferenceRequired; k-rust tests/inner_rules.rs portable_build_rejects_the_standard_prelude).
-The test definitions load kast.md plus testdata/k/portable-prelude.k stand-ins, and kink-native cannot bind a pre-load KRS definition.
-Tracked in k-rust's untracked draft/krs-requests/tickets.toml as KR-09, KR-20, KR-21 and KR-22; delete portable-prelude.k once KR-22 lands; builtin-catalog prelude sentences are not sites or observable rules.
+Fixed at the current k-rust pin: the build without z3-inference loads the embedded prelude.md. K-in-K2 loads the real prelude, and KINK-1 deleted testdata/k/portable-prelude.k in c44b1c2. Builtin-catalog prelude sentences are not authored mutation sites or observable rules.
 """
 
 [[krs_owned]]
