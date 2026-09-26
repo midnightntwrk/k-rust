@@ -511,19 +511,23 @@ pub(super) fn pack_alternatives(nodes: &BTreeSet<Rc<PackedTerm>>) -> Rc<PackedTe
     PackedTerm::ambiguity(alternatives)
 }
 
-pub(super) fn append_nodes(
-    derivations: &Derivations,
+/// Extend every derivation of a state with the packed alternatives of its next child.
+///
+/// A state's derivations are distinct and have one length, so appending one node to each keeps
+/// them distinct and in the order of the state's set; the result is yielded in that order
+/// without building another ordered set.
+pub(super) fn append_nodes<'a>(
+    derivations: &'a Derivations,
     nodes: &BTreeSet<Rc<PackedTerm>>,
-) -> BTreeSet<Derivation> {
+) -> impl Iterator<Item = Derivation> + 'a {
     let node = (!nodes.is_empty()).then(|| pack_alternatives(nodes));
-    derivations
-        .iter()
-        .filter_map(|derivation| {
-            let mut combined = derivation.clone();
-            combined.push(node.clone()?);
-            Some(combined)
-        })
-        .collect()
+    derivations.iter().filter_map(move |derivation| {
+        let node = node.clone()?;
+        let mut combined = Vec::with_capacity(derivation.len() + 1);
+        combined.extend(derivation.iter().cloned());
+        combined.push(node);
+        Some(combined)
+    })
 }
 
 pub(super) fn build_packed_term(
