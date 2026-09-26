@@ -74,6 +74,7 @@ use std::{
     borrow::Borrow,
     cell::OnceCell,
     collections::{BTreeMap, HashMap, HashSet},
+    hash::Hash,
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -1486,7 +1487,7 @@ fn collect_source_links(term: &Term, links: &mut IndexSet<ProvenanceLink>) {
     }
 }
 
-fn insert_link(links: &mut IndexSet<ProvenanceLink>, link: ProvenanceLink) {
+fn insert_link<L: Eq + Hash>(links: &mut IndexSet<L>, link: L) {
     measure::bump(Counter::ProvenanceLinkDedupProbes);
     links.insert(link);
 }
@@ -1732,46 +1733,51 @@ fn term_origin_links(
     after: &Term,
     inherited: &Arc<[ProvenanceLink]>,
 ) -> Arc<[ProvenanceLink]> {
-    let before_metadata = before.and_then(Term::metadata);
-    let after_metadata = after.metadata();
+    let metadata = [before.and_then(Term::metadata), after.metadata()];
+    let prior = metadata.map(|metadata| {
+        metadata
+            .and_then(|metadata| metadata.origin.as_deref())
+            .map(|origin| &origin.origins)
+    });
+    let spans = metadata.map(|metadata| {
+        metadata
+            .and_then(|metadata| metadata.span)
+            .map(|span| ProvenanceLink::Source { span })
+    });
+    // The union is idempotent, so a shared origin set already united adds no link; a copied term
+    // keeps its counterpart's set, and a node's prior set is often the one it inherits.
+    let mut united = Vec::<&Arc<[ProvenanceLink]>>::with_capacity(2);
     let mut links = IndexSet::new();
     // Invariant: `links` contains the distinct prior and current origin links already scanned in
-    // first-encounter order.
-    for link in before_metadata
-        .and_then(|metadata| metadata.origin.as_deref())
-        .into_iter()
-        .flat_map(|origin| origin.origins.iter())
-        .chain(
-            after_metadata
-                .and_then(|metadata| metadata.origin.as_deref())
-                .into_iter()
-                .flat_map(|origin| origin.origins.iter()),
-        )
-        .cloned()
-    {
-        insert_link(&mut links, link);
+    // first-encounter order, and `united` names every shared set already scanned.
+    for origins in prior.into_iter().flatten() {
+        if united.iter().any(|seen| Arc::ptr_eq(seen, origins)) {
+            continue;
+        }
+        united.push(origins);
+        for link in origins.iter() {
+            insert_link(&mut links, link);
+        }
     }
     // Invariant: source spans are appended once after inherited origin records.
-    for span in [
-        before_metadata.and_then(|metadata| metadata.span),
-        after_metadata.and_then(|metadata| metadata.span),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        insert_link(&mut links, ProvenanceLink::Source { span });
+    for link in spans.iter().flatten() {
+        insert_link(&mut links, link);
     }
     if links.is_empty() {
         return Arc::clone(inherited);
     }
     // Invariant: inherited links not already present are appended in inherited order.
-    for link in inherited.iter() {
-        insert_link(&mut links, link.clone());
+    if !united.iter().any(|seen| Arc::ptr_eq(seen, inherited)) {
+        for link in inherited.iter() {
+            insert_link(&mut links, link);
+        }
     }
-    if links.iter().eq(inherited.iter()) {
+    // Links are borrowed until the union is known to differ from the inherited set, so a node
+    // that adds nothing new shares that set without copying a link.
+    if links.iter().copied().eq(inherited.iter()) {
         Arc::clone(inherited)
     } else {
-        links.into_iter().collect::<Vec<_>>().into()
+        links.into_iter().cloned().collect::<Vec<_>>().into()
     }
 }
 
