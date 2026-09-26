@@ -13,63 +13,63 @@ use k::builtin::{Bool, Int, bool, int};
 
 // `function` must register a functional production, including its declared
 // totality, result sort, concrete syntax, and stable K symbol identity.
-#[k::function(total, sort = Int, syntax = "#m3dTotal({value})")]
-pub struct M3dTotal {
+#[k::function(total, sort = Int, syntax = "#addOne({value})")]
+pub struct AddOne {
     pub value: Term<Int>,
 }
 
-#[k::function(partial, sort = Int, syntax = "#m3dPositive({value})")]
-pub struct M3dPositive {
+#[k::function(partial, sort = Int, syntax = "#nonnegativeIdentity({value})")]
+pub struct NonnegativeIdentity {
     pub value: Term<Int>,
 }
 
-#[k::function(total, sort = Int, syntax = "#m3dPriority({value})")]
-pub struct M3dPriority {
+#[k::function(total, sort = Int, syntax = "#priorityChoice({value})")]
+pub struct PriorityChoice {
     pub value: Term<Int>,
 }
 
-/// Oracle rule `[m3d-total]`.
+/// Oracle rule `[add-one]`.
 #[k::equation]
-fn m3d_total(k::term![M3dTotal(value)]: Term<Int>) -> Term<Int> {
+fn add_one(k::term![AddOne(value)]: Term<Int>) -> Term<Int> {
     int::add(value, 1)
 }
 
-/// Oracle rule `[m3d-positive]`.
+/// Oracle rule `[nonnegative-identity]`.
 #[k::requires(int::le(0, value))]
 #[k::equation]
-fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int> {
+fn nonnegative_identity(k::term![NonnegativeIdentity(value)]: Term<Int>) -> Term<Int> {
     value
 }
 
-/// Oracle rule `[m3d-priority-zero]`.
+/// Oracle rule `[priority-choice-zero]`.
 #[k::priority(40)]
 #[k::equation]
-fn m3d_priority_zero(k::term![M3dPriority(0)]: Term<Int>) -> Term<Int> {
+fn priority_choice_zero(k::term![PriorityChoice(0)]: Term<Int>) -> Term<Int> {
     111
 }
 
-/// Oracle rule `[m3d-priority-fallback]`.
+/// Oracle rule `[priority-choice-fallback]`.
 #[k::priority(80)]
 #[k::equation]
-fn m3d_priority_fallback(k::term![M3dPriority(_)]: Term<Int>) -> Term<Int> {
+fn priority_choice_fallback(k::term![PriorityChoice(_)]: Term<Int>) -> Term<Int> {
     222
 }
 
 // The production and its expansion clause are both visibly static aliases.
-#[k::constructor(sort = Expr, syntax = "m3dZero")]
+#[k::constructor(sort = Expr, syntax = "zeroAlias")]
 #[k::alias]
-pub struct M3dZero;
+pub struct ZeroAlias;
 
-/// Oracle rule `[m3d-zero-alias]`.
+/// Oracle rule `[zero-alias]`.
 #[k::alias]
-fn m3d_zero_alias(k::term![M3dZero]: Term<dyn Expr>) -> Term<dyn Expr> {
+fn zero_alias(k::term![ZeroAlias]: Term<dyn Expr>) -> Term<dyn Expr> {
     0
 }
 
 // `site` denotes the complete production instance at HERE, not merely the
 // selected argument hole. The tail and sibling cells remain framed.
-#[k::context_alias(name = m3d_eval, here = site)]
-fn m3d_eval(
+#[k::context_alias(name = operand_eval, here = site)]
+fn operand_eval(
     k::cells! {
         k: k::configuration::KCell(site, tail @ ..),
         state @ ..
@@ -77,15 +77,15 @@ fn m3d_eval(
 ) {
 }
 
-#[k::constructor(sort = Expr, syntax = "m3dTwice({value})")]
-#[k::seqstrict(using = m3d_eval, sequence = [value], result = KResult)]
-pub struct M3dTwice {
+#[k::constructor(sort = Expr, syntax = "double({value})")]
+#[k::seqstrict(using = operand_eval, sequence = [value], result = KResult)]
+pub struct Double {
     pub value: Term<dyn Expr>,
 }
 
-/// Oracle rule `[m3d-twice]`; use in `int::add` refines `value` to `Int`.
+/// Oracle rule `[double]`; use in `int::add` refines `value` to `Int`.
 #[k::rule]
-fn m3d_twice(k::term![M3dTwice(value)]: Term<dyn Expr>) -> Term<dyn Expr> {
+fn double(k::term![Double(value)]: Term<dyn Expr>) -> Term<dyn Expr> {
     int::add(value, value)
 }
 
@@ -120,7 +120,7 @@ fn normalize_not_le(
 #[k::claim(all_paths, label = "total-equation")]
 fn total_equation(
     k::cells! {
-        k: k::configuration::KCell(M3dTotal(4), tail @ ..),
+        k: k::configuration::KCell(AddOne(4), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -133,7 +133,7 @@ fn total_equation(
 #[k::claim(all_paths, label = "partial-equation")]
 fn partial_equation(
     k::cells! {
-        k: k::configuration::KCell(M3dPositive(7), tail @ ..),
+        k: k::configuration::KCell(NonnegativeIdentity(7), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -146,7 +146,7 @@ fn partial_equation(
 #[k::claim(all_paths, label = "explicit-priority")]
 fn explicit_priority(
     k::cells! {
-        k: k::configuration::KCell(M3dPriority(0), tail @ ..),
+        k: k::configuration::KCell(PriorityChoice(0), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -159,7 +159,7 @@ fn explicit_priority(
 #[k::claim(all_paths, label = "static-alias")]
 fn static_alias(
     k::cells! {
-        k: k::configuration::KCell(M3dZero, tail @ ..),
+        k: k::configuration::KCell(ZeroAlias, tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {
@@ -172,7 +172,7 @@ fn static_alias(
 #[k::claim(all_paths, label = "context-alias")]
 fn context_alias(
     k::cells! {
-        k: k::configuration::KCell(M3dTwice(Add(1, 2)), tail @ ..),
+        k: k::configuration::KCell(Double(Add(1, 2)), tail @ ..),
         state @ ..
     }: Machine,
 ) -> Machine {

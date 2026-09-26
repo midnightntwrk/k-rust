@@ -337,9 +337,9 @@ def main() -> int:
             check=False,
         )
         compact = re.sub(r"\s+", " ", executed.stdout)
-        if executed.returncode != 0 or "x |-> 6" not in compact or "y |-> m3dZero" not in compact:
+        if executed.returncode != 0 or "x |-> 6" not in compact or "y |-> zeroAlias" not in compact:
             raise GateError(f"static execution differs:\n{executed.stdout}\n{executed.stderr}")
-        print("PASS M3D execution: x=6, y=0 (reversible m3dZero unparse)")
+        print("PASS M3D execution: x=6, y=0 (reversible zeroAlias unparse)")
 
         verify_diagnostic(
             kompile=kompile,

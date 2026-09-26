@@ -12,7 +12,7 @@ The nested `surface` package is intentionally compile-fail. It repeats the
 M3C baseline as a module and adds the intended function/equation, alias,
 context-alias, selected-context strictness, simplification, and reachability
 claim declarations. These declarations are neither configuration-disabled nor
-replaced by handwritten K. The first current diagnostic is at `m3d_total`:
+replaced by handwritten K. The first current diagnostic is at `add_one`:
 because the absent `k::equation` collector does not consume its `term!` subject,
 the ordinary term placeholder reaches rustc in pattern position and reports
 `this macro call doesn't expand to a pattern`. The facade also has no public

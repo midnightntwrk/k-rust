@@ -24,7 +24,7 @@ const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
 /// registration table was appended; the text up to the table must still
 /// equal it.
 const TOUR_MINIMAL_PRINT_SHA256: &str =
-    "52a7f45f82c647c120841899693ac92d1177838f623d880c279c64b0cd88e284";
+    "9d7617b37db070293ce558033a80a093a3a2c292bdf5a86ef6770b67be8c130b";
 
 fn module_path() -> Vec<String> {
     vec!["krs_tour_minimal".to_owned()]
@@ -105,12 +105,12 @@ fn tour_minimal_matches_the_support_driver() {
     assert_eq!(
         summary,
         [
-            ("sorts", 287..320, 287..320, None),
-            ("constructors", 322..372, 322..491, None),
-            ("configuration", 493..512, 493..572, None),
-            ("init", 593..603, 593..699, None),
-            ("k", 662..682, 662..682, Some(InvocationId(3))),
-            ("rules", 703..854, 703..854, None),
+            ("sorts", 287..325, 287..325, None),
+            ("constructors", 327..382, 327..501, None),
+            ("configuration", 503..522, 503..582, None),
+            ("init", 603..613, 603..709, None),
+            ("k", 672..692, 672..692, Some(InvocationId(3))),
+            ("rules", 713..869, 713..869, None),
         ]
     );
 }
@@ -257,13 +257,13 @@ fn tour_minimal_output_invokes_no_krs_proc_macro() {
 
 #[test]
 fn invalid_sorts_block_reports_the_exact_token() {
-    let source = "k::sorts! { M2Obj: ; }\n";
+    let source = "k::sorts! { ObjectTerm: ; }\n";
     let whole = expand(source).expect_err("the invalid block fails");
     let selected = expand_with(
         source,
         &Selection::Invocations(vec![SelectedInvocation {
             kind: "sorts".to_owned(),
-            replaced: 0..22,
+            replaced: 0..27,
         }]),
     )
     .expect_err("the selected invalid block fails");
@@ -274,7 +274,7 @@ fn invalid_sorts_block_reports_the_exact_token() {
                 code: None,
                 message: "expected identifier".to_owned(),
                 class: MappingClass::ExactAuthored,
-                authored: Some(19..20),
+                authored: Some(24..25),
                 invocation: Some(InvocationId(0)),
             }]
         );
@@ -287,19 +287,19 @@ fn selection_expands_only_the_listed_invocation() {
         TOUR_MINIMAL,
         &Selection::Invocations(vec![SelectedInvocation {
             kind: "sorts".to_owned(),
-            replaced: 287..320,
+            replaced: 287..325,
         }]),
     )
     .expect("the selected block expands");
     assert_eq!(expansion.expansions.len(), 1);
     let text = &expansion.generated.text;
     assert!(!text.contains("k::sorts!"));
-    assert!(text.contains("#[k::constructors(sort = M2Obj, result = KResult)]"));
+    assert!(text.contains("#[k::constructors(sort = ObjectTerm, result = KResult)]"));
     let missing = expand_with(
         TOUR_MINIMAL,
         &Selection::Invocations(vec![SelectedInvocation {
             kind: "rules".to_owned(),
-            replaced: 287..320,
+            replaced: 287..325,
         }]),
     )
     .expect_err("a mismatched selection fails");
@@ -435,7 +435,7 @@ fn corpus_matches_the_native_capture() {
         ("krs_tour_negatives", "tests/tour-negatives/src/lib.rs"),
         (
             "krs_c7_associativity",
-            "tests/c7/rust-definition/src/lib.rs",
+            "tests/precedence-associativity/rust-definition/src/lib.rs",
         ),
         (
             "krs_expr_fixture",

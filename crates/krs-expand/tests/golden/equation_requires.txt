@@ -1,4 +1,4 @@
-fn m3d_positive(__krs_symbolic_subject: Term<Int>) -> Term<Int> {
+fn nonnegative_identity(__krs_symbolic_subject: Term<Int>) -> Term<Int> {
     let _krs_binding_check = || {
         let value = ();
         let _ = &value;
@@ -7,23 +7,23 @@ fn m3d_positive(__krs_symbolic_subject: Term<Int>) -> Term<Int> {
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
-fn __krs_rule_subject_sort_95177d1691312e16() -> ::core::any::TypeId {
+fn __krs_rule_subject_sort_1c3ba8e873dc1273() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_result_sort_95177d1691312e16() -> ::core::any::TypeId {
+fn __krs_rule_result_sort_1c3ba8e873dc1273() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Int>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_95177d1691312e16_0() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<M3dPositive>()
+fn __krs_rule_application_1c3ba8e873dc1273_0() -> ::core::any::TypeId {
+    ::core::any::TypeId::of::<NonnegativeIdentity>()
 }
 #[doc(hidden)]
-fn __krs_rule_application_95177d1691312e16_1() -> ::core::any::TypeId {
+fn __krs_rule_application_1c3ba8e873dc1273_1() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<int::le>()
 }
 #[doc(hidden)]
-fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
+fn __krs_rule_descriptor_1c3ba8e873dc1273() -> ::k::HostDescriptor {
     let rule = ::k::HostStructuredRuleDescriptor {
         sentence_kind: ::k::SentenceKind::Equation,
         label: ::core::option::Option::None,
@@ -36,7 +36,7 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
                     key: ::k::ProvenanceKey::new("rule_requires_application_head", 0u32)
                         .expect("KRS parser roles are nonempty"),
                     target: ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
-                        key: ::k::HostTypeKey(__krs_rule_application_95177d1691312e16_1),
+                        key: ::k::HostTypeKey(__krs_rule_application_1c3ba8e873dc1273_1),
                         authored_path: "int :: le".to_owned(),
                     }),
                 },
@@ -68,7 +68,7 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
             key: ::k::ProvenanceKey::new("rule_type", 0u32)
                 .expect("KRS parser roles are nonempty"),
             target: ::k::HostTypeReference {
-                key: ::k::HostTypeKey(__krs_rule_subject_sort_95177d1691312e16),
+                key: ::k::HostTypeKey(__krs_rule_subject_sort_1c3ba8e873dc1273),
                 authored_path: "Int".to_owned(),
             },
         },
@@ -76,7 +76,7 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
             key: ::k::ProvenanceKey::new("rule_result_type", 0u32)
                 .expect("KRS parser roles are nonempty"),
             target: ::k::HostTypeReference {
-                key: ::k::HostTypeKey(__krs_rule_result_sort_95177d1691312e16),
+                key: ::k::HostTypeKey(__krs_rule_result_sort_1c3ba8e873dc1273),
                 authored_path: "Int".to_owned(),
             },
         },
@@ -87,8 +87,8 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
                 key: ::k::ProvenanceKey::new("rule_left_application_head", 0u32)
                     .expect("KRS parser roles are nonempty"),
                 target: ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_rule_application_95177d1691312e16_0),
-                    authored_path: "M3dPositive".to_owned(),
+                    key: ::k::HostTypeKey(__krs_rule_application_1c3ba8e873dc1273_0),
+                    authored_path: "NonnegativeIdentity".to_owned(),
                 }),
             },
             path_key: ::k::ProvenanceKey::new("rule_left_path", 0u32)
@@ -118,7 +118,7 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "m3d_positive",
+                "nonnegative_identity",
                 ::k::ItemKind::Equation,
                 "",
             )
@@ -144,34 +144,34 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(4u32, 4u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 16u32)
+                    ::k::HostSourcePosition::new(4u32, 24u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_pattern",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 17u32)
+                    ::k::HostSourcePosition::new(4u32, 25u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 45u32)
+                    ::k::HostSourcePosition::new(4u32, 61u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_type",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 47u32)
+                    ::k::HostSourcePosition::new(4u32, 63u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 56u32)
+                    ::k::HostSourcePosition::new(4u32, 72u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_result_type",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 61u32)
+                    ::k::HostSourcePosition::new(4u32, 77u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 70u32)
+                    ::k::HostSourcePosition::new(4u32, 86u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -187,18 +187,18 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_left_path",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 26u32)
+                    ::k::HostSourcePosition::new(4u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 37u32)
+                    ::k::HostSourcePosition::new(4u32, 53u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_left_path",
                     1u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 38u32)
+                    ::k::HostSourcePosition::new(4u32, 54u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 43u32)
+                    ::k::HostSourcePosition::new(4u32, 59u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -214,18 +214,18 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_left_application_head",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 26u32)
+                    ::k::HostSourcePosition::new(4u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 37u32)
+                    ::k::HostSourcePosition::new(4u32, 53u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("rule_left_reference",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(4u32, 38u32)
+                    ::k::HostSourcePosition::new(4u32, 54u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(4u32, 43u32)
+                    ::k::HostSourcePosition::new(4u32, 59u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -297,4 +297,4 @@ fn __krs_rule_descriptor_95177d1691312e16() -> ::k::HostDescriptor {
             .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
     }
 }
-::k::__register_host_descriptor!(__krs_rule_descriptor_95177d1691312e16);
+::k::__register_host_descriptor!(__krs_rule_descriptor_1c3ba8e873dc1273);

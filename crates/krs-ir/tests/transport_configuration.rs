@@ -425,7 +425,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
     DescriptorContextAlias {
         declaration_key: key("context_alias_declaration", 0),
         name_key: key("context_alias_name", 0),
-        name: "m3d_eval".into(),
+        name: "operand_eval".into(),
         here_key: key("context_alias_here", 0),
         here: "site".into(),
         pattern_key: key("rule_pattern", 0),

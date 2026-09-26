@@ -68,7 +68,7 @@ fn tour_minimal_expands_through_the_protocol() {
     );
     assert_eq!(
         value["evidence"]["authored_sha256"],
-        "57e64bdc8371c2dd65df2b94e0f6fce12753b16df14aece71ae9c6ddea5644f5"
+        "c75ac1cab9a016ca34e606492341e5753b7a46b2af8195277fd3c0a3add71915"
     );
     assert_eq!(value["requests_framework"], true);
     assert_eq!(value["registrations"].as_array().unwrap().len(), 7);
@@ -99,17 +99,17 @@ fn lookup_maps_authored_generated_and_table_ranges() {
     let text = value["expanded"]["text"].as_str().unwrap();
     let map = value["source_map"].clone();
     let segments = map["segments"].as_array().unwrap();
-    let m2obj = segments
+    let object_term = segments
         .iter()
-        .find(|segment| segment["authored"] == json!([303, 308]))
-        .expect("M2Obj is copied verbatim");
+        .find(|segment| segment["authored"] == json!([303, 313]))
+        .expect("ObjectTerm is copied verbatim");
     let table = segments.last().unwrap()["generated"].clone();
     let lookup = json!({
         "schema": SCHEMA,
         "authored_source": TOUR_MINIMAL,
         "text": text,
         "source_map": map,
-        "ranges": [m2obj["generated"], [287, 290], table],
+        "ranges": [object_term["generated"], [287, 290], table],
     });
     let response: Value = serde_json::from_slice(&protocol::lookup_json(
         &serde_json::to_vec(&lookup).unwrap(),
@@ -129,8 +129,8 @@ fn lookup_maps_authored_generated_and_table_ranges() {
     assert_eq!(
         response["mappings"],
         json!([
-            { "class": "exact-authored", "authored": [303, 308], "invocation": 0 },
-            { "class": "invocation-level", "authored": [287, 320], "invocation": 0 },
+            { "class": "exact-authored", "authored": [303, 313], "invocation": 0 },
+            { "class": "invocation-level", "authored": [287, 325], "invocation": 0 },
             { "class": "generated-only", "authored": null, "invocation": null },
         ])
     );
@@ -146,7 +146,7 @@ fn lookup_maps_authored_generated_and_table_ranges() {
 
 #[test]
 fn invalid_sorts_block_reports_expected_identifier() {
-    let source = "k::sorts! { M2Obj: ; }\n";
+    let source = "k::sorts! { ObjectTerm: ; }\n";
     let expected = json!([{
         "origin": "expander",
         "code": null,
@@ -154,13 +154,13 @@ fn invalid_sorts_block_reports_expected_identifier() {
         "message": "expected identifier",
         "class": "exact-authored",
         "file": "src/lib.rs",
-        "authored": [19, 20],
+        "authored": [24, 25],
         "invocation": 0,
         "notes": [],
     }]);
     for mode in [
         json!("whole-file"),
-        json!({ "invocations": [{ "kind": "sorts", "replaced": [0, 22] }] }),
+        json!({ "invocations": [{ "kind": "sorts", "replaced": [0, 27] }] }),
     ] {
         let request = request(source, &mode);
         let (bytes, response, value) = run(&request);

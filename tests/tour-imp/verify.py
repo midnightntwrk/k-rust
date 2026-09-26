@@ -132,8 +132,8 @@ def main() -> None:
     sync.main()
     authority = sync.AUTHORITY.read_bytes()
     if SOURCE.read_bytes() != authority:
-        raise GateError("tour-imp capstone is not byte-identical to the M4 operational authority")
-    print("PASS source: capstone and chapter slices match M4 exactly")
+        raise GateError("tour-imp capstone is not byte-identical to the IMP operational authority")
+    print("PASS source: capstone and chapter slices match IMP exactly")
 
     cargo = executable("cargo")
     run([cargo, "check", "--locked", "--offline", "--manifest-path", MANIFEST])

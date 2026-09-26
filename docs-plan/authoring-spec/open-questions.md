@@ -73,7 +73,7 @@ what they block.
      and un-implementable without regressions.
    Decision recorded in C7 (updated): bare emits no associativity
    annotation; `non_assoc` is an explicit keyword mapping to K's
-   non-associativity. Qualification lives in `tests/c7`: it pins
+   non-associativity. Qualification lives in `tests/precedence-associativity`: it pins
    `!!true` parsing under a bare tier, `non_assoc` rejecting same-tier
    direct nesting, and the emitted `syntax non-assoc` sentence. The
    public `constructors` macro rustdoc for its enum-level
@@ -95,7 +95,7 @@ what they block.
     default values confirmed still unstable (E0658). Default: init fn
     (D2). [result README open list]
 
-## Deferred / out of scope for the IMP milestone
+## Deferred / out of scope for the IMP authoring surface
 
 13. **Method-call term sugar** (`e.update(k, v)`) — deferred and
     policy-blocked (r10: no Rust trait resolution in term position);
@@ -104,6 +104,6 @@ what they block.
     productions) — inexpressible on this surface; the next thing a
     reader looks for, explicitly out of the IMP specimen's scope.
 15. **Exact-parity `% ` format escape** — currently a plain space, same
-    compromise as the M4 port (C5).
+    compromise as the IMP port (C5).
 16. **Style-guide item to write**: doc-comment policy on rule clauses (the control-flow table documents every clause, while the eval table documents none).
     The `k::builtin::map` facade and alias-safe `map::update` identity are implemented and no longer part of this open item.

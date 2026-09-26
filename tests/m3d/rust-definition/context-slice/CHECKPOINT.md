@@ -2,7 +2,7 @@
 
 This fixture is the executable vertical gate for one source-level context
 alias selected by one named `seqstrict` production. It deliberately copies the
-frozen M3C definition byte-for-byte and adds only `m3d_eval` and `M3dTwice`.
+frozen M3C definition byte-for-byte and adds only `operand_eval` and `Double`.
 
 The executable asserts registration-order determinism through descriptor,
 semantic, Definition, and emitted-K artifacts; exact authored/generated source

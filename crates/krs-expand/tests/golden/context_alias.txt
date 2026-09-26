@@ -1,4 +1,4 @@
-fn m3d_eval(__krs_symbolic_configuration: Machine) {
+fn operand_eval(__krs_symbolic_configuration: Machine) {
     let _krs_path_check = || {
         let _: ::core::marker::PhantomData<k::configuration::KCell<()>> = ::core::marker::PhantomData;
         #[allow(unused_imports)]
@@ -8,11 +8,11 @@ fn m3d_eval(__krs_symbolic_configuration: Machine) {
     ::core::panic!("KRS context-alias declarations have no runtime implementation")
 }
 #[doc(hidden)]
-fn __krs_context_alias_configuration_ee4cfdbde6638203() -> ::core::any::TypeId {
+fn __krs_context_alias_configuration_2fc29f1120842568() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Machine>()
 }
 #[doc(hidden)]
-fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
+fn __krs_context_alias_2fc29f1120842568() -> ::k::HostDescriptor {
     ::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
         id: ::k::HostItemId::from_macro_context(
@@ -20,7 +20,7 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "m3d_eval",
+                "operand_eval",
                 ::k::ItemKind::ContextAlias,
                 "",
             )
@@ -31,7 +31,7 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
                 declaration_key: ::k::ProvenanceKey::new("context_alias_declaration", 0)
                     .unwrap(),
                 name_key: ::k::ProvenanceKey::new("context_alias_name", 0).unwrap(),
-                name: "m3d_eval".to_owned(),
+                name: "operand_eval".to_owned(),
                 here_key: ::k::ProvenanceKey::new("context_alias_here", 0).unwrap(),
                 here: "site".to_owned(),
                 pattern_key: ::k::ProvenanceKey::new("rule_pattern", 0).unwrap(),
@@ -39,7 +39,7 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
                     key: ::k::ProvenanceKey::new("rule_type", 0).unwrap(),
                     configuration: ::k::HostTypeReference {
                         key: ::k::HostTypeKey(
-                            __krs_context_alias_configuration_ee4cfdbde6638203,
+                            __krs_context_alias_configuration_2fc29f1120842568,
                         ),
                         authored_path: "Machine".to_owned(),
                     },
@@ -98,7 +98,7 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
                         "src/lib.rs".to_owned(),
                         ::k::HostSourcePosition::new(2u32, 1u32)
                             .expect("stable proc-macro positions are one-based"),
-                        ::k::HostSourcePosition::new(2u32, 50u32)
+                        ::k::HostSourcePosition::new(2u32, 54u32)
                             .expect("stable proc-macro positions are one-based"),
                         ::k::AnchorPrecision::Exact,
                     )
@@ -109,16 +109,16 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(2u32, 27u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(2u32, 35u32)
+                    ::k::HostSourcePosition::new(2u32, 39u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("context_alias_here",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(2u32, 44u32)
-                    .expect("stable proc-macro positions are one-based"),
                     ::k::HostSourcePosition::new(2u32, 48u32)
+                    .expect("stable proc-macro positions are one-based"),
+                    ::k::HostSourcePosition::new(2u32, 52u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -127,7 +127,7 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(3u32, 4u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 12u32)
+                    ::k::HostSourcePosition::new(3u32, 16u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -226,4 +226,4 @@ fn __krs_context_alias_ee4cfdbde6638203() -> ::k::HostDescriptor {
             .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
     }
 }
-::k::__register_host_descriptor!(__krs_context_alias_ee4cfdbde6638203);
+::k::__register_host_descriptor!(__krs_context_alias_2fc29f1120842568);

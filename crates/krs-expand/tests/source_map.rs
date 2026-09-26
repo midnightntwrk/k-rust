@@ -453,11 +453,11 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
     // Representative authored anchors that rustc sees as authored
     // tokens map exactly.
     for (text, authored) in [
-        ("M2Obj", 303..308),
-        ("KResult", 310..317),
-        ("Foo", 448..451),
-        ("k", 557..558),
-        ("Object::Foo", 668..679),
+        ("ObjectTerm", 303..313),
+        ("KResult", 315..322),
+        ("Foo", 458..461),
+        ("k", 567..568),
+        ("Object::Foo", 678..689),
     ] {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(
@@ -468,8 +468,8 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
     // The rule's pattern and result are not emitted as tokens; the rule reaches
     // rustc only through variant witnesses spanned at the authored heads.
     for (text, authored, head, witness) in [
-        ("Foo()", 800..805, 800..803, "__krs_variant_type_id_Foo"),
-        ("Bar()", 809..814, 809..812, "__krs_variant_type_id_Bar"),
+        ("Foo()", 815..820, 815..818, "__krs_variant_type_id_Foo"),
+        ("Bar()", 824..829, 824..827, "__krs_variant_type_id_Bar"),
     ] {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(exact_generated_ranges(&printed, &authored).is_empty());
@@ -480,7 +480,7 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
     }
     // The initializer body contains the nested `k::k!`; rustc spans it as
     // authored code, and so does the map.
-    assert!(!exact_generated_ranges(&printed, &(640..693)).is_empty());
+    assert!(!exact_generated_ranges(&printed, &(650..703)).is_empty());
 }
 
 fn sha256(bytes: &[u8]) -> String {

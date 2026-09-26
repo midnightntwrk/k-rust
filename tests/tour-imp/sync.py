@@ -9,7 +9,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-AUTHORITY = ROOT / "tests" / "m4" / "rust-definition" / "src" / "imp.rs"
+AUTHORITY = ROOT / "tests" / "imp" / "rust-definition" / "src" / "imp.rs"
 CAPSTONE = HERE / "src" / "lib.rs"
 CHAPTERS = HERE / "chapters"
 

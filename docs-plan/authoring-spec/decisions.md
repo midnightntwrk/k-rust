@@ -10,7 +10,7 @@ bug — report it, don't guess.
 
 ## A. Architecture
 
-- **A1 — Two surfaces.** Layer 1 (authoring, this spec's `imp.rs`) is what humans and agents write; deterministic `krs expand` projects it to the byte-exact layer-2 reference in `tests/m4/goldens/imp.expanded.rs`.
+- **A1 — Two surfaces.** Layer 1 (authoring, this spec's `imp.rs`) is what humans and agents write; deterministic `krs expand` projects it to the byte-exact layer-2 reference in `tests/imp/goldens/imp.expanded.rs`.
   Layer 2's ceremony is constitutive (stable identity and provenance anchors) and is not to be cleaned up. [08; r6]
 - **A2 — Every layer-1 construct is defined by its expansion.** Valid Rust
   outer syntax, identical resolved IR, stable identities and spans. No

@@ -52,7 +52,7 @@ These cases are deliberately not interchangeable:
 
 | Example | Checked outcome | What owns it |
 | --- | --- | --- |
-| `#m3dPositive(-1)` | The partial function's only equation requires `0 <=Int -1`, so the application denotes bottom. | Static semantics; see [functions and static semantics](/semantics/static-semantics#an-undefined-partial-application). |
+| `#nonnegativeIdentity(-1)` | The partial function's only equation requires `0 <=Int -1`, so the application denotes bottom. | Static semantics; see [functions and static semantics](/semantics/static-semantics#an-undefined-partial-application). |
 | `y = x + 1;` in the checked IMP stuck-state fixture | LLVM performs two rewrites, exits successfully, and leaves a non-final configuration containing the unresolved lookup. | The authored IMP transition system is stuck: syntax was accepted, but no rule can make further progress. |
 | `i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs` from KWasm | The checked final instruction sequence is `trap ~> .Instrs ~> .K` with an empty value stack. | KWasm authors `trap` as an `Instruction::Trap` constructor and rules that reach it. |
 | Complete IMP definition with `--backend llvm` | Build exits `1` with six deduplicated schema-1 `backend-capability` / `UnsupportedExistentialVariable` envelopes and creates no partial artifacts. | The selected backend boundary rejects otherwise collected existential claims. |

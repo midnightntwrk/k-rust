@@ -10,7 +10,6 @@ const snippets = [
   {
     source: '../tests/tour-imp/chapters/01-sorts.rs',
     mirror: 'src/snippets/imp-sorts.rs',
-    replacements: [['complete M4 IMP language', 'complete IMP language']],
   },
   {
     source: '../tests/tour-imp/chapters/02-concrete-grammar.rs',
@@ -35,7 +34,6 @@ const snippets = [
   {
     source: '../tests/tour-imp/src/lib.rs',
     mirror: 'src/snippets/tour-imp-capstone.rs',
-    replacements: [['complete M4 IMP language', 'complete IMP language']],
   },
   {
     source: '../tests/tour-imp/generated/eval-add-readable.txt',
@@ -54,24 +52,24 @@ const snippets = [
     mirror: 'src/snippets/eval-add.k',
   },
   {
-    source: '../tests/m4/rust-definition/src/static_adjunct.rs',
+    source: '../tests/imp/rust-definition/src/static_adjunct.rs',
     mirror: 'src/snippets/static-semantics.rs',
     replacements: [
       ["M3D's separately identified static stress surface", 'Fixture-specific static-semantics stress surface'],
     ],
   },
   {
-    source: '../tests/m4/rust-definition/src/verification.rs',
+    source: '../tests/imp/rust-definition/src/verification.rs',
     mirror: 'src/snippets/simplifications.rs',
   },
   {
-    source: '../tests/m4/rust-definition/src/claims.rs',
+    source: '../tests/imp/rust-definition/src/claims.rs',
     mirror: 'src/snippets/claim-branching.rs',
     start: '#[k::claim(all_paths, label = "branching")]',
     end: '#[k::claim(all_paths, label = "branching-program")]',
   },
   {
-    source: '../tests/m4/rust-definition/src/claims.rs',
+    source: '../tests/imp/rust-definition/src/claims.rs',
     mirror: 'src/snippets/claim-circular.rs',
     start: '#[k::claim(all_paths, label = "sum-spec", circularity)]',
     end: '#[k::claim(all_paths, label = "two-sum-spec", circularity)]',

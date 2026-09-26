@@ -1,12 +1,12 @@
 //! IMP authoring surface — **normative specimen**.
 //!
 //! This file is the settled, compiling layer-1 authoring specimen: what a human or agent writes and reviews.
-//! Its executable counterpart is `tests/m4/rust-definition/src/imp.rs`; both exercise the same readable constructs and remain formatter fixed points.
+//! Its executable counterpart is `tests/imp/rust-definition/src/imp.rs`; both exercise the same readable constructs and remain formatter fixed points.
 //! The `for Machine` rule table is candidate A, decided 2026-08-21; see `decisions.md` §E7.
 //! The `[rN]`/`[…]` tags in section banners resolve in `decisions.md`.
 //!
 //! The reference K definition is `../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k`, relative to the repository root.
-//! The byte-exact layer-2 expansion target is `tests/m4/goldens/imp.expanded.rs`.
+//! The byte-exact layer-2 expansion target is `tests/imp/goldens/imp.expanded.rs`.
 
 use k::KResult;
 use k::builtin::{Bool, Id, Int, KSequence, Map, bool, int, map};

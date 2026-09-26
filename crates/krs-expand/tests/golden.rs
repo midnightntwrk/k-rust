@@ -46,7 +46,7 @@ pub trait Expr: KItem {}
         "sorts",
         r"
 k::sorts! {
-    M2Obj: KResult;
+    ObjectTerm: KResult;
 }
 ",
     ),
@@ -154,7 +154,7 @@ pub struct Keccak256Raw {
     (
         "constructors",
         r#"
-#[k::constructors(sort = M2Obj, result = KResult)]
+#[k::constructors(sort = ObjectTerm, result = KResult)]
 #[k::precedence((Foo, Bar))]
 pub enum Object {
     #[k::syntax("foo")]
@@ -168,15 +168,15 @@ pub enum Object {
         "constructors_helpers",
         r#"
 #[k::constructors(sort = Expr, result = k::KResult)]
-#[k::precedence((M3dZero, M3dTwice, Block) > left (And))]
+#[k::precedence((ZeroAlias, Double, Block) > left (And))]
 pub enum StaticExpr {
-    #[k::syntax("m3dZero")]
+    #[k::syntax("zeroAlias")]
     #[k::alias]
-    M3dZero(),
+    ZeroAlias(),
 
-    #[k::syntax("m3dTwice({value})")]
-    #[k::seqstrict(using = m3d_eval)]
-    M3dTwice { value: Expr },
+    #[k::syntax("double({value})")]
+    #[k::seqstrict(using = operand_eval)]
+    Double { value: Expr },
 
     #[k::syntax("{lhs} && {rhs}")]
     #[k::strict(lhs)]
@@ -322,7 +322,7 @@ pub fn init(
         "rules",
         r"
 k::rules! {
-    for M2Obj;
+    for ObjectTerm;
     use Object::*;
 
     foo_to_bar: Foo() => Bar();
@@ -374,7 +374,7 @@ k::rules! {
         "rule",
         r"
 #[k::rule]
-fn m3d_twice(k::term![StaticExpr::M3dTwice(value)]: Term<Expr>) -> Term<Expr> {
+fn double(k::term![StaticExpr::Double(value)]: Term<Expr>) -> Term<Expr> {
     int::add(value, value)
 }
 ",
@@ -402,7 +402,7 @@ fn explicit_step(
         "equation",
         r"
 #[k::equation]
-fn m3d_total(k::term![M3dTotal(value)]: Term<Int>) -> Term<Int> {
+fn add_one(k::term![AddOne(value)]: Term<Int>) -> Term<Int> {
     int::add(value, 1)
 }
 ",
@@ -412,7 +412,7 @@ fn m3d_total(k::term![M3dTotal(value)]: Term<Int>) -> Term<Int> {
         r"
 #[k::requires(int::le(0, value))]
 #[k::equation]
-fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int> {
+fn nonnegative_identity(k::term![NonnegativeIdentity(value)]: Term<Int>) -> Term<Int> {
     value
 }
 ",
@@ -422,7 +422,7 @@ fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int> {
         r"
 #[k::equation]
 #[k::requires(int::le(0, value))]
-fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int> {
+fn nonnegative_identity(k::term![NonnegativeIdentity(value)]: Term<Int>) -> Term<Int> {
     value
 }
 ",
@@ -442,7 +442,7 @@ fn positive(k::term![Positive(value)]: Term<Int>) -> Term<Int> {
         r"
 #[k::priority(40)]
 #[k::equation]
-fn m3d_priority_zero(k::term![M3dPriority(0)]: Term<Int>) -> Term<Int> {
+fn priority_choice_zero(k::term![PriorityChoice(0)]: Term<Int>) -> Term<Int> {
     111
 }
 ",
@@ -460,7 +460,7 @@ fn normalize_gt(k::term![int::gt(lhs, rhs)]: Term<Bool>) -> Term<Bool> {
         "alias",
         r"
 #[k::alias]
-fn m3d_zero_alias(k::term![StaticExpr::M3dZero]: Term<Expr>) -> Term<Expr> {
+fn zero_alias(k::term![StaticExpr::ZeroAlias]: Term<Expr>) -> Term<Expr> {
     0
 }
 ",
@@ -475,8 +475,8 @@ pub struct Zero;
     (
         "context_alias",
         r"
-#[k::context_alias(name = m3d_eval, here = site)]
-fn m3d_eval(
+#[k::context_alias(name = operand_eval, here = site)]
+fn operand_eval(
     k::cells! {
         k: k::configuration::KCell(site, tail @ ..),
         state @ ..
@@ -539,7 +539,7 @@ fn orphan() {}
     (
         "term",
         r"
-k::term![StaticExpr::M3dTwice(int::add(value, 1))];
+k::term![StaticExpr::Double(int::add(value, 1))];
 ",
     ),
     (

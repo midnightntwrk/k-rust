@@ -2,14 +2,14 @@ const _: () = {
     #[allow(unused_imports)]
     use Object::*;
 };
-pub fn foo_to_bar(__krs_symbolic_subject: M2Obj) -> M2Obj {
+pub fn foo_to_bar(__krs_symbolic_subject: ObjectTerm) -> ObjectTerm {
     let _krs_binding_check = || {};
     let _ = __krs_symbolic_subject;
     ::core::panic!("KRS rule declarations have no runtime implementation")
 }
 #[doc(hidden)]
 fn __krs_head_rule_sort_7087aad6655bc41e() -> ::core::any::TypeId {
-    ::core::any::TypeId::of::<M2Obj>()
+    ::core::any::TypeId::of::<ObjectTerm>()
 }
 #[doc(hidden)]
 fn __krs_rule_application_7087aad6655bc41e_0() -> ::core::any::TypeId {
@@ -50,7 +50,7 @@ fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::k::HostDescriptor {
                         .expect("KRS parser roles are nonempty"),
                     target: ::k::HostTypeReference {
                         key: ::k::HostTypeKey(__krs_head_rule_sort_7087aad6655bc41e),
-                        authored_path: "M2Obj".to_owned(),
+                        authored_path: "ObjectTerm".to_owned(),
                     },
                 }),
                 configuration: ::core::option::Option::None,
@@ -145,7 +145,7 @@ fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(3u32, 9u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 14u32)
+                    ::k::HostSourcePosition::new(3u32, 19u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -154,7 +154,7 @@ fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(3u32, 9u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 14u32)
+                    ::k::HostSourcePosition::new(3u32, 19u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),

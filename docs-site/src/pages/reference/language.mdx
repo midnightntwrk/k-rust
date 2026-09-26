@@ -81,7 +81,7 @@ Calling them constructs a typed symbolic application; it does not run a Rust imp
 | `builtin::bool` | `not`, `eq`, `ne`, `or`, `and` |
 | `builtin::map` | `update`, `get`, `in_keys` |
 | `builtin::list` | `empty`, `item`, `concat`, `get`, `update`, `size`, `make`, `range`, `update_all` |
-| `builtin::set` | `empty`, `item`, `concat`, `contains` |
+| `builtin::set` | `empty`, `item`, `concat`, `union`, `contains` |
 | `builtin::bytes` | `empty`, `length`, `get`, `update`, `pad_right`, `substr` |
 
 Function hooks are a separate typed catalog selected in `#[k::function(..., hook = ...)]`.

@@ -27,15 +27,15 @@ Their Rust fields are operands, not values consumed by executing Rust function b
 ### An undefined partial application
 
 The fixture's partial function has exactly one equation, guarded by `0 <=Int value`.
-The positive claim `partial-equation` checks the defined case `#m3dPositive(7) => 7` through the pinned Haskell proof route.
+The positive claim `partial-equation` checks the defined case `#nonnegativeIdentity(7) => 7` through the pinned Haskell proof route.
 Now consider the other side of that same guard:
 
 ```text
-#m3dPositive(-1)
+#nonnegativeIdentity(-1)
 ```
 
 The head is well sorted, so this is not an authoring error.
-Its only equation is inapplicable, and because `M3dPositive` was declared `partial`, the application has no denotation: semantic bottom.
+Its only equation is inapplicable, and because `NonnegativeIdentity` was declared `partial`, the application has no denotation: semantic bottom.
 There is no `None` constructor to inspect and no Rust call that returns a value.
 Bottom is also not an authored `trap` term or a complete normal form; if a transition needs this result, it cannot obtain one.
 
@@ -57,7 +57,7 @@ A static alias is a reversible static clause associated with alias syntax.
 It is distinct from an equation subtype and from a transition.
 
 `#[k::context_alias]` names a reusable evaluation context with one distinguished `here` site.
-The `M3dTwice` constructor selects that named context through `seqstrict(using = m3d_eval)`.
+The `Double` constructor selects that named context through `seqstrict(using = operand_eval)`.
 The context describes where evaluation occurs inside a framed configuration; calling the Rust-shaped function is not the model.
 
 ## Simplification lemmas

@@ -1,1 +1,1 @@
-k::sorts! { M2Obj: ; }
+k::sorts! { ObjectTerm: ; }

@@ -68,7 +68,8 @@ in_export() { # EXPORT CMD...: run CMD with EXPORT mounted read-only over the ch
     esac
   done
   args+=(--ro-bind "$export" "$REPO" --chdir "$REPO")
-  nice -n 19 ionice -c3 bwrap "${args[@]}" -- "$@"
+  # An external compiler-cache server would read the unmounted host checkout.
+  env -u RUSTC_WRAPPER nice -n 19 ionice -c3 bwrap "${args[@]}" -- "$@"
 }
 
 emit() { # NAME EXPORT

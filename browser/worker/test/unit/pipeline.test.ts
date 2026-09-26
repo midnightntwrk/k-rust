@@ -192,10 +192,10 @@ describe("diagnostics", () => {
     ]);
   });
 
-  test("expander diagnostic (invalid sorts! probe) keeps 19..20 and code null", () => {
+  test("expander diagnostic (invalid sorts! probe) keeps 24..25 and code null", () => {
     const response = JSON.parse(fixture("expander-invalid.response.json")) as ExpandResponse;
     const [d] = response.diagnostics.map(fromExpander);
-    expect(d).toMatchObject({ origin: "expander", code: null, class: "exact-authored", authored: { file: "src/lib.rs", start: 19, end: 20 } });
+    expect(d).toMatchObject({ origin: "expander", code: null, class: "exact-authored", authored: { file: "src/lib.rs", start: 24, end: 25 } });
   });
 
   test("rustc diagnostics map through the recorded krs_expand_lookup responses; generated-only gets no authored range", () => {
@@ -284,19 +284,19 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
     expect(events.map((e) => e.type)).toEqual(["diagnostics"]);
   });
 
-  test("expander output for tour-minimal equals the recorded text (8917efe2...) and lookup answers", async () => {
+  test("expander output for tour-minimal equals the recorded text (77f886b9...) and lookup answers", async () => {
     const expander = await load(pack!.modules.expander.path);
     const request = JSON.parse(fixture("expander-tour-minimal.request.json"));
     const response = await runExpander(expander, request);
     expect(await sha256Hex(new TextEncoder().encode(response.expanded!.text))).toBe(
-      "8917efe2fd0a34bb0c4769ef26229fea7b7772d8b97b4374e2afac3327fcc60b",
+      "77f886b9e6673bb6c9ab80086b05e813b7fe910e9f37b860ec1543d432f50d7b",
     );
     const lookup = await runLookup(expander, {
       schema: 1,
       authored_source: request.file.source,
       text: response.expanded!.text,
       source_map: response.source_map,
-      ranges: [[55833, 56772]],
+      ranges: [[55899, 56838]],
     });
     expect(lookup.mappings[0]!.class).toBe("generated-only");
   });

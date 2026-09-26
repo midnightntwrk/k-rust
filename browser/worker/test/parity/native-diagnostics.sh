@@ -149,7 +149,8 @@ in_export() { # EXPORT CMD...: CMD with EXPORT mounted read-only over the checko
     esac
   done
   args+=(--ro-bind "$export" "$REPO" --chdir /)
-  bwrap "${args[@]}" -- "$@"
+  # An external compiler-cache server would read the unmounted host checkout.
+  env -u RUSTC_WRAPPER bwrap "${args[@]}" -- "$@"
 }
 cp -a "$ORACLE_DIR/src-base" "$OUT/src-missing"
 rm "$OUT/src-missing/tests/tour-minimal/src/lib.rs"

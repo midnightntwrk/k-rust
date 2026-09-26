@@ -205,7 +205,7 @@ mod tests {
         let corpus = [
             (
                 "readable IMP",
-                include_str!("../../../tests/m4/rust-definition/src/imp.rs"),
+                include_str!("../../../tests/imp/rust-definition/src/imp.rs"),
             ),
             (
                 "normative IMP",
@@ -213,7 +213,7 @@ mod tests {
             ),
             (
                 "identity adversary",
-                include_str!("../../../tests/m4/rust-definition/src/identity_adversary.rs"),
+                include_str!("../../../tests/imp/rust-definition/src/identity_adversary.rs"),
             ),
         ];
         for (name, source) in corpus {

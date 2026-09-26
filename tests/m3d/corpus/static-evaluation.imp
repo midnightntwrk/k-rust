@@ -1,2 +1,2 @@
-x = m3dTwice(1 + 2);
-y = #m3dPositive(0);
+x = double(1 + 2);
+y = #nonnegativeIdentity(0);

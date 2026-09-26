@@ -3,7 +3,7 @@
 This ledger compares the pinned M3D oracle with the intended Rust-authored
 package. It is a compiler contract, not a claim that the current facade
 implements these forms. The always-on declarations live in `surface/src/lib.rs`
-and currently fail first at the `term!` subject of `m3d_total`. The namespaced
+and currently fail first at the `term!` subject of `add_one`. The namespaced
 `k::equation` attribute is not collected, so it does not intercept that
 compiler-owned pattern before the ordinary placeholder macro expands; rustc
 therefore reports `this macro call doesn't expand to a pattern`. This is the
@@ -29,16 +29,16 @@ feature gate, or `cfg` fallback stands in for an unsupported declaration.
 
 | Oracle sentence | Exact oracle semantics | Authored declaration | Current facade request |
 |---|---|---|---|
-| `m3dTotal` production | `function`, `total`, `symbol(m3dTotal)` | `#[k::function(total, sort = Int, syntax = ...)]` | Functional production schema, totality, explicit result sort/syntax, stable symbol lowering |
-| `m3dPositive` production | partial `function`, `symbol(m3dPositive)` | `#[k::function(partial, ...)]` | Partiality must remain bottom when no equation applies; it is not `Option` |
-| `m3dPriority` production | `function`, `total`, `symbol(m3dPriority)` | `#[k::function(total, ...)]` | Same functional-production path as `m3dTotal` |
-| `m3d-total` | unconditional equation | `#[k::equation] m3d_total` | Equation sentence kind and function-root validation |
-| `m3d-positive` | equation requiring `0 <=Int I` | `#[k::requires(...)]` plus `#[k::equation]` | Reuse object-`Bool` condition checking; preserve equation scope |
-| two `m3d-priority-*` rules | priorities 40 and 80 | two `#[k::priority]` equations | Preserve explicit equation priority; do not infer source order |
-| `m3dZero` production/clause | alias symbol and reversible static expansion | `#[k::alias]` on production and clause | Alias production mode, static-clause IR, compile/init expansion, reverse unparse expansion |
-| `m3dEval` | `<k> HERE ... </k>` context alias | `#[k::context_alias(name = ..., here = ...)]` | Named template, HERE binder, configuration framing, zero-return validation |
-| `m3dTwice` production | `seqstrict(m3dEval; 1)` | selected `#[k::seqstrict(using = ...)]` | Resolve alias group and named field; generate exactly one heat/cool pair using that template and `KResult` |
-| `m3d-twice` | integer doubling rule | ordinary `#[k::rule]` | Existing transition form; infer/refine the selected `Expr` child to `Int` from builtin use |
+| `addOne` production | `function`, `total`, `symbol(addOne)` | `#[k::function(total, sort = Int, syntax = ...)]` | Functional production schema, totality, explicit result sort/syntax, stable symbol lowering |
+| `nonnegativeIdentity` production | partial `function`, `symbol(nonnegativeIdentity)` | `#[k::function(partial, ...)]` | Partiality must remain bottom when no equation applies; it is not `Option` |
+| `priorityChoice` production | `function`, `total`, `symbol(priorityChoice)` | `#[k::function(total, ...)]` | Same functional-production path as `addOne` |
+| `add-one` | unconditional equation | `#[k::equation] add_one` | Equation sentence kind and function-root validation |
+| `nonnegative-identity` | equation requiring `0 <=Int I` | `#[k::requires(...)]` plus `#[k::equation]` | Reuse object-`Bool` condition checking; preserve equation scope |
+| two `priority-choice-*` rules | priorities 40 and 80 | two `#[k::priority]` equations | Preserve explicit equation priority; do not infer source order |
+| `zeroAlias` production/clause | alias symbol and reversible static expansion | `#[k::alias]` on production and clause | Alias production mode, static-clause IR, compile/init expansion, reverse unparse expansion |
+| `operandEval` | `<k> HERE ... </k>` context alias | `#[k::context_alias(name = ..., here = ...)]` | Named template, HERE binder, configuration framing, zero-return validation |
+| `double` production | `seqstrict(operandEval; 1)` | selected `#[k::seqstrict(using = ...)]` | Resolve alias group and named field; generate exactly one heat/cool pair using that template and `KResult` |
+| `double` | integer doubling rule | ordinary `#[k::rule]` | Existing transition form; infer/refine the selected `Expr` child to `Int` from builtin use |
 | five adjunct claims | concrete all-path reachability | five `#[k::claim(all_paths)]` clauses | Claim sentence kind, modality, framed pre/post configuration lowering |
 
 The reference parser exposes five local productions in
@@ -104,12 +104,12 @@ The compiler should not guess these spellings from Rust function names.
 ## Recommended vertical order
 
 1. Land one total functional production plus one unconditional equation:
-   `m3dTotal(I) = I +Int 1`.
+   `addOne(I) = I +Int 1`.
 2. Add partial functions and object-`Bool` equation requirements.
 3. Add equation priorities without conflating them with source order.
 4. Add alias production/clause collection and reversible static lowering.
 5. Add context aliases and `seqstrict(using = ...)`, asserting one heat/cool
-   pair for `m3dTwice`.
+   pair for `double`.
 6. Add simplification as its own sentence kind.
 7. Add claim modality and framed pre/post lowering, then the remaining binder,
    token-literal, ensures, map-rewrite, and circularity surface.

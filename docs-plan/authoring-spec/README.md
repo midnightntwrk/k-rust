@@ -7,13 +7,13 @@ The deliberation record behind it is not part of this repository and is not an i
 ## The deliverable
 
 `imp.rs` is the compiling layer-1 **authoring surface**.
-It expands deterministically through `krs expand` to the exact layer-2 **reference surface** in `tests/m4/goldens/imp.expanded.rs`, and the M4 gate proves that this route drives the same K semantics as the reference IMP definition.
+It expands deterministically through `krs expand` to the exact layer-2 **reference surface** in `tests/imp/goldens/imp.expanded.rs`, and the IMP gate proves that this route drives the same K semantics as the reference IMP definition.
 `krs fmt` is the co-delivered formatter that enforces the canonical authoring layout from F1/F5–F7.
 
 | File | Status | Role |
 |---|---|---|
 | [`imp.rs`](imp.rs) | **normative, implemented** | the authoring surface that authors write and review |
-| [`imp.expanded.rs`](../../tests/m4/goldens/imp.expanded.rs) | **generated reference** | the byte-exact reviewed `krs expand` projection |
+| [`imp.expanded.rs`](../../tests/imp/goldens/imp.expanded.rs) | **generated reference** | the byte-exact reviewed `krs expand` projection |
 | [`decisions.md`](decisions.md) | **normative** | every settled decision as an implementable rule (A architecture, B sorts, C grammar, D configuration, E rules, F tooling) |
 | [`open-questions.md`](open-questions.md) | **normative** | what is deliberately undecided — surface these, never resolve them silently |
 
@@ -23,10 +23,10 @@ A conflict is a bug in this folder and must not be interpreted around.
 ## Implementation status
 
 The readable IMP surface is implemented in `crates/krs-macros`, `crates/krs-syntax`, `crates/krs-compiler`, `crates/krs-fmt`, and `crates/krs-cli`.
-The production acceptance specimen is `tests/m4/rust-definition/src/imp.rs`.
+The production acceptance specimen is `tests/imp/rust-definition/src/imp.rs`.
 
 - `k::sorts!` generates the selected `<Sort>Sort` membership trait plus the short `Term<dyn <Sort>Sort>` alias, with bracket and membership declarations from B1–B4.
-- The syntax-first grammar surface, exhaustive enum precedence chains, derived formats, and named strictness from C1–C10 compile and lower through M4.
+- The syntax-first grammar surface, exhaustive enum precedence chains, derived formats, and named strictness from C1–C10 compile and lower through IMP.
 - Wrapper-free configuration uses an explicit `#[k::cell]` marker on every leaf field; the expansion injects `Cell`/`KCell`, and the init function supplies configuration variables and the main computation input.
 - `k::rules!` supports the complete `for Sort` and `for Machine` IMP forms, block-local constructor imports, inferred and narrowed binders, splice/erase results, clause labels, and deterministic layer-2 expansion.
 - `k::builtin::map::update` and its alias-safe facade are implemented.
@@ -40,7 +40,7 @@ Further qualification must target genuinely unsupported language-scale dimension
 
 ## Acceptance oracles
 
-- **Expansion fidelity**: `krs expand` on the M4 `imp.rs` produces `tests/m4/goldens/imp.expanded.rs` byte-for-byte, and the resolved IR / emitted `.k` matches the reference route.
+- **Expansion fidelity**: `krs expand` on the IMP `imp.rs` produces `tests/imp/goldens/imp.expanded.rs` byte-for-byte, and the resolved IR / emitted `.k` matches the reference route.
   The emitted `.k` is checked mechanically against `../inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics/{expr,calc,imp}.k` for all 27 rules, labels, strictness, formats, bracket, and both precedence chains.
   The recorded deliberate divergence is that the 18 eval clauses acquire labels `[eval-neg]`… that K's `expr.k` lacks.
 - **The four method gates** (F3): LSP goldens, byte-exact provenance
@@ -52,8 +52,8 @@ Further qualification must target genuinely unsupported language-scale dimension
 
 ## Expansion synchronization
 
-The layer-2 projection of `imp.rs` is `tests/m4/goldens/imp.expanded.rs`.
-The M4 gate performs two live expansions, compares them to each other and to that golden, and separately compiles the same bytes as `tests/m4/expanded-definition/src/imp.rs`.
+The layer-2 projection of `imp.rs` is `tests/imp/goldens/imp.expanded.rs`.
+The IMP gate performs two live expansions, compares them to each other and to that golden, and separately compiles the same bytes as `tests/imp/expanded-definition/src/imp.rs`.
 Any readable-surface change must regenerate both projections in one reviewed change.
 
 ## Rationale citations

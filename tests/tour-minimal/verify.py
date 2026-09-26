@@ -87,8 +87,8 @@ def verify_source_region() -> None:
 
 def verify_expansion(source: str) -> None:
     required = (
-        "#[k::sort(alias = M2Obj, parents = [k::KResult])]",
-        "#[k::constructors(sort = M2Obj, reference)]",
+        "#[k::sort(alias = ObjectTerm, parents = [k::KResult])]",
+        "#[k::constructors(sort = ObjectTerm, reference)]",
         '#[k::syntax("foo", group = "object_tier0", format = "foo")]',
         '#[k::syntax("bar", group = "object_tier0", format = "bar")]',
         "k::configuration::KCell::new(k::k![Object::Foo()])",
@@ -161,13 +161,13 @@ def verify_artifacts(directory: Path) -> dict[str, bytes]:
 
     theory = artifacts["definition.k"].decode("utf-8")
     productions = re.findall(
-        r'^\s*syntax M2Obj ::= "([^"]+)" \[[^\n]+\]$', theory, re.MULTILINE
+        r'^\s*syntax ObjectTerm ::= "([^"]+)" \[[^\n]+\]$', theory, re.MULTILINE
     )
     if sorted(productions) != ["bar", "foo"]:
-        raise GateError(f"emitted M2Obj productions differ: {productions}")
+        raise GateError(f"emitted ObjectTerm productions differ: {productions}")
     required_lines = (
         "syntax KItem ::= KResult",
-        "syntax KResult ::= M2Obj",
+        "syntax KResult ::= ObjectTerm",
         "imports KRS-FRAMEWORK",
     )
     if any(theory.count(line) != 1 for line in required_lines):
@@ -185,7 +185,7 @@ def verify_artifacts(directory: Path) -> dict[str, bytes]:
     for source_name, source in (("tour-minimal", theory), ("reference theory", reference)):
         if source.count('"foo"') != 1 or source.count('"bar"') != 1:
             raise GateError(f"{source_name} does not define exactly one foo/bar terminal pair")
-        for edge in ("syntax KItem ::= KResult", "syntax KResult ::= M2Obj"):
+        for edge in ("syntax KItem ::= KResult", "syntax KResult ::= ObjectTerm"):
             if source.count(edge) != 1:
                 raise GateError(f"{source_name} does not contain exactly one {edge!r} edge")
         if len(re.findall(r"configuration\s+<k>\s+foo\s+</k>", source)) != 1:
@@ -297,7 +297,7 @@ def main() -> int:
                 if first_artifacts[name] != second_artifacts[name]
             )
             raise GateError(f"repeated emission differs byte-for-byte: {changed}")
-    print("PASS emit-k: deterministic M2 projection with authored source mapping")
+    print("PASS emit-k: deterministic foo-to-bar projection with authored source mapping")
     print("PASS tour-minimal")
     return 0
 

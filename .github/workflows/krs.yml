@@ -54,7 +54,7 @@ jobs:
 
       - name: Check the definitions the tours reference
         run: |
-          cargo check --locked --manifest-path tests/m4/rust-definition/Cargo.toml --lib
+          cargo check --locked --manifest-path tests/imp/rust-definition/Cargo.toml --lib
           cargo check --locked --offline --manifest-path crates/krs-macros/tests/fixtures/positive/Cargo.toml
           cargo check --locked --offline --manifest-path semantics/Cargo.toml -p krs-kevm-semantics
 

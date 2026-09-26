@@ -1,6 +1,6 @@
 pub enum StaticExpr {
-    M3dZero(),
-    M3dTwice { value: Expr },
+    ZeroAlias(),
+    Double { value: Expr },
     And { lhs: Expr, rhs: Expr },
     Block { body: Expr },
 }
@@ -39,12 +39,12 @@ fn __krs_enum_variant_9a3492b649a1c632_3() -> ::core::any::TypeId {
 impl StaticExpr {
     #[doc(hidden)]
     #[allow(non_snake_case)]
-    pub fn __krs_variant_type_id_M3dZero() -> ::core::any::TypeId {
+    pub fn __krs_variant_type_id_ZeroAlias() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<__KrsEnumVariant_9a3492b649a1c632_0>()
     }
     #[doc(hidden)]
     #[allow(non_snake_case)]
-    pub fn __krs_variant_type_id_M3dTwice() -> ::core::any::TypeId {
+    pub fn __krs_variant_type_id_Double() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<__KrsEnumVariant_9a3492b649a1c632_1>()
     }
     #[doc(hidden)]
@@ -58,7 +58,7 @@ impl StaticExpr {
         ::core::any::TypeId::of::<__KrsEnumVariant_9a3492b649a1c632_3>()
     }
 }
-impl ::k::__KrsRuleApplication<17638064731053845329u64> for StaticExpr {
+impl ::k::__KrsRuleApplication<9133215379060144765u64> for StaticExpr {
     fn __krs_rule_application(_authored_path: &str) -> ::k::HostApplicationTarget {
         ::k::HostApplicationTarget::EnumVariant(
             ::k::HostEnumVariantReference::new(
@@ -67,13 +67,13 @@ impl ::k::__KrsRuleApplication<17638064731053845329u64> for StaticExpr {
                         authored_path: "StaticExpr".to_owned(),
                     },
                     ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_0),
-                    "StaticExpr::M3dZero",
+                    "StaticExpr::ZeroAlias",
                 )
                 .expect("generated enum variants retain their owning enum path"),
         )
     }
 }
-impl ::k::__KrsRuleApplication<16200745745086553097u64> for StaticExpr {
+impl ::k::__KrsRuleApplication<10251553236568814472u64> for StaticExpr {
     fn __krs_rule_application(_authored_path: &str) -> ::k::HostApplicationTarget {
         ::k::HostApplicationTarget::EnumVariant(
             ::k::HostEnumVariantReference::new(
@@ -82,7 +82,7 @@ impl ::k::__KrsRuleApplication<16200745745086553097u64> for StaticExpr {
                         authored_path: "StaticExpr".to_owned(),
                     },
                     ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_1),
-                    "StaticExpr::M3dTwice",
+                    "StaticExpr::Double",
                 )
                 .expect("generated enum variants retain their owning enum path"),
         )
@@ -127,7 +127,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "M3dZero",
+                "ZeroAlias",
                 ::k::ItemKind::Constructor,
                 "enum:StaticExpr",
             )
@@ -149,7 +149,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     authored_path: "Expr".to_owned(),
                 },
             },
-            syntax: ::core::option::Option::Some("m3dZero".to_owned()),
+            syntax: ::core::option::Option::Some("zeroAlias".to_owned()),
             fields: ::std::vec![],
         }),
         cfg: ::core::default::Default::default(),
@@ -178,7 +178,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -187,7 +187,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -196,7 +196,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -205,7 +205,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -214,7 +214,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(7u32, 5u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(7u32, 12u32)
+                    ::k::HostSourcePosition::new(7u32, 14u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -223,7 +223,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(3u32, 18u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 25u32)
+                    ::k::HostSourcePosition::new(3u32, 27u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -251,7 +251,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "__krs_grammar_StaticExpr_M3dZero",
+                "__krs_grammar_StaticExpr_ZeroAlias",
                 ::k::ItemKind::Grammar,
                 "enum:StaticExpr",
             )
@@ -279,7 +279,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                                             authored_path: "StaticExpr".to_owned(),
                                         },
                                         ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_0),
-                                        "StaticExpr::M3dZero",
+                                        "StaticExpr::ZeroAlias",
                                     )
                                     .expect("generated variant paths retain their enum owner"),
                             ),
@@ -298,7 +298,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     items: ::std::vec![
                         ::k::HostProductionItem::Terminal { key :
                         ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), text : "m3dZero"
+                        .expect("KRS parser roles are nonempty"), text : "zeroAlias"
                         .to_owned() }
                     ],
                     attributes: ::std::vec![
@@ -317,7 +317,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                         ::std::vec![::k::DescriptorFormatFragment { key :
                         ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
                         .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal("m3dZero".to_owned()), }], }
+                        ::k::FormatFragment::Literal("zeroAlias".to_owned()), }], }
                     ],
                 }),
             ),
@@ -348,7 +348,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -357,7 +357,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -366,7 +366,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -375,7 +375,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(5u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(5u32, 26u32)
+                    ::k::HostSourcePosition::new(5u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -384,7 +384,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(7u32, 5u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(7u32, 12u32)
+                    ::k::HostSourcePosition::new(7u32, 14u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -393,7 +393,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(3u32, 18u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 25u32)
+                    ::k::HostSourcePosition::new(3u32, 27u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -417,7 +417,7 @@ fn __krs_enum_field_9a3492b649a1c632_1_0() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Expr>()
 }
 #[doc(hidden)]
-fn __krs_strictness_result_db9955e42d8845e3() -> ::core::any::TypeId {
+fn __krs_strictness_result_3420ee8a79c55f0c() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<k::KResult>()
 }
 #[doc(hidden)]
@@ -429,7 +429,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "M3dTwice",
+                "Double",
                 ::k::ItemKind::Constructor,
                 "enum:StaticExpr",
             )
@@ -451,7 +451,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     authored_path: "Expr".to_owned(),
                 },
             },
-            syntax: ::core::option::Option::Some("m3dTwice({value})".to_owned()),
+            syntax: ::core::option::Option::Some("double({value})".to_owned()),
             fields: ::std::vec![
                 ::k::HostConstructorFieldDescriptor { name : "value".to_owned(), sort :
                 ::k::HostTypeReference { key :
@@ -485,7 +485,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -494,7 +494,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -503,7 +503,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -512,7 +512,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -521,7 +521,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -530,7 +530,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -539,7 +539,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -548,7 +548,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -557,7 +557,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -566,7 +566,7 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -575,32 +575,32 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(11u32, 5u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 13u32)
+                    ::k::HostSourcePosition::new(11u32, 11u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_sort",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(11u32, 23u32)
+                    ::k::HostSourcePosition::new(11u32, 21u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 27u32)
+                    ::k::HostSourcePosition::new(11u32, 25u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_declaration",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(11u32, 16u32)
+                    ::k::HostSourcePosition::new(11u32, 14u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 21u32)
+                    ::k::HostSourcePosition::new(11u32, 19u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_group",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(3u32, 27u32)
+                    ::k::HostSourcePosition::new(3u32, 29u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::HostSourcePosition::new(3u32, 35u32)
                     .expect("stable proc-macro positions are one-based"),
@@ -620,16 +620,16 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(10u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(10u32, 36u32)
+                    ::k::HostSourcePosition::new(10u32, 40u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("strictness_field_reference",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(11u32, 16u32)
+                    ::k::HostSourcePosition::new(11u32, 14u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 21u32)
+                    ::k::HostSourcePosition::new(11u32, 19u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -657,7 +657,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                 env!("CARGO_PKG_VERSION"),
                 env!("CARGO_MANIFEST_DIR"),
                 module_path!(),
-                "__krs_grammar_StaticExpr_M3dTwice",
+                "__krs_grammar_StaticExpr_Double",
                 ::k::ItemKind::Grammar,
                 "enum:StaticExpr",
             )
@@ -685,7 +685,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                                             authored_path: "StaticExpr".to_owned(),
                                         },
                                         ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_1),
-                                        "StaticExpr::M3dTwice",
+                                        "StaticExpr::Double",
                                     )
                                     .expect("generated variant paths retain their enum owner"),
                             ),
@@ -704,7 +704,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     items: ::std::vec![
                         ::k::HostProductionItem::Terminal { key :
                         ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), text : "m3dTwice"
+                        .expect("KRS parser roles are nonempty"), text : "double"
                         .to_owned() }, ::k::HostProductionItem::Terminal { key :
                         ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
                         .expect("KRS parser roles are nonempty"), text : "(".to_owned()
@@ -740,7 +740,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                         ::std::vec![::k::DescriptorFormatFragment { key :
                         ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
                         .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal("m3dTwice(".to_owned()), },
+                        ::k::FormatFragment::Literal("double(".to_owned()), },
                         ::k::DescriptorFormatFragment { key :
                         ::k::ProvenanceKey::new("constructor_format_fragment", 1u32,)
                         .expect("KRS parser roles are nonempty"), fragment :
@@ -757,7 +757,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                         0).expect("KRS parser roles are nonempty"), alias :
                         ::k::HostItemId::from_macro_context(env!("CARGO_PKG_NAME"),
                         env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
-                        module_path!(), "m3d_eval", ::k::ItemKind::ContextAlias, "",)
+                        module_path!(), "operand_eval", ::k::ItemKind::ContextAlias, "",)
                         .expect("a strictness context alias forms a valid host identity"),
                         }), fields : ::std::vec![::k::DescriptorFieldReference { key :
                         ::k::ProvenanceKey::new("strictness_field_reference", 0u32)
@@ -768,7 +768,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                         key : ::k::ProvenanceKey::new("strictness_result_sort", 0u32)
                         .expect("KRS parser roles are nonempty"), target :
                         ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_strictness_result_db9955e42d8845e3),
+                        ::k::HostTypeKey(__krs_strictness_result_3420ee8a79c55f0c),
                         authored_path : "k :: KResult".to_owned(), }, }), }
                     ],
                 }),
@@ -800,7 +800,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -809,7 +809,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -818,7 +818,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -827,7 +827,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -836,7 +836,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -845,7 +845,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -854,7 +854,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -863,7 +863,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -872,7 +872,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -881,7 +881,7 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(9u32, 17u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(9u32, 36u32)
+                    ::k::HostSourcePosition::new(9u32, 34u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -890,32 +890,32 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(11u32, 5u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 13u32)
+                    ::k::HostSourcePosition::new(11u32, 11u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_sort",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(11u32, 23u32)
+                    ::k::HostSourcePosition::new(11u32, 21u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 27u32)
+                    ::k::HostSourcePosition::new(11u32, 25u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_field_declaration",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(11u32, 16u32)
+                    ::k::HostSourcePosition::new(11u32, 14u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 21u32)
+                    ::k::HostSourcePosition::new(11u32, 19u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("constructor_group",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(3u32, 27u32)
+                    ::k::HostSourcePosition::new(3u32, 29u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::HostSourcePosition::new(3u32, 35u32)
                     .expect("stable proc-macro positions are one-based"),
@@ -935,16 +935,16 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(10u32, 28u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(10u32, 36u32)
+                    ::k::HostSourcePosition::new(10u32, 40u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
                     ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("strictness_field_reference",
                     0u32).expect("KRS parser roles are nonempty"),
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(11u32, 16u32)
+                    ::k::HostSourcePosition::new(11u32, 14u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(11u32, 21u32)
+                    ::k::HostSourcePosition::new(11u32, 19u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),
@@ -2129,7 +2129,7 @@ fn __krs_enum_precedence_9a3492b649a1c632() -> ::k::HostDescriptor {
                     ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
                     ::k::HostSourcePosition::new(3u32, 18u32)
                     .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 25u32)
+                    ::k::HostSourcePosition::new(3u32, 27u32)
                     .expect("stable proc-macro positions are one-based"),
                     ::k::AnchorPrecision::Exact,)
                     .expect("KRS emits ordered, non-absolute display anchors"),),

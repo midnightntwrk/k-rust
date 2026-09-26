@@ -40,7 +40,7 @@ FACADE_DEPENDENCY = 'k = { package = "krs", path = "../../crates/krs" }'
 HIDDEN_CONSTRUCTOR = """
 // Gate-local cfg check: this constructor must be absent from both bundles.
 #[cfg(any())]
-#[k::constructor(sort = M2Obj, syntax = "hidden")]
+#[k::constructor(sort = ObjectTerm, syntax = "hidden")]
 pub struct Hidden;
 """
 CENSUS_MAIN = """\

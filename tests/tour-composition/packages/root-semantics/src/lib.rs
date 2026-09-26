@@ -1,4 +1,4 @@
-//! Positive M1 surface. This package's only KRS implementation dependency is
+//! Composition example. This package's only KRS implementation dependency is
 //! the renamed `language-host` facade.
 
 use k::Term;

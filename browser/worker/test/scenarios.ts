@@ -3,8 +3,8 @@
 
 import type { FailureCode, Stage } from "../src/protocol.ts";
 
-export const ORACLE_SHA256 = "b19e175584b6b0c105070dece01467530f01d86676019fac10685d113a39faf5";
-export const ORACLE_BYTES = 183292;
+export const ORACLE_SHA256 = "6e1751f5f03e6700d8e40190380891cb017c8afec17a4e12a53517c130edd8f7";
+export const ORACLE_BYTES = 183347;
 
 export interface Expectation {
   outcome: "success" | "failure";
@@ -69,7 +69,7 @@ const E0433_TYPE_PATH: Expectation = {
   outcome: "failure",
   stage: "rustc-lesson",
   code: "compile-error",
-  diagnostics: [{ origin: "rustc", code: "E0433", class: "exact-authored", authored: [347, 354] }],
+  diagnostics: [{ origin: "rustc", code: "E0433", class: "exact-authored", authored: [352, 359] }],
   diagnosticCount: 1,
 };
 
@@ -96,7 +96,7 @@ export const SCENARIOS: Scenario[] = [
       outcome: "failure",
       stage: "expand",
       code: "expansion",
-      diagnostics: [{ origin: "expander", code: null, class: "exact-authored", authored: [19, 20] }],
+      diagnostics: [{ origin: "expander", code: null, class: "exact-authored", authored: [24, 25] }],
     },
   },
   {
@@ -113,13 +113,13 @@ export const SCENARIOS: Scenario[] = [
       stage: "rustc-lesson",
       code: "compile-error",
       diagnostics: [
-        { origin: "rustc", code: "E0599", class: "exact-authored", authored: [676, 683] },
+        { origin: "rustc", code: "E0599", class: "exact-authored", authored: [686, 693] },
       ],
       diagnosticCount: 2,
     },
   },
   {
-    // Diagnostic case D002 shape (`sort = missing::M2Obj`). rustc.wasm at 195111dff traps
+    // Diagnostic case D002 shape (`sort = missing::ObjectTerm`). rustc.wasm at 195111dff traps
     // with no output on E0433 in a type path (the twin reports E0433): compiler-trap.
     // Forks 0ce51e933, eb8eda040, and 8bf3c69b3 report the E0433 and exit 1,
     // as the twin does.

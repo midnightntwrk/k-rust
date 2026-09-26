@@ -149,7 +149,7 @@ def main() -> None:
             raise GateError(f"composition does not contain both semantic packages: {packages}")
         definition = emitted["definition.k"].decode("utf-8")
         expected_composition = (
-            "imports ORG-KRS-M1-BASE",
+            "imports ORG-KRS-COMPOSITION-BASE",
             'syntax BaseCommon ::= "same" "-" "base" [symbol(baseSame)]',
             "rule same - base => same - base",
             'syntax RootCommon ::= "same" "-" "root" [symbol(rootSame)]',

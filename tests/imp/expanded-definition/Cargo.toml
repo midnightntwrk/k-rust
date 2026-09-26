@@ -1,0 +1,31 @@
+[package]
+name = "krs-imp-expanded"
+description = "Replacement-crate validation for the reviewed KRS layer-2 IMP expansion"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "krs_imp_expanded"
+path = "src/lib.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IMP"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

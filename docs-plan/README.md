@@ -24,7 +24,7 @@ The tour must select authority by claim rather than applying one document global
 
 1. `crates/krs-macros`, `crates/krs-syntax`, `crates/krs-cli`, and their current tests decide what is accepted and supported;
 2. `docs-plan/authoring-spec/imp.rs` decides idiomatic layer-1 spelling for the implemented IMP surface;
-3. `tests/m4/rust-definition/` decides executable IMP, static-semantics, and proof behavior;
+3. `tests/imp/rust-definition/` decides executable IMP, static-semantics, and proof behavior;
 4. `docs-plan/authoring-spec/decisions.md` supplies design rationale only where it agrees with current public API and tests;
 5. `semantics/coverage.toml` and the canonical KWasm, KMIR, and KEVM ports decide qualification status for language-scale examples.
 

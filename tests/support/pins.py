@@ -41,7 +41,7 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def load_toml(path: Path) -> dict[str, Any]:
     # Imported here so the package stays importable by the Python 3.10
-    # interpreter of the pinned pyk environment, which M4 uses for its oracles.
+    # interpreter of the pinned pyk environment, which IMP uses for its oracles.
     import tomllib
 
     try:

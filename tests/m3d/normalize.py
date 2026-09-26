@@ -1,6 +1,6 @@
 """The recovered M3D proof and claim normalizers.
 
-The M3D gate and the M4 proof comparison both normalize kprove output with
+The M3D gate and the IMP proof comparison both normalize kprove output with
 these functions, so the recovered normalization has one home. Importers put
 `tests/` on `sys.path` first.
 """

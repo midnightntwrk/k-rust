@@ -8,10 +8,10 @@ use k::KResult;
 use k::builtin::KSequence;
 
 k::sorts! {
-    M2Obj: KResult;
+    ObjectTerm: KResult;
 }
 
-#[k::constructors(sort = missing::M2Obj, result = KResult)]
+#[k::constructors(sort = missing::ObjectTerm, result = KResult)]
 #[k::precedence((Foo, Bar))]
 pub enum Object {
     #[k::syntax("foo")]
@@ -36,7 +36,7 @@ impl Machine {
 }
 
 k::rules! {
-    for M2Obj;
+    for ObjectTerm;
     use Object::*;
 
     // [!region orientation-rule]

@@ -28,22 +28,22 @@ def require_fragments(relative: str, *fragments: str) -> str:
 
 def verify_undefined_partial() -> None:
     source = require_fragments(
-        "tests/m4/rust-definition/src/static_adjunct.rs",
-        "#[k::function(partial, sort = Int, syntax = \"#m3dPositive({value})\")]",
-        "fn m3d_positive(k::term![M3dPositive(value)]: Term<Int>) -> Term<Int>",
+        "tests/imp/rust-definition/src/static_adjunct.rs",
+        "#[k::function(partial, sort = Int, syntax = \"#nonnegativeIdentity({value})\")]",
+        "fn nonnegative_identity(k::term![NonnegativeIdentity(value)]: Term<Int>) -> Term<Int>",
         "#[k::requires(int::le(0, value))]",
     )
-    if len(re.findall(r"k::term!\[M3dPositive\(", source)) != 1:
-        raise GateError("M3dPositive no longer has exactly one authored equation")
+    if len(re.findall(r"k::term!\[NonnegativeIdentity\(", source)) != 1:
+        raise GateError("NonnegativeIdentity no longer has exactly one authored equation")
 
-    pins = json.loads(text("tests/m4/pins.json"))
+    pins = json.loads(text("tests/imp/pins.json"))
     outcome = pins.get("proof_outcomes", {}).get("partial-equation", {})
     if outcome.get("status") != "proved" or outcome.get("frontier_count") != 0:
-        raise GateError("M4's defined partial-function claim is no longer proved")
+        raise GateError("IMP's defined partial-function claim is no longer proved")
 
     require_fragments(
         "docs-site/src/pages/semantics/static-semantics.mdx",
-        "#m3dPositive(-1)",
+        "#nonnegativeIdentity(-1)",
         "the application has no denotation: semantic bottom",
         "not a claimed `krun` trace",
     )
@@ -111,13 +111,13 @@ def verify_backend_rejection() -> None:
     ):
         raise GateError("Krs.lock no longer pins the LLVM existential policy")
 
-    pins = json.loads(text("tests/m4/pins.json"))
+    pins = json.loads(text("tests/imp/pins.json"))
     digest = pins.get("native_comparison", {}).get("llvm_failure_sha256")
     if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise GateError("M4's LLVM failure transcript hash is absent")
+        raise GateError("IMP's LLVM failure transcript hash is absent")
 
     probe = run(
-        [sys.executable, ROOT / "tests/m4/compatibility/diagnostics/backend-capability/probe.py"],
+        [sys.executable, ROOT / "tests/imp/compatibility/diagnostics/backend-capability/probe.py"],
         check=False,
     )
     if probe.returncode != 0:
@@ -133,7 +133,7 @@ def verify_backend_rejection() -> None:
         raise GateError(f"backend static diagnostic seam is incomplete: {report!r}")
 
     require_fragments(
-        "tests/m4/compatibility/diagnostics/backend-capability/probe.py",
+        "tests/imp/compatibility/diagnostics/backend-capability/probe.py",
         'EXPECTED_LABELS = {',
         'envelope.get("stage") != "backend-capability"',
         'envelope.get("code") != "UnsupportedExistentialVariable"',
@@ -147,13 +147,13 @@ def verify_backend_rejection() -> None:
 
 
 def verify_capability_matrix() -> None:
-    claims = text("tests/m4/rust-definition/src/claims.rs")
+    claims = text("tests/imp/rust-definition/src/claims.rs")
     if claims.count("#[k::claim(all_paths") != 20:
-        raise GateError("M4 no longer has the matrix's 20 all-path claims")
+        raise GateError("IMP no longer has the matrix's 20 all-path claims")
     if claims.count("#[k::exists(") != 6 or claims.count("circularity)]") != 2:
-        raise GateError("M4 existential or circular claim coverage differs")
+        raise GateError("IMP existential or circular claim coverage differs")
 
-    pins = json.loads(text("tests/m4/pins.json"))
+    pins = json.loads(text("tests/imp/pins.json"))
     outcomes = pins.get("proof_outcomes", {})
     expected = {
         "addition-1": ("proved", 0),
@@ -167,9 +167,9 @@ def verify_capability_matrix() -> None:
             status,
             frontier_count,
         ):
-            raise GateError(f"M4 proof outcome differs for {label}: {outcome!r}")
+            raise GateError(f"IMP proof outcome differs for {label}: {outcome!r}")
         if outcome.get("bounds") != {"branching_allowed": 64, "depth": 100}:
-            raise GateError(f"M4 proof bounds differ for {label}")
+            raise GateError(f"IMP proof bounds differ for {label}")
 
     require_fragments(
         "tests/kwasm/verify.py",

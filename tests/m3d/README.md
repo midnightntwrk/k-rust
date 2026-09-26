@@ -13,7 +13,7 @@ static-form stress surface over the pinned upstream IMP definition and checks:
 - a static alias;
 - a named context alias selected by `seqstrict`;
 - concrete execution ending in `x = 6, y = 0`;
-- the six upstream proof invocations inherited by M4; and
+- the six upstream proof invocations inherited by the IMP gate; and
 - five independently selected static-adjunct claims.
 
 Run under K 7.1.337:

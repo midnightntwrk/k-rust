@@ -12,7 +12,7 @@ name = "base_language_api"
 language-host = { package = "krs", path = "../../../../crates/krs" }
 
 [package.metadata.krs]
-k-namespace = "ORG-KRS-M1-BASE"
+k-namespace = "ORG-KRS-COMPOSITION-BASE"
 
 [package.metadata.krs.definitions.base]
 root = "crate"

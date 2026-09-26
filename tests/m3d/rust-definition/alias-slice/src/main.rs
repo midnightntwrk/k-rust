@@ -32,12 +32,12 @@ impl Machine {
     }
 }
 
-#[k::constructor(sort = Expr, syntax = "m3dZero")]
+#[k::constructor(sort = Expr, syntax = "zeroAlias")]
 #[k::alias]
-pub struct M3dZero;
+pub struct ZeroAlias;
 
 #[k::alias]
-fn m3d_zero_alias(k::term![M3dZero]: Term<dyn Expr>) -> Term<dyn Expr> {
+fn zero_alias(k::term![ZeroAlias]: Term<dyn Expr>) -> Term<dyn Expr> {
     0
 }
 
@@ -112,13 +112,13 @@ fn main() {
         emit_k(&reordered_lowered).expect("reordered aliases emit deterministic K source");
     assert_eq!(emitted, reordered_emitted);
     assert!(
-        emitted.source().contains("m3dZero\" [symbol("),
+        emitted.source().contains("zeroAlias\" [symbol("),
         "{}",
         emitted.source()
     );
     assert!(emitted.source().contains(", alias]"));
-    assert!(emitted.source().contains("rule m3dZero => 0"));
-    assert!(!emitted.source().contains("rule m3dZero => 0 [alias"));
+    assert!(emitted.source().contains("rule zeroAlias => 0"));
+    assert!(!emitted.source().contains("rule zeroAlias => 0 [alias"));
     let source_map = emitted.source_map().to_canonical_json().unwrap();
     assert!(source_map.contains("alias_production"));
     assert!(source_map.contains("alias_clause"));

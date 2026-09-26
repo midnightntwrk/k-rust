@@ -144,7 +144,7 @@ following:
 - Definition IR compiles directly through the pinned K-Rust frontend;
 - a matrix covering i32/i64 constants, operand order, add/sub/mul/div_u, nesting, zero, maximum values, wraparound, truncation, and divide-by-zero traps agrees with the pinned KWasm source;
 - the relevant simple-arithmetic claim remains available for an explicit final reference run;
-- the complete IMP M4 behavior, proof, native, and compatibility evidence remains unchanged and the gate is green after the authoring extension.
+- the complete IMP behavior, proof, native, and compatibility evidence remains unchanged and the gate is green after the authoring extension.
 
 Only gaps demonstrated by this evidence may change the normative readable
 contract. Later slices should proceed to locals, structured control flow,
@@ -181,6 +181,6 @@ Descriptor protocol 19 and Definition IR schema 12 add K's selected `INT.mod` id
 KWasm behavior, emitted K, and native proof evidence remain unchanged because this baseline does not yet consume that shared operation directly.
 Descriptor protocol 20 and Definition IR schema 13 add the selected integer exponentiation, logarithm, shift, and bitwise identities required by the KEVM Shanghai pure-word tranche.
 KWasm again does not consume these operations in its current qualified slice, so its behavior, emitted K, KORE, and proof evidence remain unchanged.
-The complete IMP M4 gate also passes at descriptor protocol 20 and Definition IR schema 13.
+The complete IMP gate also passes at descriptor protocol 20 and Definition IR schema 13.
 Its emitted K, behavior, proofs, native KORE, and compatibility evidence remain unchanged across the shared Bytes and List additions.
 The unchanged IMP behavior evidence remains `21e6ede2057cee3cdfc28d6893ddc64399a5ab333608addd5e217d72b9ea9f5c`, and the unchanged compatibility report remains `13ddab23139f1c64cc4bebf2402b4aa16c96c142f15310b9451113a7d4cc7fa6`.

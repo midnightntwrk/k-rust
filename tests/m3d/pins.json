@@ -1,10 +1,10 @@
 {
   "corpus_sha256": {
-    "claims/static-spec.k": "b56a4697e158d5a0ad37c2b7dd434406330c6e509047e9cf1eb4971dfe50de92",
-    "corpus/static-evaluation.imp": "c4ed13fb308ccbb904c2aee5ba3486dc7cfeee3d63075e3c69508326840811b5",
+    "claims/static-spec.k": "8e908a5900778633e24c411c53d6d2d4fd237e3bbbb0409dcccc50b0f9db6248",
+    "corpus/static-evaluation.imp": "5e95b74e1c340fc927a1896d5c8366a5333a86bbdf74212dfb218ac965c9ae02",
     "fixtures/induced-definition-error.k": "1eae8e8e5ae92d940047828bbffa87e355ef2e3b2962a4058426b595c567ae24",
-    "fixtures/induced-source-error.k": "a79bd5e152247b07153025c5be1626a40338cec4f23b81349384d06b46354a9c",
-    "fixtures/static-adjunct.k": "8fbc3493b8d5dc41d05521cc790372bb55c84bebac9d34da1d980ebc8d9d45cf"
+    "fixtures/induced-source-error.k": "0d3db610c0624e45203e8a2508283442dea10b2943cbc08ff83c4126f8ca815d",
+    "fixtures/static-adjunct.k": "c8b980bb85e4f66c3b97740818e5cf5c0811ff96090a0c3dc663e1d2cf4e0c77"
   },
   "milestone": "M3D-reconstructed",
   "proof_outcomes": {
@@ -93,7 +93,7 @@
         "branching_allowed": 64,
         "depth": 100
       },
-      "claim_sha256": "ea5dd1c4fae745e1eff63b887c035a7bdd55dd1741b345b3130180d506c42ee5",
+      "claim_sha256": "4c31a2320d9052eff4899b368d0a779e566856c3e9677171c320b8943c60dbfb",
       "frontier_count": 0,
       "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
@@ -105,7 +105,7 @@
         "branching_allowed": 64,
         "depth": 100
       },
-      "claim_sha256": "af54837010d0c3163c0c3fb903c08815736b02db91918912b9322972549d6951",
+      "claim_sha256": "70a7d7825de3985096cf3ce2224cabda1a9c822a6ae4dd62e532371fdeb9cdd0",
       "frontier_count": 0,
       "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
@@ -117,7 +117,7 @@
         "branching_allowed": 64,
         "depth": 100
       },
-      "claim_sha256": "ae61b571274aefa32d7d25865d5779c94a53680126167d2f1cca793c9604ca7f",
+      "claim_sha256": "c6afdbfdce2d376dc6f659a8411e5c360f551bf5fe956885c768996b84779ddc",
       "frontier_count": 0,
       "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",
@@ -165,7 +165,7 @@
         "branching_allowed": 64,
         "depth": 100
       },
-      "claim_sha256": "8ecb8dcc1e8823b6b57cdee3df55a0092f7563ac74bec9dd8674914c6309e04e",
+      "claim_sha256": "c4bfe18b7d8d671e1e12e5123fdc9a3d5eac417ee60453dd93cc0ecfd8b573c0",
       "frontier_count": 0,
       "frontier_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "result_sha256": "daa7dc7ca21072fe58ed50886864daa9062113fefb6560364bc0ddc034c92518",

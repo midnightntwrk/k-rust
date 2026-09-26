@@ -22,8 +22,8 @@ mod inherited;
 
 pub use inherited::*;
 
-#[k::context_alias(name = m3d_eval, here = site)]
-fn m3d_eval(
+#[k::context_alias(name = operand_eval, here = site)]
+fn operand_eval(
     k::cells! {
         k: k::configuration::KCell(site, tail @ ..),
         state @ ..
@@ -31,9 +31,9 @@ fn m3d_eval(
 ) {
 }
 
-#[k::constructor(sort = Expr, syntax = "m3dTwice({value})")]
-#[k::seqstrict(using = m3d_eval, sequence = [value], result = KResult)]
-pub struct M3dTwice {
+#[k::constructor(sort = Expr, syntax = "double({value})")]
+#[k::seqstrict(using = operand_eval, sequence = [value], result = KResult)]
+pub struct Double {
     pub value: Term<dyn Expr>,
 }
 
@@ -100,7 +100,7 @@ fn main() {
         .flat_map(|module| module.sentences())
         .filter_map(|sentence| match sentence {
             DefinitionSentence::Production(production)
-                if production.symbol().emitted_name() == "m3dTwice" => Some(production),
+                if production.symbol().emitted_name() == "double" => Some(production),
             _ => None,
         })
         .flat_map(|production| production.attributes())
@@ -120,10 +120,10 @@ fn main() {
     let twice_line = emitted
         .source()
         .lines()
-        .find(|line| line.contains("symbol(m3dTwice)"))
-        .expect("emitted source contains m3dTwice");
+        .find(|line| line.contains("symbol(double)"))
+        .expect("emitted source contains double");
     assert!(twice_line.contains("seqstrict"), "{twice_line}");
-    assert!(twice_line.contains("context(m3d_eval)"), "{twice_line}");
+    assert!(twice_line.contains("context(operand_eval)"), "{twice_line}");
     assert!(twice_line.contains("result(KResult)"), "{twice_line}");
 
     let adapted = adapt_definition(lowered.definition()).expect("context slice adapts natively");
@@ -157,11 +157,11 @@ fn main() {
         .local_sentences
         .iter()
         .find(|sentence| matches!(sentence, Sentence::Production { label: Some(label), .. }
-            if label.name == "m3dTwice"))
-        .expect("native m3dTwice production exists");
+            if label.name == "double"))
+        .expect("native double production exists");
     assert_eq!(
         native_twice.attributes().get_str("seqstrict"),
-        Some("m3d_eval")
+        Some("operand_eval")
     );
 
     assert_origin_roles(&adapted);
@@ -170,7 +170,7 @@ fn main() {
         .expect("KRS compatibility preparation accepts the context slice");
     let strict = resolve_strict(&prepared.definition)
         .expect("public strictness expansion accepts the named context alias");
-    let prefix = "KRS-M3D-STATIC-SYNTAX.m3dTwice1";
+    let prefix = "KRS-M3D-STATIC-SYNTAX.double1";
     let selected_contexts = strict
         .modules
         .iter()
@@ -227,9 +227,9 @@ fn assert_origin_roles(adapted: &krs_k_rust::AdaptedDefinition) {
 
     let source = include_str!("main.rs");
     for (role, expected) in [
-        (NativeNodeRole::ContextAliasName, "m3d_eval"),
+        (NativeNodeRole::ContextAliasName, "operand_eval"),
         (NativeNodeRole::ContextAliasHere, "site"),
-        (NativeNodeRole::StrictnessContextAlias, "m3d_eval"),
+        (NativeNodeRole::StrictnessContextAlias, "operand_eval"),
         (NativeNodeRole::StrictnessField(0), "value"),
     ] {
         let mapping = adapted

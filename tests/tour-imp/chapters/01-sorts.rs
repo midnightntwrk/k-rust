@@ -1,4 +1,4 @@
-//! Readable Rust-authored definition of the complete M4 IMP language.
+//! Readable Rust-authored definition of the complete IMP language.
 //!
 //! This is the production form of the semantics in the upstream `expr.k`,
 //! `calc.k`, and `imp.k` modules. The object-language declarations stay visible

@@ -53,7 +53,7 @@ try {
   mkdirSync(dirname(vocsManifest), { recursive: true })
   writeFileSync(vocsManifest, manifest)
 
-  const source = `${readFileSync(fixtureSource, 'utf8')}\n\n#[allow(dead_code)]\nfn __twoslash_generated_symbol_probe(_: M2Obj) {}\n`
+  const source = `${readFileSync(fixtureSource, 'utf8')}\n\n#[allow(dead_code)]\nfn __twoslash_generated_symbol_probe(_: ObjectTerm) {}\n`
   writeFileSync(join(temporary, 'src/lib.rs'), source)
   runChecked('cargo', [
     'check',
@@ -68,8 +68,8 @@ try {
     timeout: 300_000,
   })
   const result = parseTwoslashOutput(stdout, 'tour-minimal generated-symbol probe')
-  if (!result.staticQuickInfos.some((hover) => hover.targetString === 'M2Obj'))
-    throw new Error('tour-minimal generated-symbol probe: M2Obj has no rust-analyzer hover')
+  if (!result.staticQuickInfos.some((hover) => hover.targetString === 'ObjectTerm'))
+    throw new Error('tour-minimal generated-symbol probe: ObjectTerm has no rust-analyzer hover')
 
   console.log('Rust Twoslash gate passed: compiler, protocol, diagnostics, and generated symbols')
 } finally {

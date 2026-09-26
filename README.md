@@ -13,7 +13,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 
 ## Current state
 
-- **Complete IMP.** The M4 gate (`tests/m4/`) compiles one complete Rust-authored IMP package through both the emitted-`.k` route and the native `k-rust` route.
+- **Complete IMP.** The IMP gate (`tests/imp/`) compiles one complete Rust-authored IMP package through both the emitted-`.k` route and the native `k-rust` route.
   It compares both routes against the upstream IMP definition for source structure, parsing, concrete execution, search, and bounded proof outcomes of all 15 upstream IMP claims plus five adjunct claims.
 - **Language-scale ports.** Incremental KWasm, KEVM, and KMIR ports live in `semantics/`.
   None is complete; `semantics/coverage.toml` records what each covers, what is deferred, and every adapter boundary.
@@ -36,7 +36,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 | `crates/krs-fmt` | Canonical formatter |
 | `crates/krs-expand-wasm`, `crates/krs-lesson-policy`, `crates/krs-wasm-abi` | Browser-lesson expander, editable-surface policy, and their shared Wasm ABI |
 | `semantics/` | Separate Cargo workspace with the KWasm, KEVM, and KMIR ports and `coverage.toml` |
-| `tests/` | Milestone gates (`m3b`–`m3d`, `m4`, `c7`, `cli`), port gates (`kwasm`, `kevm`, `kmir`), tour gates (`tour-*`), browser gates, and `repo-hygiene` |
+| `tests/` | IMP reference oracles, the complete IMP and precedence/associativity gates, CLI, port, tour, browser, and repository hygiene gates |
 | `docs-plan/`, `docs-site/` | Tour curriculum, authoring specification, and the Vocs documentation site |
 | `browser/` | Browser-lesson worker, dependency pack, and release format |
 | `Krs.lock` | External toolchain and schema pins |
@@ -61,7 +61,7 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
   - `../inspirations/midnightntwrk/k-rust-krs-main` (`k-rust`, a Cargo path dependency of `krs-k-rust`);
   - `../inspirations/runtimeverification/{wasm-semantics,evm-semantics,mir-semantics,imp-semantics}` (port and IMP authorities);
   - `../inspirations/runtimeverification/k` (K 7.1.337, for gates that need the K toolchain).
-- K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH` for the M3/M4 gates and the Java reference runs.
+- K 7.1.337 (`kompile`, `krun`, `kprove`, `kore-exec`, `llvm-kompile`) on `PATH` for the IMP reference oracles, the complete IMP gate, and the Java reference runs.
   The KWasm, KEVM, and KMIR gates need it only with `--java-reference`.
 
 ### Workspace
@@ -76,8 +76,8 @@ cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --wor
 ### Gates
 
 Run every gate from the repository root with `PYTHONDONTWRITEBYTECODE=1 python3 tests/<gate>/verify.py`.
-The KWasm, KEVM, KMIR, and M4 gates are memory heavy and must run one at a time.
-`tests/m4/README.md` gives the memory-bounded recipe for M4; other gate-specific instructions live in each gate directory's README where one exists.
+The KWasm, KEVM, KMIR, and IMP gates are memory heavy and must run one at a time.
+`tests/imp/README.md` gives the memory-bounded recipe for IMP; other gate-specific instructions live in each gate directory's README where one exists.
 
 A gate pins what it does not control and what KRS produces, never KRS source:
 
@@ -85,7 +85,7 @@ A gate pins what it does not control and what KRS produces, never KRS source:
 - outputs: emitted artifact, KORE, and behavior digests.
 
 A source change that leaves every output identical passes without a pin edit.
-When an output changes on purpose, re-record it by running the gate with `--record` (the KWasm, KEVM, KMIR, M4, and CLI gates support it); the gate runs completely and, only if every step passes, rewrites exactly the output pins it measured.
+When an output changes on purpose, re-record it by running the gate with `--record` (the KWasm, KEVM, KMIR, IMP, and CLI gates support it); the gate runs completely and, only if every step passes, rewrites exactly the output pins it measured.
 Review the resulting pin diff like any other change.
 `--record` never rewrites an input pin: a new checkout revision, corpus, or toolchain is a deliberate edit to the gate ledger or `Krs.lock`.
 The shared pin handling lives in `tests/support`, whose unit tests run with `python3 -m unittest discover support` from `tests/`.

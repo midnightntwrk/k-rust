@@ -26,8 +26,8 @@ These glosses and destinations are generated from the same curriculum ledger as 
  · <ConceptGloss concept="symbolic-terms">symbolic terms</ConceptGloss>
  · <ConceptGloss concept="declarative-relational-rules">unordered rules</ConceptGloss>
 
-<ConceptGloss concept="open-sorts">M2Obj</ConceptGloss>
- · <ConceptGloss concept="subsort-membership">M2Obj: KResult</ConceptGloss>
+<ConceptGloss concept="open-sorts">ObjectTerm</ConceptGloss>
+ · <ConceptGloss concept="subsort-membership">ObjectTerm: KResult</ConceptGloss>
  · <ConceptGloss concept="framework-sorts">KResult</ConceptGloss>
  · <ConceptGloss concept="core-builtins">KSequence</ConceptGloss>
 
@@ -60,8 +60,8 @@ This supplementary editor check does not validate the KRS macro islands in the c
 
 ## Read it from the outside in
 
-`M2Obj` is an open object-language sort.
-Because `M2Obj` is a subsort of `KResult`, every `M2Obj` term counts as a result; later strict constructs may use `KResult` as their stopping category.
+`ObjectTerm` is an open object-language sort.
+Because `ObjectTerm` is a subsort of `KResult`, every `ObjectTerm` term counts as a result; later strict constructs may use `KResult` as their stopping category.
 
 `Object` is a closed constructor family on that open sort.
 Its two nullary variants produce the concrete terminals `foo` and `bar`.
@@ -73,7 +73,7 @@ Configuration initialization is declarative: collecting the definition does not 
 
 Finally, `foo_to_bar` relates the two object terms: conceptually, the computation changes from `<k> foo … </k>` to `<k> bar … </k>`.
 
-The `for M2Obj` header anchors this term rule at the head of the computation cell and leaves any sequence tail framed.
+The `for ObjectTerm` header anchors this term rule at the head of the computation cell and leaves any sequence tail framed.
 When `foo` is at the head, the rule can replace it with `bar`.
 When it is not, this rule is simply inapplicable.
 

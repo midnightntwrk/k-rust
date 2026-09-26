@@ -20,7 +20,7 @@ limitation = "Required in the limitations and capability material"
 cli_commands = ["fmt", "check", "expand", "emit-k", "build"]
 metadata_keys = ["k-namespace", "root", "syntax-root"]
 macro_exports = ["alias", "anonymous", "associativity", "bracket", "bytes", "cell", "cells", "claim", "configuration", "constructor", "constructors", "context_alias", "ensures", "equation", "exists", "fragment", "function", "id", "init", "k", "map", "or_bool", "precedence", "priority", "requires", "rule", "rules", "seqstrict", "simplification", "sort", "sorts", "strict", "subsort", "symbol", "term", "token"]
-builtin_operations = ["add", "and", "bit_and", "bit_or", "bit_xor", "concat", "contains", "div", "empty", "eq", "ge", "get", "gt", "in_keys", "item", "le", "length", "log2", "lt", "make", "modulo", "mul", "ne", "not", "or", "pad_right", "pow_mod", "range", "shift_left", "shift_right", "size", "sub", "substr", "update", "update_all"]
+builtin_operations = ["add", "and", "bit_and", "bit_or", "bit_xor", "concat", "contains", "div", "empty", "eq", "ge", "get", "gt", "in_keys", "item", "le", "length", "log2", "lt", "make", "modulo", "mul", "ne", "not", "or", "pad_right", "pow_mod", "range", "shift_left", "shift_right", "size", "sub", "substr", "union", "update", "update_all"]
 concept_status_sha256 = "d5c8f2e29aa3c5a3ae4480fe1eb1548b9024a94f8687d86f6c664f9f6a075b78"
 
 # Browser lessons: pages that compile a checked fixture in the reader's browser.
@@ -81,7 +81,7 @@ order = 2
 route = "/imp/sorts-and-values"
 title = "IMP expressions: sorts and values"
 outcome = "Declare open sorts, membership, framework result membership, and builtin values."
-specimen = "tests/m4/rust-definition/src/imp.rs"
+specimen = "tests/imp/rust-definition/src/imp.rs"
 
 [[chapter]]
 id = "imp-grammar"
@@ -90,7 +90,7 @@ order = 3
 route = "/imp/concrete-grammar"
 title = "IMP expressions: concrete grammar"
 outcome = "Declare constructor families, syntax templates, grouping brackets, formatting, precedence, and associativity."
-specimen = "tests/m4/rust-definition/src/imp.rs"
+specimen = "tests/imp/rust-definition/src/imp.rs"
 
 [[chapter]]
 id = "imp-evaluation"
@@ -99,7 +99,7 @@ order = 4
 route = "/imp/evaluation"
 title = "IMP expressions: evaluation"
 outcome = "Define strict and sequential evaluation, symbolic builtin applications, and expression rules."
-specimen = "tests/m4/rust-definition/src/imp.rs"
+specimen = "tests/imp/rust-definition/src/imp.rs"
 
 [[chapter]]
 id = "imp-state"
@@ -108,7 +108,7 @@ order = 5
 route = "/imp/configuration-and-state"
 title = "IMP state: configurations and initialization"
 outcome = "Add statement syntax, a computation cell, an environment cell, and a declarative initializer."
-specimen = "tests/m4/rust-definition/src/imp.rs"
+specimen = "tests/imp/rust-definition/src/imp.rs"
 
 [[chapter]]
 id = "imp-machine-rules"
@@ -117,7 +117,7 @@ order = 6
 route = "/imp/machine-rules"
 title = "IMP state: sequences, maps, and framing"
 outcome = "Read and write multi-cell rules using sequence tails, map patterns, persistent updates, and implicit frames."
-specimen = "tests/m4/rust-definition/src/imp.rs"
+specimen = "tests/imp/rust-definition/src/imp.rs"
 
 [[chapter]]
 id = "imp-control"
@@ -126,7 +126,7 @@ order = 7
 route = "/imp/control-flow"
 title = "IMP control flow"
 outcome = "Complete IMP with conditionals, loops, blocks, splice, erase, and deliberately non-strict constructs."
-specimen = "tests/m4/rust-definition/src/imp.rs"
+specimen = "tests/imp/rust-definition/src/imp.rs"
 
 [[chapter]]
 id = "applicability"
@@ -135,7 +135,7 @@ order = 8
 route = "/semantics/applicability-and-failure"
 title = "Applicability, fallback, and failure"
 outcome = "Distinguish guards, overlap, fallback, stuck states, traps, authoring errors, and backend capability errors."
-specimen = "the M4 static adjunct and current positive fixtures"
+specimen = "the IMP static adjunct and current positive fixtures"
 
 [[chapter]]
 id = "lowering"
@@ -144,7 +144,7 @@ order = 9
 route = "/semantics/lowering"
 title = "Inspect what KRS builds"
 outcome = "Follow one rule through readable Rust, expanded Rust, Definition IR, emitted K, and backend artifacts."
-specimen = "docs-plan/authoring-spec/imp.rs and tests/m4/goldens/imp.expanded.rs"
+specimen = "docs-plan/authoring-spec/imp.rs and tests/imp/goldens/imp.expanded.rs"
 
 [[chapter]]
 id = "static-semantics"
@@ -153,7 +153,7 @@ order = 10
 route = "/semantics/static-semantics"
 title = "Functions and static semantics"
 outcome = "Define total and partial functions, equations, equation priority, aliases, contexts, and simplifiers."
-specimen = "tests/m4/rust-definition/src/static_adjunct.rs and verification.rs"
+specimen = "tests/imp/rust-definition/src/static_adjunct.rs and verification.rs"
 
 [[chapter]]
 id = "verification"
@@ -162,7 +162,7 @@ order = 11
 route = "/verification/reachability-claims"
 title = "All-path reachability claims"
 outcome = "State all-path claims with conditions, existential results, postconditions, anonymous values, and circularity."
-specimen = "tests/m4/rust-definition/src/claims.rs"
+specimen = "tests/imp/rust-definition/src/claims.rs"
 
 [[chapter]]
 id = "scale"
@@ -189,7 +189,7 @@ order = 14
 route = "/reference/workflow"
 title = "Daily workflow"
 outcome = "Use fmt, check, expand, emit-k, build, source maps, diagnostics, and rust-analyzer within their supported boundaries."
-specimen = "crates/krs-cli tests and M4 LSP probes"
+specimen = "crates/krs-cli tests and IMP LSP probes"
 
 [[chapter]]
 id = "reference"
@@ -227,7 +227,7 @@ status = "current"
 coverage = "spine"
 chapter = "orientation"
 prerequisites = ["host-object-split", "symbolic-terms"]
-evidence = ["docs-plan/authoring-spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/imp/rust-definition/src/imp.rs"]
 note = "Source order is not a tie-breaker."
 gloss = "A rule states a possible symbolic rewrite. Rules are unordered, so moving one does not give it priority."
 
@@ -240,9 +240,9 @@ chapter = "lowering"
 prerequisites = ["host-object-split"]
 evidence = [
     "docs-plan/authoring-spec/README.md",
-    "tests/m4/expanded-definition",
-    "tests/m4/goldens/imp.expanded.rs",
-    "tests/m4/rust-definition/src/parity.rs",
+    "tests/imp/expanded-definition",
+    "tests/imp/goldens/imp.expanded.rs",
+    "tests/imp/rust-definition/src/parity.rs",
 ]
 note = "Layer 1 is idiomatic authoring; layer 2 is deterministic audit and escape-hatch output."
 
@@ -253,7 +253,7 @@ status = "current"
 coverage = "spine"
 chapter = "project"
 prerequisites = ["host-object-split"]
-evidence = ["tests/m4/rust-definition/Cargo.toml", "crates/krs-cli/src/plan.rs"]
+evidence = ["tests/imp/rust-definition/Cargo.toml", "crates/krs-cli/src/plan.rs"]
 
 [[concept]]
 id = "rust-names"
@@ -287,7 +287,7 @@ coverage = "advanced"
 chapter = "composition"
 prerequisites = ["facets-composition"]
 evidence = [
-    "tests/m4/rust-definition/Cargo.toml",
+    "tests/imp/rust-definition/Cargo.toml",
     "crates/krs-cli/src/main.rs",
     "crates/krs-cli/src/plan.rs",
     "tests/collector-planning",
@@ -301,7 +301,7 @@ status = "current"
 coverage = "advanced"
 chapter = "composition"
 prerequisites = ["rust-names"]
-evidence = ["crates/krs-macros/src/lib.rs", "tests/m4/compatibility/stable-names"]
+evidence = ["crates/krs-macros/src/lib.rs", "tests/imp/compatibility/stable-names"]
 note = "Stable identities are general; the public symbol attribute delegates only to a sort or standalone constructor declaration."
 
 [[concept]]
@@ -321,7 +321,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-sorts"
 prerequisites = ["symbolic-terms"]
-evidence = ["docs-plan/authoring-spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/imp/rust-definition/src/imp.rs"]
 gloss = "A sort is an extensible symbolic category. Other modules or packages may add members and constructors later."
 
 [[concept]]
@@ -341,7 +341,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-sorts"
 prerequisites = ["open-sorts"]
-evidence = ["docs-plan/authoring-spec/decisions.md", "tests/m4/rust-definition/src/imp.rs"]
+evidence = ["docs-plan/authoring-spec/decisions.md", "tests/imp/rust-definition/src/imp.rs"]
 gloss = "KItem contains computation items; KResult marks terms that strict evaluation may treat as finished."
 
 [[concept]]
@@ -371,7 +371,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["open-sorts"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-macros/src/lib.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-macros/src/lib.rs"]
 gloss = "A constructor enum is a closed family of term shapes attached to an open result sort."
 
 [[concept]]
@@ -390,7 +390,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["constructor-families"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/grammar.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/grammar.rs"]
 gloss = "A syntax template maps constructor fields to concrete program text using checked named placeholders."
 
 [[concept]]
@@ -400,7 +400,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["syntax-templates"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "tokens"
@@ -419,7 +419,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["open-sorts", "syntax-templates"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "precedence-associativity"
@@ -428,7 +428,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-grammar"
 prerequisites = ["syntax-templates"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-macros/src/lib.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-macros/src/lib.rs"]
 note = "Bare groups impose no associativity constraint; non_assoc is explicit."
 gloss = "An explicit tier chain decides binding strength; left, right, and non_assoc decide same-tier nesting."
 
@@ -448,7 +448,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-evaluation"
 prerequisites = ["framework-sorts", "constructor-families"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "context-aliases"
@@ -457,7 +457,7 @@ status = "current"
 coverage = "advanced"
 chapter = "static-semantics"
 prerequisites = ["strictness", "fixed-configurations", "machine-rules"]
-evidence = ["tests/m4/rust-definition/src/static_adjunct.rs"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs"]
 
 [[concept]]
 id = "rule-tables"
@@ -466,7 +466,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-evaluation"
 prerequisites = ["constructor-families", "symbolic-terms"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/src/rule.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/src/rule.rs"]
 gloss = "A readable rule table turns each named pattern-to-result row into an independent semantic sentence."
 
 [[concept]]
@@ -476,7 +476,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-evaluation"
 prerequisites = ["rule-tables", "subsort-membership"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/rule_blocks.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/rule_blocks.rs"]
 
 [[concept]]
 id = "explicit-rule-functions"
@@ -485,7 +485,7 @@ status = "reference"
 coverage = "reference"
 chapter = "reference"
 prerequisites = ["rule-tables"]
-evidence = ["crates/krs-macros/src/lib.rs", "tests/m4/goldens/imp.expanded.rs"]
+evidence = ["crates/krs-macros/src/lib.rs", "tests/imp/goldens/imp.expanded.rs"]
 
 [[concept]]
 id = "k-sequences"
@@ -494,7 +494,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-machine-rules"
 prerequisites = ["single-item-sequence", "rule-tables"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
 
 [[concept]]
 id = "fixed-configurations"
@@ -503,7 +503,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-state"
 prerequisites = ["open-sorts", "core-builtins"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/configurations.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/configurations.rs"]
 gloss = "A configuration declares the fixed symbolic machine-state shape and its leaf cells."
 
 [[concept]]
@@ -523,7 +523,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-state"
 prerequisites = ["fixed-configurations"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/initializers.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/initializers.rs"]
 gloss = "An initializer declaratively maps configuration inputs to initial symbolic cell contents; collection does not run it."
 
 [[concept]]
@@ -533,7 +533,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-state"
 prerequisites = ["configuration-init"]
-evidence = ["tests/m4/rust-definition/src/imp.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs"]
 note = "Teach k![pgm] with the initializer before sequence tails, splice, and erase."
 gloss = "k![item] places one symbolic computation at the head of the initial K sequence."
 
@@ -544,7 +544,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-machine-rules"
 prerequisites = ["fixed-configurations", "rule-patterns", "k-sequences"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "docs-plan/authoring-spec/decisions.md"]
 
 [[concept]]
 id = "map-patterns"
@@ -553,7 +553,7 @@ status = "current"
 coverage = "spine"
 chapter = "imp-machine-rules"
 prerequisites = ["machine-rules", "core-builtins"]
-evidence = ["tests/m4/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
+evidence = ["tests/imp/rust-definition/src/imp.rs", "crates/krs-syntax/tests/fixed_state.rs"]
 
 [[concept]]
 id = "nested-cells"
@@ -595,7 +595,7 @@ status = "current"
 coverage = "spine"
 chapter = "applicability"
 prerequisites = ["rule-tables", "core-builtins"]
-evidence = ["tests/m4/rust-definition/src/static_adjunct.rs", "crates/krs-syntax/tests/rules.rs"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs", "crates/krs-syntax/tests/rules.rs"]
 
 [[concept]]
 id = "overlap"
@@ -625,7 +625,7 @@ chapter = "applicability"
 prerequisites = ["requires", "declarative-relational-rules"]
 evidence = [
     "tests/m3b/README.md",
-    "tests/m4/compatibility/BLOCKERS.md",
+    "tests/imp/compatibility/BLOCKERS.md",
     "semantics/kwasm",
     "tests/kwasm",
 ]
@@ -647,7 +647,7 @@ status = "current"
 coverage = "advanced"
 chapter = "static-semantics"
 prerequisites = ["symbolic-terms", "constructor-families"]
-evidence = ["tests/m4/rust-definition/src/static_adjunct.rs"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs"]
 note = "Undefined partial functions denote bottom, not Option::None."
 
 [[concept]]
@@ -657,7 +657,7 @@ status = "current"
 coverage = "advanced"
 chapter = "static-semantics"
 prerequisites = ["functions", "requires"]
-evidence = ["tests/m4/rust-definition/src/static_adjunct.rs", "crates/krs-macros/src/lib.rs"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs", "crates/krs-macros/src/lib.rs"]
 
 [[concept]]
 id = "aliases"
@@ -666,7 +666,7 @@ status = "current"
 coverage = "advanced"
 chapter = "static-semantics"
 prerequisites = ["constructor-families"]
-evidence = ["tests/m4/rust-definition/src/static_adjunct.rs"]
+evidence = ["tests/imp/rust-definition/src/static_adjunct.rs"]
 
 [[concept]]
 id = "simplifications"
@@ -675,7 +675,7 @@ status = "current"
 coverage = "advanced"
 chapter = "static-semantics"
 prerequisites = ["equations"]
-evidence = ["tests/m4/rust-definition/src/verification.rs"]
+evidence = ["tests/imp/rust-definition/src/verification.rs"]
 
 [[concept]]
 id = "simplification-priority"
@@ -694,7 +694,7 @@ status = "current"
 coverage = "advanced"
 chapter = "verification"
 prerequisites = ["machine-rules", "requires"]
-evidence = ["tests/m4/rust-definition/src/claims.rs", "crates/krs-syntax/tests/claims.rs"]
+evidence = ["tests/imp/rust-definition/src/claims.rs", "crates/krs-syntax/tests/claims.rs"]
 
 [[concept]]
 id = "one-path-claims"
@@ -713,7 +713,7 @@ status = "current"
 coverage = "advanced"
 chapter = "verification"
 prerequisites = ["claims"]
-evidence = ["tests/m4/rust-definition/src/claims.rs"]
+evidence = ["tests/imp/rust-definition/src/claims.rs"]
 
 [[concept]]
 id = "typed-hooks"
@@ -761,7 +761,7 @@ status = "current"
 coverage = "spine"
 chapter = "workflow"
 prerequisites = ["build-commands"]
-evidence = ["tests/m4/compatibility/BLOCKERS.md", "tests/m4/rust-definition/tools/lsp_probe.py"]
+evidence = ["tests/imp/compatibility/BLOCKERS.md", "tests/imp/rust-definition/tools/lsp_probe.py"]
 
 [[concept]]
 id = "formatter-comments"
@@ -780,7 +780,7 @@ status = "current"
 coverage = "advanced"
 chapter = "composition"
 prerequisites = ["build-commands"]
-evidence = ["crates/krs-cli/src/main.rs", "tests/m4/compatibility/BLOCKERS.md"]
+evidence = ["crates/krs-cli/src/main.rs", "tests/imp/compatibility/BLOCKERS.md"]
 
 [[concept]]
 id = "incremental-semantics"
