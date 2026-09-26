@@ -227,7 +227,9 @@ pub struct ProductionCatalog<'a> {
     token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
     function_labels: BTreeSet<LabelHead>,
     signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
-    attributes_by_label: BTreeMap<LabelHead, Attributes>,
+    /// Merged attributes of the labels declared by more than one production; a label with one
+    /// production reads that production's attributes (see [`Self::attributes_for`]).
+    merged_attributes_by_label: BTreeMap<LabelHead, Attributes>,
     result_sort_by_label: BTreeMap<LabelHead, Sort>,
     macro_labels: BTreeSet<LabelHead>,
     by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
@@ -257,7 +259,7 @@ struct CatalogIndexes {
     token_by_sort: BTreeMap<Sort, Vec<ProductionId>>,
     function_labels: BTreeSet<LabelHead>,
     signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
-    attributes_by_label: BTreeMap<LabelHead, Attributes>,
+    merged_attributes_by_label: BTreeMap<LabelHead, Attributes>,
     result_sort_by_label: BTreeMap<LabelHead, Sort>,
     macro_labels: BTreeSet<LabelHead>,
 }
@@ -326,7 +328,7 @@ impl<'a> ProductionCatalog<'a> {
             token_by_sort: BTreeMap::new(),
             function_labels: BTreeSet::new(),
             signatures: BTreeMap::new(),
-            attributes_by_label: BTreeMap::new(),
+            merged_attributes_by_label: BTreeMap::new(),
             result_sort_by_label: BTreeMap::new(),
             macro_labels: BTreeSet::new(),
             by_key: OnceLock::new(),
@@ -364,7 +366,7 @@ impl<'a> ProductionCatalog<'a> {
             token_by_sort: BTreeMap::new(),
             function_labels: BTreeSet::new(),
             signatures: BTreeMap::new(),
-            attributes_by_label: BTreeMap::new(),
+            merged_attributes_by_label: BTreeMap::new(),
             result_sort_by_label: BTreeMap::new(),
             macro_labels: BTreeSet::new(),
             by_key: OnceLock::new(),
@@ -388,7 +390,7 @@ impl<'a> ProductionCatalog<'a> {
         self.token_by_sort = indexes.token_by_sort;
         self.function_labels = indexes.function_labels;
         self.signatures = indexes.signatures;
-        self.attributes_by_label = indexes.attributes_by_label;
+        self.merged_attributes_by_label = indexes.merged_attributes_by_label;
         self.result_sort_by_label = indexes.result_sort_by_label;
         self.macro_labels = indexes.macro_labels;
     }
@@ -510,12 +512,14 @@ impl<'a> ProductionCatalog<'a> {
         self.signatures.get(label)
     }
 
-    pub fn attributes_by_label(&self) -> &BTreeMap<LabelHead, Attributes> {
-        &self.attributes_by_label
-    }
-
+    /// The attributes of `label`'s productions merged into one set: the production's own
+    /// attributes when a single production declares the label, since merging one set returns
+    /// an equal set.
     pub fn attributes_for(&self, label: &LabelHead) -> Option<&Attributes> {
-        self.attributes_by_label.get(label)
+        match self.by_label.get(label)?.as_slice() {
+            [id] => Some(self.production(*id).attributes()),
+            _ => self.merged_attributes_by_label.get(label),
+        }
     }
 
     /// Scala's `sortFor`, made deterministic by selecting the first stable ID.
@@ -579,7 +583,7 @@ fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
         token_by_sort: BTreeMap::new(),
         function_labels: BTreeSet::new(),
         signatures: BTreeMap::new(),
-        attributes_by_label: BTreeMap::new(),
+        merged_attributes_by_label: BTreeMap::new(),
         result_sort_by_label: BTreeMap::new(),
         macro_labels: BTreeSet::new(),
     };
@@ -652,11 +656,15 @@ fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
     }
 
     for (head, ids) in &indexes.by_label {
-        indexes.attributes_by_label.insert(
-            head.clone(),
-            Attributes::merge(ids.iter().map(|id| productions[id.0].as_ref().attributes()))
-                .unwrap_or_else(|error| error.merged),
-        );
+        // A single production's attributes are read in place: copying every production's
+        // attribute map into the index duplicated them once per catalog.
+        if ids.len() > 1 {
+            indexes.merged_attributes_by_label.insert(
+                head.clone(),
+                Attributes::merge(ids.iter().map(|id| productions[id.0].as_ref().attributes()))
+                    .unwrap_or_else(|error| error.merged),
+            );
+        }
         let Sentence::Production { sort, .. } = productions[ids[0].0].as_ref() else {
             unreachable!()
         };
