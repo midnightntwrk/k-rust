@@ -17,7 +17,7 @@ use std::{
 
 use k_rust::backend::{
     Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionResult,
-    ExecutionStrategy, HaltReasonOutput, ObservedRequest, ResultModalityOutput,
+    ExecutionStrategy, HaltReasonOutput, ObservedRequest, ResultModalityOutput, TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
@@ -148,7 +148,33 @@ pub struct AdaptedExecution {
     pub(crate) timed_out: bool,
 }
 
+/// A path-set leaf after observation state is erased.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BaselineLeaf {
+    pub halt: HaltClass,
+    pub state: serde_json::Value,
+    pub depth: u64,
+    pub branch: Vec<TransitionIdOutput>,
+}
+
 impl AdaptedExecution {
+    /// Erases observations from every leaf while retaining its backend result.
+    #[must_use]
+    pub fn erased(&self) -> Vec<BaselineLeaf> {
+        self.leaves
+            .iter()
+            .map(|leaf| {
+                let branch = leaf.branch.erase_observations();
+                BaselineLeaf {
+                    halt: leaf.halt,
+                    state: branch.state,
+                    depth: branch.depth,
+                    branch: branch.identity,
+                }
+            })
+            .collect()
+    }
+
     #[must_use]
     pub fn leaves(&self) -> &[AdaptedLeaf] {
         &self.leaves
@@ -243,32 +269,13 @@ impl ExecutionAdapter {
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
         })?;
-        let token = CancellationToken::new();
-        let fired = Arc::new(AtomicBool::new(false));
-        let (done, finished) = mpsc::channel::<()>();
-        let watchdog = {
-            let token = token.clone();
-            let fired = Arc::clone(&fired);
-            thread::spawn(move || {
-                if finished.recv_timeout(budget.time) == Err(mpsc::RecvTimeoutError::Timeout) {
-                    fired.store(true, Ordering::Release);
-                    token.cancel();
-                }
-            })
-        };
-        let outcome = token.scope(|| {
-            backend.execute_observed(ObservedRequest {
-                request: request(encoded, budget),
-                rules: Some(self.manifest.backend_rule_ids()),
-            })
-        });
-        // Stop the watchdog, then read whether it fired before the run ended.
-        drop(done);
-        watchdog.join().expect("watchdog thread does not panic");
-        let result =
-            outcome.map_err(|error| ExecutionAdapterFailure::Backend(error.to_string()))?;
-        assert_eq!(result.modality, ResultModalityOutput::PathSet);
-        let timed_out = fired.load(Ordering::Acquire);
+        let (result, timed_out) =
+            execute_with_watchdog(backend, encoded, budget, |backend, request| {
+                backend.execute_observed(ObservedRequest {
+                    request,
+                    rules: Some(self.manifest.backend_rule_ids()),
+                })
+            })?;
         let feasibility = if timed_out {
             vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
@@ -281,6 +288,37 @@ impl ExecutionAdapter {
             })?
         };
         self.adapt(result, timed_out, &budget, feasibility)
+    }
+
+    /// Executes the same PathSet request without observation rules.
+    pub fn execute_unobserved(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+    ) -> Result<Vec<BaselineLeaf>, ExecutionAdapterFailure> {
+        if backend.capabilities().smt {
+            return Err(ExecutionAdapterFailure::SolverProfileMismatch);
+        }
+        let encoded = codec::to_value(state)
+            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let (result, _) = execute_with_watchdog(backend, encoded, budget, Backend::execute)?;
+        result
+            .leaves
+            .into_iter()
+            .map(|leaf| {
+                let halt = HaltClass::from_output(leaf.reason);
+                if !halt.adapter_admits(&budget) {
+                    return Err(ExecutionAdapterFailure::ContractViolation(halt));
+                }
+                Ok(BaselineLeaf {
+                    halt,
+                    state: leaf.state,
+                    depth: leaf.depth,
+                    branch: leaf.branch,
+                })
+            })
+            .collect()
     }
 
     fn adapt(
@@ -329,6 +367,34 @@ impl ExecutionAdapter {
             timed_out,
         })
     }
+}
+
+fn execute_with_watchdog(
+    backend: &mut Backend,
+    state: serde_json::Value,
+    budget: ExecutionBudget,
+    execute: impl FnOnce(&mut Backend, ExecuteRequest) -> Result<ExecutionResult, BackendError>,
+) -> Result<(ExecutionResult, bool), ExecutionAdapterFailure> {
+    let token = CancellationToken::new();
+    let fired = Arc::new(AtomicBool::new(false));
+    let (done, finished) = mpsc::channel::<()>();
+    let watchdog = {
+        let token = token.clone();
+        let fired = Arc::clone(&fired);
+        thread::spawn(move || {
+            if finished.recv_timeout(budget.time) == Err(mpsc::RecvTimeoutError::Timeout) {
+                fired.store(true, Ordering::Release);
+                token.cancel();
+            }
+        })
+    };
+    let outcome = token.scope(|| execute(backend, request(state, budget)));
+    // Stop the watchdog, then read whether it fired before the run ended.
+    drop(done);
+    watchdog.join().expect("watchdog thread does not panic");
+    let result = outcome.map_err(|error| ExecutionAdapterFailure::Backend(error.to_string()))?;
+    assert_eq!(result.modality, ResultModalityOutput::PathSet);
+    Ok((result, fired.load(Ordering::Acquire)))
 }
 
 /// Runs `operation` on the definition of `backend`'s default module.

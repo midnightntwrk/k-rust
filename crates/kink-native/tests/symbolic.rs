@@ -3,14 +3,16 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{collections::BTreeMap, num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, codec, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
-use kink_native::execution::{AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass};
+use kink_native::execution::{
+    AdaptedExecution, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass,
+};
 use kink_native::feasibility::{LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule, ValidatedDefinition};
@@ -347,6 +349,112 @@ fn run(fixture: Fixture, program: Pattern, budget: ExecutionBudget) -> (Run, Eve
         ),
         vocabulary,
     )
+}
+
+fn leaf_multiset(leaves: Vec<BaselineLeaf>) -> BTreeMap<(String, HaltClass, u64), usize> {
+    let mut counts = BTreeMap::new();
+    for leaf in leaves {
+        let state = serde_json::to_string(&leaf.state).expect("state JSON");
+        *counts.entry((state, leaf.halt, leaf.depth)).or_insert(0) += 1;
+    }
+    counts
+}
+
+#[test]
+fn observation_erasure_preserves_live_leaves() {
+    let depth = ExecutionBudget {
+        max_depth: Some(1),
+        ..BUDGET
+    };
+    let breadth = ExecutionBudget {
+        max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
+        ..BUDGET
+    };
+    let rows = [
+        (
+            "nd.k",
+            "ND",
+            "SortS",
+            vec![
+                ("start", support::app("Lblstart", vec![]), BUDGET),
+                ("start-depth", support::app("Lblstart", vec![]), depth),
+                ("start-breadth", support::app("Lblstart", vec![]), breadth),
+            ],
+        ),
+        (
+            "symmem.k",
+            "SYMMEM",
+            "SortProg",
+            vec![
+                ("P1", p1(), BUDGET),
+                ("P2", p2(), BUDGET),
+                ("P3", p3(), BUDGET),
+                ("P4", p4(), BUDGET),
+                ("P5", p5(), BUDGET),
+                ("P6", p6(), BUDGET),
+                ("P7", p7(), BUDGET),
+                ("P8", p8(), depth),
+                ("P9", p9(), breadth),
+            ],
+        ),
+        (
+            "guardedmem.k",
+            "GUARDEDMEM",
+            "SortProg",
+            vec![
+                ("G1", g1(), BUDGET),
+                ("G2", g2(), BUDGET),
+                ("G3", g3(), BUDGET),
+            ],
+        ),
+    ];
+    for (fixture, module, sort, programs) in rows {
+        let validator = NativeValidator::bind(support::load(fixture), CompileOptions::default());
+        let side = validator.compile_baseline().expect("fixture compiles");
+        let rules = if fixture == "nd.k" {
+            ["ND.left", "ND.right", "ND.l2", "ND.r2"]
+                .into_iter()
+                .map(|label| ObservedRule {
+                    rule: support::rule(validator.baseline(), label),
+                    emit_rule_applied: true,
+                    domain_events: Vec::new(),
+                })
+                .collect()
+        } else {
+            observations(
+                if fixture == "symmem.k" {
+                    Fixture::Sym
+                } else {
+                    Fixture::Guard
+                },
+                &validator,
+            )
+        };
+        let manifest = validator
+            .observation_manifest(&side, &rules)
+            .expect("manifest");
+        let adapter = ExecutionAdapter::new(manifest);
+        let mut backend = Backend::new(
+            &side.artifacts().definition_kore,
+            module,
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        for (row, program, budget) in programs {
+            let state = support::initial_state(program, sort);
+            let observed = adapter
+                .execute(&mut backend, &state, budget)
+                .expect("observed execution");
+            assert!(!observed.timed_out(), "{fixture} {row}: observed timeout");
+            let unobserved = adapter
+                .execute_unobserved(&mut backend, &state, budget)
+                .expect("unobserved execution");
+            let observed = leaf_multiset(observed.erased());
+            let unobserved = leaf_multiset(unobserved);
+            assert!(!observed.is_empty(), "{fixture} {row}: no leaves");
+            assert_eq!(observed, unobserved, "{fixture} {row}: observation erasure");
+        }
+    }
 }
 
 fn wl(vocabulary: &EventVocabulary, sort: &str, relation: Relation) -> PatternPlan {
