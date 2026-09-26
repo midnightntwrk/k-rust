@@ -922,7 +922,10 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => leaf,
             Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
-        metadata.map_or(rebuilt.clone(), |metadata| rebuilt.with_metadata(metadata))
+        match metadata {
+            Some(metadata) => rebuilt.with_metadata(metadata),
+            None => rebuilt,
+        }
     }
 }
 
@@ -1321,7 +1324,10 @@ fn macro_priority(attributes: &Attributes) -> Result<i64, Diagnostic> {
 }
 
 fn with_metadata(term: Term, metadata: Option<crate::kast::TermMetadata>) -> Term {
-    metadata.map_or(term.clone(), |metadata| term.with_metadata(metadata))
+    match metadata {
+        Some(metadata) => term.with_metadata(metadata),
+        None => term,
+    }
 }
 
 fn truth() -> Term {

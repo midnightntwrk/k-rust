@@ -174,11 +174,10 @@ fn normalize_term(
         },
         Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
     };
-    term.metadata()
-        .cloned()
-        .map_or(normalized.clone(), |metadata| {
-            normalized.with_metadata(metadata)
-        })
+    match term.metadata().cloned() {
+        Some(metadata) => normalized.with_metadata(metadata),
+        None => normalized,
+    }
 }
 
 fn normalize_label(label: &crate::kast::Label) -> crate::kast::Label {

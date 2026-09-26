@@ -198,5 +198,8 @@ fn transform(
         leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
         Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     };
-    metadata.map_or(rebuilt.clone(), |metadata| rebuilt.with_metadata(metadata))
+    match metadata {
+        Some(metadata) => rebuilt.with_metadata(metadata),
+        None => rebuilt,
+    }
 }

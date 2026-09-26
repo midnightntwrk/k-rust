@@ -154,9 +154,10 @@ fn transform(
         }
         Term::Annotated { .. } => unreachable!(),
     };
-    Ok(metadata.map_or(transformed.clone(), |metadata| {
-        transformed.with_metadata(metadata)
-    }))
+    Ok(match metadata {
+        Some(metadata) => transformed.with_metadata(metadata),
+        None => transformed,
+    })
 }
 
 fn plain_error(message: impl Into<String>) -> Diagnostic {

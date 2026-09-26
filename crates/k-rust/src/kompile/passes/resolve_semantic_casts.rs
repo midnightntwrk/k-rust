@@ -448,7 +448,10 @@ fn transform(term: Term, casts: &BTreeSet<Term>, typed_variables: &BTreeMap<Stri
         leaf @ (Term::InjectedLabel(_) | Term::Token { .. }) => leaf,
         Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
     };
-    source_metadata.map_or(rebuilt.clone(), |metadata| rebuilt.with_metadata(metadata))
+    match source_metadata {
+        Some(metadata) => rebuilt.with_metadata(metadata),
+        None => rebuilt,
+    }
 }
 
 fn attach_sort(term: Term, sort: Sort) -> Term {

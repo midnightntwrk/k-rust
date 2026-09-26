@@ -193,7 +193,10 @@ impl<'view, 'definition> Folder<'view, 'definition> {
             leaf @ (Term::InjectedLabel(_) | Term::Variable { .. } | Term::Token { .. }) => leaf,
             Term::Annotated { .. } => unreachable!("into_unannotated strips metadata"),
         };
-        metadata.map_or(rebuilt.clone(), |metadata| rebuilt.with_metadata(metadata))
+        match metadata {
+            Some(metadata) => rebuilt.with_metadata(metadata),
+            None => rebuilt,
+        }
     }
 
     fn try_fold(&self, label: &Label, arguments: &[Term]) -> Result<Option<Term>, String> {

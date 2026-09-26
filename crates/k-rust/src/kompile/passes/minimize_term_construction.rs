@@ -281,9 +281,10 @@ impl<'use_, 'view, 'definition> Minimizer<'use_, 'view, 'definition> {
             }
             Term::Annotated { .. } => unreachable!(),
         };
-        let transformed = metadata.map_or(transformed.clone(), |metadata| {
-            transformed.with_metadata(metadata)
-        });
+        let transformed = match metadata {
+            Some(metadata) => transformed.with_metadata(metadata),
+            None => transformed,
+        };
         if position == Position::Left
             && !in_bad
             && self.used_on_rhs.contains(bare)
