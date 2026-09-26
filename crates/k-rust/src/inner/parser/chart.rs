@@ -35,6 +35,8 @@
 #[cfg(test)]
 use std::cell::Cell;
 use std::cell::RefCell;
+#[cfg(any(test, feature = "measure"))]
+use std::collections::HashSet;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hasher};
@@ -207,6 +209,8 @@ impl Hasher for StateHasher {
 }
 
 pub(super) type StateMap<V> = HashMap<State, V, BuildHasherDefault<StateHasher>>;
+#[cfg(any(test, feature = "measure"))]
+pub(super) type StateSet = HashSet<State, BuildHasherDefault<StateHasher>>;
 
 type CompletedNodeKey = (usize, usize);
 
@@ -233,7 +237,7 @@ pub(super) struct Chart {
     // Revisit accounting (`parser.chart_revisit_pops`) needs the set of states popped so far;
     // it is kept only where something reads it.
     #[cfg(any(test, feature = "measure"))]
-    pub(super) popped: BTreeSet<State>,
+    pub(super) popped: StateSet,
     // Java exposes one completed node for each stable (sort, origin, end) chart boundary.
     pub(super) completed_nodes: RefCell<BTreeMap<CompletedNodeKey, Rc<CompletedNodes>>>,
 }
@@ -253,7 +257,7 @@ impl Chart {
             completed: BTreeMap::new(),
             agenda: VecDeque::new(),
             #[cfg(any(test, feature = "measure"))]
-            popped: BTreeSet::new(),
+            popped: StateSet::default(),
             completed_nodes: RefCell::new(BTreeMap::new()),
         }
     }
