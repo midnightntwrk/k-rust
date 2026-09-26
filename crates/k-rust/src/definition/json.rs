@@ -1134,9 +1134,15 @@ enum AttributeNode {
 impl From<&Attributes> for JsonAttributes {
     /// KAST v4 is an interchange vocabulary: the input-address carrier names sentences of one
     /// compilation's input and is not part of it.
+    ///
+    /// The encoded map is the only copy the caller needs, so an origin receipt not rendered yet
+    /// is rendered into it directly rather than cached on the shared receipt and then cloned.
     fn from(attributes: &Attributes) -> Self {
-        let mut att = attributes.wire_map();
-        att.remove(AttributeKey::InputAddresses.as_str());
+        let att = attributes
+            .transient_wire_entries()
+            .filter(|(key, _)| *key != AttributeKey::InputAddresses.as_str())
+            .map(|(key, value)| (key.to_owned(), value.get().into_owned()))
+            .collect();
         Self {
             node: AttributeNode::KAtt,
             att,
