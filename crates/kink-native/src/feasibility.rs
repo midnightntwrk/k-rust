@@ -16,7 +16,9 @@
 //! them. Only clashes that hold in K's constructor algebra count (distinct free constructors, a
 //! free constructor against an injection, distinct canonical `Int`/`Bool`/`String` values, and a
 //! variable occurring under free constructors); anything else, including a residual function
-//! equation, is undecided. Two distinct ground terms are not assumed unequal.
+//! equation, is undecided. Two distinct ground terms are not assumed unequal. Terms that the
+//! unifier would decompose through a symbol other than a free constructor (an `anywhere` or
+//! overloaded production is `injective` without being free) are undecided unless identical.
 //!
 //! `feasible` answers `Sat` without a solver only for a real-prefix path whose predicate is
 //! `\top` and whose solved form maps variables to constructor terms over inhabited sorts. That
@@ -116,10 +118,13 @@ impl Inhabitation {
 
 /// A constructor of K's free term algebra: total, injective, and distinct from every other
 /// constructor and from every injection. Hooked, associative, idempotent, binder, collection,
-/// `anywhere`, macro and sort-parametric symbols are excluded, because they are not free.
+/// `anywhere`, macro and sort-parametric symbols are excluded, because they are not free, and
+/// so is a symbol that also carries the KORE `function` attribute (k-rust types it as a
+/// constructor; k-rust's kompile never emits both, hand-written KORE may).
 fn free_constructor(symbol: &Symbol) -> bool {
     let attributes = &symbol.attributes;
     attributes.symbol_type == SymbolType::Constructor
+        && !attributes.declared_function
         && symbol.sort_variables.is_empty()
         && attributes.hook.is_none()
         && attributes.collection.is_none()
@@ -240,6 +245,35 @@ fn occurs_under_free_constructors(variable: &Variable, term: &Term) -> bool {
         }
     }
     !matches!(term.kind(), TermKind::Variable(_)) && below(variable, term)
+}
+
+/// Whether the unifier decomposes `term` only through free constructors and injections: every
+/// application it may decompose (a constructor or an `injective` symbol) is a free constructor.
+/// Decomposing any other symbol is not an equivalence. k-rust's kompile marks an `anywhere` or
+/// overloaded production `injective` although its equations identify distinct applications
+/// (`wrap(s(z)) => wrap(z) [anywhere]`), so a clash or solved form found below it proves
+/// nothing. Collections are unsupported by the unifier and conservatively excluded.
+fn decomposes_freely(term: &Term) -> bool {
+    match term.kind() {
+        TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
+        TermKind::Injection { term, .. } => decomposes_freely(term),
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            let decomposed = symbol.attributes.injective
+                || symbol.attributes.symbol_type == SymbolType::Constructor;
+            (!decomposed || free_constructor(symbol)) && arguments.iter().all(decomposes_freely)
+        }
+        TermKind::And(left, right) => decomposes_freely(left) && decomposes_freely(right),
+        TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => false,
+    }
+}
+
+/// Every side of every pair decomposes freely (see [`decomposes_freely`]).
+fn pairs_decompose_freely<'t>(pairs: impl IntoIterator<Item = &'t (Term, Term)>) -> bool {
+    pairs
+        .into_iter()
+        .all(|(left, right)| decomposes_freely(left) && decomposes_freely(right))
 }
 
 /// `feasible` and `relate` for payloads of one execution, decided by the backend definition's
@@ -369,7 +403,8 @@ impl<'a> BackendRelations<'a> {
 }
 
 impl RelationDecider for BackendRelations<'_> {
-    /// `Unequal` when `assumed` together with `left = right` has a proved clash, `Equal` when
+    /// `Equal` for identical terms. For terms that decompose freely: `Unequal` when `assumed`
+    /// together with `left = right` has a proved clash, `Equal` when
     /// the solved form of `assumed` already unifies them, `EqualIf` with the solved-form
     /// relations the pair adds (variable on the left), and otherwise `Indeterminate`.
     fn relate(
@@ -385,6 +420,15 @@ impl RelationDecider for BackendRelations<'_> {
             return RelationDecision::Indeterminate;
         };
         if left.sort() != right.sort() {
+            return RelationDecision::Indeterminate;
+        }
+        if left == right {
+            return RelationDecision::Equal;
+        }
+        if !decomposes_freely(&left)
+            || !decomposes_freely(&right)
+            || !pairs_decompose_freely(&pairs)
+        {
             return RelationDecision::Indeterminate;
         }
         let UnificationResult::Unified(before) =
@@ -425,7 +469,7 @@ impl RelationDecider for BackendRelations<'_> {
         }
     }
 
-    /// `Unsat` on a proved clash of the assumptions; without a solver, `Sat` on a real-prefix
+    /// For assumptions that decompose freely: `Unsat` on a proved clash; without a solver, `Sat` on a real-prefix
     /// path with predicate `\top` when their solved form maps variables to constructor terms
     /// over inhabited sorts; otherwise the solver's `Unsat`, or `Unknown`.
     fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
@@ -438,6 +482,9 @@ impl RelationDecider for BackendRelations<'_> {
         let Some(pairs) = self.pairs(assumptions) else {
             return Feasibility::Unknown;
         };
+        if !pairs_decompose_freely(&pairs) {
+            return Feasibility::Unknown;
+        }
         match unify_term_pairs(self.definition, Substitution::new(), pairs) {
             UnificationResult::Bottom(failure) if proves_clash(&failure) => Feasibility::Unsat,
             UnificationResult::Unified(solved) => {
@@ -559,8 +606,12 @@ mod tests {
     }
 
     fn top() -> Pattern {
+        top_of("SortGeneratedTopCell")
+    }
+
+    fn top_of(sort: &str) -> Pattern {
         Pattern::Top {
-            sort: k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell"),
+            sort: k_rust::kompile::initial_configuration::kore_sort(sort),
         }
     }
 
@@ -924,6 +975,59 @@ mod tests {
                 (Unsat, equal_if.clone()),
                 (Unknown, equal_if),
             ]
+        );
+    }
+
+    const WRAP: &str = r"[]
+        module MAIN
+            sort SortNat{} []
+            symbol Lblz{}() : SortNat{} [constructor{}(), functional{}()]
+            symbol Lbls{}(SortNat{}) : SortNat{} [constructor{}(), functional{}()]
+            symbol Lblpair{}(SortNat{}, SortNat{}) : SortNat{} [constructor{}(), functional{}()]
+            symbol Lblwrap{}(SortNat{}) : SortNat{} [functional{}(), injective{}(), anywhere{}()]
+            symbol Lblboth{}(SortNat{}) : SortNat{} [constructor{}(), function{}()]
+        endmodule []";
+
+    /// Audit (SYM-3A-09): k-rust's kompile marks an `anywhere` production `injective`, and the
+    /// unifier decomposes it, but its equations can identify `wrap(s(z))` with `wrap(z)`. A
+    /// clash or solved form below it is therefore not evidence; identical terms still are. The
+    /// same holds for a symbol that k-rust types as a constructor although it is a `function`.
+    #[test]
+    fn non_free_injective_symbols_leave_relations_undecided() {
+        let definition =
+            BackendDefinition::internalize(&parse_definition(WRAP).expect("KORE"), "MAIN")
+                .expect("definition");
+        let (x, y) = (nat("X"), nat("Y"));
+        let wrap = |value: Pattern| support::app("Lblwrap", vec![value]);
+        let both = |value: Pattern| support::app("Lblboth", vec![value]);
+        let state = support::app("Lblpair", vec![x.clone(), y.clone()]);
+        let solver = Scripted(Err(SmtError::Unavailable));
+        let relations = BackendRelations::new(&definition, &solver, &state);
+        let real = path(PathStop::Terminal, top_of("SortNat"));
+        assert_eq!(
+            [
+                relations.relate(&real, &[], &wrap(s(x.clone())), &wrap(z())),
+                relations.relate(&real, &[], &wrap(x.clone()), &wrap(y.clone())),
+                relations.relate(&real, &[], &wrap(x.clone()), &wrap(x.clone())),
+                relations.relate(&real, &[], &s(x.clone()), &z()),
+                relations.relate(&real, &[], &x, &y),
+                relations.relate(&real, &[], &both(z()), &both(s(z()))),
+            ],
+            [
+                Indeterminate,
+                Indeterminate,
+                Equal,
+                Unequal,
+                EqualIf(vec![relation(x.clone(), y.clone())]),
+                Indeterminate,
+            ]
+        );
+        assert_eq!(
+            [
+                relations.feasible(&real, &[relation(wrap(x.clone()), wrap(s(y.clone())))]),
+                relations.feasible(&real, &[relation(x.clone(), z()), relation(x, s(y))]),
+            ],
+            [Unknown, Unsat]
         );
     }
 

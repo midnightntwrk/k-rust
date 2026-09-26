@@ -16,7 +16,10 @@ use kink_native::execution::{
 use kink_native::feasibility::{LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
 use kink_native::report::{ReportInput, ReportProfile, ReportResult, step3_report};
-use kink_native::{NativeValidator, ObservedRule, ValidatedDefinition};
+use kink_native::{
+    NativeValidator, ObservedRule, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
+    ValidatedDefinition, select_rules,
+};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, Evaluation, EvaluationContext, EvaluationOptions,
     EventVocabulary, ExecutionTerminalKind, MatchMode, PathInput, PathStop, PatternArm,
@@ -157,6 +160,12 @@ fn g3() -> Pattern {
 enum Fixture {
     Sym,
     Guard,
+    /// `symwrap.k`: symmem's write/load over an `anywhere`-collapsed address constructor.
+    Wrap,
+    /// `symowise.k`: an `owise` rule that no value of its symbolic subject reaches.
+    Owise,
+    /// `symensures.k`: an `ensures` that constrains payload variables after their events.
+    Ensures,
 }
 
 impl Fixture {
@@ -164,23 +173,29 @@ impl Fixture {
         match self {
             Self::Sym => "symmem.k",
             Self::Guard => "guardedmem.k",
+            Self::Wrap => "symwrap.k",
+            Self::Owise => "symowise.k",
+            Self::Ensures => "symensures.k",
         }
     }
     fn module(self) -> &'static str {
         match self {
             Self::Sym => "SYMMEM",
             Self::Guard => "GUARDEDMEM",
+            Self::Wrap => "SYMWRAP",
+            Self::Owise => "SYMOWISE",
+            Self::Ensures => "SYMENSURES",
         }
     }
     fn address_sort(self) -> &'static str {
         match self {
-            Self::Sym => "SortAddress",
+            Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortAddress",
             Self::Guard => "SortInt",
         }
     }
     fn value_sort(self) -> &'static str {
         match self {
-            Self::Sym => "SortNat",
+            Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortNat",
             Self::Guard => "SortInt",
         }
     }
@@ -188,6 +203,9 @@ impl Fixture {
         match self {
             Self::Sym => &["SYMMEM.write", "SYMMEM.load", "SYMMEM.free"],
             Self::Guard => &["GUARDEDMEM.write", "GUARDEDMEM.load", "GUARDEDMEM.loadNeg"],
+            Self::Wrap => &["SYMWRAP.write", "SYMWRAP.load", "SYMWRAP.collapse"],
+            Self::Owise => &["SYMOWISE.write", "SYMOWISE.load", "SYMOWISE.other"],
+            Self::Ensures => &["SYMENSURES.write", "SYMENSURES.load", "SYMENSURES.pin"],
         }
     }
 }
@@ -258,6 +276,20 @@ fn observations(fixture: Fixture, validator: &NativeValidator) -> Vec<ObservedRu
                 &[SYM_LOAD_A, SYM_LOAD_V],
             ),
             observed(validator, "SYMMEM.free", "memoryFree", &[SYM_FREE_A]),
+        ],
+        Fixture::Wrap | Fixture::Owise | Fixture::Ensures => vec![
+            observed(
+                validator,
+                fixture.labels()[0],
+                "memoryWrite",
+                &[SYM_WRITE_A, SYM_WRITE_V],
+            ),
+            observed(
+                validator,
+                fixture.labels()[1],
+                "memoryLoad",
+                &[SYM_LOAD_A, SYM_LOAD_V],
+            ),
         ],
         Fixture::Guard => vec![
             observed(
@@ -1327,4 +1359,187 @@ fn report_is_stable_across_backend_reuse() {
     let second = report_on_backend(row, &validator, &side, &mut backend);
     assert_identical_reports(row, &fresh, &first);
     assert_identical_reports(row, &first, &second);
+}
+
+fn wrap(value: Pattern) -> Pattern {
+    support::app("Lblwrap", vec![value])
+}
+
+/// Audit (SYM-3A-09): an `anywhere` equation makes `wrap` non-injective, although k-rust's
+/// kompile still marks it `injective` and the unifier decomposes it. `wrap(s(X))` against
+/// `wrap(z)` is equal for `X = z`, so the backend decider must not call them unequal, and the
+/// write/load pair must not be `no-match`.
+#[test]
+fn non_free_injective_symbol_does_not_prove_a_clash() {
+    let program = |address: Pattern| {
+        seq(
+            write(wrap(address), nat("V")),
+            seq(load(wrap(z()), nat("W")), halt()),
+        )
+    };
+    // The ground instance X = z is a match: the backend collapses the written address.
+    let (mut ground, vocabulary) = run(Fixture::Wrap, program(s(z())), BUDGET);
+    let plan = wl_after(&vocabulary);
+    assert_eq!(decided(&mut ground, &plan).outcome, PatternOutcome::Match);
+    let (mut symbolic, vocabulary) = run(Fixture::Wrap, program(s(nat("X"))), BUDGET);
+    let plan = wl_after(&vocabulary);
+    let [path] = symbolic.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert!(path.complete, "{path:?}");
+    assert_eq!(
+        symbolic.bridged.collection.stop,
+        CollectionStop::SearchExhausted
+    );
+    assert_eq!(path.events[0].payload[0], wrap(s(nat("X"))));
+    assert_eq!(path.events[1].payload[0], wrap(z()));
+    // A clash below the free `addr` constructor (P7) is still proved.
+    let (mut free, free_vocabulary) = run(Fixture::Sym, p7(), BUDGET);
+    assert_eq!(
+        decided(&mut free, &wl_after(&free_vocabulary)).outcome,
+        PatternOutcome::NoMatch
+    );
+    let evaluation = decided(&mut symbolic, &plan);
+    assert_eq!(
+        evaluation.outcome,
+        PatternOutcome::Unknown,
+        "{evaluation:?}"
+    );
+    assert!(evaluation.witnesses.is_empty());
+    assert_eq!(outcome(&symbolic, &plan).outcome, PatternOutcome::Unknown);
+}
+
+/// Audit (SYM-3A-09): leaf feasibility and the solver-free `Sat` assume every valuation of the
+/// initial variables follows a clean no-Z3 path. `other` is `owise` below rules that cover
+/// every `Nat`, so no value reaches the write/load events behind it; a symbolic subject must
+/// not take `other` as if the higher-priority rules were refuted.
+#[test]
+fn owise_rule_is_not_taken_for_a_symbolic_subject() {
+    let program = |selector: Pattern| {
+        support::app(
+            "Lblpick",
+            vec![
+                selector,
+                seq(
+                    write(addr(z()), nat("V")),
+                    seq(load(addr(z()), nat("W")), halt()),
+                ),
+            ],
+        )
+    };
+    for ground in [z(), s(z())] {
+        let (mut run, vocabulary) = run(Fixture::Owise, program(ground), BUDGET);
+        assert_eq!(
+            decided(&mut run, &wl_after(&vocabulary)).outcome,
+            PatternOutcome::NoMatch
+        );
+    }
+    let (mut symbolic, vocabulary) = run(Fixture::Owise, program(nat("X")), BUDGET);
+    // Matching `z` or `s(_)` against `X` needs a narrowing condition, which the no-Z3 profile
+    // cannot accept, so the priority group is undecided and the leaf is `Indeterminate`.
+    let [path] = symbolic.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!(path.stop, PathStop::BackendLimit);
+    assert!(path.events.is_empty());
+    let plan = wl_after(&vocabulary);
+    for evaluation in [decided(&mut symbolic, &plan), outcome(&symbolic, &plan)] {
+        assert_eq!(
+            evaluation.outcome,
+            PatternOutcome::Unknown,
+            "{evaluation:?}"
+        );
+        assert_eq!(evaluation.failure, Some(PathStop::BackendLimit));
+    }
+}
+
+/// Section 9 "an observer whose selector cardinality changes fails before execution", on the
+/// symmem observer: the label selections install a manifest; a selection whose expected
+/// cardinality no longer matches the definition publishes no rule, so no execution can start.
+#[test]
+fn symmem_manifest_rejects_wrong_cardinality() {
+    let validator = NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());
+    let side = validator.compile_baseline().expect("fixture compiles");
+    let module = support::rule(validator.baseline(), "SYMMEM.write").module;
+    let classification =
+        RewriteRules::classify(&validator, &side, &module).expect("rewrite classification");
+    let selection = |selector: RuleSelector, expected_cardinality: usize| RuleSelection {
+        selector,
+        expected_cardinality,
+        emit_rule_applied: true,
+        domain_events: Vec::new(),
+    };
+    let label = |name: &str| RuleSelector::Label(name.to_owned());
+    let select = |selections: &[RuleSelection]| {
+        select_rules(validator.baseline(), Some(&classification), selections)
+    };
+    let observer = [
+        selection(label("SYMMEM.write"), 1),
+        selection(label("SYMMEM.load"), 1),
+        selection(label("SYMMEM.free"), 1),
+    ];
+    let rules = select(&observer).expect("the symmem observer selects its rules");
+    assert_eq!(rules.len(), 3);
+    validator
+        .observation_manifest(&side, &rules)
+        .expect("manifest installs");
+    // write, load, free, left and right are the five transitions.
+    assert_eq!(
+        select(&[selection(RuleSelector::AllTransitions, 5)]).map(|rules| rules.len()),
+        Ok(5)
+    );
+    let mismatch = |selection, expected, actual| SelectionFailure::CardinalityMismatch {
+        selection,
+        expected,
+        actual,
+    };
+    let rows = [
+        (
+            "all-transitions-expected-four",
+            vec![selection(RuleSelector::AllTransitions, 4)],
+            mismatch(0, 4, 5),
+        ),
+        (
+            "missing-label",
+            vec![
+                selection(label("SYMMEM.write"), 1),
+                selection(label("SYMMEM.store"), 1),
+            ],
+            mismatch(1, 1, 0),
+        ),
+        (
+            "label-expected-twice",
+            vec![selection(label("SYMMEM.load"), 2)],
+            mismatch(0, 2, 1),
+        ),
+    ];
+    for (id, selections, failure) in rows {
+        assert_eq!(select(&selections), Err(failure), "{id}");
+    }
+}
+
+/// Audit (SYM-3A-09): the solver-free `Sat` for witness assumptions needs the path predicate
+/// to be exactly `\top`. `pin` pins `X = z` and `Y = s(z)` after the write/load events, so
+/// `X = Y` is infeasible on the path; k-rust keeps both equations in the leaf predicate rather
+/// than substituting them away, so the leaf is `SolverUnknown` and the result stays `unknown`.
+#[test]
+fn ensures_constraint_keeps_a_later_witness_unknown() {
+    let program = seq(
+        write(addr(nat("X")), nat("V")),
+        seq(
+            load(addr(nat("Y")), nat("W")),
+            support::app("Lblpin", vec![nat("X"), nat("Y"), halt()]),
+        ),
+    );
+    let (mut run, vocabulary) = run(Fixture::Ensures, program, BUDGET);
+    let [path] = run.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!(path.stop, PathStop::SolverUnknown);
+    assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
+    let evaluation = decided(&mut run, &wl_after(&vocabulary));
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+    );
 }
