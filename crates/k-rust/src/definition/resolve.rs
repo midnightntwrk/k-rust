@@ -845,6 +845,10 @@ fn iter_identical<'a>(
 }
 
 fn sentences_identical(left: &Sentence, right: &Sentence) -> bool {
+    // Identity is reflexive, and a pass shares every sentence it leaves unchanged with its input.
+    if std::ptr::eq(left, right) {
+        return true;
+    }
     match (left, right) {
         (
             Sentence::SyntaxSort {
