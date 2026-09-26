@@ -16,13 +16,13 @@
 //! ```toml algorithm
 //! id = "kompile.kore.owise"
 //! name = "construction of owise competitor predicates"
-//! sites = ["emit_owise_equation"]
-//! variable = "R = module rules; O = owise equations; I = sort-injection work per rule; c = per-competitor refresh, matching and conversion work"
+//! sites = ["emit_owise_equation", "OwiseCompetitors"]
+//! variable = "R = module rules; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors sharing an owise equation's label and argument sorts; c = per-competitor refresh, matching and conversion work"
 //! counters = ["KompileOwiseCompetitorScans"]
 //!
 //! [[cost]]
 //! mode = "one module"
-//! bound = "O(O x R x c + R x I)"
+//! bound = "O(R x (I + log R) + O x (m x c + log R))"
 //! ```
 //!
 //! ```toml algorithm-site
@@ -32,7 +32,7 @@
 //! ```
 //!
 //! Rule, claim, macro, equation, and owise emission.
-//! Complexity: O(R(inject + convert)) plus O(R) per owise equation; `KompileOwiseCompetitorScans` measures the latter scan.
+//! Complexity: O(R(inject + convert)), plus one O(R) competitor scan per module with an owise equation and O(m) same-signature competitors per owise equation; `KompileOwiseCompetitorScans` counts the scanned rules and the visited competitors.
 
 use super::*;
 use k_rust_kore::measure::{self, Counter};
@@ -50,7 +50,7 @@ pub(super) fn emit_rule_or_claim(
     sentence: &Sentence,
     claim: bool,
     context: &RuleEmissionContext<'_, '_>,
-    owise_injections: &mut Vec<Option<Sentence>>,
+    owise_competitors: &mut OwiseCompetitors,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let RuleEmissionContext {
         valued,
@@ -105,7 +105,7 @@ pub(super) fn emit_rule_or_claim(
             productions,
             injector,
             module_rules,
-            owise_injections,
+            owise_competitors,
         );
     }
     if is_macro_rule(&injected) {
@@ -381,7 +381,7 @@ fn emit_equation(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_, '_>,
     module_rules: &[Sentence],
-    owise_injections: &mut Vec<Option<Sentence>>,
+    owise_competitors: &mut OwiseCompetitors,
 ) -> Result<KoreSentence, ModuleToKoreError> {
     let parameters = equation_parameters(attributes);
     let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
@@ -410,7 +410,7 @@ fn emit_equation(
             productions,
             injector,
             module_rules,
-            owise_injections,
+            owise_competitors,
             parameters,
             &avoid_variables,
         );
@@ -504,7 +504,7 @@ fn emit_owise_equation(
     productions: &ProductionCatalog<'_>,
     injector: &SortInjector<'_, '_>,
     module_rules: &[Sentence],
-    owise_injections: &mut Vec<Option<Sentence>>,
+    owise_competitors: &mut OwiseCompetitors,
     parameters: Vec<String>,
     avoid_variables: &BTreeSet<String>,
 ) -> Result<KoreSentence, ModuleToKoreError> {
@@ -526,47 +526,26 @@ fn emit_owise_equation(
     for name in avoid_variables {
         fresh.reserve(name.clone());
     }
-    if owise_injections.is_empty() {
-        // Initialize lazily so modules without owise equations pay no cache allocation.
-        owise_injections.resize_with(module_rules.len(), || None);
-    }
-    // O3: collect each executable same-signature competitor once in rule-catalog order.
+    // O3: visit each executable same-signature competitor once in rule-catalog order.
+    owise_competitors.scan_once(module_rules, injector, productions);
+    let (candidates, failure) = owise_competitors.candidates(&equation);
     let mut competitors = Vec::new();
     // Invariant: `competitors` contains exactly the accepted rules before `index`, each with
-    // refreshed variables and at most one cached injection in `owise_injections`.
-    for (index, sentence) in module_rules.iter().enumerate() {
+    // refreshed variables.
+    for &index in candidates {
         measure::bump(Counter::KompileOwiseCompetitorScans);
-        if owise_injections[index].is_none() {
-            owise_injections[index] = Some(injector.inject_sentence(sentence)?);
-        }
-        let injected = owise_injections[index]
-            .as_ref()
-            .expect("successful injections are cached");
-        let Sentence::Rule {
+        let Some(Sentence::Rule {
             body,
             requires: competitor_requires,
             ..
-        } = injected
+        }) = &owise_competitors.injected[index]
         else {
-            continue;
+            unreachable!("indexed competitors are injected rules")
         };
         let competitor_left = match body.unannotated() {
             Term::Rewrite { left, .. } => left.as_ref(),
             _ => body,
         };
-        let Some(competitor) = equation_info(competitor_left, sentence.attributes(), productions)?
-        else {
-            continue;
-        };
-        if competitor.label != equation.label
-            || competitor.argument_sorts != equation.argument_sorts
-        {
-            continue;
-        }
-
-        if ignore_owise_competitor(sentence) {
-            continue;
-        }
         let mut renames = BTreeMap::new();
         let refreshed_left = refresh_variables(competitor_left, &mut fresh, &mut renames);
         let refreshed_requires = refresh_variables(competitor_requires, &mut fresh, &mut renames);
@@ -615,6 +594,10 @@ fn emit_owise_equation(
         competitors.push(candidate);
     }
 
+    // A rule before which the scan stopped fails the equation after every earlier competitor.
+    if let Some(error) = failure {
+        return Err(error.clone());
+    }
     // O4: preserve competitor order in a right-associated disjunction ending in bottom.
     competitors.push(Pattern::Bottom {
         sort: predicate_sort.clone(),
@@ -664,6 +647,90 @@ fn emit_owise_equation(
         valued,
         parameters,
     )
+}
+
+/// The executable competitors of a module's owise equations, grouped by head label and argument
+/// sorts.
+///
+/// Whether a rule competes with an owise equation depends only on the rule and on the equation's
+/// label and argument sorts, and the module's rule list is fixed during emission, so one scan of
+/// the rules serves every owise equation of the module. The scan runs when the first owise
+/// equation needs it and stops at the first rule whose injection or equation shape fails; that
+/// rule's error is reported after the competitors that precede it, where a full scan would meet it.
+#[derive(Default)]
+pub(super) struct OwiseCompetitors {
+    scanned: bool,
+    injected: Vec<Option<Sentence>>,
+    by_signature: BTreeMap<(Label, Vec<Sort>), Vec<usize>>,
+    failure: Option<ModuleToKoreError>,
+}
+
+impl OwiseCompetitors {
+    fn scan_once(
+        &mut self,
+        module_rules: &[Sentence],
+        injector: &SortInjector<'_, '_>,
+        productions: &ProductionCatalog<'_>,
+    ) {
+        if !self.scanned {
+            self.scan(module_rules, injector, productions);
+        }
+    }
+
+    /// The indices of the competitors of `equation` in rule order, and the error of the rule at
+    /// which the scan stopped; every returned index precedes that rule.
+    fn candidates(&self, equation: &EquationInfo<'_>) -> (&[usize], Option<&ModuleToKoreError>) {
+        let candidates = self
+            .by_signature
+            .get(&(equation.label.clone(), equation.argument_sorts.clone()))
+            .map_or(&[][..], Vec::as_slice);
+        (candidates, self.failure.as_ref())
+    }
+
+    fn scan(
+        &mut self,
+        module_rules: &[Sentence],
+        injector: &SortInjector<'_, '_>,
+        productions: &ProductionCatalog<'_>,
+    ) {
+        self.scanned = true;
+        self.injected = vec![None; module_rules.len()];
+        // Invariant: `by_signature` holds, in rule order, every rule before `index` that is an
+        // executable equation, and no earlier rule failed.
+        for (index, sentence) in module_rules.iter().enumerate() {
+            measure::bump(Counter::KompileOwiseCompetitorScans);
+            let injected = match injector.inject_sentence(sentence) {
+                Ok(injected) => injected,
+                Err(error) => {
+                    self.failure = Some(error.into());
+                    return;
+                }
+            };
+            let Sentence::Rule { body, .. } = &injected else {
+                continue;
+            };
+            let competitor_left = match body.unannotated() {
+                Term::Rewrite { left, .. } => left.as_ref(),
+                _ => body,
+            };
+            let signature = match equation_info(competitor_left, sentence.attributes(), productions)
+            {
+                Ok(Some(competitor)) => {
+                    (competitor.label.clone(), competitor.argument_sorts.clone())
+                }
+                Ok(None) => continue,
+                Err(error) => {
+                    self.failure = Some(error);
+                    return;
+                }
+            };
+            if ignore_owise_competitor(sentence) {
+                continue;
+            }
+            self.by_signature.entry(signature).or_default().push(index);
+            self.injected[index] = Some(injected);
+        }
+    }
 }
 
 fn ignore_owise_competitor(sentence: &Sentence) -> bool {

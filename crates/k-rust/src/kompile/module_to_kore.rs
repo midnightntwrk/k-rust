@@ -31,7 +31,8 @@ mod equations;
 
 use axioms::{constructor_productions, generated_axioms};
 use equations::{
-    RuleEmissionContext, check_variable_sorts, emit_rule_or_claim, resolve_equation_production,
+    OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
+    resolve_equation_production,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -795,7 +796,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     // Keep ordinary rule injection separate: it resets sentence-local injector state and fixes
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
-    let mut owise_injections = Vec::new();
+    let mut owise_competitors = OwiseCompetitors::default();
     let emission_context = RuleEmissionContext {
         valued: &valued,
         productions: &productions,
@@ -805,9 +806,9 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         default_reachability,
     };
     let mut emitted_sources = Vec::new();
-    // Invariant: `modules.macros` and `modules.semantics.sentences` hold the emitted sentences of the rules of `module_rules` before `rule`, and `owise_injections` caches every injection an owise competitor scan has computed so far; each rule is emitted once.
+    // Invariant: `modules.macros` and `modules.semantics.sentences` hold the emitted sentences of the rules of `module_rules` before `rule`, and `owise_competitors` holds the module's owise competitors once an owise equation has scanned for them; each rule is emitted once.
     for rule in &module_rules {
-        let emitted = emit_rule_or_claim(rule, false, &emission_context, &mut owise_injections)?;
+        let emitted = emit_rule_or_claim(rule, false, &emission_context, &mut owise_competitors)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(rule))?;
         if is_macro_rule(rule) {
             modules.macros.push(emitted);
@@ -827,7 +828,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
                 kind: "macro claim".into(),
             });
         }
-        let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_injections)?;
+        let emitted = emit_rule_or_claim(claim, true, &emission_context, &mut owise_competitors)?;
         check_variable_sorts(&emitted, &|| describe_source_sentence(claim))?;
         modules.semantics.sentences.push(emitted);
         emitted_sources.push(claim.attributes().clone());

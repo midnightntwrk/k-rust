@@ -160,7 +160,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - definition.resolve.sentences — O((M + E) log M + n_m log n_m + n_m x k x eq +… — at k-rust/definition/resolve.rs `ResolvedDefinition::select_sentence_locations`
 - kompile.fresh_names.mint — O(R log R) +1 mode — at k-rust/kompile/fresh_names.rs `FreshNames::for_terms`
 - kompile.kore.axioms — O(P^2 + S x (P + S log S) + O^2 + R) — at k-rust/kompile/module_to_kore/axioms.rs `generated_axioms`
-- kompile.kore.owise — O(O x R x c + R x I) — at k-rust/kompile/module_to_kore/equations.rs `emit_owise_equation`
+- kompile.kore.owise — O(R x (I + log R) + O x (m x c + log R)) — at k-rust/kompile/module_to_kore/equations.rs `emit_owise_equation`
 - kompile.labels.backward_closure — O((R + N_f) log V + E) +1 mode — at k-rust/kompile/label_graph.rs `LabelDependencyGraph::build`
 - kompile.metadata.retarget — O(N log R) — at k-rust/kompile/retarget.rs `retarget_production_identities`
 - kompile.modules.rewrite_order — O((M + E) x (d + log M) + R log R + u x s) — at k-rust/kompile/compile.rs `collect_execution_rewrite_order`

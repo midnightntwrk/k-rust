@@ -4373,7 +4373,7 @@ id = "kompile.kore.owise"
 provenance = "declared"
 area = "kompile"
 name = "construction of owise competitor predicates"
-variable = "R = module rules; O = owise equations; I = sort-injection work per rule; c = per-competitor refresh, matching and conversion work"
+variable = "R = module rules; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors sharing an owise equation's label and argument sorts; c = per-competitor refresh, matching and conversion work"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreOwise"
 
@@ -4387,9 +4387,14 @@ crate = "k-rust"
 file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
 symbol = "emit_owise_equation"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/module_to_kore/equations.rs"
+symbol = "OwiseCompetitors"
+
 [[node.cost]]
 mode = "one module"
-bound = "O(O x R x c + R x I)"
+bound = "O(R x (I + log R) + O x (m x c + log R))"
 
 [[node]]
 kind = "algorithm"
