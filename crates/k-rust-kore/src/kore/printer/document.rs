@@ -31,6 +31,7 @@
 //! Wadler-style documents render with a mode stack whose height is the group nesting depth.
 //! The renderer pulls ops from an iterator and writes each one to an `io::Write` as soon as its layout is decided, so neither the whole document nor the whole text has to be held in memory.
 //! A group opened in broken context is laid out flat exactly when its flat width fits in the rest of the line; `fits` decides that by reading ahead only until the answer is known, which bounds the ops held in memory by the line width rather than by the document.
+//! ASCII text uses its byte length as its character width; other text retains the Unicode scalar count used by layout.
 //! No dedicated counter measures printing.
 //!
 
@@ -152,7 +153,11 @@ pub(super) fn render<W: io::Write + ?Sized>(
         match op {
             Op::Text(value) => {
                 output.write_all(value.as_bytes())?;
-                column += value.chars().count();
+                column += if value.is_ascii() {
+                    value.len()
+                } else {
+                    value.chars().count()
+                };
             }
             Op::Line(flat) if modes.last() == Some(&Mode::Flat) => {
                 output.write_all(flat.as_bytes())?;
@@ -362,6 +367,22 @@ mod tests {
             };
             write_spaces(&mut output, count).unwrap();
             assert_eq!(output.bytes, vec![b' '; count]);
+        }
+    }
+
+    #[test]
+    fn unicode_prefix_uses_character_width_at_group_boundary() {
+        let document = Doc::concat([
+            Doc::text("aé"),
+            Doc::concat([Doc::text("x"), Doc::line(), Doc::text("y")]).group(),
+        ]);
+        assert_eq!(streamed(&document, RenderMode::Pretty, 4, 7), "aéx\ny");
+        assert_eq!(streamed(&document, RenderMode::Pretty, 5, 7), "aéx y");
+        for width in [4, 5] {
+            assert_eq!(
+                streamed(&document, RenderMode::Pretty, width, 7),
+                whole_document_render(&document, RenderMode::Pretty, width)
+            );
         }
     }
 
