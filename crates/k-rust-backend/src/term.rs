@@ -230,13 +230,23 @@ impl SymbolAttributes {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Symbol {
     pub name: Name,
     pub sort_variables: Vec<Name>,
     pub argument_sorts: Vec<Sort>,
     pub result_sort: Sort,
     pub attributes: SymbolAttributes,
+}
+
+/// A symbol hashes as its name. Equal symbols have equal names, so this agrees with `Eq`; a
+/// definition declares one symbol per name, so the name already tells its symbols apart, and
+/// every term construction (`Term::new` hashes the application's symbol) is spared hashing
+/// the signature and attributes.
+impl Hash for Symbol {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
 }
 
 impl Symbol {
