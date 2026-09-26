@@ -34,14 +34,17 @@
 //! priority that already applied is attempted once more on the whole subject, and the sub-cases of
 //! one priority are compared pairwise for overlap.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
-    rule::{Predicate, RewriteRule, RuleRhs, applicable_rewrite_groups, subject_index, term_index},
+    rule::{
+        Predicate, RewriteRule, RuleIndex, RuleRhs, TermIndex, applicable_rewrite_groups,
+        subject_index, term_index,
+    },
     simplify::{SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver},
     smt::{Satisfiability, SmtSolver},
     substitution::Substitution,
@@ -306,17 +309,22 @@ pub(super) fn rewrite_step_all(
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
-    let mut groups = priority_groups.into_values();
-    match first_productive_group(
+    let mut groups = priority_groups.into_iter();
+    let mut visited = 0;
+    let outcome = first_productive_group(
         definition,
         pattern,
-        &mut groups,
+        &mut groups.by_ref().map(|(priority, rules)| {
+            visited = priority;
+            rules
+        }),
         fresh_counter,
         simplification_options,
         solver,
         assume_initial_defined,
         io,
-    ) {
+    );
+    match outcome {
         PriorityGroupOutcome::NotProductive => RewriteResult::Stuck(pattern.clone()),
         PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
         PriorityGroupOutcome::Productive {
@@ -329,7 +337,11 @@ pub(super) fn rewrite_step_all(
                 &mut branches,
                 &mut trivial,
                 &mut remainder,
-                groups,
+                LowerGroups {
+                    selected_for: (index, subject),
+                    visited,
+                    groups: groups.collect(),
+                },
                 fresh_counter,
                 simplification_options,
                 solver,
@@ -378,25 +390,56 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
     }
 }
 
+/// The priority groups below the first productive one, with the rule-index keys of the term they
+/// were selected for.
+struct LowerGroups {
+    selected_for: (TermIndex, RuleIndex),
+    /// The priority of the last group applied.
+    visited: u8,
+    /// Every priority of the selection above `visited`, each with its candidates.
+    groups: BTreeMap<u8, Vec<Arc<RewriteRule>>>,
+}
+
 /// Complete Kore's `transitionAllRewrite` fold by feeding the remainder to each lower priority
 /// group once. Applications and trivial sub-cases from later groups are retained in the same step.
 /// No lower group receives execution IO because a remainder only carries constraints.
 ///
-/// Invariant: `remainder` is the part of the parent pattern that no visited group covers.
+/// The rule index drops a candidate only when matching it against the term the index keys were
+/// computed from fails (`rule::rule_index`). A remainder is simplified under its own, stronger
+/// path condition before a lower group sees it, and simplification can rewrite the very heads
+/// the keys read: an `anywhere` equation turns an overloaded application into a different
+/// constructor, a function evaluates to a constructor, a new `<k>` cell appears. So each lower
+/// group's candidates are those selected for the term the group is applied to: whenever a
+/// simplification changes the remainder's keys, the lower priorities are selected again for it,
+/// from just above the last priority applied. Keys that did not change select the same rules.
+///
+/// Invariant: `remainder` is the part of the parent pattern that no visited group covers, and
+/// `lower.groups` holds, for every priority above `lower.visited`, the candidates selected for
+/// keys `lower.selected_for`, which are the current remainder term's once it is simplified.
 #[allow(clippy::too_many_arguments)]
 fn fold_lower_priority_groups(
     definition: &BackendDefinition,
     branches: &mut Vec<AppliedRule>,
     trivial: &mut Vec<TrivialApplication>,
     remainder: &mut Option<RemainderBranch>,
-    lower_groups: impl Iterator<Item = Vec<Arc<RewriteRule>>>,
+    mut lower: LowerGroups,
     fresh_counter: &mut u64,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
     assume_initial_defined: bool,
 ) {
     let mut needs_simplification = true;
-    for rules in lower_groups {
+    // Invariant: each pass either applies and removes one group of `lower.groups` or, at most
+    // once per simplification, replaces the groups with a selection above the same `visited`,
+    // after which `needs_simplification` is false until a group is applied.
+    loop {
+        // A priority all of whose rules the keys drop stays in the selection with no candidates
+        // (`applicable_rewrite_groups` enters every priority stored under the term index), so an
+        // empty selection means the term index has no priority above `visited`, whatever the
+        // cell keys of a simplified remainder would be.
+        if lower.groups.is_empty() {
+            return;
+        }
         let Some(current) = remainder.as_mut() else {
             return;
         };
@@ -439,7 +482,25 @@ fn fold_lower_priority_groups(
                 }
             }
             needs_simplification = false;
+            let keys = (
+                term_index(&current.pattern.term),
+                subject_index(definition, &current.pattern.term),
+            );
+            if keys != lower.selected_for {
+                let mut groups =
+                    applicable_rewrite_groups(&definition.rewrite_theory, &keys.0, &keys.1);
+                let visited = lower.visited;
+                groups.retain(|priority, _| *priority > visited);
+                lower.groups = groups;
+                lower.selected_for = keys;
+                continue;
+            }
         }
+        let (priority, rules) = lower
+            .groups
+            .pop_first()
+            .expect("the loop continues only while a group is left");
+        lower.visited = priority;
         let current = remainder
             .as_ref()
             .expect("remainder survived simplification");
@@ -662,6 +723,9 @@ pub(super) fn rewrite_step_any(
         return RewriteResult::Stuck(pattern.clone());
     }
 
+    // Invariant: `remaining` narrows only the constraints of `pattern`, never its term, so the
+    // rules selected for `pattern.term` above are the candidates for every attempt below and for
+    // the dropped-successor tracker, which attempts rules on `pattern` itself.
     let mut remaining = pattern.clone();
     let mut remainder_conditions = Vec::new();
     let mut applied = Vec::new();

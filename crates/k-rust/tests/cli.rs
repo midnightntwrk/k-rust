@@ -4747,6 +4747,73 @@ fn kprove_proves_a_modal_claim_in_process() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `app` on values is an `anywhere` overload of `app` on expressions, rewritten to the constructor
+/// `c` only for a positive first argument. The claim's symbolic step on `app(N, 0)` applies the
+/// priority-10 rule where `N <=Int 0`, and its remainder `N >Int 0` simplifies `app(N, 0)` to
+/// `c(N)`, which only the priority-50 `c` rule rewrites. `$NEXT` places the overloaded item at
+/// the `<k>` head (empty) or after a `mark()` head.
+const ANYWHERE_OVERLOAD_REMAINDER: &str = r#"
+module OVL-SYNTAX
+  imports INT-SYNTAX
+  syntax Val ::= Int | c(Int) | app(Val, Val) [overload(app)]
+  syntax Exp ::= Val | app(Exp, Exp) [overload(app)]
+  syntax KItem ::= done(Int) | mark()
+endmodule
+
+module OVL
+  imports OVL-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Exp </k>
+  rule app(X:Int, _:Int):Val => c(X) requires X >Int 0 [anywhere]
+  rule <k> $NEXT app(X:Int, _:Int):Val => done(0) ... </k> requires X <=Int 0 [priority(10)]
+  rule <k> $NEXT c(X) => done(X) ... </k>
+endmodule
+
+module OVL-SPEC
+  imports OVL
+  claim <k> $NEXT app(_N:Int, 0):Val => done(?_M) </k>
+endmodule
+"#;
+
+/// A lower-priority rule is selected for the remainder as simplified, not for the step's
+/// subject: the `c` rule does not match `app(N, 0)` but matches the remainder's `c(N)`.
+#[test]
+fn kprove_selects_lower_priority_rules_for_the_simplified_remainder() {
+    for next in ["", "mark() ~>"] {
+        let (root, definition) = fixture();
+        fs::write(
+            &definition,
+            ANYWHERE_OVERLOAD_REMAINDER.replace("$NEXT", next),
+        )
+        .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "OVL-SPEC",
+                "--definition-module",
+                "OVL",
+            ])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "next item {next:?}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout).unwrap(),
+            "claim #1: proven (3 states, 0 unexplored)\n",
+            "next item {next:?}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`
 /// child loads the compiled KORE instead of compiling the definition and its prelude.
 fn compiled_modal_claim_fixture() -> (PathBuf, PathBuf) {
