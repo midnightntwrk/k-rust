@@ -3017,7 +3017,7 @@ id = "definition.outer.requires"
 provenance = "declared"
 area = "definition"
 name = "source loading by traversal of the require graph"
-variable = "F = source files; E = require edges; B = source bytes; P = provided sources"
+variable = "F = source files; E = require edges; B = source bytes; P = provided sources; F_b = sources in the prepared base's source table, 0 without a base; T_b = size of that table with its offset maps"
 no_counter = "source-require traversal has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "OuterLoaderRequires"
@@ -3049,11 +3049,11 @@ symbol = "load_impl"
 
 [[node.cost]]
 mode = "Loader::visit over the require graph"
-bound = "O(F^2 + E x P + B), plus definition.outer.parse for each file"
+bound = "O(F x (F + F_b) + E x P + B) plus definition.outer.parse for each file"
 
 [[node.cost]]
 mode = "load_impl"
-bound = "the Loader::visit cost plus lower_files and finish_load, whose phases are bounded by definition.outer.lower, definition.outer.select_modules, definition.configuration.expand, definition.resolve.imports, and parser.bubble.rules"
+bound = "the Loader::visit cost plus one O(T_b) copy of the base's source table, plus lower_files and finish_load, whose phases are bounded by definition.outer.lower, definition.outer.select_modules, definition.configuration.expand, definition.resolve.imports, and parser.bubble.rules"
 
 [[node]]
 kind = "algorithm"
@@ -3333,7 +3333,7 @@ id = "definition.resolve.sentences"
 provenance = "declared"
 area = "definition"
 name = "visible-sentence selection with bucketed equivalence deduplication"
-variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey"
+variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 table = "Algorithm::ALL"
 registry_name = "DefinitionResolveSentences"
 
@@ -3347,9 +3347,14 @@ crate = "k-rust"
 file = "crates/k-rust/src/definition/resolve.rs"
 symbol = "ResolvedDefinition::select_sentence_locations"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/definition/resolve.rs"
+symbol = "united_inputs"
+
 [[node.cost]]
 mode = "one module's first sentences or sentence_arcs call"
-bound = "O((M + E) log M + n_m log n_m + n_m x k x eq)"
+bound = "O((M + E) log M + n_m log n_m + n_m x k x eq + n_m x a x A + u x (z + A))"
 
 [[node]]
 kind = "phase"
@@ -4095,7 +4100,7 @@ id = "kompile.fresh_constants.resolve"
 provenance = "declared"
 area = "kompile"
 name = "resolution of fresh constants"
-variable = "N = traversed terms; F = fresh variables; L = local sentences"
+variable = "N = traversed terms; F = fresh variables; L = local sentences; P = productions visible in one module"
 no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceLinkDedupProbes, KompileResolveCalls and KompileResolveUpdates"
 table = "Algorithm::ALL"
 registry_name = "KompileFreshConstantsResolve"
@@ -4127,7 +4132,7 @@ symbol = "transform_term"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + F log F + L) plus one definition.configuration.expand run and one kompile.metadata.retarget run"
+bound = "O(N + F log F + L) plus one definition.configuration.expand run, one kompile.metadata.retarget run, and per module one production catalog and O(P log P) scans of it"
 
 [[node]]
 kind = "algorithm"
@@ -4429,7 +4434,7 @@ id = "kompile.macros.expand"
 provenance = "declared"
 area = "kompile"
 name = "macro expansion by indexed structural matching"
-variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module"
+variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 table = "Algorithm::ALL"
 registry_name = "KompileMacrosExpand"
 
@@ -4458,13 +4463,37 @@ crate = "k-rust"
 file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
 symbol = "Expander::expand_term"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::expand_site"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::expand_at"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::try_rules"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/passes/expand_macros.rs"
+symbol = "Expander::new"
+
 [[node.cost]]
-mode = "one sentence"
+mode = "one sentence, no macro rule with a parametric head"
 bound = "O(N x R) plus recursive expansion of substituted results"
 
 [[node.cost]]
+mode = "one sentence, some macro rule with a parametric head (typed in place)"
+bound = "O((W + 1) x (N x (h + R) + T))"
+
+[[node.cost]]
 mode = "Expander construction per module"
-bound = "O(V + Q log Q) plus the forced module views"
+bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions and one typing per macro rule"
 
 [[node]]
 kind = "algorithm"
@@ -4570,7 +4599,7 @@ id = "kompile.sort_helpers.generate"
 provenance = "declared"
 area = "kompile"
 name = "generation of sort predicates, projections, and helper rules"
-variable = "M = modules; S = visible sorts; V = visible sentences"
+variable = "M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions declared locally, summed over modules"
 no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileSortHelpersGenerate"
@@ -4616,8 +4645,12 @@ file = "crates/k-rust/src/kompile/passes/subsort_kitem.rs"
 symbol = "subsort_kitem_pass"
 
 [[node.cost]]
-mode = "one definition"
+mode = "one definition, excluding the predicate rules"
 bound = "O(M x (S + V log V))"
+
+[[node.cost]]
+mode = "predicate rules (generate_sort_predicate_rules_pass)"
+bound = "O(M x V log V + D x S log S) plus one forced subsort view per module"
 
 [[node]]
 kind = "algorithm"
@@ -4625,7 +4658,7 @@ id = "kompile.sort_injections.insert"
 provenance = "declared"
 area = "kompile"
 name = "sort inference and explicit injection insertion"
-variable = "N = term nodes; P = production candidates; S = subsort queries"
+variable = "N = term nodes; P = production candidates; S = cost of the subsort queries of one node outside an instance search, each costing B; B = cost of one subsort query: closure lookups, O(log s), except a parser sort placed at KItem or above, which scans its supersorts, O(s log s), and an injection into a sort above K, which searches the declared subsort edges, O(s x e); s = declared sorts; e = declared subsort edges; a = arguments of one parametric application; c = candidate values of one sort parameter, at most O(s); g = sort parameters in one connected group of that application (parameters that share a declared argument or result sort); m = incomparable minimal assignments retained for a group, at most c^g"
 table = "Algorithm::ALL"
 registry_name = "KompileSortInjectionsInsert"
 
@@ -4652,11 +4685,25 @@ symbol = "SortInjector::term_sort_with_arity"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "SortInjector::sort_and_downcast"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
+symbol = "SortInjector::solve_parameters"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/sort_injections.rs"
 symbol = "add_sort_injections_to_definition"
 
 [[node.cost]]
-mode = "one sentence"
+mode = "one sentence, excluding the instance search of each parametric application"
 bound = "O(N x (P + S))"
+
+[[node.cost]]
+mode = "instance search of one parametric application (SortInjector::solve_parameters)"
+bound = "O(a x s x B + sum over groups of c^g x a x (m + 1) x B)"
 
 [[node]]
 kind = "algorithm"

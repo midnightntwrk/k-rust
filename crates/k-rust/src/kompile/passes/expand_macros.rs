@@ -1,18 +1,25 @@
 //! ```toml algorithm
 //! id = "kompile.macros.expand"
 //! name = "macro expansion by indexed structural matching"
-//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term"]
-//! variable = "N = sentence term nodes; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module"
+//! sites = ["expand_macros", "expand_macros_pass", "Expander::expand_sentence", "Expander::expand_term", "Expander::expand_site", "Expander::expand_at", "Expander::try_rules", "Expander::new"]
+//! variable = "N = sentence term nodes, on the largest intermediate sentence for the typed mode; R = macro rules under the head label; A = macro applications; V = sentences visible in the macro module; Q = macro rules in the module; h = sentence term height; W = macro rewrites made in the sentence; T = one SentenceTyper::typing of a sentence (kompile.sort_injections.insert)"
 //! counters = ["KompileMacroApplications"]
 //!
 //! [[cost]]
-//! mode = "one sentence"
+//! mode = "one sentence, no macro rule with a parametric head"
 //! bound = "O(N x R) plus recursive expansion of substituted results"
 //!
 //! [[cost]]
+//! mode = "one sentence, some macro rule with a parametric head (typed in place)"
+//! bound = "O((W + 1) x (N x (h + R) + T))"
+//!
+//! [[cost]]
 //! mode = "Expander construction per module"
-//! bound = "O(V + Q log Q) plus the forced module views"
+//! bound = "O(V + Q log Q) plus the forced module views; with a parametric macro head, plus two SentenceTyper constructions and one typing per macro rule"
 //! ```
+//!
+//! With a macro rule whose head production has sort parameters, a sentence is expanded in place (`Expander::expand_site`): an application's instance is read from the typing of the sentence as it stands, which is recomputed at most once per rewrite, and applications left untyped are retried in rounds until a round rewrites nothing.
+//! A round without a rewrite ends the retries, so there are at most W + 1 rounds and W + 1 typings; each round and each re-expansion of a substituted result clones and compares subterms along paths of length at most h.
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
@@ -681,6 +688,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         for field in fields {
             self.expand_at(site, &[*field], &BTreeSet::new())?;
         }
+        // Invariant: `site.pending` holds the applications, with their paths, applied rule sets, and terms, whose instance was unknown when their rules were tried because the sentence did not type, plus the macro-headed ancestors of an application rewritten in the previous round; every earlier round rewrote the sentence at least once, and a round without a rewrite ends the loop.
         while !site.pending.is_empty() {
             let rewrites = site.rewrites;
             for (path, applied, subject) in std::mem::take(&mut site.pending) {

@@ -2,17 +2,23 @@
 //! id = "kompile.sort_helpers.generate"
 //! name = "generation of sort predicates, projections, and helper rules"
 //! sites = ["generate_sort_predicate_syntax", "regenerate_sort_predicate_syntax", "generate_sort_projections"]
-//! variable = "M = modules; S = visible sorts; V = visible sentences"
+//! variable = "M = modules; S = visible sorts; V = visible sentences; D = sort-predicate productions declared locally, summed over modules"
 //! counters = []
 //! no_counter = "sort-helper generation has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
-//! mode = "one definition"
+//! mode = "one definition, excluding the predicate rules"
 //! bound = "O(M x (S + V log V))"
+//!
+//! [[cost]]
+//! mode = "predicate rules (generate_sort_predicate_rules_pass)"
+//! bound = "O(M x V log V + D x S log S) plus one forced subsort view per module"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
+//!
+//! The predicate-rule step (`generate_sort_predicate_rules_pass` in `finalize.rs`) forces each module's subsort view and emits the `true` rule of a predicate only when its sort is placeable at `K`; that check scans the sort's supersorts in the closure, O(S log S).
 //!
 //! Generate sort predicates and projection functions consumed by later backend passes.
 

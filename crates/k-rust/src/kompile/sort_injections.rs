@@ -1,17 +1,22 @@
 //! ```toml algorithm
 //! id = "kompile.sort_injections.insert"
 //! name = "sort inference and explicit injection insertion"
-//! sites = ["SortInjector::inject_sentence", "SortInjector::term_sort_with_arity", "add_sort_injections_to_definition"]
-//! variable = "N = term nodes; P = production candidates; S = subsort queries"
+//! sites = ["SortInjector::inject_sentence", "SortInjector::term_sort_with_arity", "SortInjector::sort_and_downcast", "SortInjector::solve_parameters", "add_sort_injections_to_definition"]
+//! variable = "N = term nodes; P = production candidates; S = cost of the subsort queries of one node outside an instance search, each costing B; B = cost of one subsort query: closure lookups, O(log s), except a parser sort placed at KItem or above, which scans its supersorts, O(s log s), and an injection into a sort above K, which searches the declared subsort edges, O(s x e); s = declared sorts; e = declared subsort edges; a = arguments of one parametric application; c = candidate values of one sort parameter, at most O(s); g = sort parameters in one connected group of that application (parameters that share a declared argument or result sort); m = incomparable minimal assignments retained for a group, at most c^g"
 //! counters = ["KompileInjectionsInserted"]
 //!
 //! [[cost]]
-//! mode = "one sentence"
+//! mode = "one sentence, excluding the instance search of each parametric application"
 //! bound = "O(N x (P + S))"
+//!
+//! [[cost]]
+//! mode = "instance search of one parametric application (SortInjector::solve_parameters)"
+//! bound = "O(a x s x B + sum over groups of c^g x a x (m + 1) x B)"
 //! ```
 //!
 //! Sort injection computes expected sorts, least upper bounds, and explicit KORE injections, with strict rebase-in and lossy localization-out metadata policies.
-//! Work is O(term nodes times production and subsort queries); `KompileInjectionsInserted` measures its variable work, and the shared pass scaffolding counts resolutions and copied sentences.
+//! Work is O(term nodes times production and subsort queries), plus, for each application of a parametric production, an instance search: the candidate values of each sort parameter are gathered by scanning the declared sorts per argument, and every assignment in the product of the candidate sets of each connected group of parameters is checked against the group's constraints, keeping the pointwise-least ones; the search is exponential in the size of a connected group, not in the number of parameters.
+//! `KompileInjectionsInserted` measures its variable work, and the shared pass scaffolding counts resolutions and copied sentences.
 //!
 //! Production-aware insertion of explicit KORE subsort injections.
 

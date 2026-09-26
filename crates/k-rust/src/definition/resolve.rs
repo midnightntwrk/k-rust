@@ -23,17 +23,17 @@
 //! ```toml algorithm
 //! id = "definition.resolve.sentences"
 //! name = "visible-sentence selection with bucketed equivalence deduplication"
-//! sites = ["ResolvedDefinition::select_sentence_locations"]
-//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey"
+//! sites = ["ResolvedDefinition::select_sentence_locations", "united_inputs"]
+//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
 //! mode = "one module's first sentences or sentence_arcs call"
-//! bound = "O((M + E) log M + n_m log n_m + n_m x k x eq)"
+//! bound = "O((M + E) log M + n_m log n_m + n_m x k x eq + n_m x a x A + u x (z + A))"
 //! ```
 //!
 //! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
-//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module with bucketed equivalence dedup, and `signature_sentences` uses O(S^2 * eq) dedup.
+//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module with bucketed equivalence dedup, the kept sentence of each class carrying the union of the class's input addresses (`united_inputs` clones it once per dropped sentence that adds one), and `signature_sentences` uses O(S^2 * eq) dedup.
 //! `Counter::KompileResolveCalls` counts invocations.
 //!
 //! Resolution of flat, name-based modules into an import graph.

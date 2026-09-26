@@ -2,7 +2,7 @@
 //! id = "definition.outer.requires"
 //! name = "source loading by traversal of the require graph"
 //! sites = ["Loader::visit", "load_impl"]
-//! variable = "F = source files; E = require edges; B = source bytes; P = provided sources"
+//! variable = "F = source files; E = require edges; B = source bytes; P = provided sources; F_b = sources in the prepared base's source table, 0 without a base; T_b = size of that table with its offset maps"
 //! counters = []
 //! no_counter = "source-require traversal has no dedicated counter"
 //! consumes = [{ type = "k_rust::outer::ResolvedSource", role = "resolved source text" }]
@@ -10,15 +10,15 @@
 //!
 //! [[cost]]
 //! mode = "Loader::visit over the require graph"
-//! bound = "O(F^2 + E x P + B), plus definition.outer.parse for each file"
+//! bound = "O(F x (F + F_b) + E x P + B) plus definition.outer.parse for each file"
 //!
 //! [[cost]]
 //! mode = "load_impl"
-//! bound = "the Loader::visit cost plus lower_files and finish_load, whose phases are bounded by definition.outer.lower, definition.outer.select_modules, definition.configuration.expand, definition.resolve.imports, and parser.bubble.rules"
+//! bound = "the Loader::visit cost plus one O(T_b) copy of the base's source table, plus lower_files and finish_load, whose phases are bounded by definition.outer.lower, definition.outer.select_modules, definition.configuration.expand, definition.resolve.imports, and parser.bubble.rules"
 //! ```
 //!
 //! Source loading follows the `requires` DFS, lowers the parsed files, and then runs the ordered load phases that select modules, expand configurations, resolve sorts, and parse rule bubbles.
-//! Complexity: O(F^2 + E x P + B) over files, require edges, provided sources, and source bytes: `SourceTable::intern` finds each visited file by a linear scan of the interned sources, and each require edge scans `provided_sources`.
+//! Complexity: O(F x (F + F_b) + E x P + B) over files, base sources, require edges, provided sources, and source bytes: the source table starts as a copy of the prepared base's, `SourceTable::intern_extraction` finds each visited extraction by a linear scan of the interned sources, comparing offset maps only for an equal raw source, and each require edge scans `provided_sources`.
 //! Each source is visited once and each selection scans reachable modules; phase timings measure the driver.
 //!
 //! Recursive, host-independent loading of outer-syntax source graphs.

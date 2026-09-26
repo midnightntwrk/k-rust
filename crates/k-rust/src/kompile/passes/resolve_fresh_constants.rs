@@ -2,17 +2,20 @@
 //! id = "kompile.fresh_constants.resolve"
 //! name = "resolution of fresh constants"
 //! sites = ["resolve_fresh_constants", "resolve_fresh_constants_pass", "fresh_variables", "transform_term"]
-//! variable = "N = traversed terms; F = fresh variables; L = local sentences"
+//! variable = "N = traversed terms; F = fresh variables; L = local sentences; P = productions visible in one module"
 //! counters = []
 //! no_counter = "fresh-constant resolution has no dedicated counter; its sites bump KompileSentenceCopies and KompileProductionIdentityDigests, and the configuration expansion and retargeting it runs bump ProvenanceLinkDedupProbes, KompileResolveCalls and KompileResolveUpdates"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + F log F + L) plus one definition.configuration.expand run and one kompile.metadata.retarget run"
+//! bound = "O(N + F log F + L) plus one definition.configuration.expand run, one kompile.metadata.retarget run, and per module one production catalog and O(P log P) scans of it"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
 //! Its named `--timings` phase measures total cost; the shared pass scaffolding counts resolutions (`KompileResolveCalls`), copied sentences (`KompileSentenceCopies`), and partial orders built (`KompilePartialOrdersBuilt`), and `KompileSentencesTransformed` is added once per compile in `compile.rs`.
+//!
+//! Each module scans its visible productions a constant number of times: for its fresh generators, its generated top cell, and, once when the module has a claim, its cell labels (`cell_labels_of`).
+//! A claim that mentions a configuration cell and not the counter gets `<generatedCounter> _GenN => ?_GenM </generatedCounter>`.
 //!
 //! Resolve fresh rule variables through per-sort generators and a counter cell.
 

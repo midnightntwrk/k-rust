@@ -41,7 +41,7 @@ Phases:
   - 19 resolve local functions
     - kompile.functions.lift — O(N + (L + G) x G) plus one…
   - 20 seed sort predicate syntax
-    - kompile.sort_helpers.generate — O(M x (S + V log V))
+    - kompile.sort_helpers.generate — O(M x (S + V log V)) +1 mode
   - 21 resolve function configuration
   - 22 resolve strictness
     - kompile.strictness.resolve — O(L + P x k^2 x a + C^2)
@@ -58,7 +58,7 @@ Phases:
   - 33 generate sort predicate syntax: = kompile.sort_helpers.generate (phase 20)
   - 34 generate sort projections: = kompile.sort_helpers.generate (phase 20)
   - 35 expand macros
-    - kompile.macros.expand — O(N x R) plus recursive expansion of substituted… +1 mode
+    - kompile.macros.expand — O(N x R) plus recursive expansion of substituted… +2 modes
   - 36 add implicit computation cell
   - 37 resolve fresh constants
     - kompile.fresh_constants.resolve — O(N + F log F + L) plus one…
@@ -72,7 +72,7 @@ Phases:
   - 46 generate sort predicate rules: = kompile.sort_helpers.generate (phase 20)
   - 47 number sentences (final): = kompile.sentences.number (phase 25)
   - 48 add sort injections
-    - kompile.sort_injections.insert — O(N x (P + S))
+    - kompile.sort_injections.insert — O(N x (P + S)) +1 mode
   - 49 remove units
   - 50 minimize term construction
     - kompile.terms.minimize — O(N x h) subtree clones plus O(N log N)…
@@ -151,13 +151,13 @@ No phase contains these algorithms and no representation connects them to a comm
 - definition.order.partial — O((V + E) log V + C log V)
 - definition.outer.checks — O(N)
 - definition.outer.markdown — O(B)
-- definition.outer.requires — O(F^2 + E x P + B), plus definition.outer.parse… +1 mode — in: [prepared definition manifest], [resolved source text] → out: [loaded definition]
+- definition.outer.requires — O(F x (F + F_b) + E x P + B) plus… +1 mode — in: [prepared definition manifest], [resolved source text] → out: [loaded definition]
 - definition.outer.select_modules — O(M x (M + E) log M + S)
 - definition.outer.virtual_path — O(P)
 - definition.provenance.record — O(M^2 + D + N + sum k) expected +1 mode
 - definition.provenance.source_identity — O(B + S) +1 mode
 - definition.regex.parse — O(B)
-- definition.resolve.sentences — O((M + E) log M + n_m log n_m + n_m x k x eq)
+- definition.resolve.sentences — O((M + E) log M + n_m log n_m + n_m x k x eq +…
 - kompile.fresh_names.mint — O(R log R) +1 mode
 - kompile.kore.axioms — O(P^2 + S x (P + S log S) + O^2 + R)
 - kompile.kore.owise — O(O x R x c + R x I)
