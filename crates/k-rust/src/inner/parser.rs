@@ -1152,19 +1152,10 @@ impl Grammar {
                         if first_violation.is_none() && !invalid.is_empty() {
                             first_violation = Some(canonical_packed_error(invalid));
                         }
-                        let callers = charts[state.origin]
-                            .waiting
-                            .get(&production.result_id)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|caller| {
-                                charts[state.origin]
-                                    .states
-                                    .get(caller)
-                                    .map(|derivations| (*caller, derivations.clone()))
-                            })
-                            .collect::<Vec<_>>();
-                        for (caller, caller_derivations) in callers {
+                        let mut advance = |chart: &mut Chart,
+                                           caller: State,
+                                           caller_derivations: &Derivations|
+                         -> Result<(), ParseError> {
                             #[cfg(test)]
                             update_chart_work_counters(|counters| {
                                 counters.completion_caller_derivations_read +=
@@ -1175,17 +1166,51 @@ impl Grammar {
                                 &nodes,
                                 &mut first_violation,
                             );
-                            if completed.is_empty() {
-                                continue;
+                            if !completed.is_empty() {
+                                self.add_chart_state(
+                                    chart,
+                                    State {
+                                        dot: caller.dot + 1,
+                                        ..caller
+                                    },
+                                    append_nodes(caller_derivations, &completed),
+                                )?;
                             }
-                            self.add_chart_state(
-                                &mut charts[position],
-                                State {
-                                    dot: caller.dot + 1,
-                                    ..caller
-                                },
-                                append_nodes(&caller_derivations, &completed),
-                            )?;
+                            Ok(())
+                        };
+                        if state.origin < position {
+                            // Advancing adds only to this position's chart, so the origin chart's
+                            // callers and their derivations are read in place.
+                            let (earlier, later) = charts.split_at_mut(position);
+                            let origin = &earlier[state.origin];
+                            for caller in origin
+                                .waiting
+                                .get(&production.result_id)
+                                .into_iter()
+                                .flatten()
+                            {
+                                if let Some(caller_derivations) = origin.states.get(caller) {
+                                    advance(&mut later[0], *caller, caller_derivations)?;
+                                }
+                            }
+                        } else {
+                            // An empty completion extends its own origin chart; advance a
+                            // snapshot of the callers and derivations as they were before it.
+                            let callers = charts[state.origin]
+                                .waiting
+                                .get(&production.result_id)
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|caller| {
+                                    charts[state.origin]
+                                        .states
+                                        .get(caller)
+                                        .map(|derivations| (*caller, derivations.clone()))
+                                })
+                                .collect::<Vec<_>>();
+                            for (caller, caller_derivations) in callers {
+                                advance(&mut charts[position], caller, &caller_derivations)?;
+                            }
                         }
                     }
                 }
