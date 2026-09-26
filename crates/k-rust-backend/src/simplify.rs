@@ -1489,6 +1489,15 @@ fn apply_predicate_equation(
             solver,
         );
     }
+    // A left-hand side matches only a predicate of its own top-level connective
+    // (`collect_predicate_term_pairs`), so an equation of another connective does not apply,
+    // whatever the rest of the attempt would decide. The check follows the renaming, which a full
+    // attempt makes too, so the `!apart` counter and the fresh names of later renamings do not
+    // move. For the `\top` and `\bottom` subjects left by condition evaluation, most subjects
+    // here, the renaming finds no clash from the cached variable sets and builds nothing.
+    if !same_connective(&rule.lhs, predicate) {
+        return Ok(EquationAttempt::NotApplicable);
+    }
     let substitution = match match_predicate(definition, &rule.lhs, predicate) {
         PredicateMatch::Failed => return Ok(EquationAttempt::NotApplicable),
         PredicateMatch::Indeterminate => {
@@ -1902,6 +1911,12 @@ fn collect_predicate_term_pairs<'a>(
         }
         _ => false,
     }
+}
+
+/// Whether `pattern` and `subject` have one top-level connective, the first thing
+/// `collect_predicate_term_pairs` requires of them.
+fn same_connective(pattern: &Predicate, subject: &Predicate) -> bool {
+    std::mem::discriminant(pattern) == std::mem::discriminant(subject)
 }
 
 fn first_predicate_term(predicate: &Predicate) -> Option<&Term> {
