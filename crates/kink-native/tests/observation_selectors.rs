@@ -400,6 +400,9 @@ fn observed(selector: RuleSelector, cardinality: usize, state: &Pattern) -> Vec<
                         .unwrap_or("")
                         .to_owned(),
                     NativeEvent::Domain(event) => panic!("no domain events: {event:?}"),
+                    NativeEvent::UnknownAttribution(event) => {
+                        panic!("unexpected unknown attribution: {event:?}")
+                    }
                 })
                 .collect()
         })

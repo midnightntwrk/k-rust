@@ -413,8 +413,23 @@ pub struct Event {
     pub constructor: String,
     pub payload: Vec<Pattern>,
     pub origin: EventOrigin,
+    /// Whether the compiled rule can be attributed to this authored rule.
+    pub attribution: EventAttribution,
     pub transition_ordinal: u64,
     pub emission_ordinal: u64,
+}
+
+/// A compiled rule may have several authors with incompatible observation specs.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum EventAttribution {
+    Certain,
+    Unknown(AttributionUnknownReason),
+}
+
+/// Typed reason why a compiled event cannot identify an authored rule.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum AttributionUnknownReason {
+    DifferentObservationSpecs { authors: Vec<SentenceRef> },
 }
 
 /// The rule whose transition emitted an event, and the transition itself.
@@ -744,6 +759,19 @@ pub fn evaluate(
             None => PathOrder::Shape(TraceShape::of(path)),
         };
         let mut path_indeterminate = false;
+        // An unattributed event may be absent from the authored vocabulary. That
+        // changes adjacency even when its constructor is not an atom of this plan.
+        if path
+            .events
+            .iter()
+            .any(|event| matches!(event.attribution, EventAttribution::Unknown(_)))
+            && plan
+                .arms
+                .iter()
+                .any(|arm| arm.relations.contains(&Relation::NextEvent))
+        {
+            path_indeterminate = true;
+        }
         for (arm_ordinal, arm) in plan.arms.iter().enumerate() {
             let mut context = ExtendContext {
                 plan,
@@ -971,30 +999,40 @@ fn validate_events(
                 "event indices must be zero-based and contiguous",
             ));
         }
-        let Some(constructor) = context.vocabulary.constructor(&event.constructor) else {
+        if let Some(constructor) = context.vocabulary.constructor(&event.constructor) {
+            if let Some(plan_constructor) = plan.vocabulary.constructor(&event.constructor)
+                && plan_constructor != constructor
+            {
+                return Err(PatternFailure::new(
+                    PatternFailureKind::VocabularyMismatch,
+                    "trace constructor differs from the plan vocabulary",
+                ));
+            }
+            if matches!(event.attribution, EventAttribution::Certain)
+                && (event.payload.len() != constructor.payload_sorts.len()
+                    || event
+                        .payload
+                        .iter()
+                        .zip(&constructor.payload_sorts)
+                        .any(|(term, sort)| {
+                            context.symbol_sorts.sort_of(term).as_ref() != Some(sort)
+                        }))
+            {
+                return Err(PatternFailure::new(
+                    PatternFailureKind::InvalidPayload,
+                    "trace event payload arity or sort differs from the vocabulary",
+                ));
+            }
+        } else if matches!(event.attribution, EventAttribution::Certain) {
             return Err(PatternFailure::new(
                 PatternFailureKind::UnknownConstructor,
                 format!("trace contains unknown constructor {}", event.constructor),
             ));
-        };
-        if let Some(plan_constructor) = plan.vocabulary.constructor(&event.constructor)
-            && plan_constructor != constructor
-        {
-            return Err(PatternFailure::new(
-                PatternFailureKind::VocabularyMismatch,
-                "trace constructor differs from the plan vocabulary",
-            ));
         }
-        if event.payload.len() != constructor.payload_sorts.len()
-            || event
-                .payload
-                .iter()
-                .zip(&constructor.payload_sorts)
-                .any(|(term, sort)| context.symbol_sorts.sort_of(term).as_ref() != Some(sort))
-        {
+        if matches!(event.attribution, EventAttribution::Unknown(_)) && !event.payload.is_empty() {
             return Err(PatternFailure::new(
                 PatternFailureKind::InvalidPayload,
-                "trace event payload arity or sort differs from the vocabulary",
+                "unattributed event must not expose a payload",
             ));
         }
         if !context.selected_rules.contains(&event.origin.rule) {
@@ -1134,6 +1172,9 @@ fn match_atom(
 ) -> AtomMatch {
     if atom.constructor != event.constructor {
         return AtomMatch::Mismatch;
+    }
+    if matches!(event.attribution, EventAttribution::Unknown(_)) {
+        return AtomMatch::Indeterminate;
     }
     let mut resolved = bindings.clone();
     for clause in &atom.payload {

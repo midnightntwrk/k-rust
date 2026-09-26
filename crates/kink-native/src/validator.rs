@@ -18,7 +18,8 @@ use k_rust::{
 use kink_patch::{Baseline, Patch, PatchFailure, SentenceOrigin, SentenceRef, apply};
 
 use crate::observation::{
-    DomainEventSpec, InstalledObservationManifest, ObservationFailure, RuleObservationSpec,
+    AuthorObservation, DomainEventSpec, InstalledObservationManifest, ObservationFailure,
+    RuleObservationSpec,
 };
 
 /// Typed failure to compile the native baseline. No staged output is published.
@@ -187,7 +188,60 @@ impl NativeValidator {
                 domain_events: rule.domain_events.clone(),
             });
         }
-        InstalledObservationManifest::install(specs).map_err(ManifestFailure::Installation)
+        let mut authors = BTreeMap::new();
+        for identity in specs
+            .iter()
+            .map(|spec| &spec.backend_rule_identity)
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            let provenance = side
+                .artifacts
+                .sentence_provenance
+                .get(identity)
+                .ok_or_else(|| {
+                    ManifestFailure::Installation(ObservationFailure::InvalidManifest(
+                        "selected compiled identity has no typed provenance".into(),
+                    ))
+                })?;
+            let mut positions = std::collections::BTreeSet::new();
+            for address in &provenance.input_addresses {
+                if address.input != InputSpace::Compile {
+                    continue;
+                }
+                let position = SentenceRef::new(&address.module, address.index);
+                if side.definition.modules.iter().any(|module| {
+                    module.name == address.module
+                        && module
+                            .local_sentences
+                            .get(address.index as usize)
+                            .is_some_and(|sentence| matches!(&**sentence, Sentence::Rule { .. }))
+                }) {
+                    positions.insert(position);
+                }
+            }
+            let observed = positions
+                .into_iter()
+                .map(|position| {
+                    let baseline = side.origins.as_ref().map_or_else(
+                        || Some(position.clone()),
+                        |origins| match origins.get(&position) {
+                            Some(SentenceOrigin::Baseline(at)) => Some(at.clone()),
+                            Some(SentenceOrigin::Inserted { .. }) | None => None,
+                        },
+                    );
+                    let spec = baseline
+                        .as_ref()
+                        .and_then(|at| specs.iter().find(|spec| &spec.rule == at).cloned());
+                    AuthorObservation {
+                        rule: position,
+                        spec,
+                    }
+                })
+                .collect();
+            authors.insert(identity.clone(), observed);
+        }
+        InstalledObservationManifest::install_with_authors(specs, authors)
+            .map_err(ManifestFailure::Installation)
     }
 
     fn compile(&self, loaded: &LoadedDefinition) -> Result<CompiledKoreArtifacts, CompileError> {

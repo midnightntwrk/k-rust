@@ -24,7 +24,7 @@ use kink_campaign::{
 };
 use kink_native::MutantRejection;
 use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
-use kink_native::execution::{ExecutionAdapterFailure, ExecutionRoute, HaltClass};
+use kink_native::execution::{ExecutionAdapterFailure, HaltClass};
 use kink_native::observation::ObservationFailure;
 use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, apply};
 use kink_pattern::{
@@ -127,7 +127,7 @@ fn collection(stop: CollectionStop) -> CollectionEvidence {
     }
 }
 
-/// Paths of a single-path run: the collection is exhausted exactly when they are all
+/// Paths of a synthetic PathSet run: the collection is exhausted exactly when they are all
 /// complete, and otherwise stops at the first incomplete path's stop.
 fn run(paths: Vec<PathInput>) -> BridgedPaths {
     let stop =
@@ -144,7 +144,6 @@ fn run(paths: Vec<PathInput>) -> BridgedPaths {
             });
     BridgedPaths {
         paths,
-        route: ExecutionRoute::SinglePath,
         collection: collection(stop),
     }
 }
@@ -699,7 +698,6 @@ fn bounded_or_indeterminate_sides_are_unknown_even_against_a_crash() {
             "backend-diagnostic".to_owned(),
             BridgedPaths {
                 paths: vec![terminal(0, Normal, done.clone())],
-                route: ExecutionRoute::SinglePath,
                 collection: collection(CollectionStop::BackendLimit),
             },
         ),
@@ -760,28 +758,24 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
     }
 }
 
-/// Review P2.1: complete paths are a state value only when their route ran out of work, and
-/// both execution routes record PathSet exhaustion. An unrecorded stop does not certify
-/// a complete state value. One row per route and out-of-work stop.
+/// Complete paths are a state value only when PathSet ran out of work.
+/// An unrecorded stop does not certify a complete state value.
+
 #[test]
-fn state_values_need_an_execution_route_that_ran_out_of_work() {
+fn state_values_need_a_collection_that_ran_out_of_work() {
     use CollectionStop::{ExhaustionUnrecorded, SearchExhausted};
-    use ExecutionRoute::{ExploreAll, SinglePath};
     let done = configuration("done", "1");
     let value = normal(OracleValue::FinalResult(FinalResult::WholeTerm(
         [done.clone()].into_iter().collect(),
     )));
     #[rustfmt::skip]
     let rows = [
-        ("single-path-exhausted", SinglePath, SearchExhausted, value.clone()),
-        ("single-path-unrecorded", SinglePath, ExhaustionUnrecorded, OracleSide::Unknown),
-        ("explore-all-exhausted", ExploreAll, SearchExhausted, value.clone()),
-        ("explore-all-unrecorded", ExploreAll, ExhaustionUnrecorded, OracleSide::Unknown),
+        ("exhausted", SearchExhausted, value.clone()),
+        ("unrecorded", ExhaustionUnrecorded, OracleSide::Unknown),
     ];
-    for (id, route, stop, expected) in rows {
+    for (id, stop, expected) in rows {
         let bridged = BridgedPaths {
             paths: vec![terminal(0, Normal, done.clone())],
-            route,
             collection: collection(stop),
         };
         assert_eq!(
@@ -837,7 +831,7 @@ fn runner_mapping_is_exhaustive() {
     let shapes = [
         ("single-crash-is-its-terminal-term", single(SemanticCrash, crash.clone()), OracleSide::SemanticCrash(crash.clone())),
         ("crash-among-terminals-is-unknown", run(vec![terminal(0, Normal, done.clone()), terminal(1, SemanticCrash, crash.clone())]), OracleSide::Unknown),
-        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, configuration("done", "2"))], route: ExecutionRoute::ExploreAll, collection: collection(CollectionStop::SearchExhausted) }, value(&[done.clone(), configuration("done", "2")])),
+        ("explore-all-final-states", BridgedPaths { paths: vec![terminal(0, Normal, done.clone()), terminal(1, Normal, configuration("done", "2"))], collection: collection(CollectionStop::SearchExhausted) }, value(&[done.clone(), configuration("done", "2")])),
         ("error-over-timeout", run(vec![incomplete(0, PathStop::TimeLimit), incomplete(1, PathStop::Error)]), OracleSide::Error),
         ("timeout-over-unknown", run(vec![incomplete(0, PathStop::DepthLimit), incomplete(1, PathStop::TimeLimit)]), OracleSide::Timeout),
         ("no-paths-is-error", run(Vec::new()), OracleSide::Error),

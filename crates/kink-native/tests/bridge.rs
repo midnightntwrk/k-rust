@@ -15,18 +15,17 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
-use kink_native::execution::{
-    AdaptedExecution, ExecutionAdapter, ExecutionBudget, ExecutionRoute, HaltClass,
-};
+use kink_native::execution::{AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass};
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{
-    IdentityError, ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition,
+    ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition, equivalent_compilation,
 };
 use kink_patch::{Edit, InsertPosition, Patch, TermRef};
 use kink_pattern::{
-    Atom, CollectionStop, Constructor, EvaluationContext, EvaluationOptions, EventVocabulary,
-    ExecutionBounds, ExecutionTerminalKind, MatchMode, PathStop, PatternArm, PatternOutcome,
-    PatternPlan, PayloadClause, SearchPolicy, SymbolSorts, evaluate,
+    Atom, AttributionUnknownReason, CollectionStop, Constructor, EvaluationContext,
+    EvaluationOptions, EventAttribution, EventVocabulary, ExecutionBounds, ExecutionTerminalKind,
+    MatchMode, PathStop, PatternArm, PatternOutcome, PatternPlan, PayloadClause, SearchPolicy,
+    SymbolSorts, evaluate,
 };
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
@@ -36,6 +35,121 @@ const BUDGET: ExecutionBudget = ExecutionBudget {
 
 fn counter_validator() -> NativeValidator {
     NativeValidator::bind(support::load("counter.k"), CompileOptions::default())
+}
+
+#[test]
+fn observed_rule_merged_with_unobserved_author_is_unknown() {
+    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+    let observed = kink_patch::SentenceRef::new("UNLABELLED", 0);
+    let unobserved = kink_patch::SentenceRef::new("UNLABELLED", 2);
+    let mut replacement = validator.baseline().sentence(&unobserved).unwrap().clone();
+    *replacement.attributes_mut() = validator
+        .baseline()
+        .sentence(&observed)
+        .unwrap()
+        .attributes()
+        .clone();
+    let patch = Patch::new(vec![Edit::ReplaceSentence {
+        at: observed.clone(),
+        replacement,
+    }])
+    .unwrap();
+    let baseline = validator.compile_baseline().unwrap();
+    let mutant = validator
+        .validate(&patch)
+        .expect("equal-rule mutant compiles");
+    let rules = [ObservedRule {
+        rule: observed.clone(),
+        emit_rule_applied: true,
+        domain_events: Vec::new(),
+    }];
+    let vocabulary = vocabulary(&[("rule:UNLABELLED:0", &[])]);
+    let plan = single_atom(&vocabulary, "rule:UNLABELLED:0", None);
+    let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
+    let baseline_run = run(
+        &validator,
+        &baseline,
+        "UNLABELLED",
+        &rules,
+        &vocabulary,
+        &state,
+        BUDGET,
+    );
+    assert_eq!(
+        outcome(&baseline_run, &plan).outcome,
+        PatternOutcome::NoMatch
+    );
+    let mutant_run = run(
+        &validator,
+        &mutant,
+        "UNLABELLED",
+        &rules,
+        &vocabulary,
+        &state,
+        BUDGET,
+    );
+    let result = outcome(&mutant_run, &plan);
+    assert_eq!(result.outcome, PatternOutcome::Unknown);
+    assert!(result.witnesses.is_empty());
+    let [path] = mutant_run.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert!(matches!(
+        &path.events[0].attribution,
+        EventAttribution::Unknown(AttributionUnknownReason::DifferentObservationSpecs { authors })
+            if authors.len() == 2
+    ));
+}
+
+#[test]
+fn two_equal_observed_rules_with_same_spec_attribute_normally() {
+    let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+    let observed = kink_patch::SentenceRef::new("UNLABELLED", 0);
+    let other = kink_patch::SentenceRef::new("UNLABELLED", 2);
+    let mut replacement = validator.baseline().sentence(&other).unwrap().clone();
+    *replacement.attributes_mut() = validator
+        .baseline()
+        .sentence(&observed)
+        .unwrap()
+        .attributes()
+        .clone();
+    let side = validator
+        .validate(
+            &Patch::new(vec![Edit::ReplaceSentence {
+                at: observed.clone(),
+                replacement,
+            }])
+            .unwrap(),
+        )
+        .unwrap();
+    let rules = [observed, other].map(|rule| ObservedRule {
+        rule,
+        emit_rule_applied: false,
+        domain_events: vec![DomainEventSpec {
+            constructor: "fired".into(),
+            payload: Vec::new(),
+        }],
+    });
+    let vocabulary = vocabulary(&[("fired", &[])]);
+    let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
+    let execution = run(
+        &validator,
+        &side,
+        "UNLABELLED",
+        &rules,
+        &vocabulary,
+        &state,
+        BUDGET,
+    );
+    let result = outcome(&execution, &single_atom(&vocabulary, "fired", None));
+    assert_eq!(result.outcome, PatternOutcome::Match);
+    let [path] = execution.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert!(matches!(
+        path.events[0].attribution,
+        EventAttribution::Certain
+    ));
 }
 
 fn z() -> Pattern {
@@ -117,6 +231,7 @@ fn mutated_unlabelled_rule_is_observed_on_both_sides() {
     .expect("patch");
     let baseline = validator.compile_baseline().expect("baseline");
     let mutant = validator.validate(&patch).expect("mutant");
+    assert!(!equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
     let state = support::initial_state(kore_application("Lblx", Vec::new(), Vec::new()), "SortS");
     for side in [&baseline, &mutant] {
         let manifest = validator
@@ -163,53 +278,47 @@ fn deleted_unlabelled_rule_is_left_out() {
 }
 
 #[test]
-#[ignore = "KINK-2: equal copies are equivalent mutants"]
-fn identical_unlabelled_rules_are_not_observable() {
+fn deleting_first_equal_copy_has_equivalent_compilation() {
     let validator = NativeValidator::bind(
         support::load("duplicate_unlabelled.k"),
         CompileOptions::default(),
     );
-    let side = validator
+    let baseline = validator
         .compile_baseline()
         .expect("duplicate source compiles");
-    let rules = [0, 1].map(|index| ObservedRule {
-        rule: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", index),
-        emit_rule_applied: true,
-        domain_events: Vec::new(),
-    });
-    assert!(matches!(
-        validator.observation_manifest(&side, &rules),
-        Err(ManifestFailure::Identity {
-            error: IdentityError::Ambiguous,
-            ..
-        })
-    ));
+    let mutant = validator
+        .validate(
+            &Patch::new(vec![Edit::DeleteSentence {
+                at: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", 0),
+            }])
+            .expect("patch"),
+        )
+        .expect("deletion compiles");
+    assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
 }
 
 #[test]
-#[ignore = "KINK-2: equal copies are equivalent mutants"]
-fn one_of_two_identical_unlabelled_rules_is_not_observable() {
+fn deleting_second_equal_copy_has_equivalent_compilation() {
     let validator = NativeValidator::bind(
         support::load("duplicate_unlabelled.k"),
         CompileOptions::default(),
     );
-    let side = validator
+    let baseline = validator
         .compile_baseline()
         .expect("duplicate source compiles");
-    let rule = kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", 0);
-    assert!(matches!(
-        validator.observation_manifest(&side, &[ObservedRule {
-            rule: rule.clone(),
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
-        }]),
-        Err(ManifestFailure::Identity { rule: at, error: IdentityError::Ambiguous }) if at == rule
-    ));
+    let mutant = validator
+        .validate(
+            &Patch::new(vec![Edit::DeleteSentence {
+                at: kink_patch::SentenceRef::new("DUPLICATE_UNLABELLED", 1),
+            }])
+            .expect("patch"),
+        )
+        .expect("deletion compiles");
+    assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
 }
 
 #[test]
-#[ignore = "KINK-2: equal copies are equivalent mutants"]
-fn inserted_anonymous_clone_of_observed_rule_is_not_observable() {
+fn inserting_anonymous_clone_has_equivalent_compilation() {
     let validator = NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
     let rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
     let mut clone = validator.baseline().sentence(&rule).expect("rule").clone();
@@ -234,17 +343,11 @@ fn inserted_anonymous_clone_of_observed_rule_is_not_observable() {
         sentence: clone,
     }])
     .expect("patch");
+    let baseline = validator.compile_baseline().expect("baseline compiles");
     let mutant = validator
         .validate(&patch)
         .expect("anonymous clone compiles");
-    assert!(matches!(
-        validator.observation_manifest(&mutant, &[ObservedRule {
-            rule: rule.clone(),
-            emit_rule_applied: true,
-            domain_events: Vec::new(),
-        }]),
-        Err(ManifestFailure::Identity { rule: at, error: IdentityError::Ambiguous }) if at == rule
-    ));
+    assert!(equivalent_compilation(&baseline, &mutant).expect("KORE parses"));
 }
 
 /// One observed run of `state` on a compiled side.
@@ -380,7 +483,6 @@ fn deterministic_runs_are_complete_under_path_set() {
         &t1(),
         BUDGET,
     );
-    assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll);
     assert!(
         run.execution
             .leaves()
@@ -463,7 +565,6 @@ fn observed_counter_execution_matches_branch_and_its_fallback_mutant_does_not() 
             &t2(),
             BUDGET,
         );
-        assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll);
         assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
         let result = outcome(&run, &plan);
         assert_eq!(result.outcome, expected);
@@ -543,7 +644,6 @@ fn converging_branches_reach_pattern_no_match_with_both_events() {
         &start,
         BUDGET,
     );
-    assert_eq!(run.execution.route(), ExecutionRoute::ExploreAll);
     assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
     assert_eq!(run.bridged.paths.len(), 2);
     let observed = run
@@ -676,14 +776,14 @@ fn undecided_live_occurrences_are_no_witness() {
         max_simplification_iterations: 3,
         ..BUDGET
     };
-    // (id, side, observed rule, initial state, budget, route, leaf halt, path stop)
+    // (id, side, observed rule, initial state, budget, leaf halt, path stop)
     #[rustfmt::skip]
     let rows = [
-        ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::SolverUnknown),
-        ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Vacuous, PathStop::SolverUnknown),
-        ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::BackendLimit),
+        ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, HaltClass::Stuck, PathStop::SolverUnknown),
+        ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, HaltClass::Vacuous, PathStop::SolverUnknown),
+        ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, HaltClass::Stuck, PathStop::BackendLimit),
     ];
-    for (id, side, label, state, budget, route, halt, stop) in rows {
+    for (id, side, label, state, budget, halt, stop) in rows {
         let constructor = format!("rule:{label}");
         let vocabulary = vocabulary(&[(constructor.as_str(), &[])]);
         let run = run(
@@ -695,7 +795,6 @@ fn undecided_live_occurrences_are_no_witness() {
             &state,
             budget,
         );
-        assert_eq!(run.execution.route(), route, "{id}");
         let [leaf] = run.execution.leaves() else {
             panic!("{id}: one leaf");
         };

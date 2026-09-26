@@ -1,9 +1,9 @@
 //! Atomic source-position observation installation and branch-local event adaptation.
 //!
-//! Events name the selected written baseline position whose compiled rule alone
-//! carries the observed identity on that side. They retain the backend identity
-//! of the committed transition; they do not establish emitting-sentence provenance
-//! independently of that identity.
+//! A compiled rule can have several written authors. A committed transition is
+//! attributed to an authored position only when every author has the same
+//! observation specification. Otherwise the relevant event candidates carry a
+//! typed unknown attribution and cannot become pattern witnesses.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -12,10 +12,11 @@ use k_rust::backend::{
     TransitionClassOutput, TransitionIdOutput, UncommittedReasonOutput,
 };
 use kink_patch::SentenceRef;
+use kink_pattern::AttributionUnknownReason;
 use serde_json::Value;
 
 /// One written baseline rule and its manifest-ordered emissions.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RuleObservationSpec {
     pub rule: SentenceRef,
     pub label: Option<String>,
@@ -26,7 +27,7 @@ pub struct RuleObservationSpec {
 }
 
 /// One domain event derived without interpreting pretty text or backend diagnostics.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DomainEventSpec {
     pub constructor: String,
     pub payload: Vec<PayloadSource>,
@@ -48,16 +49,40 @@ pub enum PayloadSource {
 pub struct InstalledObservationManifest {
     rules: Vec<InstalledRule>,
     by_identity: BTreeMap<String, usize>,
+    selected_rules: Vec<SentenceRef>,
+}
+
+/// One source author of a compiled identity. `None` means that author is unobserved.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AuthorObservation {
+    pub rule: SentenceRef,
+    pub spec: Option<RuleObservationSpec>,
 }
 
 impl InstalledObservationManifest {
-    /// Validates the local manifest atomically without mutating a backend.
-    ///
-    /// Definition membership and module visibility are validated atomically by the public
-    /// `Backend::*_observed` operation before execution starts.
-    pub fn install(specs: Vec<RuleObservationSpec>) -> Result<Self, ObservationFailure> {
+    /// Synthetic manifest installer for branch-adapter unit tests.
+    #[cfg(test)]
+    fn install(specs: Vec<RuleObservationSpec>) -> Result<Self, ObservationFailure> {
+        let mut authors = BTreeMap::<String, Vec<AuthorObservation>>::new();
+        for spec in &specs {
+            authors
+                .entry(spec.backend_rule_identity.clone())
+                .or_default()
+                .push(AuthorObservation {
+                    rule: spec.rule.clone(),
+                    spec: Some(spec.clone()),
+                });
+        }
+        Self::install_with_authors(specs, authors)
+    }
+
+    /// Installs selected positions with the complete authorship of their identities.
+    /// The validator supplies authors from typed compile provenance.
+    pub(crate) fn install_with_authors(
+        specs: Vec<RuleObservationSpec>,
+        authors: BTreeMap<String, Vec<AuthorObservation>>,
+    ) -> Result<Self, ObservationFailure> {
         let mut selected_rules = BTreeSet::new();
-        let mut selected_identities = BTreeSet::new();
         for spec in &specs {
             if !selected_rules.insert(spec.rule.clone()) {
                 return Err(ObservationFailure::DuplicateSelector(spec.rule.clone()));
@@ -65,11 +90,6 @@ impl InstalledObservationManifest {
             if spec.backend_rule_identity.is_empty() {
                 return Err(ObservationFailure::InvalidManifest(
                     "backend rule identity must not be empty".into(),
-                ));
-            }
-            if !selected_identities.insert(spec.backend_rule_identity.clone()) {
-                return Err(ObservationFailure::DuplicateRuleIdentity(
-                    spec.backend_rule_identity.clone(),
                 ));
             }
             let mut constructors = BTreeSet::new();
@@ -87,19 +107,63 @@ impl InstalledObservationManifest {
                 }
             }
         }
-        let rules = specs
+        let selected_rules = specs.iter().map(|spec| spec.rule.clone()).collect();
+        let mut grouped = BTreeMap::<String, Vec<RuleObservationSpec>>::new();
+        let mut identity_order = Vec::new();
+        for spec in specs {
+            if !grouped.contains_key(&spec.backend_rule_identity) {
+                identity_order.push(spec.backend_rule_identity.clone());
+            }
+            grouped
+                .entry(spec.backend_rule_identity.clone())
+                .or_default()
+                .push(spec);
+        }
+        let rules = identity_order
             .into_iter()
-            .map(|spec| InstalledRule {
-                identity: spec.backend_rule_identity.clone(),
-                spec,
+            .map(|identity| {
+                let selected = grouped
+                    .remove(&identity)
+                    .expect("grouped selected identity");
+                let authors = authors.get(&identity).ok_or_else(|| {
+                    ObservationFailure::InvalidManifest("missing compiled authorship".into())
+                })?;
+                if authors.is_empty() {
+                    return Err(ObservationFailure::InvalidManifest(
+                        "compiled identity has no authored rule".into(),
+                    ));
+                }
+                let first = authors[0].spec.as_ref().map(observation_signature);
+                let unanimous = authors
+                    .iter()
+                    .all(|author| author.spec.as_ref().map(observation_signature) == first);
+                let attribution = if unanimous && first.is_some() {
+                    InstalledAttribution::Certain(selected[0].clone())
+                } else {
+                    InstalledAttribution::Unknown {
+                        selected,
+                        reason: AttributionUnknownReason::DifferentObservationSpecs {
+                            authors: authors.iter().map(|author| author.rule.clone()).collect(),
+                        },
+                    }
+                };
+                Ok(InstalledRule {
+                    identity,
+                    attribution,
+                    author_count: authors.len(),
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, ObservationFailure>>()?;
         let by_identity = rules
             .iter()
             .enumerate()
             .map(|(ordinal, rule)| (rule.identity.clone(), ordinal))
             .collect();
-        Ok(Self { rules, by_identity })
+        Ok(Self {
+            rules,
+            by_identity,
+            selected_rules,
+        })
     }
 
     /// Exact backend rule identities in selector/manifest order.
@@ -113,14 +177,46 @@ impl InstalledObservationManifest {
 
     /// Written baseline rules in manifest order.
     pub fn rules(&self) -> impl Iterator<Item = &SentenceRef> {
-        self.rules.iter().map(|rule| &rule.spec.rule)
+        self.selected_rules.iter()
     }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct InstalledRule {
     identity: String,
-    spec: RuleObservationSpec,
+    attribution: InstalledAttribution,
+    author_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum InstalledAttribution {
+    Certain(RuleObservationSpec),
+    Unknown {
+        selected: Vec<RuleObservationSpec>,
+        reason: AttributionUnknownReason,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ObservationSignature {
+    rule_applied: Option<String>,
+    domain_events: Vec<DomainEventSpec>,
+}
+
+fn rule_applied_constructor(spec: &RuleObservationSpec) -> String {
+    spec.label.as_ref().map_or_else(
+        || format!("rule:{}:{}", spec.rule.module, spec.rule.index),
+        |label| format!("rule:{label}"),
+    )
+}
+
+fn observation_signature(spec: &RuleObservationSpec) -> ObservationSignature {
+    ObservationSignature {
+        rule_applied: spec
+            .emit_rule_applied
+            .then(|| rule_applied_constructor(spec)),
+        domain_events: spec.domain_events.clone(),
+    }
 }
 
 /// One branch-local adapted execution state.
@@ -161,6 +257,19 @@ impl AdaptedBranch {
 pub enum NativeEvent {
     RuleApplied(RuleAppliedEvent),
     Domain(DomainEvent),
+    UnknownAttribution(UnknownAttributionEvent),
+}
+
+/// An emitted transition whose authored event vocabulary cannot be attributed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnknownAttributionEvent {
+    pub event_ordinal: usize,
+    pub transition_ordinal: usize,
+    pub emission_ordinal: usize,
+    pub constructor: String,
+    pub transition: TransitionIdOutput,
+    pub rule: SentenceRef,
+    pub reason: AttributionUnknownReason,
 }
 
 /// Generic evidence for one committed transition.
@@ -260,58 +369,92 @@ pub(crate) fn adapt_branch(
                     .get(&id.rule)
                     .and_then(|ordinal| manifest.rules.get(*ordinal))
                     .ok_or_else(|| ObservationFailure::UnselectedObservation(id.rule.clone()))?;
-                if rule_label.as_ref() != selected.spec.label.as_ref() {
-                    return Err(ObservationFailure::RuleLabelMismatch {
-                        identity: id.rule,
-                        expected: selected.spec.label.clone(),
-                        actual: rule_label,
-                    });
-                }
-                let mut emission_ordinal = 0;
-                if selected.spec.emit_rule_applied {
-                    let event_ordinal = events.len();
-                    events.push(NativeEvent::RuleApplied(RuleAppliedEvent {
-                        event_ordinal,
-                        transition_ordinal,
-                        emission_ordinal,
-                        transition: id.clone(),
-                        class,
-                        rule: selected.spec.rule.clone(),
-                        label: selected.spec.label.clone(),
-                        bindings: bindings.clone(),
-                        introduced_predicates: introduced_predicates.clone(),
-                        before: before.clone(),
-                        after: after.clone(),
-                        effects: effects.clone(),
-                    }));
-                    emission_ordinal += 1;
-                }
-                for spec in &selected.spec.domain_events {
-                    let payload = spec
-                        .payload
-                        .iter()
-                        .map(|source| {
-                            payload_value(
-                                *source,
-                                &before,
-                                &after,
-                                &bindings,
-                                &introduced_predicates,
-                                &effects,
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let event_ordinal = events.len();
-                    events.push(NativeEvent::Domain(DomainEvent {
-                        event_ordinal,
-                        transition_ordinal,
-                        emission_ordinal,
-                        constructor: spec.constructor.clone(),
-                        transition: id.clone(),
-                        rule: selected.spec.rule.clone(),
-                        payload,
-                    }));
-                    emission_ordinal += 1;
+                match &selected.attribution {
+                    InstalledAttribution::Certain(spec) => {
+                        // A merged axiom may expose any one of its authors' labels.
+                        if selected.author_count == 1 && rule_label.as_ref() != spec.label.as_ref()
+                        {
+                            return Err(ObservationFailure::RuleLabelMismatch {
+                                identity: id.rule,
+                                expected: spec.label.clone(),
+                                actual: rule_label,
+                            });
+                        }
+                        let mut emission_ordinal = 0;
+                        if spec.emit_rule_applied {
+                            let event_ordinal = events.len();
+                            events.push(NativeEvent::RuleApplied(RuleAppliedEvent {
+                                event_ordinal,
+                                transition_ordinal,
+                                emission_ordinal,
+                                transition: id.clone(),
+                                class,
+                                rule: spec.rule.clone(),
+                                label: spec.label.clone(),
+                                bindings: bindings.clone(),
+                                introduced_predicates: introduced_predicates.clone(),
+                                before: before.clone(),
+                                after: after.clone(),
+                                effects: effects.clone(),
+                            }));
+                            emission_ordinal += 1;
+                        }
+                        for domain in &spec.domain_events {
+                            let payload = domain
+                                .payload
+                                .iter()
+                                .map(|source| {
+                                    payload_value(
+                                        *source,
+                                        &before,
+                                        &after,
+                                        &bindings,
+                                        &introduced_predicates,
+                                        &effects,
+                                    )
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+                            let event_ordinal = events.len();
+                            events.push(NativeEvent::Domain(DomainEvent {
+                                event_ordinal,
+                                transition_ordinal,
+                                emission_ordinal,
+                                constructor: domain.constructor.clone(),
+                                transition: id.clone(),
+                                rule: spec.rule.clone(),
+                                payload,
+                            }));
+                            emission_ordinal += 1;
+                        }
+                    }
+                    InstalledAttribution::Unknown { selected, reason } => {
+                        let mut candidates = BTreeMap::<String, SentenceRef>::new();
+                        for spec in selected {
+                            if spec.emit_rule_applied {
+                                candidates
+                                    .entry(rule_applied_constructor(spec))
+                                    .or_insert_with(|| spec.rule.clone());
+                            }
+                            for domain in &spec.domain_events {
+                                candidates
+                                    .entry(domain.constructor.clone())
+                                    .or_insert_with(|| spec.rule.clone());
+                            }
+                        }
+                        for (emission_ordinal, (constructor, rule)) in
+                            candidates.into_iter().enumerate()
+                        {
+                            events.push(NativeEvent::UnknownAttribution(UnknownAttributionEvent {
+                                event_ordinal: events.len(),
+                                transition_ordinal,
+                                emission_ordinal,
+                                constructor,
+                                transition: id.clone(),
+                                rule,
+                                reason: reason.clone(),
+                            }));
+                        }
+                    }
                 }
             }
             ObservationEventOutput::Evaluation {
@@ -438,7 +581,6 @@ pub enum ObservationFailure {
         rule: SentenceRef,
         constructor: String,
     },
-    DuplicateRuleIdentity(String),
     MissingInstallation,
     CommittedTransitionAbsent {
         transition: TransitionIdOutput,
@@ -514,13 +656,47 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_backend_identity_rejects_the_whole_manifest() {
+    fn equal_identity_with_different_observation_specs_is_unknown() {
         let mut second = spec("second");
         second.backend_rule_identity = "first-id".into();
-        assert_eq!(
-            InstalledObservationManifest::install(vec![spec("first"), second]),
-            Err(ObservationFailure::DuplicateRuleIdentity("first-id".into()))
-        );
+        let manifest = InstalledObservationManifest::install(vec![spec("first"), second]).unwrap();
+        let branch = adapt_branch(
+            Some(&manifest),
+            vec![transition_id("first-id", 0)],
+            Value::from(1),
+            1,
+            Vec::new(),
+            vec![transition("first-id", "first", 0)],
+        )
+        .unwrap();
+        assert!(branch.events.iter().all(|event| matches!(
+            event,
+            NativeEvent::UnknownAttribution(UnknownAttributionEvent {
+                reason: AttributionUnknownReason::DifferentObservationSpecs { .. },
+                ..
+            })
+        )));
+    }
+
+    #[test]
+    fn equal_identity_with_same_observation_spec_attributes_normally() {
+        let mut second = spec("second");
+        second.backend_rule_identity = "first-id".into();
+        second.label = Some("first".into());
+        let manifest = InstalledObservationManifest::install(vec![spec("first"), second]).unwrap();
+        let branch = adapt_branch(
+            Some(&manifest),
+            vec![transition_id("first-id", 0)],
+            Value::from(1),
+            1,
+            Vec::new(),
+            vec![transition("first-id", "second", 0)],
+        )
+        .unwrap();
+        assert!(matches!(
+            branch.events.as_slice(),
+            [NativeEvent::RuleApplied(_)]
+        ));
     }
 
     #[test]
@@ -665,6 +841,12 @@ mod tests {
                 event.emission_ordinal,
             ),
             NativeEvent::Domain(event) => (
+                event.constructor.as_str(),
+                event.event_ordinal,
+                event.transition_ordinal,
+                event.emission_ordinal,
+            ),
+            NativeEvent::UnknownAttribution(event) => (
                 event.constructor.as_str(),
                 event.event_ordinal,
                 event.transition_ordinal,

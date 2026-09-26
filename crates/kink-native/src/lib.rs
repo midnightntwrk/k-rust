@@ -7,11 +7,13 @@
 //! - [`bridge`] maps adapted executions to kink-pattern paths and collection evidence.
 //!
 pub mod bridge;
+mod equivalence;
 pub mod execution;
 pub mod observation;
 mod selector;
 mod validator;
 
+pub use equivalence::equivalent_compilation;
 pub use selector::{
     ClassificationFailure, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
     select_rules,

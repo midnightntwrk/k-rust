@@ -15,11 +15,11 @@ use k_rust::kore::{
     codec,
 };
 use kink_pattern::{
-    CollectionEvidence, CollectionStop, Event, EventOrigin, ExecutionStop, ExecutionTerminal,
-    ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
+    CollectionEvidence, CollectionStop, Event, EventAttribution, EventOrigin, ExecutionStop,
+    ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop, SymbolSorts,
 };
 
-use crate::execution::{AdaptedExecution, ExecutionRoute, HaltClass};
+use crate::execution::{AdaptedExecution, HaltClass};
 use crate::observation::{AdaptedBranch, DomainPayload, NativeEvent};
 
 /// What the bridge needs besides the adapted response.
@@ -31,12 +31,10 @@ pub struct BridgeContext<'a> {
     pub sorts: &'a SymbolSorts,
 }
 
-/// Paths in response order, the route that produced them, and the evidence of how their
-/// collection stopped.
+/// Paths in response order and the evidence of how their collection stopped.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BridgedPaths {
     pub paths: Vec<PathInput>,
-    pub route: ExecutionRoute,
     pub collection: CollectionEvidence,
 }
 
@@ -203,6 +201,7 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                 transition,
                 rule,
                 payload,
+                attribution,
             ) = match event {
                 NativeEvent::RuleApplied(event) => (
                     event.event_ordinal,
@@ -215,6 +214,7 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                     &event.transition,
                     &event.rule,
                     Vec::new(),
+                    EventAttribution::Certain,
                 ),
                 NativeEvent::Domain(event) => (
                     event.event_ordinal,
@@ -237,12 +237,24 @@ fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()?,
+                    EventAttribution::Certain,
+                ),
+                NativeEvent::UnknownAttribution(event) => (
+                    event.event_ordinal,
+                    event.transition_ordinal,
+                    event.emission_ordinal,
+                    event.constructor.clone(),
+                    &event.transition,
+                    &event.rule,
+                    Vec::new(),
+                    EventAttribution::Unknown(event.reason.clone()),
                 ),
             };
             Ok(Event {
                 index,
                 constructor,
                 payload,
+                attribution,
                 origin: EventOrigin {
                     rule: (*rule).clone(),
                     transition: transition.clone(),
@@ -381,7 +393,7 @@ impl<'a> PathSet<'a> {
     }
 
     /// The most constraining incomplete stop, or exhaustion when all leaves complete.
-    fn finish(self, route: ExecutionRoute) -> BridgedPaths {
+    fn finish(self) -> BridgedPaths {
         let stop = self
             .incomplete
             .iter()
@@ -391,7 +403,6 @@ impl<'a> PathSet<'a> {
             });
         BridgedPaths {
             paths: self.entries.into_iter().map(|(.., path)| path).collect(),
-            route,
             collection: CollectionEvidence {
                 stop,
                 pending_work: u64::from(stop != CollectionStop::SearchExhausted),
@@ -409,7 +420,6 @@ pub fn paths_from_execution(
     if execution.timed_out {
         return Ok(BridgedPaths {
             paths: Vec::new(),
-            route: execution.route,
             collection: CollectionEvidence {
                 stop: CollectionStop::TimeLimit,
                 pending_work: 1,
@@ -424,7 +434,7 @@ pub fn paths_from_execution(
     for leaf in &execution.leaves {
         paths.push(leaf)?;
     }
-    Ok(paths.finish(execution.route))
+    Ok(paths.finish())
 }
 
 #[cfg(test)]
@@ -611,7 +621,6 @@ mod tests {
         for (halt, state, expected) in rows {
             let id = format!("{halt:?} {state}");
             let execution = AdaptedExecution {
-                route: ExecutionRoute::SinglePath,
                 leaves: vec![AdaptedLeaf {
                     halt,
                     branch: branch(0, state),
@@ -707,7 +716,6 @@ mod tests {
                 _ => unreachable!(),
             }
             let execution = AdaptedExecution {
-                route: ExecutionRoute::ExploreAll,
                 leaves: vec![clean.clone(), diagnosed],
                 effects: Vec::new(),
                 timed_out: false,
@@ -725,7 +733,6 @@ mod tests {
     fn a_shared_identity_of_different_branches_is_rejected() {
         let sorts = sorts();
         let execution = AdaptedExecution {
-            route: ExecutionRoute::ExploreAll,
             leaves: vec![
                 AdaptedLeaf {
                     halt: H::Stuck,

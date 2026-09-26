@@ -4,10 +4,10 @@
 mod support;
 
 use kink_pattern::{
-    CollectionEvidence, CollectionStop, EmptySearchDecision, EvaluationOptions, EventVocabulary,
-    ExecutionStop, ExecutionTerminal, ExecutionTerminalKind, PathInput, PathStop,
-    PatternFailureKind, PatternOutcome, PatternPlan, Relation, SearchPolicy, SideCondition,
-    TermRelation, evaluate,
+    Atom, AttributionUnknownReason, CollectionEvidence, CollectionStop, EmptySearchDecision,
+    EvaluationOptions, EventAttribution, EventVocabulary, ExecutionStop, ExecutionTerminal,
+    ExecutionTerminalKind, PathInput, PathStop, PatternArm, PatternFailureKind, PatternOutcome,
+    PatternPlan, Relation, SearchPolicy, SideCondition, TermRelation, evaluate,
 };
 use support::{
     PathSpec, app, bind, collection, context, done, exhaustive_options, make_match_stop, path,
@@ -1614,4 +1614,70 @@ fn inline_plan_adversaries_return_their_typed_failure_kind() {
         .kind(),
         PatternFailureKind::UnknownConstructor
     );
+}
+
+#[test]
+fn unknown_attribution_is_local_to_matching_atoms() {
+    let id = "unknown-attribution";
+    let mut paths = paths(&[done("p0", &["wa", "la"])], id);
+    let author = paths[0].events[0].origin.rule.clone();
+    paths[0].events[0].attribution =
+        EventAttribution::Unknown(AttributionUnknownReason::DifferentObservationSpecs {
+            authors: vec![author],
+        });
+    paths[0].events[0].payload.clear();
+    let collection = collection(&paths, SearchPolicy::Exhaustive);
+    let write = evaluate(
+        &context(id),
+        &plan("single-write"),
+        &paths,
+        &collection,
+        None,
+        exhaustive_options(),
+    )
+    .unwrap();
+    assert_eq!(write.outcome, Unknown);
+    assert!(write.witnesses.is_empty());
+
+    let load = PatternPlan::new(
+        &support::memory(),
+        Vec::new(),
+        vec![PatternArm {
+            atoms: vec![Atom {
+                constructor: "memoryLoad".into(),
+                payload: Vec::new(),
+            }],
+            relations: Vec::new(),
+        }],
+        None,
+    )
+    .unwrap();
+    let unrelated = evaluate(
+        &context(id),
+        &load,
+        &paths,
+        &collection,
+        None,
+        exhaustive_options(),
+    )
+    .unwrap();
+    assert_eq!(unrelated.outcome, Match);
+
+    let mut adjacent = support::paths(&[done("p0", &["wa", "x", "la"])], id);
+    let ambiguous_author = adjacent[0].events[1].origin.rule.clone();
+    adjacent[0].events[1].attribution =
+        EventAttribution::Unknown(AttributionUnknownReason::DifferentObservationSpecs {
+            authors: vec![ambiguous_author],
+        });
+    adjacent[0].events[1].payload.clear();
+    let adjacency = evaluate(
+        &context(id),
+        &plan("write-next-load"),
+        &adjacent,
+        &support::collection(&adjacent, SearchPolicy::Exhaustive),
+        None,
+        exhaustive_options(),
+    )
+    .unwrap();
+    assert_eq!(adjacency.outcome, Unknown);
 }

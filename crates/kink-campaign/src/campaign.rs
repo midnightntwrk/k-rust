@@ -28,13 +28,15 @@ pub enum OracleOutcome {
     Error,
 }
 
-/// Final candidate classification. There is deliberately no equivalence status.
+/// Final candidate classification.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MutantStatus {
     /// At least one oracle distinguished the mutant.
     Killed,
     /// Every selected oracle completed and agreed.
     Survived,
+    /// The mutant compiled to the baseline's executable compiler output.
+    Equivalent,
     /// Validation or compilation rejected the mutant.
     Invalid,
     /// A time limit prevented a conclusion.
@@ -54,6 +56,8 @@ pub enum MutantStatus {
 /// carrying one lists no tests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MutantScopeFailure {
+    /// Compilation succeeded but produced equivalent executable output.
+    EquivalentCompilation,
     /// Validation, lowering or backend compilation rejected the mutant.
     Rejected,
     /// Lowering or validation of the mutant does not terminate.
@@ -72,6 +76,7 @@ impl MutantScopeFailure {
     #[must_use]
     pub const fn status(self) -> MutantStatus {
         match self {
+            Self::EquivalentCompilation => MutantStatus::Equivalent,
             Self::Rejected | Self::LoweringNontermination => MutantStatus::Invalid,
             Self::LoweringTimeLimit => MutantStatus::Timeout,
             Self::LoweringResourceLimit => MutantStatus::Unknown,
@@ -207,7 +212,7 @@ const fn fold_rank(status: MutantStatus) -> u8 {
         MutantStatus::Error => 3,
         MutantStatus::Killed => 4,
         // Never produced by a slot or a failed test.
-        MutantStatus::Invalid => 5,
+        MutantStatus::Invalid | MutantStatus::Equivalent => 5,
     }
 }
 
@@ -415,7 +420,7 @@ pub struct Rational {
 }
 
 /// Ratio over decided (`Killed`, `Survived`) mutants only. What it leaves out,
-/// `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
+/// `Equivalent`, `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
 /// [`crate::tally`]; show the tally beside the ratio.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Score {
@@ -430,7 +435,7 @@ pub struct Score {
 }
 
 /// Ratio over decided (`Killed`, `Survived`) mutants only. What it leaves out,
-/// `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
+/// `Equivalent`, `Invalid`, `Timeout`, `Unknown` and `Error` mutants and rejected origins, is counted by
 /// [`crate::tally`]; show the tally beside the ratio.
 #[must_use]
 pub fn score(statuses: &[MutantStatus]) -> Score {

@@ -158,6 +158,7 @@ pub fn event(name: &str, index: usize) -> Event {
         index,
         constructor: constructor.to_owned(),
         payload: payload.iter().map(|name| term(name)).collect(),
+        attribution: kink_pattern::EventAttribution::Certain,
         origin: EventOrigin {
             rule: rule_ref(rule_label),
             transition: TransitionIdOutput {

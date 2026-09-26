@@ -99,15 +99,6 @@ impl HaltClass {
     }
 }
 
-/// How the reported leaves were obtained.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionRoute {
-    /// A single path in supplied or historical evidence; the adapter no longer uses this route.
-    SinglePath,
-    /// Every explored path in the backend PathSet.
-    ExploreAll,
-}
-
 /// Limits of one execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionBudget {
@@ -130,18 +121,12 @@ pub struct AdaptedLeaf {
 /// The adapted leaves of one execution. Built only by [`ExecutionAdapter::execute`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptedExecution {
-    pub(crate) route: ExecutionRoute,
     pub(crate) leaves: Vec<AdaptedLeaf>,
     pub(crate) effects: Vec<EffectOutput>,
     pub(crate) timed_out: bool,
 }
 
 impl AdaptedExecution {
-    #[must_use]
-    pub const fn route(&self) -> ExecutionRoute {
-        self.route
-    }
-
     #[must_use]
     pub fn leaves(&self) -> &[AdaptedLeaf] {
         &self.leaves
@@ -167,7 +152,7 @@ pub enum ExecutionAdapterFailure {
     SolverProfileMismatch,
     InvalidState(String),
     Backend(String),
-    /// A leaf reports a halt excluded by the adapter's own request on either route.
+    /// A leaf reports a halt excluded by the adapter's request.
     ContractViolation(HaltClass),
     Observation(ObservationFailure),
 }
@@ -178,7 +163,7 @@ impl From<ObservationFailure> for ExecutionAdapterFailure {
     }
 }
 
-/// The unbounded request issued on either execution route.
+/// The unbounded PathSet request.
 fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest {
     ExecuteRequest {
         state,
@@ -251,12 +236,11 @@ impl ExecutionAdapter {
             outcome.map_err(|error| ExecutionAdapterFailure::Backend(error.to_string()))?;
         assert_eq!(result.modality, ResultModalityOutput::PathSet);
         let timed_out = fired.load(Ordering::Acquire);
-        self.adapt(ExecutionRoute::ExploreAll, result, timed_out)
+        self.adapt(result, timed_out)
     }
 
     fn adapt(
         &self,
-        route: ExecutionRoute,
         result: ExecutionResult,
         timed_out: bool,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
@@ -292,7 +276,6 @@ impl ExecutionAdapter {
             })
             .collect::<Result<Vec<_>, ExecutionAdapterFailure>>()?;
         Ok(AdaptedExecution {
-            route,
             leaves,
             effects: result.effects,
             timed_out,

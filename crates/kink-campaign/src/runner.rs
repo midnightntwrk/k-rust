@@ -7,7 +7,7 @@
 //! `match` that never turns incomplete evidence into a value:
 //!
 //! - A state oracle (exit stop or final result) needs every path complete and a
-//!   collection that stopped for lack of work on an execution route. An explore-all run
+//!   collection that stopped for lack of work. The PathSet run
 //!   qualifies, because k-rust's merging of converging branches keeps every distinct final
 //!   state. Any other stop is `Error` for an error or a cancelled leaf (until upstream tells
 //!   cancellation from timeout), and `Unknown` otherwise, including a backend diagnostic.
@@ -34,9 +34,7 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution};
-use kink_native::execution::{
-    ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, ExecutionRoute,
-};
+use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget};
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
@@ -158,11 +156,8 @@ pub struct Campaign<'a> {
 /// What one test's run on one compiled side produced.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SideRun {
-    /// One side per declared oracle, and how the leaves were obtained.
-    Sides {
-        route: ExecutionRoute,
-        sides: Vec<OracleSide>,
-    },
+    /// One side per declared oracle.
+    Sides { sides: Vec<OracleSide> },
     /// The run produced no operand.
     Failed(ExecutionFailureKind),
 }
@@ -208,6 +203,8 @@ pub struct Tally {
     pub killed: u64,
     /// Survived candidate mutants.
     pub survived: u64,
+    /// Candidates whose compiled definitions equal the baseline.
+    pub equivalent: u64,
     /// Invalid candidate mutants.
     pub invalid: u64,
     /// Timed out candidate mutants.
@@ -232,6 +229,7 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
         match mutant.report.status {
             MutantStatus::Killed => tally.killed += 1,
             MutantStatus::Survived => tally.survived += 1,
+            MutantStatus::Equivalent => tally.equivalent += 1,
             MutantStatus::Invalid => tally.invalid += 1,
             MutantStatus::Timeout => tally.timeout += 1,
             MutantStatus::Unknown => tally.unknown += 1,
@@ -311,8 +309,13 @@ pub fn run_campaign(
 
     let mut runs = Vec::with_capacity(generation.candidates().len());
     for (index, candidate) in generation.candidates().iter().enumerate() {
-        let (tests, mutant_failure, evidence) =
-            run_mutant(campaign, &candidate.patch, &baseline_evidence, schedule);
+        let (tests, mutant_failure, evidence) = run_mutant(
+            campaign,
+            &candidate.patch,
+            &baseline,
+            &baseline_evidence,
+            schedule,
+        );
         let plan = MutantPlan {
             mutant_id: MutantId(index),
             tests,
@@ -376,10 +379,11 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
 fn run_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
+    compiled_baseline: &ValidatedDefinition,
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
 ) -> (Vec<TestPlan>, Option<MutantScopeFailure>, Vec<TestEvidence>) {
-    match prepare_mutant(campaign, patch) {
+    match prepare_mutant(campaign, patch, compiled_baseline) {
         Err(failure) => (Vec::new(), Some(failure), Vec::new()),
         Ok(mut runtime) => {
             let (tests, evidence) = run_tests(campaign, &mut runtime, baseline, schedule);
@@ -389,11 +393,20 @@ fn run_mutant(
 }
 
 /// Validates and compiles the mutant side, or its mutant-scope failure.
-fn prepare_mutant(campaign: &Campaign<'_>, patch: &Patch) -> Result<Runtime, MutantScopeFailure> {
+fn prepare_mutant(
+    campaign: &Campaign<'_>,
+    patch: &Patch,
+    compiled_baseline: &ValidatedDefinition,
+) -> Result<Runtime, MutantScopeFailure> {
     let side = campaign
         .validator
         .validate(patch)
         .map_err(|rejection| MutantScopeFailure::from(&rejection))?;
+    match kink_native::equivalent_compilation(compiled_baseline, &side) {
+        Ok(true) => return Err(MutantScopeFailure::EquivalentCompilation),
+        Ok(false) => {}
+        Err(_) => return Err(MutantScopeFailure::Infrastructure),
+    }
     // The baseline resolved every position, so a failure here is the mutant side's.
     Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)
 }
@@ -523,7 +536,6 @@ impl Runtime {
                     match bridged {
                         Err(failure) => SideRun::Failed((&failure).into()),
                         Ok(bridged) => SideRun::Sides {
-                            route: execution.route(),
                             sides: test
                                 .oracles
                                 .iter()
@@ -611,9 +623,9 @@ const fn path_stop_side(stop: PathStop) -> OracleSide {
     }
 }
 
-/// The side of a collection stop. A PathSet run records clean exhaustion on either
-/// route, while an unrecorded stop remains unknown.
-const fn collection_stop_side(_route: ExecutionRoute, stop: CollectionStop) -> Option<OracleSide> {
+/// The side of a collection stop. A PathSet run records clean exhaustion;
+/// an unrecorded stop remains unknown.
+const fn collection_stop_side(stop: CollectionStop) -> Option<OracleSide> {
     match stop {
         CollectionStop::SearchExhausted => None,
         CollectionStop::ExhaustionUnrecorded => Some(OracleSide::Unknown),
@@ -637,7 +649,7 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
         .iter()
         .filter(|path| !path.complete)
         .map(|path| path_stop_side(path.stop))
-        .chain(collection_stop_side(bridged.route, bridged.collection.stop));
+        .chain(collection_stop_side(bridged.collection.stop));
     if let Some(side) = failed_side(incomplete) {
         return side;
     }

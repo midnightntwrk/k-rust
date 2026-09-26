@@ -16,7 +16,7 @@ use kink_campaign::{
     PatternValue, Projection, Rational, ScheduleMode, SideRun, StateProjection, Tally, TestCase,
     TestEvidence, TestPlan, TestRun, derive_mutant_report, run_campaign, tally,
 };
-use kink_native::execution::{ExecutionBudget, ExecutionRoute};
+use kink_native::execution::ExecutionBudget;
 use kink_native::observation::DomainEventSpec;
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
@@ -206,11 +206,7 @@ fn outcomes(tests: &[TestPlan]) -> Vec<(&str, Vec<OracleOutcome>)> {
 
 fn sides(evidence: &TestEvidence) -> &[OracleSide] {
     match &evidence.run {
-        SideRun::Sides { route, sides } => {
-            // Critique C1: every counter run is one complete path.
-            assert_eq!(*route, ExecutionRoute::ExploreAll, "{}", evidence.test_id);
-            sides
-        }
+        SideRun::Sides { sides } => sides,
         SideRun::Failed(kind) => panic!("{}: failed {kind:?}", evidence.test_id),
     }
 }
@@ -709,7 +705,7 @@ fn selected_function_equation_is_infrastructure_failure() {
 }
 
 #[test]
-fn anonymous_clone_of_observed_rule_is_mutant_infrastructure_failure() {
+fn anonymous_clone_of_observed_rule_is_equivalent() {
     with_stack(|| {
         let validator =
             NativeValidator::bind(support::load("counter.k"), CompileOptions::default());
@@ -766,13 +762,134 @@ fn anonymous_clone_of_observed_rule_is_mutant_infrastructure_failure() {
         assert_eq!(run.mutants.len(), 1);
         assert_eq!(
             run.mutants[0].plan.mutant_failure,
-            Some(MutantScopeFailure::Infrastructure)
+            Some(MutantScopeFailure::EquivalentCompilation)
         );
         assert!(run.mutants[0].plan.tests.is_empty());
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Error);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Equivalent);
         let score = run.score.expect("complete generation is counted");
         assert_eq!(score.denominator, 0);
         assert_eq!(score.ratio, None);
+        assert_eq!(tally(&generation, &run).expect("tally").equivalent, 1);
+    });
+}
+
+#[test]
+fn deleting_either_equal_copy_is_equivalent() {
+    with_stack(|| {
+        let validator = NativeValidator::bind(
+            support::load("duplicate_unlabelled.k"),
+            CompileOptions::default(),
+        );
+        let baseline = validator.baseline();
+        let discovered = derive_sites(baseline, "equal copies", &[SiteSelector::Path(vec![0])])
+            .expect("body sites");
+        assert_eq!(discovered.tuples().len(), 2);
+        let generation = select(&discovered, SelectionPolicy::Each, 2)
+            .expect("select both")
+            .fold("delete equal copy", |origin| {
+                Patch::new(vec![Edit::DeleteSentence {
+                    at: origin.site_tuple[0].sentence.clone(),
+                }])
+                .expect("deletion patch")
+            })
+            .expect("both deletion patches apply");
+        let tests = [TestCase {
+            id: "terminal y".into(),
+            initial_state: support::initial_state(constant("Lbly"), "SortS"),
+            oracles: vec![whole_term(CrashPolicy::CompareIdentity)],
+        }];
+        let vocabulary = vocabulary(&[]);
+        let run = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "DUPLICATE'Unds'UNLABELLED",
+                observed_rules: &[],
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_eq!(run.mutants.len(), 2);
+        for mutant in &run.mutants {
+            assert_eq!(mutant.report.status, MutantStatus::Equivalent);
+            assert_eq!(
+                mutant.plan.mutant_failure,
+                Some(MutantScopeFailure::EquivalentCompilation)
+            );
+            assert!(mutant.plan.tests.is_empty());
+        }
+        assert_eq!(run.score.expect("scored").denominator, 0);
+        assert_eq!(tally(&generation, &run).expect("tally").equivalent, 2);
+    });
+}
+
+#[test]
+fn merged_observed_and_unobserved_authors_do_not_kill() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("unlabelled.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let observed_rule = kink_patch::SentenceRef::new("UNLABELLED", 0);
+        let unobserved_rule = kink_patch::SentenceRef::new("UNLABELLED", 2);
+        let mut replacement = baseline.sentence(&unobserved_rule).expect("C").clone();
+        *replacement.attributes_mut() = baseline
+            .sentence(&observed_rule)
+            .expect("A")
+            .attributes()
+            .clone();
+        let discovered = derive_sites(
+            baseline,
+            "A body",
+            &[SiteSelector::Head { label: "a".into() }],
+        )
+        .expect("A site");
+        assert_eq!(discovered.tuples().len(), 1);
+        let generation = select(&discovered, SelectionPolicy::Each, 1)
+            .expect("select A")
+            .fold("merge with C", |_| {
+                Patch::new(vec![Edit::ReplaceSentence {
+                    at: observed_rule.clone(),
+                    replacement: replacement.clone(),
+                }])
+                .expect("replacement patch")
+            })
+            .expect("replacement applies");
+        let vocabulary = vocabulary(&["rule:UNLABELLED:0"]);
+        let observed = [ObservedRule {
+            rule: observed_rule,
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }];
+        let tests = [TestCase {
+            id: "C fires".into(),
+            initial_state: support::initial_state(constant("Lblx"), "SortS"),
+            oracles: vec![occurs(&vocabulary, "rule:UNLABELLED:0")],
+        }];
+        let run = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "UNLABELLED",
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_eq!(run.mutants.len(), 1);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+        assert_eq!(
+            outcomes(&run.mutants[0].plan.tests),
+            [("C fires", vec![OracleOutcome::Unknown])]
+        );
     });
 }
 

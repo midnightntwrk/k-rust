@@ -25,7 +25,7 @@ use kink_patch::{
     CandidateDisposition, Edit, Patch, SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
 };
 
-use MutantStatus::{Error, Invalid, Killed, Survived, Timeout, Unknown};
+use MutantStatus::{Equivalent, Error, Invalid, Killed, Survived, Timeout, Unknown};
 use OracleOutcome::{Agree, Distinguish};
 
 const KINDS: [OracleKind; 3] = [
@@ -685,7 +685,7 @@ fn score_is_exact_and_excluded_statuses_do_not_count() {
     for (statuses, expected) in rows {
         assert_eq!(score(statuses), expected, "{statuses:?}");
         let mut padded = statuses.to_vec();
-        padded.extend([Invalid, Timeout, Unknown, Error]);
+        padded.extend([Equivalent, Invalid, Timeout, Unknown, Error]);
         assert_eq!(score(&padded), expected, "{statuses:?} with exclusions");
     }
 }
@@ -698,6 +698,13 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
         Timeout => OracleOutcome::Timeout,
         Unknown => OracleOutcome::Unknown,
         Error => OracleOutcome::Error,
+        Equivalent => {
+            return MutantPlan {
+                mutant_id: MutantId(id),
+                tests: Vec::new(),
+                mutant_failure: Some(MutantScopeFailure::EquivalentCompilation),
+            };
+        }
         Invalid => {
             return MutantPlan {
                 mutant_id: MutantId(id),
@@ -774,17 +781,21 @@ fn baseline_admission_gates_mutants_and_score() {
     // default-score-exclusions. The duplicate and no-change entries of the
     // source row are candidate dispositions that never reach a `MutantPlan`.
     let (reports, counted) = run_campaign(BaselineAdmission::Accepted, ScheduleMode::Full, || {
-        let plans = [Killed, Survived, Invalid, Timeout, Unknown, Error]
-            .into_iter()
-            .zip(0..)
-            .map(|(status, id)| plan_for(status, id))
-            .collect();
+        let plans = [
+            Killed, Survived, Equivalent, Invalid, Timeout, Unknown, Error,
+        ]
+        .into_iter()
+        .zip(0..)
+        .map(|(status, id)| plan_for(status, id))
+        .collect();
         (plans, None)
     })
     .expect("default-score-exclusions admits");
     assert_eq!(
         statuses(&reports),
-        [Killed, Survived, Invalid, Timeout, Unknown, Error]
+        [
+            Killed, Survived, Equivalent, Invalid, Timeout, Unknown, Error
+        ]
     );
     assert_eq!(
         counted,
