@@ -1,5 +1,4 @@
 //! Fresh compilation selection follows the pinned frontend's outer/inner validation boundary.
-//! The paired reference controls are recorded in draft/compiler-optimization/module-selection.
 
 use indoc::indoc;
 use k_rust::{

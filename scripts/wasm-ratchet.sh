@@ -19,7 +19,7 @@ usage() {
 usage: scripts/wasm-ratchet.sh --label LABEL --stage EXPECTED_FAILURE_STAGE --depth N --log PATH
 
 Run the pinned WASM test.md through the k-rust LLVM frontend and append a
-machine-readable measurement to the Phase 1 ratchet log.
+machine-readable measurement to the WASM compilation progress ratchet log.
 
 Failure stages, in monotone order:
   outer-parse

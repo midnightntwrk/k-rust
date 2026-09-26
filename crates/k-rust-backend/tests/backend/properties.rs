@@ -1,4 +1,4 @@
-//! `proptest` invariants of the kept algorithms (CQ-10 commit 9): syntactic matching
+//! `proptest` invariants of the backend algorithms: syntactic matching
 //! (backend.matching.syntactic), first-order unification (backend.unification.syntactic), and
 //! substitution extraction (backend.substitution.extract), over generated constructor terms of
 //! two sorts with one injection and variables of each sort.

@@ -47,9 +47,8 @@ Options:
   --log PATH          required; standing ratchet log (or CONFORMANCE_RATCHET_LOG)
   --runs-dir PATH     required when measuring (or CONFORMANCE_RATCHET_RUNS_DIR)
   --expectations PATH
-  --backlog PATH      audit only; local [[ticket]] ledger, default
-                      draft/conformance-backlog/tickets.toml when it exists
-                      (or CONFORMANCE_BACKLOG; empty disables)
+  --backlog PATH      audit only; [[ticket]] ledger (or CONFORMANCE_BACKLOG)
+                      defaults to the repository's backlog when present
   --force
   --dry-run
 EOF

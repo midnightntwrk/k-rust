@@ -23,8 +23,8 @@ use support::chain::{Shape, definition as generated_definition, main_module};
 
 /// Number of chained modules in the reduced memory pin.
 const MODULES: usize = 10;
-/// Blow-up detector for the chain compile; the ceiling protects against the recorded
-/// pre-regression peak in `draft/EB/evidence/chain/27ee9550`.
+/// Blow-up detector for the chain compile; 400 MiB is below the previously measured
+/// regression peak.
 const PEAK_RSS_BLOWUP_DETECTOR_KIB: u64 = 400 * 1024;
 
 struct Workspace {

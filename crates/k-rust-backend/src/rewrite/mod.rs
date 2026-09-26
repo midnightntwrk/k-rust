@@ -1,6 +1,6 @@
 //! Rewrite steps and execution over internalized theories, the set of homes of
-//! backend.rewrite.apply, backend.rewrite.step, and backend.rewrite.execute of the CQ-10
-//! architecture picture: `apply` (one-rule conditional rewriting, backend.rewrite.apply),
+//! backend.rewrite.apply, backend.rewrite.step, and backend.rewrite.execute:
+//! `apply` (one-rule conditional rewriting, backend.rewrite.apply),
 //! `recover` (its indeterminate-match recovery ladder, backend.rewrite.apply), `step` (the
 //! priority-grouped step with remainder, backend.rewrite.step), `execute` (depth-first
 //! exploration of the rewrite tree, backend.rewrite.execute), and `predicates` (predicate

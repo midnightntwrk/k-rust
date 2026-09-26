@@ -308,7 +308,7 @@ pub(super) fn apply_rule_with_match(
 }
 
 /// The thirteen phases P1 to P13 in order; each phase's postcondition is what the next may
-/// assume (CQ-10 section 4.2).
+/// assume.
 fn apply_rule_phases(
     context: RuleContext<'_>,
     fresh_counter: &mut u64,

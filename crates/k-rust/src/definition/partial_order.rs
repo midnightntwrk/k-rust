@@ -11,7 +11,7 @@
 //! ```
 //!
 //! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
-//! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds after CQ-12's counter commit.
+//! Construction is O(V + E + closure); `Counter::KompilePartialOrdersBuilt` measures builds.
 //!
 //! A deterministic, `petgraph`-backed finite partial order.
 

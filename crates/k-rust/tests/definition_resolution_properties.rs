@@ -7,6 +7,14 @@ use k_rust::definition::{
 };
 use proptest::prelude::*;
 
+const MODULE_NAMES: [&str; 5] = [
+    "POTENTIAL-IMPORT-A",
+    "POTENTIAL-IMPORT-B",
+    "POTENTIAL-IMPORT-C",
+    "POTENTIAL-IMPORT-D",
+    "MAIN",
+];
+
 fn marker(name: &str) -> Sentence {
     Sentence::Bubble {
         sentence_type: "rule".into(),
@@ -25,31 +33,34 @@ proptest! {
     ) {
         let mut edge_index = 0;
         let mut modules = Vec::new();
-        for importer in 0..5 {
+        for importer in 0..MODULE_NAMES.len() {
             let mut imports = Vec::new();
             for imported in 0..importer {
                 if edges[edge_index] {
                     imports.push(FlatImport {
-                        name: format!("M{imported}"),
+                        name: MODULE_NAMES[imported].into(),
                         public: (edge_index % 2) == 0,
                     });
                 }
                 edge_index += 1;
             }
             modules.push(FlatModule {
-                name: format!("M{importer}"),
+                name: MODULE_NAMES[importer].into(),
                 imports,
-                local_sentences: vec![Arc::new(marker(&format!("M{importer}")))],
+                local_sentences: vec![Arc::new(marker(MODULE_NAMES[importer]))],
                 attributes: Attributes::default(),
             });
         }
         modules.sort_by_key(|module| {
-            let index = module.name[1..].parse::<usize>().unwrap();
+            let index = MODULE_NAMES
+                .iter()
+                .position(|name| *name == module.name.as_str())
+                .unwrap();
             (order_keys[index], module.name.clone())
         });
 
         let resolved = ResolvedDefinition::resolve(&Definition {
-            main_module: "M4".into(),
+            main_module: "MAIN".into(),
             modules,
             attributes: Attributes::default(),
         })

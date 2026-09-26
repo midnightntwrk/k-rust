@@ -22,7 +22,7 @@
 //!
 //! KORE emission builds declarations and generated axioms, then emits rules and equations with an owise competitor predicate.
 //! Complexity: the declaration, axiom, rule, and owise cards state the bounds of their parts.
-//! Catalog products and per-rule scans dominate; `KompileOwiseCompetitorScans` measures the competitor loop after CQ-12, and label dependency closure has a shared home.
+//! Catalog products and per-rule scans dominate; `KompileOwiseCompetitorScans` measures the competitor loop, and label dependency closure has a shared home.
 //!
 //! The declaration-producing prefix of Java's `ModuleToKORE`.
 

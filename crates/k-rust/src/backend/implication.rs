@@ -1,4 +1,4 @@
-//! Shared implication validation, checking, and condition results (S8 and S9).
+//! Shared implication validation, checking, and condition results.
 
 use std::{collections::BTreeSet, error::Error};
 

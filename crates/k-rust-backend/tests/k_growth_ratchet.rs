@@ -1,4 +1,4 @@
-//! CB-20 ratchet: term construction per step must not grow with the length of the `<k>` cell.
+//! Term construction per step must not grow with the length of the `<k>` cell.
 //!
 //! The fixture rewrites the head of a `kseq` chain and pushes one inert item behind it on every
 //! step, so the configuration grows by one item per step while the changed part stays constant.

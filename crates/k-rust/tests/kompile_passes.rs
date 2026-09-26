@@ -2916,11 +2916,7 @@ fn guard_or_patterns_propagates_sort_inference_errors() {
 #[test]
 fn complete_top_cell_or_compiles_with_a_top_cell_guard_alias() {
     let source = include_str!("fixtures/reference/guard-or/complete-top-branches.k");
-    let artifacts = compile_fixture(
-        "complete-top-branches.k",
-        source,
-        "WEM15-COMPLETE-TOP-BRANCHES",
-    );
+    let artifacts = compile_fixture("complete-top-branches.k", source, "COMPLETE-TOP-BRANCHES");
     let emitted =
         parse_definition(&artifacts.definition_kore).expect("emitted definition should parse");
     let reference = parse_pattern(include_str!(
@@ -2929,7 +2925,7 @@ fn complete_top_cell_or_compiles_with_a_top_cell_guard_alias() {
     .expect("pinned K authored rule should parse");
     assert!(
         emitted.modules.iter().any(|module| {
-            module.name == "WEM15-COMPLETE-TOP-BRANCHES"
+            module.name == "COMPLETE-TOP-BRANCHES"
                 && module.sentences.iter().any(|sentence| {
                     matches!(
                         sentence,

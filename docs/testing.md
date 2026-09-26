@@ -83,8 +83,9 @@ The pinned `kore-exec` and `kore-rpc` executables accept the threaded-runtime `G
 The conformance driver therefore clears its default `GHCRTS` for parser calls and for `krun --pattern`, which delegates to `kore-match-disjunction`; an explicitly configured `GHCRTS` remains the operator's choice.
 
 Every accepted non-`match` verdict is either justified by an exclusion category with an inline reason or is pending work with an empty exclusion and a measured reason ([compatibility.md](compatibility.md#driver-scope)).
-Pending work is tracked in a local backlog outside the repository: a TOML file of `[[ticket]]` rows, each with `id`, `title`, `state` (`open` or `closed`), and `cases`, the expectation case names it covers.
-`scripts/conformance-ratchet.sh --audit --backlog PATH` lists every non-excluded case whose latest measurement is not `match` and that no open ticket names, exits 3 when one exists, and lists tickets whose cases all match so that they can be closed; the wrapper passes `draft/conformance-backlog/tickets.toml` by default when that file exists.
+The tracked conformance backlog is a TOML file of `[[ticket]]` rows, each with `id`, `title`, `state` (`open` or `closed`), and `cases`, the expectation case names it covers.
+When the repository backlog is present, `scripts/conformance-ratchet.sh --audit` checks it by default; `--backlog PATH` or `CONFORMANCE_BACKLOG=PATH` selects a different ledger, and an empty `CONFORMANCE_BACKLOG` disables this check.
+With a backlog, the audit lists every non-excluded case whose latest measurement is not `match` and that no open ticket names, exits 3 when one exists, and lists tickets whose cases all match so that they can be closed.
 Ticket identifiers never appear in the expectations file.
 
 Update accepted verdicts only after inspecting the measured result and its reference evidence.

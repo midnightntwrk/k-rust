@@ -1,4 +1,4 @@
-module WEM15-COMPLETE-TOP-BRANCHES
+module COMPLETE-TOP-BRANCHES
   imports INT
   imports BOOL
   syntax Foo ::= "a" | "b" | "c"

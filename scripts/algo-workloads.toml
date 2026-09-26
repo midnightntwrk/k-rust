@@ -189,9 +189,8 @@ while (k <= n) {
 expect = "n * (n + 1) // 2"
 stdout_squeezed = ['inj{SortId{},SortKItem{}}(\dv{SortId{}}("sum")),inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}"))']
 
-# FUN untyped programs from K's tutorial: CB-14's ackermann.fun and the CB-20 controls, which
-# stay on one branch. Each check requires the one result to bind V to the integer the
-# tutorial's expected output names.
+# FUN untyped programs from K's tutorial: ackermann.fun and the single-branch controls.
+# Each check requires the one result to bind V to the integer the tutorial's expected output names.
 [[workload]]
 name = "fun-ackermann"
 command = "krun"
@@ -297,9 +296,9 @@ stdout_absent = ['\or{']
 # constructor-list-length with the list built by the program: length (build n) is n, and the
 # list of n constructors is the growing input.
 # The printed result carries the whole <store>, every closure the run allocated: 39 MB at n=100,
-# 1.3 GB at n=300, 34 GB at n=1000. krun writes it as it renders (OT-06), and the recorder reads
-# it as a stream (OT-08), keeping its size, SHA-256 and first 64 KiB. Search filters the
-# externalized result without copying it (OT-07), so peak RSS is about one copy of that pattern:
+# 1.3 GB at n=300, 34 GB at n=1000.
+# krun writes it as it renders, and the recorder reads it as a stream, keeping its size, SHA-256 and first 64 KiB.
+# Search filters the externalized result without copying it, so peak RSS is about one copy of that pattern:
 # with krust at ca771053, n=1000 measured 62.4 s and 1.09 GiB and printed 33 659 357 067 bytes;
 # n=300 measured 2.9 s and 0.19 GiB.
 [[workload]]
@@ -333,7 +332,7 @@ stdout_absent = ['\or{']
 # Heavy compiles: benchmark.sh's KEVM compile phase and the WASM and MIR cases of
 # scripts/reference-differential.toml in both pairings. The haskell/rust pairing (--backend rust,
 # with --md-selector "k & ! concrete") peaked at 20.5 GiB (WASM) and 29.2 GiB (MIR) at 9c81f35b,
-# almost all of it while writing execution.json (draft/optimization-tickets OT-05), so those two
+# almost all of it while writing execution.json, so those two
 # workloads carry a 40 GiB scope.
 [[workload]]
 name = "kevm-compile"

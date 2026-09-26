@@ -523,12 +523,12 @@ fn stdin_delimiter_run_command() -> (Command, PathBuf) {
     let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
     command.args([
         "krun",
-        fixtures.join("cb19.k").to_str().unwrap(),
-        fixtures.join("three.cb19").to_str().unwrap(),
+        fixtures.join("test.k").to_str().unwrap(),
+        fixtures.join("three.pgm").to_str().unwrap(),
         "--main-module",
-        "CB19",
+        "STDIN-DELIMITER-RUN",
         "--syntax-module",
-        "CB19-SYNTAX",
+        "STDIN-DELIMITER-RUN-SYNTAX",
         "--sort",
         "Stmt",
         "-I",
@@ -3662,7 +3662,7 @@ fn krun_search_final_decides_result_predicates_for_ground_overloaded_lists() {
         .args([
             "krun",
             fixtures.join("test.k").to_str().unwrap(),
-            fixtures.join("nondeterministic.cb11").to_str().unwrap(),
+            fixtures.join("nondeterministic.pgm").to_str().unwrap(),
             "--main-module",
             "SIMPLE-PRINT",
             "--syntax-module",
@@ -7763,9 +7763,9 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
         .join("tests/fixtures/reference/execution/star-cell-heating");
     let definition = fixtures.join("test.k");
     for (program, thread_cells, next) in [
-        ("one.cb10", 1, "1"),
-        ("two.cb10", 2, "2"),
-        ("two-late.cb10", 2, "2"),
+        ("one.pgm", 1, "1"),
+        ("two.pgm", 2, "2"),
+        ("two-late.pgm", 2, "2"),
     ] {
         let program_path = fixtures.join(program);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
@@ -7810,7 +7810,7 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
         .args([
             "krun",
             definition.to_str().unwrap(),
-            fixtures.join("two.cb10").to_str().unwrap(),
+            fixtures.join("two.pgm").to_str().unwrap(),
             "--main-module",
             "STAR-CELL-HEATING-SET",
             "--syntax-module",
@@ -7845,13 +7845,12 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
 
 #[test]
 fn krun_surface_pattern_projects_set_typed_star_cell() {
-    // reference: workers/CB-18-evidence/star-cell-heating-set/ref-{one,two}-kKk.out and
-    //   ref-{one,two}-kKKKk.out; the reference krun additionally prints _DotVar0/_DotVar1
-    //   bindings that krust projects away. ref-two-d0-K.out binds KK to the injected Stmt program.
+    // The reference krun additionally prints _DotVar0/_DotVar1 bindings that krust projects away.
+    // At depth zero, the reference binds KK to the injected Stmt program.
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/execution/star-cell-heating");
     let definition = fixtures.join("test.k");
-    for program in ["one.cb10", "two.cb10"] {
+    for program in ["one.pgm", "two.pgm"] {
         for (surface_pattern, expected_binding) in [
             ("<k> .K </k>", None),
             ("<k> KK:K </k>", Some(parse_pattern("dotk{}()").unwrap())),
@@ -7899,7 +7898,7 @@ fn krun_surface_pattern_projects_set_typed_star_cell() {
         .args([
             "krun",
             definition.to_str().unwrap(),
-            fixtures.join("two.cb10").to_str().unwrap(),
+            fixtures.join("two.pgm").to_str().unwrap(),
             "--main-module",
             "STAR-CELL-HEATING-SET",
             "--syntax-module",
@@ -7950,10 +7949,10 @@ fn krun_solves_map_keys_bound_by_a_star_set_cell_before_nested_sets() {
         .join("tests/fixtures/reference/execution/star-cell-map-nested-set");
     let definition = fixtures.join("test.k");
     for (program, cast_remains) in [
-        ("neg-two.cb17", true),
-        ("pos-two.cb17", false),
-        ("pos2-two.cb17", false),
-        ("two.cb17", false),
+        ("neg-two.pgm", true),
+        ("pos-two.pgm", false),
+        ("pos2-two.pgm", false),
+        ("two.pgm", false),
     ] {
         let program_path = fixtures.join(program);
         let output = Command::new(env!("CARGO_BIN_EXE_krust"))
