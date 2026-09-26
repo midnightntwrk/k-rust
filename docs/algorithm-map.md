@@ -148,7 +148,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - definition.equivalence.deduplicate — O(n^2 x eq) +1 mode — at k-rust/definition/equivalence.rs `dedup_by_equivalence`
 - definition.equivalence.sentence — O(N) — at k-rust/definition/equivalence.rs `sentence_equivalent`
 - definition.json.encode — O(N + L) — at k-rust/definition/json.rs `to_string`
-- definition.order.partial — O((V + E) log V + C log V) — at k-rust/definition/partial_order.rs `PartialOrder`
+- definition.order.partial — O((V + E) log V + C log V) +1 mode — at k-rust/definition/partial_order.rs `PartialOrder`
 - definition.outer.checks — O(N) — at k-rust/outer/checks.rs `check_list_declarations`
 - definition.outer.markdown — O(B) — at k-rust/outer/markdown.rs `extract_fenced_k_code`
 - definition.outer.requires — O(F x (F + F_b) + E x P + B) plus… +1 mode — in: [prepared definition manifest], [resolved source text] → out: [loaded definition] — at k-rust/outer/loader.rs `Loader::visit`

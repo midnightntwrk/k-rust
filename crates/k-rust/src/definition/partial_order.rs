@@ -8,6 +8,10 @@
 //! [[cost]]
 //! mode = "one partial order"
 //! bound = "O((V + E) log V + C log V)"
+//!
+//! [[cost]]
+//! mode = "upper_bounds or lower_bounds of a nonempty set S"
+//! bound = "O(|S| x (1 + b) x log V) with b the strict successors (upper) or predecessors (lower) of the member of S with the fewest; the first lower_bounds of an order also inverts the closure once, O(C log V)"
 //! ```
 //!
 //! Finite partial orders use Kahn topological sorting, reverse-order transitive closure, and set-intersection bounds.
@@ -16,6 +20,7 @@
 //! A deterministic, `petgraph`-backed finite partial order.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use k_rust_kore::measure::{self, Counter};
 use petgraph::Direction::{Incoming, Outgoing};
@@ -47,11 +52,25 @@ impl<T: std::fmt::Debug + std::fmt::Display> std::error::Error for Cycle<T> {}
 ///
 /// Like K's Java `POSet`, elements which occur in no relation are not members of
 /// the set. Direct relations are retained separately from their transitive closure.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct PartialOrder<T> {
     direct: BTreeSet<(T, T)>,
     closure: BTreeMap<T, BTreeSet<T>>,
     sorted: Vec<T>,
+    // The inverse of `closure`, with an entry for every element, built on the first query that
+    // needs the strict predecessors of an element.
+    predecessors: OnceLock<BTreeMap<T, BTreeSet<T>>>,
+}
+
+impl<T: std::fmt::Debug> std::fmt::Debug for PartialOrder<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PartialOrder")
+            .field("direct", &self.direct)
+            .field("closure", &self.closure)
+            .field("sorted", &self.sorted)
+            .finish()
+    }
 }
 
 impl<T: Ord> PartialEq for PartialOrder<T> {
@@ -140,6 +159,7 @@ impl<T: Clone + Ord> PartialOrder<T> {
             direct,
             closure,
             sorted: order.into_iter().map(|node| graph[node].clone()).collect(),
+            predecessors: OnceLock::new(),
         };
         measure::bump(Counter::KompilePartialOrdersBuilt);
         Ok(order)
@@ -200,18 +220,22 @@ impl<T: Clone + Ord> PartialOrder<T> {
     where
         T: 'a,
     {
-        self.bounds(elements, |order, candidate, element| {
-            order.less_than_eq(element, candidate)
-        })
+        self.bounds(
+            elements,
+            |element| self.closure.get(element),
+            |order, candidate, element| order.less_than_eq(element, candidate),
+        )
     }
 
     pub fn lower_bounds<'a>(&self, elements: impl IntoIterator<Item = &'a T>) -> BTreeSet<T>
     where
         T: 'a,
     {
-        self.bounds(elements, |order, candidate, element| {
-            order.less_than_eq(candidate, element)
-        })
+        self.bounds(
+            elements,
+            |element| self.predecessors().get(element),
+            |order, candidate, element| order.less_than_eq(candidate, element),
+        )
     }
 
     pub fn minimal<'a>(&self, elements: impl IntoIterator<Item = &'a T>) -> BTreeSet<T>
@@ -291,20 +315,59 @@ impl<T: Clone + Ord> PartialOrder<T> {
         components
     }
 
-    fn bounds<'a>(
-        &self,
+    fn predecessors(&self) -> &BTreeMap<T, BTreeSet<T>> {
+        self.predecessors.get_or_init(|| {
+            let mut predecessors = self
+                .closure
+                .keys()
+                .map(|element| (element.clone(), BTreeSet::new()))
+                .collect::<BTreeMap<_, _>>();
+            for (lesser, successors) in &self.closure {
+                for greater in successors {
+                    predecessors
+                        .get_mut(greater)
+                        .expect("every successor is an element")
+                        .insert(lesser.clone());
+                }
+            }
+            predecessors
+        })
+    }
+
+    /// The elements in `relation` to every member of `elements`, where `neighbours` gives the
+    /// elements strictly in that relation to one member (`None` for a non-member of the order).
+    fn bounds<'a, 'b>(
+        &'b self,
         elements: impl IntoIterator<Item = &'a T>,
+        neighbours: impl Fn(&T) -> Option<&'b BTreeSet<T>>,
         relation: impl Fn(&Self, &T, &T) -> bool,
     ) -> BTreeSet<T>
     where
         T: 'a,
     {
         let elements = elements.into_iter().collect::<Vec<_>>();
-        self.elements()
+        if elements.is_empty() {
+            return self.elements().cloned().collect();
+        }
+        // A bound is an element related or equal to every member, so it is a member itself or one
+        // of the member's neighbours; a non-member of the order has neither, so no bound exists.
+        // Testing the candidates of the member with the fewest neighbours finds every bound.
+        let mut seed = None::<(&T, &BTreeSet<T>)>;
+        for element in &elements {
+            let Some(candidates) = neighbours(element) else {
+                return BTreeSet::new();
+            };
+            if seed.is_none_or(|(_, fewest)| candidates.len() < fewest.len()) {
+                seed = Some((element, candidates));
+            }
+        }
+        let (member, candidates) = seed.expect("a nonempty set has a seed");
+        std::iter::once(member)
+            .chain(candidates)
             .filter(|candidate| {
                 elements
                     .iter()
-                    // Invariant: every entry of `elements` before `element` satisfies `relation(self, candidate, _)`; the scan consumes one entry per step, so `bounds` makes at most |self.elements()| * |elements| `relation` calls.
+                    // Invariant: every entry of `elements` before `element` satisfies `relation(self, candidate, _)`; the scan consumes one entry per step, so `bounds` makes at most (1 + |neighbours(seed)|) * |elements| `relation` calls.
                     .all(|element| relation(self, candidate, element))
             })
             .cloned()

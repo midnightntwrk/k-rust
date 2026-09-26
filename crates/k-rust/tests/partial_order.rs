@@ -81,3 +81,34 @@ fn equality_uses_the_transitive_relation() {
     let redundant = PartialOrder::new([("A", "B"), ("B", "C"), ("A", "C")]).unwrap();
     assert_eq!(reduced, redundant);
 }
+
+proptest::proptest! {
+    /// Bounds agree with their definition: the elements of the order related or equal to every
+    /// queried member, whether or not the members belong to the order.
+    #[test]
+    fn bounds_are_the_elements_related_to_every_member(
+        pairs in proptest::collection::vec((0u8..12, 0u8..12), 0..24),
+        query in proptest::collection::vec(0u8..14, 0..4),
+    ) {
+        // Orienting each pair from the smaller to the larger number keeps the relation acyclic.
+        let order = PartialOrder::new(
+            pairs
+                .into_iter()
+                .filter(|(left, right)| left != right)
+                .map(|(left, right)| (left.min(right), left.max(right))),
+        )
+        .unwrap();
+        let upper = order
+            .elements()
+            .filter(|candidate| query.iter().all(|member| order.less_than_eq(member, candidate)))
+            .copied()
+            .collect::<BTreeSet<_>>();
+        let lower = order
+            .elements()
+            .filter(|candidate| query.iter().all(|member| order.less_than_eq(candidate, member)))
+            .copied()
+            .collect::<BTreeSet<_>>();
+        proptest::prop_assert_eq!(order.upper_bounds(&query), upper);
+        proptest::prop_assert_eq!(order.lower_bounds(&query), lower);
+    }
+}

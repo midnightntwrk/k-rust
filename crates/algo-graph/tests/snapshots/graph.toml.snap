@@ -2884,6 +2884,10 @@ symbol = "find_cycle"
 mode = "one partial order"
 bound = "O((V + E) log V + C log V)"
 
+[[node.cost]]
+mode = "upper_bounds or lower_bounds of a nonempty set S"
+bound = "O(|S| x (1 + b) x log V) with b the strict successors (upper) or predecessors (lower) of the member of S with the fewest; the first lower_bounds of an order also inverts the closure once, O(C log V)"
+
 [[node]]
 kind = "algorithm"
 id = "definition.outer.checks"
