@@ -13,7 +13,7 @@
 //! ```
 //!
 //! KORE pretty printing produces a sequence of ops and renders it through `document::render`, which writes to an `io::Write` as it goes.
-//! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
+//! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling delimited groups directly onto that stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
 //! A pattern is printed by feeding `SyntaxOps` straight to the renderer (`Printer::write_pattern`), so neither its op sequence nor its text is held whole; `print_pattern` is the same path into a byte buffer.
 //! Definitions, modules, and sentences are built as a `Doc` first and then rendered by the same function.
 //! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; no dedicated counter.
@@ -486,26 +486,21 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                 stack.push(SyntaxTask::Text(format!("{open}{close}")));
                 return;
             }
-            let mut tasks = vec![
-                SyntaxTask::GroupStart,
-                SyntaxTask::Text(open.into()),
-                SyntaxTask::NestStart,
-                SyntaxTask::Line(""),
-            ];
-            for (index, item) in items.into_iter().enumerate() {
+            stack.push(SyntaxTask::GroupEnd);
+            stack.push(SyntaxTask::Text(close.into()));
+            stack.push(SyntaxTask::Line(""));
+            stack.push(SyntaxTask::NestEnd);
+            for (index, item) in items.into_iter().enumerate().rev() {
+                stack.push(item);
                 if index > 0 {
-                    tasks.push(SyntaxTask::Text(",".into()));
-                    tasks.push(SyntaxTask::Line(" "));
+                    stack.push(SyntaxTask::Line(" "));
+                    stack.push(SyntaxTask::Text(",".into()));
                 }
-                tasks.push(item);
             }
-            tasks.extend([
-                SyntaxTask::NestEnd,
-                SyntaxTask::Line(""),
-                SyntaxTask::Text(close.into()),
-                SyntaxTask::GroupEnd,
-            ]);
-            schedule(stack, tasks);
+            stack.push(SyntaxTask::Line(""));
+            stack.push(SyntaxTask::NestStart);
+            stack.push(SyntaxTask::Text(open.into()));
+            stack.push(SyntaxTask::GroupStart);
         }
         SyntaxTask::Sort(sort) => match sort {
             Sort::Variable(name) => stack.push(SyntaxTask::Text(name.clone())),
