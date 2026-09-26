@@ -13,7 +13,7 @@
 //! ```
 //!
 //! KORE pretty printing produces a sequence of ops and renders it through `document::render`, which writes to an `io::Write` as it goes.
-//! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling delimited groups directly onto that stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
+//! Building is O(N) over KORE syntax nodes: `SyntaxOps` emits each op of a pattern, sort, symbol, or variable once from an explicit task stack, scheduling fixed task sequences and delimited groups directly onto that stack, and the `Doc` combinators that copy ops (`concat`) or shift them (`nest`, `group`) wrap each op only in the fixed structural levels of definition, module, sentence, and attribute list, independent of pattern depth.
 //! A pattern is printed by feeding `SyntaxOps` straight to the renderer (`Printer::write_pattern`), so neither its op sequence nor its text is held whole; `print_pattern` is the same path into a byte buffer.
 //! Definitions, modules, and sentences are built as a `Doc` first and then rendered by the same function.
 //! Rendering decides each group's layout with a look-ahead bounded by the line width and writes every op once; no dedicated counter.
@@ -452,14 +452,15 @@ impl Iterator for SyntaxOps<'_> {
 
 /// Replace a syntax node or `Delimited` task by its children on `stack`, in reverse output order.
 fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
-    fn schedule<'a>(stack: &mut Vec<SyntaxTask<'a>>, tasks: Vec<SyntaxTask<'a>>) {
-        stack.extend(tasks.into_iter().rev());
-    }
-
-    fn grouped<'a>(mut tasks: Vec<SyntaxTask<'a>>) -> Vec<SyntaxTask<'a>> {
-        tasks.insert(0, SyntaxTask::GroupStart);
-        tasks.push(SyntaxTask::GroupEnd);
-        tasks
+    fn push_grouped<'a, const N: usize>(
+        stack: &mut Vec<SyntaxTask<'a>>,
+        tasks: [SyntaxTask<'a>; N],
+    ) {
+        stack.push(SyntaxTask::GroupEnd);
+        for task in tasks.into_iter().rev() {
+            stack.push(task);
+        }
+        stack.push(SyntaxTask::GroupStart);
     }
 
     fn delimited<'a>(
@@ -504,85 +505,87 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
         }
         SyntaxTask::Sort(sort) => match sort {
             Sort::Variable(name) => stack.push(SyntaxTask::Text(name.clone())),
-            Sort::Application { name, arguments } => schedule(
-                stack,
-                vec![
-                    SyntaxTask::Text(name.clone()),
-                    delimited("{", "}", arguments.iter().map(SyntaxTask::Sort)),
-                ],
-            ),
+            Sort::Application { name, arguments } => {
+                stack.push(delimited("{", "}", arguments.iter().map(SyntaxTask::Sort)));
+                stack.push(SyntaxTask::Text(name.clone()));
+            }
         },
-        SyntaxTask::Symbol(symbol) => schedule(
-            stack,
-            vec![
-                SyntaxTask::Text(symbol.name.clone()),
-                delimited(
-                    "{",
-                    "}",
-                    symbol.sort_parameters.iter().map(SyntaxTask::Sort),
-                ),
-            ],
-        ),
-        SyntaxTask::Variable(variable) => schedule(
-            stack,
-            vec![
-                SyntaxTask::Text(format!("{}:", variable.name)),
-                SyntaxTask::Sort(&variable.sort),
-            ],
-        ),
-        SyntaxTask::Pattern(pattern) => {
-            let tasks = match pattern {
-                Pattern::String(value) => vec![SyntaxTask::Text(string::quote(value))],
-                Pattern::Variable(variable) => vec![SyntaxTask::Variable(variable)],
-                Pattern::Application { symbol, arguments } => vec![
-                    SyntaxTask::Symbol(symbol),
-                    delimited("(", ")", arguments.iter().map(SyntaxTask::Pattern)),
-                ],
-                Pattern::Top { sort } => vec![
-                    SyntaxTask::Text("\\top{".into()),
-                    SyntaxTask::Sort(sort),
-                    SyntaxTask::Text("}()".into()),
-                ],
-                Pattern::Bottom { sort } => vec![
-                    SyntaxTask::Text("\\bottom{".into()),
-                    SyntaxTask::Sort(sort),
-                    SyntaxTask::Text("}()".into()),
-                ],
-                Pattern::And { sort, arguments } | Pattern::Or { sort, arguments } => {
-                    let name = if matches!(pattern, Pattern::And { .. }) {
-                        "and"
-                    } else {
-                        "or"
-                    };
-                    grouped(vec![
+        SyntaxTask::Symbol(symbol) => {
+            stack.push(delimited(
+                "{",
+                "}",
+                symbol.sort_parameters.iter().map(SyntaxTask::Sort),
+            ));
+            stack.push(SyntaxTask::Text(symbol.name.clone()));
+        }
+        SyntaxTask::Variable(variable) => {
+            stack.push(SyntaxTask::Sort(&variable.sort));
+            stack.push(SyntaxTask::Text(format!("{}:", variable.name)));
+        }
+        SyntaxTask::Pattern(pattern) => match pattern {
+            Pattern::String(value) => stack.push(SyntaxTask::Text(string::quote(value))),
+            Pattern::Variable(variable) => stack.push(SyntaxTask::Variable(variable)),
+            Pattern::Application { symbol, arguments } => {
+                stack.push(delimited(
+                    "(",
+                    ")",
+                    arguments.iter().map(SyntaxTask::Pattern),
+                ));
+                stack.push(SyntaxTask::Symbol(symbol));
+            }
+            Pattern::Top { sort } => {
+                stack.push(SyntaxTask::Text("}()".into()));
+                stack.push(SyntaxTask::Sort(sort));
+                stack.push(SyntaxTask::Text("\\top{".into()));
+            }
+            Pattern::Bottom { sort } => {
+                stack.push(SyntaxTask::Text("}()".into()));
+                stack.push(SyntaxTask::Sort(sort));
+                stack.push(SyntaxTask::Text("\\bottom{".into()));
+            }
+            Pattern::And { sort, arguments } | Pattern::Or { sort, arguments } => {
+                let name = if matches!(pattern, Pattern::And { .. }) {
+                    "and"
+                } else {
+                    "or"
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}{{")),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
                         delimited("(", ")", arguments.iter().map(SyntaxTask::Pattern)),
-                    ])
-                }
-                Pattern::Not { sort, argument } | Pattern::Next { sort, argument } => {
-                    let name = if matches!(pattern, Pattern::Not { .. }) {
-                        "not"
-                    } else {
-                        "next"
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::Not { sort, argument } | Pattern::Next { sort, argument } => {
+                let name = if matches!(pattern, Pattern::Not { .. }) {
+                    "not"
+                } else {
+                    "next"
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}{{")),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
                         delimited("(", ")", [SyntaxTask::Pattern(argument)]),
-                    ])
-                }
-                Pattern::Implies { sort, left, right }
-                | Pattern::Iff { sort, left, right }
-                | Pattern::Rewrites { sort, left, right } => {
-                    let name = match pattern {
-                        Pattern::Implies { .. } => "implies",
-                        Pattern::Iff { .. } => "iff",
-                        _ => "rewrites",
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::Implies { sort, left, right }
+            | Pattern::Iff { sort, left, right }
+            | Pattern::Rewrites { sort, left, right } => {
+                let name = match pattern {
+                    Pattern::Implies { .. } => "implies",
+                    Pattern::Iff { .. } => "iff",
+                    _ => "rewrites",
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}{{")),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
@@ -591,24 +594,27 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                             ")",
                             [SyntaxTask::Pattern(left), SyntaxTask::Pattern(right)],
                         ),
-                    ])
-                }
-                Pattern::Exists {
-                    sort,
-                    variable,
-                    body,
-                }
-                | Pattern::Forall {
-                    sort,
-                    variable,
-                    body,
-                } => {
-                    let name = if matches!(pattern, Pattern::Exists { .. }) {
-                        "exists"
-                    } else {
-                        "forall"
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::Exists {
+                sort,
+                variable,
+                body,
+            }
+            | Pattern::Forall {
+                sort,
+                variable,
+                body,
+            } => {
+                let name = if matches!(pattern, Pattern::Exists { .. }) {
+                    "exists"
+                } else {
+                    "forall"
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}{{")),
                         SyntaxTask::Sort(sort),
                         SyntaxTask::Text("}".into()),
@@ -617,39 +623,45 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                             ")",
                             [SyntaxTask::Variable(variable), SyntaxTask::Pattern(body)],
                         ),
-                    ])
-                }
-                Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
-                    let name = if matches!(pattern, Pattern::Mu { .. }) {
-                        "mu"
-                    } else {
-                        "nu"
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::Mu { variable, body } | Pattern::Nu { variable, body } => {
+                let name = if matches!(pattern, Pattern::Mu { .. }) {
+                    "mu"
+                } else {
+                    "nu"
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}{{}}")),
                         delimited(
                             "(",
                             ")",
                             [SyntaxTask::Variable(variable), SyntaxTask::Pattern(body)],
                         ),
-                    ])
-                }
-                Pattern::Ceil {
-                    operand_sort,
-                    result_sort,
-                    argument,
-                }
-                | Pattern::Floor {
-                    operand_sort,
-                    result_sort,
-                    argument,
-                } => {
-                    let name = if matches!(pattern, Pattern::Ceil { .. }) {
-                        "ceil"
-                    } else {
-                        "floor"
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::Ceil {
+                operand_sort,
+                result_sort,
+                argument,
+            }
+            | Pattern::Floor {
+                operand_sort,
+                result_sort,
+                argument,
+            } => {
+                let name = if matches!(pattern, Pattern::Ceil { .. }) {
+                    "ceil"
+                } else {
+                    "floor"
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}")),
                         delimited(
                             "{",
@@ -660,26 +672,29 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                             ],
                         ),
                         delimited("(", ")", [SyntaxTask::Pattern(argument)]),
-                    ])
-                }
-                Pattern::Equals {
-                    operand_sort,
-                    result_sort,
-                    left,
-                    right,
-                }
-                | Pattern::In {
-                    operand_sort,
-                    result_sort,
-                    left,
-                    right,
-                } => {
-                    let name = if matches!(pattern, Pattern::Equals { .. }) {
-                        "equals"
-                    } else {
-                        "in"
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::Equals {
+                operand_sort,
+                result_sort,
+                left,
+                right,
+            }
+            | Pattern::In {
+                operand_sort,
+                result_sort,
+                left,
+                right,
+            } => {
+                let name = if matches!(pattern, Pattern::Equals { .. }) {
+                    "equals"
+                } else {
+                    "in"
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}")),
                         delimited(
                             "{",
@@ -694,32 +709,34 @@ fn expand<'a>(stack: &mut Vec<SyntaxTask<'a>>, task: SyntaxTask<'a>) {
                             ")",
                             [SyntaxTask::Pattern(left), SyntaxTask::Pattern(right)],
                         ),
-                    ])
-                }
-                Pattern::DomainValue { sort, value } => vec![
-                    SyntaxTask::Text("\\dv{".into()),
-                    SyntaxTask::Sort(sort),
-                    SyntaxTask::Text(format!("}}({})", string::quote(value))),
-                ],
-                Pattern::AssociativeApplication {
-                    associativity,
-                    symbol,
-                    arguments,
-                } => {
-                    let name = match associativity {
-                        Associativity::Left => "left-assoc",
-                        Associativity::Right => "right-assoc",
-                    };
-                    grouped(vec![
+                    ],
+                );
+            }
+            Pattern::DomainValue { sort, value } => {
+                stack.push(SyntaxTask::Text(format!("}}({})", string::quote(value))));
+                stack.push(SyntaxTask::Sort(sort));
+                stack.push(SyntaxTask::Text("\\dv{".into()));
+            }
+            Pattern::AssociativeApplication {
+                associativity,
+                symbol,
+                arguments,
+            } => {
+                let name = match associativity {
+                    Associativity::Left => "left-assoc",
+                    Associativity::Right => "right-assoc",
+                };
+                push_grouped(
+                    stack,
+                    [
                         SyntaxTask::Text(format!("\\{name}{{}}(")),
                         SyntaxTask::Symbol(symbol),
                         delimited("(", ")", arguments.iter().map(SyntaxTask::Pattern)),
                         SyntaxTask::Text(")".into()),
-                    ])
-                }
-            };
-            schedule(stack, tasks);
-        }
+                    ],
+                );
+            }
+        },
     }
 }
 
@@ -762,7 +779,12 @@ fn join(documents: Vec<Doc>, separator: Doc) -> Doc {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+
     use indoc::indoc;
+
+    use super::{SyntaxOps, SyntaxTask};
+    use crate::kore::ast::{Associativity, Pattern, Sort, Symbol, Variable, VariableKind};
 
     macro_rules! assert_pattern_print_snapshot {
         ($code:expr) => {{
@@ -835,6 +857,181 @@ mod tests {
             endmodule []
             "#
         );
+    }
+
+    #[test]
+    fn syntax_ops_preserve_each_constructors_op_order() {
+        fn kind(pattern: &Pattern) -> &'static str {
+            match pattern {
+                Pattern::String(_) => "String",
+                Pattern::Variable(_) => "Variable",
+                Pattern::Application { .. } => "Application",
+                Pattern::Top { .. } => "Top",
+                Pattern::Bottom { .. } => "Bottom",
+                Pattern::And { .. } => "And",
+                Pattern::Or { .. } => "Or",
+                Pattern::Not { .. } => "Not",
+                Pattern::Next { .. } => "Next",
+                Pattern::Implies { .. } => "Implies",
+                Pattern::Iff { .. } => "Iff",
+                Pattern::Rewrites { .. } => "Rewrites",
+                Pattern::Exists { .. } => "Exists",
+                Pattern::Forall { .. } => "Forall",
+                Pattern::Mu { .. } => "Mu",
+                Pattern::Nu { .. } => "Nu",
+                Pattern::Ceil { .. } => "Ceil",
+                Pattern::Floor { .. } => "Floor",
+                Pattern::Equals { .. } => "Equals",
+                Pattern::In { .. } => "In",
+                Pattern::DomainValue { .. } => "DomainValue",
+                Pattern::AssociativeApplication { .. } => "AssociativeApplication",
+            }
+        }
+
+        let sort = || Sort::Application {
+            name: "SortS".into(),
+            arguments: vec![Sort::Variable("T".into())],
+        };
+        let element = || Variable {
+            kind: VariableKind::Element,
+            name: "X".into(),
+            sort: sort(),
+        };
+        let set = || Variable {
+            kind: VariableKind::Set,
+            name: "@X".into(),
+            sort: sort(),
+        };
+        let symbol = || Symbol {
+            name: "f".into(),
+            sort_parameters: vec![sort()],
+        };
+        let atom = || Pattern::String("a".into());
+        let patterns = vec![
+            Pattern::String("a".into()),
+            Pattern::Variable(element()),
+            Pattern::Application {
+                symbol: symbol(),
+                arguments: vec![atom(), atom()],
+            },
+            Pattern::Top { sort: sort() },
+            Pattern::Bottom { sort: sort() },
+            Pattern::And {
+                sort: sort(),
+                arguments: vec![atom(), atom()],
+            },
+            Pattern::Or {
+                sort: sort(),
+                arguments: vec![atom(), atom()],
+            },
+            Pattern::Not {
+                sort: sort(),
+                argument: Box::new(atom()),
+            },
+            Pattern::Next {
+                sort: sort(),
+                argument: Box::new(atom()),
+            },
+            Pattern::Implies {
+                sort: sort(),
+                left: Box::new(atom()),
+                right: Box::new(atom()),
+            },
+            Pattern::Iff {
+                sort: sort(),
+                left: Box::new(atom()),
+                right: Box::new(atom()),
+            },
+            Pattern::Rewrites {
+                sort: sort(),
+                left: Box::new(atom()),
+                right: Box::new(atom()),
+            },
+            Pattern::Exists {
+                sort: sort(),
+                variable: element(),
+                body: Box::new(atom()),
+            },
+            Pattern::Forall {
+                sort: sort(),
+                variable: element(),
+                body: Box::new(atom()),
+            },
+            Pattern::Mu {
+                variable: set(),
+                body: Box::new(atom()),
+            },
+            Pattern::Nu {
+                variable: set(),
+                body: Box::new(atom()),
+            },
+            Pattern::Ceil {
+                operand_sort: sort(),
+                result_sort: sort(),
+                argument: Box::new(atom()),
+            },
+            Pattern::Floor {
+                operand_sort: sort(),
+                result_sort: sort(),
+                argument: Box::new(atom()),
+            },
+            Pattern::Equals {
+                operand_sort: sort(),
+                result_sort: sort(),
+                left: Box::new(atom()),
+                right: Box::new(atom()),
+            },
+            Pattern::In {
+                operand_sort: sort(),
+                result_sort: sort(),
+                left: Box::new(atom()),
+                right: Box::new(atom()),
+            },
+            Pattern::DomainValue {
+                sort: sort(),
+                value: "a".into(),
+            },
+            Pattern::AssociativeApplication {
+                associativity: Associativity::Left,
+                symbol: symbol(),
+                arguments: vec![atom(), atom()],
+            },
+            Pattern::AssociativeApplication {
+                associativity: Associativity::Right,
+                symbol: symbol(),
+                arguments: vec![atom(), atom()],
+            },
+        ];
+        assert_eq!(patterns.len(), 23);
+
+        let mut output = String::new();
+        for pattern in &patterns {
+            writeln!(
+                output,
+                "{}: {:?}",
+                kind(pattern),
+                SyntaxOps::new(SyntaxTask::Pattern(pattern), 2).collect::<Vec<_>>()
+            )
+            .unwrap();
+        }
+        let variable = element();
+        let sort_variable = Sort::Variable("T".into());
+        let sort_application = sort();
+        let symbol = symbol();
+        for (name, task) in [
+            ("SortVariable", SyntaxTask::Sort(&sort_variable)),
+            ("SortApplication", SyntaxTask::Sort(&sort_application)),
+            ("Symbol", SyntaxTask::Symbol(&symbol)),
+            ("VariableRoot", SyntaxTask::Variable(&variable)),
+        ] {
+            writeln!(
+                output,
+                "{name}: {:?}",
+                SyntaxOps::new(task, 2).collect::<Vec<_>>()
+            )
+            .unwrap();
+        }
+        insta::assert_snapshot!(output);
     }
 
     mod streaming {
