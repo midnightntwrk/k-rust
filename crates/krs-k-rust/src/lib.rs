@@ -61,7 +61,7 @@ pub struct FrontendPin {
 /// The native frontend compatibility unit verified by this adapter.
 pub const FRONTEND_PIN: FrontendPin = FrontendPin {
     crate_version: "0.4.0",
-    source_revision: "bb52c3e9a4d2b9b2a0d3f2e3eaf37b3961de816f",
+    source_revision: "347f693e21ae220f1844005499da262f15ca3988",
     k_version: "7.1.337",
     k_source_revision: "4a46d1231473b599c699160132fd6e76a5c46406",
 };
@@ -217,8 +217,7 @@ pub struct OriginMapping {
 ///
 /// This value is intentionally not a [`LoadedDefinition`]. Its origin sidecar
 /// retains exact byte ranges and transformation stacks. Native source
-/// attributes retain a portable package-relative source name plus the exact
-/// Definition IR source-map key consumed by diagnostic translation; a native
+/// attributes retain a portable package-relative source name; a native
 /// line/column location is omitted because Definition IR has byte ranges but
 /// not source contents from which line/column coordinates could be derived
 /// honestly.
@@ -342,6 +341,8 @@ pub struct FrontendDiagnostic {
     pub source: Option<String>,
     /// Source location, when attached to the originating sentence.
     pub location: Option<SourceLocation>,
+    /// Input sentence addresses attached by the native frontend.
+    pub input_addresses: Vec<InputAddress>,
 }
 
 impl From<&NativeDiagnostic> for FrontendDiagnostic {
@@ -360,6 +361,7 @@ impl From<&NativeDiagnostic> for FrontendDiagnostic {
                 end_line: location.end_line,
                 end_column: location.end_column,
             }),
+            input_addresses: diagnostic.input_addresses.clone(),
         }
     }
 }
@@ -695,11 +697,8 @@ pub fn compile_definition(
             .iter()
             .filter(|diagnostic| {
                 diagnostic.code != "UnsupportedExistentialVariable"
-                    || diagnostic
-                        .source
-                        .as_deref()
-                        .and_then(native_source_map_key)
-                        .is_none_or(|key| authored_existential_keys.contains(key))
+                    || diagnostic_source_map_key(adapted.origins(), diagnostic)
+                        .is_none_or(|key| authored_existential_keys.contains(key.as_str()))
             })
             .cloned()
             .collect();
@@ -748,11 +747,24 @@ fn authored_existential_sentence_keys(ir: &DefinitionIr) -> BTreeSet<&str> {
         .collect()
 }
 
-fn native_source_map_key(source: &str) -> Option<&str> {
-    source
-        .rsplit_once("#krs-source-map=")
-        .map(|(_, key)| key)
-        .filter(|key| !key.is_empty())
+/// Resolve a native diagnostic's Structured sentence address to its KRS source key.
+#[must_use]
+pub fn diagnostic_source_map_key(
+    origins: &[OriginMapping],
+    diagnostic: &FrontendDiagnostic,
+) -> Option<SourceMapKey> {
+    diagnostic.input_addresses.iter().find_map(|address| {
+        (address.input == InputSpace::Structured)
+            .then(|| {
+                origins.iter().find(|mapping| {
+                    mapping.role == NativeNodeRole::Sentence
+                        && mapping.module == address.module
+                        && mapping.sentence_index == Some(address.index as usize)
+                })
+            })
+            .flatten()
+            .map(|mapping| mapping.key.clone())
+    })
 }
 
 /// Provisional test-oracle compilation through public frontend passes.
@@ -862,11 +874,24 @@ fn join_sentence_provenance(
                     let Some(module) = modules.get(address.module.as_str()) else {
                         return Err(ProvenanceError::MissingSentenceMapping(address.clone()));
                     };
-                    let Some(sentence) = module.sentences().get(index) else {
+                    if adapted
+                        .definition()
+                        .modules
+                        .iter()
+                        .find(|native_module| native_module.name == address.module)
+                        .is_none_or(|native_module| index >= native_module.local_sentences.len())
+                    {
                         return Err(ProvenanceError::IndexOutOfRange(address.clone()));
-                    };
+                    }
                     let Some(mapping) = mappings.get(&(address.module.as_str(), index)) else {
                         return Err(ProvenanceError::MissingSentenceMapping(address.clone()));
+                    };
+                    let Some(sentence) = module
+                        .sentences()
+                        .iter()
+                        .find(|sentence| sentence.origin().key() == &mapping.key)
+                    else {
+                        return Err(ProvenanceError::IndexOutOfRange(address.clone()));
                     };
                     let expected = input_kind(sentence);
                     if kind != expected {
@@ -2697,10 +2722,7 @@ fn attributes_for_origin(origin: &NodeOrigin) -> NativeAttributes {
             OriginFrame::Transformation { .. } => None,
         })
     {
-        attributes.insert(
-            native_definition::SOURCE_ATTRIBUTE,
-            json!(format!("{source}#krs-source-map={}", origin.key().as_str())),
-        );
+        attributes.insert(native_definition::SOURCE_ATTRIBUTE, json!(source));
     }
     attributes
 }

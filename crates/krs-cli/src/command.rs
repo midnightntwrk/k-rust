@@ -12,8 +12,8 @@ use krs_ir::{
     Sha256Digest, SourceFileId, SourceRange,
 };
 use krs_k_rust::{
-    Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, FrontendDiagnostic,
-    adapt_definition, compile_definition,
+    Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
+    compile_definition, diagnostic_source_map_key,
 };
 use sha2::{Digest, Sha256};
 use std::error::Error;
@@ -470,9 +470,12 @@ fn native_command_error(
     if diagnostics.is_empty() {
         return CommandError::Native(error);
     }
+    let Ok(adapted) = adapt_definition(prepared.lowered.definition()) else {
+        return CommandError::Native(error);
+    };
     let mut translated = Vec::with_capacity(diagnostics.len());
     for diagnostic in diagnostics {
-        let Some(key) = native_diagnostic_key(diagnostic) else {
+        let Some(key) = diagnostic_source_map_key(adapted.origins(), diagnostic) else {
             return CommandError::Native(error);
         };
         let Some(mut envelope) =
@@ -490,12 +493,6 @@ fn native_command_error(
     });
     translated.dedup();
     CommandError::Diagnostics(translated)
-}
-
-fn native_diagnostic_key(diagnostic: &FrontendDiagnostic) -> Option<krs_ir::SourceMapKey> {
-    let value = diagnostic.source.as_deref()?;
-    let (_, key) = value.rsplit_once("#krs-source-map=")?;
-    krs_ir::SourceMapKey::new(key).ok()
 }
 
 fn prepare_output(path: &Path) -> Result<(), CommandError> {

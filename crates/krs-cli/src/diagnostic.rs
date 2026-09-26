@@ -278,6 +278,7 @@ mod tests {
             message: "unsupported".to_owned(),
             source: None,
             location: None,
+            input_addresses: Vec::new(),
         };
         let translated = translate_native_diagnostic(&source_map, &key, &diagnostic)
             .expect("exact authored mapping");

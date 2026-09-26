@@ -1768,11 +1768,6 @@ fn definition_ir_maps_structurally_without_frontend_metadata() {
             .iter()
             .any(|import| import.name == "SMOKE-SYNTAX" && import.public)
     );
-    assert_eq!(
-        main.attributes.source(),
-        Some("src/lib.rs#krs-source-map=def.module.main"),
-        "the portable source path retains the exact IR origin key"
-    );
     assert_eq!(main.attributes.location(), None);
 
     let configuration = main
@@ -1922,16 +1917,21 @@ fn macro_unique_ids(macros: &str) -> std::collections::BTreeSet<String> {
 fn smoke_relation_covers_emitted_ids_and_authors() {
     let ir = smoke_definition();
     let artifacts = compile_definition(&ir, CompileOptions::default()).unwrap();
+    for emitted in [
+        &artifacts.definition_kore,
+        &artifacts.syntax_definition_kore,
+        &artifacts.macros_kore,
+    ] {
+        assert!(!emitted.contains("krs-source-map"));
+    }
     let ids = artifacts
         .sentence_provenance
         .iter()
         .map(|(id, _)| id.to_owned())
         .collect::<std::collections::BTreeSet<_>>();
-    // k-rust KK-44 will limit this relation to emitted rules and claims.
-    // KRS-2 tightens this subset check to key-set equality after adopting KK-44.
     let mut emitted_ids = unique_ids(&artifacts.definition_kore);
     emitted_ids.extend(macro_unique_ids(&artifacts.macros_kore));
-    assert!(emitted_ids.is_subset(&ids));
+    assert_eq!(emitted_ids, ids);
     let rule = &ir.modules()[0].sentences()[1];
     let key = rule.origin().key();
     let emitted = artifacts.sentence_provenance.emitted_by(key);
@@ -2030,6 +2030,14 @@ fn authored_claim_has_an_emitted_identity_with_its_origin() {
         },
     )
     .unwrap();
+    let relation_ids = artifacts
+        .sentence_provenance
+        .iter()
+        .map(|(id, _)| id.to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut emitted_ids = unique_ids(&artifacts.definition_kore);
+    emitted_ids.extend(macro_unique_ids(&artifacts.macros_kore));
+    assert_eq!(relation_ids, emitted_ids);
     let ids = artifacts.sentence_provenance.emitted_by(origin.key());
     assert!(!ids.is_empty());
     for id in ids {
@@ -2369,6 +2377,46 @@ fn provenance_join_rejects_broken_input_addresses() {
         ),
         Err(ProvenanceError::IndexOutOfRange(out_of_range))
     );
+}
+
+#[test]
+fn provenance_join_uses_mapping_key_for_ir_sentence_kind() {
+    use std::collections::BTreeMap;
+
+    use k_rust::kompile::EmittedSentenceProvenance;
+
+    let ir = smoke_definition();
+    let adapted = adapt_definition(&ir).unwrap();
+    let loaded = prepare_definition(adapted.definition().clone(), Backend::Llvm).unwrap();
+    let main = &ir.modules()[0];
+    let mut reordered_sentences = main.sentences().to_vec();
+    reordered_sentences.swap(0, 1);
+    let reordered_main = DefinitionModule::new(
+        main.origin().clone(),
+        main.id().clone(),
+        main.imports().to_vec(),
+        main.production_groups().to_vec(),
+        reordered_sentences,
+    );
+    let reordered_ir = DefinitionIr::new(
+        ir.main_module().clone(),
+        vec![reordered_main, ir.modules()[1].clone()],
+    )
+    .unwrap();
+    let address = InputAddress {
+        input: InputSpace::Structured,
+        module: "SMOKE".to_owned(),
+        index: 1,
+    };
+    let relation = BTreeMap::from([(
+        "rule-id".to_owned(),
+        EmittedSentenceProvenance {
+            input_addresses: vec![address.clone()],
+            input_sentence_kinds: BTreeMap::from([(address, InputSentenceKind::Rule)]),
+            generated_by: None,
+        },
+    )]);
+    assert!(super::join_sentence_provenance(&reordered_ir, &adapted, &loaded, &relation).is_ok());
 }
 
 #[test]
