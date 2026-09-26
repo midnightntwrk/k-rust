@@ -15,6 +15,7 @@ use kink_native::execution::{
 };
 use kink_native::feasibility::{LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
+use kink_native::report::{ReportInput, ReportProfile, ReportResult, step3_report};
 use kink_native::{NativeValidator, ObservedRule, ValidatedDefinition};
 use kink_pattern::{
     Atom, CollectionStop, Constructor, Evaluation, EvaluationContext, EvaluationOptions,
@@ -152,7 +153,7 @@ fn g3() -> Pattern {
     )
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum Fixture {
     Sym,
     Guard,
@@ -1106,4 +1107,224 @@ fn breadth_bound_absence_is_unknown_branch_limit() {
                 && !path.complete
                 && path.events.is_empty())
     );
+}
+
+// Report runs use the same program/plan rows as README section 6.1 and 6.2.
+// Leave ample watchdog time so a collection stop is determined by the fixture.
+const REPORT_BUDGET: ExecutionBudget = ExecutionBudget {
+    time: Duration::from_secs(120),
+    ..BUDGET
+};
+
+#[derive(Clone, Copy)]
+struct ReportRow {
+    id: &'static str,
+    fixture: Fixture,
+    program: fn() -> Pattern,
+    plan: fn(&EventVocabulary) -> PatternPlan,
+    budget: ExecutionBudget,
+}
+
+fn report_rows() -> [ReportRow; 15] {
+    let depth = ExecutionBudget {
+        max_depth: Some(1),
+        ..REPORT_BUDGET
+    };
+    let breadth = ExecutionBudget {
+        max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
+        ..REPORT_BUDGET
+    };
+    let row = |id, fixture, program, plan, budget| ReportRow {
+        id,
+        fixture,
+        program,
+        plan,
+        budget,
+    };
+    [
+        row("P1-WL-next", Fixture::Sym, p1, wl_next, REPORT_BUDGET),
+        row("P1-WL-after", Fixture::Sym, p1, wl_after, REPORT_BUDGET),
+        row("P2-WL-next", Fixture::Sym, p2, wl_next, REPORT_BUDGET),
+        row("P2-WL-after", Fixture::Sym, p2, wl_after, REPORT_BUDGET),
+        row("P3-WL-after", Fixture::Sym, p3, wl_after, REPORT_BUDGET),
+        row("P4-WL-after", Fixture::Sym, p4, wl_after, REPORT_BUDGET),
+        row("P5-WL-after", Fixture::Sym, p5, wl_after, REPORT_BUDGET),
+        row("P6-WL-after", Fixture::Sym, p6, wl_after, REPORT_BUDGET),
+        row("P7-WL-after", Fixture::Sym, p7, wl_after, REPORT_BUDGET),
+        row("P8-WL-after", Fixture::Sym, p8, wl_after, depth),
+        row("P8-W-only", Fixture::Sym, p8, w_only, depth),
+        row("P9-WL-after", Fixture::Sym, p9, wl_after, breadth),
+        row("G1-GWL-after", Fixture::Guard, g1, gwl_after, REPORT_BUDGET),
+        row("G2-GWL-after", Fixture::Guard, g2, gwl_after, REPORT_BUDGET),
+        row("G3-GWL-after", Fixture::Guard, g3, gwl_after, REPORT_BUDGET),
+    ]
+}
+
+fn report_on_backend(
+    row: ReportRow,
+    validator: &NativeValidator,
+    side: &ValidatedDefinition,
+    backend: &mut Backend,
+) -> String {
+    // Rebuild the manifest even when the Backend is reused.
+    let rules = observations(row.fixture, validator);
+    let manifest = validator
+        .observation_manifest(side, &rules)
+        .expect("fresh manifest");
+    let selected_rules = manifest.rules().cloned().collect();
+    let vocabulary = vocabulary(row.fixture);
+    let plan = (row.plan)(&vocabulary);
+    let state = support::initial_state((row.program)(), "SortProg");
+    let execution = ExecutionAdapter::new(manifest)
+        .execute(backend, &state, row.budget)
+        .expect("execution adapts");
+    assert!(!execution.timed_out(), "{}: watchdog timed out", row.id);
+    let sorts = SymbolSorts::from_definition(
+        &parse_definition(&side.artifacts().definition_kore).expect("compiled KORE parses"),
+    );
+    let normal = |_: &Pattern| ExecutionTerminalKind::Normal;
+    let bridged = paths_from_execution(
+        &execution,
+        &BridgeContext {
+            test_id: row.id,
+            classify: &normal,
+            sorts: &sorts,
+        },
+    )
+    .expect("execution bridges");
+    assert_ne!(
+        bridged.collection.stop,
+        CollectionStop::TimeLimit,
+        "{}: collection reached time limit",
+        row.id
+    );
+    let context = EvaluationContext {
+        test_id: row.id.into(),
+        bounds: row.budget.bounds(),
+        vocabulary,
+        selected_rules,
+        symbol_sorts: sorts,
+    };
+    let evaluation = with_backend_relations(backend, &state, |relations| {
+        evaluate_with(
+            &context,
+            &plan,
+            &bridged.paths,
+            &bridged.collection,
+            None,
+            EvaluationOptions {
+                stable_path_keys: true,
+                search_policy: SearchPolicy::Exhaustive,
+                input_error: false,
+            },
+            relations,
+        )
+    })
+    .expect("backend definition")
+    .expect("evaluation");
+    let report = step3_report(ReportInput {
+        profile: ReportProfile::from_smt(backend.capabilities().smt),
+        test_id: row.id,
+        budget: &row.budget,
+        result: ReportResult::Ok {
+            execution: &execution,
+            bridged: &bridged,
+            evaluation: &evaluation,
+        },
+    });
+    serde_json::to_string(&report).expect("report JSON")
+}
+
+fn fresh_report(row: ReportRow, validator: &NativeValidator, side: &ValidatedDefinition) -> String {
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        row.fixture.module(),
+        BackendOptions::default(),
+    )
+    .expect("fresh backend");
+    report_on_backend(row, validator, side, &mut backend)
+}
+
+fn assert_identical_reports(row: ReportRow, baseline: &str, candidate: &str) {
+    if baseline == candidate {
+        return;
+    }
+    let baseline: serde_json::Value = serde_json::from_str(baseline).expect("baseline JSON");
+    let candidate: serde_json::Value = serde_json::from_str(candidate).expect("candidate JSON");
+    fn differences(
+        path: &str,
+        left: &serde_json::Value,
+        right: &serde_json::Value,
+        output: &mut Vec<String>,
+    ) {
+        match (left, right) {
+            (serde_json::Value::Object(left), serde_json::Value::Object(right)) => {
+                for key in left.keys().chain(right.keys()) {
+                    let child = format!("{path}/{key}");
+                    match (left.get(key), right.get(key)) {
+                        (Some(a), Some(b)) => differences(&child, a, b, output),
+                        (a, b) => output.push(format!("{child}: {a:?} != {b:?}")),
+                    }
+                }
+            }
+            (serde_json::Value::Array(left), serde_json::Value::Array(right)) => {
+                for index in 0..left.len().max(right.len()) {
+                    let child = format!("{path}/{index}");
+                    match (left.get(index), right.get(index)) {
+                        (Some(a), Some(b)) => differences(&child, a, b, output),
+                        (a, b) => output.push(format!("{child}: {a:?} != {b:?}")),
+                    }
+                }
+            }
+            (a, b) if a != b => output.push(format!("{path}: {a} != {b}")),
+            _ => {}
+        }
+    }
+    let mut paths = Vec::new();
+    differences("$", &baseline, &candidate, &mut paths);
+    panic!(
+        "{}: report bytes differ; JSON differences: {paths:?}",
+        row.id
+    );
+}
+
+#[test]
+fn repeated_symbolic_runs_emit_identical_reports() {
+    for fixture in [Fixture::Sym, Fixture::Guard] {
+        let validator =
+            NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
+        let side = validator.compile_baseline().expect("fixture compiles");
+        for row in report_rows()
+            .into_iter()
+            .filter(|row| row.fixture == fixture)
+        {
+            let baseline = fresh_report(row, &validator, &side);
+            for _ in 1..3 {
+                let candidate = fresh_report(row, &validator, &side);
+                assert_identical_reports(row, &baseline, &candidate);
+            }
+        }
+    }
+}
+
+#[test]
+fn report_is_stable_across_backend_reuse() {
+    let row = report_rows()
+        .into_iter()
+        .find(|row| row.id == "P5-WL-after")
+        .expect("branching report row");
+    let validator =
+        NativeValidator::bind(support::load(row.fixture.name()), CompileOptions::default());
+    let side = validator.compile_baseline().expect("fixture compiles");
+    let fresh = fresh_report(row, &validator, &side);
+    let mut backend = Backend::new(
+        &side.artifacts().definition_kore,
+        row.fixture.module(),
+        BackendOptions::default(),
+    )
+    .expect("reused backend");
+    let first = report_on_backend(row, &validator, &side, &mut backend);
+    let second = report_on_backend(row, &validator, &side, &mut backend);
+    assert_identical_reports(row, &fresh, &first);
+    assert_identical_reports(row, &first, &second);
 }
