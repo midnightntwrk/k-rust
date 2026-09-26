@@ -2,36 +2,18 @@
 
 use std::fmt::Debug;
 
+use k_rust::backend::BackendOptions;
 use k_rust::kore::{ast::Pattern, codec};
 use kink_pattern::{Evaluation, EventAttribution, PathInput, PatternFailure, PatternOutcome};
 use serde_json::{Value, json};
 
 use crate::{
     bridge::{BridgeFailure, BridgedPaths},
-    execution::{AdaptedExecution, AdaptedLeaf, ExecutionAdapterFailure, ExecutionBudget},
+    execution::{
+        AdaptedExecution, AdaptedLeaf, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
+    },
     feasibility::LeafFeasibility,
 };
-
-/// The backend profile that produced the execution.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ReportProfile {
-    NoZ3,
-    Z3,
-}
-
-impl ReportProfile {
-    #[must_use]
-    pub const fn from_smt(smt: bool) -> Self {
-        if smt { Self::Z3 } else { Self::NoZ3 }
-    }
-
-    const fn name(self) -> &'static str {
-        match self {
-            Self::NoZ3 => "no-z3",
-            Self::Z3 => "z3",
-        }
-    }
-}
 
 /// A failed stage and the name of its failure variant, without diagnostic payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -109,11 +91,16 @@ pub enum ReportResult<'a> {
     Error(ReportError),
 }
 
-/// Inputs of one report. Use `ReportProfile::from_smt(backend.capabilities().smt)`.
+/// Inputs of one report.
 pub struct ReportInput<'a> {
-    pub profile: ReportProfile,
+    /// The profile the adapter expected ([`crate::execution::ExecutionAdapter::profile`]); a
+    /// completed pipeline implies the backend ran in it.
+    pub profile: SolverProfile,
     pub test_id: &'a str,
     pub budget: &'a ExecutionBudget,
+    /// The backend's SMT options. They decide when Z3 answers `unknown`, so they are part of
+    /// the budget (README R4); a no-Z3 backend ignores them.
+    pub backend_options: BackendOptions,
     pub result: ReportResult<'a>,
 }
 
@@ -216,7 +203,10 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
     })
 }
 
-/// Builds the exact version-1 step-3 report schema.
+/// The report schema version. Version 2 (SYM-3B-01) adds the SMT options to `budget`.
+pub const REPORT_VERSION: u64 = 2;
+
+/// Builds the exact version-2 step-3 report schema.
 #[must_use]
 pub fn step3_report(input: ReportInput<'_>) -> Value {
     let budget = input.budget;
@@ -225,6 +215,8 @@ pub fn step3_report(input: ReportInput<'_>) -> Value {
         "max_simplification_iterations": budget.max_simplification_iterations,
         "max_depth": budget.max_depth,
         "max_breadth": budget.max_breadth.map(|width| width.get()),
+        "smt_timeout_ms": input.backend_options.smt_timeout_ms,
+        "smt_retry_limit": input.backend_options.smt_retry_limit,
     });
     let result = match input.result {
         ReportResult::Ok { evaluation, .. } if evaluation.outcome == PatternOutcome::Error => {
@@ -296,7 +288,7 @@ pub fn step3_report(input: ReportInput<'_>) -> Value {
         };
     json!({
         "schema": "kink-step3-report",
-        "version": 1,
+        "version": REPORT_VERSION,
         "profile": input.profile.name(),
         "test_id": input.test_id,
         "budget": budget,
@@ -342,6 +334,13 @@ mod tests {
             max_simplification_iterations: 42,
             max_depth: Some(3),
             max_breadth: Some(NonZeroUsize::new(2).expect("nonzero")),
+        }
+    }
+
+    const fn backend_options() -> BackendOptions {
+        BackendOptions {
+            smt_timeout_ms: 4000,
+            smt_retry_limit: 2,
         }
     }
 
@@ -443,9 +442,10 @@ mod tests {
     fn success_report() -> Value {
         let (execution, bridged, evaluation) = fixture();
         step3_report(ReportInput {
-            profile: ReportProfile::from_smt(false),
+            profile: SolverProfile::NoZ3,
             test_id: "t",
             budget: &budget(),
+            backend_options: backend_options(),
             result: ReportResult::Ok {
                 execution: &execution,
                 bridged: &bridged,
@@ -491,6 +491,8 @@ mod tests {
                 "max_simplification_iterations",
                 "max_depth",
                 "max_breadth",
+                "smt_timeout_ms",
+                "smt_retry_limit",
             ])
         );
         assert_eq!(
@@ -554,7 +556,7 @@ mod tests {
             BTreeSet::from(["left", "right"])
         );
         assert_eq!(report["schema"], "kink-step3-report");
-        assert_eq!(report["version"], 1);
+        assert_eq!(report["version"], 2);
         assert_eq!(report["profile"], "no-z3");
         assert_eq!(report["outcome"], "match");
         assert_eq!(path["stop"], "terminal");
@@ -566,6 +568,8 @@ mod tests {
             term(&pattern("X:SortS{}"))
         );
         assert_eq!(report["budget"]["time_ms"], 1250);
+        assert_eq!(report["budget"]["smt_timeout_ms"], 4000);
+        assert_eq!(report["budget"]["smt_retry_limit"], 2);
     }
 
     #[test]
@@ -599,9 +603,10 @@ mod tests {
             ),
         ] {
             let report = step3_report(ReportInput {
-                profile: ReportProfile::NoZ3,
+                profile: SolverProfile::NoZ3,
                 test_id: "t",
                 budget: &budget(),
+                backend_options: backend_options(),
                 result: ReportResult::Error(error),
             });
             assert_eq!(report["outcome"], "error");
@@ -613,9 +618,10 @@ mod tests {
         let (execution, bridged, mut evaluation) = fixture();
         evaluation.outcome = PatternOutcome::Error;
         let report = step3_report(ReportInput {
-            profile: ReportProfile::NoZ3,
+            profile: SolverProfile::NoZ3,
             test_id: "t",
             budget: &budget(),
+            backend_options: backend_options(),
             result: ReportResult::Ok {
                 execution: &execution,
                 bridged: &bridged,
@@ -649,9 +655,10 @@ mod tests {
         evaluation.failure = Some(PathStop::DepthLimit);
         let render = |execution: &AdaptedExecution| {
             step3_report(ReportInput {
-                profile: ReportProfile::NoZ3,
+                profile: SolverProfile::NoZ3,
                 test_id: "t",
                 budget: &budget(),
+                backend_options: backend_options(),
                 result: ReportResult::Ok {
                     execution,
                     bridged: &bridged,
@@ -668,6 +675,25 @@ mod tests {
         assert_eq!(report["paths"][0]["feasibility"], "syntactic");
         execution.leaves[0].feasibility = LeafFeasibility::Unknown;
         assert_eq!(render(&execution)["paths"][0]["feasibility"], "unknown");
+    }
+
+    #[test]
+    fn report_profile_is_the_adapter_profile() {
+        let (execution, bridged, evaluation) = fixture();
+        for (profile, name) in [(SolverProfile::NoZ3, "no-z3"), (SolverProfile::Z3, "z3")] {
+            let report = step3_report(ReportInput {
+                profile,
+                test_id: "t",
+                budget: &budget(),
+                backend_options: backend_options(),
+                result: ReportResult::Ok {
+                    execution: &execution,
+                    bridged: &bridged,
+                    evaluation: &evaluation,
+                },
+            });
+            assert_eq!(report["profile"], name);
+        }
     }
 
     #[test]

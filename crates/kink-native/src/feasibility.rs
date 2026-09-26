@@ -836,6 +836,10 @@ mod tests {
             left: Box::new(y.clone()),
             right: Box::new(z()),
         };
+        // A present solver withholds the solver-free `Sat` (README 4.2, R9): the Z3 column is
+        // what the current code produces and is provisional until SYM-3B-03 decides when a
+        // solver `Sat` counts.
+        let sat_without_solver = if cfg!(feature = "z3") { Unknown } else { Sat };
         // (id, path, assumptions, expected)
         let rows = [
             (
@@ -848,13 +852,13 @@ mod tests {
                 "variable-identification",
                 path(PathStop::DepthLimit, top()),
                 vec![relation(x.clone(), y.clone())],
-                Sat,
+                sat_without_solver,
             ),
             (
                 "constructor-instantiation",
                 path(PathStop::Terminal, top()),
                 vec![relation(x.clone(), s(y.clone()))],
-                Sat,
+                sat_without_solver,
             ),
             (
                 "joint-clash",

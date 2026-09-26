@@ -11,11 +11,11 @@ use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, codec, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
-    AdaptedExecution, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass,
+    AdaptedExecution, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
 use kink_native::feasibility::{LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
-use kink_native::report::{ReportInput, ReportProfile, ReportResult, step3_report};
+use kink_native::report::{ReportInput, ReportResult, step3_report};
 use kink_native::{
     NativeValidator, ObservedRule, RewriteRules, RuleSelection, RuleSelector, SelectionFailure,
     ValidatedDefinition, select_rules,
@@ -26,6 +26,30 @@ use kink_pattern::{
     PatternOutcome, PatternPlan, PayloadClause, Relation, SearchPolicy, SymbolSorts, TermRelation,
     evaluate, evaluate_with,
 };
+
+/// The profile of this build (README section 9): the `z3` feature of kink-native.
+const PROFILE: SolverProfile = SolverProfile::BUILD;
+
+/// Selects the expected value of a profile table: `(no_z3, z3)` columns (README R8).
+fn by_profile<T>(no_z3: T, z3: T) -> T {
+    if cfg!(feature = "z3") { z3 } else { no_z3 }
+}
+
+/// SMT options for every backend in this file. k-rust's default 125 ms timeout makes a Z3
+/// `unknown` depend on load (README R4); 4 s doubled twice (up to 28 s per query) keeps the
+/// small fixture queries decided. A no-Z3 backend ignores them.
+const BACKEND_OPTIONS: BackendOptions = BackendOptions {
+    smt_timeout_ms: 4000,
+    smt_retry_limit: 2,
+};
+
+fn backend(kore: &str, module: &str) -> Backend {
+    Backend::new(kore, module, BACKEND_OPTIONS).expect("backend")
+}
+
+fn adapter(manifest: kink_native::observation::InstalledObservationManifest) -> ExecutionAdapter {
+    ExecutionAdapter::with_profile(manifest, PROFILE)
+}
 
 const BUDGET: ExecutionBudget = ExecutionBudget {
     time: Duration::from_secs(30),
@@ -327,14 +351,9 @@ fn run_side(
         .observation_manifest(side, rules)
         .expect("manifest installs");
     let selected_rules = manifest.rules().cloned().collect();
-    let mut backend = Backend::new(
-        &side.artifacts().definition_kore,
-        fixture.module(),
-        BackendOptions::default(),
-    )
-    .expect("backend");
+    let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
     let state = support::initial_state(program, "SortProg");
-    let execution = ExecutionAdapter::new(manifest)
+    let execution = adapter(manifest)
         .execute(&mut backend, &state, budget)
         .expect("execution adapts");
     let sorts = SymbolSorts::from_definition(
@@ -466,13 +485,8 @@ fn observation_erasure_preserves_live_leaves() {
         let manifest = validator
             .observation_manifest(&side, &rules)
             .expect("manifest");
-        let adapter = ExecutionAdapter::new(manifest);
-        let mut backend = Backend::new(
-            &side.artifacts().definition_kore,
-            module,
-            BackendOptions::default(),
-        )
-        .expect("backend");
+        let adapter = adapter(manifest);
+        let mut backend = backend(&side.artifacts().definition_kore, module);
         for (row, program, budget) in programs {
             let state = support::initial_state(program, sort);
             let observed = adapter
@@ -603,14 +617,9 @@ fn binding_names(fixture: Fixture, program: Pattern) -> Vec<(&'static str, Vec<S
     let manifest = validator
         .observation_manifest(&side, &rules)
         .expect("probe manifest");
-    let mut backend = Backend::new(
-        &side.artifacts().definition_kore,
-        fixture.module(),
-        BackendOptions::default(),
-    )
-    .expect("backend");
+    let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
     let state = support::initial_state(program, "SortProg");
-    let execution = ExecutionAdapter::new(manifest)
+    let execution = adapter(manifest)
         .execute(&mut backend, &state, BUDGET)
         .expect("probe execution");
     execution
@@ -755,16 +764,13 @@ fn symmem_fork_keeps_siblings_apart() {
     assert!(constructors.contains(&vec!["memoryLoad"]));
 }
 
+/// No-Z3 only: the Z3 build's G1/G2 values are rows of `profile_table_rows`.
+#[cfg(not(feature = "z3"))]
 #[test]
 fn solver_dependent_guard_is_unknown_without_z3() {
     let validator = NativeValidator::bind(support::load("guardedmem.k"), CompileOptions::default());
     let side = validator.compile_baseline().expect("fixture compiles");
-    let backend = Backend::new(
-        &side.artifacts().definition_kore,
-        "GUARDEDMEM",
-        BackendOptions::default(),
-    )
-    .expect("backend");
+    let backend = backend(&side.artifacts().definition_kore, "GUARDEDMEM");
     assert!(!backend.capabilities().smt);
     for program in [g1(), g2()] {
         let (run, vocabulary) = run(Fixture::Guard, program, BUDGET);
@@ -1010,11 +1016,18 @@ fn distinct_symbolic_addresses_match_under_unifier_assumption() {
         (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
     );
     let evaluation = decided(&mut run, &plan);
-    assert_eq!(
-        (evaluation.outcome, evaluation.failure),
-        (PatternOutcome::Match, None)
+    // Z3 column provisional (SYM-3B-03): with a solver present `BackendRelations` withholds
+    // the solver-free `Sat` for `X = Y` and does not yet trust a solver `Sat` (README 4.2, R9).
+    let expected = by_profile(
+        (PatternOutcome::Match, None),
+        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
     );
+    assert_eq!((evaluation.outcome, evaluation.failure), expected);
     assert_witness_paths(&run, &evaluation);
+    if PROFILE == SolverProfile::Z3 {
+        assert!(evaluation.witnesses.is_empty());
+        return;
+    }
     let path = only_witness_path(&run, &evaluation);
     let witness = &evaluation.witnesses[0];
     assert_eq!(witness.event_indices, [0, 1]);
@@ -1207,7 +1220,7 @@ fn report_on_backend(
     let vocabulary = vocabulary(row.fixture);
     let plan = (row.plan)(&vocabulary);
     let state = support::initial_state((row.program)(), "SortProg");
-    let execution = ExecutionAdapter::new(manifest)
+    let execution = adapter(manifest)
         .execute(backend, &state, row.budget)
         .expect("execution adapts");
     assert!(!execution.timed_out(), "{}: watchdog timed out", row.id);
@@ -1255,9 +1268,10 @@ fn report_on_backend(
     .expect("backend definition")
     .expect("evaluation");
     let report = step3_report(ReportInput {
-        profile: ReportProfile::from_smt(backend.capabilities().smt),
+        profile: PROFILE,
         test_id: row.id,
         budget: &row.budget,
+        backend_options: BACKEND_OPTIONS,
         result: ReportResult::Ok {
             execution: &execution,
             bridged: &bridged,
@@ -1268,12 +1282,7 @@ fn report_on_backend(
 }
 
 fn fresh_report(row: ReportRow, validator: &NativeValidator, side: &ValidatedDefinition) -> String {
-    let mut backend = Backend::new(
-        &side.artifacts().definition_kore,
-        row.fixture.module(),
-        BackendOptions::default(),
-    )
-    .expect("fresh backend");
+    let mut backend = backend(&side.artifacts().definition_kore, row.fixture.module());
     report_on_backend(row, validator, side, &mut backend)
 }
 
@@ -1349,12 +1358,7 @@ fn report_is_stable_across_backend_reuse() {
         NativeValidator::bind(support::load(row.fixture.name()), CompileOptions::default());
     let side = validator.compile_baseline().expect("fixture compiles");
     let fresh = fresh_report(row, &validator, &side);
-    let mut backend = Backend::new(
-        &side.artifacts().definition_kore,
-        row.fixture.module(),
-        BackendOptions::default(),
-    )
-    .expect("reused backend");
+    let mut backend = backend(&side.artifacts().definition_kore, row.fixture.module());
     let first = report_on_backend(row, &validator, &side, &mut backend);
     let second = report_on_backend(row, &validator, &side, &mut backend);
     assert_identical_reports(row, &fresh, &first);
@@ -1435,13 +1439,31 @@ fn owise_rule_is_not_taken_for_a_symbolic_subject() {
         );
     }
     let (mut symbolic, vocabulary) = run(Fixture::Owise, program(nat("X")), BUDGET);
-    // Matching `z` or `s(_)` against `X` needs a narrowing condition, which the no-Z3 profile
-    // cannot accept, so the priority group is undecided and the leaf is `Indeterminate`.
-    let [path] = symbolic.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert_eq!(path.stop, PathStop::BackendLimit);
-    assert!(path.events.is_empty());
+    // No-Z3: matching `z` or `s(_)` against `X` needs a narrowing condition, which `NoSolver`
+    // cannot accept, so the priority group is undecided and the one leaf is `Indeterminate`.
+    // Z3: narrowing is accepted; `zero` and `succ` each give a `Stuck` leaf whose predicate
+    // keeps its narrowing condition (`X = z`, `X = s(_)`), and `other` is still not taken. The
+    // Z3 column (constrained symbolic `Stuck` is `SolverUnknown`) is provisional: SYM-3B-02.
+    let stops: Vec<_> = symbolic
+        .bridged
+        .paths
+        .iter()
+        .map(|path| path.stop)
+        .collect();
+    assert_eq!(
+        stops,
+        by_profile(
+            vec![PathStop::BackendLimit],
+            vec![PathStop::SolverUnknown, PathStop::SolverUnknown]
+        )
+    );
+    for path in &symbolic.bridged.paths {
+        assert!(path.events.is_empty(), "{path:?}");
+        if PROFILE == SolverProfile::Z3 {
+            assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
+        }
+    }
+    let failure = by_profile(PathStop::BackendLimit, PathStop::SolverUnknown);
     let plan = wl_after(&vocabulary);
     for evaluation in [decided(&mut symbolic, &plan), outcome(&symbolic, &plan)] {
         assert_eq!(
@@ -1449,7 +1471,7 @@ fn owise_rule_is_not_taken_for_a_symbolic_subject() {
             PatternOutcome::Unknown,
             "{evaluation:?}"
         );
-        assert_eq!(evaluation.failure, Some(PathStop::BackendLimit));
+        assert_eq!(evaluation.failure, Some(failure));
     }
 }
 
@@ -1542,4 +1564,311 @@ fn ensures_constraint_keeps_a_later_witness_unknown() {
         (evaluation.outcome, evaluation.failure),
         (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
     );
+}
+
+/// `symwrap.k`: write to `wrap(s(X))`, load from `wrap(z)`.
+fn wrap_program() -> Pattern {
+    seq(
+        write(wrap(s(nat("X"))), nat("V")),
+        seq(load(wrap(z()), nat("W")), halt()),
+    )
+}
+/// `symowise.k`: a symbolic selector in front of a ground write/load pair.
+fn owise_program() -> Pattern {
+    support::app(
+        "Lblpick",
+        vec![
+            nat("X"),
+            seq(
+                write(addr(z()), nat("V")),
+                seq(load(addr(z()), nat("W")), halt()),
+            ),
+        ],
+    )
+}
+/// `symensures.k`: `pin` constrains `X` and `Y` after the write/load pair.
+fn ensures_program() -> Pattern {
+    seq(
+        write(addr(nat("X")), nat("V")),
+        seq(
+            load(addr(nat("Y")), nat("W")),
+            support::app("Lblpin", vec![nat("X"), nat("Y"), halt()]),
+        ),
+    )
+}
+
+/// An expected status: outcome and, for `unknown`, its failure.
+type Status = (PatternOutcome, Option<PathStop>);
+
+/// One profile-table row: README 6.1, 6.2 and 6.3 programs with `(no_z3, z3)` columns for the
+/// bridged path stops (in path order), plain `evaluate`, and `evaluate_with(BackendRelations)`.
+struct ProfileRow {
+    id: &'static str,
+    fixture: Fixture,
+    program: fn() -> Pattern,
+    plan: fn(&EventVocabulary) -> PatternPlan,
+    budget: ExecutionBudget,
+    stops: (&'static [PathStop], &'static [PathStop]),
+    structural: (Status, Status),
+    decided: (Status, Status),
+}
+
+/// Every symbolic row in both profiles. A Z3 cell that differs from its no-Z3 cell is what the
+/// SYM-3B-01 code produces and is provisional: SYM-3B-02 decides Z3 stop semantics
+/// (constrained or symbolic `Stuck`, `Vacuous`, `Trivial`), SYM-3B-03 when a solver `Sat`
+/// counts, and SYM-3B-04 fills G1/G2 from README 6.2 (target: G1 match, G2 no-match).
+#[test]
+fn profile_table_rows() {
+    use PathStop::{BackendLimit, BranchLimit, DepthLimit, SolverUnknown, Terminal};
+    use PatternOutcome::{Match, NoMatch, Unknown};
+    let depth = ExecutionBudget {
+        max_depth: Some(1),
+        ..BUDGET
+    };
+    let breadth = ExecutionBudget {
+        max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
+        ..BUDGET
+    };
+    let same = |status: Status| (status, status);
+    let matched = same((Match, None));
+    let absent = same((NoMatch, None));
+    let rows = [
+        ProfileRow {
+            id: "P1-WL-next",
+            fixture: Fixture::Sym,
+            program: p1,
+            plan: wl_next,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: matched,
+            decided: matched,
+        },
+        ProfileRow {
+            id: "P1-WL-after",
+            fixture: Fixture::Sym,
+            program: p1,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: matched,
+            decided: matched,
+        },
+        ProfileRow {
+            id: "P2-WL-next",
+            fixture: Fixture::Sym,
+            program: p2,
+            plan: wl_next,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: absent,
+            decided: absent,
+        },
+        ProfileRow {
+            id: "P2-WL-after",
+            fixture: Fixture::Sym,
+            program: p2,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: matched,
+            decided: matched,
+        },
+        ProfileRow {
+            id: "P3-WL-after",
+            fixture: Fixture::Sym,
+            program: p3,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: absent,
+            decided: absent,
+        },
+        ProfileRow {
+            id: "P4-WL-after",
+            fixture: Fixture::Sym,
+            program: p4,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal, Terminal], &[Terminal, Terminal]),
+            structural: absent,
+            decided: absent,
+        },
+        ProfileRow {
+            id: "P5-WL-after",
+            fixture: Fixture::Sym,
+            program: p5,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal, Terminal], &[Terminal, Terminal]),
+            structural: matched,
+            decided: matched,
+        },
+        ProfileRow {
+            id: "P6-WL-after",
+            fixture: Fixture::Sym,
+            program: p6,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: same((Unknown, Some(SolverUnknown))),
+            // Z3 provisional (SYM-3B-03): no `Sat` for `X = Y` while a solver is present.
+            decided: ((Match, None), (Unknown, Some(SolverUnknown))),
+        },
+        ProfileRow {
+            id: "P7-WL-after",
+            fixture: Fixture::Sym,
+            program: p7,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: same((Unknown, Some(SolverUnknown))),
+            decided: absent,
+        },
+        ProfileRow {
+            id: "P8-WL-after",
+            fixture: Fixture::Sym,
+            program: p8,
+            plan: wl_after,
+            budget: depth,
+            stops: (&[DepthLimit], &[DepthLimit]),
+            structural: same((Unknown, Some(DepthLimit))),
+            decided: same((Unknown, Some(DepthLimit))),
+        },
+        ProfileRow {
+            id: "P8-W-only",
+            fixture: Fixture::Sym,
+            program: p8,
+            plan: w_only,
+            budget: depth,
+            stops: (&[DepthLimit], &[DepthLimit]),
+            structural: matched,
+            decided: matched,
+        },
+        ProfileRow {
+            id: "P9-WL-after",
+            fixture: Fixture::Sym,
+            program: p9,
+            plan: wl_after,
+            budget: breadth,
+            stops: (&[BranchLimit, BranchLimit], &[BranchLimit, BranchLimit]),
+            structural: same((Unknown, Some(BranchLimit))),
+            decided: same((Unknown, Some(BranchLimit))),
+        },
+        // G1/G2 Z3 provisional (SYM-3B-02): Z3 decides the `requires`, giving three
+        // constrained ground `Stuck` leaves (halt, fault after the write, fault), all
+        // `SolverUnknown` until constrained `Stuck` leaves are decided.
+        ProfileRow {
+            id: "G1-GWL-after",
+            fixture: Fixture::Guard,
+            program: g1,
+            plan: gwl_after,
+            budget: BUDGET,
+            stops: (
+                &[BackendLimit],
+                &[SolverUnknown, SolverUnknown, SolverUnknown],
+            ),
+            structural: (
+                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
+            ),
+            decided: (
+                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
+            ),
+        },
+        ProfileRow {
+            id: "G2-GWL-after",
+            fixture: Fixture::Guard,
+            program: g2,
+            plan: gwl_after,
+            budget: BUDGET,
+            stops: (
+                &[BackendLimit],
+                &[SolverUnknown, SolverUnknown, SolverUnknown],
+            ),
+            structural: (
+                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
+            ),
+            decided: (
+                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
+            ),
+        },
+        ProfileRow {
+            id: "G3-GWL-after",
+            fixture: Fixture::Guard,
+            program: g3,
+            plan: gwl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: matched,
+            decided: matched,
+        },
+        ProfileRow {
+            id: "symwrap-WL-after",
+            fixture: Fixture::Wrap,
+            program: wrap_program,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[Terminal], &[Terminal]),
+            structural: same((Unknown, Some(SolverUnknown))),
+            decided: same((Unknown, Some(SolverUnknown))),
+        },
+        // Z3 provisional (SYM-3B-02): narrowing gives two constrained symbolic `Stuck` leaves.
+        ProfileRow {
+            id: "symowise-WL-after",
+            fixture: Fixture::Owise,
+            program: owise_program,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[BackendLimit], &[SolverUnknown, SolverUnknown]),
+            structural: (
+                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
+            ),
+            decided: (
+                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
+            ),
+        },
+        ProfileRow {
+            id: "symensures-WL-after",
+            fixture: Fixture::Ensures,
+            program: ensures_program,
+            plan: wl_after,
+            budget: BUDGET,
+            stops: (&[SolverUnknown], &[SolverUnknown]),
+            structural: same((Unknown, Some(SolverUnknown))),
+            decided: same((Unknown, Some(SolverUnknown))),
+        },
+    ];
+    let mut failures = Vec::new();
+    for row in rows {
+        let (mut run, vocabulary) = run(row.fixture, (row.program)(), row.budget);
+        let plan = (row.plan)(&vocabulary);
+        let stops: Vec<_> = run.bridged.paths.iter().map(|path| path.stop).collect();
+        let plain = outcome(&run, &plan);
+        let decided = decided(&mut run, &plan);
+        assert_witness_paths(&run, &plain);
+        assert_witness_paths(&run, &decided);
+        let actual = (
+            stops.as_slice(),
+            (plain.outcome, plain.failure),
+            (decided.outcome, decided.failure),
+        );
+        let expected = (
+            by_profile(row.stops.0, row.stops.1),
+            by_profile(row.structural.0, row.structural.1),
+            by_profile(row.decided.0, row.decided.1),
+        );
+        if actual != expected {
+            failures.push(format!(
+                "{} ({}): expected {expected:?}, got {actual:?}",
+                row.id,
+                PROFILE.name()
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

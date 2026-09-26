@@ -101,6 +101,49 @@ impl HaltClass {
     }
 }
 
+/// The solver profile of a backend. k-rust chooses its solver at compile time, so one build is
+/// one profile: `NoZ3` without the `z3` feature of this crate, `Z3` with it (README section 9 of
+/// `draft/tasks/symbolic-branching`).
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SolverProfile {
+    /// k-rust's `NoSolver`: every SMT query is unavailable. The qualified profile.
+    NoZ3,
+    /// k-rust built with `z3-inference`.
+    Z3,
+}
+
+impl SolverProfile {
+    /// The profile this build of kink-native selects: `Z3` exactly when its `z3` feature is
+    /// on. The feature forwards to k-rust, so a backend of this build reports the same profile
+    /// unless another crate changed k-rust's features, which the adapter then rejects.
+    pub const BUILD: Self = if cfg!(feature = "z3") {
+        Self::Z3
+    } else {
+        Self::NoZ3
+    };
+
+    /// The profile whose backend reports `smt` capability `smt`.
+    #[must_use]
+    pub const fn from_smt(smt: bool) -> Self {
+        if smt { Self::Z3 } else { Self::NoZ3 }
+    }
+
+    /// The profile `backend` actually runs in.
+    #[must_use]
+    pub fn of(backend: &Backend) -> Self {
+        Self::from_smt(backend.capabilities().smt)
+    }
+
+    /// The report name: `"no-z3"` or `"z3"`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::NoZ3 => "no-z3",
+            Self::Z3 => "z3",
+        }
+    }
+}
+
 /// Limits of one execution.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExecutionBudget {
@@ -196,7 +239,8 @@ impl AdaptedExecution {
 /// Execution adapter failure. No adapted execution is returned.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExecutionAdapterFailure {
-    /// The backend was built with an SMT solver; only the no-Z3 profile is qualified.
+    /// The backend's solver profile ([`SolverProfile::of`]) differs from the profile the adapter
+    /// expects ([`ExecutionAdapter::profile`]), in either direction.
     SolverProfileMismatch,
     InvalidState(String),
     Backend(String),
@@ -232,21 +276,47 @@ fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest 
     }
 }
 
-/// Observed execution for one installed manifest.
+/// Observed execution for one installed manifest, in one expected solver profile.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutionAdapter {
     manifest: InstalledObservationManifest,
+    profile: SolverProfile,
 }
 
 impl ExecutionAdapter {
+    /// An adapter that expects the qualified no-Z3 profile.
     #[must_use]
     pub const fn new(manifest: InstalledObservationManifest) -> Self {
-        Self { manifest }
+        Self::with_profile(manifest, SolverProfile::NoZ3)
+    }
+
+    /// An adapter that expects `profile`; a backend of the other profile is
+    /// [`ExecutionAdapterFailure::SolverProfileMismatch`].
+    #[must_use]
+    pub const fn with_profile(
+        manifest: InstalledObservationManifest,
+        profile: SolverProfile,
+    ) -> Self {
+        Self { manifest, profile }
     }
 
     #[must_use]
     pub const fn manifest(&self) -> &InstalledObservationManifest {
         &self.manifest
+    }
+
+    /// The solver profile this adapter accepts.
+    #[must_use]
+    pub const fn profile(&self) -> SolverProfile {
+        self.profile
+    }
+
+    fn check_profile(&self, backend: &Backend) -> Result<(), ExecutionAdapterFailure> {
+        if SolverProfile::of(backend) == self.profile {
+            Ok(())
+        } else {
+            Err(ExecutionAdapterFailure::SolverProfileMismatch)
+        }
     }
 
     /// Executes `state` from the backend's default module as one observed PathSet run.
@@ -256,9 +326,7 @@ impl ExecutionAdapter {
         state: &Pattern,
         budget: ExecutionBudget,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
-        if backend.capabilities().smt {
-            return Err(ExecutionAdapterFailure::SolverProfileMismatch);
-        }
+        self.check_profile(backend)?;
         let encoded = codec::to_value(state)
             .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
         let inhabitation = with_definition(backend, |definition| {
@@ -297,9 +365,7 @@ impl ExecutionAdapter {
         state: &Pattern,
         budget: ExecutionBudget,
     ) -> Result<Vec<BaselineLeaf>, ExecutionAdapterFailure> {
-        if backend.capabilities().smt {
-            return Err(ExecutionAdapterFailure::SolverProfileMismatch);
-        }
+        self.check_profile(backend)?;
         let encoded = codec::to_value(state)
             .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
         let (result, _) = execute_with_watchdog(backend, encoded, budget, Backend::execute)?;
@@ -444,12 +510,13 @@ mod tests {
             BackendOptions::default(),
         )
         .expect("backend");
-        let adapter = ExecutionAdapter::new(
+        let adapter = ExecutionAdapter::with_profile(
             InstalledObservationManifest::install_with_authors(
                 Vec::new(),
                 std::collections::BTreeMap::new(),
             )
             .expect("empty manifest"),
+            SolverProfile::BUILD,
         );
         let variable = Variable {
             kind: VariableKind::Element,
@@ -476,6 +543,72 @@ mod tests {
             adapter.execute(&mut backend, &state, budget),
             Err(ExecutionAdapterFailure::UninhabitedVariable(variable))
         );
+    }
+
+    /// The adapter accepts exactly the backend profile it expects: a no-Z3 adapter rejects a Z3
+    /// backend and a Z3 adapter rejects a no-Z3 backend. One build has one backend profile, so
+    /// each gate exercises one rejection direction (`cargo test` the Z3-expecting adapter, the
+    /// Z3 gate the no-Z3 adapter).
+    #[test]
+    fn z3_build_rejects_no_z3_profile_and_vice_versa() {
+        use k_rust::backend::BackendOptions;
+        let build = SolverProfile::BUILD;
+        assert_eq!(build == SolverProfile::Z3, cfg!(feature = "z3"));
+        let mut backend = Backend::new(
+            r"[]
+            module MAIN
+                sort SortS{} []
+                symbol Lbla{}() : SortS{} [constructor{}()]
+            endmodule []",
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .expect("backend");
+        assert_eq!(SolverProfile::of(&backend), build);
+        let manifest = || {
+            InstalledObservationManifest::install_with_authors(
+                Vec::new(),
+                std::collections::BTreeMap::new(),
+            )
+            .expect("empty manifest")
+        };
+        let state = Pattern::Application {
+            symbol: k_rust::kore::ast::Symbol {
+                name: "Lbla".to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: Vec::new(),
+        };
+        let budget = ExecutionBudget {
+            time: Duration::from_secs(10),
+            max_simplification_iterations: 10,
+            max_depth: None,
+            max_breadth: None,
+        };
+        assert_eq!(
+            ExecutionAdapter::new(manifest()).profile(),
+            SolverProfile::NoZ3
+        );
+        for profile in [SolverProfile::NoZ3, SolverProfile::Z3] {
+            let adapter = ExecutionAdapter::with_profile(manifest(), profile);
+            assert_eq!(adapter.profile(), profile);
+            let observed = adapter.execute(&mut backend, &state, budget);
+            let unobserved = adapter.execute_unobserved(&mut backend, &state, budget);
+            if profile == build {
+                let observed = observed.expect("matching profile executes");
+                assert_eq!(observed.leaves().len(), 1);
+                assert_eq!(unobserved.expect("matching profile executes").len(), 1);
+            } else {
+                assert_eq!(
+                    observed,
+                    Err(ExecutionAdapterFailure::SolverProfileMismatch)
+                );
+                assert_eq!(
+                    unobserved,
+                    Err(ExecutionAdapterFailure::SolverProfileMismatch)
+                );
+            }
+        }
     }
 
     #[test]

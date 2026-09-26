@@ -17,7 +17,7 @@ use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::ast::Pattern;
-use kink_native::execution::{ExecutionAdapter, ExecutionBudget};
+use kink_native::execution::{ExecutionAdapter, ExecutionBudget, SolverProfile};
 use kink_native::observation::NativeEvent;
 use kink_native::{
     IdentityError, ManifestFailure, NativeValidator, RewriteRules, RuleSelection, RuleSelector,
@@ -373,7 +373,7 @@ fn observed(selector: RuleSelector, cardinality: usize, state: &Pattern) -> Vec<
         BackendOptions::default(),
     )
     .expect("backend");
-    let execution = ExecutionAdapter::new(manifest)
+    let execution = ExecutionAdapter::with_profile(manifest, SolverProfile::BUILD)
         .execute(
             &mut backend,
             state,

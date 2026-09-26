@@ -15,7 +15,9 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::{kore_application, kore_sort};
 use k_rust::kore::{ast::Pattern, parser::parse_definition};
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
-use kink_native::execution::{AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass};
+use kink_native::execution::{
+    AdaptedExecution, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
+};
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{
     ManifestFailure, NativeValidator, ObservedRule, ValidatedDefinition, equivalent_compilation,
@@ -252,7 +254,7 @@ fn mutated_unlabelled_rule_is_observed_on_both_sides() {
             BackendOptions::default(),
         )
         .expect("backend");
-        let execution = ExecutionAdapter::new(manifest)
+        let execution = ExecutionAdapter::with_profile(manifest, SolverProfile::BUILD)
             .execute(&mut backend, &state, BUDGET)
             .expect("observed execute");
         assert!(execution.leaves().iter().any(|leaf| leaf.branch.events.iter().any(|event| matches!(event, kink_native::observation::NativeEvent::RuleApplied(applied) if applied.rule == rule))));
@@ -378,7 +380,7 @@ fn run(
         BackendOptions::default(),
     )
     .expect("backend");
-    let execution = ExecutionAdapter::new(manifest)
+    let execution = ExecutionAdapter::with_profile(manifest, SolverProfile::BUILD)
         .execute(&mut backend, state, budget)
         .expect("execution adapts");
     let sorts = symbol_sorts(side);

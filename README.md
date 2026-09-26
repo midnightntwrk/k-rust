@@ -32,6 +32,20 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+This workspace build is the no-Z3 solver profile.
+`kink-native` has a `z3` feature for the Z3 profile
+(it enables k-rust `z3-inference` and k-rust-backend `z3`; no other crate enables it).
+Z3 comes from the machine wrapper `with-z3-static-4.16.0`,
+which points the `z3-sys` build at a static Z3 4.16.0 library;
+without the wrapper a `z3` build fails to link (`-lz3` missing),
+and nothing is downloaded at build time.
+Run the Z3 gate for every Z3-profile change and before merge:
+
+```sh
+with-z3-static-4.16.0 cargo clippy -p kink-native --all-targets --features z3 -- -D warnings
+with-z3-static-4.16.0 cargo test -p kink-native --features z3
+```
+
 ## Retired tooling
 
 The earlier official-K "G-track",
