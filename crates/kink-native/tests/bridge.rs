@@ -649,17 +649,39 @@ fn deleted_observed_rule_is_omitted_from_the_mutant_manifest() {
 
 /// The side of `undecided.k` on which the rule `label` applies: its `requires false` is
 /// replaced with `true`.
-/// A carried `ensures` or vacuous successor has an event but no feasible witness.
+fn enabled(validator: &NativeValidator, label: &str) -> ValidatedDefinition {
+    let at = TermRef::new(support::rule(validator.baseline(), label), [1]);
+    let patch = Patch::new(vec![Edit::ReplaceTerm {
+        expected: validator.baseline().term(&at).expect("requires").clone(),
+        at,
+        replacement: Term::Token {
+            token: "true".to_owned(),
+            sort: KastSort::new("Bool"),
+        },
+    }])
+    .expect("one edit");
+    validator
+        .validate(&patch)
+        .expect("the enabled side compiles")
+}
+
+/// A carried `ensures`, vacuous successor or diagnosed path has an event but no witness.
 #[test]
 fn undecided_live_occurrences_are_no_witness() {
     let validator = NativeValidator::bind(support::load("undecided.k"), CompileOptions::default());
     let baseline = validator.compile_baseline().expect("undecided.k compiles");
+    let slow = enabled(&validator, "UNDECIDED.slow");
     let program = |symbol| kore_application(symbol, Vec::new(), Vec::new());
+    let tight = ExecutionBudget {
+        max_simplification_iterations: 3,
+        ..BUDGET
+    };
     // (id, side, observed rule, initial state, budget, route, leaf halt, path stop)
     #[rustfmt::skip]
     let rows = [
         ("carried-ensures", &baseline, "UNDECIDED.carryAlways", support::initial_state(program("LblcarryAlways"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::SolverUnknown),
         ("vacuous-successor", &baseline, "UNDECIDED.step", support::deferred_vacuous_state(program("Lblvacuous"), "SortS"), BUDGET, ExecutionRoute::ExploreAll, HaltClass::Vacuous, PathStop::SolverUnknown),
+        ("diagnosed-run", &slow, "UNDECIDED.slow", support::initial_state(program("Lbldraining"), "SortS"), tight, ExecutionRoute::ExploreAll, HaltClass::Stuck, PathStop::BackendLimit),
     ];
     for (id, side, label, state, budget, route, halt, stop) in rows {
         let constructor = format!("rule:{label}");
@@ -677,6 +699,29 @@ fn undecided_live_occurrences_are_no_witness() {
         let [leaf] = run.execution.leaves() else {
             panic!("{id}: one leaf");
         };
+        let diagnostics = leaf
+            .diagnostics
+            .iter()
+            .chain(leaf.candidate_diagnostics.iter().flatten())
+            .chain(leaf.remainder_diagnostics.iter());
+        let diagnostics = diagnostics.collect::<Vec<_>>();
+        assert_eq!(
+            !diagnostics.is_empty(),
+            stop == PathStop::BackendLimit,
+            "{id}"
+        );
+        if id == "diagnosed-run" {
+            assert!(
+                diagnostics.iter().any(|diagnostic| matches!(
+                    diagnostic,
+                    k_rust::backend::BackendDiagnosticOutput::SimplificationBudgetExhausted {
+                        limit: 3,
+                        ..
+                    }
+                )),
+                "{id}: expected budget exhaustion, got {diagnostics:?}"
+            );
+        }
         assert_eq!(leaf.halt, halt, "{id}");
         let [path] = run.bridged.paths.as_slice() else {
             panic!("{id}: one path");

@@ -1,6 +1,7 @@
 // Evidence the no-Z3 profile cannot decide. `open(z)` has no equation, so an
-// `ensures open(z)` is carried as a path condition; and `isZero`
-// refutes the substitution of `support::deferred_vacuous_state` only after `step`.
+// `ensures open(z)` is carried as a path condition; recursive `grow` is a
+// simplification equation that exhausts a small budget; and `isZero` refutes
+// the substitution of `support::deferred_vacuous_state` only after `step`.
 // `carry` and `slow` never apply in the baseline; their mutants replace `requires false`.
 module UNDECIDED-SYNTAX
   imports SORT-BOOL
@@ -15,7 +16,7 @@ module UNDECIDED-SYNTAX
              | "reached" [symbol(reached)]
   syntax Bool ::= open(Nat) [function, total, symbol(open)]
                 | isZero(Nat) [function, total, symbol(isZero)]
-  syntax Nat ::= drain(Nat) [function, total, symbol(drain)]
+  syntax Nat ::= grow(Nat) [function, total, symbol(grow)]
 endmodule
 
 module UNDECIDED
@@ -26,11 +27,10 @@ module UNDECIDED
 
   rule isZero(z) => true
   rule isZero(s(_)) => false
-  rule drain(s(N)) => drain(N)
-  rule drain(z) => z
+  rule grow(N) => grow(grow(N)) [simplification]
 
   rule [carry]: carry => carried requires false ensures open(z)
   rule [carryAlways]: carryAlways => carried ensures open(z)
-  rule [slow]: draining => drained(drain(s(s(s(s(s(s(s(s(z)))))))))) requires false
+  rule [slow]: draining => drained(grow(z)) requires false
   rule [step]: vacuous => reached
 endmodule

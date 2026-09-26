@@ -577,6 +577,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
         #[rustfmt::skip]
         let mutants = [
             ("carried-ensures-does-not-kill", "UNDECIDED.carry", "Lblcarry", 1000),
+            ("diagnosed-run-does-not-kill", "UNDECIDED.slow", "Lbldraining", 3),
         ];
         for (id, label, symbol, iterations) in mutants {
             let (vocabulary, tests, observed) =

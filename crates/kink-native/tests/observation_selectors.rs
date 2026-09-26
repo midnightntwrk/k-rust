@@ -201,8 +201,9 @@ fn all_undecided_rewrite_rules_are_selected_in_definition_order() {
     .expect("four rewrite rules are selectable");
     assert_eq!(
         rules.into_iter().map(|rule| rule.rule).collect::<Vec<_>>(),
-        (4..8)
-            .map(|index| SentenceRef::new("UNDECIDED", index))
+        ["carry", "carryAlways", "slow", "step"]
+            .into_iter()
+            .map(|label| support::rule(&baseline, &format!("UNDECIDED.{label}")))
             .collect::<Vec<_>>()
     );
 }
