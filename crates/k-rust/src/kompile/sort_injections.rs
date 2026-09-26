@@ -32,6 +32,73 @@ use crate::provenance::GeneratingPass;
 
 use super::passes::{injectable, placeable};
 
+/// Reject the first label of a rule-like sentence (rule, claim, context, context alias,
+/// configuration) that carries sort parameters.
+///
+/// A loaded sentence has none unless its caller wrote one: the source parser writes none, and
+/// every compiler-generated parameter is produced by a pass after this check. Sort injection
+/// instantiates each parametric label from its arguments and position, which casts fix, so a
+/// written parameter is either redundant or would be silently replaced.
+pub(crate) fn reject_label_parameters(sentence: &Sentence) -> Result<(), SortInjectionError> {
+    let terms: &[&Term] = match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => &[body, requires, ensures],
+        Sentence::Context { body, requires, .. }
+        | Sentence::ContextAlias { body, requires, .. } => &[body, requires],
+        Sentence::Configuration { body, ensures, .. } => &[body, ensures],
+        _ => &[],
+    };
+    let mut found = None;
+    for term in terms {
+        term.visit_preorder(&mut |term| {
+            if found.is_some() {
+                return;
+            }
+            if let Term::Apply { label, .. } | Term::InjectedLabel(label) = term
+                && !label.parameters.is_empty()
+            {
+                found = Some(SortInjectionError::LabelParameters {
+                    label: label.name.clone(),
+                    parameters: label.parameters.clone(),
+                });
+            }
+        });
+    }
+    found.map_or(Ok(()), Err)
+}
+
+/// [`reject_label_parameters`] over every sentence of `definition`, reporting the first one
+/// with its module, index and source location.
+pub(crate) fn reject_label_parameters_in_definition(
+    definition: &crate::definition::Definition,
+) -> Result<(), SortInjectionError> {
+    for module in &definition.modules {
+        for (sentence_index, sentence) in module.local_sentences.iter().enumerate() {
+            reject_label_parameters(sentence).map_err(|error| SortInjectionError::Sentence {
+                module: module.name.clone(),
+                sentence: sentence_index,
+                source: sentence.attributes().source().map(str::to_owned),
+                line: sentence
+                    .attributes()
+                    .location()
+                    .map(|location| location.start_line),
+                error: Box::new(error),
+            })?;
+        }
+    }
+    Ok(())
+}
+
 mod typing;
 use super::view::View;
 pub use typing::{
@@ -93,6 +160,13 @@ pub enum SortInjectionError {
     /// A parametric production whose arguments fit several incomparable least instantiations,
     /// so no instantiation fits them most tightly.
     AmbiguousInstance(Box<AmbiguousInstance>),
+    /// A label of a loaded rule-like sentence that carries sort parameters. Sort injection
+    /// instantiates every parametric label from its arguments and position, so a written
+    /// instance would be re-solved rather than placed; it is rejected instead.
+    LabelParameters {
+        label: String,
+        parameters: Vec<Sort>,
+    },
 }
 
 /// A parametric production's arguments with several incomparable least instantiations.
@@ -208,6 +282,15 @@ impl fmt::Display for SortInjectionError {
                 }
                 Ok(())
             }
+            Self::LabelParameters { label, parameters } => write!(
+                formatter,
+                "KLabel {label:?} carries the sort parameters {{{}}}; label sort parameters are inferred from the arguments and the position: remove them, or use a cast to fix an instance",
+                parameters
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Self::IllSortedTerm(mismatch) => write!(
                 formatter,
                 "term {} has sort {}, which is not a subsort of the sort {} its position requires",

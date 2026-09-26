@@ -201,6 +201,10 @@ pub struct EmittedSentenceProvenance {
     pub generated_by: Option<GeneratingPass>,
 }
 
+/// The [`CompileError::stage`] of a loaded rule-like sentence whose label carries sort
+/// parameters.
+pub const REJECT_LABEL_PARAMETERS: &str = "reject label parameters";
+
 /// A compilation failure with its precise pipeline stage and any structured diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompileError {
@@ -733,6 +737,10 @@ fn transform_loaded_definition(
                 })),
         "LoadedDefinition::resolved is not the resolution of LoadedDefinition::definition"
     );
+    // A label parameter can only have been written by the caller; reject it before any pass
+    // generates parameters of its own. One walk over the input terms, too cheap to time.
+    super::sort_injections::reject_label_parameters_in_definition(&loaded.definition)
+        .map_err(|error| CompileError::from_error(REJECT_LABEL_PARAMETERS, error))?;
     let stamped = || {
         let mut definition = loaded.definition.clone();
         stamp_input_addresses(

@@ -356,7 +356,7 @@ fn derives_macro_and_fresh_generator_labels() {
 
     assert_eq!(
         catalog.macro_labels(),
-        &[Label::new(""), Label::new("macroLabel")]
+        &[LabelHead::new(""), LabelHead::new("macroLabel")]
             .into_iter()
             .collect()
     );

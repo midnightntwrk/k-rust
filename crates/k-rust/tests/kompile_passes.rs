@@ -2359,6 +2359,45 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
     assert_generated_by(&transformed, GeneratingPass::ConstantFolding);
 }
 
+/// A loaded parametric label carries no instance. `peq`'s result sort `Bool` does not mention its
+/// parameter, so its application folds; `padd`'s result sort is its parameter, which only sort
+/// injection instantiates, so its application is left for injection.
+#[test]
+fn folds_a_parametric_production_only_when_its_result_sort_is_free_of_parameters() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int [hook(INT.Int)]
+          syntax Bool [hook(BOOL.Bool)]
+          syntax Int ::= r"[\\+\\-]?[0-9]+" [token, prec(2)]
+          syntax Bool ::= r"true|false" [token]
+          syntax Int ::= "f(" Int ")" [function, symbol(f)]
+          syntax {S} Bool ::= "peq(" S "," S ")" [function, hook(INT.eq), symbol(peq)]
+          syntax {S} S ::= "padd(" S "," S ")" [function, hook(INT.add), symbol(padd)]
+          rule f(X) => padd(1, 2)
+            requires peq(1, 1)
+        endmodule
+    "#};
+    let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
+    let (right, requires) = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .find_map(|sentence| match &**sentence {
+            Sentence::Rule { body, requires, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some((
+                    Printer::new().print_term(right),
+                    Printer::new().print_term(requires),
+                )),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(requires, r#"#token("true","Bool")"#);
+    assert!(right.starts_with("padd("), "{right}");
+}
+
 #[test]
 fn folds_integer_parameters_only_through_the_reference_unsigned_bound() {
     let control =
@@ -3212,6 +3251,378 @@ fn ordinary_rules_still_inherit_every_macro_kind_during_term_expansion() {
             "production attribute {macro_kind}",
         );
     }
+}
+
+/// A parsed program keeps the instance the parser chose (`m{Int}`), while a loaded macro rule's
+/// head carries none: the rule stands for every instance of `m`, and the sort of its argument
+/// variable decides whether it applies.
+#[test]
+fn parametric_macro_expands_in_a_parsed_program_by_its_argument_sort() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Exp ::= "a" [symbol(a)]
+          syntax {S} S ::= "m(" S ")" [macro, symbol(m)]
+          rule m(X:Int) => X
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let program = |sort: &str, text: &str| {
+        k_rust::inner::parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new(sort),
+            text,
+            k_rust::provenance::SourceId(0),
+        )
+        .unwrap()
+    };
+
+    let int = program("Int", "m(1)");
+    let Term::Apply { label, .. } = int.unannotated() else {
+        panic!("{int:?}")
+    };
+    assert_eq!(label.parameters, [Sort::new("Int")], "{int:?}");
+    assert_eq!(
+        prepared.expand_term("MAIN", int).unwrap(),
+        Term::Token {
+            token: "1".into(),
+            sort: Sort::new("Int"),
+        }
+    );
+
+    let exp = program("Exp", "m(a)");
+    let expanded = prepared.expand_term("MAIN", exp.clone()).unwrap();
+    assert_eq!(expanded, exp, "an Exp argument does not match X:Int");
+}
+
+/// One parametric production with two macro rules that only their result sorts separate: each
+/// rule is an axiom about one instance of `m`, so a program application expands by the rule of
+/// its own instance, whichever comes first, and an instance neither rule states stays as it is.
+#[test]
+fn parametric_macro_rules_apply_only_at_their_head_instance() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax Exp ::= "a" [symbol(a)]
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          rule m():Int => 1
+          rule m():Bool => true
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let prepared = MacroExpansionDefinition::prepare(&definition).unwrap();
+    let program = |sort: &str| {
+        k_rust::inner::parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new(sort),
+            "m()",
+            k_rust::provenance::SourceId(0),
+        )
+        .unwrap()
+    };
+    for (sort, token) in [("Bool", "true"), ("Int", "1")] {
+        let term = program(sort);
+        let Term::Apply { label, .. } = term.unannotated() else {
+            panic!("{term:?}")
+        };
+        assert_eq!(label.parameters, [Sort::new(sort)], "{term:?}");
+        assert_eq!(
+            prepared.expand_term("MAIN", term).unwrap(),
+            Term::Token {
+                token: token.into(),
+                sort: Sort::new(sort),
+            },
+            "m{{{sort}}}()"
+        );
+    }
+    let exp = program("Exp");
+    assert_eq!(prepared.expand_term("MAIN", exp.clone()).unwrap(), exp);
+}
+
+/// The instance of a macro rule's head is the one the typing of the rule gives it. When nothing
+/// fixes it (`m() => n()`, both parametric in their result only) it stays open and the rule
+/// applies to `m{Bool}()`; an unsorted variable on the right (`m() => X`) is typed at `K`, so that
+/// rule is about `m{K}` and leaves `m{Bool}()` alone.
+#[test]
+fn a_parametric_macro_head_takes_the_instance_its_rule_is_typed_at() {
+    let expand = |rule: &str, sort: &str| {
+        let source = format!(
+            "module MAIN\n  syntax Bool ::= \"true\" [token] | \"false\" [token]\n  \
+             syntax {{S}} S ::= \"m\" \"(\" \")\" [macro, symbol(m)]\n  \
+             syntax {{S}} S ::= \"n\" \"(\" \")\" [symbol(n)]\n  rule {rule}\nendmodule\n"
+        );
+        let definition = parsed(&source);
+        let program = k_rust::inner::parse_program(
+            &definition,
+            "MAIN",
+            &Sort::new(sort),
+            "m()",
+            k_rust::provenance::SourceId(0),
+        )
+        .unwrap();
+        let expanded = MacroExpansionDefinition::prepare(&definition)
+            .unwrap()
+            .expand_term("MAIN", program)
+            .unwrap();
+        Printer::new().print_term(&expanded)
+    };
+    assert_eq!(expand("m() => n()", "Bool"), "n(.KList)");
+    assert_eq!(expand("m() => X", "Bool"), "m{Bool}(.KList)");
+    assert!(expand("m() => X", "K").starts_with("_Gen"));
+}
+
+/// An item of a right-hand K sequence is typed in the sequence's `K` context, where it keeps the
+/// sort `K`: `m() ~> .K` applies the macro rule about `m{K}` (`m() => X`, whose unsorted `X` is
+/// typed at `K`), not the `m{KItem}` one listed first.
+#[test]
+fn a_parametric_macro_in_a_k_sequence_takes_the_k_instance() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "b" [symbol(b)] | "c" [symbol(c)]
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          syntax K ::= "f" "(" ")" [function, symbol(f)]
+          rule m():KItem => b
+          rule m() => X
+          rule f() => m() ~> .K
+        endmodule
+    "#};
+    let definition = resolve_semantic_casts(&parsed(source)).unwrap();
+    let definition = propagate_macro_attributes(&definition).unwrap();
+    let expanded = expand_macros(&definition).unwrap();
+    let bodies = expanded
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => Some(Printer::new().print_term(body)),
+            _ => None,
+        })
+        .filter(|body| body.starts_with("f("))
+        .collect::<Vec<_>>();
+    assert_eq!(bodies.len(), 1, "{bodies:?}");
+    assert!(bodies[0].contains("_Gen"), "{bodies:?}");
+    assert!(!bodies[0].contains("b("), "{bodies:?}");
+}
+
+/// The instance of an application is read after its arguments are expanded: `m()` becomes the
+/// `Bool` `true`, so the enclosing `f` stands at `Bool`, and the macro rule of `f`'s `KItem`
+/// instance does not apply to it.
+#[test]
+fn a_parametric_macro_sees_the_instance_of_its_expanded_arguments() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax KItem ::= Bool
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          syntax {S} S ::= "f" "(" S ")" [macro, symbol(f)]
+          rule m() => true
+          rule f(X:KItem) => X
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let term = application("f", vec![application("m", Vec::new())]);
+    let expanded = expand_macros_in_term(&definition, "MAIN", term).unwrap();
+    assert_eq!(
+        Printer::new().print_term(&expanded),
+        r#"f(#token("true","Bool"))"#
+    );
+}
+
+/// A downcast places `f(A)` at `Bool`, but the label's own instance is fixed by its `KItem`
+/// argument (injection projects the `KItem` result to `Bool`); the structured macro rule
+/// `f(X):Bool => true`, about `f{Bool}` and with an unsorted `X` that matches any argument,
+/// does not apply to it.
+#[test]
+fn a_parametric_macro_reads_the_label_instance_under_a_downcast() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax KItem ::= Bool
+          syntax {S} S ::= "f" "(" S ")" [macro, symbol(f)]
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let at_bool = |term: Term| {
+        term.with_metadata(TermMetadata {
+            sort: Some(Sort::new("Bool")),
+            ..TermMetadata::default()
+        })
+    };
+    let truth = || Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    let mut attributes = Attributes::default();
+    attributes.mark(k_rust::definition::AttributeKey::Macro);
+    definition.modules[0]
+        .local_sentences
+        .push(std::sync::Arc::new(Sentence::Rule {
+            body: rewrite(
+                at_bool(application("f", vec![Term::variable("X")])),
+                truth(),
+            ),
+            requires: truth(),
+            ensures: truth(),
+            attributes,
+        }));
+    // The shape semantic-cast resolution gives `{f(A)}:>Bool`: the cast is the sort metadata.
+    let term = at_bool(application(
+        "f",
+        vec![Term::Variable {
+            name: "A".into(),
+            sort: Some(Sort::new("KItem")),
+        }],
+    ));
+    let expanded = expand_macros_in_term(&definition, "MAIN", term.clone()).unwrap();
+    assert_eq!(expanded, term);
+    // The same rule applies where the label's instance is `Bool`.
+    let at_instance = application(
+        "f",
+        vec![Term::Variable {
+            name: "B".into(),
+            sort: Some(Sort::new("Bool")),
+        }],
+    );
+    assert_eq!(
+        expand_macros_in_term(&definition, "MAIN", at_instance).unwrap(),
+        truth()
+    );
+}
+
+/// `g(x)` does not type until the token macro `x => 1` rewrites it, so the instance of `m()` is
+/// unknown when it is first tried: the macro rule about `m{Int}`, listed first, must not take
+/// it. Once the sentence types, `m()` is retried at its `Bool` instance.
+#[test]
+fn a_parametric_macro_waits_for_the_sentence_to_type() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax Pair ::= "pair" "(" Bool "," Int ")" [symbol(pair)]
+          syntax Int ::= "g" "(" Int ")" [symbol(g)]
+          syntax Foo ::= Int
+          syntax Foo ::= "x" [token]
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          rule m():Int => 0
+          rule m():Bool => false
+          rule x => 1 [macro]
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let term = application(
+        "pair",
+        vec![
+            application("m", Vec::new()),
+            application(
+                "g",
+                vec![Term::Token {
+                    token: "x".into(),
+                    sort: Sort::new("Foo"),
+                }],
+            ),
+        ],
+    );
+    let expanded = expand_macros_in_term(&definition, "MAIN", term).unwrap();
+    assert_eq!(
+        Printer::new().print_term(&expanded),
+        r#"pair(#token("false","Bool"),g(#token("1","Int")))"#
+    );
+}
+
+/// A structured macro rule `a => a:Int` only adds a downcast to `a`, so the expanded term is
+/// equal to the parsed one, but `f`'s instance then follows the `Int` argument: the parsed
+/// `f{KItem}` no longer holds, and the macro rule about `f{Int}` applies instead of the `KItem`
+/// one.
+#[test]
+fn a_parametric_macro_sees_a_rewrite_that_changes_only_metadata() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int ::= r"[0-9]+" [token]
+          syntax Foo ::= Int
+          syntax Foo ::= "a" [symbol(a)]
+          syntax KItem ::= Foo
+          syntax Exp ::= "b" [symbol(b)] | "c" [symbol(c)]
+          syntax {S} S ::= "f" "(" S ")" [macro, symbol(f)]
+          rule f(_):KItem => b
+          rule f(_):Int => 0
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let mut attributes = Attributes::default();
+    attributes.mark(k_rust::definition::AttributeKey::Macro);
+    definition.modules[0]
+        .local_sentences
+        .push(std::sync::Arc::new(Sentence::Rule {
+            body: rewrite(
+                application("a", Vec::new()),
+                application("#SemanticCastToInt", vec![application("a", Vec::new())]),
+            ),
+            requires: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            ensures: Term::Token {
+                token: "true".into(),
+                sort: Sort::new("Bool"),
+            },
+            attributes,
+        }));
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("KItem"),
+        "f(a)",
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    let Term::Apply { label, .. } = program.unannotated() else {
+        panic!("{program:?}")
+    };
+    assert_eq!(label.parameters, [Sort::new("KItem")], "{program:?}");
+    let expanded = MacroExpansionDefinition::prepare(&definition)
+        .unwrap()
+        .expand_term("MAIN", program)
+        .unwrap();
+    assert_eq!(Printer::new().print_term(&expanded), r#"#token("0","Int")"#);
+}
+
+/// In a parsed program, whose labels carry the parser's instances, an application is typed
+/// again once an argument is rewritten: `m()` becomes the `Bool` `true`, and the `KItem` macro
+/// rule of `f` does not apply to the resulting `f(true)`. The parser's labels are not written
+/// parameters the typing view rejects.
+#[test]
+fn a_parametric_macro_in_a_parsed_program_is_typed_after_its_arguments_expand() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Bool ::= "true" [token] | "false" [token]
+          syntax KItem ::= Bool
+          syntax {S} S ::= "m" "(" ")" [macro, symbol(m)]
+          syntax {S} S ::= "f" "(" S ")" [macro, symbol(f)]
+          rule m() => true
+          rule f(X:KItem) => X
+        endmodule
+    "#};
+    let definition = parsed(source);
+    let program = k_rust::inner::parse_program(
+        &definition,
+        "MAIN",
+        &Sort::new("Bool"),
+        "f(m())",
+        k_rust::provenance::SourceId(0),
+    )
+    .unwrap();
+    let expanded = MacroExpansionDefinition::prepare(&definition)
+        .unwrap()
+        .expand_term("MAIN", program)
+        .unwrap();
+    let printed = Printer::new().print_term(&expanded);
+    assert!(printed.starts_with("f{"), "{printed}");
+    assert!(printed.ends_with(r#"(#token("true","Bool"))"#), "{printed}");
 }
 
 #[test]

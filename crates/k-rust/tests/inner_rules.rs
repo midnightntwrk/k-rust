@@ -598,7 +598,7 @@ fn polymorphic_rhs_keeps_overload_branch_parameters_independent() {
 
     assert!(body.contains("capInt"), "{body}");
     assert!(!body.contains("capGas"), "{body}");
-    assert!(body.contains("ite{Int}"), "{body}");
+    assert!(body.contains("=>ite("), "{body}");
 }
 
 #[cfg(feature = "z3-inference")]
@@ -658,8 +658,7 @@ fn one_maximal_typing_split_by_overload_and_parameter_is_left_to_z3() {
             .expect("the rule should be resolved");
         assert!(body.contains("capInt"), "{body}");
         assert!(!body.contains("capGas"), "{body}");
-        assert!(body.contains("ite{Int}"), "{body}");
-        assert!(!body.contains("ite{Gas}"), "{body}");
+        assert!(body.contains("=>ite("), "{body}");
     }
 }
 
@@ -727,8 +726,7 @@ fn cgascap_is_left_to_z3_in_the_portable_build() {
         let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
         assert!(body.contains("capInt"), "{body}");
         assert!(!body.contains("capGas"), "{body}");
-        assert!(body.contains("ite{Int}"), "{body}");
-        assert!(!body.contains("ite{Gas}"), "{body}");
+        assert!(body.contains("=>ite("), "{body}");
     }
 }
 
@@ -779,7 +777,7 @@ fn preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     #[cfg(feature = "z3-inference")]
     {
         let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert!(body.contains("lam1{Int}"), "{body}");
+        assert!(body.contains("lam1("), "{body}");
         assert!(!body.contains("lam2"), "{body}");
     }
 }
@@ -830,10 +828,7 @@ fn nested_preferred_reading_among_parameter_instantiations_is_left_to_z3() {
     #[cfg(feature = "z3-inference")]
     {
         let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert_eq!(
-            body,
-            r#"trigger(.KList)=>pick1{Int}(pick1{Int}(#token("0","Int")))"#
-        );
+        assert_eq!(body, r#"trigger(.KList)=>pick1(pick1(#token("0","Int")))"#);
     }
 }
 
@@ -879,7 +874,7 @@ fn flat_preferred_reading_among_parameter_instantiations_is_the_prefer_reading()
     #[cfg(feature = "z3-inference")]
     {
         let body = only_rule_body(&resolved.expect("the z3 build decides the rule"));
-        assert_eq!(body, r#"trigger(.KList)=>pick1{Int}(#token("0","Int"))"#);
+        assert_eq!(body, r#"trigger(.KList)=>pick1(#token("0","Int"))"#);
     }
 }
 
@@ -910,7 +905,7 @@ fn preferred_reading_ill_sorted_under_every_parameter_vector_is_dropped() {
     let body = only_rule_body(
         &resolve_rule_bubbles(&lowered(source)).expect("the well-sorted reading is the rule"),
     );
-    assert_eq!(body, r#"trigger(.KList)=>pick2{Int,K}(#token("0","Int"))"#);
+    assert_eq!(body, r#"trigger(.KList)=>pick2(#token("0","Int"))"#);
 }
 
 #[cfg(feature = "z3-inference")]
@@ -2220,8 +2215,12 @@ fn parametric_origin_nodes_get_per_node_parameter_variables() {
         })
         .expect("the rule should be resolved");
 
-    assert!(body.contains("same{A}"), "{body}");
-    assert!(body.contains("same{B}"), "{body}");
+    // The loaded rule carries no instance; the two `same` nodes are typed at `A` and `B`, which
+    // only independent parameter variables admit.
+    assert_eq!(
+        body,
+        "pair(same(a(.KList)),same(b(.KList)))=>pair(a(.KList),b(.KList))"
+    );
 }
 
 rule_snapshot!(
@@ -3640,7 +3639,7 @@ fn fun_over_an_inner_rewrite_takes_the_preferred_fun2() {
     .expect("the preferred #fun2 reading is well-sorted");
     let bodies = rule_bodies(&loaded);
     assert!(
-        bodies.iter().any(|body| body.contains("#fun2{Int}")),
+        bodies.iter().any(|body| body.contains("#fun2(")),
         "{bodies:?}"
     );
     assert!(
@@ -3715,7 +3714,7 @@ fn bracketed_parametric_term_in_a_k_cell_lowers_like_the_bare_term() {
     let bracketed = test_rule_bodies(&rule("(0 #And 1)"), "bracketed.k");
     let bare = test_rule_bodies(&rule("0 #And 1"), "bare.k");
     assert_eq!(bracketed, bare);
-    assert!(bare.iter().any(|body| body.contains("#And{K}")), "{bare:?}");
+    assert!(bare.iter().any(|body| body.contains("#And(")), "{bare:?}");
 }
 
 #[cfg(feature = "z3-inference")]
@@ -4098,15 +4097,15 @@ fn reference_exists_binder_variable_is_inferred_at_k() {
     // parsed.txt: rule `foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists(#SemanticCastToK(Y),#Equals(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token("true","Bool") ensures #token("true","Bool")
     // Reduced from regression-new/checkWarns existsLHSBoundPass.k (rule at line 11), the one
     // ktest-fail step of that case whose verdict differs from the reference. parsed.txt omits
-    // the inferred sort parameters of #Exists and #Equals; the casts to K fix them at {K,K},
-    // which k-rust renders.
+    // the inferred sort parameters of #Exists and #Equals, and so does the loaded rule; the casts
+    // to K fix them at {K,K} when sort injection instantiates them.
     let source = include_str!("fixtures/reference/inner/exists-binder/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts the existential over a fresh variable");
     assert_eq!(
         rule_like_texts(&loaded, "test.k"),
         [
-            "`foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists{K,K}(#SemanticCastToK(Y),#Equals{K,K}(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token(\"true\",\"Bool\")"
+            "`foo(_)_TEST_Exp_Int`(#SemanticCastToInt(_X))=>#Exists(#SemanticCastToK(Y),#Equals(#SemanticCastToK(?_I),#SemanticCastToK(Y))) requires #token(\"true\",\"Bool\")"
         ]
     );
 }
@@ -4305,9 +4304,9 @@ fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width()
     // :629-637), but that bridge is added to the parsing module only, after disambProds is
     // captured (:627): the TypeInferencer's `<=Sort` relation has no `MInt{64} <= MInt{K}` pair,
     // so the widths of `bytesString2[2p64]` and `Int2MInt(...)` are forced to the declared
-    // instance the token or cast anchors, never to `K`. k-rust's printer also renders the
-    // inferred label parameters (`{64}`, `{256}`) the reference's parsed.txt omits; the KORE
-    // emission of mint-llvm-4 instantiates the symbols' `{SortWidth}` from them.
+    // instance the token or cast anchors, never to `K`. The loaded rule carries no label
+    // parameter; sort injection instantiates each symbol's `{SortWidth}` from its arguments and
+    // position.
     let source = include_str!("fixtures/reference/inner/mint-bridge/test.k");
     let loaded = load_with_prelude(source, "test.k", "TEST")
         .expect("the reference accepts a parametric result in the MInt{K} slot of ==MInt");
@@ -4318,8 +4317,8 @@ fn reference_parametric_result_in_a_placeholder_slot_infers_the_declared_width()
     assert_eq!(
         bodies,
         [
-            "`testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`{64}(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`{64}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{256}(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`{256}(`bytesString2_TEST_Bytes`(.KList),#token(\"2p256\",\"MInt{256}\")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`{256}(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\"))))))) requires #token(\"true\",\"Bool\")",
-            "`testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`{64}(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`{64}(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\"))),#token(\"0p64\",\"MInt{64}\"))) requires #token(\"true\",\"Bool\")",
+            "`testBytesGet_TEST_Bool`(.KList)=>`_andBool_`(#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{64}`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\")))),`#SemanticCastToMInt{64}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\")))))),#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`project:MInt{256}`(`#SemanticCastToMInt{256}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p256\",\"MInt{256}\")))),`#SemanticCastToMInt{256}`(`Int2MInt(_)_MINT_MInt_Int`(`_[_]_BYTES-HOOKED_Int_Bytes_Int`(`bytesString2_TEST_Bytes`(.KList),#token(\"2\",\"Int\"))))))) requires #token(\"true\",\"Bool\")",
+            "`testBytesGetBare_TEST_Bool`(.KList)=>#SemanticCastToBool(`_==MInt__MINT_Bool_MInt_MInt`(`#SemanticCastToMInt{64}`(`_[_]_BYTES-HOOKED_MInt_Bytes_MInt`(`bytesString2_TEST_Bytes`(.KList),#token(\"2p64\",\"MInt{64}\"))),#token(\"0p64\",\"MInt{64}\"))) requires #token(\"true\",\"Bool\")",
         ]
     );
 }

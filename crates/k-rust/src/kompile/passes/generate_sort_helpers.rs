@@ -305,7 +305,9 @@ fn named_projections(
     // mention a symbol that no term contains.
     if attributes.has(AttributeKey::Function)
         || attributes.has(AttributeKey::Bracket)
-        || productions.macro_labels().contains(source_label)
+        || productions
+            .macro_labels()
+            .contains(&LabelHead::from(source_label))
     {
         return Vec::new();
     }

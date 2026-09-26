@@ -37,7 +37,7 @@ use crate::{
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
     kast::{Label, Sort, Term},
     kompile::{
-        SortInjector,
+        SentenceTyper, SentenceTyping, SortInjector,
         fresh_names::{FreshNames, GeneratedVariableIdentity},
     },
     provenance::GeneratingPass,
@@ -67,6 +67,10 @@ struct MacroRule {
     left: Term,
     right: Term,
     recursive: bool,
+    /// The instance of a parametric head, one entry per sort parameter of its production, as
+    /// the typing of the macro rule gives it; `None` in an entry the rule leaves open, and `None`
+    /// altogether for a head whose production has no sort parameter.
+    head_instance: Option<Vec<Option<Sort>>>,
 }
 
 /// Apply Java's forward `ExpandMacros` sentence transformation.
@@ -347,7 +351,7 @@ fn expand_macros_in_terms_from_views_with_scope(
     expander.fresh = FreshNames::for_terms(terms.iter());
     let terms = terms
         .into_iter()
-        .map(|term| expander.expand_term(term, &BTreeSet::new()))
+        .map(|term| expander.expand_standalone(term))
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ExpandedMacroTerms {
         terms,
@@ -361,8 +365,14 @@ struct Expander<'view, 'definition> {
     injector: SortInjector<'view, 'definition>,
     subsorts: &'view crate::definition::PartialOrder<Sort>,
     overloads: &'view crate::definition::OverloadOrder<'definition>,
-    macros: BTreeMap<Label, Vec<MacroRule>>,
+    /// Macro rules by the head of their left side. A loaded rule's head carries no sort
+    /// parameter, so it stands for every instance of its production; the variable sorts of its
+    /// arguments decide whether it applies to a given subject.
+    macros: BTreeMap<LabelHead, Vec<MacroRule>>,
     token_macros: BTreeMap<Sort, Vec<MacroRule>>,
+    /// The typing view of the term module, present when some macro rule has a parametric head:
+    /// then an application's instance is read from the typing of the sentence it stands in.
+    typer: Option<SentenceTyper<'definition>>,
     fresh: FreshNames,
     generated: BTreeSet<GeneratedVariableIdentity>,
 }
@@ -398,13 +408,31 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             .map(|rule| macro_priority(rule.sentence.attributes()))
             .collect::<Result<Vec<_>, _>>()?;
         let mut all = all.into_iter().zip(priorities).collect::<Vec<_>>();
+        let parametric = all.iter().any(|(rule, _)| {
+            matches!(rule.left.unannotated(), Term::Apply { label, .. }
+                if production_parameters(productions, label).is_some())
+        });
+        let mut typer = None;
+        if parametric {
+            // A typing view that cannot be built leaves every instance open.
+            let macro_typer =
+                SentenceTyper::new(definition, &definition.module(macro_module).name).ok();
+            for (rule, _) in &mut all {
+                rule.head_instance = macro_typer
+                    .as_ref()
+                    .and_then(|typer| head_instance(typer, productions, rule));
+            }
+            typer = SentenceTyper::new(definition, &definition.module(term_module).name).ok();
+        }
         all.sort_by_key(|(_, priority)| *priority);
-        let mut macros = BTreeMap::<Label, Vec<MacroRule>>::new();
+        let mut macros = BTreeMap::<LabelHead, Vec<MacroRule>>::new();
         let mut token_macros = BTreeMap::<Sort, Vec<MacroRule>>::new();
         // Invariant: `macros` and `token_macros` hold, in ascending priority order, every rule of `all` before `rule` whose left side is an application, a token, or a sorted variable; each iteration consumes one entry of `all`.
         for (rule, _) in all {
             match rule.left.unannotated() {
-                Term::Apply { label, .. } => macros.entry(label.clone()).or_default().push(rule),
+                Term::Apply { label, .. } => {
+                    macros.entry(LabelHead::from(label)).or_default().push(rule)
+                }
                 Term::Token { sort, .. } => {
                     token_macros.entry(sort.clone()).or_default().push(rule)
                 }
@@ -429,6 +457,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
             overloads,
             macros,
             token_macros,
+            typer,
             fresh: FreshNames::default(),
             generated: BTreeSet::new(),
         })
@@ -437,6 +466,16 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     fn expand_sentence(&mut self, sentence: Sentence) -> Result<Sentence, Diagnostic> {
         self.fresh = FreshNames::for_sentence(&sentence);
         self.generated.clear();
+        if self.typer.is_some() {
+            let fields: &[u32] = match &sentence {
+                Sentence::Rule { .. } | Sentence::Claim { .. } => &[0, 1, 2],
+                Sentence::Context { .. } => &[0, 1],
+                _ => return Ok(sentence),
+            };
+            let mut site = Site::new(sentence);
+            self.expand_site(&mut site, fields)?;
+            return Ok(site.sentence);
+        }
         match sentence {
             Sentence::Rule {
                 body,
@@ -488,7 +527,7 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     },
                     metadata,
                 );
-                let rules = self.macros.get(&label).cloned();
+                let rules = self.macros.get(&LabelHead::from(&label)).cloned();
                 self.apply_rules(application, rules.as_deref(), applied)
             }
             Term::Token { token, sort } => {
@@ -541,7 +580,27 @@ impl<'view, 'definition> Expander<'view, 'definition> {
         let Some(rules) = rules else {
             return Ok(subject);
         };
-        // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule returns the expansion of its substituted right side with its id added to `applied`.
+        match self.select_rule(&subject, rules, applied, None)? {
+            Some((id, substituted)) => {
+                let mut next_applied = applied.clone();
+                next_applied.insert(id);
+                self.expand_term(substituted, &next_applied)
+            }
+            None => Ok(subject),
+        }
+    }
+
+    /// The first rule of `rules` that applies to `subject` (its head instance agreeing with
+    /// `instance`, its left side matching, and it recursive or absent from `applied`), with its
+    /// substituted right side.
+    fn select_rule(
+        &mut self,
+        subject: &Term,
+        rules: &[MacroRule],
+        applied: &BTreeSet<usize>,
+        instance: Option<&Instance>,
+    ) -> Result<Option<(usize, Term)>, Diagnostic> {
+        // Invariant: no rule of `rules` before `rule` both matched `subject` and was recursive or absent from `applied`; each iteration consumes one element of the finite slice `rules`, and the first applicable rule is returned with its substituted right side.
         for rule in rules {
             let Sentence::Rule { requires, .. } = &rule.sentence else {
                 unreachable!()
@@ -553,17 +612,177 @@ impl<'view, 'definition> Expander<'view, 'definition> {
                     &rule.sentence,
                 ));
             }
+            if !instances_agree(rule.head_instance.as_deref(), instance) {
+                continue;
+            }
             let mut substitution = BTreeMap::new();
-            let matched = self.matches(&mut substitution, &rule.left, &subject)?;
+            let matched = self.matches(&mut substitution, &rule.left, subject)?;
             if matched && (rule.recursive || !applied.contains(&rule.id)) {
                 measure::bump(Counter::KompileMacroApplications);
-                let mut next_applied = applied.clone();
-                next_applied.insert(rule.id);
                 let substituted = self.substitute(rule.right.clone(), &mut substitution);
-                return self.expand_term(substituted, &next_applied);
+                return Ok(Some((rule.id, substituted)));
             }
         }
-        Ok(subject)
+        Ok(None)
+    }
+
+    /// Expand a term parsed outside the definition. With a parametric macro head it is expanded
+    /// as the body of a rule, so that its positions are typed as compilation types a rule body.
+    fn expand_standalone(&mut self, term: Term) -> Result<Term, Diagnostic> {
+        if self.typer.is_none() {
+            return self.expand_term(term, &BTreeSet::new());
+        }
+        let mut site = Site::new(Sentence::Rule {
+            body: term,
+            requires: truth(),
+            ensures: truth(),
+            attributes: Attributes::default(),
+        });
+        self.expand_site(&mut site, &[0])?;
+        let Sentence::Rule { body, .. } = site.sentence else {
+            unreachable!("the site holds the rule it was built from")
+        };
+        Ok(body)
+    }
+
+    /// Expand the macros of the term at `path` of `site`, innermost first, in place.
+    ///
+    /// This is [`Self::expand_term`] for a definition with a parametric macro head. A macro
+    /// rule is an axiom about one instance of its head's symbol, and a loaded application
+    /// carries no instance, so the instance of an application is read from the typing of the
+    /// sentence as it stands when the application's rules are tried: after its arguments have
+    /// been expanded, and after every earlier rewrite of the sentence.
+    fn expand_at(
+        &mut self,
+        site: &mut Site,
+        path: &[u32],
+        applied: &BTreeSet<usize>,
+    ) -> Result<(), Diagnostic> {
+        let children = match site.term(path).unannotated() {
+            Term::Apply { arguments, .. } => arguments.len(),
+            Term::Sequence(items) => items.len(),
+            Term::Rewrite { .. } | Term::As { .. } => 2,
+            _ => 0,
+        };
+        let rewrites = site.rewrites;
+        for index in 0..children {
+            let mut child = path.to_vec();
+            child.push(u32::try_from(index).expect("a term has fewer than 2^32 children"));
+            self.expand_at(site, &child, applied)?;
+        }
+        self.try_rules(site, path, applied, site.rewrites == rewrites)
+    }
+
+    /// Expand the given fields of `site`, then retry, until no retry rewrites anything, the
+    /// applications whose instance was unknown because the sentence did not type: a later
+    /// rewrite can make it typable. An application still unknown at the fixpoint is left as it
+    /// is, and compilation reports the ill-sorted sentence at injection.
+    fn expand_site(&mut self, site: &mut Site, fields: &[u32]) -> Result<(), Diagnostic> {
+        for field in fields {
+            self.expand_at(site, &[*field], &BTreeSet::new())?;
+        }
+        while !site.pending.is_empty() {
+            let rewrites = site.rewrites;
+            for (path, applied, subject) in std::mem::take(&mut site.pending) {
+                // A pending application inside a subtree a later rewrite replaced is gone.
+                if site.get(&path) != Some(&subject) {
+                    continue;
+                }
+                let before = site.rewrites;
+                self.try_rules(site, &path, &applied, false)?;
+                if site.rewrites != before {
+                    // Its enclosing applications were tried before it was expanded.
+                    for length in (1..path.len()).rev() {
+                        let ancestor = path[..length].to_vec();
+                        if let Some(term @ Term::Apply { label, .. }) =
+                            site.get(&ancestor).map(Term::unannotated)
+                            && self.macros.contains_key(&LabelHead::from(label))
+                        {
+                            let term = term.clone();
+                            site.pending.push((ancestor, applied.clone(), term));
+                        }
+                    }
+                }
+            }
+            if site.rewrites == rewrites {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Try the macro rules of the application or token at `path`, whose arguments are already
+    /// expanded; `unchanged` when no rewrite happened below it since it was parsed or built.
+    fn try_rules(
+        &mut self,
+        site: &mut Site,
+        path: &[u32],
+        applied: &BTreeSet<usize>,
+        unchanged: bool,
+    ) -> Result<(), Diagnostic> {
+        let subject = site.term(path).clone();
+        let (rules, instance) = match subject.unannotated() {
+            Term::Apply { label, .. } => {
+                let Some(rules) = self.macros.get(&LabelHead::from(label)).cloned() else {
+                    return Ok(());
+                };
+                let instance = if rules.iter().any(|rule| rule.head_instance.is_some()) {
+                    Some(self.subject_instance(site, path, &subject, unchanged))
+                } else {
+                    None
+                };
+                (rules, instance)
+            }
+            Term::Token { sort, .. } => match self.token_macros.get(sort).cloned() {
+                Some(rules) => (rules, None),
+                None => return Ok(()),
+            },
+            _ => return Ok(()),
+        };
+        if let Some((id, substituted)) =
+            self.select_rule(&subject, &rules, applied, instance.as_ref())?
+        {
+            site.replace(path, substituted);
+            let mut next_applied = applied.clone();
+            next_applied.insert(id);
+            self.expand_at(site, path, &next_applied)?;
+        } else if matches!(instance, Some(Instance::Unknown))
+            && rules.iter().any(|rule| {
+                rule.head_instance
+                    .as_ref()
+                    .is_some_and(|head| head.iter().any(Option::is_some))
+            })
+        {
+            site.pending.push((path.to_vec(), applied.clone(), subject));
+        }
+        Ok(())
+    }
+
+    /// The instance of the application `subject` at `path`: the one it was parsed with while
+    /// nothing below it has been rewritten, else the one the typing of the sentence gives it.
+    fn subject_instance(
+        &self,
+        site: &mut Site,
+        path: &[u32],
+        subject: &Term,
+        unchanged: bool,
+    ) -> Instance {
+        let Term::Apply { label, .. } = subject.unannotated() else {
+            return Instance::Unknown;
+        };
+        if unchanged && !label.parameters.is_empty() {
+            return Instance::Known(label.parameters.iter().cloned().map(Some).collect());
+        }
+        let Some(typer) = self.typer.as_ref() else {
+            return Instance::Unknown;
+        };
+        match site
+            .typing(typer)
+            .and_then(|typing| typing.instances.get(path))
+        {
+            Some(instance) => Instance::Known(instance.clone()),
+            None => Instance::Unknown,
+        }
     }
 
     fn matches(
@@ -699,6 +918,278 @@ impl<'view, 'definition> Expander<'view, 'definition> {
     }
 }
 
+/// A sentence being expanded in place, with its typing cached until a rewrite changes it.
+struct Site {
+    sentence: Sentence,
+    typing: Option<Option<SentenceTyping>>,
+    /// The number of rewrites made in the sentence so far.
+    rewrites: usize,
+    /// Applications no rule applied to because the sentence did not type, with the rules
+    /// already applied above them and the term they were.
+    pending: Vec<(Vec<u32>, BTreeSet<usize>, Term)>,
+}
+
+impl Site {
+    fn new(sentence: Sentence) -> Self {
+        Self {
+            sentence,
+            typing: None,
+            rewrites: 0,
+            pending: Vec::new(),
+        }
+    }
+
+    /// The term at `path`, if the sentence has one there.
+    fn get(&self, path: &[u32]) -> Option<&Term> {
+        let mut term = *self.fields().get(*path.first()? as usize)?;
+        for step in &path[1..] {
+            let index = *step as usize;
+            term = match term.unannotated() {
+                Term::Apply { arguments, .. } => arguments.get(index)?,
+                Term::Sequence(items) => items.get(index)?,
+                Term::Rewrite { left, right } => [left, right].get(index)?,
+                Term::As { pattern, alias } => [pattern, alias].get(index)?,
+                _ => return None,
+            };
+        }
+        Some(term)
+    }
+
+    fn fields(&self) -> [&Term; 3] {
+        match &self.sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            }
+            | Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                ..
+            } => [body, requires, ensures],
+            Sentence::Context { body, requires, .. } => [body, requires, requires],
+            _ => unreachable!("a site holds a rule, claim or context"),
+        }
+    }
+
+    /// The term at `path` (the field, then children as the typing view numbers them).
+    fn term(&self, path: &[u32]) -> &Term {
+        let mut term = self.fields()[path[0] as usize];
+        for step in &path[1..] {
+            term = child(term, *step as usize);
+        }
+        term
+    }
+
+    fn replace(&mut self, path: &[u32], replacement: Term) {
+        let field = match &mut self.sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                ..
+            }
+            | Sentence::Claim {
+                body,
+                requires,
+                ensures,
+                ..
+            } => [body, requires, ensures].into_iter().nth(path[0] as usize),
+            Sentence::Context { body, requires, .. } => {
+                [body, requires].into_iter().nth(path[0] as usize)
+            }
+            _ => None,
+        };
+        let mut term = field.expect("a site path starts at one of its sentence's fields");
+        for step in &path[1..] {
+            term = child_mut(term, *step as usize);
+        }
+        *term = replacement;
+        self.typing = None;
+        self.rewrites += 1;
+    }
+
+    /// The typing of the sentence as it stands; `None` when the typing view rejects it, which
+    /// leaves every instance open. A parsed program's labels carry the parser's instances, which
+    /// the typing view rejects as written parameters; it types a copy without them, and the
+    /// instance of an application whose arguments are unchanged is read from its own label.
+    fn typing(&mut self, typer: &SentenceTyper<'_>) -> Option<&SentenceTyping> {
+        if self.typing.is_none() {
+            let mut sentence = self.sentence.clone();
+            erase_label_parameters(&mut sentence);
+            let typed = match &sentence {
+                Sentence::Context {
+                    body,
+                    requires,
+                    attributes,
+                } => typer.typing(&Sentence::Rule {
+                    body: body.clone(),
+                    requires: requires.clone(),
+                    ensures: truth(),
+                    attributes: attributes.clone(),
+                }),
+                sentence => typer.typing(sentence),
+            };
+            self.typing = Some(typed.ok());
+        }
+        self.typing.as_ref().and_then(Option::as_ref)
+    }
+}
+
+/// Clear the sort parameters of every label in `sentence`'s terms.
+fn erase_label_parameters(sentence: &mut Sentence) {
+    fn erase(term: &mut Term) {
+        match term {
+            Term::Annotated { term, .. } => erase(term),
+            Term::Apply { label, arguments } => {
+                label.parameters.clear();
+                arguments.iter_mut().for_each(erase);
+            }
+            Term::InjectedLabel(label) => label.parameters.clear(),
+            Term::Rewrite { left, right } => {
+                erase(left);
+                erase(right);
+            }
+            Term::As { pattern, alias } => {
+                erase(pattern);
+                erase(alias);
+            }
+            Term::Sequence(items) => items.iter_mut().for_each(erase),
+            Term::Variable { .. } | Term::Token { .. } => {}
+        }
+    }
+    match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            ..
+        }
+        | Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            ..
+        } => [body, requires, ensures].into_iter().for_each(erase),
+        Sentence::Context { body, requires, .. } => [body, requires].into_iter().for_each(erase),
+        _ => {}
+    }
+}
+
+fn child(term: &Term, index: usize) -> &Term {
+    match term.unannotated() {
+        Term::Apply { arguments, .. } => &arguments[index],
+        Term::Sequence(items) => &items[index],
+        Term::Rewrite { left, right } => [left, right][index],
+        Term::As { pattern, alias } => [pattern, alias][index],
+        _ => unreachable!("a site path steps only into children"),
+    }
+}
+
+fn child_mut(term: &mut Term, index: usize) -> &mut Term {
+    let mut term = term;
+    while let Term::Annotated { term: inner, .. } = term {
+        term = inner;
+    }
+    match term {
+        Term::Apply { arguments, .. } => &mut arguments[index],
+        Term::Sequence(items) => &mut items[index],
+        Term::Rewrite { left, right } => [left, right].into_iter().nth(index).unwrap(),
+        Term::As { pattern, alias } => [pattern, alias].into_iter().nth(index).unwrap(),
+        _ => unreachable!("a site path steps only into children"),
+    }
+}
+
+/// The formal sort parameters, result sort and argument sorts of `label`'s production, when it
+/// has sort parameters.
+fn production_parameters<'a>(
+    productions: &'a ProductionCatalog<'_>,
+    label: &Label,
+) -> Option<(&'a [Sort], &'a Sort, Vec<&'a Sort>)> {
+    let id = productions
+        .productions_for(&LabelHead::from(label))
+        .first()?;
+    let Sentence::Production {
+        parameters,
+        sort,
+        items,
+        ..
+    } = productions.production(*id)
+    else {
+        return None;
+    };
+    (!parameters.is_empty()).then(|| {
+        let arguments = items
+            .iter()
+            .filter_map(|item| match item {
+                crate::definition::ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            })
+            .collect();
+        (parameters.as_slice(), sort, arguments)
+    })
+}
+
+/// The instance of an application a macro rule is tried on.
+enum Instance {
+    /// One entry per sort parameter, `None` where the typing leaves it open.
+    Known(Vec<Option<Sort>>),
+    /// The sentence does not type, so the instance is not known yet.
+    Unknown,
+}
+
+/// A macro rule is an axiom about one instance of its head's symbol, so it applies to an
+/// application only where their instances agree on every parameter both fix; an open
+/// parameter agrees with every value. An unknown instance agrees only with a head that fixes
+/// no parameter.
+fn instances_agree(head: Option<&[Option<Sort>]>, subject: Option<&Instance>) -> bool {
+    let (Some(head), Some(subject)) = (head, subject) else {
+        return true;
+    };
+    match subject {
+        Instance::Known(subject) => {
+            head.len() != subject.len()
+                || head.iter().zip(subject).all(|pair| match pair {
+                    (Some(head), Some(subject)) => head == subject,
+                    _ => true,
+                })
+        }
+        Instance::Unknown => head.iter().all(Option::is_none),
+    }
+}
+
+/// The instance of `rule`'s head, from the typing of the macro rule itself: the head is the
+/// left side of the rule's top rewrite, or its body when the rewrite is nested.
+fn head_instance(
+    typer: &SentenceTyper<'_>,
+    productions: &ProductionCatalog<'_>,
+    rule: &MacroRule,
+) -> Option<Vec<Option<Sort>>> {
+    let Term::Apply { label, .. } = rule.left.unannotated() else {
+        return None;
+    };
+    production_parameters(productions, label)?;
+    let Sentence::Rule { body, .. } = &rule.sentence else {
+        return None;
+    };
+    let path: &[u32] = if matches!(body.unannotated(), Term::Rewrite { .. }) {
+        &[0, 0]
+    } else {
+        &[0]
+    };
+    let (parameters, ..) = production_parameters(productions, label)?;
+    // A head the typing view cannot type is fixed by nothing it can see.
+    Some(
+        typer
+            .typing(&rule.sentence)
+            .ok()
+            .and_then(|typing| typing.instances.get(path).cloned())
+            .unwrap_or_else(|| vec![None; parameters.len()]),
+    )
+}
+
 fn macro_rule(
     id: usize,
     sentence: &Sentence,
@@ -736,6 +1227,7 @@ fn macro_rule(
         left,
         right: rewrite_projection(body, true),
         recursive,
+        head_instance: None,
     })
 }
 

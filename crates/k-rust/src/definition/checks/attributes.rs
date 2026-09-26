@@ -291,7 +291,7 @@ fn check_hooked_sort_constructor(
     }
     let macro_label = label
         .as_ref()
-        .is_some_and(|label| productions.macro_labels().contains(label));
+        .is_some_and(|label| productions.macro_labels().contains(&LabelHead::from(label)));
     let constructor_exempt = attributes.has_any(&[
         AttributeKey::Function,
         AttributeKey::Bracket,

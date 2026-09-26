@@ -56,7 +56,7 @@ pub(crate) fn propagate_macro_attribute(
     let Term::Apply { label, .. } = left.unannotated() else {
         return;
     };
-    if !productions.macro_labels().contains(label) {
+    if !productions.macro_labels().contains(&LabelHead::from(label)) {
         return;
     }
     let Some(production_attributes) = productions.attributes_for(&LabelHead::from(label)) else {

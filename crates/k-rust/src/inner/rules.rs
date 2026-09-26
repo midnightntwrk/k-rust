@@ -390,13 +390,60 @@ fn bubble_error(
     }))
 }
 
+/// Clear every label's sort parameters in a term the inner parser produced for a rule-like
+/// sentence or a configuration.
+///
+/// K source text cannot write a label parameter: a KLabel is a token, and a cast is the only
+/// sort annotation. A parameter on a parsed label is therefore the parser's own choice of
+/// instance, either derivable from the arguments and the position or, for an unconstrained
+/// parameter, arbitrary. Sort injection solves every parametric label from its arguments and
+/// position, so the loaded sentence carries no parameter: a loaded rule-like term has a
+/// parameter only where a later compiler pass generates one.
+///
+/// Readings that differ only in their instance stay distinct during disambiguation; the
+/// parameters are dropped only here, after one reading has been chosen.
+pub(super) fn erase_label_parameters(term: Term) -> Term {
+    match term {
+        Term::Annotated { term, metadata } => Term::Annotated {
+            term: Box::new(erase_label_parameters(*term)),
+            metadata,
+        },
+        Term::Apply {
+            mut label,
+            arguments,
+        } => {
+            label.parameters.clear();
+            Term::Apply {
+                label,
+                arguments: arguments.into_iter().map(erase_label_parameters).collect(),
+            }
+        }
+        Term::InjectedLabel(mut label) => {
+            label.parameters.clear();
+            Term::InjectedLabel(label)
+        }
+        Term::Rewrite { left, right } => Term::Rewrite {
+            left: Box::new(erase_label_parameters(*left)),
+            right: Box::new(erase_label_parameters(*right)),
+        },
+        Term::As { pattern, alias } => Term::As {
+            pattern: Box::new(erase_label_parameters(*pattern)),
+            alias: Box::new(erase_label_parameters(*alias)),
+        },
+        Term::Sequence(items) => {
+            Term::Sequence(items.into_iter().map(erase_label_parameters).collect())
+        }
+        term @ (Term::Variable { .. } | Term::Token { .. }) => term,
+    }
+}
+
 fn up_sentence(
     module: &str,
     sentence_type: &str,
     parsed: Term,
     attributes: Attributes,
 ) -> Result<Sentence, RuleError> {
-    let Term::Apply { label, arguments } = parsed.into_unannotated() else {
+    let Term::Apply { label, arguments } = erase_label_parameters(parsed).into_unannotated() else {
         return Err(bubble_error(
             module,
             sentence_type,

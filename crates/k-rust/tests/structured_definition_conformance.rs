@@ -867,6 +867,66 @@ fn assert_compiles_on_both_backends(
     }
 }
 
+/// A label parameter on a structured configuration is rejected by `load_structured` itself,
+/// on the caller's configuration sentence: expansion recognizes the cell wrapper by name and
+/// would replace a `#configCell{Nat}` before compilation could see it, and a parameter on the
+/// content would move into a generated initializer rule.
+#[test]
+fn structured_configuration_label_parameters_are_rejected_on_the_callers_sentence() {
+    use k_rust::kompile::SortInjectionError;
+    use k_rust::outer::LoadError;
+    let configuration_index = |definition: &Definition| {
+        definition.modules[0]
+            .local_sentences
+            .iter()
+            .position(|sentence| matches!(&**sentence, Sentence::Configuration { .. }))
+            .unwrap()
+    };
+    for (label, parameters) in [("#configCell", "Nat"), ("#SemanticCastToExp", "Int")] {
+        let mut definition = structured_definition(true);
+        let index = configuration_index(&definition);
+        let Sentence::Configuration { body, .. } =
+            k_rust::definition::sentence_mut(&mut definition.modules[0].local_sentences[index])
+        else {
+            unreachable!()
+        };
+        fn write(term: &mut Term, label: &str, parameters: &str) {
+            if let Term::Apply {
+                label: applied,
+                arguments,
+            } = term
+            {
+                if applied.name == label {
+                    applied.parameters = vec![Sort::new(parameters)];
+                }
+                for argument in arguments {
+                    write(argument, label, parameters);
+                }
+            }
+        }
+        write(body, label, parameters);
+        let error = load_structured(definition, &LoadOptions::default())
+            .expect_err("a written label parameter is rejected");
+        let LoadError::LabelParameters(SortInjectionError::Sentence {
+            module,
+            sentence,
+            error,
+            ..
+        }) = &error
+        else {
+            panic!("{label}: {error}")
+        };
+        assert_eq!((module.as_str(), *sentence), ("MAIN", index), "{error}");
+        assert_eq!(
+            **error,
+            SortInjectionError::LabelParameters {
+                label: label.to_owned(),
+                parameters: vec![Sort::new(parameters)],
+            }
+        );
+    }
+}
+
 fn structured_definition(with_configuration: bool) -> Definition {
     structured_definition_with_optional_configuration_cell(
         with_configuration.then_some("top"),

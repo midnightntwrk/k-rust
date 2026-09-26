@@ -229,7 +229,7 @@ pub struct ProductionCatalog<'a> {
     signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
     attributes_by_label: BTreeMap<LabelHead, Attributes>,
     result_sort_by_label: BTreeMap<LabelHead, Sort>,
-    macro_labels: BTreeSet<Label>,
+    macro_labels: BTreeSet<LabelHead>,
     by_key: OnceLock<BTreeMap<ProductionKey, Vec<ProductionId>>>,
     marker: PhantomData<&'a Sentence>,
 }
@@ -259,7 +259,7 @@ struct CatalogIndexes {
     signatures: BTreeMap<LabelHead, BTreeSet<ProductionSignature>>,
     attributes_by_label: BTreeMap<LabelHead, Attributes>,
     result_sort_by_label: BTreeMap<LabelHead, Sort>,
-    macro_labels: BTreeSet<Label>,
+    macro_labels: BTreeSet<LabelHead>,
 }
 
 impl<'a> ProductionCatalog<'a> {
@@ -527,7 +527,8 @@ impl<'a> ProductionCatalog<'a> {
         self.result_sort_by_label.get(label)
     }
 
-    pub fn macro_labels(&self) -> &BTreeSet<Label> {
+    /// The heads of macro-like productions' labels (the empty head for an unlabelled one).
+    pub fn macro_labels(&self) -> &BTreeSet<LabelHead> {
         &self.macro_labels
     }
 
@@ -616,9 +617,11 @@ fn build_indexes(productions: &[CatalogSentence<'_>]) -> CatalogIndexes {
                 .push(id);
         }
         if attributes.has_any(&AttributeKey::MACRO_LIKE) {
-            indexes
-                .macro_labels
-                .insert(label.clone().unwrap_or_else(|| Label::new("")));
+            indexes.macro_labels.insert(
+                label
+                    .as_ref()
+                    .map_or_else(|| LabelHead::new(""), LabelHead::from),
+            );
         }
         let Some(label) = label else {
             continue;

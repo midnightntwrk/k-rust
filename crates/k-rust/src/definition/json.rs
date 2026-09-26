@@ -53,8 +53,9 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// entry per Markdown extraction), and a source reference names its entry by `extraction`.
 /// Version 6 writes each sentence's input-address carrier under
 /// `org.krust.provenance.InputAddresses`; a version 5 reader would take that key for an ordinary
-/// attribute.
-pub const PROVENANCE_VERSION: u32 = 6;
+/// attribute. Version 7 holds rule-like sentences whose labels carry no sort parameters, which
+/// compilation now rejects; a version 6 document holds the parser's own instances there.
+pub const PROVENANCE_VERSION: u32 = 7;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum DefinitionEnvelopeKind {
