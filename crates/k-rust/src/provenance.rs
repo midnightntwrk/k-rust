@@ -74,7 +74,7 @@ use std::{
     borrow::Borrow,
     cell::OnceCell,
     collections::{BTreeMap, HashMap, HashSet},
-    hash::Hash,
+    hash::{Hash, Hasher},
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -82,13 +82,13 @@ use std::{
 
 use indexmap::IndexSet;
 use k_rust_kore::measure::{self, Counter};
-use rustc_hash::FxBuildHasher;
+use rustc_hash::{FxBuildHasher, FxHasher};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
     definition::{AttributeKey, Definition, Sentence},
-    kast::{InternalLabel, Term, TermMetadata, TermSpan},
+    kast::{InternalLabel, Label, Sort, Term, TermMetadata, TermSpan},
 };
 
 /// An insertion-ordered set of origin links. Its iteration order is the order of first insertion
@@ -1241,23 +1241,47 @@ struct SentenceBucketKey {
     kind: &'static str,
     unique_id: Option<String>,
     label: Option<String>,
-    discriminator: Option<String>,
+    discriminator: Option<u64>,
 }
 
 fn sentence_bucket_key(sentence: &Sentence) -> SentenceBucketKey {
     // Equality implies an equal key; collisions are resolved by Sentence equality in the bucket.
-    let discriminator = match sentence {
+    // The discriminator hashes fields that sentence equality compares, as that equality does.
+    let mut hasher = FxHasher::default();
+    let discriminated = match sentence {
         Sentence::ContextAlias { body, .. }
         | Sentence::Context { body, .. }
         | Sentence::Rule { body, .. }
         | Sentence::Claim { body, .. }
-        | Sentence::Configuration { body, .. } => Some(body.to_string()),
-        Sentence::Production { sort, label, .. } => Some(format!("{sort:?}:{label:?}")),
-        Sentence::SyntaxSort { sort, .. } => Some(format!("{sort:?}")),
-        Sentence::SortSynonym { new_sort, .. } => Some(format!("{new_sort:?}")),
-        Sentence::SyntaxLexical { name, .. } => Some(name.clone()),
-        Sentence::Bubble { sentence_type, .. } => Some(sentence_type.clone()),
-        Sentence::SyntaxAssociativity { .. } | Sentence::SyntaxPriority { .. } => None,
+        | Sentence::Configuration { body, .. } => {
+            hash_term(body, &mut hasher);
+            true
+        }
+        Sentence::Production { sort, label, .. } => {
+            hash_sort(sort, &mut hasher);
+            label
+                .as_ref()
+                .map(|label| hash_label(label, &mut hasher))
+                .hash(&mut hasher);
+            true
+        }
+        Sentence::SyntaxSort { sort, .. } => {
+            hash_sort(sort, &mut hasher);
+            true
+        }
+        Sentence::SortSynonym { new_sort, .. } => {
+            hash_sort(new_sort, &mut hasher);
+            true
+        }
+        Sentence::SyntaxLexical { name, .. } => {
+            name.hash(&mut hasher);
+            true
+        }
+        Sentence::Bubble { sentence_type, .. } => {
+            sentence_type.hash(&mut hasher);
+            true
+        }
+        Sentence::SyntaxAssociativity { .. } | Sentence::SyntaxPriority { .. } => false,
     };
     SentenceBucketKey {
         kind: sentence_kind(sentence),
@@ -1269,7 +1293,73 @@ fn sentence_bucket_key(sentence: &Sentence) -> SentenceBucketKey {
             .attributes()
             .string(AttributeKey::Label)
             .map(str::to_owned),
-        discriminator,
+        discriminator: discriminated.then(|| hasher.finish()),
+    }
+}
+
+fn hash_sort(sort: &Sort, hasher: &mut FxHasher) {
+    sort.name.hash(hasher);
+    sort.parameters.len().hash(hasher);
+    for parameter in &sort.parameters {
+        hash_sort(parameter, hasher);
+    }
+}
+
+fn hash_label(label: &Label, hasher: &mut FxHasher) {
+    label.name.hash(hasher);
+    label.parameters.len().hash(hasher);
+    for parameter in &label.parameters {
+        hash_sort(parameter, hasher);
+    }
+}
+
+/// Hash what `Term` equality compares: the unannotated structure, never metadata.
+// Invariant: each recursive call hashes a strict subterm of `term`, so the term's size bounds
+// the calls.
+fn hash_term(term: &Term, hasher: &mut FxHasher) {
+    match term.unannotated() {
+        Term::InjectedLabel(label) => {
+            0_u8.hash(hasher);
+            hash_label(label, hasher);
+        }
+        Term::Rewrite { left, right } => {
+            1_u8.hash(hasher);
+            hash_term(left, hasher);
+            hash_term(right, hasher);
+        }
+        Term::As { pattern, alias } => {
+            2_u8.hash(hasher);
+            hash_term(pattern, hasher);
+            hash_term(alias, hasher);
+        }
+        Term::Variable { name, sort } => {
+            3_u8.hash(hasher);
+            name.hash(hasher);
+            sort.as_ref()
+                .map(|sort| hash_sort(sort, hasher))
+                .hash(hasher);
+        }
+        Term::Sequence(items) => {
+            4_u8.hash(hasher);
+            items.len().hash(hasher);
+            for item in items {
+                hash_term(item, hasher);
+            }
+        }
+        Term::Apply { label, arguments } => {
+            5_u8.hash(hasher);
+            hash_label(label, hasher);
+            arguments.len().hash(hasher);
+            for argument in arguments {
+                hash_term(argument, hasher);
+            }
+        }
+        Term::Token { token, sort } => {
+            6_u8.hash(hasher);
+            token.hash(hasher);
+            hash_sort(sort, hasher);
+        }
+        Term::Annotated { .. } => unreachable!("unannotated terms carry no annotation"),
     }
 }
 
