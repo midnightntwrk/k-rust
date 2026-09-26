@@ -33,21 +33,21 @@ proptest! {
     ) {
         let mut edge_index = 0;
         let mut modules = Vec::new();
-        for importer in 0..MODULE_NAMES.len() {
+        for (importer, &module_name) in MODULE_NAMES.iter().enumerate() {
             let mut imports = Vec::new();
-            for imported in 0..importer {
+            for &imported_name in MODULE_NAMES.iter().take(importer) {
                 if edges[edge_index] {
                     imports.push(FlatImport {
-                        name: MODULE_NAMES[imported].into(),
+                        name: imported_name.into(),
                         public: (edge_index % 2) == 0,
                     });
                 }
                 edge_index += 1;
             }
             modules.push(FlatModule {
-                name: MODULE_NAMES[importer].into(),
+                name: module_name.into(),
                 imports,
-                local_sentences: vec![Arc::new(marker(MODULE_NAMES[importer]))],
+                local_sentences: vec![Arc::new(marker(module_name))],
                 attributes: Attributes::default(),
             });
         }
