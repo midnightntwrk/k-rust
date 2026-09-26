@@ -148,6 +148,44 @@ pub struct PredicateRewriteRule {
     pub rhs: Vec<Predicate>,
     pub requires: Vec<Predicate>,
     pub attributes: RuleAttributes,
+    /// The variable sets `rename_predicate_rule_apart` tests, computed once from the three
+    /// parts above by [`PredicateRewriteRule::new`].
+    pub variables: PredicateRuleVariables,
+}
+
+/// Every variable a predicate equation mentions, free or bound, and those free variables of
+/// its right-hand side and requires that its left-hand side does not bind.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PredicateRuleVariables {
+    pub all: BTreeSet<Variable>,
+    pub unbound: BTreeSet<Variable>,
+}
+
+impl PredicateRewriteRule {
+    pub fn new(
+        lhs: Predicate,
+        rhs: Vec<Predicate>,
+        requires: Vec<Predicate>,
+        attributes: RuleAttributes,
+    ) -> Self {
+        let mut all = BTreeSet::new();
+        collect_all_variables(std::slice::from_ref(&lhs), &mut all);
+        collect_all_variables(&rhs, &mut all);
+        collect_all_variables(&requires, &mut all);
+        let bound = lhs.free_variables();
+        let unbound = free_variables_of(&rhs)
+            .into_iter()
+            .chain(free_variables_of(&requires))
+            .filter(|variable| !bound.contains(variable))
+            .collect();
+        Self {
+            lhs,
+            rhs,
+            requires,
+            attributes,
+            variables: PredicateRuleVariables { all, unbound },
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1095,12 +1133,14 @@ pub fn internalize_axiom(
                 let rename =
                     |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
                 let mut lhs = rename_predicates(&[lhs], rename);
-                return Ok(vec![InternalizedRule::Predicate(PredicateRewriteRule {
-                    lhs: lhs.pop().expect("one predicate was internalized"),
-                    rhs: rename_predicates(&rhs, rename),
-                    requires: rename_predicates(&requires, rename),
-                    attributes: attributes.clone(),
-                })]);
+                return Ok(vec![InternalizedRule::Predicate(
+                    PredicateRewriteRule::new(
+                        lhs.pop().expect("one predicate was internalized"),
+                        rename_predicates(&rhs, rename),
+                        rename_predicates(&requires, rename),
+                        attributes.clone(),
+                    ),
+                )]);
             }
             if contains_term_or(lhs) {
                 return Err(DefinitionError::RulePattern(
@@ -2276,19 +2316,13 @@ pub(crate) fn rename_predicate_rule_apart(
     subject: &Predicate,
     constraints: &[Predicate],
 ) -> Option<RenamedApart<PredicateRewriteRule>> {
-    let mut variables = BTreeSet::new();
-    collect_all_variables(std::slice::from_ref(&rule.lhs), &mut variables);
-    collect_all_variables(&rule.rhs, &mut variables);
-    collect_all_variables(&rule.requires, &mut variables);
-    let mut scope = BTreeSet::new();
-    collect_all_variables(std::slice::from_ref(subject), &mut scope);
-    let term_clash = !variables.is_disjoint(&scope);
-    let bound = rule.lhs.free_variables();
-    let unbound = free_variables_of(&rule.rhs)
-        .into_iter()
-        .chain(free_variables_of(&rule.requires))
-        .filter(|variable| !bound.contains(variable))
-        .collect::<BTreeSet<_>>();
+    let PredicateRuleVariables {
+        all: variables,
+        unbound,
+    } = &rule.variables;
+    // The subject is walked for a clash without collecting its variables; its scope is
+    // collected only when a renaming is needed.
+    let term_clash = mentions_any(subject, variables);
     if !term_clash && unbound.is_empty() {
         return None;
     }
@@ -2296,21 +2330,53 @@ pub(crate) fn rename_predicate_rule_apart(
     if !term_clash && unbound.is_disjoint(&constraint_variables) {
         return None;
     }
+    let mut scope = BTreeSet::new();
+    collect_all_variables(std::slice::from_ref(subject), &mut scope);
     scope.extend(constraint_variables);
-    let renaming = fresh_renaming(&variables, &scope);
+    let renaming = fresh_renaming(variables, &scope);
     let rename = |variable: &Variable| {
         renaming
             .get(variable)
             .cloned()
             .unwrap_or_else(|| variable.clone())
     };
+    let rename_set = |variables: &BTreeSet<Variable>| variables.iter().map(rename).collect();
     let renamed = PredicateRewriteRule {
         lhs: rename_predicate(&rule.lhs, rename),
         rhs: rename_predicates(&rule.rhs, rename),
         requires: rename_predicates(&rule.requires, rename),
         attributes: rename_concreteness(&rule.attributes, &renaming),
+        variables: PredicateRuleVariables {
+            all: rename_set(variables),
+            unbound: rename_set(unbound),
+        },
     };
     Some((renamed, renaming))
+}
+
+/// Whether `predicate` mentions one of `variables`, free or bound: whether the set
+/// `collect_all_variables` builds for it meets `variables`.
+fn mentions_any(predicate: &Predicate, variables: &BTreeSet<Variable>) -> bool {
+    match predicate {
+        Predicate::True | Predicate::False => false,
+        Predicate::Term(term) | Predicate::Ceil(term) | Predicate::Floor(term) => {
+            !term.attributes().variables.is_disjoint(variables)
+        }
+        Predicate::Equals(left, right) | Predicate::In(left, right) => {
+            !left.attributes().variables.is_disjoint(variables)
+                || !right.attributes().variables.is_disjoint(variables)
+        }
+        Predicate::Not(inner) => mentions_any(inner, variables),
+        Predicate::And(inner) | Predicate::Or(inner) => inner
+            .iter()
+            .any(|predicate| mentions_any(predicate, variables)),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            mentions_any(left, variables) || mentions_any(right, variables)
+        }
+        Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+            variables.contains(variable) || mentions_any(inner, variables)
+        }
+    }
 }
 
 fn free_variables_of(predicates: &[Predicate]) -> BTreeSet<Variable> {
@@ -3454,5 +3520,68 @@ mod tests {
 
         assert_eq!(renaming.keys().collect::<Vec<_>>(), [&y]);
         assert!(!renamed.requires[0].free_variables().contains(&y));
+    }
+
+    #[test]
+    fn predicate_rule_cached_variables_preserve_renaming() {
+        let sort = crate::term::Sort::simple("SortS");
+        let x = Variable::new("Eq#X", sort.clone());
+        let y = Variable::new("Eq#Y", sort.clone());
+        let z = Variable::new("Eq#Z", sort.clone());
+        let lhs = Predicate::Equals(Term::variable(x.clone()), Term::variable(x.clone()));
+        let rhs = vec![Predicate::Exists(
+            z.clone(),
+            Box::new(Predicate::Equals(
+                Term::variable(y.clone()),
+                Term::variable(z.clone()),
+            )),
+        )];
+        let rule = PredicateRewriteRule::new(
+            lhs,
+            rhs,
+            vec![],
+            RuleAttributes {
+                priority: 50,
+                label: None,
+                unique_id: "predicate-apart".into(),
+                simplification: true,
+                preserves_definedness: false,
+                concreteness: Concreteness::Unconstrained,
+                smt_lemma: false,
+                executable: true,
+                origins: vec![],
+            },
+        );
+        assert_eq!(
+            rule.variables.all,
+            BTreeSet::from([x.clone(), y.clone(), z.clone()])
+        );
+        assert_eq!(rule.variables.unbound, BTreeSet::from([y.clone()]));
+        assert!(rename_predicate_rule_apart(&rule, &Predicate::True, &[]).is_none());
+
+        let subject = Predicate::Forall(z.clone(), Box::new(Predicate::True));
+        let (renamed, renaming) = rename_predicate_rule_apart(&rule, &subject, &[])
+            .expect("a subject binder is in scope");
+        assert_eq!(renaming.keys().collect::<Vec<_>>(), [&z]);
+        let recomputed = PredicateRewriteRule::new(
+            renamed.lhs.clone(),
+            renamed.rhs.clone(),
+            renamed.requires.clone(),
+            renamed.attributes.clone(),
+        );
+        assert_eq!(renamed.variables, recomputed.variables);
+        assert!(rename_predicate_rule_apart(&renamed, &subject, &[]).is_none());
+
+        let path = [Predicate::Equals(
+            Term::variable(y.clone()),
+            Term::variable(y.clone()),
+        )];
+        let (_, renaming) = rename_predicate_rule_apart(&rule, &Predicate::True, &path)
+            .expect("the path mentions an unbound rule variable");
+        assert_eq!(renaming.keys().collect::<Vec<_>>(), [&y]);
+        let subject = Predicate::Equals(Term::variable(x.clone()), Term::variable(x.clone()));
+        let (_, renaming) = rename_predicate_rule_apart(&rule, &subject, &[])
+            .expect("the subject mentions the left-hand side variable");
+        assert_eq!(renaming.keys().collect::<Vec<_>>(), [&x]);
     }
 }
