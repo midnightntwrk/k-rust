@@ -1040,6 +1040,7 @@ dependencies = [
  "regex",
  "regex-automata",
  "rug",
+ "rustc-hash",
  "serde",
  "serde_json",
  "sha2",

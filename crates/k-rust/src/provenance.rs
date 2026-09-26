@@ -82,6 +82,7 @@ use std::{
 
 use indexmap::IndexSet;
 use k_rust_kore::measure::{self, Counter};
+use rustc_hash::FxBuildHasher;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -89,6 +90,10 @@ use crate::{
     definition::{AttributeKey, Definition, Sentence},
     kast::{InternalLabel, Term, TermMetadata, TermSpan},
 };
+
+/// An insertion-ordered set of origin links. Its iteration order is the order of first insertion
+/// whatever the hasher, so a fast non-cryptographic hasher cannot change a recorded receipt.
+type LinkSet<L> = IndexSet<L, FxBuildHasher>;
 
 pub const ORIGIN_ATTRIBUTE: &str = AttributeKey::Origin.as_str();
 pub const INPUT_ADDRESSES_ATTRIBUTE: &str = AttributeKey::InputAddresses.as_str();
@@ -1205,7 +1210,7 @@ impl<'a> CarrierOrigins<'a> {
                 })
             }
             indices => {
-                let mut links = IndexSet::new();
+                let mut links = LinkSet::default();
                 let mut shared = Vec::<Arc<[ProvenanceLink]>>::new();
                 for index in indices {
                     let sentence = &before[*index];
@@ -1295,7 +1300,7 @@ fn sentence_kind(sentence: &Sentence) -> &'static str {
 }
 
 pub(crate) fn sentence_source_links(sentence: &Sentence) -> Vec<ProvenanceLink> {
-    let mut links = IndexSet::new();
+    let mut links = LinkSet::default();
     for_each_term(sentence, &mut |term| collect_source_links(term, &mut links));
     links.into_iter().collect()
 }
@@ -1440,7 +1445,7 @@ fn module_origin_links<S: Borrow<Sentence>>(
 fn united_origin_links<'a>(
     sentences: impl IntoIterator<Item = &'a Sentence>,
 ) -> Vec<ProvenanceLink> {
-    let mut links = IndexSet::new();
+    let mut links = LinkSet::default();
     // Generated sentences of one module share one stored origin set; a set already united adds
     // no link, so each shared allocation is scanned once however many sentences carry it.
     let mut united = HashSet::<*const ProvenanceLink>::new();
@@ -1459,7 +1464,7 @@ fn united_origin_links<'a>(
     links.into_iter().collect()
 }
 
-fn collect_source_links(term: &Term, links: &mut IndexSet<ProvenanceLink>) {
+fn collect_source_links(term: &Term, links: &mut LinkSet<ProvenanceLink>) {
     // Invariant: `links` contains distinct source links for the term prefix already traversed in
     // first-encounter order; recursive calls visit proper subterms.
     if let Some(span) = term.metadata().and_then(|metadata| metadata.span) {
@@ -1487,7 +1492,7 @@ fn collect_source_links(term: &Term, links: &mut IndexSet<ProvenanceLink>) {
     }
 }
 
-fn insert_link<L: Eq + Hash>(links: &mut IndexSet<L>, link: L) {
+fn insert_link<L: Eq + Hash>(links: &mut LinkSet<L>, link: L) {
     measure::bump(Counter::ProvenanceLinkDedupProbes);
     links.insert(link);
 }
@@ -1747,7 +1752,7 @@ fn term_origin_links(
     // The union is idempotent, so a shared origin set already united adds no link; a copied term
     // keeps its counterpart's set, and a node's prior set is often the one it inherits.
     let mut united = Vec::<&Arc<[ProvenanceLink]>>::with_capacity(2);
-    let mut links = IndexSet::new();
+    let mut links = LinkSet::default();
     // Invariant: `links` contains the distinct prior and current origin links already scanned in
     // first-encounter order, and `united` names every shared set already scanned.
     for origins in prior.into_iter().flatten() {
@@ -2218,7 +2223,7 @@ mod tests {
                     unique_id: format!("s{}", value % 8),
                 })
                 .collect::<Vec<_>>();
-            let mut actual = IndexSet::new();
+            let mut actual = LinkSet::default();
             for link in links.iter().cloned() {
                 insert_link(&mut actual, link);
             }

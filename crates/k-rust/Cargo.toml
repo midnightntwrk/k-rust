@@ -27,6 +27,7 @@ petgraph.workspace = true
 regex.workspace = true
 regex-automata.workspace = true
 rug = { workspace = true, optional = true }
+rustc-hash.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
