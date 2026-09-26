@@ -303,6 +303,9 @@ pub struct ExecutionOptions {
     /// right-hand-side alternatives and a symbolic remainder, so it can yield several leaves;
     /// the two readings coincide only when no two leaves share a configuration.
     pub result_modality: ResultModality,
+    /// Retain the full path trace in each result leaf. Callers that only consume the final
+    /// configuration can discard previous entries while keeping the latest rewrite for halts.
+    pub retain_trace: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -331,6 +334,7 @@ impl Default for ExecutionOptions {
             moving_average_timeout: false,
             assume_initial_defined: false,
             result_modality: ResultModality::StateSet,
+            retain_trace: true,
         }
     }
 }

@@ -408,6 +408,7 @@ fn run_backend_with_solver(
         terminal_rules: options.terminal_rules,
         step_timeout: options.step_timeout,
         moving_average_timeout: options.moving_average_timeout,
+        retain_trace: false,
         ..ExecutionOptions::default()
     };
     let live_io = options.execution_input.is_some();

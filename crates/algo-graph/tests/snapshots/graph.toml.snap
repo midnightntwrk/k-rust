@@ -1629,7 +1629,7 @@ provenance = "declared"
 area = "backend"
 name = "depth-first exploration of a rewrite tree"
 variable = "d = maximum depth; b = maximum breadth; L = final leaves"
-invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows"
+invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
 span = "per problem"
 table = "Algorithm::ALL"
 registry_name = "BackendRewriteExecute"
@@ -1662,6 +1662,16 @@ symbol = "Execution::expand"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "commit_applied"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
+symbol = "ExecutionState::leaf"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/execute.rs"
 symbol = "merge_equal_final_leaves"
 
 [[node.sites]]
@@ -1676,6 +1686,10 @@ bound = "O(states), with states at most b^d when both bounds are set and unbound
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"
 bound = "O(L^2) structural key comparisons"
+
+[[node.cost]]
+mode = "trace storage with retain_trace false"
+bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
 
 [[node]]
 kind = "algorithm"

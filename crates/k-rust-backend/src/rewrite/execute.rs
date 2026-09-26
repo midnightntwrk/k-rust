@@ -1,11 +1,11 @@
 //! ```toml algorithm
 //! id = "backend.rewrite.execute"
 //! name = "depth-first exploration of a rewrite tree"
-//! sites = ["execute_using", "Execution::run", "Execution::expand", "merge_equal_final_leaves", "enqueue_execution_states"]
+//! sites = ["execute_using", "Execution::run", "Execution::expand", "commit_applied", "ExecutionState::leaf", "merge_equal_final_leaves", "enqueue_execution_states"]
 //! variable = "d = maximum depth; b = maximum breadth; L = final leaves"
 //! counters = ["RewriteSteps"]
 //! span = "per problem"
-//! invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows"
+//! invariant = "pending holds unexpanded states of depth <= max_depth; leaves only grows. When retain_trace is false, commit_applied keeps only the latest rewrite entry needed for halt metadata, and leaf returns no trace."
 //! consumes = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
 //!   { type = "k_rust_backend::rewrite::Pattern", role = "internalized pattern" },
@@ -20,6 +20,10 @@
 //! [[cost]]
 //! mode = "final leaf merge (merge_equal_final_leaves)"
 //! bound = "O(L^2) structural key comparisons"
+//!
+//! [[cost]]
+//! mode = "trace storage with retain_trace false"
+//! bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
 //! ```
 //!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and
@@ -149,6 +153,7 @@ impl<'a> Execution<'a> {
                     pattern,
                     depth: 0,
                     trace: Vec::new(),
+                    retain_trace: options.retain_trace,
                     kind: ExecutionStateKind::Rewritable,
                     observation: None,
                     effects: EffectJournal::default(),
@@ -1411,6 +1416,9 @@ fn commit_applied(
     applied: AppliedRule,
     observation: ObservationHead,
 ) -> ExecutionState {
+    if !state.retain_trace {
+        state.trace.clear();
+    }
     state.diagnostics.extend(&applied.diagnostics);
     for simplification in &applied.remainder_simplifications {
         state.trace.extend(
@@ -1509,6 +1517,7 @@ struct ExecutionState {
     pattern: Pattern,
     depth: u64,
     trace: Vec<TraceEntry>,
+    retain_trace: bool,
     kind: ExecutionStateKind,
     observation: ObservationHead,
     effects: EffectJournal,
@@ -1527,7 +1536,11 @@ impl ExecutionState {
         ExecutionLeaf {
             pattern: self.pattern,
             depth: self.depth,
-            trace: self.trace,
+            trace: if self.retain_trace {
+                self.trace
+            } else {
+                Vec::new()
+            },
             branch,
             observations,
             effects: self.effects.into_committed(),

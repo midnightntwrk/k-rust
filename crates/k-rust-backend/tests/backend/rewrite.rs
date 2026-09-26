@@ -4462,6 +4462,22 @@ fn executes_to_a_stuck_normal_form_and_records_the_trace() {
         leaf.pattern.term.kind(),
         TermKind::DomainValue { value, .. } if value == "done"
     ));
+
+    let compact = execute(
+        &definition,
+        subject(&definition, "zero"),
+        ExecutionOptions {
+            retain_trace: false,
+            ..ExecutionOptions::default()
+        },
+    );
+    let [compact_leaf] = compact.leaves.as_slice() else {
+        panic!("expected one compact leaf");
+    };
+    assert_eq!(compact_leaf.depth, leaf.depth);
+    assert_eq!(compact_leaf.pattern, leaf.pattern);
+    assert_eq!(compact_leaf.halt_reason, leaf.halt_reason);
+    assert!(compact_leaf.trace.is_empty());
 }
 
 fn assert_not_iteration_limit(reason: &HaltReason) {

@@ -624,6 +624,7 @@ impl Backend {
                 moving_average_timeout: request.moving_average_timeout,
                 assume_initial_defined: request.assume_state_defined,
                 result_modality: request.result_modality.into(),
+                retain_trace: true,
             };
             let result = match observation_rules {
                 Some(rules) => {
