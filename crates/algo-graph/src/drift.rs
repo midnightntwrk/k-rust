@@ -1,10 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    fmt::Write as _,
-    fs, io,
-    path::Path,
-    process::{Command, Output},
-};
+use std::{collections::BTreeMap, fmt::Write as _, fs, io, path::Path, process::Output};
 
 use proc_macro2::{Delimiter, Group, LineColumn, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -13,7 +7,7 @@ use syn::{
     visit::{self, Visit},
 };
 
-use crate::Error;
+use crate::{Error, git_command};
 
 /// A card whose implementation site changed without its fence changing.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -138,9 +132,7 @@ fn git_stdout(root: &Path, arguments: &[&str]) -> Result<String, Error> {
 }
 
 fn git_output(root: &Path, arguments: &[&str]) -> Result<Output, Error> {
-    Command::new("git")
-        .arg("-C")
-        .arg(root)
+    git_command(root)
         .args(arguments)
         .output()
         .map_err(Error::Io)
@@ -788,12 +780,7 @@ impl Value {
 
     /// Run `git`; on a missing binary or a failure, print why the test is skipped.
     fn git(root: &Path, arguments: &[&str]) -> bool {
-        match Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(arguments)
-            .output()
-        {
+        match git_command(root).args(arguments).output() {
             Ok(output) if output.status.success() => true,
             Ok(output) => {
                 eprintln!(

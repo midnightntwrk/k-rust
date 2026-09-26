@@ -27,6 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt, fs, io,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 pub use atlas::{
@@ -152,6 +153,40 @@ pub fn workspace_root() -> PathBuf {
                 .expect("algo-graph is under crates/algo-graph")
                 .to_owned()
         })
+}
+
+/// Environment variables that make `git` address a repository other than the one found from its
+/// working directory; `git rev-parse --local-env-vars` prints this list.
+const GIT_REPOSITORY_VARIABLES: [&str; 15] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
+
+/// A `git -C root` command that addresses the repository at `root` and no other.
+///
+/// An inherited `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE` (set, for example, while `git rebase
+/// --exec` or a hook runs this process) takes precedence over `-C`, so without clearing them a
+/// command meant for `root` reads or writes the caller's repository instead.
+pub(crate) fn git_command(root: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root);
+    for variable in GIT_REPOSITORY_VARIABLES {
+        command.env_remove(variable);
+    }
+    command
 }
 
 fn find_workspace_root(start: &Path) -> Option<PathBuf> {

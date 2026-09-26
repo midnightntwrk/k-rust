@@ -11,7 +11,6 @@ use std::{
     fmt::{self, Write as _},
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use serde::{Deserialize, Deserializer, Serialize};
@@ -19,6 +18,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use crate::{
     Cost, Error, Graph, Join,
     diff::{Spread, number, read_join_file},
+    git_command,
     profile::{NO_ALGORITHM, SampledProfile, read_profile},
 };
 
@@ -1918,9 +1918,7 @@ pub fn check_staleness(
     let changed = if files.is_empty() {
         BTreeSet::new()
     } else {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(root)
+        let output = git_command(root)
             .args(["diff", "--name-only", commit, "--"])
             .args(&files)
             .output()?;
@@ -2593,9 +2591,7 @@ mod tests {
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(directory.join("src")).expect("directory");
         let git = |args: &[&str]| {
-            let status = Command::new("git")
-                .arg("-C")
-                .arg(&directory)
+            let status = git_command(&directory)
                 .args([
                     "-c",
                     "user.name=test",
