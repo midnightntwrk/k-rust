@@ -10,7 +10,7 @@
 //! name = "immutable backend term with a cached structural hash"
 //! type = "k_rust_backend::term::Term"
 //! sites = ["Term", "TermData", "Term::new", "Term::map", "Term::set", "Term::with_evaluated_cache", "calculate_hash", "ceil_free", "key_header", "share_one_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp"]
-//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it sorts the entries by (key, value) and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
+//! invariant = "Term::new is the only place a TermData is built, and a TermData is never mutated after it is shared: Term and TermData keep their fields private. Term::new sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind. Term::new also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map builds a Map kind: after merging the entries of a same-definition rest, it verifies strict (key, value) order or sorts and removes adjacent equal pairs. Only Term::set builds a Set kind: after merging the elements of a same-definition rest, it sorts the elements and removes adjacent equal ones. with_evaluated_cache rebuilds a term from a copy of its kind and changes only the evaluated attribute. Hence every map and set, at every depth of every Term, is sorted with adjacent entries or elements distinct."
 //! tests = ["crates/k-rust-backend/tests/backend/term_order.rs"]
 //! lean = ["KRust.TermAttributes.ceilFree_sound", "KRust.TermAttributes.map_keys_pairwise_distinct", "KRust.TermAttributes.set_pairwise_distinct"]
 //! ```
@@ -593,8 +593,10 @@ impl Term {
             None => (Vec::new(), None),
         };
         entries.extend(nested_entries);
-        entries.sort();
-        entries.dedup();
+        if !entries.windows(2).all(|pair| pair[0] < pair[1]) {
+            entries.sort();
+            entries.dedup();
+        }
         if entries.is_empty()
             && let Some(rest) = rest
         {

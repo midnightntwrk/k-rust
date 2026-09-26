@@ -497,6 +497,33 @@ proptest! {
         let term = base.build();
         prop_assert!(check_wf(&term).is_ok(), "{}", check_wf(&term).unwrap_err());
     }
+
+    #[test]
+    fn map_order_fast_path_agrees_with_sort_and_dedup(
+        entries in prop::collection::vec((spec(), spec()), 0..16),
+        nested in prop::collection::vec((spec(), spec()), 0..8),
+    ) {
+        let definition = map_definition(0);
+        let entries: Vec<_> = entries.into_iter().map(|(key, value)| (key.build(), value.build())).collect();
+        let nested: Vec<_> = nested.into_iter().map(|(key, value)| (key.build(), value.build())).collect();
+        let general = Term::map(definition.clone(), entries.clone(), None);
+        let mut sorted = entries.clone();
+        sorted.sort();
+        sorted.dedup();
+        let fast = Term::map(definition.clone(), sorted, None);
+        prop_assert_eq!(fast, general);
+        let rest = Term::map(definition.clone(), nested, None);
+        let actual = Term::map(definition.clone(), entries.clone(), Some(rest.clone()));
+        let mut expected_entries = entries;
+        let TermKind::Map { entries: rest_entries, .. } = rest.kind() else {
+            unreachable!()
+        };
+        expected_entries.extend(rest_entries.iter().cloned());
+        expected_entries.sort();
+        expected_entries.dedup();
+        let expected = Term::map(definition, expected_entries, None);
+        prop_assert_eq!(actual, expected);
+    }
 }
 
 /// Fixed near misses the generator reaches only by chance: collection definitions that differ in
