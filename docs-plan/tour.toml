@@ -624,7 +624,7 @@ coverage = "spine"
 chapter = "applicability"
 prerequisites = ["requires", "declarative-relational-rules"]
 evidence = [
-    "tests/m3b/README.md",
+    "tests/imp-state/README.md",
     "tests/imp/compatibility/BLOCKERS.md",
     "semantics/kwasm",
     "tests/kwasm",

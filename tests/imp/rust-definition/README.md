@@ -6,7 +6,7 @@ the IMP differential gate. Every authored source is ordinary Rust accepted by
 to `k`.
 
 The package deliberately separates the closed operational language
-(`imp.rs`), upstream verification simplifiers (`verification.rs`), the M3D
+(`imp.rs`), upstream verification simplifiers (`verification.rs`), the IMP static semantics
 stress-only static adjunct (`static_adjunct.rs`), and the complete proof corpus
 (`claims.rs`). The adjunct is not presented as part of upstream IMP.
 

@@ -13,7 +13,7 @@ import sys
 from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from m3d import normalize as normalizer  # noqa: E402
+from imp_static_semantics import normalize as normalizer  # noqa: E402
 import proofs  # noqa: E402
 from support import ROOT, GateError  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
@@ -30,16 +30,16 @@ IMP = ROOT.parent / "inspirations/runtimeverification/imp-semantics"
 K = ROOT.parent / "inspirations/runtimeverification/k"
 IMP_DEFINITION = IMP / "src/kimp/kdist/imp-semantics"
 IMP_SPECS = IMP / "examples/specs"
-REFERENCE_SOURCE = ROOT / "tests/m3d/fixtures/static-adjunct.k"
-ADJUNCT_SPEC = ROOT / "tests/m3d/claims/static-spec.k"
+REFERENCE_SOURCE = ROOT / "tests/imp_static_semantics/fixtures/static-adjunct.k"
+ADJUNCT_SPEC = ROOT / "tests/imp_static_semantics/claims/static-spec.k"
 ARTIFACT_MANIFEST = ROOT / "tests/imp/oracle/artifact-probe/Cargo.toml"
 RUST_MANIFEST = ROOT / "tests/imp/rust-definition/Cargo.toml"
 NATIVE_MANIFEST = ROOT / "tests/imp/native/Cargo.toml"
 
 ACTUAL_MODULE = "KRS-IMP"
 ACTUAL_SPEC_MODULE = f"{ACTUAL_MODULE}-SPEC"
-REFERENCE_MODULE = "KRS-M3D-STATIC"
-REFERENCE_SYNTAX_MODULE = "KRS-M3D-STATIC-SYNTAX"
+REFERENCE_MODULE = "KRS-IMP-STATIC"
+REFERENCE_SYNTAX_MODULE = "KRS-IMP-STATIC-SYNTAX"
 WATCHDOG_SECONDS = 900
 CONSTRAINT_LABELS = frozenset({"#Equals", "#Ceil", "#And", "#Not", "#Top", "#Bottom"})
 ADJUNCT_NAMES = frozenset(
@@ -68,7 +68,7 @@ def source_cases(pins: Mapping[str, Any], proofs: Any) -> list[dict[str, Any]]:
         source_name = "addition-1" if name == "addition-depth-zero" else name
         if source_name in ADJUNCT_NAMES:
             spec_path = ADJUNCT_SPEC
-            spec_module = "KRS-M3D-STATIC-SPEC"
+            spec_module = "KRS-IMP-STATIC-SPEC"
         elif source_name in SUM_SPEC_NAMES:
             spec_path = IMP_SPECS / "imp-sum-spec.k"
             spec_module = "IMP-SUM-SPEC"

@@ -1,0 +1,34 @@
+{
+  "corpus_sha256": {
+    "corpus/accepted/initial-environment.calc": "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298",
+    "corpus/accepted/lookup-evaluation-order.calc": "354de8004629275879cba07ecf163b38b5bb840900b1e1d4f315a310794f4420",
+    "corpus/accepted/right-associated-sequence.calc": "bb2ce7a1f84f10b0d89678bbd402096f2336354f84c6a620a30901d0a221b7aa",
+    "corpus/accepted/single-assignment.calc": "9a02156356e959f9b05a03bc691270d7ea11311ddf83b30b8757d3e212b18973",
+    "corpus/accepted/update-existing.calc": "23c42d3a1399dff3d1b2103057acaa641323bfb87a681f8caae8d06edb0734df",
+    "corpus/rejected/semantic/division-by-zero.calc": "e9efbcd12b42c686ad1928615611df9347cbd784ee7fd52f3ca38638b60483b4",
+    "corpus/rejected/semantic/type-error.calc": "be2b36b54b2f8c5d5328c5eb4f6fba2348b208881f334d1aaf55e43e6c33ed0b",
+    "corpus/rejected/semantic/undefined-variable.calc": "56ccb251c8030be6943e77b622e26b0da015e06f357efb99e43471b5c7ce7298",
+    "corpus/rejected/syntax/missing-identifier.calc": "2b81546cee333061cf47638bd99b40bb685865a7dc75446cad93658098d5c25d",
+    "corpus/rejected/syntax/missing-semicolon.calc": "9e26bf369911c45c243c684147b23fc9e1dcfcf257d299a1c632016a6fcd33f4",
+    "fixtures/calc.k": "bf0a9bd50ba8f36cc813804920032a21b073624aabab047b3d9e0f9fc38430f8",
+    "fixtures/expr.k": "a3140c3ecde1f1157278cbf48247cac255537bcd4443b16d247df58254925ce9",
+    "fixtures/induced-definition-error.k": "953ec2600fcd590fa53bdcc1bcf446aa617a099fa4e60e7ef1c6b4e6d61d82ba"
+  },
+  "upstream_imp": {
+    "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
+  },
+  "normalized_definition_sha256": {
+    "parsed": "a9968efba43f1cbdf919b48a8a0691d5e9964747d79dbc699cc449367cbba10e",
+    "compiled": "c7451d0a5df51ab26cb6d09c36ad5fc09e09caaf424f373cfa2a1ffba78d45a2"
+  },
+  "accepted_tree_aggregate_sha256": "583ccddca4162e19d53356a177481118dd6db10ae71234af9b96f0b0d2076383",
+  "unparse_aggregate_sha256": "efb70e31cc5f63414218d1b0b72efa1cd3dfba6fff0f6809fb3b30a2e22cc250",
+  "final_state_aggregate_sha256": "17106c9070f6fa0e1be7144bef11c066fb092b0515d5a6b8854c85fddfe58222",
+  "llvm_trace_aggregate_sha256": "f52b90f050f3d7b69db4feebf5c651f29b1d3b0aaa4b094c46cef5ddae57b2a2",
+  "rejection_sha256": {
+    "stuck_state_aggregate": "77047774da2678921bb571b8081932852cb252bb84c3df96b843f18015dc6df0",
+    "division_error": "be844b66bf88e4092ce9822da261808118bcfd84e4cdb1b090a92271aa458dae"
+  },
+  "kast_json_version": 4,
+  "trace_normalizer_version": 1
+}

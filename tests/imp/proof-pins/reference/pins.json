@@ -7,8 +7,8 @@
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
   },
   "normalizer": {
-    "path": "tests/m3d/verify.py",
-    "sha256": "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb"
+    "path": "tests/imp_static_semantics/verify.py",
+    "pre_reconstruction_sha256": "aa3ba0824b18d4d6d60c38608b79bc9ff3a69c125308505a9436a44cda353abb"
   },
   "proof_policy": {
     "evidence_schema": 2,

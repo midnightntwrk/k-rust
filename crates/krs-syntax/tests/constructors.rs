@@ -110,7 +110,7 @@ fn tuple_generic_where_and_attributed_field_shapes_are_rejected() {
 }
 
 #[test]
-fn fields_without_unambiguous_m1_object_sort_types_are_rejected() {
+fn fields_without_unambiguous_object_sort_types_are_rejected() {
     for source in [
         "struct RawBuiltin { value: Int }",
         "struct GenericSort { value: Term<Vec<Expr>> }",

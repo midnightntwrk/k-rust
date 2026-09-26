@@ -50,8 +50,8 @@ NATIVE_MANIFEST = HERE / "native/Cargo.toml"
 PACKAGE = "krs-imp-definition"
 DEFINITION = "main"
 MODULE = "KRS-IMP"
-REFERENCE_MODULE = "KRS-M3D-STATIC"
-REFERENCE_SYNTAX_MODULE = "KRS-M3D-STATIC-SYNTAX"
+REFERENCE_MODULE = "KRS-IMP-STATIC"
+REFERENCE_SYNTAX_MODULE = "KRS-IMP-STATIC-SYNTAX"
 EXPANDED_PACKAGE = "krs-imp-expanded"
 CLAIM_COUNT = 20
 IMP_RULE_LABELS = {
@@ -401,10 +401,10 @@ def phase_preflight(context: Context) -> str:
     if sha256_file(CORPUS_PATH) != pins.get("corpus_sha256"):
         raise GateError("corpus.json hash differs from pins.json")
 
-    # IMP reuses the M3B--M3D corpora; each is pinned in its own gate ledger.
+    # IMP reuses the IMP state, IMP control flow, and IMP static semantics corpora; each is pinned in its own gate ledger.
     ledgers = table(corpus.get("input_ledgers"), "corpus.input_ledgers")
-    if set(ledgers) != {"m3b", "m3c", "m3d"}:
-        raise GateError("corpus must name exactly the M3B--M3D input ledgers")
+    if set(ledgers) != {"imp-state", "imp-control-flow", "imp-static-semantics"}:
+        raise GateError("corpus must name exactly the IMP state, IMP control flow, and IMP static semantics input ledgers")
     for name, raw in ledgers.items():
         path = ROOT / str(table(raw, f"input ledger {name}").get("path"))
         ledger = load_json(path)
@@ -828,7 +828,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
     )
     run(
         [
-            context.tools["kompile"], HERE / "../m3d/fixtures/static-adjunct.k",
+            context.tools["kompile"], HERE / "../imp_static_semantics/fixtures/static-adjunct.k",
             "-I", upstream, "--backend", "llvm",
             "--main-module", REFERENCE_MODULE,
             "--syntax-module", REFERENCE_SYNTAX_MODULE, "--emit-json",
@@ -838,7 +838,7 @@ def compile_source_definitions(context: Context, artifacts: Artifacts) -> Source
     )
     run(
         [
-            context.tools["kompile"], HERE / "../m3d/fixtures/static-adjunct.k",
+            context.tools["kompile"], HERE / "../imp_static_semantics/fixtures/static-adjunct.k",
             "-I", upstream, "--backend", "haskell",
             "--main-module", REFERENCE_MODULE,
             "--syntax-module", REFERENCE_SYNTAX_MODULE, "--emit-json",

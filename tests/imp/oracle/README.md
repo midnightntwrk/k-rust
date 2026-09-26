@@ -9,7 +9,7 @@ fixture or another frontend route.
 ## Root integration API
 
 Put `tests/` on `sys.path` (the modules import the shared `support`
-package and `m3d.normalize`), then import the three modules from
+package and `imp_static_semantics.normalize`), then import the three modules from
 `tests.imp.oracle` or with this directory on `sys.path` for a directly loaded
 runner.
 
@@ -38,8 +38,8 @@ runner.
    proved/failed/incomplete status, frontier states and constraints, semantic
    bounds, and representative applied user labels before checking pins.
 
-`proofs.verify_m3d_selected_pins` additionally requires exact legacy outcomes
-computed with the M3D normalizer in `tests/m3d/normalize.py`.  It covers the six individually
+`proofs.verify_imp_static_semantics_selected_pins` additionally requires exact legacy outcomes
+computed with the IMP static semantics normalizer in `tests/imp_static_semantics/normalize.py`.  It covers the six individually
 frozen invocations.  The old `static-adjunct` hash represents five claims in
 one module, so root must add five per-claim IMP pins; this library does not
 pretend that the aggregate pin selects them independently.
@@ -48,13 +48,13 @@ pretend that the aggregate pin selects them independently.
 
 `corpus.json` should construct these cases without copying source files:
 
-- 22 accepted parse cases: expression 9, M3B 5, M3C 8;
+- 22 accepted parse cases: expression 9, IMP state 5, IMP control flow 8;
 - all accepted concrete executions plus the expression corpus's two
-  parsed-but-stuck cases, M3B's two stuck cases, M3C's three stuck cases, and
-  M3D static evaluation;
-- 238 existing M3B/M3C depth states plus the eight bounded infinite-loop
+  parsed-but-stuck cases, IMP state's two stuck cases, IMP control flow's three stuck cases, and
+  IMP static semantics static evaluation;
+- 238 existing IMP state/IMP control flow depth states plus the eight bounded infinite-loop
   states (`run_to_completion=False` for the loop);
-- the eight finite M3C search frontiers and eight bounded infinite-loop search
+- the eight finite IMP control flow search frontiers and eight bounded infinite-loop search
   frontiers (each search depth must also have a direct depth state);
 - all eight syntax rejections with exact class and four-coordinate range; and
 - division by zero as a `FailureCase` with the exact frozen

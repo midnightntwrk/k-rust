@@ -434,14 +434,17 @@ fn corpus_matches_the_native_capture() {
         ("krs_tour_imp", "tests/tour-imp/src/lib.rs"),
         ("krs_tour_negatives", "tests/tour-negatives/src/lib.rs"),
         (
-            "krs_c7_associativity",
+            "krs_precedence_associativity",
             "tests/precedence-associativity/rust-definition/src/lib.rs",
         ),
         (
             "krs_expr_fixture",
             "crates/krs-expand/tests/fixtures/expr/src/lib.rs",
         ),
-        ("m3b_calc", "tests/m3b/rust-definition/src/lib.rs"),
+        (
+            "imp_state_calc",
+            "tests/imp-state/rust-definition/src/lib.rs",
+        ),
     ];
     let path = std::env::var("KRS_NATIVE_CAPTURE").expect("KRS_NATIVE_CAPTURE names a capture");
     let capture = std::fs::read_to_string(&path).expect("the native capture is readable");

@@ -11,7 +11,7 @@ SITE = Path(__file__).resolve().parent.parent
 PAGES = SITE / "src" / "pages"
 SNIPPETS = SITE / "src" / "snippets"
 INTERNAL_MILESTONE = re.compile(r"(?<![A-Za-z0-9_])M[0-9]+[A-Z]?(?![A-Za-z0-9_])", re.IGNORECASE)
-INTERNAL_COMPLETE_IMP_MILESTONE = re.compile(r"(?<![A-Za-z0-9])M4(?![A-Za-z0-9])", re.IGNORECASE)
+INTERNAL_MILESTONE_TOKEN = re.compile(r"(?<![A-Za-z0-9])M[0-9]+[A-Z]?(?![A-Za-z0-9])", re.IGNORECASE)
 INTERNAL_MILESTONE_IDENTIFIER = re.compile(r"(?<![A-Za-z0-9_])M[1-4][A-Za-z_][A-Za-z0-9_]*", re.IGNORECASE)
 
 REQUIRED = {
@@ -38,10 +38,10 @@ def main() -> None:
             missing.append(f"internal milestone terminology in {path.relative_to(SITE)}")
     for path in SNIPPETS.rglob("*"):
         if path.is_file() and (
-            INTERNAL_COMPLETE_IMP_MILESTONE.search(path.read_text(encoding="utf-8"))
+            INTERNAL_MILESTONE_TOKEN.search(path.read_text(encoding="utf-8"))
             or INTERNAL_MILESTONE_IDENTIFIER.search(path.read_text(encoding="utf-8"))
         ):
-            missing.append(f"internal complete-IMP milestone terminology in {path.relative_to(SITE)}")
+            missing.append(f"internal milestone terminology in {path.relative_to(SITE)}")
     for term, relative in REQUIRED.items():
         source = (PAGES / relative).read_text(encoding="utf-8")
         if term.casefold() not in source.casefold():

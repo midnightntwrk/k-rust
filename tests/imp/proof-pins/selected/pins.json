@@ -6,11 +6,11 @@
   "upstream_imp": {
     "commit": "683a773418add3bcae8ded47c2b24e94494e1988"
   },
-  "m3d": {
-    "normalizer_path": "tests/m3d/verify.py",
-    "normalizer_sha256": "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f",
-    "pins_path": "tests/m3d/pins.json",
-    "pins_sha256": "2a27f0efead1c233f59f81d4e7c4fe37b56d8b1dcba203ff52e63d7769ecc085"
+  "imp_static_semantics": {
+    "normalizer_path": "tests/imp_static_semantics/verify.py",
+    "pre_reconstruction_normalizer_sha256": "2ed14f41b39cf95fdfd132d1fa675c3d550375c75499d78711a2c901d023bc9f",
+    "pins_path": "tests/imp_static_semantics/pins.json",
+    "pre_reconstruction_pins_sha256": "2a27f0efead1c233f59f81d4e7c4fe37b56d8b1dcba203ff52e63d7769ecc085"
   },
   "source_sha256": {
     "definition/imp-verification.k": "4a53c3c621edf14b7fb81c3c473d5c2bc8f35165432a78a5506ef7418b2d8c04",

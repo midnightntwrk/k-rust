@@ -50,18 +50,18 @@ def verify_undefined_partial() -> None:
 
 
 def verify_stuck_state() -> None:
-    if text("tests/m3b/corpus/rejected/semantic/undefined-variable.calc") != "y = x + 1;\n":
-        raise GateError("M3B's documented stuck program changed")
+    if text("tests/imp-state/corpus/rejected/semantic/undefined-variable.calc") != "y = x + 1;\n":
+        raise GateError("IMP state's documented stuck program changed")
     require_fragments(
-        "tests/m3b/verify.py",
+        "tests/imp-state/verify.py",
         'expectations = {"undefined-variable.calc": 2, "type-error.calc": 1}',
         "if final_environment_if_complete(term) is not None:",
         'raise RuntimeError(f"semantic rejection unexpectedly completed for {name}")',
     )
-    pins = json.loads(text("tests/m3b/pins.json"))
+    pins = json.loads(text("tests/imp-state/pins.json"))
     aggregate = pins.get("rejection_sha256", {}).get("stuck_state_aggregate")
     if not isinstance(aggregate, str) or not re.fullmatch(r"[0-9a-f]{64}", aggregate):
-        raise GateError("M3B's stuck-state aggregate pin is absent")
+        raise GateError("IMP state's stuck-state aggregate pin is absent")
     require_fragments(
         "docs-site/src/pages/semantics/applicability-and-failure.mdx",
         "`y = x + 1;` in the checked IMP stuck-state fixture",

@@ -1,7 +1,8 @@
 """Manifest-driven parser, execution, and search differential oracle.
 
-This runner consumes the IMP-owned expression corpus and the existing M3B--M3D
-corpus paths; it does not copy their inputs or import their verifiers.
+This runner consumes the IMP-owned expression corpus and the existing
+IMP state, IMP control flow, and IMP static semantics corpus paths. It does not copy their inputs or import
+their verifiers.
 """
 
 from __future__ import annotations
@@ -657,14 +658,14 @@ def plan_from_manifest(
                 input_text=wrapper.format(expression=expression),
             ))
 
-    for level in ("m3b", "m3c"):
+    for level in ("imp-state", "imp-control-flow"):
         entries = execution.get(level)
         if not isinstance(entries, dict):
             raise GateError(f"execution.{level} is not an object")
         for relative, raw in entries.items():
-            if level == "m3b":
+            if level == "imp-state":
                 if not isinstance(raw, dict) or set(raw) != {"environment", "steps"}:
-                    raise GateError(f"M3B execution case has an unknown shape: {relative}")
+                    raise GateError(f"IMP state execution case has an unknown shape: {relative}")
                 environment, steps = raw["environment"], raw["steps"]
             else:
                 environment, steps = ".Map", raw

@@ -183,7 +183,7 @@ bug — report it, don't guess.
   Two framed map-item requirements remain conservatively overlapping because distinct entries may satisfy them.
   The first overlapping pair is a typed lowering error; rule order is never a tie-breaker. [r5, r6b; resolved 2026-08-26]
 - **F3 — The four method gates** every construct must pass: (1) rustc/
-  rust-analyzer visibility, measured by the m1 LSP goldens; (2) the
+  rust-analyzer visibility, measured by the LSP goldens; (2) the
   collector's re-parse of authored source with byte-exact provenance
   anchors; (3) the `ProvenanceRole` catalog as a frozen protocol seam;
   (4) stable item identity (no span-derived nonces in anything authors

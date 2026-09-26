@@ -1,7 +1,7 @@
 # Complete IMP equivalence gate
 
 IMP is the first gate over one complete, ordinary Rust-authored IMP package.
-It is not a roll-up of the earlier milestone PASS lines. The gate starts from
+It is not a roll-up of the state, control flow, or static semantics oracle PASS lines. The gate starts from
 the single package in `rust-definition`, resolves one Descriptor Bundle into
 one Semantic IR and one Definition IR, and sends that same Definition IR to
 both canonical `.k` emission and native `k-rust` lowering.
@@ -10,7 +10,7 @@ The resulting Semantic IR intentionally contains `KRS-FRAMEWORK` for the
 built-in `KItem`/`KResult` declarations and `KRS-IMP` for the
 authored language.
 
-The complete package contains the closed M3C operational language, the four
+The complete package contains the closed IMP control flow operational language, the four
 IMP verification simplifications, the separately identified static adjunct,
 all 15 upstream IMP claims, and five independently selectable adjunct claims.
 Its only normal dependency is the author-facing `krs` facade renamed to `k`.
@@ -34,7 +34,7 @@ layer:
    IR, and native artifact determinism;
 4. fail-closed parsed and compiled source-definition comparison;
 5. native Definition/KORE comparison with reviewed constructor-axiom order canonicalization and the closed unused named-projector allowance;
-6. parser and unparser comparison over the expression, M3B, and M3C corpora;
+6. parser and unparser comparison over the expression, IMP state, and IMP control flow corpora;
 7. concrete execution, all frozen depth states, stuck states, and failures;
 8. finite and bounded-live search frontier comparison;
 9. bounded proof comparison for the 20 claims plus the depth-zero invocation;
@@ -65,9 +65,9 @@ difference fails the gate.
   re-proves all 21 outcomes from `pins.json` itself.
 
 The expression corpus lives in `corpus/expr/`; `corpus.json` names it and is
-hash-pinned in `pins.json`. The M3B--M3D corpora and upstream IMP sources
+hash-pinned in `pins.json`. The IMP state, IMP control flow, and IMP static semantics corpora and upstream IMP sources
 remain the canonical input files for the other cases; `corpus.json` points to
-the M3B--M3D ledgers, IMP checks those corpora against the ledgers'
+the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks those corpora against the ledgers'
 `corpus_sha256` tables, and IMP does not copy them.
 
 ## Pins
@@ -102,7 +102,7 @@ status.
 
 At those bounds, the reviewed reference route proves the six newly selected
 finite upstream claims and retains one exact normalized frontier for `sum-N`,
-both BMC claims, and `two-sum-spec`. Earlier M3D outcomes and the five adjunct
+both BMC claims, and `two-sum-spec`. Earlier IMP static semantics outcomes and the five adjunct
 claims are selected independently. The IMP route must match status, claim,
 complete result/frontier constraints, and the exact bounds; exit status alone
 is not evidence.

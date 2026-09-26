@@ -1,6 +1,6 @@
 # IMP native/reference KORE comparator
 
-This is the permanent, fail-closed version of the reviewed M3C native KORE investigation.
+This is the permanent, fail-closed version of the reviewed IMP control flow native KORE investigation.
 It parses both definitions with the pinned public `k-rust` KORE AST, selects exactly one explicitly named module, removes only five enumerated renderer metadata attributes, canonicalizes only constructor-tagged no-confusion pairs and no-junk alternatives, alpha-normalizes variables within each sentence while retaining variable kind and sort, and compares sentence multisets including multiplicity.
 
 K's frontend orders the two constructor applications in a no-confusion axiom by `Production.ord`; k-rust's `docs/compatibility.md` Comparison contract specifies dependency-first declaration order.

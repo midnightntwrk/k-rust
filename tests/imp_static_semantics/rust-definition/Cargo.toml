@@ -1,0 +1,31 @@
+[package]
+name = "krs-imp-static-rust-definition"
+description = "Staged Rust-authored definition preflight for the IMP static and verification surface"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[lib]
+name = "imp_static_semantics"
+path = "src/imp_control_flow.rs"
+
+[dependencies]
+k = { package = "krs", path = "../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-IMP-STATIC-AUTHORED"
+
+[package.metadata.krs.definitions.main]
+root = "crate"
+syntax-root = "crate"
+
+[workspace]
+resolver = "3"
+
+[lints.rust]
+warnings = "deny"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"

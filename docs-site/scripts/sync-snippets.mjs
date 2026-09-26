@@ -54,9 +54,6 @@ const snippets = [
   {
     source: '../tests/imp/rust-definition/src/static_adjunct.rs',
     mirror: 'src/snippets/static-semantics.rs',
-    replacements: [
-      ["M3D's separately identified static stress surface", 'Fixture-specific static-semantics stress surface'],
-    ],
   },
   {
     source: '../tests/imp/rust-definition/src/verification.rs',
@@ -133,10 +130,7 @@ for (const snippet of snippets) {
   if (start < 0) throw new Error(`${snippet.source}: missing start anchor ${snippet.start}`)
   const end = snippet.end ? completeSource.indexOf(snippet.end, start) : completeSource.length
   if (end < 0) throw new Error(`${snippet.source}: missing end anchor ${snippet.end}`)
-  let source = completeSource.slice(start, end).trimEnd().concat('\n')
-  for (const [internal, publicName] of snippet.replacements ?? []) {
-    source = source.replaceAll(internal, publicName)
-  }
+  const source = completeSource.slice(start, end).trimEnd().concat('\n')
   if (process.argv.includes('--write')) {
     writeFileSync(mirrorPath, source)
     console.log(`updated ${mirrorPath}`)

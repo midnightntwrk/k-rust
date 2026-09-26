@@ -24,7 +24,7 @@ except ImportError:  # Direct loading by tests/imp/verify.py.
     from source_definition import DEFAULT_METADATA_ATTRIBUTES, NODE_FIELDS
 
 
-M3D_SELECTED_CASES = frozenset(
+STATIC_SELECTED_CASES = frozenset(
     {
         "addition-1",
         "addition-var",
@@ -484,36 +484,36 @@ def compare_proof_evidence(
     return observed
 
 
-def verify_m3d_selected_pins(
+def verify_imp_static_semantics_selected_pins(
     root: Path,
     evidence: Mapping[str, ProofEvidence],
     legacy_outcomes: Mapping[str, Mapping[str, str]],
 ) -> None:
-    """Check the six individually frozen M3D invocations.
+    """Check the six individually frozen IMP static semantics invocations.
 
     The legacy ``static-adjunct`` pin covers a five-claim module as one run, so
     it cannot validate IMP's five individually selectable adjunct claims.  Root
     must provide new per-claim IMP pins for those cases.
     """
 
-    pins_path = root / "tests" / "m3d" / "pins.json"
+    pins_path = root / "tests" / "imp_static_semantics" / "pins.json"
     pins = json.loads(pins_path.read_text(encoding="utf-8")).get("proof_outcomes")
     if not isinstance(pins, dict):
-        raise GateError("M3D proof pins are absent")
-    if set(evidence) != M3D_SELECTED_CASES:
+        raise GateError("IMP static semantics proof pins are absent")
+    if set(evidence) != STATIC_SELECTED_CASES:
         raise GateError(
-            f"M3D selected evidence must be exactly {sorted(M3D_SELECTED_CASES)}"
+            f"IMP static semantics selected evidence must be exactly {sorted(STATIC_SELECTED_CASES)}"
         )
-    if set(legacy_outcomes) != M3D_SELECTED_CASES:
-        raise GateError("legacy M3D outcomes must cover exactly the selected invocations")
+    if set(legacy_outcomes) != STATIC_SELECTED_CASES:
+        raise GateError("legacy IMP static semantics outcomes must cover exactly the selected invocations")
     for name, item in evidence.items():
         legacy = pins.get(name)
         if not isinstance(legacy, dict) or set(legacy) != {
             "status", "result_sha256", "claim_sha256"
         }:
-            raise GateError(f"legacy M3D pin shape differs for {name}")
+            raise GateError(f"legacy IMP static semantics pin shape differs for {name}")
         if legacy_outcomes[name] != legacy:
-            raise GateError(f"frozen M3D hash evidence differs for {name}")
+            raise GateError(f"frozen IMP static semantics hash evidence differs for {name}")
         legacy_status = "incomplete" if legacy["status"] == "frontier" else legacy["status"]
         if item.status != legacy_status:
-            raise GateError(f"IMP status differs from M3D for {name}")
+            raise GateError(f"IMP status differs from IMP static semantics for {name}")
