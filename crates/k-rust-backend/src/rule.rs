@@ -25,18 +25,20 @@
 //! one `covers` check per rule stored under the subject's key and the `Variable` key;
 //! `Counter::RewriteRuleAttempts` is bumped by the caller per candidate tried.
 //!
-//! The index uses `Anything` for absent or malformed `<k>` cells, variables, overloaded heads,
-//! functions, associative or idempotent heads, subject-side `anywhere` heads, and `anywhere`
-//! heads in the item after the head; a rule's `anywhere` head is `Anywhere`. It strips
+//! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions,
+//! associative or idempotent heads, subject-side `anywhere` heads, and `anywhere` heads in the
+//! item after the head. A rigid overloaded head is `Overloaded`, which covers only `Overloaded`,
+//! `Anywhere` and `Anything`; a rule's non-overloaded `anywhere` head is `Anywhere`. It strips
 //! injections and meets conjunctions (`CellIndex::meet`); `None`, two distinct rigid
 //! conjuncts, covers only `Anything`. These
 //! conservative cases correspond to the matcher's overload, AC, variable, injection, and
 //! symbolic-function paths; a later matcher extension must keep this list sound.
 //!
 //! A subject's keys hold for the term they were computed from, and only for it: the matcher
-//! refutes a dropped candidate against that term. A function keyed `Anything`, or the `<k>`
-//! cell itself, can change when the term is simplified, so a caller that applies rules to a
-//! simplified term (the remainder of a step) selects them again for it.
+//! refutes a dropped candidate against that term. An `anywhere` head keyed `Overloaded`, a
+//! function keyed `Anything`, or the `<k>` cell itself can change when the term is simplified,
+//! so a caller that applies rules to a simplified term (the remainder of a step) selects them
+//! again for it.
 
 use std::{
     cell::Cell,
@@ -232,11 +234,21 @@ pub enum CellIndex {
     None,
     Anything,
     Constructor(Name),
+    /// A head in some `symbol-overload` relation that the rewrite matcher treats as rigid in
+    /// the term the key is computed from: a constructor, or a production with `anywhere`
+    /// equations that is not a declared function. Overload resolution may lift it to another
+    /// production of its relation. An `anywhere` head is rigid only in that term: simplifying
+    /// the term (a remainder under a stronger path condition) may rewrite it to any
+    /// constructor, so a key computed from one term must not select rules for its simplified
+    /// successor (`fold_lower_priority_groups` selects again).
+    Overloaded,
     /// A production with `anywhere` equations that is not a declared function and is in no
     /// `symbol-overload` relation. The rewrite matcher treats it as rigid (`is_rewrite_rigid`)
-    /// and refutes it against a different rigid head. Only a rule's key uses it: a subject's
-    /// `anywhere` head, which its equations may still rewrite, is `Anything` (`subject_index`).
-    /// A function that is evaluated rather than matched is `Anything` on both sides.
+    /// and refutes it against a different rigid head, except against another non-constructor
+    /// head under injections from unrelated sorts that may overlap, which it defers; so it
+    /// covers `Overloaded` too. Only a rule's key uses it: a subject's `anywhere` head, which
+    /// its equations may still rewrite, is `Anything` (`subject_index`). A function that is
+    /// evaluated rather than matched is `Anything` on both sides.
     Anywhere(Name),
     Value(KoreString),
     Map,
@@ -249,17 +261,25 @@ impl CellIndex {
         matches!(self, Self::Anything)
             || matches!(subject, Self::Anything)
             || (self == subject && !matches!(self, Self::None))
+            || matches!(
+                (self, subject),
+                (Self::Overloaded, Self::Anywhere(_)) | (Self::Anywhere(_), Self::Overloaded)
+            )
     }
 
     /// The key of a conjunction `left /\ right`. The matcher matches each conjunct against the
     /// same term, so the conjunction is refuted where either conjunct is, and the key must still
     /// cover every term that both conjuncts' keys cover. A function conjunct is `Anything` and
-    /// leaves the other key; two distinct keys share only `Anything`, which `None` covers.
+    /// leaves the other key; two distinct `Overloaded`/`Anywhere` keys both cover `Overloaded`;
+    /// any other two distinct keys share only `Anything`, which `None` covers.
     pub fn meet(self, other: Self) -> Self {
         match (self, other) {
             (Self::None, _) | (_, Self::None) => Self::None,
             (Self::Anything, other) | (other, Self::Anything) => other,
             (left, right) if left == right => left,
+            (Self::Overloaded | Self::Anywhere(_), Self::Overloaded | Self::Anywhere(_)) => {
+                Self::Overloaded
+            }
             _ => Self::None,
         }
     }
@@ -1541,11 +1561,25 @@ fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
         }
         TermKind::Variable(_) => CellIndex::Anything,
         TermKind::Application { symbol, .. }
-            if definition.overloads.is_overloaded(&symbol.name)
-                || symbol.attributes.associative
-                || symbol.attributes.idempotent =>
+            if symbol.attributes.associative || symbol.attributes.idempotent =>
         {
             CellIndex::Anything
+        }
+        // An overloaded head meets another overloaded head through a common overload, and a
+        // declared function through evaluation. A rigid one (as the rewrite matcher reads it)
+        // is still refuted against a rigid head outside every overload relation: overload
+        // resolution needs both heads in one (`Matcher::resolve_overloads`), and the matcher
+        // then fails the two distinct rigid heads.
+        TermKind::Application { symbol, .. }
+            if definition.overloads.is_overloaded(&symbol.name) =>
+        {
+            if symbol.attributes.symbol_type == SymbolType::Constructor
+                || (symbol.attributes.anywhere && !symbol.attributes.declared_function)
+            {
+                CellIndex::Overloaded
+            } else {
+                CellIndex::Anything
+            }
         }
         TermKind::Application { symbol, .. } => match symbol.attributes.symbol_type {
             SymbolType::Constructor => CellIndex::Constructor(symbol.name.clone()),

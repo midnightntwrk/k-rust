@@ -145,6 +145,7 @@ fn meet_covers_what_both_conjuncts_cover() {
         CellIndex::Anything,
         CellIndex::Constructor(Name::from("A")),
         CellIndex::Constructor(Name::from("B")),
+        CellIndex::Overloaded,
         CellIndex::Anywhere(Name::from("h")),
         CellIndex::Anywhere(Name::from("i")),
         CellIndex::Value(KoreString::from(b"1".to_vec())),
@@ -172,6 +173,10 @@ fn meet_covers_what_both_conjuncts_cover() {
     }
     let a = CellIndex::Constructor(Name::from("A"));
     assert_eq!(CellIndex::Anything.meet(a.clone()), a);
+    assert_eq!(
+        CellIndex::Overloaded.meet(CellIndex::Anywhere(Name::from("h"))),
+        CellIndex::Overloaded
+    );
 }
 
 #[test]
@@ -358,6 +363,123 @@ proptest! {
     fn every_filtered_rigid_head_would_have_failed_matching(use_a in any::<bool>()) {
         let definition = definition();
         let subject = indexed(&definition, if use_a { "A{}()" } else { "B{}()" });
+        let subject_index = subject_index(&definition, &subject);
+        for stored in old_candidates(&definition, &term_index(&subject)) {
+            if !stored.index.covers(&subject_index) {
+                prop_assert!(matches!(
+                    match_terms_in_definition(
+                        MatchMode::Rewrite,
+                        &definition,
+                        &stored.lhs,
+                        &subject,
+                    ),
+                    MatchResult::Failed(_)
+                ));
+            }
+        }
+    }
+}
+
+/// `app` (with only `anywhere` equations) overloads the constructor `appv`; `plus` and `v` are in
+/// no overload relation.
+fn overload_definition() -> BackendDefinition {
+    let rule = |label: &str, head: &str| {
+        format!(
+            r#"axiom{{}} \rewrites{{SortGeneratedTopCell{{}}}}(
+                \and{{SortGeneratedTopCell{{}}}}(
+                  top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, R:SortK{{}}))),
+                  \top{{SortGeneratedTopCell{{}}}}()
+                ),
+                top{{}}(Lbl'-LT-'k'-GT-'{{}}(R:SortK{{}}))
+              ) [label{{}}("{label}"), priority{{}}("50")]
+            "#
+        )
+    };
+    let syntax = parse_definition(
+        &(r#"[]
+        module MAIN
+          sort SortK{} []
+          sort SortKItem{} []
+          sort SortExp{} []
+          sort SortVal{} []
+          sort SortKCell{} []
+          sort SortGeneratedTopCell{} []
+          symbol inj{From, To}(From) : To [sortInjection{}()]
+          symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}()]
+          symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+          symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), total{}()]
+          symbol top{}(SortKCell{}) : SortGeneratedTopCell{} [constructor{}(), total{}()]
+          symbol v{}() : SortVal{} [constructor{}(), total{}()]
+          symbol appv{}(SortVal{}, SortVal{}) : SortVal{} [constructor{}(), total{}()]
+          symbol app{}(SortExp{}, SortExp{}) : SortExp{}
+            [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+          symbol plus{}(SortExp{}, SortExp{}) : SortExp{} [constructor{}(), total{}()]
+          axiom{R} \exists{R}(
+              Value:SortExp{},
+              \equals{SortExp{}, R}(Value:SortExp{}, inj{SortVal{}, SortExp{}}(From:SortVal{}))
+          ) [subsort{SortVal{}, SortExp{}}()]
+          axiom{R} \exists{R}(
+              Value:SortKItem{},
+              \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortExp{}, SortKItem{}}(From:SortExp{}))
+          ) [subsort{SortExp{}, SortKItem{}}()]
+          axiom{R} \exists{R}(
+              Value:SortKItem{},
+              \equals{SortKItem{}, R}(Value:SortKItem{}, inj{SortVal{}, SortKItem{}}(From:SortVal{}))
+          ) [subsort{SortVal{}, SortKItem{}}()]
+          axiom{} \equals{SortExp{}, SortExp{}}(
+              app{}(inj{SortVal{}, SortExp{}}(V1:SortVal{}), inj{SortVal{}, SortExp{}}(V2:SortVal{})),
+              inj{SortVal{}, SortExp{}}(appv{}(V1:SortVal{}, V2:SortVal{}))
+          ) [symbol-overload{}(app{}(), appv{}())]
+        "#
+        .to_owned()
+            + &rule(
+                "plus",
+                "inj{SortExp{}, SortKItem{}}(plus{}(X:SortExp{}, Y:SortExp{}))",
+            )
+            + &rule(
+                "app",
+                "inj{SortExp{}, SortKItem{}}(app{}(X:SortExp{}, Y:SortExp{}))",
+            )
+            + &rule(
+                "appv",
+                "inj{SortVal{}, SortKItem{}}(appv{}(X:SortVal{}, Y:SortVal{}))",
+            )
+            + &rule("v", "inj{SortVal{}, SortKItem{}}(v{}())")
+            + "endmodule []"),
+    )
+    .expect("overload definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("overload definition should internalize")
+}
+
+const OVERLOAD_SUBJECT_HEADS: [&str; 4] = [
+    "inj{SortExp{}, SortKItem{}}(plus{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())))",
+    "inj{SortExp{}, SortKItem{}}(app{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())))",
+    "inj{SortVal{}, SortKItem{}}(appv{}(v{}(), v{}()))",
+    "inj{SortVal{}, SortKItem{}}(v{}())",
+];
+
+#[test]
+fn rigid_overloaded_heads_are_keyed_apart_from_heads_outside_every_overload() {
+    let definition = overload_definition();
+    let app = indexed(&definition, OVERLOAD_SUBJECT_HEADS[1]);
+    assert_eq!(
+        subject_index(&definition, &app).cells(),
+        &[CellIndex::Overloaded, CellIndex::Anything]
+    );
+    assert_eq!(candidate_ids(&definition, &app), ["app", "appv"]);
+    let plus = indexed(&definition, OVERLOAD_SUBJECT_HEADS[0]);
+    assert_eq!(candidate_ids(&definition, &plus), ["plus"]);
+    assert!(CellIndex::Overloaded.covers(&CellIndex::Anywhere(Name::from("h"))));
+    assert!(!CellIndex::Overloaded.covers(&CellIndex::Constructor(Name::from("A"))));
+}
+
+proptest! {
+    #[test]
+    fn every_rule_an_overload_key_filters_would_have_failed_matching(
+        head in prop::sample::select(OVERLOAD_SUBJECT_HEADS.to_vec()),
+    ) {
+        let definition = overload_definition();
+        let subject = indexed(&definition, head);
         let subject_index = subject_index(&definition, &subject);
         for stored in old_candidates(&definition, &term_index(&subject)) {
             if !stored.index.covers(&subject_index) {
