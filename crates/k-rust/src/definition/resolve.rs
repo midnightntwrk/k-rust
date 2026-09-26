@@ -23,24 +23,28 @@
 //! ```toml algorithm
 //! id = "definition.resolve.sentences"
 //! name = "visible-sentence selection with bucketed equivalence deduplication"
-//! sites = ["ResolvedDefinition::select_sentence_locations", "united_inputs"]
-//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; k = visible sentences sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
+//! sites = ["ResolvedDefinition::select_sentence_locations", "ResolvedDefinition::sentence_classes", "united_inputs"]
+//! variable = "n_m = visible sentences for module m; eq = sentence-equivalence cost; M = modules; E = import edges; L = local sentences of all modules; k = equivalence classes sharing one SentenceKey; a = input addresses of one dropped sentence; A = input addresses carried by the sentence kept for it; u = dropped sentences that add an input address to the kept one; z = size of a kept sentence"
 //! counters = ["KompileSentenceEquivalenceChecks"]
 //!
 //! [[cost]]
 //! mode = "one module's first sentences or sentence_arcs call"
-//! bound = "O((M + E) log M + n_m log n_m + n_m x k x eq + n_m x a x A + u x (z + A))"
+//! bound = "O((M + E) log M + n_m + n_m x a x A + u x (z + A)) expected"
+//!
+//! [[cost]]
+//! mode = "first selection of a resolution (sentence_classes)"
+//! bound = "O(L log L + L x k x eq)"
 //! ```
 //!
 //! Import-DAG resolution uses petgraph topological order and a colouring DFS for cycle reports.
-//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module with bucketed equivalence dedup, the kept sentence of each class carrying the union of the class's input addresses (`united_inputs` clones it once per dropped sentence that adds one), and `signature_sentences` uses O(S^2 * eq) dedup.
+//! A resolve costs O(M log M + E + sum l_m^2 * eq) over local sentences l_m; visible sentences are selected lazily per module by the equivalence classes numbered once per resolution, the kept sentence of each class carrying the union of the class's input addresses (`united_inputs` clones it once per dropped sentence that adds one), and `signature_sentences` uses O(S^2 * eq) dedup.
 //! `Counter::KompileResolveCalls` counts invocations.
 //!
 //! Resolution of flat, name-based modules into an import graph.
 
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap, hash_map::Entry},
     fmt,
     sync::{Arc, OnceLock},
 };
@@ -53,7 +57,7 @@ use petgraph::visit::EdgeRef;
 
 use super::ast::{Associativity, Attributes, Definition, FlatModule, ProductionItem, Sentence};
 use super::catalog::ProductionCatalog;
-use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence};
+use super::equivalence::{EquivalenceAccumulator, dedup_by_equivalence, sentence_equivalent};
 use crate::definition::AttributeKey;
 use crate::kast::{Label, Sort, Term};
 
@@ -333,6 +337,9 @@ pub struct ResolvedDefinition {
     // The graph is immutable, with dense node indices and stable local sentence indices.
     // Clones share only coordinates; each read borrows sentences from its receiving graph.
     visible_sentences: Vec<OnceLock<Arc<[VisibleSentence]>>>,
+    // The equivalence class of every local sentence of this graph, per module node, built on the
+    // first visible-sentence selection and shared by the selections of every module.
+    sentence_classes: OnceLock<Box<[Box<[u32]>]>>,
     pub(crate) production_catalogs: Arc<Vec<OnceLock<Arc<ProductionCatalog<'static>>>>>,
     /// Whether `outer::load_structured` produced this resolution, so the structured input
     /// addresses its sentences carry name positions of that call's argument. Any other
@@ -425,6 +432,7 @@ impl ResolvedDefinition {
             main_module,
             dependency_order,
             visible_sentences,
+            sentence_classes: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
             structured_input: false,
         })
@@ -531,6 +539,7 @@ impl ResolvedDefinition {
             main_module: self.main_module,
             dependency_order: self.dependency_order.clone(),
             visible_sentences,
+            sentence_classes: OnceLock::new(),
             production_catalogs: Arc::new(production_catalogs),
             structured_input: false,
         })
@@ -637,11 +646,51 @@ impl ResolvedDefinition {
         self.module(owner).local_sentences[index].as_ref()
     }
 
+    /// Number every local sentence of the graph by its equivalence class.
+    ///
+    /// Sentence equivalence is equality of a projection of the sentence, so it partitions the
+    /// graph's local sentences into classes, and equivalent sentences share a `SentenceKey`. Each
+    /// sentence is compared only with the first member of each class in its key bucket, once per
+    /// resolution, instead of once per module whose visible sentences include it.
+    fn sentence_classes(&self) -> &[Box<[u32]>] {
+        self.sentence_classes.get_or_init(|| {
+            let mut buckets = BTreeMap::<SentenceKey<'_>, Vec<(u32, &Sentence)>>::new();
+            let mut classes = vec![Box::default(); self.graph.node_count()];
+            let mut next = 0_u32;
+            // Invariant: every local sentence of the modules before `id` has the class of the
+            // first member of its bucket it is equivalent to, or a fresh class it represents.
+            for &id in &self.dependency_order {
+                classes[id.0.index()] = self
+                    .module(id)
+                    .local_sentences
+                    .iter()
+                    .map(|sentence| {
+                        let bucket = buckets.entry(SentenceKey::of(sentence)).or_default();
+                        match bucket.iter().find(|(_, representative)| {
+                            sentence_equivalent(representative, sentence)
+                        }) {
+                            Some(&(class, _)) => class,
+                            None => {
+                                let class = next;
+                                next += 1;
+                                bucket.push((class, sentence));
+                                class
+                            }
+                        }
+                    })
+                    .collect();
+            }
+            classes.into()
+        })
+    }
+
     fn select_sentence_locations(&self, module: ModuleId) -> Arc<[VisibleSentence]> {
         let mut visible = self.transitive_imports(module);
         visible.push(module);
         let visible = visible.into_iter().collect::<BTreeSet<_>>();
-        let mut unique = EquivalenceAccumulator::new();
+        let classes = self.sentence_classes();
+        // The location of the retained sentence of each class seen so far.
+        let mut kept = HashMap::<u32, usize>::new();
         let mut locations = Vec::new();
         for (owner, index, sentence) in self
             .dependency_order
@@ -655,15 +704,18 @@ impl ResolvedDefinition {
                     .map(move |(index, sentence)| (id, index, sentence.as_ref()))
             })
         {
-            match unique.push_or_find(sentence) {
-                None => locations.push(VisibleSentence {
-                    location: (owner, index),
-                    united: None,
-                }),
+            match kept.entry(classes[owner.0.index()][index]) {
+                Entry::Vacant(entry) => {
+                    entry.insert(locations.len());
+                    locations.push(VisibleSentence {
+                        location: (owner, index),
+                        united: None,
+                    });
+                }
                 // The view keeps one of two equivalent sentences; the kept one derives from the
                 // input sentences of both.
-                Some(kept) => {
-                    let visible = &mut locations[kept];
+                Entry::Occupied(entry) => {
+                    let visible = &mut locations[*entry.get()];
                     let current = match &visible.united {
                         Some(united) => united.as_ref(),
                         None => self.located_sentence(visible.location),
