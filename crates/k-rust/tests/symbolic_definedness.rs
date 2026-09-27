@@ -43,6 +43,7 @@ const SOURCE: &str = r#"module DEFPROBE-SYNTAX
               | divok(Int)  [symbol(divok)]
               | eqf(Int)    [symbol(eqf)]
               | eqfk(Int)   [symbol(eqfk)]
+              | gnd(Int)    [symbol(gnd)]
               | val(Int)    [symbol(val)]
               | flag(Bool)  [symbol(flag)]
   syntax Prog ::= "halt" [symbol(halt)]
@@ -75,6 +76,7 @@ module DEFPROBE
   rule [divok]:   seq(divok(A), P) => seq(val(10 /Int A), P) requires A =/=Int 0
   rule [eqf]:     seq(eqf(A), P) => seq(val(f(A)), P)
   rule [eqfk]:    seq(eqfk(A), P) => seq(val(f(A)), P) requires A =/=Int 0
+  rule [gnd]:     seq(gnd(_), P) => P requires f(0) <=Int f(0)
   rule f(X) => 1 requires 10 /Int X <=Int 10 /Int X [simplification]
 endmodule
 "#;
@@ -393,6 +395,23 @@ fn an_equation_requires_keeps_the_definedness_of_its_terms() {
                 "eqfk(X) assume={assume}: f(X) must become 1 under X =/=Int 0: {leaves:#?}"
             );
         }
+    }
+}
+
+/// `f(0)` is left unevaluated (its only equation needs `10 /Int 0` defined), so the ground
+/// `requires f(0) <=Int f(0)` is undecided by evaluation and must reach any solver with
+/// `\ceil(f(0))`: no step may happen without it.
+#[test]
+fn a_ground_condition_over_an_unevaluated_partial_term_keeps_its_obligation() {
+    let mut backend = backend();
+    for assume in [false, true] {
+        let leaves = execute(&mut backend, &op("gnd", X), assume);
+        assert!(
+            leaves
+                .iter()
+                .all(|leaf| leaf.depth == 0 || leaf.text.contains("\\ceil")),
+            "gnd(X) assume={assume}: a step dropped \\ceil(f(0)): {leaves:#?}"
+        );
     }
 }
 

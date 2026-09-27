@@ -290,6 +290,50 @@ fn restore_and_forward(mut enclosing: Option<Sink>) -> Vec<Emission> {
     })
 }
 
+/// Run `action` as an attempt whose diagnostics count only if `keep` accepts its result.
+///
+/// An attempt whose result the caller discards and redoes reports nothing, so the redone work
+/// is reported once. Accepted emissions reach the enclosing collector, under its rules, as if
+/// emitted into it directly; without an enclosing collector nothing is recorded either way.
+pub(crate) fn attempt<T>(action: impl FnOnce() -> T, keep: impl FnOnce(&T) -> bool) -> T {
+    struct Restore(Option<Sink>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(enclosing) = self.0.take() {
+                SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
+            }
+        }
+    }
+    let Some(enclosing) = SINK.with(|sink| {
+        let mut sink = sink.borrow_mut();
+        let enclosing = sink.take()?;
+        *sink = Some(Sink {
+            unit: true,
+            emissions: Vec::new(),
+        });
+        Some(enclosing)
+    }) else {
+        return action();
+    };
+    let mut restore = Restore(Some(enclosing));
+    let result = action();
+    let inner = SINK
+        .with(|sink| sink.borrow_mut().take())
+        .map(|inner| inner.emissions)
+        .unwrap_or_default();
+    let mut enclosing = restore
+        .0
+        .take()
+        .expect("the enclosing collector is restored once");
+    if keep(&result) {
+        for emission in inner {
+            enclosing.record(emission);
+        }
+    }
+    SINK.with(|sink| *sink.borrow_mut() = Some(enclosing));
+    result
+}
+
 /// Append each diagnostic of `diagnostics` that `list` does not hold yet, in order.
 pub(crate) fn extend_distinct(
     list: &mut Vec<BackendDiagnostic>,

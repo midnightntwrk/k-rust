@@ -38,7 +38,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    definedness::{ceil_term, condition_definedness},
+    definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
     fresh::freshen_existential,
@@ -46,9 +46,10 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
     simplify::{
-        ConditionIndeterminacy, RuleCondition, SimplificationError, SimplificationOptions,
-        binds_element_variable_to_set_pattern, decide_condition, simplify_in_execution_with_solver,
-        simplify_predicates_with_solver, simplify_with_solver,
+        BudgetPolicy, ConditionIndeterminacy, RuleCondition, SimplificationError,
+        SimplificationOptions, binds_element_variable_to_set_pattern, decide_condition,
+        simplify_condition, simplify_in_execution_with_solver, simplify_predicates_with_solver,
+        simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute},
@@ -718,14 +719,9 @@ fn recover_by_unification(
             ) {
                 return Ok(recovered);
             }
-            let requires = condition_definedness(
+            let requires = match simplify_rule_condition(
                 definition,
                 substitute_predicates(&rule.requires, &substitution),
-                inherited_knowledge,
-            );
-            let requires = match simplify_predicates_with_solver(
-                definition,
-                &requires,
                 inherited_knowledge,
                 context.simplification_options,
                 context.solver,
@@ -921,14 +917,9 @@ fn requires(
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
     // The instance satisfies `requires` only where its terms are defined; state that before the
     // simplifier or a solver can answer for instances where they are not.
-    let requires = condition_definedness(
+    let requires = match simplify_rule_condition(
         context.definition,
         substitute_predicates(&rule.requires, substitution),
-        &match_knowledge,
-    );
-    let requires = match simplify_predicates_with_solver(
-        context.definition,
-        &requires,
         &match_knowledge,
         context.simplification_options,
         context.solver,
@@ -968,6 +959,34 @@ fn requires(
         }
     }
     Ok((requires, match_knowledge))
+}
+
+/// A rewrite rule's `requires` or `ensures`, instantiated, simplified under `known` with the
+/// definedness of its Boolean terms explicit (`simplify::simplify_condition`).
+fn simplify_rule_condition(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    simplify_condition(
+        definition,
+        conditions,
+        known,
+        known,
+        |conditions, known, first_attempt| {
+            let options = if first_attempt {
+                SimplificationOptions {
+                    budget: BudgetPolicy::Fail,
+                    ..options
+                }
+            } else {
+                options
+            };
+            simplify_predicates_with_solver(definition, &conditions, known, options, solver)
+        },
+    )
 }
 
 /// P12: the unclear `requires` are checked for validity (`Valid` empties them, `Invalid` ends
@@ -1328,10 +1347,9 @@ fn apply_rhs_alternative(
     let reported_ensures = conjunction(&ensures);
     // An `ensures` constrains the successor only where its terms are defined, as a `requires`
     // constrains the instance.
-    let ensures = condition_definedness(definition, ensures, &condition_knowledge);
-    let mut ensures = match simplify_predicates_with_solver(
+    let mut ensures = match simplify_rule_condition(
         definition,
-        &ensures,
+        ensures,
         &condition_knowledge,
         simplification_options,
         solver,
