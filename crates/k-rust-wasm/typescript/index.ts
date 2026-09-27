@@ -164,6 +164,21 @@ export interface RuleOrigin {
   location: string | null
 }
 
+/** An application of a symbol declared total (or functional) that one of its equations reduced to bottom. */
+export interface ContradictedTotal {
+  /** KORE name of the symbol whose attribute is contradicted. */
+  symbol: string
+  /** The equation's compiled id, as in ruleCatalog. */
+  ruleId: string
+  ruleLabel?: string
+  /** Where the equation is written, when the KORE carries it. */
+  origin?: RuleOrigin
+  /** The application the equation rewrote. */
+  application: Kore
+  /** The undefined term the equation's result reached. */
+  undefined: Kore
+}
+
 /** One compiled axiom, after equivalent written axioms have been combined. */
 export interface CompiledRule {
   id: string
@@ -257,6 +272,12 @@ export interface ExecutionLeaf {
   ruleId?: string
   /** Optional label of that rule, as in rule catalog and observations. */
   ruleLabel?: string
+  /**
+   * Present on a 'trivial' or 'vacuous' leaf whose emptiness comes from an equation of a symbol
+   * declared total (or functional) that reduced an application of it to bottom: the definition
+   * contradicts the attribute on that input. Diagnostic only; reason and state are unaffected.
+   */
+  contradictedTotal?: ContradictedTotal
   /** The stopped step's cause, present exactly for an indeterminate halt; same encoding as search's indeterminate reason. */
   cause?: SearchFailure
   /** Legacy human-readable context only; use cause, candidates and remainder for halt evidence. */

@@ -10,7 +10,7 @@ use crate::{
         RemainderBranch, RemainderSimplification, TrivialApplication, UndecidedStep,
     },
     rule::Predicate,
-    simplify::{ConditionIndeterminacy, SimplificationError},
+    simplify::{ConditionIndeterminacy, ContradictedTotal, SimplificationError},
     smt::{SmtError, TranslationError},
     substitution::{Substitution, substitute},
     term::{
@@ -928,6 +928,7 @@ impl AlphaComparable for TrivialApplication {
             effects: self.effects.clone(),
             diagnostics: self.diagnostics.rename_alpha(context)?,
             remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
+            contradicted_total: self.contradicted_total.clone(),
         })
     }
 }
@@ -1090,6 +1091,15 @@ impl AlphaComparable for IndeterminateReason {
     }
 }
 
+/// Whether two contradicted-total diagnostics name the same equation (or both are absent). The
+/// terms they carry are diagnostic context, not compared up to renaming.
+fn same_contradicted_equation(
+    left: &Option<Box<ContradictedTotal>>,
+    right: &Option<Box<ContradictedTotal>>,
+) -> bool {
+    left.as_ref().map(|left| &left.rule_id) == right.as_ref().map(|right| &right.rule_id)
+}
+
 impl AlphaComparable for HaltReason {
     fn collect_alpha(&self, other: &Self, context: &mut AlphaContext) -> Result<(), String> {
         use HaltReason::*;
@@ -1100,28 +1110,36 @@ impl AlphaComparable for HaltReason {
                     rule_id: li,
                     label: ll,
                     obligation: lp,
+                    contradicted_total: lc,
                 },
                 Trivial {
                     depth: rd,
                     rule_id: ri,
                     label: rl,
                     obligation: rp,
+                    contradicted_total: rc,
                 },
-            ) if ld == rd && li == ri && ll == rl => collect_predicate(lp, rp, context),
+            ) if ld == rd && li == ri && ll == rl && same_contradicted_equation(lc, rc) => {
+                collect_predicate(lp, rp, context)
+            }
             (
                 Vacuous {
                     depth: ld,
                     rule_id: li,
                     label: ll,
                     constraint: lp,
+                    contradicted_total: lc,
                 },
                 Vacuous {
                     depth: rd,
                     rule_id: ri,
                     label: rl,
                     constraint: rp,
+                    contradicted_total: rc,
                 },
-            ) if ld == rd && li == ri && ll == rl => collect_predicate(lp, rp, context),
+            ) if ld == rd && li == ri && ll == rl && same_contradicted_equation(lc, rc) => {
+                collect_predicate(lp, rp, context)
+            }
             (
                 Branch {
                     branches: lb,
@@ -1160,22 +1178,26 @@ impl AlphaComparable for HaltReason {
                 rule_id,
                 label,
                 obligation,
+                contradicted_total,
             } => Trivial {
                 depth: *depth,
                 rule_id: rule_id.clone(),
                 label: label.clone(),
                 obligation: rename_predicate(obligation, context),
+                contradicted_total: contradicted_total.clone(),
             },
             Vacuous {
                 depth,
                 rule_id,
                 label,
                 constraint,
+                contradicted_total,
             } => Vacuous {
                 depth: *depth,
                 rule_id: rule_id.clone(),
                 label: label.clone(),
                 constraint: rename_predicate(constraint, context),
+                contradicted_total: contradicted_total.clone(),
             },
             Branch {
                 branches,

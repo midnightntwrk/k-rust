@@ -189,6 +189,12 @@ pub struct ExecutionLeaf {
     /// The rule's optional label, using the same label as observations and the rule catalog.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rule_label: Option<String>,
+    /// Present on a `Trivial` or `Vacuous` leaf when its emptiness comes from an equation of a
+    /// symbol declared `total` (or `functional`) that reduced an application of it to bottom: the
+    /// definition contradicts the attribute on that input. A diagnostic about the definition; the
+    /// leaf's reason and state are the same with or without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contradicted_total: Option<ContradictedTotalOutput>,
     /// The stopped step's structured cause, present exactly for an indeterminate halt.
     /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
     #[serde(skip_serializing_if = "Option::is_none")]

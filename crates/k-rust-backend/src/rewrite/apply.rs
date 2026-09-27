@@ -46,10 +46,10 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
     simplify::{
-        BudgetPolicy, ConditionIndeterminacy, RuleCondition, SimplificationError,
-        SimplificationOptions, binds_element_variable_to_set_pattern, decide_condition,
-        simplify_condition, simplify_in_execution_with_solver, simplify_predicates_with_solver,
-        simplify_with_solver,
+        BudgetPolicy, ConditionIndeterminacy, ContradictedTotal, RuleCondition,
+        SimplificationError, SimplificationOptions, binds_element_variable_to_set_pattern,
+        decide_condition, simplify_condition, simplify_in_execution_with_solver,
+        simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute},
@@ -150,6 +150,7 @@ fn trivial_application(
     applicability: &Predicate,
     obligation: Predicate,
     effects: Vec<BuiltinEffect>,
+    contradicted_total: Option<Box<ContradictedTotal>>,
 ) -> TrivialApplication {
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
@@ -163,6 +164,7 @@ fn trivial_application(
         effects,
         diagnostics: Vec::new(),
         remainder_simplifications: Vec::new(),
+        contradicted_total,
     }
 }
 
@@ -188,6 +190,7 @@ fn carried_trivial_application(
         effects: application.applied.effects.clone(),
         diagnostics: Vec::new(),
         remainder_simplifications: Vec::new(),
+        contradicted_total: None,
     }
 }
 
@@ -1001,6 +1004,7 @@ fn definedness(
                     &applicability,
                     Predicate::False,
                     Vec::new(),
+                    None,
                 )],
                 common: None,
                 trivial_work: Vec::new(),
@@ -1255,6 +1259,7 @@ fn instantiate(
                         &applicability,
                         Predicate::False,
                         Vec::new(),
+                        None,
                     )],
                     common: None,
                     trivial_work: Vec::new(),
@@ -1306,6 +1311,7 @@ fn instantiate(
             RhsAlternativeAttempt::Trivial {
                 obligation,
                 effects,
+                contradicted_total,
             } => {
                 trivial.push(trivial_application(
                     rule,
@@ -1313,6 +1319,7 @@ fn instantiate(
                     &applicability,
                     obligation,
                     effects,
+                    contradicted_total,
                 ));
                 trivial_work.extend(own_diagnostics);
             }
@@ -1342,6 +1349,7 @@ enum RhsAlternativeAttempt {
     Trivial {
         obligation: Predicate,
         effects: Vec<BuiltinEffect>,
+        contradicted_total: Option<Box<ContradictedTotal>>,
     },
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
@@ -1420,9 +1428,9 @@ fn apply_rhs_alternative(
     });
     let mut condition_knowledge = condition_knowledge.to_vec();
     let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
-    let (rhs, mut rhs_constraints, effects, undefined_term, assumed) =
+    let (rhs, mut rhs_constraints, effects, undefined_term, assumed, contradicted_total) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
-            (rhs, Vec::new(), Vec::new(), None, Vec::new())
+            (rhs, Vec::new(), Vec::new(), None, Vec::new(), None)
         } else {
             let simplified = match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
@@ -1448,6 +1456,7 @@ fn apply_rhs_alternative(
                     simplified.effects,
                     simplified.undefined_term,
                     simplified.assumed,
+                    simplified.contradicted_total,
                 ),
                 Err(error) => {
                     return RhsAlternativeAttempt::Simplification(error);
@@ -1458,12 +1467,14 @@ fn apply_rhs_alternative(
         return RhsAlternativeAttempt::Trivial {
             obligation: Predicate::Ceil(term),
             effects,
+            contradicted_total,
         };
     }
     if predicates_truth(&rhs_constraints) == Truth::False {
         return RhsAlternativeAttempt::Trivial {
             obligation: conjunction(&rhs_constraints),
             effects,
+            contradicted_total: None,
         };
     }
     extend_unique(&mut condition_knowledge, rhs_constraints.iter().cloned());
@@ -1490,6 +1501,7 @@ fn apply_rhs_alternative(
                 return RhsAlternativeAttempt::Trivial {
                     obligation: reported_obligation,
                     effects,
+                    contradicted_total: None,
                 };
             }
             ObligationVerdict::Carried => extend_unique(&mut rhs_constraints, obligations),
@@ -1520,6 +1532,7 @@ fn apply_rhs_alternative(
             return RhsAlternativeAttempt::Trivial {
                 obligation: reported_ensures,
                 effects,
+                contradicted_total: None,
             };
         }
         EnsuresStepVerdict::Carried => {}

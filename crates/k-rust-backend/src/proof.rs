@@ -63,8 +63,8 @@ use crate::{
         substitute_predicates,
     },
     simplify::{
-        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
-        simplify_predicates_with_solver, simplify_with_solver,
+        ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
+        SimplificationOptions, simplify_predicates_with_solver, simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution_for, substitute},
@@ -175,6 +175,29 @@ pub struct ProofLeaf {
     /// the search followed, never passes through the destination, and has no successor there.
     /// The conditions are listed at `stuck_leaf` in this module.
     pub certified: bool,
+    /// Set on a `Vacuous` or `Trivial` leaf whose emptiness comes from an equation of a symbol
+    /// declared `total` (or `functional`) that reduced an application of it to bottom: the
+    /// definition contradicts the attribute there. A diagnostic only; the leaf and the verdict
+    /// are the same with or without it ([`ContradictedTotal`]).
+    pub contradicted_total: Option<Box<ContradictedTotal>>,
+}
+
+impl ProofLeaf {
+    /// This leaf with `contradicted_total` recorded, only when the leaf is an empty one
+    /// (`Vacuous` or `Trivial`): the vacuity policy may have turned it into another outcome, and
+    /// the diagnostic explains only an empty leaf.
+    fn with_contradicted_total(
+        mut self,
+        contradicted_total: Option<Box<ContradictedTotal>>,
+    ) -> Self {
+        if matches!(
+            self.outcome,
+            ProofLeafOutcome::Vacuous | ProofLeafOutcome::Trivial
+        ) {
+            self.contradicted_total = contradicted_total;
+        }
+        self
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -220,6 +243,7 @@ pub fn prove_claim(
                 trace: Vec::new(),
                 outcome: ProofLeafOutcome::Trusted,
                 certified: false,
+                contradicted_total: None,
             }],
             explored_states: 0,
             unexplored_states: 0,
@@ -325,6 +349,7 @@ pub fn prove_claim(
                 continue;
             }
         };
+        let contradicted_total = simplified.contradicted_total;
         state.pattern.term = simplified.term;
         extend_unique(&mut state.pattern.constraints, simplified.constraints);
         state.trace.extend(
@@ -341,7 +366,11 @@ pub fn prove_claim(
 
         if state_is_bottom(&state, solver) {
             let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-            record_leaf!(state.leaf(outcome));
+            record_leaf!(
+                state
+                    .leaf(outcome)
+                    .with_contradicted_total(contradicted_total)
+            );
             continue;
         }
 
@@ -696,6 +725,7 @@ pub fn prove_claim(
                 // no configuration, so it fails the claim like any other empty result, unless
                 // the entry has no instance.
                 for trivial in trivial {
+                    let contradicted_total = trivial.contradicted_total.clone();
                     let trivial_state =
                         undefined_step_state(definition, &state, trivial, options, solver);
                     finish_if_interrupted!();
@@ -704,7 +734,11 @@ pub fn prove_claim(
                     };
                     let outcome =
                         vacuous_outcome(&trivial_state, options, ProofLeafOutcome::Trivial);
-                    record_leaf!(trivial_state.leaf(outcome));
+                    record_leaf!(
+                        trivial_state
+                            .leaf(outcome)
+                            .with_contradicted_total(contradicted_total)
+                    );
                 }
             }
             RewriteResult::Stuck(_) => {
@@ -728,7 +762,10 @@ pub fn prove_claim(
                     definition, state, outcome, options, solver
                 ));
             }
-            RewriteResult::Trivial(_, _) => {
+            RewriteResult::Trivial(_, applications) => {
+                let contradicted_total = applications
+                    .into_iter()
+                    .find_map(|application| application.contradicted_total);
                 state.depth += 1;
                 state.trace.push(TraceEntry {
                     depth: state.depth,
@@ -737,7 +774,11 @@ pub fn prove_claim(
                     unique_id: "trivial".into(),
                 });
                 let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Trivial);
-                record_leaf!(state.leaf(outcome));
+                record_leaf!(
+                    state
+                        .leaf(outcome)
+                        .with_contradicted_total(contradicted_total)
+                );
             }
             RewriteResult::Vacuous(_) => {
                 let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
@@ -1047,6 +1088,7 @@ impl ProofState {
             trace: self.trace,
             outcome,
             certified: false,
+            contradicted_total: None,
         }
     }
 
@@ -2064,6 +2106,7 @@ mod tests {
             trace: Vec::new(),
             outcome,
             certified,
+            contradicted_total: None,
         };
         let status = |leaves: Vec<ProofLeaf>| finish(leaves, 1, 0).status;
         let indeterminate = || {

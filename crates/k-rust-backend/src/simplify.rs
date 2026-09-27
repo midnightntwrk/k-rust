@@ -66,8 +66,8 @@ use crate::{
         retain_substitution_predicates, substitute_predicates, violates_finite_constructor_domain,
     },
     rule::{
-        Predicate, PredicateRewriteRule, RewriteRule, RuleRhs, Theory, applicable_groups,
-        rename_apart, rename_predicate_rule_apart, term_index,
+        Predicate, PredicateRewriteRule, RewriteRule, RuleOrigin, RuleRhs, Theory,
+        applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
     substitution::{Substitution, compose, substitute, substitution_binding},
@@ -159,6 +159,67 @@ pub struct Simplification {
     /// conditions for the term to be defined (those are the other members). Execution keeps
     /// both kinds on the successor, but only the other kind can leave a step undefined.
     pub assumed: Vec<Predicate>,
+    /// Set together with `undefined_term` when the undefined term arose in the result of an
+    /// equation for a symbol declared `total` (or `functional`): see [`ContradictedTotal`].
+    pub contradicted_total: Option<Box<ContradictedTotal>>,
+}
+
+/// An application of a symbol the definition declares `total` (or `functional`) that one of the
+/// symbol's own equations reduced to `\bottom`.
+///
+/// The attribute states that every application of the symbol to defined arguments denotes
+/// exactly one element; the equation `f(args) = rhs` is an axiom of the same definition. When
+/// the arguments are defined (they were simplified before the equation fired, without becoming
+/// `\bottom`) and the instantiated `rhs` simplifies to `\bottom` (`undefined_term` is the
+/// innermost undefined builtin application or repeated collection it reached), the two axioms
+/// contradict each other on this application. The backend keeps trusting the attribute
+/// elsewhere, so this is a diagnostic about the definition, not a change of any verdict: it
+/// only names the symbol, the equation and the input on which the definition is inconsistent.
+///
+/// Only the equation applied last to a `total` application before the undefined term appeared
+/// in the same lineage is named, and an application nested in the result reports itself first
+/// (innermost), so the named equation is the one whose own result is undefined.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContradictedTotal {
+    /// The application the equation rewrote, with its arguments already simplified.
+    pub application: Term,
+    /// The equation's `UNIQUE_ID`.
+    pub rule_id: String,
+    /// The equation's label, when it has one.
+    pub label: Option<String>,
+    /// Where the equation is written (its first origin), when the KORE carries it.
+    pub origin: Option<RuleOrigin>,
+    /// The undefined term the equation's result reached.
+    pub undefined_term: Term,
+}
+
+impl ContradictedTotal {
+    /// The symbol whose `total` (or `functional`) attribute is contradicted.
+    pub fn symbol(&self) -> &str {
+        match self.application.kind() {
+            TermKind::Application { symbol, .. } => symbol.name.as_ref(),
+            _ => unreachable!("a contradicted total is recorded only for an application"),
+        }
+    }
+
+    fn new(application: Term, rule: &RewriteRule, undefined_term: Term) -> Box<Self> {
+        Box::new(Self {
+            application,
+            rule_id: rule.attributes.unique_id.clone(),
+            label: rule.attributes.label.clone(),
+            origin: rule.attributes.origins.first().cloned(),
+            undefined_term,
+        })
+    }
+}
+
+/// Whether `term` is an application of a symbol the definition declares `total` or `functional`.
+fn is_total_application(term: &Term) -> bool {
+    matches!(
+        term.kind(),
+        TermKind::Application { symbol, .. }
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2413,6 +2474,11 @@ fn simplify_with_budget(
     let mut effects = Vec::new();
     let mut exhausted = None;
     let mut undefined_term = None;
+    let mut contradicted_total = None;
+    // The last equation applied in this lineage to an application of a `total` symbol, before
+    // any undefined term appeared: an undefined term reached afterwards lies in that equation's
+    // result, whose arguments were defined when it fired (`ContradictedTotal`).
+    let mut total_step: Option<(Term, Arc<RewriteRule>)> = None;
     // Each round simplifies the children then the root; the loop exits on a fixed point, an
     // `evaluated` term, an exhausted budget, or a child's exhaustion; `remaining` never grows.
     // Invariant: `term` equals the input modulo `applied_rules` under `constraints`.
@@ -2434,6 +2500,7 @@ fn simplify_with_budget(
                 exhausted,
                 undefined_term,
                 assumed,
+                contradicted_total,
             });
         }
         term = assumptions.path_condition.apply(&term);
@@ -2447,6 +2514,7 @@ fn simplify_with_budget(
                 exhausted,
                 undefined_term,
                 assumed,
+                contradicted_total,
             });
         }
         let children = simplify_children(
@@ -2459,7 +2527,7 @@ fn simplify_with_budget(
             solver,
             execution.as_deref_mut(),
         )?;
-        let (root, root_step) = simplify_root(
+        let (root, root_step, root_equation) = simplify_root(
             definition,
             &children.term,
             assumptions.predicates,
@@ -2478,7 +2546,28 @@ fn simplify_with_budget(
         effects.extend(root.effects);
         exhausted = exhausted.or(children.exhausted).or(root.exhausted);
         if undefined_term.is_none() {
-            undefined_term = children.undefined_term.or(root.undefined_term);
+            // A child's own report comes first: it names the innermost equation. Otherwise the
+            // undefined term arose in this lineage, after the last `total` step if there was one.
+            // The root step of this round is not that step's cause: an equation's result carries
+            // no undefined term, so a root report comes from a builtin or a repeated collection.
+            let (undefined, contradicted) = match children.undefined_term {
+                Some(term) => (Some(term), children.contradicted_total),
+                None => (root.undefined_term, None),
+            };
+            if let Some(undefined) = &undefined {
+                contradicted_total = contradicted.or_else(|| {
+                    total_step.as_ref().map(|(application, rule)| {
+                        ContradictedTotal::new(application.clone(), rule, undefined.clone())
+                    })
+                });
+            }
+            undefined_term = undefined;
+        }
+        if undefined_term.is_none()
+            && let Some(rule) = root_equation
+            && is_total_application(&children.term)
+        {
+            total_step = Some((children.term.clone(), rule));
         }
         if root.term.ptr_eq(&children.term)
             || root.term == children.term
@@ -2492,6 +2581,7 @@ fn simplify_with_budget(
                 exhausted,
                 undefined_term,
                 assumed,
+                contradicted_total,
             });
         }
         // A determined function step is the definition's own computation, not a rewrite the
@@ -2514,6 +2604,7 @@ fn simplify_with_budget(
                     }),
                     undefined_term,
                     assumed,
+                    contradicted_total,
                 }),
             };
         }
@@ -2526,6 +2617,7 @@ fn simplify_with_budget(
                 exhausted,
                 undefined_term,
                 assumed,
+                contradicted_total,
             });
         }
         if charged {
@@ -2775,6 +2867,7 @@ fn simplify_children(
     let mut effects = Vec::new();
     let mut exhausted = None;
     let mut undefined_term = None;
+    let mut contradicted_total = None;
     let children_unchanged = Cell::new(true);
     let mut child = |term: &Term| {
         if term.attributes().evaluated && !assumptions.path_condition.can_change(term) {
@@ -2803,6 +2896,7 @@ fn simplify_children(
         exhausted = exhausted.or(result.exhausted);
         if undefined_term.is_none() {
             undefined_term = result.undefined_term;
+            contradicted_total = result.contradicted_total;
         }
         children_unchanged.set(children_unchanged.get() && term.ptr_eq(&result.term));
         Ok::<_, SimplificationError>(result.term)
@@ -2924,6 +3018,7 @@ fn simplify_children(
         exhausted,
         undefined_term,
         assumed,
+        contradicted_total,
     })
 }
 
@@ -2975,7 +3070,7 @@ fn simplify_root(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
-) -> Result<(Simplification, RootStep), SimplificationError> {
+) -> Result<(Simplification, RootStep, Option<Arc<RewriteRule>>), SimplificationError> {
     // A set holding an element twice, or a map binding a key twice (with the same value or
     // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
     // elements and keys, and syntactically equal terms denote the same element on every
@@ -2996,8 +3091,10 @@ fn simplify_root(
                 exhausted: None,
                 undefined_term: Some(term.clone()),
                 assumed: Vec::new(),
+                contradicted_total: None,
             },
             RootStep::Other,
+            None,
         ));
     }
     let builtin = match execution {
@@ -3050,8 +3147,10 @@ fn simplify_root(
                     exhausted: None,
                     undefined_term,
                     assumed: Vec::new(),
+                    contradicted_total: None,
                 },
                 RootStep::Other,
+                None,
             ));
         }
     };
@@ -3064,13 +3163,13 @@ fn simplify_root(
         active_conditions,
         solver,
     )? {
-        TheoryScan::Applied(result) => {
+        TheoryScan::Applied(result, rule) => {
             let step = if term.attributes().variables.is_empty() && result.constraints.is_empty() {
                 RootStep::DeterminedFunctionStep
             } else {
                 RootStep::Other
             };
-            return Ok((result, step));
+            return Ok((result, step, Some(rule)));
         }
         scan => scan,
     };
@@ -3086,7 +3185,7 @@ fn simplify_root(
         active_conditions,
         solver,
     )? {
-        TheoryScan::Applied(result) => return Ok((result, RootStep::Other)),
+        TheoryScan::Applied(result, rule) => return Ok((result, RootStep::Other, Some(rule))),
         scan => scan,
     };
     let TermKind::Application {
@@ -3103,8 +3202,10 @@ fn simplify_root(
                 exhausted: None,
                 undefined_term: None,
                 assumed: Vec::new(),
+                contradicted_total: None,
             },
             RootStep::Other,
+            None,
         ));
     };
     let builtin_supported = unsupported.is_none();
@@ -3156,8 +3257,10 @@ fn simplify_root(
             exhausted: None,
             undefined_term: None,
             assumed: Vec::new(),
+            contradicted_total: None,
         },
         RootStep::Other,
+        None,
     ))
 }
 
@@ -3224,7 +3327,8 @@ enum IndeterminateEquation {
 }
 
 enum TheoryScan {
-    Applied(Simplification),
+    /// The result of the equation that applied, and that equation.
+    Applied(Simplification, Arc<RewriteRule>),
     Blocked,
     /// No equation applied, but some equation was set aside for a reason other than a failed
     /// match (see [`GroupScan::NotCacheable`]); the term is not a fixed point to record.
@@ -3268,17 +3372,29 @@ fn apply_theory(
     let mut not_cacheable = false;
     for rules in groups.values() {
         match scan_group(rules, |rule| {
-            apply_equation(
-                definition,
-                rule,
-                term,
-                known_predicates,
-                options,
-                active_conditions,
-                solver,
+            Ok(
+                match apply_equation(
+                    definition,
+                    rule,
+                    term,
+                    known_predicates,
+                    options,
+                    active_conditions,
+                    solver,
+                )? {
+                    EquationAttempt::Applied(result) => {
+                        EquationAttempt::Applied((result, Arc::clone(rule)))
+                    }
+                    EquationAttempt::NotApplicable => EquationAttempt::NotApplicable,
+                    EquationAttempt::ContextDependent => EquationAttempt::ContextDependent,
+                    EquationAttempt::Unused => EquationAttempt::Unused,
+                    EquationAttempt::Indeterminate(reason) => {
+                        EquationAttempt::Indeterminate(reason)
+                    }
+                },
             )
         })? {
-            GroupScan::Applied(result) => return Ok(TheoryScan::Applied(result)),
+            GroupScan::Applied((result, rule)) => return Ok(TheoryScan::Applied(result, rule)),
             GroupScan::Blocked if indeterminate_equation == IndeterminateEquation::Block => {
                 // A rule at this priority may apply after the symbolic subject becomes more
                 // concrete. Function evaluation must preserve the application and must not fall
@@ -3329,7 +3445,7 @@ enum GroupScan<T> {
 
 fn scan_group<R, T>(
     rules: &[Arc<R>],
-    mut attempt: impl FnMut(&R) -> Result<EquationAttempt<T>, SimplificationError>,
+    mut attempt: impl FnMut(&Arc<R>) -> Result<EquationAttempt<T>, SimplificationError>,
 ) -> Result<GroupScan<T>, SimplificationError> {
     let mut indeterminate = false;
     let mut not_cacheable = false;
@@ -3659,6 +3775,7 @@ fn apply_equation(
                 exhausted: None,
                 undefined_term: None,
                 assumed,
+                contradicted_total: None,
             }))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {
@@ -3680,6 +3797,7 @@ fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
         exhausted: None,
         undefined_term: None,
         assumed: Vec::new(),
+        contradicted_total: None,
     }
 }
 

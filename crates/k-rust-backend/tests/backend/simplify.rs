@@ -1683,28 +1683,52 @@ fn a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built() {
         .expect("definition should parse");
     let definition =
         BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
-    let bottom = |source: &str| {
+    // `dup` is declared `total`, so a bottom that its equation's result reaches contradicts the
+    // attribute on that application, and the simplification names the application and the
+    // equation (`ContradictedTotal`); a literal repeat involves no equation and names none.
+    let bottom = |source: &str, contradicted: Option<&str>| {
         let input = term(&definition, source);
         let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
         assert!(
             result.constraints.contains(&Predicate::False) && result.undefined_term.is_some(),
             "{source}: {result:#?}"
         );
+        assert_eq!(
+            result.contradicted_total.as_ref().map(|contradicted| (
+                contradicted.label.as_deref(),
+                contradicted.application.clone()
+            )),
+            contradicted.map(|application| (Some("dup"), term(&definition, application))),
+            "{source}: {result:#?}"
+        );
+        if let Some(contradicted) = &result.contradicted_total {
+            assert_eq!(contradicted.symbol(), "dup");
+            assert_eq!(
+                Some(&contradicted.undefined_term),
+                result.undefined_term.as_ref()
+            );
+        }
     };
     bottom(
         r#"mapConcat{}(
                 mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1")),
                 mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1"))
             )"#,
+        None,
     );
     bottom(
         r#"mapConcat{}(
                 mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1")),
                 mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("2"))
             )"#,
+        None,
     );
-    bottom(r#"dup{}(\dv{SortKey{}}("a"), \dv{SortKey{}}("a"))"#);
-    bottom(r#"dup{}(X:SortKey{}, X:SortKey{})"#);
+    let ground = r#"dup{}(\dv{SortKey{}}("a"), \dv{SortKey{}}("a"))"#;
+    bottom(ground, Some(ground));
+    bottom(
+        r#"dup{}(X:SortKey{}, X:SortKey{})"#,
+        Some(r#"dup{}(X:SortKey{}, X:SortKey{})"#),
+    );
 
     let input = term(&definition, r#"dup{}(X:SortKey{}, Y:SortKey{})"#);
     let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();

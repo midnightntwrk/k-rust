@@ -3511,6 +3511,15 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     )?,
                     _ => {}
                 }
+                // An empty leaf whose emptiness comes from an equation reducing an application
+                // of a `total` symbol to bottom: the definition contradicts the attribute there.
+                if let Some(contradicted) = &leaf.contradicted_total {
+                    writeln!(
+                        output,
+                        "  {}",
+                        k_rust::backend::execution::contradicted_total_message(contradicted)
+                    )?;
+                }
                 let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "    ");
                 KorePrinter::pretty(100)
                     .write_source(External::Constrained(&leaf.pattern), &mut lines)?;

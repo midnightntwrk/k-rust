@@ -19,8 +19,8 @@ use k_rust_backend::{
         SearchResult as BackendSearchResult, SearchState,
     },
     simplify::{
-        BudgetSubject, ConditionIndeterminacy, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
-        SimplificationError,
+        BudgetSubject, ConditionIndeterminacy, ContradictedTotal,
+        DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
     },
     smt::{Satisfiability, SmtError, TranslationError},
     substitution::Substitution,
@@ -49,6 +49,45 @@ pub enum CompiledRuleKind {
 pub struct CompiledRuleOriginOutput {
     pub source: Option<String>,
     pub location: Option<String>,
+}
+
+/// An application of a symbol declared `total` (or `functional`) that one of its equations
+/// reduced to bottom (`k_rust_backend::simplify::ContradictedTotal`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ContradictedTotalOutput {
+    /// The KORE name of the symbol whose attribute is contradicted.
+    pub symbol: String,
+    /// The equation's compiled id, as in the rule catalog.
+    pub rule_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_label: Option<String>,
+    /// Where the equation is written, when the KORE carries it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CompiledRuleOriginOutput>,
+    /// The application the equation rewrote (KORE JSON).
+    pub application: Value,
+    /// The undefined term the equation's result reached (KORE JSON).
+    pub undefined: Value,
+}
+
+fn contradicted_total_output(
+    contradicted: &ContradictedTotal,
+) -> Result<ContradictedTotalOutput, BackendError> {
+    Ok(ContradictedTotalOutput {
+        symbol: contradicted.symbol().to_owned(),
+        rule_id: contradicted.rule_id.clone(),
+        rule_label: contradicted.label.clone(),
+        origin: contradicted
+            .origin
+            .as_ref()
+            .map(|origin| CompiledRuleOriginOutput {
+                source: origin.source.clone(),
+                location: origin.location.clone(),
+            }),
+        application: encode_term(&contradicted.application)?,
+        undefined: encode_term(&contradicted.undefined_term)?,
+    })
 }
 
 /// One compiled rule, after equivalent written axioms have been collapsed.
@@ -1344,6 +1383,17 @@ pub(super) fn execution_response(
                     HaltReason::Trivial { rule_id, label, .. } => (rule_id.clone(), label.clone()),
                     _ => (None, None),
                 };
+                let contradicted_total = match &leaf.halt_reason {
+                    HaltReason::Trivial {
+                        contradicted_total: Some(contradicted),
+                        ..
+                    }
+                    | HaltReason::Vacuous {
+                        contradicted_total: Some(contradicted),
+                        ..
+                    } => Some(contradicted_total_output(contradicted)?),
+                    _ => None,
+                };
                 let result_sort = leaf.pattern.term.sort();
                 let cause = match &leaf.halt_reason {
                     HaltReason::Indeterminate(reason) => {
@@ -1361,6 +1411,7 @@ pub(super) fn execution_response(
                     reason,
                     rule_id,
                     rule_label,
+                    contradicted_total,
                     cause,
                     detail,
                     trace: leaf.trace.into_iter().map(trace_entry).collect(),

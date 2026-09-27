@@ -113,6 +113,7 @@ A `transition` event names a committed transition of the leaf's `branch` that th
 Evaluation events are diagnostics: which ones occur, and in which order, depends on the simplifier's strategy.
 The legacy execution-leaf `detail` string remains human-readable diagnostic context for compatibility and must not be parsed as semantic data; use the closed `reason`, `branch`, and `observations` fields instead.
 An undefined-step (`trivial`) execution leaf includes `ruleId` and, when labeled, `ruleLabel` for the rule responsible for the halt; the id matches `ruleCatalog` and the step commits no transition.
+A `trivial` or `vacuous` leaf whose emptiness comes from an equation of a `total` symbol that reduced an application of it to bottom also includes `contradictedTotal` (the symbol, the equation's `ruleId`, `ruleLabel` and `origin`, the `application` and the `undefined` term): the definition contradicts the attribute there; the leaf is otherwise unchanged.
 `execute` exposes depth/breadth bounds, all/any strategy, branch stopping, cut-point and terminal rules, step timeouts, and rewrite traces.
 
 The native addon is synchronous. Call it from a worker thread when parsing untrusted or especially

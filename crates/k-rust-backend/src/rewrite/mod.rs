@@ -48,7 +48,10 @@ use crate::{
     matching::SortGraph,
     rule::Predicate,
     search::ResultModality,
-    simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
+    simplify::{
+        ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
+        SimplificationOptions,
+    },
     smt::{NoSolver, Satisfiability, SmtError, SmtSolver},
     substitution::{Substitution, extract_substitution, substitute, substitution_binding},
     term::{Term, Variable},
@@ -266,6 +269,10 @@ pub struct TrivialApplication {
     pub diagnostics: Vec<BackendDiagnostic>,
     /// Simplifications of a higher-priority remainder that precede this lower-priority attempt.
     pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
+    /// Set when the result is bottom because an equation of a `total` symbol reduced an
+    /// application of it to bottom: a diagnostic about the definition that changes nothing else
+    /// about the entry ([`ContradictedTotal`]).
+    pub contradicted_total: Option<Box<ContradictedTotal>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -423,6 +430,10 @@ pub enum HaltReason {
         rule_id: Option<String>,
         label: Option<String>,
         obligation: Predicate,
+        /// Set when the undefined result comes from an equation of a `total` symbol that
+        /// reduced an application of it to bottom ([`ContradictedTotal`]). A diagnostic about
+        /// the definition only: the leaf is the same with or without it.
+        contradicted_total: Option<Box<ContradictedTotal>>,
     },
     Vacuous {
         /// Semantic depth at which the path constraint became false.
@@ -430,6 +441,9 @@ pub enum HaltReason {
         rule_id: Option<String>,
         label: Option<String>,
         constraint: Predicate,
+        /// As for `Trivial`: set when the constraint became false because an equation of a
+        /// `total` symbol reduced an application of it to bottom.
+        contradicted_total: Option<Box<ContradictedTotal>>,
     },
     Branch {
         branches: Vec<AppliedRule>,
@@ -463,6 +477,7 @@ fn trivial_halt(depth: u64, pattern: &Pattern) -> HaltReason {
         rule_id: None,
         label: None,
         obligation: false_constraint(pattern),
+        contradicted_total: None,
     }
 }
 
@@ -472,10 +487,16 @@ fn applied_trivial_halt(depth: u64, application: &TrivialApplication) -> HaltRea
         rule_id: Some(application.rule_id.clone()),
         label: application.label.clone(),
         obligation: application.obligation.clone(),
+        contradicted_total: application.contradicted_total.clone(),
     }
 }
 
-fn vacuous_halt(depth: u64, pattern: &Pattern, trace: &[TraceEntry]) -> HaltReason {
+fn vacuous_halt(
+    depth: u64,
+    pattern: &Pattern,
+    trace: &[TraceEntry],
+    contradicted_total: Option<Box<ContradictedTotal>>,
+) -> HaltReason {
     let applied = trace
         .iter()
         .rev()
@@ -485,6 +506,7 @@ fn vacuous_halt(depth: u64, pattern: &Pattern, trace: &[TraceEntry]) -> HaltReas
         rule_id: applied.map(|entry| entry.unique_id.clone()),
         label: applied.and_then(|entry| entry.label.clone()),
         constraint: false_constraint(pattern),
+        contradicted_total,
     }
 }
 

@@ -40,8 +40,11 @@ const SOURCE: &str = r#"module UNDEF-SYNTAX
                 | cut(Int) [symbol(cut)]
                 | sel(Int) [symbol(sel)]
                 | low(Int) [symbol(low)]
+                | tdiv(Int) [symbol(tdiv)]
+                | tdarg(Int) [symbol(tdarg)]
   syntax Int ::= g(Int) [function, total, symbol(g)]
                | f(Int) [function, total, symbol(f)]
+               | td(Int) [function, total, symbol(td)]
 endmodule
 
 module UNDEF
@@ -72,6 +75,9 @@ module UNDEF
   rule [selany]:  <k> sel(_) => done </k>
   rule [lowpos]:  <k> low(I) => halt </k> ensures I >Int 0
   rule [lowow]:   <k> low(_) => done </k> [owise]
+  rule [tdeq]:    td(I) => 10 /Int I
+  rule [tdiv]:    <k> tdiv(I) => val(td(I)) </k>
+  rule [tdarg]:   <k> tdarg(I) => val(td(10 /Int I)) </k>
 endmodule
 "#;
 
@@ -654,4 +660,71 @@ fn an_undefined_instance_is_not_offered_to_a_lower_priority() {
         );
         assert_trivial_rule(&backend, &ground.leaves[0], "lowpos");
     }
+}
+
+/// `td` is declared `total`, but its equation divides by its argument, so `td(0)` is bottom: the
+/// definition contradicts the attribute there. The ground run ends in an undefined step, as it
+/// does without the attribute, and the leaf names the symbol, the equation, the application and
+/// the undefined term in `contradictedTotal`. The symbolic run observes no bottom (the attribute
+/// is trusted, so `td(X)` is defined) and reports nothing: the diagnostic changes no leaf.
+#[test]
+fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attribute() {
+    let mut backend = backend();
+    let ground = execute(&mut backend, &format!("Lbltdiv{{}}({})", int(0)));
+    assert_eq!(
+        reasons(&ground),
+        [HaltReasonOutput::Trivial],
+        "{:#?}",
+        summary(&ground)
+    );
+    assert_trivial_rule(&backend, &ground.leaves[0], "tdiv");
+    let contradicted = ground.leaves[0]
+        .contradicted_total
+        .as_ref()
+        .expect("the leaf names the contradicted attribute");
+    let catalog = backend.rule_catalog(None).unwrap();
+    let equation = catalog
+        .iter()
+        .find(|rule| rule.label.as_deref() == Some("UNDEF.tdeq"))
+        .unwrap();
+    assert_eq!(contradicted.symbol, "Lbltd");
+    assert_eq!(contradicted.rule_id, equation.id);
+    assert_eq!(contradicted.rule_label.as_deref(), Some("UNDEF.tdeq"));
+    assert_eq!(contradicted.origin.as_ref(), equation.origins.first());
+    let kore = |value: &serde_json::Value| {
+        Printer::compact().print_pattern(&codec::from_value(value).unwrap())
+    };
+    assert_eq!(
+        kore(&contradicted.application),
+        format!("Lbltd{{}}({})", int(0))
+    );
+    assert_eq!(
+        kore(&contradicted.undefined),
+        format!("Lbl'UndsSlsh'Int'Unds'{{}}({}, {})", int(10), int(0))
+    );
+    let wire = serde_json::to_value(&ground.leaves[0]).unwrap();
+    assert_eq!(wire["contradictedTotal"]["ruleLabel"], "UNDEF.tdeq");
+    let decoded: ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+
+    let symbolic = execute(&mut backend, &format!("Lbltdiv{{}}({X})"));
+    assert!(
+        symbolic
+            .leaves
+            .iter()
+            .all(|leaf| leaf.reason != HaltReasonOutput::Trivial
+                && leaf.contradicted_total.is_none()),
+        "{:#?}",
+        summary(&symbolic)
+    );
+    // An argument that is bottom before the equation fires is not the equation's doing: the
+    // step is undefined, and no attribute is named.
+    let argument = execute(&mut backend, &format!("Lbltdarg{{}}({})", int(0)));
+    assert_eq!(
+        reasons(&argument),
+        [HaltReasonOutput::Trivial],
+        "{:#?}",
+        summary(&argument)
+    );
+    assert!(argument.leaves[0].contradicted_total.is_none());
 }

@@ -407,8 +407,9 @@ impl<'a> Execution<'a> {
                         rule_id: Some(applied.unique_id.clone()),
                         label: applied.label.clone(),
                         obligation: obligation.clone(),
+                        contradicted_total: None,
                     },
-                    _ => vacuous_halt(state.depth, &state.pattern, &state.trace),
+                    _ => vacuous_halt(state.depth, &state.pattern, &state.trace, None),
                 };
                 return Err(state.leaf(halt_reason, &self.observation_log));
             }
@@ -447,9 +448,10 @@ impl<'a> Execution<'a> {
         });
         state.diagnostics.extend(&diagnostics);
         let mut state = self.check_interrupted(state, step_timer)?;
-        let undefined_term = match simplified {
+        let (undefined_term, contradicted_total) = match simplified {
             Ok(simplified) => {
                 let undefined_term = simplified.undefined_term.clone();
+                let contradicted_total = simplified.contradicted_total.clone();
                 state.pattern.term = simplified.term;
                 state.pattern.constraints.extend(simplified.constraints);
                 normalize_pattern_substitution(&mut state.pattern, &self.definition.sort_graph);
@@ -476,7 +478,7 @@ impl<'a> Execution<'a> {
                                 unique_id,
                             }),
                     );
-                undefined_term
+                (undefined_term, contradicted_total)
             }
             Err(error) => {
                 return Err(state.leaf(HaltReason::Simplification(error), &self.observation_log));
@@ -486,7 +488,12 @@ impl<'a> Execution<'a> {
             self.completed_initial_simplifications += 1;
             if !vacuity_deferred && predicates_truth(&state.pattern.constraints) == Truth::False {
                 self.bottom_initial_simplifications += 1;
-                let halt_reason = vacuous_halt(state.depth, &state.pattern, &state.trace);
+                let halt_reason = vacuous_halt(
+                    state.depth,
+                    &state.pattern,
+                    &state.trace,
+                    contradicted_total,
+                );
                 return Err(state.leaf(halt_reason, &self.observation_log));
             }
         }
@@ -503,6 +510,7 @@ impl<'a> Execution<'a> {
                 rule_id: applied.map(|entry| entry.unique_id.clone()),
                 label: applied.and_then(|entry| entry.label.clone()),
                 obligation: Predicate::Ceil(term),
+                contradicted_total,
             };
             return Err(state.leaf(halt_reason, &self.observation_log));
         }
@@ -551,7 +559,7 @@ impl<'a> Execution<'a> {
         match rewritten {
             RewriteResult::Stuck(pattern) => match deferred_initial_vacuity {
                 Some(pattern) => {
-                    let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace);
+                    let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace, None);
                     state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
                 }
                 None => externalise_leaf(
@@ -579,7 +587,7 @@ impl<'a> Execution<'a> {
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
             RewriteResult::Vacuous(pattern) => {
-                let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace);
+                let halt_reason = vacuous_halt(state.depth, &pattern, &state.trace, None);
                 state.leaf_with_pattern(pattern, halt_reason, &self.observation_log)
             }
             RewriteResult::Simplification { pattern, error } => state.leaf_with_pattern(

@@ -195,6 +195,7 @@ The reachable causes are `surviving-macro-or-alias` (preprocessing left an execu
 It says this step needed a solver absent from the build; it does not promise that a solver-enabled build decides the path, and a `match` cause may depend on an earlier equation left unevaluated without a solver.
 When a `Trivial` halt names its responsible rule, `ExecutionLeaf.rule_id` and `rule_label` expose the same compiled id and optional label as the rule catalog (`ruleId` and `ruleLabel` in JSON).
 Both fields are omitted when no rule is named and on other halt reasons; they do not imply that the undefined step committed a transition.
+A `Trivial` or `Vacuous` leaf whose emptiness comes from an equation of a `total` (or `functional`) symbol that reduced an application of it to `\bottom` also carries `ExecutionLeaf.contradicted_total` (`contradictedTotal`: `symbol`, `ruleId`, optional `ruleLabel` and `origin`, `application`, `undefined`); it is a diagnostic about the definition and changes neither the reason nor the state (`docs/compatibility.md`, "A contradicted `total` attribute is named, not repaired").
 `UndecidedCondition` and `UndecidedPredicate` diagnostics report a solver that was asked and could not answer, never the absence of a solver.
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is

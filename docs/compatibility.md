@@ -332,6 +332,16 @@ Before this, k-rust merged two identical bindings everywhere, in a rule's right-
 This diverges from reference concrete execution in form, not in outcome: the reference toolchain also treats a repeated key as undefined, but the LLVM backend aborts with an exception ("Duplicate keys in map concatenation") and the Haskell backend's `krun` prints `#Bottom`, or reports a `total` function that evaluated to `\bottom`, where k-rust ends in an undefined step.
 The `a_repeated_set_element_or_map_key_is_bottom_where_it_is_built` CLI test, `a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built` in the [backend tests](../crates/k-rust-backend/tests/backend) and `a_map_argument_binding_a_key_twice_makes_the_hook_bottom` in [map.rs](../crates/k-rust-backend/src/builtin/map.rs) cover this.
 
+## A contradicted `total` attribute is named, not repaired
+
+k-rust takes a symbol's `total` (or `functional`) attribute as an axiom: an application of it to defined arguments is defined, so a rule whose right-hand side holds only total applications carries no definedness obligation, and a symbolic claim through such an application can be proven.
+The attribute is the author's claim, and deciding it is undecidable in general, so k-rust neither checks nor derives it, and a false attribute makes the definition inconsistent on the inputs where it is false; any verdict about those inputs then follows from the definition as written.
+When evaluation observes the contradiction, an equation of such a symbol whose result, on arguments that were defined when it fired, simplifies to `\bottom` (a builtin's undefined result such as `10 /Int 0`, or a set or map with a repeated element or key), k-rust names it and changes nothing else:
+`krun` follows its no-successor warning with ``warning: the `total` attribute of <symbol> is contradicted on this input: its equation <label or id> at <file:line:column> reduces <application> to bottom (undefined at <term>); ...``, `kprove` prints the same line under the failed claim's `Vacuous` or `Trivial` leaf, and the backend's execution leaves carry it as `contradictedTotal` (`ExecutionLeaf.contradicted_total`, `HaltReason::Trivial`/`Vacuous`, `ProofLeaf.contradicted_total`).
+The innermost such equation is named; an argument that is already `\bottom` before the equation fires names none.
+A contradiction that evaluation does not observe, such as the symbolic `tAdd(SetItem(1), I)` of [Set concatenation is nilpotent](#set-concatenation-is-nilpotent), is not reported, and the kore-rpc protocol, which has no field for it, is unchanged.
+The `a_contradicted_total_attribute_is_named_without_changing_the_outcome` CLI test and `a_ground_undefined_step_through_a_total_function_names_the_contradicted_attribute` in [undefined_step_coverage.rs](../crates/k-rust/tests/undefined_step_coverage.rs) cover this.
+
 ## Hook specification exceptions
 
 The hook contract is K's [`k-distribution/include/kframework/builtin/domains.md`](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/k-distribution/include/kframework/builtin/domains.md).

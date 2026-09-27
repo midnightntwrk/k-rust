@@ -20,12 +20,14 @@ use k_rust_backend::{
         execute_disjunction_with_solver_and_observer_with_initial_status, execute_with_solver,
     },
     rule::Predicate,
+    rule::RuleOrigin,
     search::{
         IncompleteSearch, PatternMatchError, SearchOptions, SearchType,
         match_disjunction_with_solver, search_pattern_disjunction_with_solver,
     },
     simplify::{
-        BudgetSubject, SimplificationError, SimplificationOptions, simplify_pattern_with_solver,
+        BudgetSubject, ContradictedTotal, SimplificationError, SimplificationOptions,
+        simplify_pattern_with_solver,
     },
     smt::SmtSolver,
     term::{Term, TermKind, Variable},
@@ -158,6 +160,60 @@ pub fn run(
     solver: &dyn SmtSolver,
 ) -> ExecutionResult {
     execute_with_solver(definition, initial, options, solver)
+}
+
+/// The written position of an equation, `path:line:column`, from its KORE `Source` and
+/// `Location` attributes; `None` when the KORE carries neither.
+fn written_position(origin: &RuleOrigin) -> Option<String> {
+    let source = origin.source.as_deref().map(|source| {
+        source
+            .strip_prefix("Source(")
+            .and_then(|path| path.strip_suffix(')'))
+            .unwrap_or(source)
+    });
+    let location = origin.location.as_deref().map(|location| {
+        let inner = location
+            .strip_prefix("Location(")
+            .and_then(|inner| inner.strip_suffix(')'));
+        match inner.map(|inner| inner.split(',').take(2).collect::<Vec<_>>()) {
+            Some(parts) if parts.len() == 2 => format!("{}:{}", parts[0], parts[1]),
+            _ => location.to_owned(),
+        }
+    });
+    match (source, location) {
+        (Some(source), Some(location)) => Some(format!("{source}:{location}")),
+        (Some(source), None) => Some(source.to_owned()),
+        (None, Some(location)) => Some(location),
+        (None, None) => None,
+    }
+}
+
+/// What the author is told when an equation of a symbol declared `total` (or `functional`)
+/// reduced an application of it to bottom (`ContradictedTotal`): the symbol, the equation with
+/// its written position, the application, and the undefined term its result reached.
+///
+/// The attribute is an axiom k-rust trusts, and the equation is another axiom of the same
+/// definition; on this application they contradict each other, so the definition is
+/// inconsistent there. Nothing about the run changes: the message only explains the empty leaf.
+pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
+    let application =
+        KorePrinter::compact().print_pattern(&externalize::term(&contradicted.application));
+    let undefined =
+        KorePrinter::compact().print_pattern(&externalize::term(&contradicted.undefined_term));
+    let equation = contradicted
+        .label
+        .as_deref()
+        .unwrap_or(&contradicted.rule_id);
+    let position = contradicted
+        .origin
+        .as_ref()
+        .and_then(written_position)
+        .map(|position| format!(" at {position}"))
+        .unwrap_or_default();
+    format!(
+        "the `total` attribute of {symbol} is contradicted on this input: its equation {equation}{position} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
+        symbol = contradicted.symbol(),
+    )
 }
 
 fn report_diagnostics<'a>(
@@ -614,6 +670,7 @@ fn run_backend_with_solver(
                     rule_id,
                     label,
                     obligation,
+                    ..
                 } => {
                     let obligation = KorePrinter::compact()
                         .print_pattern(&externalize::ml_pattern(obligation, &result_sort));
@@ -632,6 +689,7 @@ fn run_backend_with_solver(
                     rule_id,
                     label,
                     constraint,
+                    ..
                 } => {
                     let constraint = KorePrinter::compact()
                         .print_pattern(&externalize::ml_pattern(constraint, &result_sort));
@@ -646,6 +704,17 @@ fn run_backend_with_solver(
                     }
                 }
                 _ => unreachable!("all dropped leaves were checked above"),
+            }
+            if let HaltReason::Trivial {
+                contradicted_total: Some(contradicted),
+                ..
+            }
+            | HaltReason::Vacuous {
+                contradicted_total: Some(contradicted),
+                ..
+            } = &leaf.halt_reason
+            {
+                eprintln!("warning: {}", contradicted_total_message(contradicted));
             }
         }
     }

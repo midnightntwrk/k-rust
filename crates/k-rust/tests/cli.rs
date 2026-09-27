@@ -6790,6 +6790,170 @@ fn a_repeated_set_element_or_map_key_is_bottom_where_it_is_built() {
     fs::remove_dir_all(root).unwrap();
 }
 
+const CONTRADICTED_TOTAL: &str = r#"
+module CTOT
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k> <i> 0 </i> <s> .Set </s> <m> .Map </m>
+  syntax Pgm ::= "tdiv" | "pdiv" | "tset" | "pset" | "tmapdiff" | "tnest" | "tvia" | "targ"
+               | "done" | tsetS(Int) | psetS(Int)
+  syntax Int ::= tDiv(Int) [function, total]
+               | pDiv(Int) [function]
+               | tNest(Int) [function, total]
+               | tVia(Int) [function, total]
+               | tId(Int) [function, total]
+  rule [tdiv-eq]: tDiv(I) => 10 /Int I
+  rule [pdiv-eq]: pDiv(I) => 10 /Int I
+  rule [tnest-eq]: tNest(I) => tDiv(I) +Int 1
+  rule [tvia-eq]: tVia(I) => pDiv(I)
+  rule [tid-eq]: tId(I) => I
+  syntax Set ::= tAdd(Set, Int) [function, total]
+               | pAdd(Set, Int) [function]
+  rule [tadd-eq]: tAdd(S, I) => S SetItem(I)
+  rule [padd-eq]: pAdd(S, I) => S SetItem(I)
+  syntax Map ::= tPut(Map, Int, Int) [function, total]
+  rule [tput-eq]: tPut(M, K, V) => M (K |-> V)
+  rule <k> tdiv => done </k> <i> _ => tDiv(0) </i>
+  rule <k> pdiv => done </k> <i> _ => pDiv(0) </i>
+  rule <k> tnest => done </k> <i> _ => tNest(0) </i>
+  rule <k> tvia => done </k> <i> _ => tVia(0) </i>
+  rule <k> targ => done </k> <i> _ => tId(pDiv(0)) </i>
+  rule <k> tset => done </k> <s> _ => tAdd(SetItem(1), 1) </s>
+  rule <k> pset => done </k> <s> _ => pAdd(SetItem(1), 1) </s>
+  rule <k> tmapdiff => done </k> <m> _ => tPut(1 |-> 2, 1, 3) </m>
+  rule <k> tsetS(I) => done </k> <s> _ => tAdd(SetItem(1), I) </s>
+  rule <k> psetS(I) => done </k> <s> _ => pAdd(SetItem(1), I) </s>
+endmodule
+"#;
+
+const CONTRADICTED_TOTAL_SPEC: &str = r#"
+requires "definition.k"
+module CTOT-SPEC
+  imports CTOT
+  claim [sym]: <k> tsetS(_I) => done </k> <i> _ </i> <s> _ => ?_ </s> <m> _ </m>
+  claim [psym]: <k> psetS(_I) => done </k> <i> _ </i> <s> _ => ?_ </s> <m> _ </m>
+  claim [gnd]: <k> tsetS(1) => done </k> <i> _ </i> <s> _ => ?_ </s> <m> _ </m>
+  claim [pgnd]: <k> psetS(1) => done </k> <i> _ </i> <s> _ => ?_ </s> <m> _ </m>
+  claim [div]: <k> tdiv => done </k> <i> _ => ?_ </i> <s> _ </s> <m> _ </m>
+  claim [pdiv]: <k> pdiv => done </k> <i> _ => ?_ </i> <s> _ </s> <m> _ </m>
+endmodule
+"#;
+
+/// An equation of a function declared `total` that reduces an application of it to bottom
+/// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
+/// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still
+/// proven, since the attribute is trusted), and name the symbol, the equation and its position.
+/// A partial function, or an argument that is bottom before the equation fires, names nothing;
+/// a nested total application names the innermost equation, and a total function whose equation
+/// calls a partial one names its own.
+#[test]
+fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
+    let (root, definition) = fixture();
+    fs::write(&definition, CONTRADICTED_TOTAL).unwrap();
+    let run = |program: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "CTOT",
+                "--syntax-module",
+                "CTOT",
+                "-s",
+                "Pgm",
+                "--io",
+                "off",
+                "-e",
+                program,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("execution ended with no successor at depth 1")
+                && stdout.contains("\\bottom{SortGeneratedTopCell{}}()"),
+            "{program}: {stdout}{stderr}"
+        );
+        stderr
+    };
+    let position = |line: usize| format!("{}:{line}:3", definition.display());
+    for (program, symbol, equation, line) in [
+        ("tdiv", "LbltDiv'", "tdiv-eq", 12),
+        ("tnest", "LbltDiv'", "tdiv-eq", 12),
+        ("tvia", "LbltVia'", "tvia-eq", 15),
+        ("tset", "LbltAdd'", "tadd-eq", 19),
+        ("tmapdiff", "LbltPut'", "tput-eq", 22),
+    ] {
+        let stderr = run(program);
+        let message = stderr
+            .lines()
+            .find(|line| line.contains("attribute of"))
+            .unwrap_or_else(|| panic!("{program}: no contradicted-total warning in {stderr}"));
+        assert!(
+            message.starts_with(&format!("warning: the `total` attribute of {symbol}"))
+                && message.contains("is contradicted on this input")
+                && message.contains(&format!("CTOT.{equation} at {}", position(line)))
+                && message.contains("to bottom"),
+            "{program}: {message}"
+        );
+    }
+    for program in ["pdiv", "pset", "targ"] {
+        let stderr = run(program);
+        assert!(!stderr.contains("attribute of"), "{program}: {stderr}");
+    }
+
+    let spec = root.join("ctot-spec.k");
+    fs::write(&spec, CONTRADICTED_TOTAL_SPEC).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            spec.to_str().unwrap(),
+            "--main-module",
+            "CTOT-SPEC",
+            "--definition-module",
+            "CTOT",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    // The report of one claim: its verdict line and the lines that follow up to the next claim.
+    let report = |claim: &str| {
+        let prefix = format!("claim CTOT-SPEC.{claim}: ");
+        let start = stdout
+            .find(&prefix)
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"));
+        let rest = &stdout[start + prefix.len()..];
+        rest[..rest.find("\nclaim ").unwrap_or(rest.len())].to_owned()
+    };
+    assert!(report("sym").starts_with("proven"), "{stdout}");
+    for claim in ["gnd", "div"] {
+        let report = report(claim);
+        assert!(
+            report.starts_with("failed")
+                && report.contains("Vacuous at depth 1")
+                && report.contains("attribute of")
+                && report.contains("is contradicted on this input"),
+            "{claim}: {report}"
+        );
+    }
+    assert!(report("gnd").contains("CTOT.tadd-eq"), "{stdout}");
+    assert!(report("div").contains("CTOT.tdiv-eq"), "{stdout}");
+    for claim in ["psym", "pgnd", "pdiv"] {
+        let report = report(claim);
+        assert!(
+            report.starts_with("failed")
+                && report.contains("Trivial at depth 1")
+                && !report.contains("attribute of"),
+            "{claim}: {report}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {

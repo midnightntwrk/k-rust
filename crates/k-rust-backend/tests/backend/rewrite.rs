@@ -1208,6 +1208,7 @@ fn internalizes_a_nested_bottom_rewrite_rhs_as_trivial() {
                 rule_id: Some(rule_id),
                 label: Some(label),
                 obligation: Predicate::False,
+                contradicted_total: None,
             },
             ..
         }] if rule_id == "bottom" && label == "bottom"
@@ -1518,6 +1519,7 @@ fn reports_vacuous_execution_paths() {
                 rule_id: None,
                 label: None,
                 constraint: Predicate::False,
+                contradicted_total: None,
             },
             ..
         }]
@@ -1580,6 +1582,7 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
                     rule_id: Some(rule_id),
                     label: Some(label),
                     constraint,
+                    contradicted_total: None,
                 },
                 ..
             }] if term == &internal_term(&definition, "d{}()")
