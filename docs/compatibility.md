@@ -396,6 +396,8 @@ Any other variable free in a disjunct is read as existentially quantified over t
 k-rust prints a disjunct as its term conjoined with its constraints and leaves these binders implicit (`constrained_pattern` in [externalize.rs](../crates/k-rust-backend/src/externalize.rs)); it names the variables with `Ex`, `Rule` or `Eq` prefixes or as `Var'Ques'` names, each with a fresh counter.
 
 A remainder disjunct, the branch on which a rule does not apply, carries the negated applicability condition `\not(\exists V. C)`, where `V` are the variables of `C` that are free in neither the state's term nor its constraints (`quantify_introduced_variables` in [predicates.rs](../crates/k-rust-backend/src/rewrite/predicates.rs)).
+The applicability condition includes a `requires` Boolean term's definedness at instantiation, so an undefined `requires` instance belongs to the remainder; the [symbolic definedness tests](../crates/k-rust/tests/symbolic_definedness.rs) exercise this split with and without Z3.
+A carried right-hand-side definedness obligation or an `ensures` can instead exclude an instance without producing a leaf; the same tests cover the obligations retained on surviving leaves.
 A rule's variables are universally quantified over the rule (`docs/user_manual.md:2448-2450`), so the remainder must exclude every instance of the rule: a variable of the match that occurs nowhere else in the disjunct is bound inside the negation.
 Reading it at the disjunct level instead would say only that some instance does not apply (`\exists x. \not C` rather than `\not \exists x. C`), which is a different set of configurations.
 

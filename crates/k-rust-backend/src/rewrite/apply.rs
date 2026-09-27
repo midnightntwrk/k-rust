@@ -46,9 +46,10 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::{Predicate, RewriteRule, RuleRhs, rename_apart},
     simplify::{
-        ConditionIndeterminacy, RuleCondition, SimplificationError, SimplificationOptions,
-        binds_element_variable_to_set_pattern, decide_condition, simplify_in_execution_with_solver,
-        simplify_predicates_with_solver, simplify_with_solver,
+        BudgetPolicy, ConditionIndeterminacy, RuleCondition, SimplificationError,
+        SimplificationOptions, binds_element_variable_to_set_pattern, decide_condition,
+        simplify_condition, simplify_in_execution_with_solver, simplify_predicates_with_solver,
+        simplify_with_solver,
     },
     smt::{Satisfiability, SmtError, SmtSolver, Validity},
     substitution::{Substitution, compose, extract_substitution, substitute},
@@ -718,10 +719,9 @@ fn recover_by_unification(
             ) {
                 return Ok(recovered);
             }
-            let requires = substitute_predicates(&rule.requires, &substitution);
-            let requires = match simplify_predicates_with_solver(
+            let requires = match simplify_rule_condition(
                 definition,
-                &requires,
+                substitute_predicates(&rule.requires, &substitution),
                 inherited_knowledge,
                 context.simplification_options,
                 context.solver,
@@ -913,12 +913,13 @@ fn requires(
     path_knowledge: Vec<Predicate>,
 ) -> Phase<(Vec<Predicate>, Vec<Predicate>)> {
     let rule = context.rule;
-    let requires = substitute_predicates(&rule.requires, substitution);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
-    let requires = match simplify_predicates_with_solver(
+    // The instance satisfies `requires` only where its terms are defined; state that before the
+    // simplifier or a solver can answer for instances where they are not.
+    let requires = match simplify_rule_condition(
         context.definition,
-        &requires,
+        substitute_predicates(&rule.requires, substitution),
         &match_knowledge,
         context.simplification_options,
         context.solver,
@@ -958,6 +959,34 @@ fn requires(
         }
     }
     Ok((requires, match_knowledge))
+}
+
+/// A rewrite rule's `requires` or `ensures`, instantiated, simplified under `known` with the
+/// definedness of its Boolean terms explicit (`simplify::simplify_condition`).
+fn simplify_rule_condition(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+    options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    simplify_condition(
+        definition,
+        conditions,
+        known,
+        known,
+        |conditions, known, first_attempt| {
+            let options = if first_attempt {
+                SimplificationOptions {
+                    budget: BudgetPolicy::Fail,
+                    ..options
+                }
+            } else {
+                options
+            };
+            simplify_predicates_with_solver(definition, &conditions, known, options, solver)
+        },
+    )
 }
 
 /// P12: the unclear `requires` are checked for validity (`Valid` empties them, `Invalid` ends
@@ -1316,9 +1345,11 @@ fn apply_rhs_alternative(
         existential_substitution,
     );
     let reported_ensures = conjunction(&ensures);
-    let mut ensures = match simplify_predicates_with_solver(
+    // An `ensures` constrains the successor only where its terms are defined, as a `requires`
+    // constrains the instance.
+    let mut ensures = match simplify_rule_condition(
         definition,
-        &ensures,
+        ensures,
         &condition_knowledge,
         simplification_options,
         solver,

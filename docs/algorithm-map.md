@@ -126,7 +126,7 @@ Representation flow into [execution result]:
 No phase contains these algorithms and no representation connects them to a command's roots; the graph does not say which command runs them or when.
 
 - backend.alias.unfold — O(o + b x (p + r)) +1 mode — at backend/alias.rs `expand`
-- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +1 mode — in: [match result] — at backend/definedness.rs `discharge_rewrite_definedness`
+- backend.definedness.discharge — O(1) when the term's stored ceil_free attribute… +2 modes — in: [match result] — at backend/definedness.rs `discharge_rewrite_definedness`
 - backend.definition.closure — at most h rounds, each O(|S| x |C|) +1 mode — at backend/definition.rs `build_sort_graph`
 - backend.fresh.object_language — O((t + r) x log s) opacity pre-pass, then O((k +… +1 mode — at backend/builtin/substitution.rs `evaluate`
 - backend.fresh.variables — O(c) per name, amortized O(1) +3 modes — at backend/fresh.rs `fresh_name`

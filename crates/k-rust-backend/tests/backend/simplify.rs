@@ -4031,3 +4031,189 @@ fn alpha_equal_equations_collapse_and_still_evaluate_a_subject_sharing_their_var
 
     assert_eq!(result.term, term(&definition, r#"\dv{SortS{}}("c")"#));
 }
+
+/// Hooks from every family that can return a value without inspecting a symbolic argument,
+/// and `tdiv`, a partial hook whose symbolic application `tdiv(10, X)` carries the obligation
+/// `\ceil(tdiv(10, X))` (the definition has no ceil equation for it).
+fn hook_definedness_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+            module MAIN
+                sort SortInt{} [hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortKItem{} []
+                sort SortK{} []
+                symbol inj{From, To}(From) : To [sortInjection{}(), injective{}()]
+                symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}()]
+                symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+                axiom{R} \exists{R}(
+                    Value:SortKItem{},
+                    \equals{SortKItem{}, R}(
+                        Value:SortKItem{},
+                        inj{SortInt{}, SortKItem{}}(From:SortInt{})
+                    )
+                ) [subsort{SortInt{}, SortKItem{}}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortInt{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol inclusion{}(SortMap{}, SortMap{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("MAP.inclusion")]
+                hooked-symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv")]
+                hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.eq")]
+                hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.ne")]
+                hooked-symbol eqK{}(SortK{}, SortK{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("KEQUAL.eq")]
+                hooked-symbol neK{}(SortK{}, SortK{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ne")]
+                hooked-symbol or{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.or")]
+                hooked-symbol orElse{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.orElse")]
+                hooked-symbol and{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.and")]
+                hooked-symbol andThen{}(SortBool{}, SortBool{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("BOOL.andThen")]
+                hooked-symbol ite{}(SortBool{}, SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+            endmodule []"#,
+    )
+    .expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+const TEN_BY_X: &str = r#"tdiv{}(\dv{SortInt{}}("10"), X:SortInt{})"#;
+
+/// Simplify `source`, in which `$D` stands for `tdiv(10, X)`, and check that it evaluates to
+/// `expected` under exactly the obligation `\ceil(tdiv(10, X))`.
+fn assert_hook_keeps_argument_definedness(source: &str, expected: &str) {
+    let definition = hook_definedness_definition();
+    let input = term(&definition, &source.replace("$D", TEN_BY_X));
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    assert_eq!(
+        result.term,
+        term(&definition, expected),
+        "input: {source}, rules: {:?}",
+        result.applied_rules
+    );
+    assert_eq!(
+        result.constraints,
+        [Predicate::Ceil(term(&definition, TEN_BY_X))],
+        "input: {source}"
+    );
+    assert_eq!(result.undefined_term, None, "input: {source}");
+}
+
+const TRUE: &str = r#"\dv{SortBool{}}("true")"#;
+const FALSE: &str = r#"\dv{SortBool{}}("false")"#;
+
+#[test]
+fn reflexive_integer_comparison_keeps_the_operand_definedness() {
+    assert_hook_keeps_argument_definedness("eqInt{}($D, $D)", TRUE);
+    assert_hook_keeps_argument_definedness("neInt{}($D, $D)", FALSE);
+}
+
+#[test]
+fn reflexive_k_equality_keeps_the_operand_definedness() {
+    let item = "kseq{}(inj{SortInt{}, SortKItem{}}($D), dotk{}())";
+    assert_hook_keeps_argument_definedness(&format!("eqK{{}}({item}, {item})"), TRUE);
+    assert_hook_keeps_argument_definedness(&format!("neK{{}}({item}, {item})"), FALSE);
+}
+
+#[test]
+fn absorbing_boolean_operators_keep_the_absorbed_operand_definedness() {
+    let operand = r#"eqInt{}($D, Y:SortInt{})"#;
+    for (hook, absorbing) in [
+        ("or", TRUE),
+        ("orElse", TRUE),
+        ("and", FALSE),
+        ("andThen", FALSE),
+    ] {
+        assert_hook_keeps_argument_definedness(
+            &format!("{hook}{{}}({absorbing}, {operand})"),
+            absorbing,
+        );
+        assert_hook_keeps_argument_definedness(
+            &format!("{hook}{{}}({operand}, {absorbing})"),
+            absorbing,
+        );
+    }
+}
+
+#[test]
+fn if_then_else_keeps_the_definedness_of_the_branch_it_discards() {
+    let one = r#"\dv{SortInt{}}("1")"#;
+    assert_hook_keeps_argument_definedness(&format!("ite{{}}({TRUE}, {one}, $D)"), one);
+    assert_hook_keeps_argument_definedness(&format!("ite{{}}({FALSE}, $D, {one})"), one);
+}
+
+#[test]
+fn reflexive_map_inclusion_keeps_the_map_definedness() {
+    let map = r#"mapItem{}(\dv{SortKey{}}("a"), $D)"#;
+    assert_hook_keeps_argument_definedness(&format!("inclusion{{}}({map}, {map})"), TRUE);
+    assert_hook_keeps_argument_definedness(&format!("inclusion{{}}(mapUnit{{}}(), {map})"), TRUE);
+}
+
+#[test]
+fn hook_argument_definedness_is_not_repeated_when_known_or_ground() {
+    let definition = hook_definedness_definition();
+    let input = term(&definition, &"eqInt{}($D, $D)".replace("$D", TEN_BY_X));
+    let obligation = Predicate::Ceil(term(&definition, TEN_BY_X));
+
+    let known = simplify_with_solver(
+        &definition,
+        &input,
+        std::slice::from_ref(&obligation),
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .unwrap();
+    assert_eq!(known.term, term(&definition, TRUE));
+    assert!(known.constraints.is_empty(), "{:?}", known.constraints);
+
+    let ground = term(
+        &definition,
+        r#"or{}(\dv{SortBool{}}("true"), eqInt{}(tdiv{}(\dv{SortInt{}}("10"), \dv{SortInt{}}("2")), Y:SortInt{}))"#,
+    );
+    let ground = simplify(&definition, &ground, SimplificationOptions::default()).unwrap();
+    assert_eq!(ground.term, term(&definition, TRUE));
+    assert!(ground.constraints.is_empty(), "{:?}", ground.constraints);
+
+    let undefined = term(
+        &definition,
+        r#"ite{}(\dv{SortBool{}}("true"), \dv{SortInt{}}("1"), tdiv{}(\dv{SortInt{}}("10"), \dv{SortInt{}}("0")))"#,
+    );
+    let undefined = simplify(&definition, &undefined, SimplificationOptions::default()).unwrap();
+    assert!(
+        undefined.constraints.contains(&Predicate::False),
+        "a ground undefined branch makes the conditional bottom: {undefined:?}"
+    );
+}
+
+#[test]
+fn a_condition_over_a_hook_shortcut_becomes_its_definedness_obligation() {
+    let definition = hook_definedness_definition();
+    let condition = Predicate::Equals(
+        term(&definition, &"eqInt{}($D, $D)".replace("$D", TEN_BY_X)),
+        term(&definition, TRUE),
+    );
+
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &condition,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .unwrap();
+
+    assert_eq!(result, Predicate::Ceil(term(&definition, TEN_BY_X)));
+}

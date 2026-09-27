@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated"]
 //! span = "per call"
@@ -54,7 +54,7 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     cancellation::cancellation_requested,
-    definedness::ceil_term,
+    definedness::{ceil_term, condition_definedness},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
@@ -718,6 +718,90 @@ fn simplify_rule_predicates(
     )
 }
 
+/// Simplify an instantiated rule or equation condition with the definedness of its Boolean
+/// terms explicit (`definedness::condition_definedness`).
+///
+/// `simplify(conditions, known, first_attempt)` simplifies under `known`; `definedness_known`
+/// are the predicates the stated obligations are deduplicated against (a superset of `known`).
+///
+/// A condition without free variables is first simplified as it is, under no known predicate.
+/// If that decides it syntactically (`true` or `false`), the decision is exact and is returned.
+/// The simplifier evaluates a variable-free condition innermost first, and every step it takes
+/// is an equivalence that keeps the definedness of what it consumes: a builtin hook returns its
+/// arguments' obligations with its value, an equation carries the definedness of the terms it
+/// binds and decides its own requires with their definedness stated, and a partial function
+/// with no applicable equation stays an application, whose obligation keeps the atom from being
+/// `true` or `false`. So a `true` means every partial subterm evaluated to a value and is
+/// defined, and a `false` refutes the condition with or without the obligations. With no known
+/// predicate the decision rests on evaluation alone, never on an assumption about a term the
+/// evaluation left unevaluated. The solver sees nothing in this attempt except equation
+/// conditions whose definedness is explicit. Every other outcome, a symbolic condition, and an
+/// error in the first attempt other than resource exhaustion take the general path: the
+/// obligations are stated and the condition is simplified under `known`. The diagnostics of a
+/// discarded attempt are dropped, since the general path redoes and reports its work.
+pub(crate) fn simplify_condition(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+    definedness_known: &[Predicate],
+    mut simplify: impl FnMut(
+        Vec<Predicate>,
+        &[Predicate],
+        bool,
+    ) -> Result<Vec<Predicate>, SimplificationError>,
+) -> Result<Vec<Predicate>, SimplificationError> {
+    let mut ceil_free = true;
+    let mut ground = true;
+    for condition in &conditions {
+        condition.visit_terms(&mut |term| {
+            ceil_free &= term.attributes().ceil_free();
+            ground &= term.attributes().variables.is_empty();
+        });
+    }
+    if ceil_free {
+        return simplify(conditions, known, false);
+    }
+    if ground && !GENERAL_CONDITION_PATH.with(Cell::get) {
+        let decided = |result: &Result<Vec<Predicate>, SimplificationError>| {
+            result
+                .as_ref()
+                .is_ok_and(|simplified| predicates_truth(simplified) != Truth::Unknown)
+        };
+        match diagnostic::attempt(|| simplify(conditions.clone(), &[], true), decided) {
+            Ok(simplified) if predicates_truth(&simplified) != Truth::Unknown => {
+                return Ok(simplified);
+            }
+            Err(error) if error.is_resource_exhaustion() => return Err(error),
+            _ => {}
+        }
+        // The general path redoes the nested conditions the attempt met; they take the general
+        // path too, so a chain of nested conditions costs at most twice the general path
+        // instead of doubling at every level.
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                GENERAL_CONDITION_PATH.with(|flag| flag.set(self.0));
+            }
+        }
+        let _restore = Restore(GENERAL_CONDITION_PATH.with(|flag| flag.replace(true)));
+        return simplify(
+            condition_definedness(definition, conditions, definedness_known),
+            known,
+            false,
+        );
+    }
+    simplify(
+        condition_definedness(definition, conditions, definedness_known),
+        known,
+        false,
+    )
+}
+
+thread_local! {
+    /// Set while `simplify_condition` redoes a condition on the general path.
+    static GENERAL_CONDITION_PATH: Cell<bool> = const { Cell::new(false) };
+}
+
 /// Simplify the side-condition predicates of an application attempt of `rule_id`, keeping
 /// them unsimplified when simplification fails for a reason other than an exhausted resource.
 ///
@@ -792,25 +876,58 @@ fn evaluate_rule_condition(
     definition: &BackendDefinition,
     rule_id: &str,
     anchor: Option<&Term>,
-    predicates: Vec<Predicate>,
+    requires: Vec<Predicate>,
+    bound_definedness: &[Predicate],
     known_predicates: &[Predicate],
     options: SimplificationOptions,
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<RuleCondition, SimplificationError> {
+    // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
+    // defined, so their definedness joins the requires. The definedness of the bound terms
+    // themselves is the `\ceil(t)` factor, which is carried rather than decided, so it is taken
+    // as known and not restated as a requires.
+    let definedness_known = if bound_definedness.is_empty() {
+        None
+    } else {
+        let mut known = known_predicates.to_vec();
+        known.extend(bound_definedness.iter().cloned());
+        Some(known)
+    };
+    let definedness_known = definedness_known.as_deref().unwrap_or(known_predicates);
     let predicates = if let Some(anchor) = anchor {
-        simplify_rule_predicates_or_keep(
+        simplify_condition(
             definition,
-            rule_id,
-            anchor,
-            predicates,
+            requires,
             known_predicates,
-            options,
-            active_conditions,
-            solver,
+            definedness_known,
+            |predicates, known, first_attempt| {
+                if first_attempt {
+                    simplify_rule_predicates(
+                        definition,
+                        (rule_id, anchor),
+                        &predicates,
+                        known,
+                        options,
+                        active_conditions,
+                        solver,
+                    )
+                } else {
+                    simplify_rule_predicates_or_keep(
+                        definition,
+                        rule_id,
+                        anchor,
+                        predicates,
+                        known,
+                        options,
+                        active_conditions,
+                        solver,
+                    )
+                }
+            },
         )?
     } else {
-        predicates
+        condition_definedness(definition, requires, definedness_known)
     };
     decide_rule_condition(rule_id, &predicates, known_predicates, solver)
 }
@@ -1402,6 +1519,7 @@ fn apply_ceil_equation(
         &rule.attributes.unique_id,
         Some(term),
         conditions.requires,
+        &conditions.definedness,
         known_predicates,
         options,
         active_conditions,
@@ -1518,6 +1636,7 @@ fn apply_predicate_equation(
         &rule.attributes.unique_id,
         first_predicate_term(predicate),
         conditions.requires,
+        &conditions.definedness,
         known_predicates,
         options,
         active_conditions,
@@ -1673,7 +1792,7 @@ fn strict_variables(
 /// intersection of its operands and has no definedness witness of its own (`Y /\ Z` over two
 /// element variables is empty unless `Y = Z`), while `ceil_term` only collects its operands'
 /// obligations, so a term that contains one anywhere is never provably defined here.
-fn term_is_provably_defined(
+pub(crate) fn term_is_provably_defined(
     definition: &BackendDefinition,
     term: &Term,
     known: impl Fn(&Predicate) -> bool,
@@ -2591,6 +2710,7 @@ fn matches_top_equation(
                     &rule.attributes.unique_id,
                     Some(term),
                     conditions.requires,
+                    &conditions.definedness,
                     known_predicates,
                     options,
                     active_conditions,
@@ -2813,6 +2933,23 @@ enum RootStep {
     Other,
 }
 
+/// One root step: a builtin hook, else the function theory, else the simplification theory.
+///
+/// A hooked symbol is a function symbol, and a KORE application is strict: `f(t1, .., tn)` is
+/// `\bottom` wherever some `ti` is. When the hook evaluates the application to `v`, the exact
+/// result is therefore `\ceil(t1) /\ .. /\ \ceil(tn) /\ v`, not `v`: a hook that returns
+/// `v` without inspecting a symbolic argument (`t ==Int t`, `true orBool b`, `#if true #then a
+/// #else b #fi`, `M <=Map M`) would otherwise yield a value defined on instances where the
+/// application is not. A hook returns a value only where its own domain condition holds on the
+/// arguments it was given; what it cannot establish without inspecting an argument is that
+/// argument's definedness. That definedness is returned as constraints
+/// (`hook_argument_definedness`), which every caller conjoins as it conjoins the open definedness
+/// obligations of a function equation.
+///
+/// Every hook is strict in every argument, `BOOL.andThen`, `BOOL.orElse` and `KEQUAL.ite`
+/// included: ground simplification already is, since children are simplified before the root and
+/// an undefined argument makes the whole term `\bottom` before the hook sees it, so symbolic
+/// evaluation must agree with it on every instance.
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
@@ -2836,7 +2973,12 @@ fn simplify_root(
                 unreachable!("only applications have builtin hooks")
             };
             let (term, constraints, effects, undefined_term) = match builtin {
-                BuiltinResult::Value(result) => (result, Vec::new(), Vec::new(), None),
+                BuiltinResult::Value(result) => (
+                    result,
+                    hook_argument_definedness(definition, term, known_predicates),
+                    Vec::new(),
+                    None,
+                ),
                 BuiltinResult::Bottom => (
                     term.clone(),
                     vec![Predicate::False],
@@ -2845,7 +2987,7 @@ fn simplify_root(
                 ),
                 BuiltinResult::Effect(effect) => (
                     builtin_effect_result(definition, term, &effect)?,
-                    Vec::new(),
+                    hook_argument_definedness(definition, term, known_predicates),
                     vec![effect],
                     None,
                 ),
@@ -2971,6 +3113,36 @@ fn simplify_root(
         },
         RootStep::Other,
     ))
+}
+
+/// The definedness of the arguments of a hooked application the hook has evaluated: the
+/// `ceil_term` obligations of every argument, without duplicates and without those already among
+/// `known_predicates`, which the caller's result is taken under.
+///
+/// The obligations are open, not a refutation: the application is not `\bottom`, so no
+/// `undefined_term` is reported. A `ceil_free` argument contributes nothing, so evaluation over
+/// values and constructor terms is unchanged. An obligation whose term also occurs in the
+/// hook's value is kept: it is redundant there, and a redundant conjunct is sound.
+fn hook_argument_definedness(
+    definition: &BackendDefinition,
+    application: &Term,
+    known_predicates: &[Predicate],
+) -> Vec<Predicate> {
+    let TermKind::Application { arguments, .. } = application.kind() else {
+        unreachable!("only applications have builtin hooks")
+    };
+    let mut obligations = Vec::new();
+    for argument in arguments {
+        if argument.attributes().ceil_free() {
+            continue;
+        }
+        for obligation in ceil_term(definition, argument) {
+            if !known_predicates.contains(&obligation) && !obligations.contains(&obligation) {
+                obligations.push(obligation);
+            }
+        }
+    }
+    obligations
 }
 
 fn builtin_effect_result(
@@ -3300,6 +3472,7 @@ fn apply_equation(
         &rule.attributes.unique_id,
         Some(term),
         conditions.requires,
+        &conditions.definedness,
         known_predicates,
         options,
         active_conditions,
@@ -3455,16 +3628,36 @@ fn evaluate_ensures(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EnsuresVerdict, SimplificationError> {
-    let ensures = substitute_predicates(ensures, substitution);
-    let ensures = simplify_rule_predicates_or_keep(
+    // An `ensures` constrains the result only where its terms are defined.
+    let ensures = simplify_condition(
         definition,
-        &rule.attributes.unique_id,
-        term,
-        ensures,
+        substitute_predicates(ensures, substitution),
         known_predicates,
-        options,
-        active_conditions,
-        solver,
+        known_predicates,
+        |ensures, known, first_attempt| {
+            if first_attempt {
+                simplify_rule_predicates(
+                    definition,
+                    (&rule.attributes.unique_id, term),
+                    &ensures,
+                    known,
+                    options,
+                    active_conditions,
+                    solver,
+                )
+            } else {
+                simplify_rule_predicates_or_keep(
+                    definition,
+                    &rule.attributes.unique_id,
+                    term,
+                    ensures,
+                    known,
+                    options,
+                    active_conditions,
+                    solver,
+                )
+            }
+        },
     )?;
     // An `ensures` is a conjunct of the result by definition, so every verdict the solver does
     // not reach carries it: an open implication, no solver, a query the encoding cannot pose,

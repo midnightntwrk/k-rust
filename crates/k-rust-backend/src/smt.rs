@@ -602,6 +602,12 @@ impl SmtPrelude {
 /// or `Bool` ranges over an uninterpreted sort, which knows nothing of the sort's values; and a
 /// partial function becomes a total SMT operation that has a value where the function has none.
 /// This answers true only when none of them happened.
+///
+/// The third approximation also affects `SmtSolver::check_predicates`: a `Valid` answer holds
+/// for the total operation, including on instances where the partial function has no value. It
+/// is sound for a predicate only when the definedness of its partial terms is explicit in the
+/// predicate. The rewrite and equation condition callers make it explicit before deciding
+/// (`definedness::condition_definedness` on every `requires` and `ensures`).
 pub fn translates_exactly(predicates: &[Predicate]) -> bool {
     let mut translation = TranslationState::new();
     if predicates

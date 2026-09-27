@@ -152,6 +152,13 @@ The first leaf in depth-first order retains its trace and halt reason.
 Whole-state trivial and vacuous leaves carry no final configuration and are never merged.
 A `path-set` result is those leaves unmerged: every explored path is exactly one leaf, with the same empty-result exception, and paths that converge on one configuration each keep their own trace, branch identity, observations, and halt reason.
 The deduplicated configurations of a path-set result are the configurations of the state-set result, and exploration is identical under both.
+An execution leaf's predicate implies the definedness of every partial term that a `requires`, `ensures`, right-hand side, or simplified state relied on along its path, with and without Z3, subject to the initial-state assumption below.
+An instance excluded by a `requires` belongs to a remainder; an instance excluded by a carried right-hand-side definedness obligation or an `ensures` has no leaf.
+With `assume_state_defined: true`, the initial state's definedness is assumed and need not be restated in the leaf predicate.
+Builtin hooks are strict in every argument, including `andThenBool`, `orElseBool`, and `#if`, in concrete and symbolic evaluation; a value returned after a shortcut still carries the definedness of its arguments.
+A rule or equation condition states the definedness of its Boolean terms when instantiated, before simplification or solver decisions can discharge the condition.
+The contract interprets `total`, `functional`, and `preserves-definedness` attributes as part of the definition's meaning; a definition that declares a partial function total or falsely claims preservation is outside it.
+The public-path [symbolic definedness tests](../crates/k-rust/tests/symbolic_definedness.rs) cover rule conditions in both solver profiles and the `assume_state_defined` modes; [rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs) cover discarded hook operands and their leaf obligations.
 `ExecutionResult.effects` holds the transcript only when exactly one leaf remains, which under `path-set` means one explored path.
 The CLI and KORE RPC `execute` produce state-set results.
 A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.

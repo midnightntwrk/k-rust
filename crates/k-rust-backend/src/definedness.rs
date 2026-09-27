@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.definedness.discharge"
 //! name = "structural definedness constraint generation and discharge"
-//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "normalized_ground_terms_are_distinct"]
+//! sites = ["discharge_rewrite_definedness", "rule_is_defined", "ceil_term", "ceil_predicate", "deduplicate", "ceil_term_recursive", "ceil_term_without_attribute", "ceil_term_node", "normalized_ground_terms_are_distinct", "condition_definedness", "condition_atom_term", "hoist_condition_definedness", "nested_condition_definedness"]
 //! variable = "t = term size, not counting subterms whose stored ceil_free attribute is true; m = entries of one map or elements of one set; y = symbols in the definition; q = ceil equations under one partial function head; R = rewrite rules in the definition; l = definedness predicates of one rule"
 //! counters = []
 //! no_counter = "definedness has no dedicated counter; MatchingProblems, MatchingPairs and SimplifyInvocations count the matching and predicate simplification it calls"
@@ -12,6 +12,10 @@
 //! [[cost]]
 //! mode = "one term (ceil_term)"
 //! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+//!
+//! [[cost]]
+//! mode = "one rule or equation condition (condition_definedness)"
+//! bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions and k known predicates when an obligation is hoisted"
 //!
 //! [[cost]]
 //! mode = "one definition (discharge_rewrite_definedness)"
@@ -33,7 +37,7 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
-    simplify::{SimplificationOptions, simplify_predicates_with_solver},
+    simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
     smt::NoSolver,
     term::{FunctionType, SymbolType, Term, TermKind, VariableKind},
 };
@@ -292,6 +296,159 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
     None
 }
 
+/// A rule or equation condition with the definedness of its Boolean terms made explicit.
+///
+/// A condition is a predicate over the instance, and a term in it denotes `\bottom` on an
+/// instance where it is undefined. For a term `v` that is defined on every instance, the
+/// equality `\equals(b, v)` is false wherever `b` is `\bottom` (the empty pattern equals no
+/// element), so `\equals(b, v) = \ceil(b) /\ \equals(b, v)`, and a Boolean term `b` used as a
+/// predicate means `\equals(b, true)`. The equivalence holds in every predicate context, so it is
+/// applied to every such atom: `\ceil(b)`, as the `ceil_term` obligations of `b`, becomes sibling
+/// conjuncts of an atom that is itself a conjunct of the condition, and is conjoined in place to an
+/// atom under a negation, a disjunction, an implication, a quantifier or a `\floor`. An equality
+/// with no side provably defined is left alone: `\equals(\bottom, \bottom)` is `\top`, so neither
+/// side's definedness is implied there.
+///
+/// The result is equivalent to `conditions`. Stating it before a condition is simplified or
+/// decided keeps both from answering on the instances where its terms are undefined: the
+/// simplifier can reduce `b` to a value that no longer shows the partial subterm, and a solver
+/// that maps a partial function to a total operation gives it a value there.
+///
+/// A hoisted obligation already in `known` or among the conditions is not restated. A
+/// condition whose terms are all `ceil_free` is returned as it is after one read of the stored
+/// attribute per term, and one whose partial subterms are defined by an unconditional ceil
+/// equation gains only what that equation leaves undecided.
+pub(crate) fn condition_definedness(
+    definition: &BackendDefinition,
+    conditions: Vec<Predicate>,
+    known: &[Predicate],
+) -> Vec<Predicate> {
+    let ceil_free = conditions.iter().all(|condition| {
+        let mut free = true;
+        condition.visit_terms(&mut |term| free &= term.attributes().ceil_free());
+        free
+    });
+    if ceil_free {
+        return conditions;
+    }
+    let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
+    let mut obligations = Vec::new();
+    let mut rewritten = Vec::with_capacity(conditions.len());
+    for condition in &conditions {
+        rewritten.push(hoist_condition_definedness(
+            definition,
+            condition,
+            known,
+            &mut obligations,
+        ));
+    }
+    if obligations.is_empty() {
+        return rewritten;
+    }
+    let mut seen = FxHashSet::with_capacity_and_hasher(
+        known.len() + rewritten.len() + obligations.len(),
+        Default::default(),
+    );
+    seen.extend(known.iter().cloned());
+    seen.extend(rewritten.iter().cloned());
+    let mut result = Vec::with_capacity(obligations.len() + rewritten.len());
+    for obligation in obligations {
+        if seen.insert(obligation.clone()) {
+            result.push(obligation);
+        }
+    }
+    result.extend(rewritten);
+    result
+}
+
+/// The Boolean term an atom asserts to equal a defined value, if any.
+fn condition_atom_term<'a>(
+    definition: &BackendDefinition,
+    predicate: &'a Predicate,
+    known: &[Predicate],
+) -> Option<&'a Term> {
+    let defined = |term: &Term| {
+        term_is_provably_defined(definition, term, |obligation| known.contains(obligation))
+    };
+    match predicate {
+        Predicate::Term(term) => Some(term),
+        Predicate::Equals(left, right) if defined(right) => Some(left),
+        Predicate::Equals(left, right) if defined(left) => Some(right),
+        _ => None,
+    }
+}
+
+/// A conjunct of the condition: an atom keeps its shape and its obligations are hoisted.
+fn hoist_condition_definedness(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+    obligations: &mut Vec<Predicate>,
+) -> Predicate {
+    if let Predicate::And(conjuncts) = predicate {
+        return Predicate::And(
+            conjuncts
+                .iter()
+                .map(|conjunct| {
+                    hoist_condition_definedness(definition, conjunct, known, obligations)
+                })
+                .collect(),
+        );
+    }
+    if let Some(term) = condition_atom_term(definition, predicate, known) {
+        obligations.extend(ceil_term_recursive(definition, term));
+        return predicate.clone();
+    }
+    nested_condition_definedness(definition, predicate, known)
+}
+
+/// A predicate below a connective other than a top-level conjunction: an atom becomes
+/// `\ceil(b) /\ atom` in place.
+fn nested_condition_definedness(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Predicate {
+    let nested =
+        |inner: &Predicate| Box::new(nested_condition_definedness(definition, inner, known));
+    match predicate {
+        Predicate::True
+        | Predicate::False
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..) => predicate.clone(),
+        Predicate::Term(_) | Predicate::Equals(..) => {
+            let Some(term) = condition_atom_term(definition, predicate, known) else {
+                return predicate.clone();
+            };
+            let mut conjuncts = ceil_term_recursive(definition, term);
+            conjuncts.retain(|obligation| !known.contains(obligation));
+            if conjuncts.is_empty() {
+                return predicate.clone();
+            }
+            conjuncts.push(predicate.clone());
+            Predicate::And(conjuncts)
+        }
+        Predicate::Not(inner) => Predicate::Not(nested(inner)),
+        Predicate::Exists(variable, inner) => Predicate::Exists(variable.clone(), nested(inner)),
+        Predicate::Forall(variable, inner) => Predicate::Forall(variable.clone(), nested(inner)),
+        Predicate::And(inner) => Predicate::And(
+            inner
+                .iter()
+                .map(|inner| nested_condition_definedness(definition, inner, known))
+                .collect(),
+        ),
+        Predicate::Or(inner) => Predicate::Or(
+            inner
+                .iter()
+                .map(|inner| nested_condition_definedness(definition, inner, known))
+                .collect(),
+        ),
+        Predicate::Implies(left, right) => Predicate::Implies(nested(left), nested(right)),
+        Predicate::Iff(left, right) => Predicate::Iff(nested(left), nested(right)),
+    }
+}
+
 fn ceil_predicate(definition: &BackendDefinition, predicate: &Predicate) -> Vec<Predicate> {
     match predicate {
         Predicate::True | Predicate::False => Vec::new(),
@@ -407,6 +564,89 @@ mod tests {
             .next()
             .map(|stored| &stored.rule)
             .expect("rewrite rule should be indexed")
+    }
+
+    /// `condition_definedness` over `partial{}(X)`, which has no ceil equation, so its
+    /// obligation is `\ceil(partial{}(X))`.
+    #[test]
+    fn condition_definedness_states_the_ceil_of_each_boolean_atom() {
+        let definition = definition("");
+        let parse = |source| {
+            definition
+                .internalize_term(&parse_pattern(source).unwrap(), &[])
+                .unwrap()
+        };
+        let partial_x = parse("partial{}(X:SortS{})");
+        let partial_y = parse("partial{}(Y:SortS{})");
+        let value = parse(r#"\dv{SortS{}}("v")"#);
+        let x = parse("X:SortS{}");
+        let ceil_x = Predicate::Ceil(partial_x.clone());
+        let ceil_y = Predicate::Ceil(partial_y.clone());
+        let equals_x = Predicate::Equals(partial_x.clone(), value.clone());
+        let equals_y = Predicate::Equals(value.clone(), partial_y.clone());
+
+        // A top-level atom: its obligation is hoisted as a sibling conjunct, before the
+        // conditions, with either side of the equality as the defined one.
+        assert_eq!(
+            condition_definedness(&definition, vec![equals_x.clone(), equals_y.clone()], &[]),
+            vec![
+                ceil_x.clone(),
+                ceil_y.clone(),
+                equals_x.clone(),
+                equals_y.clone()
+            ]
+        );
+        // A conjunction at the top is still a conjunction of the condition.
+        assert_eq!(
+            condition_definedness(
+                &definition,
+                vec![Predicate::And(vec![equals_x.clone()])],
+                &[]
+            ),
+            vec![ceil_x.clone(), Predicate::And(vec![equals_x.clone()])]
+        );
+        // A known obligation, or one the condition already states, is not restated.
+        assert_eq!(
+            condition_definedness(
+                &definition,
+                vec![equals_x.clone()],
+                std::slice::from_ref(&ceil_x)
+            ),
+            vec![equals_x.clone()]
+        );
+        assert_eq!(
+            condition_definedness(&definition, vec![ceil_x.clone(), equals_x.clone()], &[]),
+            vec![ceil_x.clone(), equals_x.clone()]
+        );
+        // Under a negation or a disjunction the obligation is conjoined in place: hoisting it
+        // would change the meaning, since `\not \equals(\bottom, v)` holds.
+        let negated = Predicate::Not(Box::new(equals_x.clone()));
+        assert_eq!(
+            condition_definedness(&definition, vec![negated], &[]),
+            vec![Predicate::Not(Box::new(Predicate::And(vec![
+                ceil_x.clone(),
+                equals_x.clone()
+            ])))]
+        );
+        let disjunction = Predicate::Or(vec![equals_x.clone(), equals_y.clone()]);
+        assert_eq!(
+            condition_definedness(&definition, vec![disjunction], &[]),
+            vec![Predicate::Or(vec![
+                Predicate::And(vec![ceil_x.clone(), equals_x.clone()]),
+                Predicate::And(vec![ceil_y.clone(), equals_y.clone()]),
+            ])]
+        );
+        // An equality with no provably defined side implies neither side's definedness
+        // (`\equals(\bottom, \bottom)` is `\top`), and a condition over defined terms has none
+        // to state.
+        let undecided = Predicate::Equals(partial_x.clone(), partial_y.clone());
+        let defined = Predicate::Equals(x, value);
+        for condition in [undecided, defined, ceil_x.clone()] {
+            assert_eq!(
+                condition_definedness(&definition, vec![condition.clone()], &[]),
+                vec![condition]
+            );
+        }
     }
 
     #[test]
