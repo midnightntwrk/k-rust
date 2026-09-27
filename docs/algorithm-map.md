@@ -86,7 +86,7 @@ Representation flow into [prepared definition manifest], [compiled definition]:
 - [0] parser.programs.parse — O(g + sum p) — out: [parsed program] — at k-rust/inner/programs.rs `ProgramParser::parse`
 - [1] definition.outer.lower — O(S + I x c + g x t log t) — in: [parsed source] → out: [lowered source] — at k-rust/outer/lower.rs `lower`
 - [1] parser.inference.portable — O(V x E) +2 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/inference.rs `Grammar::infer_sorts_portable`
-- [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +5 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
+- [1] parser.inference.z3 — O(H + G^2 + R) plus one clone of the grammar's… +6 modes — in: [packed forest] → out: [sorted tree] — at k-rust/inner/parser/z3_inference.rs `Grammar::infer_packed_sorts_z3`
 - [2] parser.bubble.configurations — O(r + D + g + sum over b of p) — in: [lowered source] → out: [parsed configuration bubbles] — at k-rust/inner/config.rs `resolve_configuration_bubbles`
 - [2] parser.lower.term — O(N x h), one subtree clone per lowered node — in: [sorted tree] → out: [parsed term] — at k-rust/inner/parser.rs `lower_term`
 - [3] = definition.configuration.expand (phase 14)

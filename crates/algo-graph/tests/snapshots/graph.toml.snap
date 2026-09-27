@@ -6348,6 +6348,10 @@ mode = "one inference"
 bound = "O(N x M + c)"
 
 [[node.cost]]
+mode = "unsatisfiable replay"
+bound = "O(N + c + B), where B is the total length of diagnostic production texts rendered during replay"
+
+[[node.cost]]
 mode = "one order constraint (less_than_eq)"
 bound = "O(U) when a side is closed, O(P) otherwise"
 

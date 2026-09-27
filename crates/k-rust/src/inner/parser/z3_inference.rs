@@ -18,6 +18,10 @@
 //! bound = "O(N x M + c)"
 //!
 //! [[cost]]
+//! mode = "unsatisfiable replay"
+//! bound = "O(N + c + B), where B is the total length of diagnostic production texts rendered during replay"
+//!
+//! [[cost]]
 //! mode = "one order constraint (less_than_eq)"
 //! bound = "O(U) when a side is closed, O(P) otherwise"
 //!
@@ -40,9 +44,10 @@
 //! the number of maximal typings times solver checks. Grammar-determined encoding construction is
 //! O(heads + ground sorts squared) once per grammar generation and top sort on each thread,
 //! including the up- and down-set of every ground sort value in the subsort relation; each
-//! attempt then constructs O(term nodes) constraints. An order constraint with a closed side is
-//! built from that side's up- or down-set rather than from the whole relation
-//! (`Encoding::less_than_eq`). `ParserZ3EncodingBuilds` counts base builds.
+//! attempt then constructs O(term nodes) constraints.
+//! Successful inference does not render diagnostic production text; an unsatisfiable replay renders it for the constraints it records.
+//! An order constraint with a closed side is built from that side's up- or down-set rather than from the whole relation (`Encoding::less_than_eq`).
+//! `ParserZ3EncodingBuilds` counts base builds.
 //! The unpacked path remains a checked oracle.
 //!
 //! One order on sorts is encoded: the grammar's subsort relation (`Grammar::subsort_relations`,
@@ -1192,15 +1197,17 @@ impl<'a> Encoding<'a> {
                     } else {
                         self.less_than_eq(&actual, expected)?
                     };
-                    self.record_replay(
-                        &constraint,
-                        ReplaySubject::Term {
-                            actual: Some(actual.clone()),
-                            undeclared: None,
-                            production: production_text(descriptor),
-                        },
-                        expected,
-                    );
+                    if self.incremental {
+                        self.record_replay(
+                            &constraint,
+                            ReplaySubject::Term {
+                                actual: Some(actual.clone()),
+                                undeclared: None,
+                                production: production_text(descriptor),
+                            },
+                            expected,
+                        );
+                    }
                     constraints.push(constraint);
                 }
 
@@ -1383,15 +1390,17 @@ impl<'a> Encoding<'a> {
                     } else {
                         self.less_than_eq(&actual, expected)?
                     };
-                    self.record_replay(
-                        &constraint,
-                        ReplaySubject::Term {
-                            actual: Some(actual.clone()),
-                            undeclared: None,
-                            production: production_text(descriptor),
-                        },
-                        expected,
-                    );
+                    if self.incremental {
+                        self.record_replay(
+                            &constraint,
+                            ReplaySubject::Term {
+                                actual: Some(actual.clone()),
+                                undeclared: None,
+                                production: production_text(descriptor),
+                            },
+                            expected,
+                        );
+                    }
                     constraints.push(constraint);
                 }
                 let expected_children = production_nonterminals(descriptor);
@@ -1677,15 +1686,17 @@ impl<'a> Encoding<'a> {
             // cast context applies (TypeInferencer.java:729-731).
             self.ill_sorted_ground = true;
             let constraint = Bool::from_bool(false);
-            self.record_replay(
-                &constraint,
-                ReplaySubject::Term {
-                    actual: None,
-                    undeclared: Some(sort.clone()),
-                    production: self.token_production_text(leaf, sort),
-                },
-                expected,
-            );
+            if self.incremental {
+                self.record_replay(
+                    &constraint,
+                    ReplaySubject::Term {
+                        actual: None,
+                        undeclared: Some(sort.clone()),
+                        production: self.token_production_text(leaf, sort),
+                    },
+                    expected,
+                );
+            }
             return Ok(constraint);
         }
         let actual = self.sort_value(sort, &BTreeMap::new())?;
@@ -1697,7 +1708,7 @@ impl<'a> Encoding<'a> {
         if !self.ground_token_fits(sort, expected, cast_context) {
             self.ill_sorted_ground = true;
         }
-        if cast_context != CastContext::Parser {
+        if cast_context != CastContext::Parser && self.incremental {
             self.record_replay(
                 &constraint,
                 ReplaySubject::Term {
@@ -1726,6 +1737,8 @@ impl<'a> Encoding<'a> {
         }
     }
 
+    /// Keep a diagnostic constraint during unsatisfiable replay.
+    /// Callers gate construction of production text on `incremental`, since that text can render an origin receipt.
     fn record_replay(&mut self, constraint: &Bool, subject: ReplaySubject, expected: &Datatype) {
         if self.incremental {
             self.replay.push(ReplayConstraint {
