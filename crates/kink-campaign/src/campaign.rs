@@ -481,7 +481,7 @@ pub enum CampaignFailureKind {
     InvalidManifest,
     /// A campaign declaration names something the baseline does not have.
     InvalidDeclaration,
-    /// A test initial state has a free element or set variable.
+    /// A test initial state contains an element or set variable.
     SymbolicTestState,
     /// The candidate generation was derived from another baseline than the campaign's.
     ForeignGeneration,

@@ -144,7 +144,7 @@ pub struct TestCase {
 
 /// Everything a campaign runs against. Every compiled side executes `module`, observes
 /// `observed_rules` (resolved to that side's own rule identities), and classifies its
-/// ground terminal terms with `classify`. Test initial states with free element or set
+/// ground terminal terms with `classify`. Test initial states with element or set
 /// variables are refused: a mutant can falsify trusted `total`, `functional`, or
 /// `preserves-definedness` claims, and claim withdrawal has not landed yet (KK-70).
 pub struct Campaign<'a> {
@@ -292,7 +292,7 @@ pub fn run_campaign(
     if let Some(test) = campaign
         .tests
         .iter()
-        .find(|test| !test.initial_state.free_variables().is_empty())
+        .find(|test| !test.initial_state.variable_occurrences().is_empty())
     {
         return Err(CampaignFailure::new(
             CampaignFailureKind::SymbolicTestState,

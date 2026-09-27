@@ -1160,13 +1160,33 @@ fn symbolic_claim_mutation_state_is_refused_and_ground_states_run() {
         if let Pattern::Variable(variable) = &mut set_variable {
             variable.kind = k_rust::kore::ast::VariableKind::Set;
         }
-        for (id, argument) in [
-            ("element-half", support::var("X", "SortNat")),
-            ("set-half", set_variable),
+        let bound_state = Pattern::Exists {
+            sort: kore_sort("SortGeneratedTopCell"),
+            variable: Box::new(k_rust::kore::ast::Variable {
+                kind: k_rust::kore::ast::VariableKind::Element,
+                name: "X".to_owned(),
+                sort: kore_sort("SortNat"),
+            }),
+            body: Box::new(support::initial_state(
+                program(support::var("X", "SortNat")),
+                "SortProg",
+            )),
+        };
+        assert!(bound_state.free_variables().is_empty());
+        for (id, initial_state) in [
+            (
+                "element-half",
+                support::initial_state(program(support::var("X", "SortNat")), "SortProg"),
+            ),
+            (
+                "set-half",
+                support::initial_state(program(set_variable), "SortProg"),
+            ),
+            ("bound-half", bound_state),
         ] {
             let symbolic = [TestCase {
                 id: id.to_owned(),
-                initial_state: support::initial_state(program(argument), "SortProg"),
+                initial_state,
                 oracles: vec![oracle.clone()],
             }];
             let campaign = Campaign {
