@@ -144,9 +144,9 @@ pub struct TestCase {
 
 /// Everything a campaign runs against. Every compiled side executes `module`, observes
 /// `observed_rules` (resolved to that side's own rule identities), and classifies its
-/// ground terminal terms with `classify`. A symbolic test state can also give terminal terms
-/// with free variables; they reach `classify` too (the bridge's contract then applies), but a
-/// state oracle over them is `Unknown`.
+/// ground terminal terms with `classify`. Test initial states with free element or set
+/// variables are refused: a mutant can falsify trusted `total`, `functional`, or
+/// `preserves-definedness` claims, and claim withdrawal has not landed yet (KK-70).
 pub struct Campaign<'a> {
     pub validator: &'a NativeValidator,
     pub module: &'a str,
@@ -287,6 +287,19 @@ pub fn run_campaign(
         return Err(CampaignFailure::new(
             CampaignFailureKind::ForeignGeneration,
             "the generation was derived from another baseline than the validator's",
+        ));
+    }
+    if let Some(test) = campaign
+        .tests
+        .iter()
+        .find(|test| !test.initial_state.free_variables().is_empty())
+    {
+        return Err(CampaignFailure::new(
+            CampaignFailureKind::SymbolicTestState,
+            format!(
+                "test {} has a symbolic initial state; a mutant can falsify trusted total, functional, or preserves-definedness claims before claim withdrawal (KK-70)",
+                test.id
+            ),
         ));
     }
 

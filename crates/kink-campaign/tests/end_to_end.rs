@@ -17,14 +17,15 @@ use kink_campaign::{
     TestEvidence, TestPlan, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::execution::ExecutionBudget;
-use kink_native::observation::DomainEventSpec;
+use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
     Baseline, CandidateFailureKind, CandidateGeneration, Discovery, Edit, InsertPosition, Patch,
     SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::{
-    Atom, Constructor, EventVocabulary, ExecutionTerminalKind, PatternArm, PatternPlan,
+    Atom, Constructor, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
+    PayloadClause, Relation,
 };
 use serde_json::Value;
 
@@ -552,7 +553,8 @@ fn baseline_admission_gates_crashes_and_unknown_rules() {
 /// so the pattern side is `Unknown`. A mutant that makes `carry` (a carried `ensures`) or
 /// `slow` (a simplifier-budget diagnostic) apply is therefore not killed against the
 /// baseline's complete absence, and a baseline whose only occurrence is undecided (a carried
-/// `ensures`, a vacuous successor) is not admitted.
+/// `ensures`) is not admitted. The vacuous successor fixture has a symbolic initial state,
+/// which the campaign refuses before admission.
 #[test]
 fn undecided_occurrences_neither_kill_nor_pass_admission() {
     with_stack(|| {
@@ -619,13 +621,13 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
             assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
         }
 
-        // (id, observed rule, initial state)
+        // (id, observed rule, initial state, expected failure)
         #[rustfmt::skip]
         let baselines = [
-            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS")),
-            ("vacuous-baseline-is-refused", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS")),
+            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), CampaignFailureKind::BaselineOracleFailed),
+            ("vacuous-baseline-is-refused", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), CampaignFailureKind::SymbolicTestState),
         ];
-        for (id, label, state) in baselines {
+        for (id, label, state, expected) in baselines {
             let (vocabulary, tests, observed) = declared(label, state);
             let refused = run_campaign(
                 &Campaign {
@@ -641,11 +643,7 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                 ScheduleMode::Full,
             )
             .expect_err(id);
-            assert_eq!(
-                refused.kind(),
-                CampaignFailureKind::BaselineOracleFailed,
-                "{id}"
-            );
+            assert_eq!(refused.kind(), expected, "{id}");
         }
     });
 }
@@ -1040,4 +1038,193 @@ fn tally_rejects_a_run_with_fewer_mutants_than_candidates() {
         score: None,
     };
     assert_eq!(tally(&generation, &run), None);
+}
+
+/// A symbolic state must be refused before either side compiles. The same mutant and
+/// pattern oracle still run on ground instances, where both sides have no matching load.
+#[test]
+fn symbolic_claim_mutation_state_is_refused_and_ground_states_run() {
+    with_stack(|| {
+        let baseline = support::load_path(
+            &std::path::Path::new(support::DIR).join("symbolic-claim-mutation.k"),
+            "SYMPARTIAL",
+        );
+        let validator = NativeValidator::bind(baseline, CompileOptions::default());
+        let baseline = validator.baseline();
+        let mutant = replace(
+            baseline,
+            "SYMPARTIAL.d",
+            &[0, 1],
+            Term::Token {
+                token: "0".to_owned(),
+                sort: KastSort::new("Int"),
+            },
+        );
+        let generation = generation(baseline, &[mutant]);
+        assert_eq!(
+            generation.candidates().len(),
+            1,
+            "{:?}",
+            generation.dispositions()
+        );
+        let vocabulary = EventVocabulary::new(vec![
+            Constructor {
+                name: "memoryWrite".to_owned(),
+                payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
+            },
+            Constructor {
+                name: "memoryLoad".to_owned(),
+                payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
+            },
+        ])
+        .expect("vocabulary");
+        let observed_rules = [
+            ("SYMPARTIAL.write", "memoryWrite", [1, 2]),
+            ("SYMPARTIAL.load", "memoryLoad", [1, 2]),
+        ]
+        .map(|(label, constructor, positions)| ObservedRule {
+            rule: support::rule(baseline, label),
+            emit_rule_applied: false,
+            domain_events: vec![DomainEventSpec {
+                constructor: constructor.to_owned(),
+                payload: positions.map(PayloadSource::BindingValue).to_vec(),
+            }],
+        });
+        let plan = PatternPlan::new(
+            &vocabulary,
+            vec![("A".to_owned(), kore_sort("SortInt"))],
+            vec![PatternArm {
+                atoms: vec![
+                    Atom {
+                        constructor: "memoryWrite".to_owned(),
+                        payload: vec![PayloadClause {
+                            position: 0,
+                            mode: MatchMode::Bind,
+                            variable: "A".to_owned(),
+                        }],
+                    },
+                    Atom {
+                        constructor: "memoryLoad".to_owned(),
+                        payload: vec![PayloadClause {
+                            position: 0,
+                            mode: MatchMode::Use,
+                            variable: "A".to_owned(),
+                        }],
+                    },
+                ],
+                relations: vec![Relation::EventuallyAfter],
+            }],
+            None,
+        )
+        .expect("write then load plan");
+        let oracle = OracleDeclaration::new(
+            CrashPolicy::CompareIdentity,
+            Projection::Pattern {
+                plan,
+                with_bindings: false,
+            },
+        )
+        .expect("pattern oracle");
+        let program = |argument| {
+            let app = |symbol, arguments| support::app(symbol, arguments);
+            app(
+                "Lblseq",
+                vec![
+                    app(
+                        "Lblwrite",
+                        vec![app("Lbladdr", vec![support::int(1)]), support::int(5)],
+                    ),
+                    app(
+                        "Lblseq",
+                        vec![
+                            app("Lblhalf", vec![argument]),
+                            app(
+                                "Lblseq",
+                                vec![
+                                    app(
+                                        "Lblload",
+                                        vec![
+                                            app("Lbladdr", vec![support::int(1)]),
+                                            support::int(5),
+                                        ],
+                                    ),
+                                    app("Lblhalt", vec![]),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        };
+        let mut set_variable = support::var("X", "SortNat");
+        if let Pattern::Variable(variable) = &mut set_variable {
+            variable.kind = k_rust::kore::ast::VariableKind::Set;
+        }
+        for (id, argument) in [
+            ("element-half", support::var("X", "SortNat")),
+            ("set-half", set_variable),
+        ] {
+            let symbolic = [TestCase {
+                id: id.to_owned(),
+                initial_state: support::initial_state(program(argument), "SortProg"),
+                oracles: vec![oracle.clone()],
+            }];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "SYMPARTIAL",
+                observed_rules: &observed_rules,
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &symbolic,
+                budget: BUDGET,
+            };
+            let failure = run_campaign(&campaign, &generation, ScheduleMode::Full)
+                .expect_err("symbolic state must be refused");
+            assert_eq!(failure.kind(), CampaignFailureKind::SymbolicTestState);
+            assert!(failure.to_string().contains(id));
+            assert!(failure.to_string().contains("claim withdrawal"));
+        }
+
+        for (name, argument) in [
+            ("z", support::app("Lblz", vec![])),
+            (
+                "s(z)",
+                support::app("Lbls", vec![support::app("Lblz", vec![])]),
+            ),
+        ] {
+            let ground = [TestCase {
+                id: name.to_owned(),
+                initial_state: support::initial_state(program(argument), "SortProg"),
+                oracles: vec![oracle.clone()],
+            }];
+            let campaign = Campaign {
+                validator: &validator,
+                module: "SYMPARTIAL",
+                observed_rules: &observed_rules,
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &ground,
+                budget: BUDGET,
+            };
+            let run = run_campaign(&campaign, &generation, ScheduleMode::Full)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            let no_match = OracleSide::Normal(OracleValue::Pattern(PatternValue::NoMatch));
+            assert_eq!(
+                sides(&run.baseline[0]),
+                std::slice::from_ref(&no_match),
+                "{name}"
+            );
+            assert!(
+                !run.mutants[0].evidence.is_empty(),
+                "{name}: {:?}",
+                run.mutants[0]
+            );
+            assert_eq!(sides(&run.mutants[0].evidence[0]), [no_match], "{name}");
+            assert_eq!(
+                run.mutants[0].report.status,
+                MutantStatus::Survived,
+                "{name}"
+            );
+        }
+    });
 }
