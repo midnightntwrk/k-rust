@@ -91,7 +91,7 @@ Rust paths and generated declaration identities remain distinct from emitted K s
 `#[k::symbol]` can pin the public symbol of a sort or standalone constructor where external compatibility requires it; inferred identities are preferred elsewhere.
 
 Source maps preserve authored ranges through generated artifacts.
-A failure should be reported at the stage that discovered it: Rust expansion, KRS analysis, K frontend, or backend capability.
+A failure should be reported at the stage that discovered it: Rust expansion, KRS analysis, the K frontend, or the native definition checks.
 Not every stage currently has the same structured diagnostic fidelity, so the workflow and boundaries pages name the gaps.
 
 Next, [static semantics](/semantics/static-semantics) adds equations, aliases, contexts, and simplification lemmas that are not transition rules.

@@ -1,7 +1,6 @@
 # Diagnostic-boundary adversaries
 
-Each of the first three subdirectories owns one intentional failure and an
-exact authored anchor.
+Each subdirectory owns one intentional failure and an exact authored anchor.
 The fixtures do not accept a raw collector path, generated `.k` location, or
 unstructured backend string as a substitute for an authored Rust range.
 
@@ -15,9 +14,11 @@ unstructured backend string as a substitute for an authored Rust range.
   `spec.k`. It accepts only an exact generated range with an exact ranged
   authored origin and requires K's four-coordinate `Location` to select that
   generated range before mapping it back.
-- `native-frontend` statically audits the structured native diagnostic seam:
-  the adapter's diagnostic fields and the CLI's authored-origin translation and
-  JSON rendering. It has no dynamic adversary.
+
+The native boundary is covered in Rust rather than here:
+`crates/krs-cli/tests/cli_commands.rs` builds an authored equation that k-rust
+rejects on both backends and requires one schema-1 `native` JSON envelope
+selecting the exact authored item.
 
 `probe.py` is the static release audit. The analysis probe accepts `--krs PATH`
 to exercise the production CLI end to end.

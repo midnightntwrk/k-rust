@@ -6,14 +6,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
+const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
+
 #[test]
 fn commands_share_the_production_collection_and_definition_pipeline() {
     let temporary = temporary_directory();
     let target = temporary.join("target");
     let emitted = temporary.join("emitted");
-    let manifest = materialize_fixture(&temporary);
+    let manifest = materialize_fixture(&temporary, FOO_BAR);
 
-    let expand = command(&target, &manifest, "expand", None);
+    let expand = command(&target, &manifest, "expand", None, &[]);
     assert_success(&expand);
     let expanded = String::from_utf8(expand.stdout).unwrap();
     assert!(
@@ -26,14 +29,14 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(!expanded.contains("\"protocol_version\""));
     assert!(!expanded.contains("inventory"));
 
-    let check = command(&target, &manifest, "check", None);
+    let check = command(&target, &manifest, "check", None, &[]);
     assert_success(&check);
     assert_eq!(
         check.stdout,
         b"KRS check passed: 9 descriptors, 1 semantic modules\n"
     );
 
-    let emit = command(&target, &manifest, "emit-k", Some(&emitted));
+    let emit = command(&target, &manifest, "emit-k", Some(&emitted), &[]);
     assert_success(&emit);
     assert_eq!(
         emit.stdout,
@@ -82,7 +85,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     let unsafe_output = temporary.join("user-owned");
     fs::create_dir_all(&unsafe_output).unwrap();
     fs::write(unsafe_output.join("definition.k"), "user contents\n").unwrap();
-    let unsafe_emit = command(&target, &manifest, "emit-k", Some(&unsafe_output));
+    let unsafe_emit = command(&target, &manifest, "emit-k", Some(&unsafe_output), &[]);
     assert!(!unsafe_emit.status.success());
     assert!(
         String::from_utf8(unsafe_emit.stderr)
@@ -95,7 +98,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     );
 
     let native = temporary.join("native");
-    let build = command(&target, &manifest, "build", Some(&native));
+    let build = command(&target, &manifest, "build", Some(&native), &[]);
     assert_success(&build);
     assert_eq!(
         build.stdout,
@@ -107,10 +110,17 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join(".krs-artifacts").is_file());
 }
 
-fn command(target: &Path, manifest: &Path, command: &str, output: Option<&Path>) -> Output {
+fn command(
+    target: &Path,
+    manifest: &Path,
+    command: &str,
+    output: Option<&Path>,
+    arguments: &[&str],
+) -> Output {
     let mut process = Command::new(env!("CARGO_BIN_EXE_krs"));
     process
         .arg(command)
+        .args(arguments)
         .args(["--manifest-path"])
         .arg(manifest)
         .args([
@@ -126,14 +136,10 @@ fn command(target: &Path, manifest: &Path, command: &str, output: Option<&Path>)
     process.output().unwrap()
 }
 
-fn materialize_fixture(temporary: &Path) -> PathBuf {
+fn materialize_fixture(temporary: &Path, source: &str) -> PathBuf {
     let project = temporary.join("language");
     fs::create_dir_all(project.join("src")).unwrap();
-    fs::write(
-        project.join("src/lib.rs"),
-        include_bytes!("fixtures/foo-bar/src/lib.rs"),
-    )
-    .unwrap();
+    fs::write(project.join("src/lib.rs"), source).unwrap();
     let krs = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../krs")
         .canonicalize()
@@ -152,6 +158,45 @@ fn assert_success(output: &Output) {
         "command failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
+    let temporary = temporary_directory();
+    let target = temporary.join("target");
+    let manifest = materialize_fixture(&temporary, NESTED_FUNCTION_PATTERN);
+    let item = "twist_twice";
+    let start = NESTED_FUNCTION_PATTERN.find("fn twist_twice(").unwrap() + "fn ".len();
+
+    for backend in ["haskell", "llvm"] {
+        let native = temporary.join(backend);
+        let build = command(
+            &target,
+            &manifest,
+            "build",
+            Some(&native),
+            &["--backend", backend],
+        );
+        let stderr = String::from_utf8(build.stderr).unwrap();
+        assert!(!build.status.success(), "{backend} accepted:\n{stderr}");
+        assert!(build.stdout.is_empty(), "{backend}");
+        assert!(!native.exists(), "{backend} wrote artifacts");
+        let lines = stderr.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 1, "{backend}:\n{stderr}");
+        let diagnostic: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(diagnostic["schema_version"], 1, "{stderr}");
+        assert_eq!(diagnostic["stage"], "native", "{stderr}");
+        assert_eq!(diagnostic["code"], "IllegalFunctionOnLhs", "{stderr}");
+        assert_eq!(diagnostic["severity"], "error", "{stderr}");
+        let range = &diagnostic["authored_range"];
+        assert_eq!(
+            range["file"]["package"]["cargo_name"],
+            "krs-cli-foo-bar-fixture"
+        );
+        assert_eq!(range["file"]["package_relative_path"], "src/lib.rs");
+        assert_eq!(range["start_byte"], start, "{stderr}");
+        assert_eq!(range["end_byte"], start + item.len(), "{stderr}");
+    }
 }
 
 struct TemporaryDirectory(PathBuf);

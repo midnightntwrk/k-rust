@@ -8,7 +8,7 @@ description: Distinguish symbolic guards, overlap, fallback, stuck states, traps
 {/* tour-concepts: requires overlap owise outcomes */}
 
 A rule may be well formed without applying to every symbolic state.
-KRS separates applicability from authoring errors and backend capability failures.
+KRS separates applicability from authoring errors.
 
 ## Object-language Boolean guards
 
@@ -61,7 +61,6 @@ The IMP stuck-state verifier hash-pins both configurations, and the KWasm corpus
 
 The absence of a rule is not automatically an exception.
 Bottom supplies no denotation, stuckness preserves an object-language configuration, and a trap is a language-authored state.
-A backend capability failure is a fourth, separate kind: the selected backend cannot compile a valid definition, and no artifacts are produced.
 None of these is the LLVM integer-hook abort used by a separate IMP division-by-zero oracle.
 
 Next, [inspect the lowering](/semantics/lowering) to see which stage owns each representation and diagnostic.

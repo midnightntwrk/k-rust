@@ -20,8 +20,6 @@ pub enum DiagnosticStage {
     KFrontend,
     /// Native frontend adaptation or definition checks.
     Native,
-    /// A selected backend cannot preserve the requested semantics.
-    BackendCapability,
 }
 
 /// Severity independent of rustc, K, or `k-rust` renderer types.

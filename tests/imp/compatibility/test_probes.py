@@ -41,14 +41,7 @@ class DiagnosticProbeTests(unittest.TestCase):
         self.assertTrue(report["rust_analyzer_exact_range_wired"])
         self.assertTrue(report["krs_analysis_cross_item_fixture"])
         self.assertTrue(report["k_frontend_exact_sidecar_probe"])
-        self.assertTrue(report["native_frontend"]["adapter_structured_diagnostic"])
-        repaired = (
-            report["krs_cli_structured_analysis_range"]
-            and report["native_frontend"]["cli_structured_diagnostic_envelope"]
-            and report["native_frontend"]["cli_authored_origin_translation"]
-            and report["native_frontend"]["cli_structured_diagnostic_rendering"]
-        )
-        if repaired:
+        if report["krs_cli_structured_analysis_range"]:
             module.verify(report)
         else:
             with self.assertRaisesRegex(RuntimeError, "diagnostic release boundaries incomplete"):

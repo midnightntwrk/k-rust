@@ -134,7 +134,7 @@ owner = "KRS language and documentation maintainers"
 order = 8
 route = "/semantics/applicability-and-failure"
 title = "Applicability, fallback, and failure"
-outcome = "Distinguish guards, overlap, fallback, stuck states, traps, authoring errors, and backend capability errors."
+outcome = "Distinguish guards, overlap, fallback, stuck states, traps, authoring errors, and backend hook errors."
 specimen = "the IMP static adjunct and current positive fixtures"
 
 [[chapter]]
@@ -618,7 +618,7 @@ note = "Do not imply numeric priority for transition rules; numeric priority exi
 
 [[concept]]
 id = "outcomes"
-title = "Normal forms, stuck states, traps, and capability failures"
+title = "Normal forms, stuck states, and traps"
 status = "current"
 coverage = "spine"
 chapter = "applicability"

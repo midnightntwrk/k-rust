@@ -1066,7 +1066,6 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
             "--verification-definition", ROOT.parent
             / "inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics",
         ],
-        [context.tools["python"], HERE / "compatibility/diagnostics/native-frontend/probe.py"],
         [context.tools["python"], HERE / "compatibility/diagnostics/probe.py"],
     ]
     # Each probe owns its Cargo target and scratch directories. Reports keep
@@ -1085,7 +1084,7 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
     if table(context.pins.get("compatibility"), "pins.compatibility").get("policy_version") != 1:
         raise GateError("compatibility policy version differs from 1")
     context.pins.expect(("compatibility", "report_sha256"), digest)
-    return f"seven live compatibility probes; policy=1; sha256={digest}"
+    return f"six live compatibility probes; policy=1; sha256={digest}"
 
 
 PHASES = (

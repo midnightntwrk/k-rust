@@ -455,7 +455,7 @@ fn build(
     )
     .map_err(|error| native_command_error(prepared, backend, error))?;
     // Do not create the output directory until structured compilation has
-    // succeeded. A typed capability failure therefore leaves no artifacts.
+    // succeeded. A native rejection therefore leaves no artifacts.
     prepare_output(output)?;
     write_output(
         output,
@@ -499,14 +499,11 @@ fn native_command_error(
         let Some(key) = diagnostic_source_map_key(adapted.origins(), diagnostic) else {
             return CommandError::Native(error);
         };
-        let Some(mut envelope) =
+        let Some(envelope) =
             crate::translate_native_diagnostic(prepared.lowered.source_map(), &key, diagnostic)
         else {
             return CommandError::Native(error);
         };
-        if diagnostic.code == "UnsupportedExistentialVariable" {
-            envelope.stage = DiagnosticStage::BackendCapability;
-        }
         translated.push(envelope);
     }
     translated.sort_by(|left, right| {

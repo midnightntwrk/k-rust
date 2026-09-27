@@ -26,7 +26,7 @@ REQUIRED = {
     "semantic bottom": "semantics/static-semantics.mdx",
     "reachability claim": "verification/reachability-claims.mdx",
     "stable public symbols": "advanced/composition.mdx",
-    "backend-capability": "reference/workflow.mdx",
+    "native definition-check": "reference/workflow.mdx",
 }
 
 
