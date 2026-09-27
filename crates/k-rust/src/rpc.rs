@@ -600,8 +600,9 @@ impl RpcService {
                 let (reason, next_states, rule) = match &leaf.halt_reason {
                     HaltReason::Cancelled => return Err(RpcFault::cancelled()),
                     HaltReason::Stuck => ("stuck", None, None),
-                    HaltReason::Trivial { rule_id, .. } => ("vacuous", None, rule_id.clone()),
-                    HaltReason::Vacuous { .. } => ("vacuous", None, None),
+                    HaltReason::Trivial { .. } | HaltReason::Vacuous { .. } => {
+                        ("vacuous", None, None)
+                    }
                     HaltReason::DepthBound => ("depth-bound", None, None),
                     HaltReason::BreadthBound => ("aborted", None, None),
                     HaltReason::Timeout(_) => ("timeout", None, None),
@@ -2194,15 +2195,8 @@ endmodule
     }
 
     #[test]
-    fn execute_names_the_rule_when_a_trivial_leaf_is_vacuous_on_the_wire() {
+    fn execute_omits_the_rule_when_a_trivial_leaf_is_vacuous_on_the_wire() {
         let mut service = carried_empty_candidate_service();
-        let rule = service
-            .backend
-            .rule_catalog(None)
-            .unwrap()
-            .into_iter()
-            .find(|rule| rule.label.as_deref() == Some("HZ.hz"))
-            .unwrap();
         let state = encode_kore(
             &parse_pattern(
                 "Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortProg{}, SortKItem{}}(Lblhz{}(\\dv{SortInt{}}(\"0\"))), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\")))",
@@ -2212,7 +2206,7 @@ endmodule
         .unwrap();
         let response = request(&mut service, 1, "execute", json!({ "state": state }));
         assert_eq!(response["result"]["reason"], "vacuous", "{response}");
-        assert_eq!(response["result"]["rule"], rule.id, "{response}");
+        assert!(response["result"].get("rule").is_none(), "{response}");
     }
 
     fn symbolic_branch_service() -> RpcService {
