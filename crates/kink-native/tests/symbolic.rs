@@ -1774,9 +1774,8 @@ fn ensures_constraint_keeps_a_later_witness_unknown() {
         ),
     );
     let (mut run, vocabulary) = run(Fixture::Ensures, program, BUDGET);
-    let [path] = run.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
+    assert_eq!(run.execution.leaves()[0].halt, HaltClass::Trivial);
+    let path = run.bridged.paths.last().expect("successor path");
     assert_eq!(path.stop, PathStop::SolverUnknown);
     assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
     let evaluation = decided(&mut run, &wl_after(&vocabulary));
@@ -1913,14 +1912,21 @@ fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
     assert!(!run.execution.definition_facts().applicability_conditions);
     assert_eq!(
         leaf_rows(&run),
-        [(
-            HaltClass::Stuck,
-            by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
-            PathStop::SolverUnknown,
-        )]
+        [
+            (
+                HaltClass::Trivial,
+                LeafFeasibility::Unknown,
+                PathStop::SolverUnknown
+            ),
+            (
+                HaltClass::Stuck,
+                by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
+                PathStop::SolverUnknown,
+            ),
+        ]
     );
     assert!(!matches!(
-        run.bridged.paths[0].path_predicate,
+        run.bridged.paths[1].path_predicate,
         Pattern::Top { .. }
     ));
     assert_both(
@@ -2253,7 +2259,10 @@ fn profile_table_rows() {
             program: ensures_program,
             plan: wl_after,
             budget: BUDGET,
-            stops: (&[SolverUnknown], &[SolverUnknown]),
+            stops: (
+                &[SolverUnknown, SolverUnknown],
+                &[SolverUnknown, SolverUnknown],
+            ),
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
@@ -2276,7 +2285,10 @@ fn profile_table_rows() {
             program: apart_program,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (&[SolverUnknown], &[SolverUnknown]),
+            stops: (
+                &[SolverUnknown, SolverUnknown],
+                &[SolverUnknown, SolverUnknown],
+            ),
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
