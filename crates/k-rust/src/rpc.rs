@@ -787,11 +787,11 @@ impl RpcService {
                 else {
                     return Ok(json!({ "satisfiable": "Unknown" }));
                 };
-                match solver
-                    .get_model(&[predicate], &Substitution::new())
-                    .map_err(|error| {
-                        RpcFault::runtime(format!("could not obtain model: {error:?}"), None)
-                    })? {
+                match backend_simplification::model_predicate_with_solver(
+                    definition, &predicate, solver,
+                )
+                .map_err(|error| RpcFault::runtime(error.to_string(), None))?
+                {
                     ModelResult::Sat(substitution) => {
                         let mut result = json!({ "satisfiable": "Sat" });
                         if let Some(substitution) =
@@ -3440,10 +3440,8 @@ mod tests {
         );
         assert_eq!(zero_query["result"]["satisfiable"], "Unknown");
         let state = encode_kore(
-            &parse_pattern(
-                r#"\equals{SortInt{}, SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
-            )
-            .unwrap(),
+            &parse_pattern(r#"\equals{SortInt{}, SortInt{}}(X:SortInt{}, \dv{SortInt{}}("1"))"#)
+                .unwrap(),
         )
         .unwrap();
         let fault = request(&mut service, 1, "get-model", json!({ "state": state }));

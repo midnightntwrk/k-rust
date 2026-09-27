@@ -301,9 +301,12 @@ The CLI test `krun_executes_invalid_ecdsa_recovery_to_empty_bytes` pins the term
 ## RPC behavior
 
 A predicate-free `get-model` request returns `Unknown` without a substitution.
-When a query abstracts symbols or sorts, `get-model` also returns `Unknown` without a substitution for a solver `Sat` answer.
+`get-model` first simplifies the predicate, retaining any open definedness constraints.
+Truth returns `Sat` without a substitution because every valuation satisfies it; an unconstrained variable is absent from the substitution.
+False returns `Unsat`.
+When the residual abstracts symbols or sorts, `get-model` returns `Unknown` without a substitution for a solver `Sat` answer.
 An uninterpreted function keeps congruence but need not satisfy its K definition, so the solver's model need not be a K valuation.
-The RPC model exceptions for `imp` and `bounded-search` record this divergence explicitly; an `Unsat` answer is unchanged.
+The `bounded-search` model exception records a distinct-constructor result where the oracle reports `Sat`; `start = done` is `Unsat` because distinct constructors cannot denote the same value.
 Both `booster/library/Booster/JsonRpc.hs` and `kore/src/Kore/JsonRpc.hs` contain this no-predicate outcome.
 A proxy response of `sat` must not override this contract without establishing whether the proxy classified the same input as carrying a predicate or definedness obligation.
 

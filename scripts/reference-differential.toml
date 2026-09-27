@@ -1524,13 +1524,6 @@ reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-implies
 equivalence = "simplified-implication"
 reason = "Booster echoes the initializer-form request in the implication payload while k-rust reports the simplified configuration its verdict was decided on (docs/compatibility.md#rpc-behavior); equal patterns, checked by simplifying both payloads (N19)."
 
-[[rpc.oracle-exception]]
-oracle = "kore-rpc-booster"
-response = "model"
-expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-model.json"
-reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-model.reference.json"
-reason = "The query equates a symbolic IMP configuration with itself, but its symbols and sorts are abstracted by the SMT translation. Sat therefore does not establish a model under the exactness contract; k-rust reports Unknown. The oracle's Sat is retained as an explicit divergence."
-
 [[rpc]]
 name = "bounded-search"
 requires = ["reference-toolchain"]
@@ -1576,17 +1569,10 @@ reason = "The consequent's X:SortState is free and absent from the antecedent. k
 
 [[rpc.oracle-exception]]
 oracle = "kore-rpc-booster"
-response = "model-sat"
-expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-model-sat.json"
-reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-model-sat.reference.json"
-reason = "The reflexive State configuration query is abstracted by SMT symbols and sorts. Sat therefore does not establish a K model under the exactness contract; k-rust reports Unknown. The oracle's Sat is retained as an explicit divergence."
-
-[[rpc.oracle-exception]]
-oracle = "kore-rpc-booster"
 response = "model-unsat"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-model-unsat.json"
 reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-model-unsat.reference.json"
-reason = "The distinct start and done configurations become abstracted SMT terms; a solver Sat for their equality does not establish a K valuation. k-rust reports Unknown, while the oracle's Sat is retained as an explicit divergence."
+reason = "start and done are distinct constructors, so their equality is Unsat in K. The oracle reports Sat for this equality; k-rust decides constructor distinctness before asking SMT."
 
 # execute-trivial sends krun's depth-0 state, whose initializer functions Booster cannot match, so
 # the proxy answers it through its Kore fallback. execute-trivial-configuration sends the evaluated
