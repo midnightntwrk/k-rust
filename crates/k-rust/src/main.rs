@@ -634,9 +634,10 @@ struct KrunArgs {
     #[arg(long = "terminal-rule", value_name = "LABEL_OR_ID")]
     terminal_rules: Vec<String>,
 
-    /// Follow one successor per step (`any`, the default: the first applicable rule by priority,
-    /// then definition order; the choice among equal-priority rules is unspecified) or explore
-    /// every applicable rule (`all`, kore-exec's default).
+    /// Follow one successor per step (`any`, the default: the first rule, by priority then
+    /// definition order, that gives the configuration a defined result, where a rule whose result
+    /// is undefined still blocks the lower priorities; the choice among equal-priority rules is
+    /// unspecified) or explore every applicable rule (`all`, kore-exec's default).
     #[arg(long, value_enum, default_value_t = ExecutionStrategyArg::Any)]
     strategy: ExecutionStrategyArg,
 

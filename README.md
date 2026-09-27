@@ -255,8 +255,10 @@ It succeeds only when ordinary execution produces exactly one complete unconstra
 Bottom, residual constraints, multiple leaves, malformed stream state, search, `--pattern`, and an explicit `--io on` are errors.
 The default `--output kore` behavior remains unchanged.
 
-Execution follows one successor per step by default (`--strategy any`: the first applicable rule
-by priority, then definition order; the choice among equal-priority rules is unspecified, see
+Execution follows one successor per step by default (`--strategy any`: the first rule, by
+priority then definition order, that gives the configuration a defined result, where a rule
+whose result is undefined still blocks the lower priorities; the choice among equal-priority
+rules is unspecified, see
 [Search results](docs/compatibility.md#search-results)), so a `strict` production with
 several unevaluated arguments is heated in one order, not every order. Pass `--strategy all` to
 explore every applicable rule (kore-exec's default, and the mode every `--search-*` run uses), and
@@ -431,8 +433,9 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
   other function application), and constraints that, together with the term's definedness, hold
   syntactically or are satisfiable by an SMT query that approximates nothing: its variables are
   `Int` or `Bool`, it abstracts no subterm, and it applies no partial
-  function. A one-path step keeps every successor when its applicable rules of equal
-  priority have pairwise disjoint conditions (refuted syntactically or by an `Unsat` answer), each
+  function. A one-path step keeps every successor when the instances its applicable rules of
+  equal priority take to a defined result are pairwise disjoint (refuted syntactically or by an
+  `Unsat` answer), each
   follows one collection match, and each rewrites to one term over its left-hand side's variables
   (no `?X` and no disjunction).
 - `failed`: the proof stopped at a leaf outside the destination that it did not continue (an
@@ -440,7 +443,8 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
   abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`Trivial`, `Vacuous`).
   It does not show the claim false. A `Trivial` leaf holds the instances whose step is undefined: a
   rule applies to them, but its result is empty there (a refuted or undecided `ensures`, or an
-  undefined right-hand side) and no rule of the same priority gives them a defined result. Such a
+  undefined right-hand side) and no rule of the same priority gives them a defined result; a
+  one-path step also offers them to the later rules of that priority. Such a
   leaf is dropped only when its constraint is shown unsatisfiable, so a symbolic claim fails
   whenever one of its instances would, and `--allow-vacuous` accepts it.
 - `indeterminate`, `depth bound`, `breadth bound`: the search could not decide a leaf, or hit a

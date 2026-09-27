@@ -122,6 +122,16 @@ impl RuleApplication {
             remainder => Predicate::Not(Box::new(remainder.clone())),
         }
     }
+
+    /// The instances of the subject this application does not take to a defined result, the
+    /// complement of `defined`: `remainder` when nothing was carried.
+    pub(super) fn outside_defined(&self) -> Predicate {
+        if self.defined == self.applicability() {
+            self.remainder.clone()
+        } else {
+            negation(&self.defined)
+        }
+    }
 }
 
 fn remainder_of(applicability: &Predicate) -> Predicate {
@@ -191,6 +201,20 @@ pub(super) fn restrict_to_undefined(
     for entry in trivial {
         entry.undefined = conjoin_flat(
             std::iter::once(entry.applicability.clone())
+                .chain(applied.iter().map(|sibling| negation(&sibling.defined))),
+        );
+    }
+}
+
+/// Further restrict each entry of `trivial` by `applied`, candidates of its priority that were
+/// offered the entry's instances after it was restricted: `undefined` gains `not D_j` for each.
+pub(super) fn exclude_defined(trivial: &mut [TrivialApplication], applied: &[RuleApplication]) {
+    if applied.is_empty() {
+        return;
+    }
+    for entry in trivial {
+        entry.undefined = conjoin_flat(
+            std::iter::once(entry.undefined.clone())
                 .chain(applied.iter().map(|sibling| negation(&sibling.defined))),
         );
     }

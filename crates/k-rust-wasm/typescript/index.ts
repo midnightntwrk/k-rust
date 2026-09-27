@@ -234,8 +234,9 @@ export interface ExecutionLeaf {
   depth: number
   /**
    * 'trivial' is an undefined step: under the state's constraint some rule applies to every
-   * instance and, under strategy 'all', none has a defined successor (under 'any', none from the
-   * rule the step committed); the constraint is not checked for satisfiability.
+   * instance and, under strategy 'all', none has a defined successor (under 'any', none from a
+   * rule of that priority through the collection candidate the step follows); the constraint is
+   * not checked for satisfiability.
    * Under strategy 'all' without stops or diagnostics, the leaves' constraints cover the initial state.
    */
   reason:

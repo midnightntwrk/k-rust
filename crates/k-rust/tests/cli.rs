@@ -1979,17 +1979,20 @@ fn krun_io_on_prebuffers_input_and_withholds_rejected_candidate_output() {
     assert_eq!(input.stdout, b"accepted");
     assert!(input.stderr.is_empty());
 
+    // The first `rollback` rule's result is bottom, so its write is withheld; the step offers
+    // the configuration to the next rule of the same priority, whose write is delivered.
     let rollback = output_with_stdin(&mut live_io_command(&compiled, "rollback"), b"");
-    assert!(rollback.status.success());
-    assert!(rollback.stdout.is_empty());
+    assert!(
+        rollback.status.success(),
+        "{}",
+        String::from_utf8_lossy(&rollback.stderr)
+    );
+    assert_eq!(rollback.stdout, b"retained");
     assert!(
         !rollback
             .stderr
             .windows(b"leaked".len())
             .any(|part| part == b"leaked")
-    );
-    assert!(
-        String::from_utf8_lossy(&rollback.stderr).contains("execution ended with no successor")
     );
 
     fs::remove_dir_all(root).unwrap();
@@ -6390,8 +6393,11 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
 }
 
 /// Rules whose result is undefined on part of the instances they apply to: a false `ensures`
-/// that the step cannot decide (`apart`, `cover`), one that always has a witness (`fresh`), and
-/// a refuted one beside a sibling with a disjoint `requires` (`pickpos`).
+/// that the step cannot decide (`apart`, `cover`, `low`), one that always has a witness
+/// (`fresh`), a refuted one beside a sibling with a disjoint `requires` (`pickpos`), and one
+/// before an unconditional sibling (`skipbot`). `cover` and `skip` declare the rule with the
+/// undefined instances first, so a one-path step tries it before the sibling that covers them;
+/// `low`'s other rule is `owise`, of lower priority, and so blocked where `lowbot` applies.
 const UNDEFINED_STEP: &str = r#"
 module UNDEF-SYNTAX
   imports INT-SYNTAX
@@ -6402,6 +6408,8 @@ module UNDEF-SYNTAX
                 | cover(Int, Int) [symbol(cover)]
                 | val(Int) [symbol(val)]
                 | pick(Int) [symbol(pick)]
+                | "skip" [symbol(skip)]
+                | low(Int, Int) [symbol(low)]
 endmodule
 
 module UNDEF
@@ -6415,6 +6423,10 @@ module UNDEF
   rule [fresh]:   <k> fresh => val(?X:Int) </k> ensures ?X >Int 0
   rule [pickpos]: <k> pick(I) => halt </k> requires I >Int 0 ensures false
   rule [pickneg]: <k> pick(I) => done </k> requires I <=Int 0
+  rule [skipbot]: <k> skip => halt </k> ensures false
+  rule [skipok]:  <k> skip => done </k>
+  rule [lowbot]:  <k> low(A, B) => halt </k> ensures A =/=Int B
+  rule [lowow]:   <k> low(_, _) => halt </k> [owise]
 endmodule
 
 module UNDEF-SPEC
@@ -6427,6 +6439,12 @@ module UNDEF-SPEC
   claim [fresh]:     <k> fresh => val(?Y:Int) </k> ensures ?Y >Int 0
   claim [fresh-one]: <k> fresh => val(?Y:Int) </k> ensures ?Y >=Int 1 [one-path]
   claim [pick]:      <k> pick(_I) => done </k>
+  claim [cover-one]: <k> cover(_X, _Y) => halt </k> [one-path]
+  claim [skip-one]:  <k> skip => done </k> [one-path]
+  claim [skip]:      <k> skip => done </k>
+  claim [pick-one]:  <k> pick(_I) => done </k> [one-path]
+  claim [low-one]:   <k> low(_X, _Y) => halt </k> [one-path]
+  claim [low]:       <k> low(_X, _Y) => halt </k>
 endmodule
 "#;
 
@@ -6435,7 +6453,10 @@ endmodule
 /// `apart(0, 0)` because the rule's `ensures` fails there: the symbolic claims, one-path and
 /// all-path, fail exactly like the ground one, and `--allow-vacuous` accepts all of them. An
 /// instance that a sibling takes to a defined result (`cover`) and an `ensures` that always has a
-/// witness (`fresh`) leave no undefined step.
+/// witness (`fresh`) leave no undefined step. A one-path step offers the instances where a rule
+/// applies but its result is undefined to the later rules of its priority, so `cover` and `skip`
+/// are proven one-path as they are all-path; it never offers them to a lower priority (`low`), and
+/// where no rule of the priority gives a defined result (`pick`) the one-path claim fails too.
 #[test]
 fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
     let (root, definition) = fixture();
@@ -6473,14 +6494,37 @@ fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
 
     let (success, stdout) = prove(&[]);
     assert!(!success, "{stdout}");
-    for claim in ["sym", "gnd", "sym-one", "pick"] {
+    for claim in [
+        "sym", "gnd", "sym-one", "pick", "pick-one", "low-one", "low",
+    ] {
         assert_eq!(verdict(&stdout, claim), "failed", "{claim}: {stdout}");
     }
-    for claim in ["defined", "cover", "fresh", "fresh-one"] {
+    for claim in [
+        "defined",
+        "cover",
+        "fresh",
+        "fresh-one",
+        "cover-one",
+        "skip-one",
+        "skip",
+    ] {
         assert_eq!(verdict(&stdout, claim), "proven", "{claim}: {stdout}");
     }
     assert!(stdout.contains("Trivial at depth 1"), "{stdout}");
     assert!(stdout.contains("  undefined step: "), "{stdout}");
+
+    // The one-path claims alone, so that no all-path claim with the same body is proven first
+    // in the same run and none is reported from a saved proof.
+    let one_path = ["cover-one", "skip-one", "pick-one", "low-one"];
+    let (success, stdout) = prove(&one_path.map(|claim| ["--claim", claim]).concat());
+    assert!(!success, "{stdout}");
+    assert!(!stdout.contains("(saved)"), "{stdout}");
+    for claim in ["pick-one", "low-one"] {
+        assert_eq!(verdict(&stdout, claim), "failed", "{claim}: {stdout}");
+    }
+    for claim in ["cover-one", "skip-one"] {
+        assert_eq!(verdict(&stdout, claim), "proven", "{claim}: {stdout}");
+    }
 
     let (success, stdout) = prove(&["--allow-vacuous"]);
     assert!(success, "{stdout}");

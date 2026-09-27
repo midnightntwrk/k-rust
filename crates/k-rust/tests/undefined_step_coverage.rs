@@ -39,6 +39,7 @@ const SOURCE: &str = r#"module UNDEF-SYNTAX
                 | cmp(Int, Int) [symbol(cmp)]
                 | cut(Int) [symbol(cut)]
                 | sel(Int) [symbol(sel)]
+                | low(Int) [symbol(low)]
   syntax Int ::= g(Int) [function, total, symbol(g)]
                | f(Int) [function, total, symbol(f)]
 endmodule
@@ -69,6 +70,8 @@ module UNDEF
   rule [cutok]:   <k> cut(_) => done </k>
   rule [selpos]:  <k> sel(I) => halt </k> ensures I >Int 0
   rule [selany]:  <k> sel(_) => done </k>
+  rule [lowpos]:  <k> low(I) => halt </k> ensures I >Int 0
+  rule [lowow]:   <k> low(_) => done </k> [owise]
 endmodule
 "#;
 
@@ -554,11 +557,12 @@ fn stop_rules_apply_to_a_one_candidate_step_beside_a_refuted_sibling() {
     }
 }
 
-/// Strategy `any` commits one rule, and its `Trivial` leaves are relative to it: under `sel`'s
-/// committed rule the instances `not (X > 0)` are undefined, although another rule of the same
-/// priority would rewrite them. Strategy `all` reports no such leaf.
+/// Strategy `any` offers the instances where a rule applies but its result is undefined to the
+/// later rules of the same priority. `selpos` is tried first; `selany` takes its instances
+/// `not (X > 0)`, so neither strategy reports a `Trivial` leaf, and both reach `halt` and `done`.
+/// A ground instance agrees: `sel(0)` reaches `done` under `any`.
 #[test]
-fn under_strategy_any_a_trivial_leaf_is_relative_to_the_committed_rule() {
+fn under_strategy_any_a_later_rule_of_the_priority_takes_the_undefined_instances() {
     let mut backend = backend();
     let program = format!("Lblsel{{}}({X})");
     let all = execute(&mut backend, &program);
@@ -566,5 +570,82 @@ fn under_strategy_any_a_trivial_leaf_is_relative_to_the_committed_rule() {
     let mut any = request(&program);
     any.strategy = ExecutionStrategy::Any;
     let any = backend.execute(any).unwrap();
-    assert_eq!(trivial_leaves(&any).len(), 1, "{:#?}", summary(&any));
+    assert!(trivial_leaves(&any).is_empty(), "{:#?}", summary(&any));
+    for result in [&all, &any] {
+        let mut ends = result
+            .leaves
+            .iter()
+            .map(|leaf| {
+                (
+                    leaf.reason,
+                    text(leaf).contains("Lblhalt{}()"),
+                    text(leaf).contains("Lbldone{}()"),
+                )
+            })
+            .collect::<Vec<_>>();
+        ends.sort_by_key(|end| format!("{end:?}"));
+        assert_eq!(
+            ends,
+            [
+                (HaltReasonOutput::Stuck, false, true),
+                (HaltReasonOutput::Stuck, true, false),
+            ],
+            "{:#?}",
+            summary(result)
+        );
+    }
+
+    let mut ground = request(&format!("Lblsel{{}}({})", int(0)));
+    ground.strategy = ExecutionStrategy::Any;
+    let ground = backend.execute(ground).unwrap();
+    assert_eq!(
+        reasons(&ground),
+        [HaltReasonOutput::Stuck],
+        "{:#?}",
+        summary(&ground)
+    );
+    assert!(
+        text(&ground.leaves[0]).contains("Lbldone{}()"),
+        "{:#?}",
+        summary(&ground)
+    );
+}
+
+/// An instance where a rule applies but its result is undefined blocks the lower priorities
+/// under both strategies: `low(X)` under `not (X > 0)` is an undefined step, never `lowow`'s
+/// `done`.
+#[test]
+fn an_undefined_instance_is_not_offered_to_a_lower_priority() {
+    let mut backend = backend();
+    for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+        let mut symbolic = request(&format!("Lbllow{{}}({X})"));
+        symbolic.strategy = strategy;
+        let result = backend.execute(symbolic).unwrap();
+        let mut found = reasons(&result);
+        found.sort_by_key(|reason| format!("{reason:?}"));
+        assert_eq!(
+            found,
+            [HaltReasonOutput::Stuck, HaltReasonOutput::Trivial],
+            "{strategy:?}: {:#?}",
+            summary(&result)
+        );
+        assert!(
+            result
+                .leaves
+                .iter()
+                .all(|leaf| !text(leaf).contains("Lbldone{}()")),
+            "{strategy:?}: {:#?}",
+            summary(&result)
+        );
+
+        let mut ground = request(&format!("Lbllow{{}}({})", int(0)));
+        ground.strategy = strategy;
+        let ground = backend.execute(ground).unwrap();
+        assert_eq!(
+            reasons(&ground),
+            [HaltReasonOutput::Trivial],
+            "{strategy:?}: {:#?}",
+            summary(&ground)
+        );
+    }
 }
