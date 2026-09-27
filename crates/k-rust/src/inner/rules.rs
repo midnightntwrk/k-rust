@@ -1323,36 +1323,65 @@ fn add_rule_cells(grammar: &mut Grammar, sentences: &[&Sentence]) -> Result<(), 
                     continue;
                 };
                 let middle = &items[1..items.len().saturating_sub(1)];
-                let body_sort = match middle {
-                    [ProductionItem::NonTerminal { sort, .. }]
-                        if !cell_sorts.contains(sort) && !collection_sorts.contains(sort) =>
-                    {
-                        sort.clone()
-                    }
-                    _ => Sort::new("Bag"),
-                };
-                let items = vec![
-                    first,
-                    nonterminal("#OptionalDots"),
-                    ProductionItem::NonTerminal {
-                        sort: body_sort.clone(),
-                        name: None,
-                    },
-                    nonterminal("#OptionalDots"),
-                    last,
-                ];
                 #[cfg(not(feature = "z3-inference"))]
-                // Infer a whole-cell anonymous variable at the cell's declared sort, while
-                // recognizing the rule scaffolding needed for rewrites in that cell.
-                grammar.add_with_recognized_operands(
-                    sort.clone(),
-                    items,
-                    Some(label),
-                    &body_sort,
-                    &rule_sort(&body_sort),
-                )?;
+                {
+                    let body_sort = match middle {
+                        [ProductionItem::NonTerminal { sort, .. }]
+                            if !cell_sorts.contains(sort) && !collection_sorts.contains(sort) =>
+                        {
+                            sort.clone()
+                        }
+                        _ => Sort::new("Bag"),
+                    };
+                    // Infer a whole-cell anonymous variable at the cell's declared sort, while
+                    // recognizing the rule scaffolding needed for rewrites in that cell.
+                    grammar.add_with_recognized_operands(
+                        sort.clone(),
+                        vec![
+                            first,
+                            nonterminal("#OptionalDots"),
+                            ProductionItem::NonTerminal {
+                                sort: body_sort.clone(),
+                                name: None,
+                            },
+                            nonterminal("#OptionalDots"),
+                            last,
+                        ],
+                        Some(label),
+                        &body_sort,
+                        &rule_sort(&body_sort),
+                    )?;
+                }
                 #[cfg(feature = "z3-inference")]
-                grammar.add(sort.clone(), items, Some(label), false, false)?;
+                {
+                    let body = match middle {
+                        [ProductionItem::NonTerminal { sort, .. }]
+                            if !cell_sorts.contains(sort) && !collection_sorts.contains(sort) =>
+                        {
+                            ProductionItem::NonTerminal {
+                                sort: rule_sort(sort),
+                                name: None,
+                            }
+                        }
+                        _ => ProductionItem::NonTerminal {
+                            sort: rule_sort(&Sort::new("Bag")),
+                            name: None,
+                        },
+                    };
+                    grammar.add(
+                        sort.clone(),
+                        vec![
+                            first,
+                            nonterminal("#OptionalDots"),
+                            body,
+                            nonterminal("#OptionalDots"),
+                            last,
+                        ],
+                        Some(label),
+                        false,
+                        false,
+                    )?;
+                }
                 grammar.add(
                     Sort::new("Cell"),
                     vec![ProductionItem::NonTerminal {
