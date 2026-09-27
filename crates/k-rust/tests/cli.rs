@@ -6025,6 +6025,49 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     }
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("andint.k"),
+        include_str!("fixtures/kink/andint/andint.k"),
+    )
+    .unwrap();
+    let specification = root.join("andint-spec.k");
+    fs::write(
+        &specification,
+        include_str!("fixtures/kink/andint/andint-spec.k"),
+    )
+    .unwrap();
+
+    for (claim, verdict, certified) in
+        [("vacuous", "failed", false), ("control", "disproved", true)]
+    {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                specification.to_str().unwrap(),
+                "--main-module",
+                "ANDINT-SPEC",
+                "--definition-module",
+                "ANDINT",
+                "--claim",
+                claim,
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!output.status.success(), "{stdout}");
+        assert!(
+            stdout.contains(&format!("claim ANDINT-SPEC.{claim}: {verdict}")),
+            "{stdout}"
+        );
+        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A destination whose condition is false on the reached state covers none of it, so the whole
 /// state is a stuck leaf. It is never reported as a vacuous branch, so `--allow-vacuous` cannot
 /// turn these false claims into proofs, and the leaf is the same with or without the stuck check
