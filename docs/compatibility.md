@@ -590,6 +590,37 @@ The claim's left-hand side is therefore empty, and the claim holds vacuously; no
 k-rust reaches a `Trivial` leaf, which the vacuity policy rejects as `failed`, and `--allow-vacuous` proves the claim.
 The reference toolchain's rejection of the claim remains checked as the case's oracle observation; k-rust's `failed` verdict records that this rejection is not a refutation.
 
+## Undefined steps in proofs
+
+A step is undefined on a configuration when a rule applies to it but has an empty result there, and no rule of the same priority gives it a defined result.
+The rule applies: it matches and its `requires` holds.
+The result is empty because its `ensures` fails, or because its right-hand side is undefined, for example a partial function such as `/Int` by zero, or a `Set` or `Map` union whose operands share an element or key.
+Such a configuration is not stuck, because the applying rule also shuts out the lower priorities.
+It is not empty either: it exists, and the path to it is real.
+It simply has no successor.
+
+A claim `φ => ψ` states something about every configuration of `φ`.
+A configuration of `φ` whose path reaches an undefined step outside `ψ` never reaches `ψ`, so under both the one-path and the all-path reading the claim is false for that configuration.
+k-rust therefore reports the step's undefined instances as a `Trivial` leaf.
+This holds whether the step decided the condition or only carried it symbolically.
+The leaf's constraint is the condition under which the step is undefined, restricted by every applied sibling rule of the same priority.
+The leaf is dropped only when that constraint is shown unsatisfiable, and otherwise it makes the claim `failed`.
+`--allow-vacuous` accepts such leaves, like the other empty branches.
+
+The other reading takes the rule as an axiom: `σ(l ∧ R) → •(r ∧ E)`, with an empty result for `σ`, makes `σ` itself impossible.
+The branch then counts as vacuous, and its configurations are dropped as if they did not exist.
+For a functional left-hand side that axiom is false: the configuration can be written down, and it reaches the rule by defined steps.
+So pruning it proves claims that have false instances, and a rule's wrong `ensures` then vanishes silently instead of showing up as a failing configuration.
+It also makes a symbolic claim hold while one of its ground instances fails.
+The `reference-prunes-undefined-step` category records conformance cases where the reference toolchain proves a claim only in that way.
+
+In `set_unification` (`a-spec.k`, claim #1), the claim is `<k> start(I) => end ...</k> <set>... (.Set => SetItem(I +Int 1) ?_:Set) ...</set>`.
+Its only step is `<set>... .Set => SetItem(I) ...</set>`, which rewrites the set cell `S` to `S SetItem(I)`.
+`Set` concatenation of sets with a common element is undefined ([`domains.md`](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/k-distribution/include/kframework/builtin/domains.md), "Set concatenation").
+So on every configuration whose set already contains `I`, the step is undefined, for example `start(1)` with the set `SetItem(1)`.
+Such a configuration never reaches `end`, so the claim does not hold for it.
+k-rust reports `failed` with a `Trivial` leaf under `I in S`, and proves the claim with `--allow-vacuous`.
+
 ## Proof oracle incompleteness
 
 A `reference-incomplete-port-proves` exclusion needs a soundness argument for the particular claim: a Rust `proven` result alone cannot justify departing from a reference refutation.
