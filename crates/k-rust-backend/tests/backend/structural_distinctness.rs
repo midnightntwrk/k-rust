@@ -32,6 +32,16 @@ fn definition(guarded: bool) -> BackendDefinition {
 /// [`definition`] with `attribute` (a KORE attribute such as `concrete{}()`, or empty) added to
 /// the `unwrap` equation, and an anywhere production `pick` of sort `SortNat` without equations.
 fn definition_with(guarded: bool, attribute: &str) -> BackendDefinition {
+    internalized(&definition_source(guarded, attribute))
+}
+
+fn internalized(source: &str) -> BackendDefinition {
+    let syntax = parse_definition(source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// The source of [`definition_with`].
+fn definition_source(guarded: bool, attribute: &str) -> String {
     let attribute = if attribute.is_empty() {
         String::new()
     } else {
@@ -42,7 +52,7 @@ fn definition_with(guarded: bool, attribute: &str) -> BackendDefinition {
     } else {
         r#"\top{R}()"#
     };
-    let source = format!(
+    format!(
         r#"[]
             module MAIN
                 sort SortNat{{}} []
@@ -108,9 +118,7 @@ fn definition_with(guarded: bool, attribute: &str) -> BackendDefinition {
                     )
                 ) [label{{}}("unwrap"), anywhere{{}}(){attribute}]
             endmodule []"#
-    );
-    let syntax = parse_definition(&source).expect("definition should parse");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    )
 }
 
 /// A solver that answers every validity query with the same verdict.
@@ -424,5 +432,48 @@ fn the_same_equation_without_the_attribute_is_applied_and_certifies_its_result()
             &NoSolver
         ),
         Predicate::True
+    );
+}
+
+/// A simplification whose left-hand side is a conjunction of term patterns is filed in the
+/// predicate theory, so the term simplifier never tries it on an application, although it states
+/// an equation between terms. Here the simplification `\and(tag(s(X)), tag(s(X))) = tag(X)` (hand-written
+/// KORE; kompile never emits this shape) makes `tag(s(z))` equal to `tag(z)`. `tag` has no other
+/// equation, so every offered scan fails. A definition holding such an equation certifies no
+/// application, so `tag(s(z)) = tag(z)` is not refuted.
+#[test]
+fn a_conjunctive_left_hand_side_the_index_files_apart_withholds_every_certificate() {
+    let lemma = r#"
+                axiom{R} \implies{R}(
+                    \top{R}(),
+                    \equals{SortAddress{}, R}(
+                        \and{SortAddress{}}(tag{}(s{}(X:SortNat{})), tag{}(s{}(X:SortNat{}))),
+                        \and{SortAddress{}}(tag{}(X:SortNat{}), \top{SortAddress{}}())
+                    )
+                ) [simplification{}()]
+            endmodule []"#;
+    let source = definition_source(false, "").replace("\n            endmodule []", lemma);
+    assert!(source.contains("simplification{}()"));
+    let definition = internalized(&source);
+    for subject in ["tag{}(s{}(z{}()))", "tag{}(z{}())", REDEX] {
+        assert!(
+            !simplified(&definition, subject).attributes().evaluated,
+            "{subject} must not be certified"
+        );
+    }
+    assert_ne!(
+        simplify_equality(&definition, "tag{}(s{}(z{}()))", "tag{}(z{}())", &NoSolver),
+        Predicate::False
+    );
+    // Without the lemma the same applications are certified and the equality is refuted.
+    let plain = definition_with(false, "");
+    assert!(
+        simplified(&plain, "tag{}(s{}(z{}()))")
+            .attributes()
+            .evaluated
+    );
+    assert_eq!(
+        simplify_equality(&plain, "tag{}(s{}(z{}()))", "tag{}(z{}())", &NoSolver),
+        Predicate::False
     );
 }

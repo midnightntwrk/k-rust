@@ -736,11 +736,14 @@ impl Term {
     ///   predicate right-hand side. The equation still holds, so the term may equal its
     ///   right-hand side.
     ///
-    /// Equations the selection does not offer have left-hand sides indexed by another symbol or
-    /// kind (`rule::term_index`), so they fail to match the application. The exception is a
-    /// conjunction of two non-variable patterns, which is indexed apart and so is never tried on
-    /// an application. A budget stop or an unsupported hook leaves a child or the root
-    /// unmarked. Structural distinctness reads the bit as "normal form".
+    /// Equations the selection does not offer fail to match the application, with two
+    /// exceptions: a simplification axiom whose left-hand side is an `\and` of term patterns
+    /// (filed in the predicate theory, so the term simplifier never tries it), and a term-theory
+    /// entry indexed `TermIndex::And`. A definition holding either gives no mark at all
+    /// (`BackendDefinition::equation_selection_is_complete_for_applications`, checked by
+    /// `simplify_root` before it sets the bit). So "no offered equation matched" means "no
+    /// equation of the definition matched". A budget stop or an unsupported hook leaves a child
+    /// or the root unmarked. Structural distinctness reads the bit as "normal form".
     pub(crate) fn with_evaluated_cache(&self) -> Self {
         if self.attributes().evaluated {
             return self.clone();

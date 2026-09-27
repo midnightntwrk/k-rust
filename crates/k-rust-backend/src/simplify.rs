@@ -3034,6 +3034,7 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
             .iter()
             .all(|argument| argument.attributes().evaluated)
         && (symbol.attributes.anywhere || definition.overloads.is_overloaded(&symbol.name))
+        && definition.equation_selection_is_complete_for_applications()
 }
 
 fn apply_theory(
