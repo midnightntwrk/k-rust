@@ -10,6 +10,68 @@ const FOO_BAR: &str = include_str!("fixtures/foo-bar/src/lib.rs");
 const NESTED_FUNCTION_PATTERN: &str = include_str!("fixtures/nested-function-pattern/src/lib.rs");
 
 #[test]
+fn build_accepts_rule_terms_nested_64_constructors_deep() {
+    let temporary = temporary_directory();
+    let target = temporary.join("target");
+    let term = format!("{}Tick(0){}", "Wrap(".repeat(64), ")".repeat(64));
+    let source = format!(
+        r#"
+use krs::KResult;
+use krs::builtin::{{Int, KSequence}};
+
+krs::sorts! {{ Step: krs::KItem; }}
+
+#[krs::constructors(sort = Step, result = KResult)]
+#[krs::precedence((Tick, Wrap))]
+pub enum Op {{
+    #[krs::syntax("tick ( {{value}} )")]
+    Tick {{ value: Int }},
+    #[krs::syntax("wrap ( {{inner}} )")]
+    Wrap {{ inner: Step }},
+}}
+
+#[krs::configuration]
+pub struct Machine {{
+    #[krs::cell]
+    pub k: KSequence,
+}}
+
+impl Machine {{
+    #[krs::init]
+    pub fn init(#[krs::config_var(name = "PGM", main)] program: KSequence) -> Self {{
+        Self {{ k: krs::k![program] }}
+    }}
+}}
+
+#[rustfmt::skip]
+krs::rules! {{
+    for Machine;
+    use Op::*;
+    deep: {{ k: [Tick(0), ..], }} => {{ k: [{term}, ..], }};
+}}
+"#
+    );
+    let manifest = materialize_fixture(&temporary, &source);
+    let mut process = Command::new(env!("CARGO_BIN_EXE_krs"));
+    let output = process
+        .args(["build", "--manifest-path"])
+        .arg(manifest)
+        .args([
+            "--package",
+            "krs-cli-foo-bar-fixture",
+            "--definition",
+            "main",
+            "--output",
+        ])
+        .arg(temporary.join("built"))
+        .env("CARGO_TARGET_DIR", target)
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert!(temporary.join("built/definition.kore").is_file());
+}
+
+#[test]
 fn commands_share_the_production_collection_and_definition_pipeline() {
     let temporary = temporary_directory();
     let target = temporary.join("target");

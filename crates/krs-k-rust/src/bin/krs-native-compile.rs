@@ -13,7 +13,7 @@ const USAGE: &str = "usage: krs-native-compile [--timings FILE] DEFINITION-IR OU
 
 fn run(timings: &mut Timings, input: PathBuf, output: PathBuf) -> Result<(), Box<dyn Error>> {
     let definition_ir: DefinitionIr = timings.try_span("native.input", |_| {
-        Ok::<_, Box<dyn Error>>(serde_json::from_slice(&fs::read(input)?)?)
+        Ok::<_, Box<dyn Error>>(krs_ir::json::from_slice(&fs::read(input)?)?)
     })?;
     let artifacts = compile_definition_timed(
         &definition_ir,

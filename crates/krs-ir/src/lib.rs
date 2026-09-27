@@ -18,6 +18,7 @@ pub mod grammar;
 pub mod host;
 pub mod identity;
 pub mod ir;
+pub mod json;
 pub mod measure;
 pub mod provenance;
 pub mod semantic;

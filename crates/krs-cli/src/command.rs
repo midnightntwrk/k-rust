@@ -228,7 +228,8 @@ fn prepare(
     let bundle: DescriptorBundle = measurement
         .timings
         .try_span("protocol.decode", |_| {
-            let bundle = serde_json::from_slice(&stdout).map_err(CommandError::DescriptorProtocol);
+            let bundle =
+                krs_ir::json::from_slice(&stdout).map_err(CommandError::DescriptorProtocol);
             let bytes = stdout.len();
             drop(stdout);
             bundle.map(|bundle| (bundle, bytes))
