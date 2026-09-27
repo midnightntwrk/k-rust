@@ -456,20 +456,27 @@ export type SearchSatisfiability =
 
 export type SearchFailure =
   | { kind: 'stack-exhausted' }
+  /** A macro or alias survived preprocessing; no solver query is reported. */
   | { kind: 'surviving-macro-or-alias'; symbol: string }
   | { kind: 'builtin'; error: BuiltinFailure }
   | { kind: 'conflicting-results'; rules: string[] }
+  /** A rule query was undecided; error kind unavailable means this build lacks a solver. */
   | { kind: 'smt'; rule?: string; error: SmtFailure }
+  /** A predicate query was undecided; error kind unavailable means this build lacks a solver. */
   | { kind: 'smt-predicate'; predicate: Kore; error: SmtFailure }
   | { kind: 'inconsistent-ground-truth'; rule?: string }
   | { kind: 'iteration-limit'; limit: number; term: Kore | null }
   | { kind: 'predicate-iteration-limit'; limit: number; predicate: Kore | null }
   | { kind: 'invalid-builtin-result-symbol'; hook: string; symbol: string }
   | { kind: 'unsupported-hook'; hook: string; reason: string; term: Kore }
+  /** Unsupported unification remainder; an earlier unevaluated equation may still depend on a solver. */
   | { kind: 'match'; rule: string; bindings: BackendBinding[]; remainder: BackendTermPair[] }
+  /** Rule variables remain unbound; this does not report a missing solver. */
   | { kind: 'instantiation'; rule: string; missingVariables: Kore[] }
+  /** Rule condition needs a solver absent from this build. */
   | { kind: 'requires'; rule: string; predicates: Kore[] }
   | { kind: 'concreteness'; rule: string; variable: Kore }
+  /** Priority-group remainder is undecided; satisfiability error kind unavailable means no solver. */
   | {
       kind: 'remainder'
       rules: string[]

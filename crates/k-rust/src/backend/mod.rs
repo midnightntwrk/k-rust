@@ -1418,6 +1418,10 @@ mod tests {
             let encoded = serde_json::to_value(&leaf).unwrap();
             assert_eq!(encoded["cause"]["kind"], kind, "{state}: {encoded}");
             assert!(encoded["cause"]["rule"].is_string(), "{encoded}");
+            assert_eq!(
+                leaf.cause.as_ref().unwrap().solver_unavailable(),
+                kind != "match"
+            );
             if kind == "smt" {
                 assert_eq!(encoded["cause"]["error"]["kind"], "unavailable");
             }

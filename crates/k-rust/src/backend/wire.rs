@@ -374,15 +374,27 @@ pub enum BackendDiagnosticOutput {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "kind", deny_unknown_fields, rename_all = "kebab-case")]
 pub enum SmtFailureOutput {
-    Translation { error: TranslationFailureOutput },
+    Translation {
+        error: TranslationFailureOutput,
+    },
+    /// The query needed an SMT solver, but this build has none.
     Unavailable,
     InconsistentPrelude,
-    UnknownPrelude { reason: String },
-    Unknown { reason: String },
+    UnknownPrelude {
+        reason: String,
+    },
+    Unknown {
+        reason: String,
+    },
     InconsistentGroundTruth,
     MissingModel,
-    MissingModelValue { variable: Value },
-    InvalidModelValue { variable: Value, value: String },
+    MissingModelValue {
+        variable: Value,
+    },
+    InvalidModelValue {
+        variable: Value,
+        value: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -403,6 +415,7 @@ pub enum SatisfiabilityOutput {
 )]
 pub enum SearchFailureOutput {
     StackExhausted,
+    /// A macro or alias survived preprocessing, so the state is not executable.
     SurvivingMacroOrAlias {
         symbol: String,
     },
@@ -412,11 +425,15 @@ pub enum SearchFailureOutput {
     ConflictingResults {
         rules: Vec<String>,
     },
+    /// A rule's satisfiability or validity query could not be decided.
+    /// `Unavailable` means the build has no solver for that query.
     Smt {
         #[serde(skip_serializing_if = "Option::is_none")]
         rule: Option<String>,
         error: SmtFailureOutput,
     },
+    /// A standalone predicate query could not be decided.
+    /// `Unavailable` means the build has no solver for that query.
     SmtPredicate {
         predicate: Value,
         error: SmtFailureOutput,
@@ -442,15 +459,21 @@ pub enum SearchFailureOutput {
         reason: String,
         term: Value,
     },
+    /// Matching a rule left-hand side left an unsupported unification remainder.
+    /// This does not itself report a solver query; a prior undecided equation can still be relevant.
     Match {
         rule: String,
         bindings: Vec<BindingOutput>,
         remainder: Vec<TermPairOutput>,
     },
+    /// A rule's right-hand side needs variables that matching did not bind.
+    /// This does not report a missing solver.
     Instantiation {
         rule: String,
         missing_variables: Vec<Value>,
     },
+    /// A rule's `requires` could not be decided because this build has no SMT solver.
+    /// A solver-enabled build would attempt to decide or branch on this condition.
     Requires {
         rule: String,
         predicates: Vec<Value>,
@@ -460,11 +483,41 @@ pub enum SearchFailureOutput {
         rule: String,
         variable: Value,
     },
+    /// A priority group's remaining path could not be classified as satisfiable or unsatisfiable.
+    /// An `Error` containing `Unavailable` means this build has no solver for that query.
     Remainder {
         rules: Vec<String>,
         predicates: Vec<Value>,
         satisfiability: SatisfiabilityOutput,
     },
+}
+
+impl SearchFailureOutput {
+    /// Whether the stopped step needed an SMT solver that this build lacks.
+    ///
+    /// This is sufficient, not necessary, for a solver-enabled build to decide the path:
+    /// without a solver, an undecided equation condition may leave a function unevaluated,
+    /// which can later surface as `Match` instead.
+    pub fn solver_unavailable(&self) -> bool {
+        matches!(
+            self,
+            Self::Requires { .. }
+                | Self::Smt {
+                    error: SmtFailureOutput::Unavailable,
+                    ..
+                }
+                | Self::SmtPredicate {
+                    error: SmtFailureOutput::Unavailable,
+                    ..
+                }
+                | Self::Remainder {
+                    satisfiability: SatisfiabilityOutput::Error {
+                        error: SmtFailureOutput::Unavailable,
+                    },
+                    ..
+                }
+        )
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -1406,6 +1459,159 @@ pub(super) fn path_pattern_search_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_search_failure_has_a_solver_availability_projection() {
+        let cases = [
+            (SearchFailureOutput::StackExhausted, false),
+            (
+                SearchFailureOutput::SurvivingMacroOrAlias { symbol: "m".into() },
+                false,
+            ),
+            (
+                SearchFailureOutput::Builtin {
+                    error: BuiltinFailureOutput::AlternativeSortsDiffer {
+                        then_sort: "A".into(),
+                        else_sort: "B".into(),
+                    },
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::ConflictingResults { rules: vec![] },
+                false,
+            ),
+            (
+                SearchFailureOutput::Smt {
+                    rule: Some("r".into()),
+                    error: SmtFailureOutput::Unavailable,
+                },
+                true,
+            ),
+            (
+                SearchFailureOutput::Smt {
+                    rule: None,
+                    error: SmtFailureOutput::Unknown {
+                        reason: "unknown".into(),
+                    },
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::SmtPredicate {
+                    predicate: Value::Null,
+                    error: SmtFailureOutput::Unavailable,
+                },
+                true,
+            ),
+            (
+                SearchFailureOutput::SmtPredicate {
+                    predicate: Value::Null,
+                    error: SmtFailureOutput::Unknown {
+                        reason: "unknown".into(),
+                    },
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::InconsistentGroundTruth { rule: None },
+                false,
+            ),
+            (
+                SearchFailureOutput::IterationLimit {
+                    limit: 1,
+                    term: None,
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::PredicateIterationLimit {
+                    limit: 1,
+                    predicate: None,
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::InvalidBuiltinResultSymbol {
+                    hook: "h".into(),
+                    symbol: "s".into(),
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::UnsupportedHook {
+                    hook: "h".into(),
+                    reason: "unsupported".into(),
+                    term: Value::Null,
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::Match {
+                    rule: "r".into(),
+                    bindings: vec![],
+                    remainder: vec![],
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::Instantiation {
+                    rule: "r".into(),
+                    missing_variables: vec![],
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::Requires {
+                    rule: "r".into(),
+                    predicates: vec![],
+                },
+                true,
+            ),
+            (
+                SearchFailureOutput::Concreteness {
+                    rule: "r".into(),
+                    variable: Value::Null,
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::Remainder {
+                    rules: vec![],
+                    predicates: vec![],
+                    satisfiability: SatisfiabilityOutput::Error {
+                        error: SmtFailureOutput::Unavailable,
+                    },
+                },
+                true,
+            ),
+            (
+                SearchFailureOutput::Remainder {
+                    rules: vec![],
+                    predicates: vec![],
+                    satisfiability: SatisfiabilityOutput::Unknown {
+                        reason: "unknown".into(),
+                    },
+                },
+                false,
+            ),
+            (
+                SearchFailureOutput::Remainder {
+                    rules: vec![],
+                    predicates: vec![],
+                    satisfiability: SatisfiabilityOutput::Error {
+                        error: SmtFailureOutput::Unknown {
+                            reason: "unknown".into(),
+                        },
+                    },
+                },
+                false,
+            ),
+        ];
+        for (failure, expected) in cases {
+            assert_eq!(failure.solver_unavailable(), expected, "{failure:?}");
+        }
+    }
 
     fn assert_typescript_variant_fields(union: &str, kind: &str, fields: &[&str]) {
         for source in [
