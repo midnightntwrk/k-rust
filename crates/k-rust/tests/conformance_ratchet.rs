@@ -2954,6 +2954,105 @@ print(json.dumps({
     );
 }
 
+#[test]
+fn conformance_driver_ranks_a_verifier_rejection_after_every_step_and_excludes_only_it() {
+    // A krust `kore-parser --verify` rejection is its own `kore-verify` step, recorded after the
+    // program steps, and the definition.kore comparison still runs; a step exclusion selecting
+    // its diagnostic then covers that rejection only, never a comparison or program divergence.
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = r#"
+import json, os, sys, tempfile
+sys.path.insert(0, sys.argv[1])
+import run, ratchet
+
+ANYWHERE = "Found invalid subterm in argument of function equation:"
+EXCLUSION = {"step_exclusions": [{"step": "kore-verify", "verify_error": ANYWHERE, "exclusion": "x", "reason": "r"}]}
+
+def probe(diagnostic, comparison_rc, program_verdict):
+    root = tempfile.mkdtemp()
+    case = run.Case("verify")
+    case.dir = root
+    case.log = os.path.join(root, "logs")
+    with open(os.path.join(root, "test.k"), "w") as source:
+        source.write("module TEST endmodule\n")
+    def fake_sh(cmd, cwd, timeout, stdin_path=None, env=None, shell=False):
+        if cmd[:2] == ["bash", "-c"]:
+            definition = os.path.join(root, "test-kompiled")
+            os.makedirs(definition)
+            for name, text in [("mainModule.txt", "TEST\n"), ("mainSyntaxModule.txt", "TEST\n"),
+                               ("configVars.sh", ""), ("definition.kore", "[]\n")]:
+                with open(os.path.join(definition, name), "w") as output:
+                    output.write(text)
+            return 0, "", "", 0.1, False
+        if cmd[0] == "/krust":
+            definition = os.path.join(root, "krust-kompiled")
+            os.makedirs(definition)
+            with open(os.path.join(definition, "definition.kore"), "w") as output:
+                output.write("[]\n")
+            return 0, "", "", 0.1, False
+        if cmd[0] == run.KORE_PARSER:
+            if cmd[1].endswith("krust-kompiled/definition.kore"):
+                return 1, "", "Error:\n  module 'TEST':\n  axiom declaration:\n  (definition.kore 1:1):\n    " + diagnostic + "\n        f(X)\n", 0.1, False
+            return 0, "", "", 0.1, False
+        raise AssertionError(cmd)
+    run.sh = fake_sh
+    run.run_test_binary = lambda name, env, cwd: (comparison_rc, "", "")
+    run.KRUST = "/krust"
+    run.KORE_PARSER = "/kbin/kore-parser"
+    recipe = run.split_recipe("/kbin/kompile --backend llvm test.k --output-definition ./test-kompiled")
+    run.do_kompile(case, recipe, False)
+    run.step_record(case, step="krun", test="p.test", stage="krun", verdict=program_verdict)
+    run.finish(case)
+    result = {"verdict": case.verdict, "step": case.steps}
+    return {
+        "steps": [[s["step"], s["verdict"], s.get("verify_error")] for s in case.steps],
+        "verdict": case.verdict,
+        "exclusion": ratchet.matching_step_exclusion(result, EXCLUSION),
+    }
+
+print(json.dumps({
+    "alone": probe(ANYWHERE, 0, "match"),
+    "program": probe(ANYWHERE, 0, "mismatch"),
+    "comparison": probe(ANYWHERE, 1, "match"),
+    "other": probe("Expected function symbol, but found constructor symbol:", 0, "match"),
+}))
+"#;
+    let output = Command::new("python3")
+        .env("K_KOMPILE", "/kbin/kompile")
+        .env_remove("GHCRTS")
+        .env("REFERENCE_DIFFERENTIAL_JOB_GUARD_KIND", "rlimit-as")
+        .args(["-c", script])
+        .arg(workspace.join("scripts/conformance"))
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let probes: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let anywhere = "Found invalid subterm in argument of function equation:";
+    assert_eq!(
+        probes["alone"]["steps"],
+        serde_json::json!([
+            ["kompile", "match", null],
+            ["krun", "match", null],
+            ["kore-verify", "mismatch", anywhere],
+        ]),
+        "{probes}"
+    );
+    assert_eq!(probes["alone"]["verdict"], "mismatch", "{probes}");
+    assert_eq!(probes["alone"]["exclusion"], "x", "{probes}");
+    for key in ["program", "comparison", "other"] {
+        assert_eq!(probes[key]["verdict"], "mismatch", "{probes}");
+        assert_eq!(probes[key]["exclusion"], "", "{key}: {probes}");
+    }
+    assert_eq!(
+        probes["other"]["steps"][2][2], "Expected function symbol, but found constructor symbol:",
+        "{probes}"
+    );
+}
+
 fn baseline_cases() -> [(&'static str, &'static str, &'static str); 4] {
     [
         ("a", "match", "krun"),

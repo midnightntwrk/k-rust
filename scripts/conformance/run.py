@@ -392,6 +392,8 @@ class Case:
         self.dir = f"{WORK_TREE}/{REG}/{rel}"
         self.log = f"{LOGS}/{rel.replace('/', '__')}"
         self.steps = []
+        # Steps ranked after every recipe step (a krust kore-parser --verify rejection).
+        self.deferred_steps = []
         self.notes = []
         self.kind = "unknown"
         self.backend = "llvm"
@@ -879,12 +881,17 @@ def do_kompile(case, rec, expect_fail):
         step["krust_verify_seconds"] = round(vsecs, 1)
         step["verification"] = "kore-parser --verify"
         if vto or vrc != 0:
-            step.update(
-                verdict="mismatch",
+            # The rejection is its own step, ranked after every other step of the case, and the
+            # definition.kore comparison still runs: a step exclusion for this rejection then
+            # covers only it, never a later kompile or program divergence of the same case.
+            text = verr or vout
+            case.deferred_steps.append(dict(
+                step="kore-verify", stage="kompile", verdict="mismatch",
                 reason="krust definition.kore rejected by kore-parser --verify",
-                divergence="\n".join((verr or vout).splitlines()[:DIFF_LINES]),
-            )
-            return step_record(case, **step)
+                verification="kore-parser --verify",
+                verify_error="timed out" if vto else kore_verify_error(text),
+                divergence="\n".join(text.splitlines()[:DIFF_LINES]),
+            ))
         comparison_environment = {
             "K_REFERENCE_KORE": ref_kore,
             "K_RUST_KORE": rust_kore,
@@ -2252,8 +2259,20 @@ VERDICT_RANK = {
 STAGE_RANK = ["outer-parse", "inner-parse", "kompile", "bison-parser", "kast", "krun", "search", "kprove"]
 
 
+def kore_verify_error(text):
+    """The first diagnostic line of a kore-parser --verify rejection, without its location."""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith(("Found ", "Expected ", "Unexpected ", "Cannot ", "Duplicate ")):
+            return line
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return lines[0] if lines else ""
+
+
 def finish(case, verdict=None, reason=None):
     case.seconds = round(time.monotonic() - case.t0, 1)
+    case.steps.extend(case.deferred_steps)
+    case.deferred_steps = []
     if verdict is None:
         ranked_steps = case.steps
         if BISON_PARSER_ONLY:

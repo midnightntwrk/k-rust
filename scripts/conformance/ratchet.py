@@ -173,6 +173,11 @@ def atomic_write(path: Path, body: str) -> None:
             os.unlink(temporary)
 
 
+# Step fields a step exclusion may select on; `verify_error` is the first diagnostic line of a
+# kore-verify step, so an exclusion names one verifier rejection rather than any.
+STEP_SELECTORS = ("test", "out", "step", "verify_error")
+
+
 def matching_step_exclusion(result: dict, expectation: dict) -> str:
     if expectation.get("exclusion"):
         return expectation["exclusion"]
@@ -187,7 +192,7 @@ def matching_step_exclusion(result: dict, expectation: dict) -> str:
     if failing is None:
         return ""
     for exclusion in expectation.get("step_exclusions", []):
-        selectors = [key for key in ("test", "out", "step") if key in exclusion]
+        selectors = [key for key in STEP_SELECTORS if key in exclusion]
         if selectors and all(failing.get(key) == exclusion[key] for key in selectors):
             return exclusion.get("exclusion", "")
     return ""

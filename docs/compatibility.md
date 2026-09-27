@@ -234,6 +234,24 @@ An anywhere rule leaves its symbol ["still a constructor, even though it is simp
 A symbol that also carries the `function` attribute is excluded because a function application denotes the value of its equations, not a value of its own.
 An [`overload(_)` family](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/docs/user_manual.md?plain=1#L352-L388) groups constructors in which a more specific production is a restriction of a less specific one; after lowering has placed a concrete application at its most specific successful production, different productions of the family are different constructors.
 
+## Anywhere heads in equation arguments
+
+A function rule whose left-hand side contains an anywhere production is emitted as a function equation whose argument pattern contains that production's symbol, declared `anywhere` and, when its anywhere equations can identify applications with different arguments, neither `constructor` nor `injective` ([Anywhere rules](#anywhere-rules)).
+The pinned reference `kore-parser --verify` rejects such a definition with `Found invalid subterm in argument of function equation`: it admits in an equation argument only applications of `constructor` symbols, sort injections, symbols declared both `anywhere` and `injective`, and the concatenation, element and unit symbols of the builtin collections.
+No declaration Rust could emit meets that check and stays true. `constructor` and `injective` both state that equal applications have equal arguments, the symbol is not a sort injection, and it is not a collection symbol.
+In FUN (`pl-tutorial/2_languages/3_fun/1_untyped/1_environment`) the anywhere rule `F P = E => F = fun P -> E` equates `(f x) = e` with `f = fun x -> e`, and `[E1,E2,Es|T] => [E1|[E2,Es|T]]` equates two `[_|_]` applications with different arguments, so the equations of `names`, `exps` (argument `X:Name = E and Bs`) and `getMatching` (argument `[H | T]`) cannot be accepted by the check under any true declaration.
+
+Such an equation is still a sentence of a consistent theory, and Rust evaluates it as the rule specifies.
+An equation `f(p(X)) = r(X)` holds in a model when every value that is an instance of `p(X)` gets the value of `r` at that instance; it can contradict the rest of the theory only if two instances that denote the same value give different right sides.
+In the intended model every value is the value of a normal form and distinct normal forms are distinct values.
+When the argument pattern is normal on every instance, meaning no anywhere equation of a head in it applies at any instance of its variables, two instances denote the same value only when they are equal, so the equation assigns each argument value at most one result.
+The three FUN patterns are normal on every instance: the `_=_` equation applies only when its first argument is an application `F P`, and an injected `Name` is never one (an `F P` value is an application of that production or an injected `Val` constructor application); the `[_|_]` equation needs at least two elements before `|`, and `[H | T]` has one.
+A value that equals an instance only through an anywhere equation, such as the binding `(f x) = e` for the `exps` equation, is still matched: arguments are normalized before the enclosing equation is tried, giving `f = fun x -> e`, and matching decides an anywhere subject application only when it is normal on every instance, so an `owise` equation such as `getMatching(_, _) => matchFailure` never applies to an argument an earlier equation matches modulo the anywhere equations.
+
+The `verifier-anywhere-argument` exclusion covers exactly this rejection: a `kore-verify` step whose first diagnostic is `Found invalid subterm in argument of function equation:`.
+The conformance driver records a `kore-verify` rejection as its own step after all other steps of the case and still runs the `definition.kore` comparison, so the exclusion leaves the comparison and every program step of the case ranked.
+Its limit is the verifier's: it reports only the first rejected sentence, so a later, different rejection of the same definition stays hidden until the first is resolved. The Rust verifier (`k-rust-backend` `verify.rs`) does not make this check and loads the definition.
+
 ## Concrete rewrite instantiation
 
 When the entire initial term is constructor-like, applying a rewrite rule requires a substitution covering every free variable on its left-hand side.
