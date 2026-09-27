@@ -1945,11 +1945,11 @@ mod tests {
 
     const DEFINITION: &str = r#"[]
         module TEST
-          sort SortState{} [hasDomainValues{}()]
+          sort SortState{} []
           symbol state{}() : SortState{}
             [function{}(), total{}(), injective{}(), no-evaluators{}()]
           symbol next{}() : SortState{}
-            [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            [constructor{}(), total{}(), injective{}()]
           axiom{} \rewrites{SortState{}}(
             \and{SortState{}}(state{}(), \top{SortState{}}()),
             \and{SortState{}}(next{}(), \top{SortState{}}())
@@ -2029,15 +2029,15 @@ mod tests {
                 \top{R}(),
                 \equals{SortState{}, R}(
                     chain128{}(),
-                    \and{SortState{}}(done{}(), \top{SortState{}}())
+                    \and{SortState{}}(\dv{SortState{}}("done"), \top{SortState{}}())
                 )
             ) [label{}("chain-done"), simplification{}()]
             axiom{} \rewrites{SortState{}}(
                 \and{SortState{}}(
                     wrap{}(X:SortState{}),
-                    \equals{SortState{}, SortState{}}(chain0{}(), done{}())
+                    \equals{SortState{}, SortState{}}(chain0{}(), \dv{SortState{}}("done"))
                 ),
-                done{}()
+                \dv{SortState{}}("done")
             ) [label{}("conditional")]
             "#,
         );
@@ -2046,8 +2046,6 @@ mod tests {
             module TEST
                 sort SortState{{}} [hasDomainValues{{}}()]
                 symbol wrap{{}}(SortState{{}}) : SortState{{}}
-                    [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
-                symbol done{{}}() : SortState{{}}
                     [function{{}}(), total{{}}(), injective{{}}(), no-evaluators{{}}()]
                 {theory}
             endmodule []"#

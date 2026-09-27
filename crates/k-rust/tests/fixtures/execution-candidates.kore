@@ -4,6 +4,7 @@ module MAIN
     symbol start{}() : SortS{} [constructor{}(), functional{}()]
     symbol a{}() : SortS{} [constructor{}(), functional{}()]
     symbol b{}() : SortS{} [constructor{}(), functional{}()]
+    symbol held{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
     symbol g{}(SortS{}) : SortS{} [function{}(), functional{}()]
     axiom{R} \implies{R}(
         \top{R}(),
@@ -14,7 +15,7 @@ module MAIN
     ) [label{}("grow"), simplification{}()]
     axiom{} \rewrites{SortS{}}(
         \and{SortS{}}(start{}(), \top{SortS{}}()),
-        \and{SortS{}}(g{}(a{}()), \top{SortS{}}())
+        \and{SortS{}}(held{}(g{}(a{}())), \top{SortS{}}())
     ) [label{}("to-g")]
     axiom{} \rewrites{SortS{}}(
         \and{SortS{}}(start{}(), \top{SortS{}}()),
