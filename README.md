@@ -359,7 +359,9 @@ krust kore-simplify definition.kore --module MAIN --pattern predicate.kore --out
 ```
 
 Ask Z3 for a satisfying assignment to the predicate portion of a KORE pattern. The JSON result
-distinguishes `Sat`, `Unsat`, and `Unknown` and includes a typed KORE substitution when one exists:
+distinguishes `Sat`, `Unsat`, and `Unknown` and includes a typed KORE substitution when one exists.
+`Sat` requires an exact SMT translation of the predicates and their substitution bindings.
+A satisfiable approximation returns `Unknown` without a substitution; `Unsat` is unchanged.
 
 ```console
 krust kore-get-model definition.kore --module MAIN --pattern predicate.json

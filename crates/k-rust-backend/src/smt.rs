@@ -868,6 +868,8 @@ pub trait SmtSolver {
         checked: &[Predicate],
     ) -> Result<Validity, SmtError>;
 
+    /// A `Sat` substitution must satisfy `predicates` and `substitution` in K.
+    /// An approximate SMT model is reported as `Unknown` instead.
     fn get_model(
         &self,
         _predicates: &[Predicate],
