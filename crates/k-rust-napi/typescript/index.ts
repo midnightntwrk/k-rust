@@ -158,6 +158,8 @@ export interface RuleOrigin {
 export interface ContradictedTotal {
   /** KORE name of the symbol whose attribute is contradicted. */
   symbol: string
+  /** The K label that KORE name encodes (e.g. 'tDiv(_)_M_Int_Int'), as the CLI prints it. */
+  kLabel?: string
   /** The equation's compiled id, as in ruleCatalog. */
   ruleId: string
   ruleLabel?: string

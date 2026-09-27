@@ -189,7 +189,8 @@ fn written_position(origin: &RuleOrigin) -> Option<String> {
 }
 
 /// What the author is told when an equation of a symbol declared `total` (or `functional`)
-/// reduced an application of it to bottom (`ContradictedTotal`): the symbol, the equation with
+/// reduced an application of it to bottom (`ContradictedTotal`): the symbol by its K label, the
+/// equation with
 /// its written position, the application, and the undefined term its result reached.
 ///
 /// The attribute is an axiom k-rust trusts, and the equation is another axiom of the same
@@ -212,8 +213,15 @@ pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
         .unwrap_or_default();
     format!(
         "the `total` attribute of {symbol} is contradicted on this input: its equation {equation}{position} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
-        symbol = contradicted.symbol(),
+        symbol = k_label(contradicted.symbol()),
     )
+}
+
+/// The K label a KORE symbol name encodes (`LbltDiv'LParUndsRParUnds'M'Unds'Int'Unds'Int` is
+/// `tDiv(_)_M_Int_Int`, and a production with `symbol(td)` is `td`), which is how the author
+/// wrote or declared the production; the KORE name itself when it is not a label encoding.
+pub fn k_label(kore_name: &str) -> String {
+    crate::kast::identifier::decode_label(kore_name).unwrap_or_else(|_| kore_name.to_owned())
 }
 
 fn report_diagnostics<'a>(

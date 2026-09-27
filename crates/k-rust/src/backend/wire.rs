@@ -58,6 +58,10 @@ pub struct CompiledRuleOriginOutput {
 pub struct ContradictedTotalOutput {
     /// The KORE name of the symbol whose attribute is contradicted.
     pub symbol: String,
+    /// The K label that name encodes (`tDiv(_)_M_Int_Int`, or the `symbol(...)` name), as the
+    /// CLI prints it; absent when the KORE name is not a label encoding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k_label: Option<String>,
     /// The equation's compiled id, as in the rule catalog.
     pub rule_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,6 +80,9 @@ fn contradicted_total_output(
 ) -> Result<ContradictedTotalOutput, BackendError> {
     Ok(ContradictedTotalOutput {
         symbol: contradicted.symbol().to_owned(),
+        k_label: crate::kast::identifier::decode_label(contradicted.symbol())
+            .ok()
+            .filter(|label| label != contradicted.symbol()),
         rule_id: contradicted.rule_id.clone(),
         rule_label: contradicted.label.clone(),
         origin: contradicted

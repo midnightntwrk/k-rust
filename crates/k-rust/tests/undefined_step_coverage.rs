@@ -688,6 +688,7 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
         .find(|rule| rule.label.as_deref() == Some("UNDEF.tdeq"))
         .unwrap();
     assert_eq!(contradicted.symbol, "Lbltd");
+    assert_eq!(contradicted.k_label.as_deref(), Some("td"));
     assert_eq!(contradicted.rule_id, equation.id);
     assert_eq!(contradicted.rule_label.as_deref(), Some("UNDEF.tdeq"));
     assert_eq!(contradicted.origin.as_ref(), equation.origins.first());
@@ -704,6 +705,7 @@ fn a_ground_undefined_step_through_a_total_function_names_the_contradicted_attri
     );
     let wire = serde_json::to_value(&ground.leaves[0]).unwrap();
     assert_eq!(wire["contradictedTotal"]["ruleLabel"], "UNDEF.tdeq");
+    assert_eq!(wire["contradictedTotal"]["kLabel"], "td");
     let decoded: ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
     assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
 

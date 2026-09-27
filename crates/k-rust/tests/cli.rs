@@ -6841,7 +6841,8 @@ endmodule
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
 /// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still
-/// proven, since the attribute is trusted), and name the symbol, the equation and its position.
+/// proven, since the attribute is trusted), and name the symbol by its K label, the equation and
+/// its position.
 /// A partial function, or an argument that is bottom before the equation fires, names nothing;
 /// a nested total application names the innermost equation, and a total function whose equation
 /// calls a partial one names its own.
@@ -6880,11 +6881,16 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
     };
     let position = |line: usize| format!("{}:{line}:3", definition.display());
     for (program, symbol, equation, line) in [
-        ("tdiv", "LbltDiv'", "tdiv-eq", 12),
-        ("tnest", "LbltDiv'", "tdiv-eq", 12),
-        ("tvia", "LbltVia'", "tvia-eq", 15),
-        ("tset", "LbltAdd'", "tadd-eq", 19),
-        ("tmapdiff", "LbltPut'", "tput-eq", 22),
+        ("tdiv", "tDiv(_)_CTOT_Int_Int", "tdiv-eq", 12),
+        ("tnest", "tDiv(_)_CTOT_Int_Int", "tdiv-eq", 12),
+        ("tvia", "tVia(_)_CTOT_Int_Int", "tvia-eq", 15),
+        ("tset", "tAdd(_,_)_CTOT_Set_Set_Int", "tadd-eq", 19),
+        (
+            "tmapdiff",
+            "tPut(_,_,_)_CTOT_Map_Map_Int_Int",
+            "tput-eq",
+            22,
+        ),
     ] {
         let stderr = run(program);
         let message = stderr
@@ -6892,8 +6898,9 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
             .find(|line| line.contains("attribute of"))
             .unwrap_or_else(|| panic!("{program}: no contradicted-total warning in {stderr}"));
         assert!(
-            message.starts_with(&format!("warning: the `total` attribute of {symbol}"))
-                && message.contains("is contradicted on this input")
+            message.starts_with(&format!(
+                "warning: the `total` attribute of {symbol} is contradicted"
+            )) && message.contains("is contradicted on this input")
                 && message.contains(&format!("CTOT.{equation} at {}", position(line)))
                 && message.contains("to bottom"),
             "{program}: {message}"
