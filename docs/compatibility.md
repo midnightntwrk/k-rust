@@ -300,7 +300,8 @@ The reason is that concrete and symbolic evaluation are two evaluators of one de
 The symbolic side already reads concatenation as nilpotent: the definedness of `S SetItem(I)` is `I` not in `S`.
 Before this rule, the concrete side merged the shared element, so `start(1)` with the set `SetItem(1)` reached a successor that the symbolic step, specialised to that instance, says does not exist; a ground claim was proven while its symbolic generalisation failed.
 The concrete check costs nothing extra: concatenation inserts every element of one set into the other, which is where a shared element shows.
-Internally, `Term::set` keeps a repeated element (sorted, adjacent), as `Term::map` keeps a repeated key, so definedness (`\not(X = X)`), matching (no match) and the hooks (`\bottom`) all see it.
+Internally, `Term::set` keeps a repeated element (sorted, adjacent), as `Term::map` keeps a repeated key, so definedness (`\not(X = X)`), matching (no match), the hooks (`\bottom`) and the simplifier see it.
+The simplifier reports a set holding a syntactically repeated element as `\bottom` where it is built, as it reports a builtin's undefined result such as `10 /Int 0`: in a rule's right-hand side, in the result of a function equation, or after a substitution.
 
 This diverges from the reference concrete execution, which merges overlapping sets; `domains.md` notes that overlap "may be silently allowed during concrete execution".
 A definition whose concrete runs rely on that merge gets an undefined step in k-rust at the step that concatenates; writing `|Set` there states the union it means.
@@ -308,9 +309,28 @@ A definition whose concrete runs rely on that merge gets an undefined step in k-
 The `_Set_` production in `domains.md` also carries `idem`, which states `S S = S`.
 That contradicts nilpotency for every `S` except `.Set`.
 k-rust accepts the attribute and does not honour it: `kcompile` still translates it into its KORE axiom `_Set_(K, K) = K`, as for any `idem` production, so the compiled KORE is unchanged; the backend evaluates and matches by no `assoc`, `comm`, `unit` or `idem` axiom (a hooked collection implements its algebra in its representation), and the `SET.concat` hook fixes concatenation as nilpotent.
-A `total` function whose equation concatenates overlapping sets is not total; k-rust trusts the attribute and does not check its result's definedness, as for any `total` function.
+A `total` function whose equation concatenates overlapping sets is not total; k-rust trusts the attribute, as for any `total` function, but a syntactic repeat in the function's result is `\bottom` all the same, because the repeat itself is undefined, whatever the attribute of the function that built it.
+So `tAdd(SetItem(1), 1)`, with `tAdd(S, I) => S SetItem(I)` declared `total`, is an undefined step in `krun` and fails a ground claim, as `10 /Int 0` does.
+Elements that are not syntactically equal, such as `1` and `I` in `tAdd(SetItem(1), I)`, may denote one element; that stays the set's definedness condition (`\not(1 = I)`), which a trusted `total` application does not raise, so a symbolic claim over it can still be proven.
 
 The `set_concatenation_is_nilpotent_in_krun_and_kprove` CLI test, `spawning_a_duplicate_ground_cell_is_an_undefined_step` and `a_set_holding_an_element_twice_matches_nothing` in the [backend tests](../crates/k-rust-backend/tests/backend), and the unit tests of [set.rs](../crates/k-rust-backend/src/builtin/set.rs) cover this.
+
+## Map concatenation binds each key once
+
+A map binds each key once, so `_Map_` is defined only on maps whose keys are disjoint: `(K |-> V1) (K |-> V2)` is `\bottom`, whether `V1` and `V2` are equal or not.
+Overwriting a binding is `M[K <- V]` (`MAP.update`) or `updateMap`, not concatenation.
+k-rust applies this in concrete and symbolic evaluation alike, as for sets ([Set concatenation is nilpotent](#set-concatenation-is-nilpotent)).
+`Term::map` keeps a key bound twice, with the same value or not, and does not merge two identical bindings.
+Definedness emits `\not(K = K)` for the repeat, matching fails on it, a `MAP` hook with such an argument is `\bottom`, and the simplifier reports the map as `\bottom` where it is built.
+So a step whose right-hand side builds such a map, directly or through a function equation (`total` or not), is an undefined step, and a ground claim over it fails.
+Keys that are not syntactically equal stay a definedness condition, as for sets.
+
+The reason is the same as for sets: a map value is a finite function, and concrete and symbolic evaluation must agree on every ground instance.
+The symbolic side reads `M (K |-> V)` as defined only when `K` is not a key of `M`; merging `(1 |-> 2) (1 |-> 2)` into `1 |-> 2` made a ground instance reach a successor that the symbolic step, specialised to it, says does not exist.
+Before this, k-rust merged two identical bindings everywhere, in a rule's right-hand side too, while it kept two bindings of one key to different values (so a `total` function producing them left both in the configuration).
+
+This diverges from reference concrete execution in form, not in outcome: the reference toolchain also treats a repeated key as undefined, but the LLVM backend aborts with an exception ("Duplicate keys in map concatenation") and the Haskell backend's `krun` prints `#Bottom`, or reports a `total` function that evaluated to `\bottom`, where k-rust ends in an undefined step.
+The `a_repeated_set_element_or_map_key_is_bottom_where_it_is_built` CLI test, `a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built` in the [backend tests](../crates/k-rust-backend/tests/backend) and `a_map_argument_binding_a_key_twice_makes_the_hook_bottom` in [map.rs](../crates/k-rust-backend/src/builtin/map.rs) cover this.
 
 ## Hook specification exceptions
 
@@ -642,7 +662,7 @@ The reference toolchain's rejection of the claim remains checked as the case's o
 
 A step is undefined on a configuration when a rule applies to it but has an empty result there, and no rule of the same priority gives it a defined result.
 The rule applies: it matches and its `requires` holds.
-The result is empty because its `ensures` fails, or because its right-hand side is undefined, for example a partial function such as `/Int` by zero, or a `Set` or `Map` concatenation whose operands share an element or key ([Set concatenation is nilpotent](#set-concatenation-is-nilpotent)).
+The result is empty because its `ensures` fails, or because its right-hand side is undefined, for example a partial function such as `/Int` by zero, or a `Set` or `Map` concatenation whose operands share an element or key ([Set concatenation is nilpotent](#set-concatenation-is-nilpotent), [Map concatenation binds each key once](#map-concatenation-binds-each-key-once)).
 Such a configuration is not stuck, because the applying rule also shuts out the lower priorities.
 It is not empty either: it exists, and the path to it is real.
 It simply has no successor.
