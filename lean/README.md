@@ -113,7 +113,7 @@ rust_test = "crates/k-rust-backend/tests/backend/term_order.rs ord_for_term_equa
 [[hypothesis]]
 theorem = "KRust.TermAttributes.ceilFree_sound"
 hypothesis = "WF le t"
-meaning = "every term the public constructors build has map entries sorted by (key, value) (Term::map, term.rs:471-509) and set elements sorted with adjacent elements distinct (Term::set, term.rs:562-595), at every depth"
+meaning = "every term the public constructors build has map entries sorted by (key, value) (Term::map, term.rs:471-509) and set elements sorted, a repeated element kept (Term::set, term.rs:562-595), at every depth"
 rust_test = "crates/k-rust-backend/tests/backend/term_order.rs constructed_collections_are_sorted"
 
 [[hypothesis]]

@@ -100,6 +100,7 @@ pub enum FailReason {
     VariableRecursion(Variable, Term),
     VariableConflict(Variable, Term, Term),
     KeyNotFound(Term, Term),
+    /// A map key or a set element that occurs twice, and the collection: `\bottom`.
     DuplicateKeys(Term, Term),
     SharedVariables(BTreeSet<Variable>),
     Subsorting(SortError),
@@ -1347,10 +1348,13 @@ impl<'a> Matcher<'a> {
                 Term::set(definition, subject_elements, subject_rest),
             );
         }
-        let mut pattern_elements = pattern_elements
+        let pattern_elements = pattern_elements
             .into_iter()
             .map(|element| substitute(&element, &self.substitution))
-            .collect::<BTreeSet<_>>();
+            .collect::<Vec<_>>();
+        check_duplicate_elements(&definition, &pattern_elements, &pattern_rest)?;
+        check_duplicate_elements(&definition, &subject_elements, &subject_rest)?;
+        let mut pattern_elements = pattern_elements.into_iter().collect::<BTreeSet<_>>();
         let mut subject_elements = subject_elements.into_iter().collect::<BTreeSet<_>>();
         let common = pattern_elements
             .intersection(&subject_elements)
@@ -1774,6 +1778,30 @@ fn check_duplicate_keys(
         return Err(FailReason::DuplicateKeys(
             key,
             Term::map(definition.clone(), entries.to_vec(), rest.clone()),
+        ));
+    }
+    Ok(())
+}
+
+/// A set that holds an element twice is `\bottom` (set concatenation is nilpotent, `Term::set`),
+/// so it matches nothing and nothing matches it. The pattern's elements are checked after the
+/// substitution so far, which can make two of them equal. The failure reuses
+/// `FailReason::DuplicateKeys`: a set's elements are its keys.
+fn check_duplicate_elements(
+    definition: &Arc<crate::term::SetDefinition>,
+    elements: &[Term],
+    rest: &Option<Term>,
+) -> Result<(), FailReason> {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = elements
+        .iter()
+        .filter(|element| !seen.insert(*element))
+        .collect::<Vec<_>>();
+    duplicates.sort();
+    if let Some(element) = duplicates.first() {
+        return Err(FailReason::DuplicateKeys(
+            (*element).clone(),
+            Term::set(definition.clone(), elements.to_vec(), rest.clone()),
         ));
     }
     Ok(())

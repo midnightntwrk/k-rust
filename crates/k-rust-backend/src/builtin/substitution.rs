@@ -623,6 +623,13 @@ fn substitute(
                     fresh,
                 )));
             }
+            // Set concatenation is nilpotent (`Term::set`): two elements the substitution makes
+            // syntactically equal make the set `\bottom` on every instance.
+            let mut distinct = updated_elements.iter().collect::<Vec<_>>();
+            distinct.sort();
+            if distinct.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Ok(SubstituteOutcome::Bottom);
+            }
             let rest = match rest {
                 Some(rest) => {
                     let rest = substitution_value!(substitute(
@@ -1465,6 +1472,22 @@ mod tests {
         );
 
         assert_eq!(run(map, kvar("y"), kvar("x")), BuiltinResult::Bottom);
+    }
+
+    #[test]
+    fn returns_bottom_when_substitution_duplicates_a_set_element() {
+        let definition = Arc::new(ListDefinition {
+            symbols: CollectionSymbols {
+                unit: "set-unit".into(),
+                element: "set-element".into(),
+                concat: "set-concat".into(),
+            },
+            element_sort: "SortExp".into(),
+            list_sort: "SortSet".into(),
+        });
+        let set = Term::set(definition, vec![exp_var("x"), exp_var("y")], None);
+
+        assert_eq!(run(set, kvar("y"), kvar("x")), BuiltinResult::Bottom);
     }
 
     #[test]

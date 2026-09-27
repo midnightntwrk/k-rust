@@ -1409,6 +1409,60 @@ fn rejects_a_nonempty_pattern_against_the_empty_set() {
     ));
 }
 
+/// Set concatenation is nilpotent: a set that holds an element twice is `\bottom`, so it matches
+/// nothing, and a pattern whose elements the substitution makes equal matches nothing either.
+#[test]
+fn a_set_holding_an_element_twice_matches_nothing() {
+    let definition = set_definition();
+    let element = domain_value(Sort::simple("SetElement"), "a");
+    let repeated = Term::set(
+        definition.clone(),
+        vec![element.clone(), element.clone()],
+        None,
+    );
+    let rest = var("REST", Sort::simple("SetSort"));
+    let pattern = Term::set(
+        definition.clone(),
+        vec![var("X", Sort::simple("SetElement"))],
+        Some(rest),
+    );
+    assert!(matches!(
+        match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &repeated),
+        MatchResult::Failed(FailReason::DuplicateKeys(found, _)) if found == element
+    ));
+
+    let pair = Arc::new(Symbol::constructor(
+        "pair",
+        vec![Sort::simple("SetElement"), Sort::simple("SetSort")],
+        sort(),
+    ));
+    let x = var("X", Sort::simple("SetElement"));
+    let pattern = Term::application(
+        pair.clone(),
+        Vec::new(),
+        vec![
+            x.clone(),
+            Term::set(definition.clone(), vec![x, element.clone()], None),
+        ],
+    );
+    let subject = Term::application(
+        pair,
+        Vec::new(),
+        vec![
+            element.clone(),
+            Term::set(
+                definition,
+                vec![element, domain_value(Sort::simple("SetElement"), "b")],
+                None,
+            ),
+        ],
+    );
+    assert!(matches!(
+        match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
+        MatchResult::Failed(FailReason::DuplicateKeys(..))
+    ));
+}
+
 #[test]
 fn reports_duplicate_map_keys() {
     let definition = map_definition();

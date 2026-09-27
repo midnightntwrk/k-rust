@@ -17,8 +17,17 @@ use crate::{
 };
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    // A hooked application is strict in its arguments, and an internal set that holds an
+    // element twice is `\bottom`: set concatenation is nilpotent (`Term::set`). A `ceil_free`
+    // set has pairwise distinct elements, so only other sets are scanned; the hooks below
+    // already visit every element of a set they compute on.
+    if arguments.iter().any(|argument| {
+        !argument.attributes().ceil_free() && argument.repeated_set_element().is_some()
+    }) {
+        return Ok(BuiltinResult::Bottom);
+    }
     let result = match hook {
-        "SET.concat" => concat(arguments),
+        "SET.concat" => return concat(arguments),
         "SET.element" => element(arguments),
         "SET.unit" => unit(arguments),
         "SET.in" => contains(arguments),
@@ -49,7 +58,12 @@ pub(super) fn k_item_set_definition() -> Arc<SetDefinition> {
     })
 }
 
-fn concat(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
+/// `S1 S2`, the disjoint union: `\bottom` when the operands share an element, because set
+/// concatenation is nilpotent (`SetItem(X) SetItem(X)` is `\bottom`; the union is `|Set`).
+/// Syntactically equal elements are equal values, so a shared one decides the overlap on every
+/// instance. Elements that are not syntactically equal stay apart in the result, and the
+/// result's definedness (`ceil_term`) carries the condition that they differ.
+fn concat(arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
     expect_arity("SET.concat", arguments, 2)?;
     let [left, right] = arguments else {
         unreachable!()
@@ -67,14 +81,26 @@ fn concat(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
         },
     ) = (left.kind(), right.kind())
     else {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
     };
     if left_definition != right_definition || (left_rest.is_some() && right_rest.is_some()) {
-        return Ok(None);
+        return Ok(BuiltinResult::NotApplicable);
+    }
+    // Both element lists are sorted (`Term::set`), so one merge pass finds a shared element.
+    let (mut left_index, mut right_index) = (0, 0);
+    while let (Some(left), Some(right)) = (
+        left_elements.get(left_index),
+        right_elements.get(right_index),
+    ) {
+        match left.cmp(right) {
+            std::cmp::Ordering::Less => left_index += 1,
+            std::cmp::Ordering::Greater => right_index += 1,
+            std::cmp::Ordering::Equal => return Ok(BuiltinResult::Bottom),
+        }
     }
     let mut elements = left_elements.clone();
     elements.extend(right_elements.iter().cloned());
-    Ok(Some(Term::set(
+    Ok(BuiltinResult::Value(Term::set(
         left_definition.clone(),
         elements,
         left_rest.clone().or_else(|| right_rest.clone()),
@@ -193,11 +219,12 @@ fn list_to_set(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
     {
         return Ok(None);
     }
-    Ok(Some(Term::set(
-        k_item_set_definition(),
-        heads.clone(),
-        None,
-    )))
+    // The set of the list's elements: a list may repeat one, and the set holds it once. This
+    // is not a concatenation, so the repeat is removed here (`Term::set` keeps repeats).
+    let mut elements = heads.clone();
+    elements.sort();
+    elements.dedup();
+    Ok(Some(Term::set(k_item_set_definition(), elements, None)))
 }
 
 fn inclusion(arguments: &[Term]) -> Result<Option<Term>, BuiltinError> {
@@ -326,11 +353,44 @@ mod tests {
 
         assert_eq!(
             concat(&[left, right]),
-            Ok(Some(Term::set(
+            Ok(BuiltinResult::Value(Term::set(
                 k_item_set_definition(),
                 vec![item("a"), item("b")],
                 Some(rest)
             )))
         );
+    }
+
+    #[test]
+    fn concat_of_sets_sharing_an_element_is_bottom() {
+        assert_eq!(
+            concat(&[set(&["a", "b"]), set(&["b", "c"])]),
+            Ok(BuiltinResult::Bottom)
+        );
+        let rest = Term::variable(Variable::new("REST", Sort::simple("SortSet")));
+        let left = Term::set(k_item_set_definition(), vec![item("a")], Some(rest));
+        assert_eq!(concat(&[left, set(&["a"])]), Ok(BuiltinResult::Bottom));
+        assert_eq!(
+            concat(&[set(&["a"]), set(&["b"])]),
+            Ok(BuiltinResult::Value(set(&["a", "b"])))
+        );
+    }
+
+    #[test]
+    fn a_set_argument_holding_an_element_twice_makes_the_hook_bottom() {
+        let repeated = Term::set(k_item_set_definition(), vec![item("a"), item("a")], None);
+        assert_eq!(repeated.repeated_set_element(), Some(&item("a")));
+        for (hook, arguments) in [
+            ("SET.size", vec![repeated.clone()]),
+            ("SET.in", vec![item("a"), repeated.clone()]),
+            ("SET.difference", vec![repeated.clone(), set(&["b"])]),
+            ("SET.set2list", vec![repeated]),
+        ] {
+            assert_eq!(
+                evaluate(hook, &arguments),
+                Ok(BuiltinResult::Bottom),
+                "{hook}"
+            );
+        }
     }
 }

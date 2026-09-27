@@ -287,8 +287,8 @@ fn set_definedness_keeps_the_disequality_of_an_anywhere_redex_and_its_normal_for
 
     assert!(has_disequality(&ceil_term(&definition, &set)));
 
-    // The same elements after normalization: `wrap(s(z))` becomes `wrap(z)` and the set
-    // collapses to one element, which is defined.
+    // The same elements after normalization: `wrap(s(z))` becomes `wrap(z)`, so the set holds
+    // one element twice. Set concatenation is nilpotent, so it is `\bottom`.
     let simplified = simplify_predicate_with_solver(
         &definition,
         &Predicate::Ceil(set),
@@ -297,7 +297,7 @@ fn set_definedness_keeps_the_disequality_of_an_anywhere_redex_and_its_normal_for
         &NoSolver,
     )
     .expect("the set definedness predicate should simplify");
-    assert_eq!(simplified, Predicate::True);
+    assert_eq!(simplified, Predicate::False);
 }
 
 #[test]

@@ -670,6 +670,15 @@ impl Term {
         )
     }
 
+    /// The set holding `elements` and the elements of `rest`, sorted.
+    ///
+    /// Set concatenation is nilpotent: `SetItem(X) SetItem(X)` is `\bottom`, not `SetItem(X)`;
+    /// the union is `|Set`. So this constructor keeps an element that occurs twice, as
+    /// `Term::map` keeps a repeated key, and the repeat stays visible to definedness
+    /// (`ceil_term` emits `\not(X = X)` for it), to matching (`FailReason::DuplicateKeys`) and
+    /// to the hooks (a hooked application with such an argument is `\bottom`). A caller that
+    /// builds a set from a collection that may repeat an element (`SET.list2set`) removes the
+    /// repeats itself.
     pub fn set(
         definition: Arc<SetDefinition>,
         mut elements: Vec<Self>,
@@ -688,7 +697,6 @@ impl Term {
         };
         elements.extend(nested_elements);
         elements.sort();
-        elements.dedup();
         if elements.is_empty()
             && let Some(rest) = rest
         {
@@ -703,6 +711,18 @@ impl Term {
             },
             attributes,
         )
+    }
+
+    /// The least element this internal set holds twice, if any. Such a set is `\bottom`
+    /// (`Term::set`); the elements are sorted, so a repeat is adjacent.
+    pub(crate) fn repeated_set_element(&self) -> Option<&Self> {
+        let TermKind::Set { elements, .. } = self.kind() else {
+            return None;
+        };
+        elements
+            .windows(2)
+            .find(|pair| pair[0] == pair[1])
+            .map(|pair| &pair[0])
     }
 
     pub fn kind(&self) -> &TermKind {
@@ -1156,10 +1176,12 @@ impl Term {
 /// by `structurally_distinct_after_normalization` alone, so the matcher that
 /// `normalized_ground_terms_are_distinct` falls back on is never needed. Keys with different
 /// headers, such as `inj{Int, KItem}(1)` and `inj{String, KItem}("a")`, fall to that matcher, and
-/// the attribute is false for them. Distinctness of the keys themselves comes from the
-/// constructors: `Term::set` sorts and deduplicates its elements, so they are pairwise distinct;
-/// `Term::map` sorts its entries by `(key, value)` but deduplicates pairs, not keys, so `k |-> 1`
-/// and `k |-> 2` can both survive, adjacent, and the attribute checks that adjacent keys differ.
+/// the attribute is false for them. Distinctness of the keys themselves comes from the sorted
+/// order the constructors keep and a check here: `Term::set` sorts its elements and keeps a
+/// repeated one (concatenation is nilpotent, so the repeat makes the set `\bottom`); `Term::map`
+/// sorts its entries by `(key, value)` but deduplicates pairs, not keys, so `k |-> 1` and
+/// `k |-> 2` can both survive. Repeats are adjacent in both, and the attribute checks that
+/// adjacent elements (keys) differ.
 /// Those constructor invariants and the order they rely on are checked by
 /// `tests/backend/term_order.rs` (`constructed_collections_are_sorted`,
 /// `ord_for_term_is_transitive`, `ord_for_term_equal_is_eq`).
@@ -1193,7 +1215,10 @@ fn ceil_free(kind: &TermKind) -> bool {
                     .is_none_or(|(middle, tails)| free(middle) && tails.iter().all(free))
         }
         TermKind::Set { elements, rest, .. } => {
-            rest.is_none() && elements.iter().all(free) && share_one_key_header(elements.iter())
+            rest.is_none()
+                && elements.iter().all(free)
+                && share_one_key_header(elements.iter())
+                && elements.windows(2).all(|pair| pair[0] != pair[1])
         }
     }
 }
@@ -1699,7 +1724,9 @@ mod tests {
         let TermKind::Set { elements, .. } = set.kind() else {
             panic!("expected an internal set")
         };
-        assert_eq!(elements, &[one, two]);
+        // A repeated element is kept: set concatenation is nilpotent, so this set is bottom.
+        assert_eq!(elements, &[one.clone(), one, two]);
+        assert!(!set.attributes().ceil_free());
     }
 
     #[test]

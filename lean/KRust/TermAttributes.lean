@@ -37,7 +37,7 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
     injection             :451-469  (flattens inj-of-inj, copies the child's attributes)
     Term::map             :471-509  (entries.sort(); entries.dedup() at :488-489, on (key, value) pairs)
     Term::list            :511-560
-    Term::set             :562-595  (elements.sort(); elements.dedup() at :579-580)
+    Term::set             :562-595  (elements.sort(); a repeated element is kept: concatenation is nilpotent)
     with_evaluated_cache  :611-618  (copies the kind, changes only `evaluated`)
     visit_symbols         :760-805, macro_or_alias_symbol :808-816
     structurally_distinct_after_normalization, certified_normal_application (KK-59)
@@ -377,6 +377,12 @@ def adjacentKeysDiffer : List (Term × Term) → Bool
   | a :: b :: rest => decide (a.1 ≠ b.1) && adjacentKeysDiffer (b :: rest)
   | _              => true
 
+/-- Adjacent set elements differ; computed at construction on the already-sorted elements. A
+repeated element is kept by `Term::set` (concatenation is nilpotent, so the set is `\bottom`). -/
+def adjacentElementsDiffer : List Term → Bool
+  | a :: b :: rest => decide (a ≠ b) && adjacentElementsDiffer (b :: rest)
+  | _              => true
+
 /- `ceil_free`, computed bottom-up by the constructors. `and` is the conjunction: its arm of
 `ceil_term_recursive` only concatenates its sides (definedness.rs:117-121), which settles the
 question OT-01 leaves open. -/
@@ -390,7 +396,7 @@ def ceilFree : Term → Bool
   | .map _ es rest  => ceilFreeEntries es && rest.isNone
                          && oneHeader (es.map (·.1)) && adjacentKeysDiffer es
   | .list _ hs rest => ceilFreeList hs && ceilFreeRest rest
-  | .set _ es rest  => ceilFreeList es && rest.isNone && oneHeader es
+  | .set _ es rest  => ceilFreeList es && rest.isNone && oneHeader es && adjacentElementsDiffer es
 def ceilFreeList : List Term → Bool
   | []      => true
   | t :: ts => ceilFree t && ceilFreeList ts
@@ -422,8 +428,8 @@ def Adjacent {α} (r : α → α → Prop) : List α → Prop
   | _              => True
 
 /- What the constructors guarantee and the proof uses: map entries sorted (term.rs:488), set
-elements sorted and adjacent elements distinct (`sort` then `dedup`, :579-580). The map's pair
-dedup (:489) is not needed: `ceil_free` checks adjacent keys itself.
+elements sorted (`sort`, :579). The map's pair dedup (:489) is not needed: `ceil_free` checks
+adjacent keys itself, and adjacent set elements likewise (a set keeps a repeated element).
 Hypothesis: every term the public constructors build satisfies `WF`, checked by the property test
 `constructed_collections_are_sorted` of k-rust-backend `tests/backend/term_order.rs`. -/
 mutual
@@ -435,7 +441,7 @@ def WF (le : Term → Term → Bool) : Term → Prop
   | .var _ _ _      => True
   | .map _ es rest  => Adjacent (fun a b => lexLe le a b = true) es ∧ WFEntries le es ∧ WFOpt le rest
   | .list _ hs rest => WFList le hs ∧ WFRest le rest
-  | .set _ es rest  => Adjacent (fun a b => le a b = true ∧ a ≠ b) es ∧ WFList le es ∧ WFOpt le rest
+  | .set _ es rest  => Adjacent (fun a b => le a b = true) es ∧ WFList le es ∧ WFOpt le rest
 def WFList (le : Term → Term → Bool) : List Term → Prop
   | []      => True
   | t :: ts => WF le t ∧ WFList le ts
@@ -478,10 +484,13 @@ theorem strict_trans {le : Term → Term → Bool} (hle : TotalOrder le) :
   rintro rfl
   exact nbc (hle.antisym _ _ hbc hab)
 
-/-- Set elements are pairwise distinct: sorted, and deduplicated (term.rs:579-580). -/
-theorem set_pairwise_distinct {le : Term → Term → Bool} (hle : TotalOrder le) (es : List Term)
-    (hs : Adjacent (fun a b => le a b = true ∧ a ≠ b) es) : es.Pairwise (· ≠ ·) :=
-  (adjacent_pairwise (strict_trans hle) es hs).imp fun h => h.2
+/-- `adjacentElementsDiffer` as the relation it checks. -/
+theorem adjacentElementsDiffer_adjacent :
+    ∀ es : List Term, adjacentElementsDiffer es = true → Adjacent (fun a b => a ≠ b) es
+  | [], _ | [_], _ => trivial
+  | a :: b :: rest, h => by
+      simp only [adjacentElementsDiffer, Bool.and_eq_true, decide_eq_true_eq] at h
+      exact ⟨h.1, adjacentElementsDiffer_adjacent (b :: rest) h.2⟩
 
 /-- `adjacentKeysDiffer` as the relation it checks. -/
 theorem adjacentKeysDiffer_adjacent :
@@ -510,6 +519,14 @@ theorem map_keys_pairwise_distinct {le : Term → Term → Bool} (hle : TotalOrd
   refine (adjacent_pairwise ?_ es hkey).imp fun h => h.2
   intro a b c hab hbc
   exact strict_trans hle a.1 b.1 c.1 hab hbc
+
+/-- Set elements are pairwise distinct: sorted (term.rs:579), and the attribute checked that
+adjacent elements differ. -/
+theorem set_pairwise_distinct {le : Term → Term → Bool} (hle : TotalOrder le) (es : List Term)
+    (hs : Adjacent (fun a b => le a b = true) es) (hadj : adjacentElementsDiffer es = true) :
+    es.Pairwise (· ≠ ·) :=
+  (adjacent_pairwise (strict_trans hle) es
+    (adjacent_and es hs (adjacentElementsDiffer_adjacent es hadj))).imp fun h => h.2
 
 /-! ## 7. Structural distinctness decides the narrowed key class -/
 
@@ -589,10 +606,10 @@ theorem map_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O 
   simp [normDistinct, structDistinct_complete O.evaluated O.injectionsDistinct a.1 b.1 this.1 this.2 hne]
 
 theorem set_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O : Oracles)
-    (es : List Term) (hs : Adjacent (fun a b => le a b = true ∧ a ≠ b) es)
-    (hh : oneHeader es = true) :
+    (es : List Term) (hs : Adjacent (fun a b => le a b = true) es)
+    (hadj : adjacentElementsDiffer es = true) (hh : oneHeader es = true) :
     es.Pairwise (fun a b => normDistinct O a b = true) := by
-  refine (set_pairwise_distinct hle es hs).imp_of_mem ?_
+  refine (set_pairwise_distinct hle es hs hadj).imp_of_mem ?_
   intro a b ha hb hne
   have := oneHeader_same _ hh a ha b hb
   simp [normDistinct, structDistinct_complete O.evaluated O.injectionsDistinct a b this.1 this.2 hne]
@@ -629,9 +646,9 @@ theorem ceilFree_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalO
         O.dedup_nil]
   | .set _ es rest, hw, hc => by
       simp only [ceilFree, Bool.and_eq_true, Option.isNone_iff_eq_none] at hc
-      obtain ⟨⟨he, rfl⟩, hh⟩ := hc
+      obtain ⟨⟨⟨he, rfl⟩, hh⟩, hadj⟩ := hc
       simp [ceilTerm, ceilList_sound O hle es hw.2.1 he, ceilOpt,
-        setSide_none O es (set_normDistinct hle O es hw.1 hh), O.dedup_nil]
+        setSide_none O es (set_normDistinct hle O es hw.1 hadj hh), O.dedup_nil]
 theorem ceilList_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalOrder le) :
     ∀ ts, WFList le ts → ceilFreeList ts = true → ceilList O ts = []
   | [], _, _ => rfl

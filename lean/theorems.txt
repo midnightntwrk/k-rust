@@ -39,6 +39,7 @@ KRust.TermAttributes.Term.beqRest_iff
 KRust.TermAttributes.Term.beq_iff
 KRust.TermAttributes.TotalOrder.antisym
 KRust.TermAttributes.TotalOrder.trans
+KRust.TermAttributes.adjacentElementsDiffer_adjacent
 KRust.TermAttributes.adjacentKeysDiffer_adjacent
 KRust.TermAttributes.adjacent_and
 KRust.TermAttributes.adjacent_pairwise

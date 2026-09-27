@@ -2,8 +2,9 @@
 //! representation (the hypothesis table in lean/README.md):
 //! - `TotalOrder.trans` and `TotalOrder.antisym`: `Ord for Term` is transitive, and
 //!   `a.cmp(b) == Equal` exactly when `a == b`, which is structural equality of the kinds;
-//! - `WF`: map entries are sorted by `(key, value)` and set elements are sorted with adjacent
-//!   elements distinct, at every depth of a term built by the public constructors.
+//! - `WF`: map entries are sorted by `(key, value)` and set elements are sorted, at every depth of
+//!   a term built by the public constructors. A set may hold an element twice (concatenation is
+//!   nilpotent, so such a set is `\bottom`); `ceil_free` checks adjacent elements itself.
 //!
 //! Terms are built directly through the public constructors of `k_rust_backend::term`, over small
 //! alphabets so that equal and nearly equal terms are frequent: symbols that share a name but
@@ -404,7 +405,7 @@ fn le(a: &Term, b: &Term) -> bool {
 }
 
 /// The model's `WF`, checked at every depth: map entries sorted by `(key, value)`, set elements
-/// sorted with adjacent elements distinct.
+/// sorted.
 fn check_wf(term: &Term) -> Result<(), String> {
     match term.kind() {
         TermKind::And(left, right) => {
@@ -433,11 +434,8 @@ fn check_wf(term: &Term) -> Result<(), String> {
             Ok(())
         }
         TermKind::Set { elements, rest, .. } => {
-            if let Some(pair) = elements
-                .windows(2)
-                .find(|pair| !(le(&pair[0], &pair[1]) && pair[0] != pair[1]))
-            {
-                return Err(format!("set elements not strictly sorted: {pair:?}"));
+            if let Some(pair) = elements.windows(2).find(|pair| !le(&pair[0], &pair[1])) {
+                return Err(format!("set elements out of order: {pair:?}"));
             }
             elements.iter().try_for_each(check_wf)?;
             rest.iter().try_for_each(check_wf)
@@ -488,8 +486,8 @@ proptest! {
         }
     }
 
-    /// `WF`: every term the public constructors build has sorted map entries and strictly sorted
-    /// set elements at every depth. `Term::new` is private and `Term::map` and `Term::set` are the
+    /// `WF`: every term the public constructors build has sorted map entries and sorted set
+    /// elements at every depth. `Term::new` is private and `Term::map` and `Term::set` are the
     /// only constructors of a map or set kind (`with_evaluated_cache` copies an existing kind), so
     /// generating over those constructors with arbitrary children covers every built term.
     #[test]
@@ -545,7 +543,9 @@ fn fixed_near_misses_agree_with_equality() {
     let TermKind::Set { elements, .. } = set(0).kind().clone() else {
         panic!("a set with elements is a set");
     };
-    assert_eq!(elements.len(), 1);
+    // Nilpotent concatenation: the repeats are kept, adjacent, for definedness to see.
+    assert_eq!(elements.len(), 3);
+    assert!(elements.windows(2).all(|pair| pair[0] == pair[1]));
     assert_ne!(set(0), set(1));
     assert_ne!(set(0).cmp(&set(1)), Ordering::Equal);
     assert_eq!(set(0), set(0));

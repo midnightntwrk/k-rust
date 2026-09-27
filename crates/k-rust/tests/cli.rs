@@ -6531,6 +6531,134 @@ fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Set concatenation is nilpotent: `SetItem(X) SetItem(X)` is `\bottom`, and `|Set` is the union.
+/// `ovl` concatenates a set with an element it already holds, `lit` writes a repeated element,
+/// `size` evaluates a hook on such a set, `dis` concatenates disjoint sets and `uni` takes the
+/// union. `NILPOTENT_SET_SPEC` claims the ground and the symbolic instance of one step that
+/// concatenates, and the symbolic one restricted to the instances where the sets are disjoint.
+const NILPOTENT_SET: &str = r#"
+module NSET
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k> <s> SetItem(1) </s>
+  syntax Pgm ::= "ovl" | "dis" | "uni" | "lit" | "sz" | "keep" | add(Int)
+  rule <k> ovl => .K ...</k> <s> S => S SetItem(1) </s>
+  rule <k> dis => .K ...</k> <s> S => S SetItem(2) </s>
+  rule <k> uni => .K ...</k> <s> S => S |Set SetItem(1) </s>
+  rule <k> lit => .K ...</k> <s> _ => SetItem(3) SetItem(3) </s>
+  rule <k> sz => size(SetItem(1) SetItem(1)) ...</k>
+  rule <k> keep => .K ...</k> <s> SetItem(X) S => SetItem(X) S </s>
+  rule <k> add(I) => .K ...</k> <s> S => S SetItem(I) </s>
+endmodule
+"#;
+
+const NILPOTENT_SET_SPEC: &str = r#"
+requires "definition.k"
+module NSET-SPEC
+  imports NSET
+  claim [gnd]: <k> add(1) => .K </k> <s> SetItem(1) => ?_ </s>
+  claim [sym]: <k> add(_I) => .K </k> <s> SetItem(1) => ?_ </s>
+  claim [fresh]: <k> add(I) => .K </k> <s> SetItem(1) => ?_ </s> requires I =/=Int 1
+endmodule
+"#;
+
+/// A concrete run and a proof agree on one theory of `_Set_`: concatenating sets that share an
+/// element is an undefined step (the rule applies and its result is empty), in `krun` as in
+/// `kprove`; concatenating disjoint sets and `|Set` are unchanged.
+#[test]
+fn set_concatenation_is_nilpotent_in_krun_and_kprove() {
+    let (root, definition) = fixture();
+    fs::write(&definition, NILPOTENT_SET).unwrap();
+    let run = |program: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "NSET",
+                "--syntax-module",
+                "NSET",
+                "-s",
+                "Pgm",
+                "--io",
+                "off",
+                "-e",
+                program,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        (
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let item = |value: u32| {
+        format!(
+            "LblSetItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\\dv{{SortInt{{}}}}(\"{value}\")))"
+        )
+    };
+    for program in ["ovl", "lit", "sz"] {
+        let (stdout, stderr) = run(program);
+        assert!(
+            stderr.contains("execution ended with no successor at depth 1")
+                && stderr.contains("applied with an undefined result"),
+            "{program}: {stderr}"
+        );
+        assert!(
+            stdout.contains("\\bottom{SortGeneratedTopCell{}}()"),
+            "{program}: {stdout}"
+        );
+    }
+    let (stdout, stderr) = run("dis");
+    assert!(!stderr.contains("no successor"), "{stderr}");
+    assert!(
+        stdout.contains(&item(1)) && stdout.contains(&item(2)),
+        "{stdout}"
+    );
+    for program in ["uni", "keep"] {
+        let (stdout, stderr) = run(program);
+        assert!(!stderr.contains("no successor"), "{program}: {stderr}");
+        assert!(
+            stdout.contains(&format!("Lbl'-LT-'s'-GT-'{{}}({})", item(1))),
+            "{program}: {stdout}"
+        );
+    }
+
+    let spec = root.join("nset-spec.k");
+    fs::write(&spec, NILPOTENT_SET_SPEC).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            spec.to_str().unwrap(),
+            "--main-module",
+            "NSET-SPEC",
+            "--definition-module",
+            "NSET",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim NSET-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(verdict("gnd"), "failed", "{stdout}");
+    assert_eq!(verdict("sym"), "failed", "{stdout}");
+    assert_eq!(verdict("fresh"), "proven", "{stdout}");
+    assert!(stdout.contains("  undefined step: "), "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
@@ -8689,31 +8817,33 @@ fn krun_completes_star_cell_heating_with_one_or_two_cells() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    // The two completed, identical Set elements collapse by idempotence.
-    assert_eq!(
-        stdout.matches("Lbl'-LT-'task'-GT-'{}").count(),
-        1,
-        "{stdout}"
-    );
-    assert_eq!(
-        stdout.matches("Lbl'-LT-'k'-GT-'{}(dotk{}())").count(),
-        1,
-        "{stdout}"
-    );
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    // Set concatenation is nilpotent: when the spawned task completes it equals the first one,
+    // and a cell set that holds one cell twice is `\bottom`. The step that completes it applies
+    // with an undefined result (docs/compatibility.md#set-concatenation-is-nilpotent).
     assert!(
-        !stdout.contains("\\or{"),
-        "any strategy must print one configuration: {stdout}"
+        stderr.contains("execution ended with no successor at depth 10")
+            && stderr.contains("applied with an undefined result"),
+        "{stderr}"
+    );
+    assert_eq!(
+        stdout.trim(),
+        "\\bottom{SortGeneratedTopCell{}}()",
+        "{stdout}"
     );
 }
 
 #[test]
 fn krun_surface_pattern_projects_set_typed_star_cell() {
     // The reference krun additionally prints _DotVar0/_DotVar1 bindings that krust projects away.
-    // At depth zero, the reference binds KK to the injected Stmt program.
+    // At depth zero, the reference binds KK to the injected Stmt program. `two.pgm` has no final
+    // state: its two tasks complete to one cell, twice, which is `\bottom` (set concatenation is
+    // nilpotent; `krun_completes_star_cell_heating_with_one_or_two_cells`), so only its initial
+    // state is projected.
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/reference/execution/star-cell-heating");
     let definition = fixtures.join("test.k");
-    for program in ["one.pgm", "two.pgm"] {
+    for program in ["one.pgm"] {
         for (surface_pattern, expected_binding) in [
             ("<k> .K </k>", None),
             ("<k> KK:K </k>", Some(parse_pattern("dotk{}()").unwrap())),

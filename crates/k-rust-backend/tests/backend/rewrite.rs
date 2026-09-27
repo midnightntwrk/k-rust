@@ -352,8 +352,11 @@ fn spawning_a_distinct_normalized_ground_cell_has_no_residual_inequality() {
     assert!(applied.pattern.constraints.is_empty());
 }
 
+/// Set concatenation is nilpotent: `SetItem(C) SetItem(C)` is `\bottom`, not `SetItem(C)`, so
+/// the rule applies and its result is empty. The step is undefined, as it is for a symbolic
+/// subject whose instances share the element.
 #[test]
-fn spawning_a_duplicate_ground_cell_uses_set_idempotence_without_a_constraint() {
+fn spawning_a_duplicate_ground_cell_is_an_undefined_step() {
     let definition = ground_cell_set_definition();
     let value = r#"\dv{SortValue{}}("a")"#;
     let subject = Pattern {
@@ -369,12 +372,16 @@ fn spawning_a_duplicate_ground_cell_uses_set_idempotence_without_a_constraint() 
         validity: Ok(Validity::Indeterminate),
     };
     let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
-    let RewriteResult::Finished(applied) = result else {
-        panic!("the idempotent set rule must produce a successor: {result:?}");
-    };
-    assert_eq!(applied.unique_id, "spawn-duplicate");
-    assert_eq!(applied.pattern.term, subject.term);
-    assert!(applied.pattern.constraints.is_empty());
+    assert!(
+        matches!(
+            &result,
+            RewriteResult::Trivial(pattern, applications)
+                if pattern == &subject
+                    && matches!(applications.as_slice(), [TrivialApplication { rule_id, .. }]
+                        if rule_id == "spawn-duplicate")
+        ),
+        "the duplicate set rule must be an undefined step: {result:#?}"
+    );
 }
 
 #[test]

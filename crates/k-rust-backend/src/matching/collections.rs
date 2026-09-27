@@ -1039,8 +1039,17 @@ fn solve_set_pair(
         subject_rest,
         &pattern_definition.symbols.concat,
     );
+    let pattern_element_count = pattern_elements.len();
+    let subject_element_count = subject_elements.len();
     let mut pattern_elements = pattern_elements.iter().cloned().collect::<BTreeSet<_>>();
     let mut subject_elements = subject_elements.iter().cloned().collect::<BTreeSet<_>>();
+    // A set that holds an element twice is `\bottom` (set concatenation is nilpotent,
+    // `Term::set`); as for a map with a repeated key, no solution is claimed for it.
+    if pattern_elements.len() != pattern_element_count
+        || subject_elements.len() != subject_element_count
+    {
+        return None;
+    }
     let common = pattern_elements
         .intersection(&subject_elements)
         .cloned()
