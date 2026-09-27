@@ -468,6 +468,9 @@ function collectorWorkspaceFault(build: Build, files: Record<string, string | nu
 
 export async function stageBundle(build: Build): Promise<{ bundle: Uint8Array; sha256: string }> {
   const bytes = build.stdout!;
+  if (bytes.at(-1) !== 10) {
+    throw new StageFailure("bundle", "collector-error", "collector stdout must end with one newline after compact canonical JSON");
+  }
   let parsed: { protocol_version?: unknown };
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as { protocol_version?: unknown };

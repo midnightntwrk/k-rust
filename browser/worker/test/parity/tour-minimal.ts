@@ -9,7 +9,7 @@
 // to it, and runs, in each browser, one page session per repeat with a fresh
 // profile: S0 original (cold), S1 original (warm), S2 E1, S3 original again,
 // all through the worker API with the dependency pack. Every bundle is
-// compared byte for byte with the native `krs emit-k` oracle that
+// compared byte for byte with the compact native `krs emit-k` oracle that
 // regenerate-oracle.sh recorded in <oracle-dir>/oracle.toml.
 //
 // The gate refuses to compare (exit 3) when oracle.toml does not match the
@@ -108,6 +108,8 @@ if (sha256(readFileSync(patchPath)) !== oracle.oracle_e1.edit_patch_sha256) prob
 const oracleBytes = { base: new Uint8Array(readFileSync(oracle.oracle.bundle)), e1: new Uint8Array(readFileSync(oracle.oracle_e1.bundle)) };
 if (sha256(oracleBytes.base) !== oracle.oracle.bundle_sha256) problems.push(`${oracle.oracle.bundle} does not have the recorded sha256`);
 if (sha256(oracleBytes.e1) !== oracle.oracle_e1.bundle_sha256) problems.push(`${oracle.oracle_e1.bundle} does not have the recorded sha256`);
+if (oracleBytes.base.length !== oracle.oracle.bundle_bytes || oracleBytes.e1.length !== oracle.oracle_e1.bundle_bytes) problems.push("oracle bundle byte count differs from its record");
+if (oracleBytes.base.at(-1) !== 10 || oracleBytes.e1.at(-1) !== 10) problems.push("oracle bundle lacks the collector stdout newline");
 const embeddedHashes = (bytes: Uint8Array) =>
   [...new Set([...new TextDecoder().decode(bytes).matchAll(/"content_sha256":\s*"([0-9a-f]{64})"/g)].map((m) => m[1]!))].sort();
 const wantEmbedded = [current.krs_lib_rs_sha256, current.lesson_source_sha256].sort();

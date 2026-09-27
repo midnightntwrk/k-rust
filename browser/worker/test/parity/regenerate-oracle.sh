@@ -7,9 +7,10 @@
 #              exports, the Cargo target directories, and the two emit-k outputs.
 # ORACLE_TOML  where to write the provenance record (default OUT/oracle.toml).
 #
-# The native oracle is `krs emit-k` (inventory mode, native krs-macros) for
-# tests/tour-minimal at HEAD, and for the E1 edit (edit-e1.patch) applied to a
-# git export of HEAD. The fixture in the checkout is never modified: each
+# The native oracle is the stdout of the collector built by `krs emit-k`
+# (inventory mode, native krs-macros) for tests/tour-minimal at HEAD, and for
+# the E1 edit (edit-e1.patch) applied to a git export of HEAD.
+# The fixture in the checkout is never modified: each
 # export is mounted read-only over the checkout path in a private bwrap
 # namespace, because krs-cli finds the framework through its compile-time
 # CARGO_MANIFEST_DIR.
@@ -81,6 +82,10 @@ emit() { # NAME EXPORT
     "$KRS_BIN" emit-k --manifest-path "$REPO/tests/tour-minimal/Cargo.toml" \
     --package krs-tour-minimal --definition main --output "$OUT/$name" \
     >"$OUT/$name.stdout" 2>"$OUT/$name.stderr"
+  local collector
+  collector=$(find "$OUT/target-$name" -type f -path '*/debug/krs-generated-collector-*' -perm -u+x -print -quit)
+  [[ -x $collector ]] || { echo "no native collector built under $OUT/target-$name" >&2; exit 2; }
+  in_export "$export" env LD_LIBRARY_PATH="$Z3" "$collector" >"$OUT/$name/collector-stdout.json"
   echo $((SECONDS - started)) >"$OUT/$name.seconds"
 }
 
@@ -106,8 +111,13 @@ def tree(spec):
     return subprocess.check_output(["git", "-C", repo, "rev-parse", f"{rev}:{spec}"], text=True).strip()
 
 def record(name, lesson):
-    bundle = out / name / "descriptor-bundle.json"
-    data = json.loads(bundle.read_bytes())
+    pretty = out / name / "descriptor-bundle.json"
+    data = json.loads(pretty.read_bytes())
+    bundle = out / name / "collector-stdout.json"
+    if json.loads(bundle.read_bytes()) != data:
+        sys.exit(f"{name}: collector stdout differs from the pretty emit-k artifact")
+    if not bundle.read_bytes().endswith(b"\n"):
+        sys.exit(f"{name}: collector stdout lacks its trailing newline")
     kinds = Counter(d["descriptor_kind"] for d in data["descriptors"])
     return {
         "bundle": str(bundle),
@@ -154,7 +164,7 @@ for table, rec in (("oracle", base), ("oracle_e1", e1)):
     lines.append(f"[{table}.descriptor_kinds]")
     lines += [f"{k} = {v}" for k, v in rec["descriptor_kinds"].items()]
 Path(oracle_toml).write_text("\n".join(lines) + "\n")
-(out / "native-descriptor-bundle.sha256").write_text(f"{base['bundle_sha256']}  descriptor-bundle.json\n")
-(out / "native-e1-descriptor-bundle.sha256").write_text(f"{e1['bundle_sha256']}  descriptor-bundle.json\n")
+(out / "native-collector-stdout.sha256").write_text(f"{base['bundle_sha256']}  collector-stdout.json\n")
+(out / "native-e1-collector-stdout.sha256").write_text(f"{e1['bundle_sha256']}  collector-stdout.json\n")
 print(Path(oracle_toml).read_text())
 PY

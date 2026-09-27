@@ -17,7 +17,7 @@ const { values } = parseArgs({
     site: { type: "string", default: scratchPath("krs-browser-site") },
     out: { type: "string", default: scratchPath("krs-browser-run/evidence") },
     bundles: { type: "string" },
-    oracle: { type: "string", default: scratchPath("krs-browser-parity/oracle/descriptor-bundle.json") },
+    oracle: { type: "string", default: scratchPath("krs-browser-parity/oracle/native/collector-stdout.json") },
     firefox: { type: "string", default: firefoxBinary() },
     port: { type: "string" },
   },

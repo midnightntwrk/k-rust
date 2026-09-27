@@ -11,7 +11,7 @@ import type { ExpandResponse, LookupResponse, PolicyResponse } from "../../src/m
 import { runExpander, runLookup, runPolicy } from "../../src/modules.ts";
 import { packFromManifest, type SourcePackManifest } from "../../src/pack-manifest.ts";
 import { checkActivation, recomputePackId, sha256Hex } from "../../src/pack.ts";
-import { createBuild, injectMissingFactory, runBuild, stageAssets, stagePolicy, StageFailure } from "../../src/pipeline.ts";
+import { createBuild, injectMissingFactory, runBuild, stageAssets, stageBundle, stagePolicy, StageFailure } from "../../src/pipeline.ts";
 import type { CompileEvent, LessonManifest, PackManifest, VerifiedAssets } from "../../src/protocol.ts";
 import { classifyRustc, collectorInvocation, lessonInvocation, parseStderr, reportable } from "../../src/rustc.ts";
 import { parseSysrootBundle, readOnlyTree } from "../../src/vfs.ts";
@@ -64,6 +64,17 @@ describe("collector template", () => {
   test("equals krs-cli render_production_main (explicit) for the lesson package", () => {
     expect(renderCollectorMain(lesson)).toBe(fixture("collector-main.expected.rs"));
   });
+});
+
+test("bundle stage hashes the compact collector payload and requires its newline", async () => {
+  const pack = await adaptedPack();
+  const ctx = { pack, modules: {} as VerifiedAssets["modules"], layers: { sysroot: new Map(), pack: new Map(), krs: new Map() }, activationProblems: [] };
+  const build = createBuild(ctx, { generation: 1, lesson, files: {} }, { emit: () => {} });
+  const bytes = new TextEncoder().encode(`{"protocol_version":${pack.protocol_version},"descriptors":[],"declarations":[]}\n`);
+  build.stdout = bytes;
+  expect(await stageBundle(build)).toEqual({ bundle: bytes, sha256: await sha256Hex(bytes) });
+  build.stdout = bytes.slice(0, -1);
+  await expect(stageBundle(build)).rejects.toMatchObject({ stage: "bundle", code: "collector-error" });
 });
 
 test("worker rejects an unresolved lesson dependency as a protocol error", async () => {

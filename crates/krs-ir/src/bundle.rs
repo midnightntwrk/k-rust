@@ -137,46 +137,36 @@ impl DescriptorBundle {
         Ok(json)
     }
 
-    /// [`Self::to_canonical_json`] bytes, plus how many of them encode
-    /// descriptor `provenance` values. The bytes are identical; only the
-    /// count is extra, for measurement.
-    ///
-    /// # Errors
-    ///
-    /// Fails exactly when [`Self::to_canonical_json`] fails.
-    pub fn to_canonical_json_measured(&self) -> serde_json::Result<(Vec<u8>, u64)> {
-        let mut canonical = self.clone();
-        canonical.to_canonical_json_measured_in_place()
-    }
-
-    /// Serializes this owned collector bundle after canonicalizing it in place.
-    /// The result and provenance count match [`Self::to_canonical_json_measured`].
+    /// Serializes this owned bundle as compact collector protocol JSON with
+    /// one trailing newline and counts bytes encoding `provenance` values.
     ///
     /// # Errors
     ///
     /// Returns an error if the bundle cannot be encoded as JSON.
-    pub fn to_canonical_json_measured_in_place(&mut self) -> serde_json::Result<(Vec<u8>, u64)> {
+    pub fn to_collector_protocol_measured_in_place(
+        &mut self,
+    ) -> serde_json::Result<(Vec<u8>, u64)> {
         self.canonicalize();
         let mut writer = crate::measure::ProvenanceCountingWriter {
             bytes: Vec::with_capacity(self.json_capacity_hint()),
             provenance: 0,
         };
-        serde_json::to_writer_pretty(&mut writer, self)?;
+        serde_json::to_writer(&mut writer, self)?;
         writer.write_all(b"\n").map_err(serde_json::Error::io)?;
         Ok((writer.bytes, writer.provenance))
     }
 
-    /// Writes canonical, inspectable JSON while reordering this bundle in place.
+    /// Writes compact canonical collector protocol JSON while reordering this bundle in place.
     ///
     /// # Errors
     ///
     /// Returns an error if JSON encoding or the destination write fails.
-    pub fn write_canonical_json_in_place(
+    pub fn write_collector_protocol_in_place(
         &mut self,
         mut writer: impl Write,
     ) -> serde_json::Result<()> {
         self.canonicalize();
-        serde_json::to_writer_pretty(&mut writer, self)?;
+        serde_json::to_writer(&mut writer, self)?;
         writer.write_all(b"\n").map_err(serde_json::Error::io)
     }
 
@@ -187,9 +177,9 @@ impl DescriptorBundle {
             count.saturating_add(descriptor.provenance.origins().len())
         });
         origins
-            .saturating_mul(3 * 1024)
-            .saturating_add(self.descriptors.len().saturating_mul(8 * 1024))
-            .min(128 * 1024 * 1024)
+            .saturating_mul(1536)
+            .saturating_add(self.descriptors.len().saturating_mul(4 * 1024))
+            .min(64 * 1024 * 1024)
     }
 
     fn canonicalize(&mut self) {

@@ -126,42 +126,35 @@ fn populated_bundle_matches_golden() {
 }
 
 #[test]
-fn measured_canonical_json_is_identical_and_counts_provenance_values() {
+fn collector_protocol_matches_goldens_and_counts_provenance_values() {
+    let mut empty = DescriptorBundle::empty();
+    let mut empty_bytes = Vec::new();
+    empty
+        .write_collector_protocol_in_place(&mut empty_bytes)
+        .unwrap();
+    assert_eq!(
+        empty_bytes.as_slice(),
+        include_bytes!("golden/collector_empty_bundle.json")
+    );
+
     let bundle = populated_bundle(false);
-    let canonical = bundle.to_canonical_json().unwrap();
-    let (bytes, provenance) = bundle.to_canonical_json_measured().unwrap();
-    assert_eq!(bytes, canonical.as_bytes());
     let mut owned = bundle.clone();
-    let (in_place, in_place_provenance) = owned.to_canonical_json_measured_in_place().unwrap();
-    assert_eq!(in_place, bytes);
-    assert_eq!(in_place_provenance, provenance);
+    let (bytes, provenance) = owned.to_collector_protocol_measured_in_place().unwrap();
+    assert_eq!(
+        bytes.as_slice(),
+        include_bytes!("golden/collector_sort_constructors.json")
+    );
     let mut streamed = Vec::new();
     bundle
         .clone()
-        .write_canonical_json_in_place(&mut streamed)
+        .write_collector_protocol_in_place(&mut streamed)
         .unwrap();
     assert_eq!(streamed, bytes);
-    // Independently measure every `"provenance": {...}` value by brace matching;
-    // the fixture's provenance strings contain no braces.
-    let marker = "\"provenance\": ";
-    let mut expected = 0;
-    for (start, _) in canonical.match_indices(marker) {
-        let value = &canonical[start + marker.len()..];
-        let mut depth = 0usize;
-        for (index, character) in value.char_indices() {
-            match character {
-                '{' | '[' => depth += 1,
-                '}' | ']' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        expected += index + 1;
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
+    let expected: usize = bundle
+        .descriptors
+        .iter()
+        .map(|descriptor| serde_json::to_vec(&descriptor.provenance).unwrap().len())
+        .sum();
     assert!(expected > 0);
     assert_eq!(provenance, u64::try_from(expected).unwrap());
 }

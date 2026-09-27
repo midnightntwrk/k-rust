@@ -102,13 +102,13 @@
 //!   "schema": "krs-counters/1",
 //!   "command": "build",
 //!   "status": "ok",
-//!   "counters": { "bundle.bytes": 108011978, "descriptors.total": 1100 }
+//!   "counters": { "bundle.bytes": 12345, "descriptors.total": 1100 }
 //! }
 //! ```
 //!
 //! | Key | Meaning |
 //! |---|---|
-//! | `bundle.bytes` | collector stdout bytes (canonical pretty JSON) |
+//! | `bundle.bytes` | collector stdout bytes (compact canonical JSON, including the trailing newline) |
 //! | `bundle.provenance_bytes` | bytes of every descriptor `provenance` value in that stdout |
 //! | `bundle.other_bytes` | `bundle.bytes - bundle.provenance_bytes` |
 //! | `collector.host_descriptors` | host descriptors returned by the factories |
@@ -502,7 +502,7 @@ impl Drop for ProvenanceScope {
     }
 }
 
-/// A byte sink that also counts bytes written inside a [`ProvenanceScope`].
+/// A byte sink that counts provenance value bytes in the serialized pipe payload.
 pub(crate) struct ProvenanceCountingWriter {
     pub(crate) bytes: Vec<u8>,
     pub(crate) provenance: u64,

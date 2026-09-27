@@ -10,7 +10,8 @@ import { BrowserLesson } from '../../components/BrowserLesson'
 This lesson compiles the `tour-minimal` fixture from [What KRS defines](/start/what-krs-defines) on your own machine.
 The editor starts from the checked fixture source, byte for byte.
 Change it, press **Compile**, and KRS produces the definition's DescriptorBundle: the canonical, versioned record of every sort, constructor, configuration, and rule that the collector found.
-For the unedited source, that bundle is byte-identical to the one `krs emit-k` collects natively.
+The collector sends compact canonical JSON with one trailing newline to the worker, which hashes those exact bytes.
+For the unedited source, those bytes are identical to the native collector's stdout; `krs emit-k` writes the same bundle as a pretty `descriptor-bundle.json` artifact for inspection.
 
 <BrowserLesson />
 
@@ -25,7 +26,7 @@ After the one-time compiler download, every stage below runs inside a Web Worker
 | Macro expansion | Expands the KRS attribute and function-like macros to ordinary Rust, recording a source map back to your text. |
 | rustc | Compiles the expanded crate with a WebAssembly build of the Rust compiler. |
 | Link collector | Compiles and links the descriptor collector against your crate. |
-| Collect | Runs the collector, which reads your source and prints the DescriptorBundle. |
+| Collect | Runs the collector, which reads your source and writes compact canonical DescriptorBundle JSON. |
 | Bundle | Checks the bundle's protocol version and computes its SHA-256. |
 
 The compiler files are verified against their SHA-256 digests before use and are kept in the browser's cache, so later visits do not download them again.

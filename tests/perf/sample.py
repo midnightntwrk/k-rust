@@ -70,7 +70,7 @@ SPAN_FUNCTIONS: tuple[tuple[str, str], ...] = (
     ("collector.resolve", r"::collect_host_descriptors_with_builtins_timed$"),
     ("collector.resolve.provenance", r"::materialize_descriptor_provenance$"),
     ("collector.resolve.payload", r"::resolve_payload$"),
-    ("collector.serialize", r"DescriptorBundle>?::to_canonical_json(_measured)?$"),
+    ("collector.serialize", r"DescriptorBundle>?::to_collector_protocol_measured_in_place$"),
     ("collector.run", r"^krs_cli::command::run_collector$"),
     ("protocol.decode", r"DescriptorBundle as serde(_core)?::de::Deserialize>::deserialize$"),
     ("semantic.lower", r"^krs_cli::command::lower_semantic$"),

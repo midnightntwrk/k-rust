@@ -12,7 +12,7 @@ use krs_ir::{HostBuiltinRegistry, HostDescriptor};
 
 use super::{PackageContext, collect_host_descriptors_with_builtins_timed};
 
-/// Collect the host descriptors of `contexts` and write the canonical
+/// Collect the host descriptors of `contexts` and write compact canonical
 /// descriptor bundle JSON to stdout.
 ///
 /// Generated collectors call this once from `main`. When `krs` sets
@@ -84,7 +84,7 @@ where
     })?;
     if counters.is_enabled() {
         let json = timings.try_span("collector.serialize", |_| {
-            let (bytes, provenance) = bundle.to_canonical_json_measured_in_place()?;
+            let (bytes, provenance) = bundle.to_collector_protocol_measured_in_place()?;
             counters.set("bundle.provenance_bytes", provenance);
             Ok::<_, serde_json::Error>(bytes)
         })?;
@@ -98,7 +98,7 @@ where
         timings.try_span("collector.serialize", |_| -> Result<(), Box<dyn Error>> {
             let stdout = std::io::stdout().lock();
             let mut writer = BufWriter::with_capacity(64 * 1024, stdout);
-            bundle.write_canonical_json_in_place(&mut writer)?;
+            bundle.write_collector_protocol_in_place(&mut writer)?;
             writer.flush()?;
             Ok(())
         })?;

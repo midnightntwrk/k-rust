@@ -18,12 +18,15 @@ fn collect() -> Result<(), Box<dyn std::error::Error>> {
         &krs_tour_minimal::__KRS_REGISTRATIONS,
     ];
     let builtins = __krs_host_runtime::builtin_registry();
-    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(
+    let mut bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(
         contexts,
         __krs_host_runtime::host_descriptors_from(tables),
         &builtins,
     )?;
     use std::io::Write as _;
-    std::io::stdout().lock().write_all(bundle.to_canonical_json()?.as_bytes())?;
+    let stdout = std::io::stdout().lock();
+    let mut writer = std::io::BufWriter::with_capacity(64 * 1024, stdout);
+    bundle.write_collector_protocol_in_place(&mut writer)?;
+    writer.flush()?;
     Ok(())
 }

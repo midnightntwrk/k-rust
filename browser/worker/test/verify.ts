@@ -7,7 +7,7 @@
 // Prerequisites (defaults under the scratch root, harness/environment.ts): a
 // dependency pack (krs-browser-pack/pack) staged by bun scripts/stage-assets.ts
 // with the policy and expander modules, and the native oracle bundle
-// (krs-browser-parity/oracle/descriptor-bundle.json).
+// (krs-browser-parity/oracle/native/collector-stdout.json).
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

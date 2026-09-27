@@ -164,7 +164,7 @@ for run in collector-control:src-base D005:src-e1 D006:missing; do
   echo $? >"$CASES/$id/collector.exit"
   set -e
 done
-cmp "$CASES/collector-control/collector.stdout" "$ORACLE_DIR/native/descriptor-bundle.json"
+cmp "$CASES/collector-control/collector.stdout" "$ORACLE_DIR/native/collector-stdout.json"
 
 # ---------------------------------------------------------------- tour-minimal rustc variants
 
