@@ -23,6 +23,17 @@
 //!   or constrained leaf not shown feasible, `SolverUnknown`, and every path of a run with a
 //!   backend diagnostic `BackendLimit`, and an occurrence there is no witness.
 //!
+//! A test whose initial state has an element or set variable is symbolic: its verdict is a
+//! claim about every ground instance, and k-rust's answer supports that claim only while the
+//! definition's trusted claims (`total`, `functional`, `preserves-definedness`, lemmas, ...)
+//! hold. The baseline's are its author's, and every baseline test runs on the baseline as
+//! written. A mutant's patch can falsify them, so a mutant runs its symbolic tests on its
+//! withdrawn definition ([`kink_patch::ClaimSupport::withdraw`]): the patch plus the removal
+//! of every claim whose support the patch touched. A mutant whose patch writes a claim itself,
+//! or touches a lemma's support, has no such definition, and its symbolic tests are
+//! `Failed(UnsupportedClaims)`. A ground test compares two concrete runs, what the backend
+//! computed for each definition as written, so it runs on the mutant as written.
+//!
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
 //! mutants are the candidates of one folded generation derived from the campaign's own
@@ -41,7 +52,9 @@ use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, Executio
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
-use kink_patch::{CandidateDisposition, CandidateGeneration, Patch, SentenceRef};
+use kink_patch::{
+    CandidateDisposition, CandidateGeneration, ClaimSupport, Patch, SentenceRef, Withdrawal,
+};
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure, PatternOutcome,
@@ -144,9 +157,10 @@ pub struct TestCase {
 
 /// Everything a campaign runs against. Every compiled side executes `module`, observes
 /// `observed_rules` (resolved to that side's own rule identities), and classifies its
-/// ground terminal terms with `classify`. Test initial states with element or set
-/// variables are refused: a mutant can falsify trusted `total`, `functional`, or
-/// `preserves-definedness` claims, and claim withdrawal has not landed yet (KK-70).
+/// ground terminal terms with `classify`. A test whose initial state has an element or set
+/// variable, free or bound, is symbolic; a mutant runs it on its withdrawn definition (see the
+/// module documentation). Its terminal terms with free variables reach `classify` too (the
+/// bridge's contract then applies), but a state oracle over them is `Unknown`.
 pub struct Campaign<'a> {
     pub validator: &'a NativeValidator,
     pub module: &'a str,
@@ -289,19 +303,14 @@ pub fn run_campaign(
             "the generation was derived from another baseline than the validator's",
         ));
     }
-    if let Some(test) = campaign
+    let symbolic = campaign
         .tests
         .iter()
-        .find(|test| !test.initial_state.variable_occurrences().is_empty())
-    {
-        return Err(CampaignFailure::new(
-            CampaignFailureKind::SymbolicTestState,
-            format!(
-                "test {} has a symbolic initial state; a mutant can falsify trusted total, functional, or preserves-definedness claims before claim withdrawal (KK-70)",
-                test.id
-            ),
-        ));
-    }
+        .map(|test| !test.initial_state.variable_occurrences().is_empty())
+        .collect::<Vec<_>>();
+    let support = symbolic
+        .contains(&true)
+        .then(|| ClaimSupport::new(campaign.validator.baseline()));
 
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
@@ -327,17 +336,19 @@ pub fn run_campaign(
 
     let mut runs = Vec::with_capacity(generation.candidates().len());
     for (index, candidate) in generation.candidates().iter().enumerate() {
-        let (tests, mutant_failure, evidence) = run_mutant(
+        let (tests, mutant_failure, evidence, claims) = run_mutant(
             campaign,
             &candidate.patch,
             &baseline,
             &baseline_evidence,
             schedule,
+            (support.as_ref(), &symbolic),
         );
         let plan = MutantPlan {
             mutant_id: MutantId(index),
             tests,
             mutant_failure,
+            claims,
         };
         let report = derive_mutant_report(&plan, &manifest, schedule)?;
         runs.push(MutantRun {
@@ -384,8 +395,9 @@ fn admit(tests: &[TestCase], evidence: &[TestEvidence]) -> BaselineAdmission {
     admission
 }
 
-/// A mutant's tests, its mutant-scope failure, and its runs. Under `FirstKill` it stops
-/// after the first killing test and plans every later test as `SkippedAfterKill`.
+/// A mutant's tests, its mutant-scope failure, its runs and its claim withdrawal. Under
+/// `FirstKill` it stops after the first killing test and plans every later test as
+/// `SkippedAfterKill`.
 ///
 /// A mutant-scope failure overrides every test outcome, a kill included
 /// ([`derive_mutant_report`]). `FirstKill`'s early stop gives `Full`'s status only because no
@@ -400,22 +412,30 @@ fn run_mutant(
     compiled_baseline: &ValidatedDefinition,
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
-) -> (Vec<TestPlan>, Option<MutantScopeFailure>, Vec<TestEvidence>) {
-    match prepare_mutant(campaign, patch, compiled_baseline) {
-        Err(failure) => (Vec::new(), Some(failure), Vec::new()),
-        Ok(mut runtime) => {
-            let (tests, evidence) = run_tests(campaign, &mut runtime, baseline, schedule);
-            (tests, None, evidence)
+    (support, symbolic): (Option<&ClaimSupport>, &[bool]),
+) -> (
+    Vec<TestPlan>,
+    Option<MutantScopeFailure>,
+    Vec<TestEvidence>,
+    Withdrawal,
+) {
+    match prepare_mutant(campaign, patch, compiled_baseline, support) {
+        Err(failure) => (Vec::new(), Some(failure), Vec::new(), Withdrawal::default()),
+        Ok((mut sides, claims)) => {
+            let (tests, evidence) = run_tests(campaign, &mut sides, symbolic, baseline, schedule);
+            (tests, None, evidence, claims)
         }
     }
 }
 
-/// Validates and compiles the mutant side, or its mutant-scope failure.
+/// Validates and compiles the mutant side, then, when a test is symbolic (`support` is
+/// given), the side its symbolic tests run on; or the mutant-scope failure.
 fn prepare_mutant(
     campaign: &Campaign<'_>,
     patch: &Patch,
     compiled_baseline: &ValidatedDefinition,
-) -> Result<Runtime, MutantScopeFailure> {
+    support: Option<&ClaimSupport>,
+) -> Result<(MutantSides, Withdrawal), MutantScopeFailure> {
     let side = campaign
         .validator
         .validate(patch)
@@ -426,20 +446,77 @@ fn prepare_mutant(
         Err(_) => return Err(MutantScopeFailure::Infrastructure),
     }
     // The baseline resolved every position, so a failure here is the mutant side's.
-    Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)
+    let patched =
+        Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)?;
+    let Some(support) = support else {
+        return Ok((
+            MutantSides {
+                patched,
+                symbolic: SymbolicSide::Patched,
+            },
+            Withdrawal::default(),
+        ));
+    };
+    // The patch applied during validation, so it applies here too.
+    let claims = support
+        .withdraw(campaign.validator.baseline(), patch)
+        .map_err(|_| MutantScopeFailure::Infrastructure)?;
+    let symbolic = if !claims.trusted() {
+        SymbolicSide::Unsupported
+    } else if let Some(withdrawing) = claims.patch() {
+        match campaign.validator.validate(withdrawing) {
+            Ok(side) => SymbolicSide::Withdrawn(Box::new(
+                Runtime::prepare(campaign, &side)
+                    .map_err(|_| MutantScopeFailure::Infrastructure)?,
+            )),
+            Err(_) => SymbolicSide::Unsupported,
+        }
+    } else {
+        SymbolicSide::Patched
+    };
+    Ok((MutantSides { patched, symbolic }, claims))
+}
+
+/// A prepared mutant: the patched definition, and what its symbolic tests run on.
+struct MutantSides {
+    patched: Runtime,
+    symbolic: SymbolicSide,
+}
+
+enum SymbolicSide {
+    /// The patched definition: no test is symbolic, or the patch touched no claim's support.
+    Patched,
+    /// The withdrawn definition.
+    Withdrawn(Box<Runtime>),
+    /// No definition whose trusted claims are all supported: symbolic tests do not run.
+    Unsupported,
+}
+
+impl MutantSides {
+    fn run(&mut self, campaign: &Campaign<'_>, test: &TestCase, symbolic: bool) -> TestEvidence {
+        match (&mut self.symbolic, symbolic) {
+            (SymbolicSide::Withdrawn(runtime), true) => runtime.run(campaign, test),
+            (SymbolicSide::Unsupported, true) => TestEvidence {
+                test_id: test.id.clone(),
+                run: SideRun::Failed(ExecutionFailureKind::UnsupportedClaims),
+            },
+            _ => self.patched.run(campaign, test),
+        }
+    }
 }
 
 /// A prepared mutant's test plans and runs, in manifest order.
 fn run_tests(
     campaign: &Campaign<'_>,
-    runtime: &mut Runtime,
+    sides: &mut MutantSides,
+    symbolic: &[bool],
     baseline: &[TestEvidence],
     schedule: ScheduleMode,
 ) -> (Vec<TestPlan>, Vec<TestEvidence>) {
     let mut tests = Vec::with_capacity(campaign.tests.len());
     let mut evidence = Vec::with_capacity(campaign.tests.len());
     let mut killed = false;
-    for (test, baseline) in campaign.tests.iter().zip(baseline) {
+    for ((test, baseline), symbolic) in campaign.tests.iter().zip(baseline).zip(symbolic) {
         if killed {
             tests.push(TestPlan {
                 test_id: test.id.clone(),
@@ -447,7 +524,7 @@ fn run_tests(
             });
             continue;
         }
-        let mutant = runtime.run(campaign, test);
+        let mutant = sides.run(campaign, test, *symbolic);
         let run = match (&baseline.run, &mutant.run) {
             (_, SideRun::Failed(kind)) => TestRun::Failed(*kind),
             (

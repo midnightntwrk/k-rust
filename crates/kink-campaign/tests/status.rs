@@ -22,7 +22,8 @@ use kink_campaign::{
     score, validate_baseline,
 };
 use kink_patch::{
-    CandidateDisposition, Edit, Patch, SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
+    CandidateDisposition, Edit, Patch, SelectionPolicy, SiteSelector, TermRef, Withdrawal,
+    derive_sites, select,
 };
 
 use MutantStatus::{Equivalent, Error, Invalid, Killed, Survived, Timeout, Unknown};
@@ -77,6 +78,7 @@ fn plan(tests: Vec<TestPlan>) -> MutantPlan {
         mutant_id: MutantId(0),
         tests,
         mutant_failure: None,
+        claims: Withdrawal::default(),
     }
 }
 
@@ -193,6 +195,7 @@ fn mutant_status_is_derived_from_validation_then_oracle_outcomes() {
         };
         let plan = MutantPlan {
             mutant_failure,
+            claims: Withdrawal::default(),
             ..plan(tests)
         };
         for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
@@ -243,6 +246,7 @@ fn killed_cannot_fail_validation() {
     let declared = manifest(&[("t1", 2)]);
     let with_failure = |failure, tests| MutantPlan {
         mutant_failure: Some(failure),
+        claims: Withdrawal::default(),
         ..plan(tests)
     };
     let killed = with_failure(
@@ -306,6 +310,7 @@ fn every_failure_kind_maps_to_one_status() {
                 let derived = derive_mutant_report(
                     &MutantPlan {
                         mutant_failure: Some(kind),
+                        claims: Withdrawal::default(),
                         ..plan(tests)
                     },
                     &declared,
@@ -399,6 +404,7 @@ fn inconclusive_outcomes_fold_error_then_timeout_then_unknown() {
     for (id, mutant_failure, tests, expected, killing, first_kill_executed) in rows {
         let plan = MutantPlan {
             mutant_failure,
+            claims: Withdrawal::default(),
             ..plan(
                 tests
                     .iter()
@@ -512,6 +518,7 @@ fn tests_may_be_skipped_only_after_a_first_kill() {
     for (id, mutant_failure, tests, declared, first_kill, full) in rows {
         let plan = MutantPlan {
             mutant_failure,
+            claims: Withdrawal::default(),
             ..plan(tests)
         };
         let declared = manifest(declared);
@@ -594,6 +601,7 @@ fn plans_that_differ_from_the_manifest_are_rejected() {
     for (id, mutant_failure, tests, declared, expected) in rows {
         let plan = MutantPlan {
             mutant_failure,
+            claims: Withdrawal::default(),
             ..plan(tests)
         };
         for schedule in [ScheduleMode::FirstKill, ScheduleMode::Full] {
@@ -703,6 +711,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
                 mutant_id: MutantId(id),
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::EquivalentCompilation),
+                claims: Withdrawal::default(),
             };
         }
         Invalid => {
@@ -710,6 +719,7 @@ fn plan_for(status: MutantStatus, id: usize) -> MutantPlan {
                 mutant_id: MutantId(id),
                 tests: Vec::new(),
                 mutant_failure: Some(MutantScopeFailure::Rejected),
+                claims: Withdrawal::default(),
             };
         }
     };
