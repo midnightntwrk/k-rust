@@ -220,7 +220,9 @@ fn kore_exec_warns_when_a_returned_leaf_exhausts_its_simplification_budget() {
         .unwrap();
     assert_eq!(search.status.code(), Some(0));
     assert!(
-        String::from_utf8(search.stdout).unwrap().contains("g{}("),
+        String::from_utf8(search.stdout)
+            .unwrap()
+            .contains("held{}("),
         "search must still print its result"
     );
     assert_eq!(

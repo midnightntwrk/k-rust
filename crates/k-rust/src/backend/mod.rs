@@ -1934,7 +1934,7 @@ mod tests {
         assert_eq!(states["states"].as_array().unwrap().len(), 3, "{states:#}");
         assert_eq!(states["incomplete"], serde_json::json!([]));
         assert_eq!(
-            entry_at(&states["states"], None, "g{}(")["diagnostics"],
+            entry_at(&states["states"], None, "held{}(")["diagnostics"],
             term_exhausted_json()
         );
         assert!(
@@ -1948,7 +1948,7 @@ mod tests {
         );
         assert_eq!(paths["witnesses"].as_array().unwrap().len(), 3, "{paths:#}");
         assert_eq!(
-            entry_at(&paths["witnesses"], None, "g{}(")["diagnostics"],
+            entry_at(&paths["witnesses"], None, "held{}(")["diagnostics"],
             term_exhausted_json()
         );
         assert!(

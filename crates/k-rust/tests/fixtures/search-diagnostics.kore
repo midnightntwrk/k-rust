@@ -6,6 +6,7 @@ module MAIN
     symbol b{}() : SortS{} [constructor{}(), functional{}()]
     symbol c{}() : SortS{} [constructor{}(), functional{}()]
     symbol ok{}() : SortS{} [constructor{}(), functional{}()]
+    symbol held{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
     symbol g{}(SortS{}) : SortS{} [function{}(), functional{}()]
     symbol norm{}(SortS{}) : SortS{} [function{}()]
     symbol check{}(SortS{}) : SortS{} [function{}()]
@@ -32,7 +33,7 @@ module MAIN
     ) [label{}("check-ok")]
     axiom{} \rewrites{SortS{}}(
         \and{SortS{}}(start{}(), \top{SortS{}}()),
-        \and{SortS{}}(g{}(a{}()), \top{SortS{}}())
+        \and{SortS{}}(held{}(g{}(a{}())), \top{SortS{}}())
     ) [label{}("to-g")]
     axiom{} \rewrites{SortS{}}(
         \and{SortS{}}(start{}(), \top{SortS{}}()),
