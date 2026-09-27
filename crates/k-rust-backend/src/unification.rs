@@ -72,9 +72,14 @@ pub enum UnificationFailure {
 
 /// Unify all `pairs` under an existing partial substitution.
 ///
-/// Bindings are symmetric: variables from either side may be solved. Rigid constructors and sort
-/// injections are decomposed, as are equal `anywhere` heads whose applications are normal on
-/// every instance, while opaque function equations are retained as constraints. AC
+/// Bindings are symmetric: variables from either side may be solved. An equal-name application
+/// pair is replaced by its argument pairs when its head is a `constructor` (a declared axiom),
+/// an `anywhere` symbol whose two applications are normal on every instance (derived from the
+/// definition's equations), or any other symbol declared `injective` (a declared axiom that is
+/// not checked against those equations). This includes a non-`anywhere` `function` symbol with
+/// a user-written `injective` attribute. The `injective` attribute is ignored on `anywhere`
+/// symbols. Sort injections are also decomposed. Only constructor heads, domain values, and
+/// injections clash as distinct rigid heads; other equations are retained as constraints. AC
 /// collections are returned as unsupported so their dedicated multi-solution solvers can run.
 pub fn unify_term_pairs(
     definition: &BackendDefinition,
@@ -487,6 +492,43 @@ mod tests {
     }
 
     #[test]
+    fn decomposes_a_declared_injective_function_on_the_attribute() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol f{}(SortS{}) : SortS{}
+                    [function{}(), total{}(), injective{}()]
+            endmodule []"#,
+        )
+        .expect("injective function definition should parse");
+        let definition = BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("injective function definition should internalize");
+        let left = anywhere_term(&definition, "f{}(X:SortS{})");
+        let right = anywhere_term(&definition, "f{}(Y:SortS{})");
+        let TermKind::Application { symbol, .. } = left.kind() else {
+            panic!("f should be an application");
+        };
+        assert!(matches!(
+            symbol.attributes.symbol_type,
+            SymbolType::Function(_)
+        ));
+        assert!(symbol.attributes.injective);
+        assert!(!symbol.attributes.anywhere);
+
+        let UnificationResult::Unified(result) =
+            unify_term_pairs(&definition, Substitution::new(), [(left, right)])
+        else {
+            panic!("declared injectivity should decompose f(X) = f(Y)");
+        };
+        assert_eq!(
+            result.substitution,
+            Substitution::from([(variable("X"), var("Y"))])
+        );
+        assert!(result.constraints.is_empty());
+    }
+
+    #[test]
     fn binds_a_supersort_variable_to_the_injected_subsort_term() {
         let sub = Sort::simple("SortSub");
         let sup = Sort::simple("SortSup");
@@ -736,17 +778,22 @@ mod tests {
         }
     }
 
-    /// A variable argument is instance-normal, but the equation `wrap(s(z))` matches the
-    /// instance `X = s(z)`, so `wrap(X) = wrap(Y)` is not `X = Y`.
+    /// The declared `injective` on `wrap` is ignored: its equation matches the instance
+    /// `X = s(z)`, so `wrap(X) = wrap(Y)` remains a constraint rather than `X = Y`.
     #[test]
-    fn keeps_an_anywhere_pair_over_variables_an_equation_matches() {
-        let UnificationResult::Unified(result) =
-            unify_anywhere("wrap{}(X:SortNat{})", "wrap{}(Y:SortNat{})")
-        else {
+    fn ignores_injective_on_an_anywhere_symbol() {
+        let definition = anywhere_definition();
+        let left = anywhere_term(&definition, "wrap{}(X:SortNat{})");
+        let right = anywhere_term(&definition, "wrap{}(Y:SortNat{})");
+        let UnificationResult::Unified(result) = unify_term_pairs(
+            &definition,
+            Substitution::new(),
+            [(left.clone(), right.clone())],
+        ) else {
             panic!("wrap(X) = wrap(Y) should stay an equation");
         };
         assert!(result.substitution.is_empty(), "{result:?}");
-        assert_eq!(result.constraints.len(), 1, "{result:?}");
+        assert_eq!(result.constraints, [Predicate::Equals(left, right)]);
     }
 
     #[test]
