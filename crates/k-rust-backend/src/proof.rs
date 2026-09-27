@@ -42,6 +42,7 @@ use k_rust_kore::{
 };
 
 use crate::{
+    cancellation::cancellation_requested,
     claim::{ReachabilityClaim, ReachabilityMode},
     definedness::ceil_term,
     definition::BackendDefinition,
@@ -264,11 +265,18 @@ pub fn prove_claim(
         ProofSearchOrder::BreadthFirst => pending.pop_front(),
         ProofSearchOrder::DepthFirst => pending.pop_back(),
     } {
+        if cancellation_requested() {
+            return Ok(finish(leaves, explored_states, pending.len() as u64 + 1));
+        }
         explored_states += 1;
         measure::bump(Counter::ProofStatesExplored);
         let mut step_timer = timeout_controller.begin_step();
-        macro_rules! finish_if_timed_out {
+        macro_rules! finish_if_interrupted {
             () => {
+                if cancellation_requested() {
+                    step_timer.discard_measurement();
+                    return Ok(finish(leaves, explored_states, pending.len() as u64 + 1));
+                }
                 if let Some(mode) = step_timer.timed_out() {
                     step_timer.discard_measurement();
                     leaves.push(state.leaf(ProofLeafOutcome::TimedOut(mode)));
@@ -276,6 +284,7 @@ pub fn prove_claim(
                 }
             };
         }
+        finish_if_interrupted!();
         let simplified_constraints = simplify_predicates_with_solver(
             definition,
             &state.pattern.constraints,
@@ -283,7 +292,7 @@ pub fn prove_claim(
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
-        finish_if_timed_out!();
+        finish_if_interrupted!();
         state.pattern.constraints = match simplified_constraints {
             Ok(constraints) => constraints,
             Err(error) => {
@@ -305,7 +314,7 @@ pub fn prove_claim(
             SimplificationOptions::keep_partial(options.max_simplification_iterations),
             solver,
         );
-        finish_if_timed_out!();
+        finish_if_interrupted!();
         let simplified = match simplified {
             Ok(simplified) => simplified,
             Err(error) => {
@@ -350,7 +359,7 @@ pub fn prove_claim(
                 },
                 solver,
             );
-            finish_if_timed_out!();
+            finish_if_interrupted!();
             let implication = match implication {
                 // The check ran out of this thread's stack: the state cannot be decided here,
                 // and the rest of the proof can still be.
@@ -525,7 +534,7 @@ pub fn prove_claim(
                     solver,
                     &mut fresh_counter,
                 );
-                finish_if_timed_out!();
+                finish_if_interrupted!();
                 match transition {
                     ClaimApplication::NotApplicable => {}
                     ClaimApplication::Indeterminate(reason) => {
@@ -629,7 +638,7 @@ pub fn prove_claim(
                 false,
             ),
         };
-        finish_if_timed_out!();
+        finish_if_interrupted!();
         if dropped
             && matches!(
                 rewritten,

@@ -533,6 +533,12 @@ fn search_graph_collecting(
     // `(depth, simplified pattern)` expanded so far, so a configuration is expanded once per depth.
     // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
     while let Some(work) = pending.pop_front() {
+        if cancellation_requested() {
+            incomplete.push(IncompleteSearch::Cancelled(
+                work.materialize(&observation_log),
+            ));
+            break;
+        }
         let SearchWorkState {
             mut state,
             observation: mut observation_head,
@@ -1246,6 +1252,12 @@ fn search_paths_collecting(
 
     // Invariant: a queued path's `visited` is exactly its own patterns, so paths stay simple.
     while let Some(mut path) = pending.pop_front() {
+        if cancellation_requested() {
+            incomplete.push(IncompleteSearch::Cancelled(
+                path.materialize_state(&observation_log),
+            ));
+            break;
+        }
         let is_rewritable = matches!(path.kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = path.state.pattern.macro_or_alias_symbol() {
             incomplete.push(rewrite_incomplete(

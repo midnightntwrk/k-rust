@@ -364,6 +364,19 @@ impl RpcFault {
         }
     }
 
+    fn is_prelude_failure(&self) -> bool {
+        self.code == -32002
+            && self
+                .data
+                .as_ref()
+                .and_then(|data| data.get("error"))
+                .and_then(Value::as_str)
+                .is_some_and(|error| {
+                    error == "could not initialize Z3: InconsistentPrelude"
+                        || error.starts_with("could not initialize Z3: UnknownPrelude(")
+                })
+    }
+
     fn implication(error: impl Into<String>, context: Vec<String>) -> Self {
         let detail = ErrorDetail {
             error: error.into(),
@@ -511,7 +524,12 @@ impl RpcService {
                 data: Some(Value::String(method.into())),
             }),
         };
-        if cancellation_requested() {
+        if cancellation_requested()
+            && !result
+                .as_ref()
+                .err()
+                .is_some_and(RpcFault::is_prelude_failure)
+        {
             Err(RpcFault::cancelled())
         } else {
             result.map(|mut result| {
@@ -3439,6 +3457,49 @@ mod tests {
             "{fault:#}"
         );
         assert!(fault["error"]["data"].get("term").is_none(), "{fault:#}");
+    }
+
+    #[test]
+    fn execute_reports_a_prelude_failure_and_later_requests_keep_the_runtime_fault() {
+        let definition = parse_definition(include_str!(
+            "../tests/fixtures/inconsistent-smt-prelude-loop.kore"
+        ))
+        .unwrap();
+        let mut service = RpcService::new(BackendSession::new(definition, "MAIN"));
+        let state = |source: &str| encode_kore(&parse_pattern(source).unwrap()).unwrap();
+        let (sender, receiver) = mpsc::channel();
+        thread::spawn(move || {
+            let first = request(
+                &mut service,
+                1,
+                "execute",
+                json!({ "state": state("probe{}(X:SortInt{})") }),
+            );
+            let later = request(
+                &mut service,
+                2,
+                "execute",
+                json!({
+                    "state": state(r#"wrap{}(\dv{SortInt{}}("0"))"#),
+                    "max-depth": 0,
+                }),
+            );
+            sender.send((first, later)).unwrap();
+        });
+        let (first, later) = receiver
+            .recv_timeout(Duration::from_secs(20))
+            .expect("an SMT prelude failure must interrupt execution promptly");
+        for response in [first, later] {
+            assert_eq!(response["error"]["code"], -32002, "{response:#}");
+            assert_eq!(
+                response["error"]["message"], "Runtime error",
+                "{response:#}"
+            );
+            assert_eq!(
+                response["error"]["data"]["error"], "could not initialize Z3: InconsistentPrelude",
+                "{response:#}"
+            );
+        }
     }
 
     #[test]

@@ -344,6 +344,7 @@ A `haskell-logging` value that is not an array of strings fails parameter decodi
 The backend builds the SMT prelude when it selects a definition, but it may defer checking whether that prelude is satisfiable until an SMT answer depends on consistency.
 Every SMT query includes the whole prelude, so a `sat` answer establishes its consistency without a separate check.
 Before using the first `unsat` answer, the backend checks the prelude alone; an `unsat` or `unknown` result from that check fails the operation.
+When that check fails, the backend interrupts the active rewrite, search, or proof at its next cancellation point and reports the prelude error; later requests using the same solver report that error at entry.
 An `unknown` query answer establishes neither consistency nor inconsistency and does not trigger the prelude check.
 This is sound because the prelude constrains SMT answers only: an operation that uses no SMT answer has no result derived from it.
 

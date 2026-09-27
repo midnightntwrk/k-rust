@@ -10,6 +10,7 @@ use std::{
 
 thread_local! {
     static ACTIVE_TOKEN: RefCell<Option<CancellationToken>> = const { RefCell::new(None) };
+    static OPERATION_TOKENS: RefCell<Vec<CancellationToken>> = const { RefCell::new(Vec::new()) };
 }
 
 /// A cheaply clonable signal used to cancel one in-process backend request.
@@ -35,16 +36,26 @@ impl CancellationToken {
         let _restore = ActiveTokenGuard(previous);
         action()
     }
+
+    /// Add an operation-local signal without replacing an outer request cancellation token.
+    pub fn scope_operation<T>(&self, action: impl FnOnce() -> T) -> T {
+        OPERATION_TOKENS.with(|active| active.borrow_mut().push(self.clone()));
+        let _restore = OperationTokenGuard;
+        action()
+    }
 }
 
 /// Return whether the operation active on this thread has been cancelled.
 pub fn cancellation_requested() -> bool {
-    ACTIVE_TOKEN.with(|active| {
+    let outer_cancelled = ACTIVE_TOKEN.with(|active| {
         active
             .borrow()
             .as_ref()
             .is_some_and(CancellationToken::is_cancelled)
-    })
+    });
+    outer_cancelled
+        || OPERATION_TOKENS
+            .with(|active| active.borrow().iter().any(CancellationToken::is_cancelled))
 }
 
 struct ActiveTokenGuard(Option<CancellationToken>);
@@ -53,6 +64,16 @@ impl Drop for ActiveTokenGuard {
     fn drop(&mut self) {
         ACTIVE_TOKEN.with(|active| {
             active.replace(self.0.take());
+        });
+    }
+}
+
+struct OperationTokenGuard;
+
+impl Drop for OperationTokenGuard {
+    fn drop(&mut self) {
+        OPERATION_TOKENS.with(|active| {
+            active.borrow_mut().pop();
         });
     }
 }
@@ -83,5 +104,25 @@ mod tests {
         std::thread::spawn(move || signal.cancel()).join().unwrap();
 
         assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn operation_signal_composes_with_outer_cancellation_and_does_not_leak() {
+        let outer = CancellationToken::new();
+        let operation = CancellationToken::new();
+        outer.scope(|| {
+            operation.scope_operation(|| {
+                assert!(!cancellation_requested());
+                operation.cancel();
+                assert!(cancellation_requested());
+                assert!(!outer.is_cancelled());
+            });
+            assert!(!cancellation_requested());
+            let next = CancellationToken::new();
+            next.scope_operation(|| assert!(!cancellation_requested()));
+            outer.cancel();
+            next.scope_operation(|| assert!(cancellation_requested()));
+        });
+        assert!(!cancellation_requested());
     }
 }

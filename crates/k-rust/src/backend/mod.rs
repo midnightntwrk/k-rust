@@ -1038,7 +1038,7 @@ impl Backend {
                 "could not initialize Z3: {failure:?}"
             ))));
         }
-        let result = operation(&definition, solver);
+        let result = solver.scope_operation(|| operation(&definition, solver));
         if let Some(failure) = solver.prelude_failure() {
             return Err(E::from(BackendError(format!(
                 "could not initialize Z3: {failure:?}"

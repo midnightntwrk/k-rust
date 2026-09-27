@@ -259,6 +259,9 @@ impl<'a> Execution<'a> {
                 }
                 Err(leaf) => self.leaves.push(leaf),
             }
+            if cancellation_requested() {
+                break;
+            }
         }
     }
 

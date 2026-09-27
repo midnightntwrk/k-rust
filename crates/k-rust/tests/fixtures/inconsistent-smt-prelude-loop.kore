@@ -1,0 +1,24 @@
+[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("f")]
+  axiom{R} \implies{R}(
+    \top{R}(),
+    \equals{SortInt{}, R}(f{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
+  ) [simplification{}(), smt-lemma{}(), label{}("f-is-one")]
+  axiom{R} \implies{R}(
+    \top{R}(),
+    \equals{SortInt{}, R}(f{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("2"), \top{SortInt{}}()))
+  ) [simplification{}(), smt-lemma{}(), label{}("f-is-two")]
+  symbol probe{}(SortInt{}) : SortInt{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+  symbol done{}() : SortInt{} [function{}(), total{}(), no-evaluators{}()]
+  axiom{} \rewrites{SortInt{}}(
+    \and{SortInt{}}(probe{}(\dv{SortInt{}}("0")), \top{SortInt{}}()),
+    done{}()
+  ) [label{}("probe"), UNIQUE'Unds'ID{}("probe")]
+  symbol wrap{}(SortInt{}) : SortInt{} [function{}(), total{}(), injective{}(), no-evaluators{}()]
+  axiom{} \rewrites{SortInt{}}(
+    \and{SortInt{}}(wrap{}(X:SortInt{}), \top{SortInt{}}()),
+    wrap{}(X:SortInt{})
+  ) [label{}("loop"), UNIQUE'Unds'ID{}("loop")]
+endmodule []

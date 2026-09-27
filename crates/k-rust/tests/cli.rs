@@ -7,6 +7,8 @@ use std::{
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::{Duration, Instant},
 };
 
 use k_rust::kore::{ast::Pattern, parser::parse_definition, parser::parse_pattern};
@@ -54,6 +56,27 @@ fn fixture() -> (PathBuf, PathBuf) {
     (root, definition)
 }
 
+fn output_with_watchdog(mut command: Command) -> Output {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if child.try_wait().unwrap().is_some() {
+            return child.wait_with_output().unwrap();
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            let output = child.wait_with_output().unwrap();
+            panic!("backend operation exceeded the watchdog: {output:?}");
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn kore_exec_zero_query_run_accepts_an_inconsistent_smt_prelude() {
     let (root, definition) = fixture();
@@ -79,6 +102,74 @@ fn kore_exec_zero_query_run_accepts_an_inconsistent_smt_prelude() {
         .unwrap();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(output.stdout, b"\\dv{SortInt{}}(\"1\")\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kore_exec_stops_after_a_prelude_failure_before_an_unbounded_sibling() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        include_str!("fixtures/inconsistent-smt-prelude-loop.kore"),
+    )
+    .unwrap();
+    let initial = root.join("initial.kore");
+    fs::write(
+        &initial,
+        r#"\or{SortInt{}}(probe{}(X:SortInt{}), wrap{}(\dv{SortInt{}}("0")))"#,
+    )
+    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "kore-exec",
+        definition.to_str().unwrap(),
+        "--module",
+        "MAIN",
+        "--pattern",
+        initial.to_str().unwrap(),
+    ]);
+    let output = output_with_watchdog(command);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.stdout, b"");
+    assert_eq!(
+        output.stderr,
+        b"error: could not initialize Z3: InconsistentPrelude\n"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn krun_reports_a_prelude_failure_with_an_unbounded_rewrite_rule() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        include_str!("fixtures/inconsistent-smt-prelude-loop.k"),
+    )
+    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "krun",
+        definition.to_str().unwrap(),
+        "--main-module",
+        "LIVENESS-KRUN",
+        "--syntax-module",
+        "LIVENESS-KRUN",
+        "--sort",
+        "State",
+        "--expression",
+        "start(f(0))",
+        "--strategy",
+        "all",
+        "--io",
+        "off",
+    ]);
+    let output = output_with_watchdog(command);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.stdout, b"");
+    assert_eq!(
+        output.stderr,
+        b"error: could not initialize Z3: InconsistentPrelude\n"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -9212,6 +9303,59 @@ endmodule
     assert!(
         !String::from_utf8_lossy(&output.stdout).contains("claim solver-refuted:"),
         "a prelude failure must not become a proof verdict: {output:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn kprove_stops_an_unbounded_proof_after_a_prelude_failure() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("probe.k"),
+        r#"
+module PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= st(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> st(X) => st(X +Int 1) </k>
+endmodule
+"#,
+    )
+    .unwrap();
+    let specification = root.join("probe-spec.k");
+    fs::write(
+        &specification,
+        r#"
+requires "probe.k"
+module PROBE-SPEC
+  imports PROBE
+  claim <k> st(X) => st(0) </k> requires X >Int 5 [label(probe)]
+endmodule
+"#,
+    )
+    .unwrap();
+    let prelude = root.join("inconsistent.smt2");
+    fs::write(&prelude, "(assert false)\n").unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+    command.args([
+        "kprove",
+        specification.to_str().unwrap(),
+        "--main-module",
+        "PROBE-SPEC",
+        "--definition-module",
+        "PROBE",
+        "--claim",
+        "probe",
+        "--smt-prelude",
+        prelude.to_str().unwrap(),
+    ]);
+    let output = output_with_watchdog(command);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert_eq!(output.stdout, b"");
+    assert_eq!(
+        output.stderr,
+        b"error: the definitions sent to the solver are inconsistent\n"
     );
     fs::remove_dir_all(root).unwrap();
 }
