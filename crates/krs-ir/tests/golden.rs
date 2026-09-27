@@ -131,6 +131,16 @@ fn measured_canonical_json_is_identical_and_counts_provenance_values() {
     let canonical = bundle.to_canonical_json().unwrap();
     let (bytes, provenance) = bundle.to_canonical_json_measured().unwrap();
     assert_eq!(bytes, canonical.as_bytes());
+    let mut owned = bundle.clone();
+    let (in_place, in_place_provenance) = owned.to_canonical_json_measured_in_place().unwrap();
+    assert_eq!(in_place, bytes);
+    assert_eq!(in_place_provenance, provenance);
+    let mut streamed = Vec::new();
+    bundle
+        .clone()
+        .write_canonical_json_in_place(&mut streamed)
+        .unwrap();
+    assert_eq!(streamed, bytes);
     // Independently measure every `"provenance": {...}` value by brace matching;
     // the fixture's provenance strings contain no braces.
     let marker = "\"provenance\": ";

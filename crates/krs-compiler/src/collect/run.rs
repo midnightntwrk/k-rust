@@ -1,7 +1,7 @@
 //! The body of a generated production collector executable.
 
 use std::error::Error;
-use std::io::Write as _;
+use std::io::{BufWriter, Write as _};
 use std::path::PathBuf;
 
 use krs_ir::measure::{
@@ -79,23 +79,30 @@ where
     });
     counters.set("collector.host_descriptors", descriptors.len());
     let builtins = timings.span("collector.builtins", |_| builtins());
-    let bundle = timings.try_span("collector.resolve", |timings| {
+    let mut bundle = timings.try_span("collector.resolve", |timings| {
         collect_host_descriptors_with_builtins_timed(contexts, descriptors, &builtins, timings)
     })?;
-    let json = timings.try_span("collector.serialize", |_| {
-        if counters.is_enabled() {
-            let (bytes, provenance) = bundle.to_canonical_json_measured()?;
+    if counters.is_enabled() {
+        let json = timings.try_span("collector.serialize", |_| {
+            let (bytes, provenance) = bundle.to_canonical_json_measured_in_place()?;
             counters.set("bundle.provenance_bytes", provenance);
-            Ok(bytes)
-        } else {
-            bundle.to_canonical_json().map(String::into_bytes)
-        }
-    })?;
-    timings.try_span("collector.write", |_| {
-        let mut stdout = std::io::stdout().lock();
-        stdout.write_all(&json)?;
-        stdout.flush()
-    })?;
-    timings.span("collector.release", |_| drop((bundle, json, builtins)));
+            Ok::<_, serde_json::Error>(bytes)
+        })?;
+        timings.try_span("collector.write", |_| {
+            let mut stdout = std::io::stdout().lock();
+            stdout.write_all(&json)?;
+            stdout.flush()
+        })?;
+        timings.span("collector.release", |_| drop((bundle, json, builtins)));
+    } else {
+        timings.try_span("collector.serialize", |_| -> Result<(), Box<dyn Error>> {
+            let stdout = std::io::stdout().lock();
+            let mut writer = BufWriter::with_capacity(64 * 1024, stdout);
+            bundle.write_canonical_json_in_place(&mut writer)?;
+            writer.flush()?;
+            Ok(())
+        })?;
+        timings.span("collector.release", |_| drop((bundle, builtins)));
+    }
     Ok(())
 }

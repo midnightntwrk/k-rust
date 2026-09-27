@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
+use std::io::Write;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -145,14 +146,50 @@ impl DescriptorBundle {
     /// Fails exactly when [`Self::to_canonical_json`] fails.
     pub fn to_canonical_json_measured(&self) -> serde_json::Result<(Vec<u8>, u64)> {
         let mut canonical = self.clone();
-        canonical.canonicalize();
+        canonical.to_canonical_json_measured_in_place()
+    }
+
+    /// Serializes this owned collector bundle after canonicalizing it in place.
+    /// The result and provenance count match [`Self::to_canonical_json_measured`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bundle cannot be encoded as JSON.
+    pub fn to_canonical_json_measured_in_place(&mut self) -> serde_json::Result<(Vec<u8>, u64)> {
+        self.canonicalize();
         let mut writer = crate::measure::ProvenanceCountingWriter {
-            bytes: Vec::with_capacity(128),
+            bytes: Vec::with_capacity(self.json_capacity_hint()),
             provenance: 0,
         };
-        serde_json::to_writer_pretty(&mut writer, &canonical)?;
-        writer.bytes.push(b'\n');
+        serde_json::to_writer_pretty(&mut writer, self)?;
+        writer.write_all(b"\n").map_err(serde_json::Error::io)?;
         Ok((writer.bytes, writer.provenance))
+    }
+
+    /// Writes canonical, inspectable JSON while reordering this bundle in place.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if JSON encoding or the destination write fails.
+    pub fn write_canonical_json_in_place(
+        &mut self,
+        mut writer: impl Write,
+    ) -> serde_json::Result<()> {
+        self.canonicalize();
+        serde_json::to_writer_pretty(&mut writer, self)?;
+        writer.write_all(b"\n").map_err(serde_json::Error::io)
+    }
+
+    fn json_capacity_hint(&self) -> usize {
+        // Provenance nodes dominate large collector bundles. This estimate
+        // reserves the observed order of magnitude without inspecting strings.
+        let origins = self.descriptors.iter().fold(0usize, |count, descriptor| {
+            count.saturating_add(descriptor.provenance.origins().len())
+        });
+        origins
+            .saturating_mul(3 * 1024)
+            .saturating_add(self.descriptors.len().saturating_mul(8 * 1024))
+            .min(128 * 1024 * 1024)
     }
 
     fn canonicalize(&mut self) {

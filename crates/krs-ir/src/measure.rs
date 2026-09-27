@@ -510,13 +510,18 @@ pub(crate) struct ProvenanceCountingWriter {
 
 impl io::Write for ProvenanceCountingWriter {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.write_all(buffer)?;
+        Ok(buffer.len())
+    }
+
+    fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
         if PROVENANCE_DEPTH.with(Cell::get) > 0 {
             self.provenance = self
                 .provenance
                 .saturating_add(u64::try_from(buffer.len()).unwrap_or(u64::MAX));
         }
         self.bytes.extend_from_slice(buffer);
-        Ok(buffer.len())
+        Ok(())
     }
 
     fn flush(&mut self) -> io::Result<()> {
