@@ -4,6 +4,7 @@ set -euo pipefail
 workspace=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 script="$workspace/scripts/benchmark.sh"
 manifest="$workspace/scripts/reference-differential.toml"
+canonical_data="$workspace/scripts/benchmark-canonical.json"
 
 K_CHECKOUT=${K_CHECKOUT:-"$workspace/k"}
 IMP_SEMANTICS_CHECKOUT=${IMP_SEMANTICS_CHECKOUT:-"$workspace/imp-semantics"}
@@ -20,7 +21,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/benchmark.sh [OPTIONS]
 
-Compare release-mode krust with canonical K's Haskell backend.
+Compare release-mode krust with recorded canonical K/Haskell measurements.
 
 Options:
   --suite imp|kevm|all       Benchmark suite (default: all)
@@ -31,13 +32,14 @@ Options:
   --warmup N                 Override the suite/phase warmup count
   --output DIR               Result directory (default: target/benchmarks/results/TIMESTAMP)
   --skip-preflight           Skip untimed correctness runs
-  --allow-unpinned           Permit source/tool revisions other than the manifest pins
+  --measure-canonical        Measure canonical K and refresh its recorded figures
+  --allow-unpinned           Permit unpinned sources for krust-only exploratory cases
   --dry-run                  Print the resolved benchmark commands without running them
   --list                     List benchmark cases
   -h, --help                 Show this help
 
-Required tools: hyperfine, a release krust binary, and matching canonical
-kompile/kprove executables selected with K_KOMPILE and K_KPROVE.
+Required tools: hyperfine, jq, and a release krust binary. --measure-canonical
+also requires matching kompile/kprove selected with K_KOMPILE and K_KPROVE.
 
 Peak memory of each run's whole process tree is recorded when a user systemd
 manager can delegate a cgroup v2 scope; otherwise it is reported as unknown.
@@ -554,6 +556,82 @@ check_git_pin() {
   fi
 }
 
+recorded_case() {
+  local suite=$1
+  local case_name=$2
+  [[ -f "$canonical_data" ]] || fail "recorded canonical data is missing: $canonical_data"
+  jq -e \
+    --arg suite "$suite" --arg case_name "$case_name" \
+    --arg k "$(manifest_value reference.k revision)" \
+    --arg imp "$(manifest_value reference.imp revision)" \
+    --arg kevm "$(manifest_value reference.kevm revision)" \
+    --arg plugin "$(manifest_value reference.kevm-plugin revision)" \
+    --arg version "$(manifest_value reference.k version)" \
+    --arg k_opts "$REFERENCE_K_OPTS" --arg ghcrts "$GHCRTS" \
+    '.schema_version == 1 and
+     (.cases[$suite][$case_name] as $c |
+       $c != null and $c.provenance.pins == {k:$k, imp:$imp, kevm:$kevm, kevm_plugin:$plugin} and
+       $c.provenance.k_version == $version and
+       $c.provenance.K_OPTS == $k_opts and $c.provenance.GHCRTS == $ghcrts and
+       ($c.result.times | length) == $c.result.run_count and
+       $c.result.run_count > 0 and $c.result.mean > 0)' \
+    "$canonical_data" >/dev/null || fail "recorded canonical $suite/$case_name is missing or its pins, K version, K_OPTS, or GHCRTS differ; run --measure-canonical to refresh it"
+}
+
+inject_recorded_canonical() {
+  local suite=$1
+  local case_name=$2
+  local result_json=$3
+  local temporary
+  temporary=$(mktemp "$result_json.XXXXXX")
+  jq --slurpfile data "$canonical_data" --arg suite "$suite" --arg case_name "$case_name" '
+    ($data[0].cases[$suite][$case_name]) as $recorded
+    | ($recorded.result + {command:"canonical-haskell"}) as $canonical
+    | (.results[0]) as $rust
+    | .results += [$canonical]
+    | .canonical_source = {kind:"recorded", provenance:$recorded.provenance}
+    | .speedup = ($canonical.mean / $rust.mean)
+    | .krust_over_canonical = {
+        mean_time: ($rust.mean / $canonical.mean),
+        tree_peak_median: (if $rust.peak_memory.tree_peak_median_bytes == null or
+                              $canonical.peak_memory.tree_peak_median_bytes == null then null
+                           else $rust.peak_memory.tree_peak_median_bytes /
+                                $canonical.peak_memory.tree_peak_median_bytes end)
+      }
+  ' "$result_json" >"$temporary"
+  mv "$temporary" "$result_json"
+}
+
+refresh_recorded_canonical() {
+  local suite=$1
+  local case_name=$2
+  local result_dir=$3
+  local temporary
+  temporary=$(mktemp "$canonical_data.XXXXXX")
+  jq --slurpfile result "$result_dir/results.json" --slurpfile metadata "$result_dir/metadata.json" \
+    --arg suite "$suite" --arg case_name "$case_name" \
+    --arg source_result_set "${results_root##*/}" \
+    --arg k "$(manifest_value reference.k revision)" \
+    --arg imp "$(manifest_value reference.imp revision)" \
+    --arg kevm "$(manifest_value reference.kevm revision)" \
+    --arg plugin "$(manifest_value reference.kevm-plugin revision)" \
+    --arg version "$(manifest_value reference.k version)" '
+    ($result[0].results | map(select(.command == "canonical-haskell"))[0]) as $canonical
+    | $metadata[0] as $meta
+    | .cases[$suite][$case_name] = {
+        provenance: {
+          measured_at: $meta.timestamp, source_result_set: $source_result_set,
+          host: $meta.host, k_version: $version,
+          pins: {k:$k, imp:$imp, kevm:$kevm, kevm_plugin:$plugin},
+          K_OPTS: $meta.environment.K_OPTS, GHCRTS: $meta.environment.GHCRTS,
+          memory_method: $meta.memory_method, hyperfine_version: $meta.tools.hyperfine
+        },
+        result: ($canonical | {mean,stddev,median,min,max,times,peak_memory} + {run_count:(.times | length)})
+      }
+  ' "$canonical_data" >"$temporary"
+  mv "$temporary" "$canonical_data"
+}
+
 check_tools_and_sources() {
   local expected_k_revision
   local expected_k_version
@@ -563,18 +641,24 @@ check_tools_and_sources() {
   expected_k_revision=$(manifest_value reference.k revision)
   check_git_pin K "$K_CHECKOUT" "$expected_k_revision"
   configure_suite "$1"
-  if [[ -z "$K_KOMPILE" ]]; then
-    K_KOMPILE=$(command -v kompile || true)
-  fi
-  [[ -n "$K_KOMPILE" && -x "$K_KOMPILE" ]] || fail "set K_KOMPILE to canonical K's kompile executable"
-  if [[ -z "$K_KPROVE" ]]; then
-    K_KPROVE="$(dirname "$K_KOMPILE")/kprove"
-  fi
-  [[ -x "$K_KPROVE" ]] || fail "set K_KPROVE to the matching canonical kprove executable"
   expected_k_version=$(manifest_value reference.k version)
-  actual_k_version=$($K_KOMPILE --version | sed -n 's/^K version:[[:space:]]*//p')
+  [[ -f "$K_CHECKOUT/result/lib/kframework/version" ]] || fail "K version file is missing"
+  actual_k_version=$(<"$K_CHECKOUT/result/lib/kframework/version")
+  actual_k_version="v${actual_k_version#v}"
   if [[ "$actual_k_version" != "$expected_k_version" && "$allow_unpinned" != 1 ]]; then
     fail "canonical K is ${actual_k_version:-unknown}; expected $expected_k_version"
+  fi
+  if [[ "$measure_canonical" == 1 ]]; then
+    if [[ -z "$K_KOMPILE" ]]; then
+      K_KOMPILE=$(command -v kompile || true)
+    fi
+    [[ -n "$K_KOMPILE" && -x "$K_KOMPILE" ]] || fail "set K_KOMPILE to canonical K's kompile executable"
+    if [[ -z "$K_KPROVE" ]]; then
+      K_KPROVE="$(dirname "$K_KOMPILE")/kprove"
+    fi
+    [[ -x "$K_KPROVE" ]] || fail "set K_KPROVE to the matching canonical kprove executable"
+    actual_k_version=$($K_KOMPILE --version | sed -n 's/^K version:[[:space:]]*//p')
+    [[ "$actual_k_version" == "$expected_k_version" ]] || fail "canonical executable is ${actual_k_version:-unknown}; expected $expected_k_version"
   fi
   check_git_pin "$source_name" "$source_checkout" "$expected_source_revision"
   if [[ "$1" == kevm ]]; then
@@ -595,7 +679,7 @@ write_metadata() {
   local cpu=unknown
   local memory=unknown
   local canonical_version
-  canonical_version=$($K_KOMPILE --version | tr '\n' ' ')
+  canonical_version="$(manifest_value reference.k version) (from $K_CHECKOUT/result/lib/kframework/version)"
   if command -v sysctl >/dev/null 2>&1; then
     cpu=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo unknown)
     memory=$(sysctl -n hw.memsize 2>/dev/null || echo unknown)
@@ -787,16 +871,26 @@ benchmark_pair() {
   local rust_command
   local canonical_prepare=
   local rust_prepare=
-  canonical_command=$(command_for "$phase" canonical-haskell "$suite" "$work" "$claim")
+  if [[ "$measure_canonical" == 1 ]]; then
+    canonical_command=$(command_for "$phase" canonical-haskell "$suite" "$work" "$claim")
+  elif [[ "$dry_run" != 1 ]]; then
+    recorded_case "$suite" "$case_name"
+  fi
   rust_command=$(command_for "$phase" krust "$suite" "$work" "$claim")
   if [[ "$phase" == compile ]]; then
-    canonical_prepare=$(shell_command "$script" __prepare-compile canonical-haskell "$suite" "$work")
+    if [[ "$measure_canonical" == 1 ]]; then
+      canonical_prepare=$(shell_command "$script" __prepare-compile canonical-haskell "$suite" "$work")
+    fi
     rust_prepare=$(shell_command "$script" __prepare-compile krust "$suite" "$work")
   fi
   mkdir -p "$result_dir" "$work"
   {
-    [[ -z "$canonical_prepare" ]] || printf 'canonical-haskell prepare: %s\n' "$canonical_prepare"
-    printf 'canonical-haskell: %s\n' "$canonical_command"
+    if [[ "$measure_canonical" == 1 ]]; then
+      [[ -z "$canonical_prepare" ]] || printf 'canonical-haskell prepare: %s\n' "$canonical_prepare"
+      printf 'canonical-haskell: %s\n' "$canonical_command"
+    else
+      printf 'canonical-haskell: recorded from %s (%s/%s)\n' "$canonical_data" "$suite" "$case_name"
+    fi
     [[ -z "$rust_prepare" ]] || printf 'krust prepare: %s\n' "$rust_prepare"
     printf 'krust: %s\n' "$rust_command"
   } >"$result_dir/commands.txt"
@@ -805,7 +899,7 @@ benchmark_pair() {
     cat "$result_dir/commands.txt"
     return
   fi
-  if [[ "$phase" == prove && ! -d "$work/reference-definition" ]]; then
+  if [[ "$measure_canonical" == 1 && "$phase" == prove && ! -d "$work/reference-definition" ]]; then
     echo "[$suite] preparing canonical Haskell definition"
     "$script" __prepare-proof "$suite" "$work"
   fi
@@ -815,7 +909,9 @@ benchmark_pair() {
   fi
   if [[ "$skip_preflight" != 1 ]]; then
     echo "[$suite:$case_name] correctness preflight"
-    "$script" __check "$phase" canonical-haskell "$suite" "$work" "$claim" >"$result_dir/canonical-preflight.log" 2>&1
+    if [[ "$measure_canonical" == 1 ]]; then
+      "$script" __check "$phase" canonical-haskell "$suite" "$work" "$claim" >"$result_dir/canonical-preflight.log" 2>&1
+    fi
     "$script" __check "$phase" krust "$suite" "$work" "$claim" >"$result_dir/krust-preflight.log" 2>&1
   fi
   write_metadata "$suite" "$case_name" "$result_dir"
@@ -826,16 +922,32 @@ benchmark_pair() {
     --runs "$selected_runs" \
     --warmup "$selected_warmup" \
   )
-  canonical_prepare=$(prepare_with_memory canonical-haskell "$canonical_prepare")
+  if [[ "$measure_canonical" == 1 ]]; then
+    canonical_prepare=$(prepare_with_memory canonical-haskell "$canonical_prepare")
+  fi
   rust_prepare=$(prepare_with_memory krust "$rust_prepare")
-  [[ -z "$canonical_prepare" ]] || hyperfine_args+=(--prepare "$canonical_prepare")
+  if [[ "$measure_canonical" == 1 && -n "$canonical_prepare" ]]; then
+    hyperfine_args+=(--prepare "$canonical_prepare")
+  fi
   [[ -z "$rust_prepare" ]] || hyperfine_args+=(--prepare "$rust_prepare")
-  run_hyperfine "$result_dir" $((2 * (selected_runs + selected_warmup))) "${hyperfine_args[@]}" \
-    --command-name canonical-haskell "$canonical_command" \
-    --command-name krust "$rust_command" \
-    --export-json "$result_dir/results.json" \
-    --export-markdown "$result_dir/results.md"
+  if [[ "$measure_canonical" == 1 ]]; then
+    run_hyperfine "$result_dir" $((2 * (selected_runs + selected_warmup))) "${hyperfine_args[@]}" \
+      --command-name canonical-haskell "$canonical_command" \
+      --command-name krust "$rust_command" \
+      --export-json "$result_dir/results.json" \
+      --export-markdown "$result_dir/results.md"
+  else
+    run_hyperfine "$result_dir" $((selected_runs + selected_warmup)) "${hyperfine_args[@]}" \
+      --command-name krust "$rust_command" \
+      --export-json "$result_dir/results.json" \
+      --export-markdown "$result_dir/results.md"
+  fi
   record_memory "$result_dir" "$selected_warmup" "$selected_runs"
+  if [[ "$measure_canonical" == 1 ]]; then
+    refresh_recorded_canonical "$suite" "$case_name" "$result_dir"
+  else
+    inject_recorded_canonical "$suite" "$case_name" "$result_dir/results.json"
+  fi
   append_summary "$suite" "$case_name" "$result_dir/results.json"
 }
 
@@ -961,6 +1073,7 @@ runs_override=
 warmup_override=
 results_root=
 skip_preflight=0
+measure_canonical=0
 allow_unpinned=${BENCHMARK_ALLOW_UNPINNED:-0}
 dry_run=0
 list_only=0
@@ -974,6 +1087,7 @@ while (($#)); do
     --warmup) warmup_override=${2:?}; shift 2 ;;
     --output) results_root=${2:?}; shift 2 ;;
     --skip-preflight) skip_preflight=1; shift ;;
+    --measure-canonical) measure_canonical=1; shift ;;
     --allow-unpinned) allow_unpinned=1; shift ;;
     --dry-run) dry_run=1; shift ;;
     --list) list_only=1; shift ;;
@@ -986,6 +1100,7 @@ case "$suite" in imp|kevm|all) ;; *) fail "--suite must be imp, kevm, or all" ;;
 case "$phase" in compile|spec-compile|load|execute|prove|all) ;; *) fail "unknown --phase: $phase" ;; esac
 [[ -z "$runs_override" || "$runs_override" =~ ^[1-9][0-9]*$ ]] || fail "--runs must be positive"
 [[ -z "$warmup_override" || "$warmup_override" =~ ^[0-9]+$ ]] || fail "--warmup must be non-negative"
+[[ "$measure_canonical" != 1 || "$allow_unpinned" != 1 ]] || fail "--measure-canonical cannot refresh pinned data with --allow-unpinned"
 if [[ -n "$claim_override" ]]; then
   [[ "$suite" != all ]] || fail "--claim requires --suite imp or --suite kevm"
   [[ "$phase" == prove || "$phase" == execute || "$phase" == all ]] || fail "--claim requires a proof phase"
@@ -1037,6 +1152,10 @@ if [[ "$phase" == all ]]; then phases=(compile spec-compile load execute prove);
 
 if [[ "$dry_run" != 1 ]]; then
   command -v jq >/dev/null 2>&1 || fail "jq is required to record benchmark metadata"
+  if [[ "$measure_canonical" != 1 && "$allow_unpinned" == 1 &&
+        ( "$phase" == compile || "$phase" == prove || "$phase" == all ) ]]; then
+    fail "recorded canonical comparisons require pinned sources; --allow-unpinned is only for krust-only phases"
+  fi
   for selected_suite in "${suites[@]}"; do
     check_tools_and_sources "$selected_suite"
   done
@@ -1058,6 +1177,13 @@ if [[ "$dry_run" != 1 ]]; then
   fi
   cat >"$results_root/summary.md" <<EOF
 # krust versus canonical K/Haskell
+
+$(if [[ "$measure_canonical" == 1 ]]; then
+    printf 'Canonical K is measured in this run, and each canonical case refreshes `%s`.\n' "$canonical_data"
+  else
+    printf 'Canonical K figures are recorded measurements from `%s`. Sources and dates: %s. Each paired `results.json` includes exact provenance. Only krust is measured in this run.\n' \
+      "$canonical_data" "$(jq -r '[.cases[][] | .provenance.source_result_set + " at " + .provenance.measured_at] | unique | join(", ")' "$canonical_data")"
+  fi)
 
 Times are arithmetic means in seconds. The speedup is \`canonical / krust\` mean time: how many times faster krust is (a case where krust is slower says "slower" with the inverse factor). The memory ratio is \`krust / canonical\` median peak: the fraction of canonical's memory krust uses.
 

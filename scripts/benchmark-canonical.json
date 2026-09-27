@@ -1,0 +1,315 @@
+{
+  "schema_version": 1,
+  "cases": {
+    "imp": {
+      "compile": {
+        "provenance": {
+          "measured_at": "2026-09-25T12:17:35Z",
+          "source_result_set": "20260925-current-d4a50b3f",
+          "host": {
+            "system": "Linux arch-native 7.2.6-arch2-1 #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 22:41:30 +0000 x86_64 GNU/Linux",
+            "cpu": "unknown",
+            "memory_bytes": "unknown"
+          },
+          "k_version": "v7.1.337",
+          "pins": {
+            "k": "4a46d1231473b599c699160132fd6e76a5c46406",
+            "imp": "683a773418add3bcae8ded47c2b24e94494e1988",
+            "kevm": "5dd05ea7936c13f4029389bafd25785ed9ff0a55",
+            "kevm_plugin": "651a2db5afc1789c89553f9113c1afa39e391e35"
+          },
+          "K_OPTS": "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1",
+          "GHCRTS": "",
+          "memory_method": "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command",
+          "hyperfine_version": "hyperfine 1.20.0"
+        },
+        "result": {
+          "mean": 4.8916577141,
+          "stddev": 0.37273486656032423,
+          "median": 4.9193218491,
+          "min": 4.5058615321,
+          "max": 5.2497897611,
+          "times": [
+            4.9193218491,
+            5.2497897611,
+            4.5058615321
+          ],
+          "peak_memory": {
+            "tree_peak_bytes": [
+              938856448,
+              940916736,
+              970805248
+            ],
+            "tree_peak_median_bytes": 940916736,
+            "tree_peak_max_bytes": 970805248,
+            "tree_page_cache_at_exit_bytes": [
+              8556544,
+              8609792,
+              8617984
+            ]
+          },
+          "run_count": 3
+        }
+      },
+      "prove-addition-var": {
+        "provenance": {
+          "measured_at": "2026-09-25T12:18:05Z",
+          "source_result_set": "20260925-current-d4a50b3f",
+          "host": {
+            "system": "Linux arch-native 7.2.6-arch2-1 #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 22:41:30 +0000 x86_64 GNU/Linux",
+            "cpu": "unknown",
+            "memory_bytes": "unknown"
+          },
+          "k_version": "v7.1.337",
+          "pins": {
+            "k": "4a46d1231473b599c699160132fd6e76a5c46406",
+            "imp": "683a773418add3bcae8ded47c2b24e94494e1988",
+            "kevm": "5dd05ea7936c13f4029389bafd25785ed9ff0a55",
+            "kevm_plugin": "651a2db5afc1789c89553f9113c1afa39e391e35"
+          },
+          "K_OPTS": "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1",
+          "GHCRTS": "",
+          "memory_method": "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command",
+          "hyperfine_version": "hyperfine 1.20.0"
+        },
+        "result": {
+          "mean": 2.2784908437399998,
+          "stddev": 0.4026355027044897,
+          "median": 2.1641422285400003,
+          "min": 1.89271528254,
+          "max": 2.8975055115400004,
+          "times": [
+            2.8975055115400004,
+            2.4384953295400003,
+            1.89271528254,
+            1.9995958665399998,
+            2.1641422285400003
+          ],
+          "peak_memory": {
+            "tree_peak_bytes": [
+              908718080,
+              904695808,
+              916246528,
+              928526336,
+              928272384
+            ],
+            "tree_peak_median_bytes": 916246528,
+            "tree_peak_max_bytes": 928526336,
+            "tree_page_cache_at_exit_bytes": [
+              24576,
+              12288,
+              0,
+              12288,
+              45056
+            ]
+          },
+          "run_count": 5
+        }
+      },
+      "prove-branching-program": {
+        "provenance": {
+          "measured_at": "2026-09-25T12:18:26Z",
+          "source_result_set": "20260925-current-d4a50b3f",
+          "host": {
+            "system": "Linux arch-native 7.2.6-arch2-1 #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 22:41:30 +0000 x86_64 GNU/Linux",
+            "cpu": "unknown",
+            "memory_bytes": "unknown"
+          },
+          "k_version": "v7.1.337",
+          "pins": {
+            "k": "4a46d1231473b599c699160132fd6e76a5c46406",
+            "imp": "683a773418add3bcae8ded47c2b24e94494e1988",
+            "kevm": "5dd05ea7936c13f4029389bafd25785ed9ff0a55",
+            "kevm_plugin": "651a2db5afc1789c89553f9113c1afa39e391e35"
+          },
+          "K_OPTS": "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1",
+          "GHCRTS": "",
+          "memory_method": "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command",
+          "hyperfine_version": "hyperfine 1.20.0"
+        },
+        "result": {
+          "mean": 2.22968280156,
+          "stddev": 0.4109056303793791,
+          "median": 2.06296225176,
+          "min": 1.85446817876,
+          "max": 2.87145562476,
+          "times": [
+            1.85446817876,
+            1.96770754676,
+            2.06296225176,
+            2.39182040576,
+            2.87145562476
+          ],
+          "peak_memory": {
+            "tree_peak_bytes": [
+              982859776,
+              974434304,
+              961703936,
+              957571072,
+              967970816
+            ],
+            "tree_peak_median_bytes": 967970816,
+            "tree_peak_max_bytes": 982859776,
+            "tree_page_cache_at_exit_bytes": [
+              0,
+              0,
+              0,
+              0,
+              8192
+            ]
+          },
+          "run_count": 5
+        }
+      },
+      "prove-sum-loop": {
+        "provenance": {
+          "measured_at": "2026-09-25T12:18:45Z",
+          "source_result_set": "20260925-current-d4a50b3f",
+          "host": {
+            "system": "Linux arch-native 7.2.6-arch2-1 #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 22:41:30 +0000 x86_64 GNU/Linux",
+            "cpu": "unknown",
+            "memory_bytes": "unknown"
+          },
+          "k_version": "v7.1.337",
+          "pins": {
+            "k": "4a46d1231473b599c699160132fd6e76a5c46406",
+            "imp": "683a773418add3bcae8ded47c2b24e94494e1988",
+            "kevm": "5dd05ea7936c13f4029389bafd25785ed9ff0a55",
+            "kevm_plugin": "651a2db5afc1789c89553f9113c1afa39e391e35"
+          },
+          "K_OPTS": "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1",
+          "GHCRTS": "",
+          "memory_method": "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command",
+          "hyperfine_version": "hyperfine 1.20.0"
+        },
+        "result": {
+          "mean": 2.38093004748,
+          "stddev": 0.22196610049425017,
+          "median": 2.4606011892799997,
+          "min": 2.06796716228,
+          "max": 2.64833454828,
+          "times": [
+            2.4606011892799997,
+            2.64833454828,
+            2.2621496952799998,
+            2.06796716228,
+            2.46559764228
+          ],
+          "peak_memory": {
+            "tree_peak_bytes": [
+              1312694272,
+              1320296448,
+              1325666304,
+              1348714496,
+              1336918016
+            ],
+            "tree_peak_median_bytes": 1325666304,
+            "tree_peak_max_bytes": 1348714496,
+            "tree_page_cache_at_exit_bytes": [
+              0,
+              0,
+              8192,
+              12288,
+              8192
+            ]
+          },
+          "run_count": 5
+        }
+      }
+    },
+    "kevm": {
+      "compile": {
+        "provenance": {
+          "measured_at": "2026-09-25T12:20:34Z",
+          "source_result_set": "20260925-current-d4a50b3f",
+          "host": {
+            "system": "Linux arch-native 7.2.6-arch2-1 #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 22:41:30 +0000 x86_64 GNU/Linux",
+            "cpu": "unknown",
+            "memory_bytes": "unknown"
+          },
+          "k_version": "v7.1.337",
+          "pins": {
+            "k": "4a46d1231473b599c699160132fd6e76a5c46406",
+            "imp": "683a773418add3bcae8ded47c2b24e94494e1988",
+            "kevm": "5dd05ea7936c13f4029389bafd25785ed9ff0a55",
+            "kevm_plugin": "651a2db5afc1789c89553f9113c1afa39e391e35"
+          },
+          "K_OPTS": "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1",
+          "GHCRTS": "",
+          "memory_method": "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command",
+          "hyperfine_version": "hyperfine 1.20.0"
+        },
+        "result": {
+          "mean": 54.40255850809999,
+          "stddev": null,
+          "median": 54.40255850809999,
+          "min": 54.40255850809999,
+          "max": 54.40255850809999,
+          "times": [
+            54.40255850809999
+          ],
+          "peak_memory": {
+            "tree_peak_bytes": [
+              2845884416
+            ],
+            "tree_peak_median_bytes": 2845884416,
+            "tree_peak_max_bytes": 2845884416,
+            "tree_page_cache_at_exit_bytes": [
+              103866368
+            ]
+          },
+          "run_count": 1
+        }
+      },
+      "prove-gfob-min": {
+        "provenance": {
+          "measured_at": "2026-09-25T12:24:39Z",
+          "source_result_set": "20260925-current-d4a50b3f",
+          "host": {
+            "system": "Linux arch-native 7.2.6-arch2-1 #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 22:41:30 +0000 x86_64 GNU/Linux",
+            "cpu": "unknown",
+            "memory_bytes": "unknown"
+          },
+          "k_version": "v7.1.337",
+          "pins": {
+            "k": "4a46d1231473b599c699160132fd6e76a5c46406",
+            "imp": "683a773418add3bcae8ded47c2b24e94494e1988",
+            "kevm": "5dd05ea7936c13f4029389bafd25785ed9ff0a55",
+            "kevm_plugin": "651a2db5afc1789c89553f9113c1afa39e391e35"
+          },
+          "K_OPTS": "-Xmx4096m -Xss4m -Dscala.concurrent.context.numThreads=1 -Dscala.concurrent.context.maxThreads=1",
+          "GHCRTS": "",
+          "memory_method": "cgroup v2 memory.peak of a fresh per-run cgroup that holds the whole process tree of the command",
+          "hyperfine_version": "hyperfine 1.20.0"
+        },
+        "result": {
+          "mean": 19.743288143273332,
+          "stddev": 3.9204068911252965,
+          "median": 17.51640423494,
+          "min": 17.44347194194,
+          "max": 24.26998825294,
+          "times": [
+            17.51640423494,
+            24.26998825294,
+            17.44347194194
+          ],
+          "peak_memory": {
+            "tree_peak_bytes": [
+              2354491392,
+              2419818496,
+              2330128384
+            ],
+            "tree_peak_median_bytes": 2354491392,
+            "tree_peak_max_bytes": 2419818496,
+            "tree_page_cache_at_exit_bytes": [
+              2772992,
+              581632,
+              380928
+            ]
+          },
+          "run_count": 3
+        }
+      }
+    }
+  }
+}

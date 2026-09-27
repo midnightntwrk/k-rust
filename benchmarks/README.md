@@ -1,7 +1,8 @@
 # krust versus canonical K benchmarks
 
-This suite compares the release-mode `krust` CLI with the pinned canonical K frontend and its
-Haskell backend. It measures whole tool invocations with
+This suite compares the release-mode `krust` CLI with recorded measurements of the pinned canonical K frontend and its
+Haskell backend. By default it measures only krust; `--measure-canonical` measures both sides and updates
+[`scripts/benchmark-canonical.json`](../scripts/benchmark-canonical.json). It measures whole tool invocations with
 [Hyperfine](https://github.com/sharkdp/hyperfine), rather than using Criterion inside one process.
 That keeps process startup, frontend work, backend initialization, and solver work visible in the
 same way users experience them. A separate instrumented invocation also records Rust's actual
@@ -14,7 +15,7 @@ The matrix contains:
 - KEVM functional-specification compilation, prepared-definition loading, and a concrete
   bit-operation proof.
 - Raw per-run timings and process-tree peak memory in Hyperfine JSON, a Markdown comparison, exact
-  commands, untimed preflight logs, source revisions, tool versions, host information, and runtime
+  commands, untimed krust preflight logs, source revisions, tool versions, host information, and runtime
   settings.
 
 ## Prerequisites
@@ -22,11 +23,11 @@ The matrix contains:
 Build krust once outside the timed region:
 
 ```sh
-cargo build --release -p k-rust --bin krust --locked
+with-z3-static-4.16.0 cargo build --release -p k-rust --no-default-features --features cli --locked --bin krust
 ```
 
-Install Hyperfine and `jq`. Both suites compile with `kompile` from the standalone K version pinned
-in `scripts/reference-differential.toml` and prove with its matching `kprove` Haskell backend. The
+Hyperfine and `jq` are required. `--measure-canonical` also requires `kompile` from the standalone K version pinned
+in `scripts/reference-differential.toml` and its matching `kprove` Haskell backend. The
 KEVM workload is deliberately an independently provable functional claim rather than an APR
 claim: this compares proof workflows without including KEVM's Python orchestration or
 LLVM booster. The benchmark rejects mismatched K, IMP, KEVM, plugin, and tool versions by default.
@@ -34,12 +35,12 @@ Checkouts default to the ignored `k/`,
 `imp-semantics/`, and `evm-semantics/` directories and can be overridden with `K_CHECKOUT`,
 `IMP_SEMANTICS_CHECKOUT`, and `EVM_SEMANTICS_CHECKOUT`.
 
-If canonical K is not on `PATH`, select its matching executables explicitly:
+To refresh the canonical measurements when its executables are not on `PATH`, select them explicitly:
 
 ```sh
 K_KOMPILE=/path/to/k/bin/kompile \
 K_KPROVE=/path/to/k/bin/kprove \
-scripts/benchmark.sh --suite imp
+scripts/benchmark.sh --measure-canonical --suite imp
 ```
 
 Use `scripts/benchmark.sh --list` to see every case and `--dry-run` to inspect the exact resolved
@@ -52,6 +53,13 @@ Run the complete matrix:
 ```sh
 scripts/benchmark.sh
 ```
+
+The default uses the 2026-09-25 canonical measurements. Each recorded case includes its raw time
+samples, run count, median and maximum process-tree peak memory, timestamp, source pins, K version,
+K options, and memory method. The harness refuses to use a case if its pins, K version, or runtime
+options differ from the current manifest and environment. Use `--measure-canonical` to remeasure and
+refresh selected paired cases. The untimed krust correctness preflight still runs by default;
+canonical proof preparation and canonical correctness preflight run only with `--measure-canonical`.
 
 Run one manageable slice while iterating:
 
@@ -74,7 +82,7 @@ comparisons.
 
 ## Peak memory
 
-Each timed run's peak memory is measured over its whole process tree. Canonical `kompile` and
+Each newly timed run's peak memory is measured over its whole process tree. Canonical `kompile` and
 `kprove` are a JVM that starts backend children (`kore-exec`, `z3`, a C compiler), and those run while
 the JVM is still resident, so the figure must sum processes that are resident at the same time.
 The harness therefore runs each Hyperfine invocation inside a delegated user systemd scope
@@ -139,7 +147,7 @@ especially KEVM compilation where one sample cannot estimate variance.
 
 Every measured proof first runs once outside Hyperfine and must produce the expected successful
 verdict. `--skip-preflight` exists for repeated local experiments, but should not be used for
-recorded results. `--allow-unpinned` is likewise intended only for explicitly exploratory runs.
+recorded results. `--allow-unpinned` cannot be combined with the pinned recorded baseline.
 
 ## Profiling
 
