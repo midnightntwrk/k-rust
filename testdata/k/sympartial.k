@@ -1,6 +1,8 @@
 // SYM-3B-05 audit fixture: a `requires` over a partial function. The ground instance
-// `half(0)` is stuck (`10 /Int 0` is undefined), but k-rust simplifies the symbolic condition
-// `10 /Int A ==Int 10 /Int A` to `true` and drops its definedness `A =/=Int 0`.
+// `half(0)` is stuck (`10 /Int 0` is undefined). k-rust 347f693e simplified the symbolic
+// condition `10 /Int A ==Int 10 /Int A` to `true` and dropped its definedness `A =/=Int 0`;
+// since k-rust KK-45/KK-46 the condition states it, and the symbolic run splits like the
+// ground one.
 module SYMPARTIAL-SYNTAX
   imports INT-SYNTAX
   syntax Address ::= addr(Int) [symbol(addr)]

@@ -1,9 +1,9 @@
 //! Observed, time-bounded path-set execution through the public k-rust facade.
 //! Each explored path retains its own halt, observations, effects, and diagnostics.
 //! A watchdog cancels execution when the time budget expires.
-//! Each leaf also records whether its state is shown feasible or infeasible, and whether its
-//! stuckness holds for every instance of its state; the execution records the definition facts
-//! the bridge needs to use them ([`crate::feasibility`]).
+//! Each leaf also records whether its state is shown feasible or infeasible, and an
+//! indeterminate leaf its structured cause; the execution records the definition facts the
+//! bridge needs to use them ([`crate::feasibility`]).
 
 use std::{
     num::NonZeroUsize,
@@ -18,15 +18,15 @@ use std::{
 
 use k_rust::backend::{
     Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionResult,
-    ExecutionStrategy, HaltReasonOutput, ObservedRequest, ResultModalityOutput, TransitionIdOutput,
+    ExecutionStrategy, HaltReasonOutput, ObservedRequest, ResultModalityOutput,
+    SearchFailureOutput, TraceEntry, TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
 use kink_pattern::ExecutionBounds;
 
 use crate::feasibility::{
-    DefinitionFacts, Inhabitation, LeafFeasibility, every_instance_stuck, leaf_feasibility,
-    uninhabited_variable,
+    DefinitionFacts, Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable,
 };
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
@@ -176,16 +176,18 @@ impl ExecutionBudget {
 
 /// One execution leaf with its typed halt class, diagnostics, adapted branch, and state
 /// feasibility.
+///
+/// A `Stuck` halt says that no instance of the state under its constraints has a rewrite
+/// successor, in both profiles; it does not say that the state has an instance, which is what
+/// `feasibility` records.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdaptedLeaf {
     pub halt: HaltClass,
     pub branch: AdaptedBranch,
     /// `Unknown` for every leaf of a timed-out run, whose states are not decoded.
     pub feasibility: LeafFeasibility,
-    /// For a `Stuck` leaf: its stuckness holds for every instance of its state
-    /// ([`crate::feasibility::every_instance_stuck`]). `false` for every other halt and for
-    /// every leaf of a timed-out run.
-    pub every_instance_stuck: bool,
+    /// Why the step stopped, exactly for an `Indeterminate` halt.
+    pub cause: Option<SearchFailureOutput>,
     pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
     pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
@@ -198,18 +200,22 @@ pub struct AdaptedExecution {
     pub(crate) effects: Vec<EffectOutput>,
     pub(crate) timed_out: bool,
     pub(crate) definition: DefinitionFacts,
-    /// Every rule condition the run relied on is kept in its leaf predicates: the initial state
-    /// is ground (k-rust evaluates ground conditions), or no rewrite rule mentions a partial
-    /// function (`DefinitionFacts::total_rules`, README R18).
-    pub(crate) conditions_kept: bool,
 }
 
-/// A path-set leaf after observation state is erased.
+/// A path-set leaf after observation state is erased: every field of the backend leaf that
+/// observation does not produce, and its branch identity.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BaselineLeaf {
     pub halt: HaltClass,
     pub state: serde_json::Value,
     pub depth: u64,
+    pub trace: Vec<TraceEntry>,
+    pub cause: Option<SearchFailureOutput>,
+    pub diagnostics: Vec<BackendDiagnosticOutput>,
+    pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
+    pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
+    /// The transition identities of the branch. Empty for an unobserved leaf: k-rust's
+    /// unobserved execution does not compute them.
     pub branch: Vec<TransitionIdOutput>,
 }
 
@@ -225,6 +231,11 @@ impl AdaptedExecution {
                     halt: leaf.halt,
                     state: branch.state,
                     depth: branch.depth,
+                    trace: branch.trace,
+                    cause: leaf.cause.clone(),
+                    diagnostics: leaf.diagnostics.clone(),
+                    candidate_diagnostics: leaf.candidate_diagnostics.clone(),
+                    remainder_diagnostics: leaf.remainder_diagnostics.clone(),
                     branch: branch.identity,
                 }
             })
@@ -245,14 +256,6 @@ impl AdaptedExecution {
     #[must_use]
     pub const fn definition_facts(&self) -> DefinitionFacts {
         self.definition
-    }
-
-    /// Whether every rule condition the run relied on is kept in its leaf predicates (the
-    /// initial state is ground, or `DefinitionFacts::total_rules` holds). Without it no leaf
-    /// below depth 0 is a real prefix (README R18).
-    #[must_use]
-    pub const fn conditions_kept(&self) -> bool {
-        self.conditions_kept
     }
 
     /// The watchdog cancelled the run. Its leaf states must not be decoded: a cancelled run
@@ -371,8 +374,8 @@ impl ExecutionAdapter {
                     rules: Some(self.manifest.backend_rule_ids()),
                 })
             })?;
-        let evidence = if timed_out {
-            vec![(LeafFeasibility::Unknown, false); result.leaves.len()]
+        let feasibility = if timed_out {
+            vec![LeafFeasibility::Unknown; result.leaves.len()]
         } else {
             backend.with_solver(None, |definition, solver| {
                 Ok::<_, ExecutionAdapterFailure>(
@@ -380,29 +383,49 @@ impl ExecutionAdapter {
                         .leaves
                         .iter()
                         .map(|leaf| {
-                            let stuck = HaltClass::from_output(leaf.reason) == HaltClass::Stuck
-                                && every_instance_stuck(
-                                    definition,
-                                    solver,
-                                    facts,
-                                    &inhabitation,
-                                    &leaf.state,
-                                );
-                            (
-                                leaf_feasibility(definition, solver, &inhabitation, &leaf.state),
-                                stuck,
-                            )
+                            leaf_feasibility(definition, solver, &inhabitation, &leaf.state)
                         })
                         .collect(),
                 )
             })?
         };
-        let conditions_kept = facts.total_rules || state.free_variables().is_empty();
-        self.adapt(result, timed_out, &budget, evidence, facts)
-            .map(|execution| AdaptedExecution {
-                conditions_kept,
-                ..execution
+        self.adapt(result, timed_out, &budget, feasibility, facts)
+    }
+
+    /// The branch identity of every leaf of the observed PathSet run of `state`, in leaf order,
+    /// from an observed run that selects no rule: it emits no event, and its identities do not
+    /// depend on which rules the manifest observes.
+    pub fn branch_identities(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+    ) -> Result<Vec<Vec<TransitionIdOutput>>, ExecutionAdapterFailure> {
+        self.check_profile(backend)?;
+        let encoded = codec::to_value(state)
+            .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
+        let (result, _) = execute_with_watchdog(backend, encoded, budget, |backend, request| {
+            backend.execute_observed(ObservedRequest {
+                request,
+                rules: Some(Vec::new()),
             })
+        })?;
+        result
+            .leaves
+            .into_iter()
+            .map(|leaf| {
+                let halt = HaltClass::from_output(leaf.reason);
+                if !halt.adapter_admits(&budget) {
+                    return Err(ExecutionAdapterFailure::ContractViolation(halt));
+                }
+                if !leaf.observations.is_empty() {
+                    return Err(ExecutionAdapterFailure::Backend(
+                        "an observed run that selects no rule emitted events".to_owned(),
+                    ));
+                }
+                Ok(leaf.branch)
+            })
+            .collect()
     }
 
     /// Executes the same PathSet request without observation rules.
@@ -428,6 +451,18 @@ impl ExecutionAdapter {
                     halt,
                     state: leaf.state,
                     depth: leaf.depth,
+                    trace: leaf.trace,
+                    cause: leaf.cause,
+                    diagnostics: leaf.diagnostics,
+                    candidate_diagnostics: leaf
+                        .candidates
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|candidate| candidate.diagnostics)
+                        .collect(),
+                    remainder_diagnostics: leaf
+                        .remainder
+                        .map_or_else(Vec::new, |remainder| remainder.diagnostics),
                     branch: leaf.branch,
                 })
             })
@@ -439,14 +474,14 @@ impl ExecutionAdapter {
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
-        evidence: Vec<(LeafFeasibility, bool)>,
+        feasibility: Vec<LeafFeasibility>,
         definition: DefinitionFacts,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
             .into_iter()
-            .zip(evidence)
-            .map(|(leaf, (feasibility, every_instance_stuck))| {
+            .zip(feasibility)
+            .map(|(leaf, feasibility)| {
                 let halt = HaltClass::from_output(leaf.reason);
                 if !halt.adapter_admits(budget) {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
@@ -454,7 +489,7 @@ impl ExecutionAdapter {
                 Ok(AdaptedLeaf {
                     halt,
                     feasibility,
-                    every_instance_stuck,
+                    cause: leaf.cause,
                     diagnostics: leaf.diagnostics,
                     candidate_diagnostics: leaf
                         .candidates
@@ -481,7 +516,6 @@ impl ExecutionAdapter {
             effects: result.effects,
             timed_out,
             definition,
-            conditions_kept: definition.total_rules,
         })
     }
 }

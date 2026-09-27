@@ -144,6 +144,100 @@ local_workaround = "retired: kink-native uses rule_catalog and typed sentence_pr
 requested_action = "Satisfied by rule_catalog and Evaluation records. Per-written-position execution identity declined; K-in-K2 retains written positions as provenance and applies its multi-author attribution policy."
 sources = ["k-in-k2 milestone 4, AllTransitions as every rewrite rule"]
 
+# ---------------------------------------------------------------- round 2 (symbolic branching)
+# Filed from draft/tasks/symbolic-branching/README.md section 12.1 and answered by k-rust round 2
+# (k-rust draft/k-in-k/answers.toml, tickets KK-45..KK-62, all integrated at 74f1356e).
+
+[[request]]
+id = "symbolic-definedness-of-rule-conditions"
+title = "Symbolic execution keeps the definedness of partial terms in rule conditions"
+kind = "correctness"
+status = "fixed"
+fixed_in = "74f1356e (KK-45, KK-46, KK-47)"
+status_basis = "test run at 74f1356e on 2026-09-27 (cargo test --workspace and the kink-native z3 gate; kink-native dropped_definedness_condition_is_not_a_witness)"
+blocking = false
+needed_by = ["symbolic real prefixes for semantics whose rewrite rules use partial functions (IMP-like /Int)"]
+summary = "At 347f693e symbolic simplification dropped the definedness of a partial function in a rule condition: half(A) requires 10 /Int A ==Int 10 /Int A stepped on half(X) with predicate \\top although half(0) is stuck, and sympartial's write/half/load was a wrong match under [X = 0] in both profiles. Hook results now carry their arguments' definedness and rule and equation conditions state the \\ceil of their Boolean atoms at instantiation, so a leaf predicate implies the definedness of every partial term its path relied on (requires, ensures, right-hand side, state simplification), in both profiles. An undefined requires instance lies in the step's remainder."
+reproducer = "sympartial.k: write X, half(X), load 0. At 74f1356e no-Z3 is one Indeterminate leaf (unknown, SolverUnknown); Z3 splits into halt under X =/=Int 0 and a stuck remainder at half under X = 0, and WL-after is no-match."
+local_workaround = "retired: AdaptedExecution::conditions_kept and DefinitionFacts::total_rules are removed, so symbolic runs keep real prefixes below depth 0 again; applicability_conditions no longer excludes partial functions in requires. Kept: the ensures and right-hand-side undefined_symbols exclusions of applicability_conditions, because the instances an ensures or a carried right-hand-side obligation removes still have no leaf (coverage, not soundness)."
+requested_action = "Satisfied. The contract takes total, functional and preserves-definedness as the definition's meaning (README R20), as K-in-K2's removed guard also did."
+sources = ["draft/tasks/symbolic-branching/README.md R18, section 12.1", "k-rust draft/k-in-k/workers/KK-45-report.md, KK-46-report.md, KK-47-report.md"]
+
+[[request]]
+id = "translates-exactly-uninterpreted-smtlib"
+title = "smt::translates_exactly counts uninterpreted smtlib functions and quantifier sorts"
+kind = "correctness"
+status = "fixed"
+fixed_in = "74f1356e (KK-48, KK-49, KK-50)"
+status_basis = "test run at 74f1356e on 2026-09-27 (kink-native z3 gate; uninterpreted_smt_function_does_not_make_a_path_feasible, solver_sat_counts_only_for_the_exact_relation_query, solver_feasibility_needs_exact_sat_and_counts_every_unsat)"
+blocking = false
+needed_by = ["solver Sat as feasibility evidence in the Z3 profile"]
+summary = "At 347f693e translates_exactly accepted predicates with smtlib symbols, which k-rust declares as uninterpreted declare-fun (&Int, |Int, xorInt, ~Int, user functions), and ignored quantifier sorts; Z3 answers Sat for X &Int 1 ==Int 2. At 74f1356e it rejects both, in addition to abstracted terms, non-Int/Bool free variables and partial functions. get_model (KK-49) and implies (KK-50) were made consistent with it; K-in-K2 calls neither."
+reproducer = "symnarrow.k gate(X) requires X &Int 1 ==Int 2 under Z3: unknown at 74f1356e (was a wrong match before K-in-K2's wrapper)."
+local_workaround = "retired: feasibility.rs translates_without_approximation is removed and its callers use smt::translates_exactly, whose checks at 74f1356e contain the wrapper's two extra ones (smtlib symbols, Int/Bool quantifiers). Kept: a solver Sat counts only on an exact query, a solver Unsat always counts."
+requested_action = "Satisfied. Bitwise operators stay undecided on Sat by design (k-rust declines an SMT encoding)."
+sources = ["draft/tasks/symbolic-branching/README.md R19, section 12.1", "k-rust draft/k-in-k/workers/KK-48-report.md, KK-49-report.md, KK-50-report.md"]
+
+[[request]]
+id = "symbolic-stuck-completeness"
+title = "Stuck on a symbolic state holds for every instance"
+kind = "correctness"
+status = "fixed"
+fixed_in = "74f1356e (KK-54, KK-52, KK-55)"
+status_basis = "test run at 74f1356e on 2026-09-27 (cargo test --workspace and the kink-native z3 gate; symbolic_stuck_leaf_is_complete_in_both_profiles, constrained_and_remainder_stuck_leaves_complete_under_z3, value_dependent_rule_patterns_are_narrowed_not_stuck, bridge execution_leaf_rows_map_to_paths)"
+blocking = false
+needed_by = ["no-match for symbolic programs whose final state is symbolic"]
+summary = "At 347f693e a subject with a non-rigid top was offered only the rules of its current index key, and anywhere heads were refuted on symbolic subjects, so a symbolic Stuck leaf did not claim every instance. At 74f1356e a non-rigid top is offered every rule bucket, a rule is refuted only at a head that is the same on every instance (constructor, domain value, collection, or an anywhere application no equation can rewrite), and an undecided step is Indeterminate: Stuck means no instance of the leaf under its constraints has a successor, in both profiles. It does not claim the leaf has an instance."
+reproducer = "symnarrow.k: write X, then seq(pin(1), P) with P a Prog variable. At 74f1356e the leaf after the write is Stuck, Syntactic-feasible and complete in both profiles, and WL-after is no-match (at 91989d9 it was SolverUnknown without Z3, and with Z3 too because P is not an Int/Bool variable)."
+local_workaround = "retired: feasibility::every_instance_stuck and DefinitionFacts::free_rule_patterns are removed; the bridge completes a Stuck leaf from its halt. Kept: leaf feasibility (an empty Stuck leaf is possible), coverage by applicability_conditions, BackendLimit for diagnosed leaves, and the classify contract (now stated for any variable sort). New: kink-campaign state oracles read a terminal term with a free variable as Unknown, because a symbolic terminal is not one value."
+requested_action = "Satisfied."
+sources = ["draft/tasks/symbolic-branching/README.md Q4, R16, R17, section 12.1", "k-rust draft/k-in-k/workers/KK-52-report.md, KK-54-report.md, KK-55-report.md"]
+
+[[request]]
+id = "indeterminate-leaf-cause"
+title = "Indeterminate execution leaves carry a structured cause"
+kind = "missing-feature"
+status = "fixed"
+fixed_in = "74f1356e (KK-56, KK-57)"
+status_basis = "test run at 74f1356e on 2026-09-27 (cargo test --workspace; kink-native solver_dependent_guard_is_unknown_without_z3, indeterminate_leaves_map_by_their_cause, report_renders_bounded_feasibility_and_unknown)"
+blocking = false
+needed_by = ["reports that tell a missing solver from a backend limit"]
+summary = "ExecutionLeaf.cause is the SearchFailureOutput of an indeterminate halt, and SearchFailureOutput::solver_unavailable() is true when the stopped step needed a solver the build lacks (Requires; Smt, SmtPredicate or Remainder with Unavailable). It is sufficient, not necessary: a Match cause can follow an equation left unevaluated for want of a solver."
+reproducer = "guardedmem G1/G2 without Z3: one Indeterminate leaf with a Requires cause."
+local_workaround = "retired: an Indeterminate leaf whose cause is solver_unavailable() is SolverUnknown, any other Indeterminate leaf stays BackendLimit, and a diagnosed leaf stays BackendLimit. The step-3 report (schema version 4) carries the cause per path."
+requested_action = "Satisfied."
+sources = ["draft/tasks/symbolic-branching/README.md Q8, section 4.4, section 12.1", "k-rust draft/k-in-k/workers/KK-56-report.md, KK-57-report.md"]
+
+[[request]]
+id = "unobserved-execute-branch-identity"
+title = "Observed and unobserved execution agree leaf by leaf, and identities are available without events"
+kind = "api"
+status = "fixed"
+fixed_in = "74f1356e (KK-58)"
+status_basis = "test run at 74f1356e on 2026-09-27 (cargo test --workspace and the kink-native z3 gate; observation_erasure_preserves_live_leaves)"
+blocking = false
+needed_by = ["section 9 erasure criterion: branch outcomes by identity"]
+summary = "Unobserved Backend::execute still returns no branch identities (declined: it would hash every step of every execution). k-rust states and tests that execute and execute_observed return the same leaves in the same order, equal except branch and observations, and that an observed run with rules: Some(vec![]) gives every identity and no event."
+reproducer = "nd.k start: observed identities of length 2, unobserved branch empty, same states in the same order."
+local_workaround = "retired: the (state, halt, depth) multiset comparison is replaced by a positional comparison of every non-observation field (halt, state, depth, trace, cause, diagnostics), and branch identities are compared with ExecutionAdapter::branch_identities, an observed run that selects no rule."
+requested_action = "Satisfied as reshaped."
+sources = ["draft/tasks/symbolic-branching/README.md section 8, section 12.1, SYM-3A-06 handoff", "k-rust draft/k-in-k/workers/KK-58-report.md"]
+
+[[request]]
+id = "anywhere-injective-attribute"
+title = "Unification, matching and kompile treat anywhere and overloaded heads as injective"
+kind = "correctness"
+status = "fixed"
+fixed_in = "74f1356e (KK-51, KK-52, KK-53, KK-59, KK-60, KK-61, KK-62)"
+status_basis = "test run at 74f1356e on 2026-09-27 (cargo test --workspace and the kink-native z3 gate; non_free_injective_symbol_does_not_prove_a_clash, non_free_injective_symbols_leave_relations_undecided, definition_facts_follow_the_rewrite_rules)"
+blocking = false
+needed_by = ["sound relations and stuckness over definitions with anywhere or overloaded productions"]
+summary = "At 347f693e kompile emitted injective for anywhere and overloaded productions, and the unifier, the rewrite and equation matchers and the rule index decomposed and refuted such heads on symbolic subjects. At 74f1356e the unifier decomposes an anywhere application only when both sides are normal forms on every instance (otherwise the pair stays an equation), matching and the index treat an anywhere head as rigid only on such subjects, ground structural distinctness needs a certified normal form, and kompile withholds injective from anywhere and macro heads and from an overload family above one, and constructor from macro-rule heads. Named completeness trade: wrap(X) = wrap(Y) and overload-greater f(X) = f(Y) stay residual equations."
+reproducer = "symwrap.k: write wrap(s(X)), load wrap(z); unknown (the instance X = z matches)."
+local_workaround = "kept: decomposes_freely still refuses every injective symbol that is not a free constructor, anywhere or not, because the attribute comes from the frontend (KORE from another frontend declares anywhere and overloaded productions injective, and hand-written KORE can declare any function injective) and the unifier trusts it for non-anywhere symbols; the constructor-plus-function clause stays for hand-written KORE. The anywhere part of free_rule_patterns is retired with every_instance_stuck."
+requested_action = "Satisfied for k-rust output. Note: the unifier ignores injective on an anywhere symbol, so the clause could be narrowed to non-anywhere symbols; K-in-K2 keeps it."
+sources = ["draft/tasks/symbolic-branching/README.md R10, section 4.2, section 12.1", "k-rust draft/k-in-k/workers/KK-51-report.md, KK-52-report.md, KK-53-report.md, tickets.toml KK-59..KK-62"]
+
 # ---------------------------------------------------------------- tracked by KRS
 
 [[krs_owned]]

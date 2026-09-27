@@ -3,7 +3,7 @@
 #[path = "../../../testdata/k/support.rs"]
 mod support;
 
-use std::{collections::BTreeMap, num::NonZeroUsize, time::Duration};
+use std::{num::NonZeroUsize, time::Duration};
 
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
@@ -201,8 +201,8 @@ enum Fixture {
     /// `symnarrow.k`: rules whose applicability to a symbolic `Int` depends on its value
     /// without a `requires`, and a `requires` over the uninterpreted `&Int` (SYM-3B-05).
     Narrow,
-    /// `sympartial.k`: a `requires` over a partial function whose definedness k-rust drops
-    /// (SYM-3B-05, README R18).
+    /// `sympartial.k`: a `requires` over a partial function whose definedness k-rust 347f693e
+    /// dropped (SYM-3B-05, README R18).
     Partial,
 }
 
@@ -460,15 +460,10 @@ fn run_state(fixture: Fixture, state: Pattern, budget: ExecutionBudget) -> (Run,
     )
 }
 
-fn leaf_multiset(leaves: Vec<BaselineLeaf>) -> BTreeMap<(String, HaltClass, u64), usize> {
-    let mut counts = BTreeMap::new();
-    for leaf in leaves {
-        let state = serde_json::to_string(&leaf.state).expect("state JSON");
-        *counts.entry((state, leaf.halt, leaf.depth)).or_insert(0) += 1;
-    }
-    counts
-}
-
+/// Section 9 erasure: observed and unobserved execution of one request give the same leaves in
+/// the same order, equal in every field that observation does not produce (halt, state, depth,
+/// trace, cause, diagnostics), and an observed run that selects no rule gives the same branch
+/// identities, so the branch outcomes agree by identity and not only as a multiset.
 #[test]
 fn observation_erasure_preserves_live_leaves() {
     let depth = ExecutionBudget {
@@ -553,10 +548,40 @@ fn observation_erasure_preserves_live_leaves() {
             let unobserved = adapter
                 .execute_unobserved(&mut backend, &state, budget)
                 .expect("unobserved execution");
-            let observed = leaf_multiset(observed.erased());
-            let unobserved = leaf_multiset(unobserved);
-            assert!(!observed.is_empty(), "{fixture} {row}: no leaves");
-            assert_eq!(observed, unobserved, "{fixture} {row}: observation erasure");
+            let erased = observed.erased();
+            assert!(!erased.is_empty(), "{fixture} {row}: no leaves");
+            // Position by position, every field but the branch identity, which unobserved
+            // execution does not compute.
+            let without_identity = erased
+                .iter()
+                .map(|leaf| BaselineLeaf {
+                    branch: Vec::new(),
+                    ..leaf.clone()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                without_identity, unobserved,
+                "{fixture} {row}: observation erasure"
+            );
+            // The branch outcomes by identity: an observed run that selects no rule gives the
+            // same identities in the same order, whatever the manifest observes.
+            let identities = adapter
+                .branch_identities(&mut backend, &state, budget)
+                .expect("identity execution");
+            assert_eq!(
+                erased
+                    .iter()
+                    .map(|leaf| leaf.branch.clone())
+                    .collect::<Vec<_>>(),
+                identities,
+                "{fixture} {row}: branch identities"
+            );
+            assert!(
+                erased
+                    .iter()
+                    .all(|leaf| (leaf.depth == 0) == leaf.branch.is_empty()),
+                "{fixture} {row}: exactly the leaves below the root have an identity"
+            );
         }
     }
 }
@@ -826,7 +851,10 @@ fn symmem_fork_keeps_siblings_apart() {
     assert!(constructors.contains(&vec!["memoryLoad"]));
 }
 
-/// No-Z3 only: the Z3 build's G1/G2 values are rows of `profile_table_rows`.
+/// No-Z3 only: the Z3 build's G1/G2 values are rows of `profile_table_rows`. The one leaf is
+/// `Indeterminate` at the first `requires`, which needs the solver this build lacks; its cause
+/// says so, and the path is `SolverUnknown` (`BackendLimit` before k-rust exposed the cause,
+/// KK-56/KK-57).
 #[cfg(not(feature = "z3"))]
 #[test]
 fn solver_dependent_guard_is_unknown_without_z3() {
@@ -845,14 +873,24 @@ fn solver_dependent_guard_is_unknown_without_z3() {
             [HaltClass::Indeterminate]
         );
         assert!(
+            run.execution
+                .leaves()
+                .iter()
+                .all(|leaf| leaf.cause.as_ref().is_some_and(|cause| matches!(
+                    cause,
+                    k_rust::backend::SearchFailureOutput::Requires { .. }
+                ) && cause
+                    .solver_unavailable()))
+        );
+        assert!(
             run.bridged
                 .paths
                 .iter()
-                .any(|path| path.stop == PathStop::BackendLimit)
+                .all(|path| path.stop == PathStop::SolverUnknown)
         );
         let evaluation = outcome(&run, &gwl_after(&vocabulary));
         assert_eq!(evaluation.outcome, PatternOutcome::Unknown);
-        assert_eq!(evaluation.failure, Some(PathStop::BackendLimit));
+        assert_eq!(evaluation.failure, Some(PathStop::SolverUnknown));
     }
 }
 
@@ -885,13 +923,13 @@ fn z3_shared_int_address_witness_carries_feasible_constraint() {
     let stops: Vec<_> = run.bridged.paths.iter().map(|path| path.stop).collect();
     assert_eq!(
         stops,
-        by_profile(vec![PathStop::BackendLimit], vec![PathStop::Terminal; 3])
+        by_profile(vec![PathStop::SolverUnknown], vec![PathStop::Terminal; 3])
     );
     let plain = outcome(&run, &plan);
     assert_eq!(
         (plain.outcome, plain.failure),
         by_profile(
-            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
             (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
         )
     );
@@ -900,7 +938,7 @@ fn z3_shared_int_address_witness_carries_feasible_constraint() {
     assert_eq!(
         (evaluation.outcome, evaluation.failure),
         by_profile(
-            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
             (PatternOutcome::Match, None)
         )
     );
@@ -972,13 +1010,13 @@ fn z3_infeasible_shared_address_is_no_match() {
     let stops: Vec<_> = run.bridged.paths.iter().map(|path| path.stop).collect();
     assert_eq!(
         stops,
-        by_profile(vec![PathStop::BackendLimit], vec![PathStop::Terminal; 3])
+        by_profile(vec![PathStop::SolverUnknown], vec![PathStop::Terminal; 3])
     );
     let plain = outcome(&run, &plan);
     assert_eq!(
         (plain.outcome, plain.failure),
         by_profile(
-            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
             (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
         )
     );
@@ -986,7 +1024,7 @@ fn z3_infeasible_shared_address_is_no_match() {
     assert_eq!(
         (evaluation.outcome, evaluation.failure),
         by_profile(
-            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
             (PatternOutcome::NoMatch, None)
         )
     );
@@ -1544,10 +1582,12 @@ fn wrap(value: Pattern) -> Pattern {
     support::app("Lblwrap", vec![value])
 }
 
-/// Audit (SYM-3A-09): an `anywhere` equation makes `wrap` non-injective, although k-rust's
-/// kompile still marks it `injective` and the unifier decomposes it. `wrap(s(X))` against
-/// `wrap(z)` is equal for `X = z`, so the backend decider must not call them unequal, and the
-/// write/load pair must not be `no-match`.
+/// Audit (SYM-3A-09): an `anywhere` equation makes `wrap` non-injective. k-rust 347f693e's
+/// kompile still marked it `injective` and its unifier decomposed it; since k-rust KK-51..KK-53
+/// the attribute is withheld and the unifier keeps `wrap(s(X)) = wrap(z)` as an equation,
+/// because an equation can rewrite an instance of `wrap(s(X))`. `wrap(s(X))` against `wrap(z)`
+/// is equal for `X = z`, so the backend decider must not call them unequal, and the write/load
+/// pair must not be `no-match`.
 #[test]
 fn non_free_injective_symbol_does_not_prove_a_clash() {
     let program = |address: Pattern| {
@@ -1630,7 +1670,7 @@ fn owise_rule_is_not_taken_for_a_symbolic_subject() {
     assert_eq!(
         stops,
         by_profile(
-            vec![PathStop::BackendLimit],
+            vec![PathStop::SolverUnknown],
             vec![PathStop::SolverUnknown, PathStop::SolverUnknown]
         )
     );
@@ -1640,7 +1680,7 @@ fn owise_rule_is_not_taken_for_a_symbolic_subject() {
             assert!(!matches!(path.path_predicate, Pattern::Top { .. }));
         }
     }
-    let failure = by_profile(PathStop::BackendLimit, PathStop::SolverUnknown);
+    let failure = PathStop::SolverUnknown;
     let plan = wl_after(&vocabulary);
     for evaluation in [decided(&mut symbolic, &plan), outcome(&symbolic, &plan)] {
         assert_eq!(
@@ -1790,20 +1830,13 @@ fn vacuous_state() -> Pattern {
     }
 }
 
-/// The halt, feasibility, every-instance stuckness and bridged stop of each leaf, in order.
-fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, bool, PathStop)> {
+/// The halt, feasibility and bridged stop of each leaf, in order.
+fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, PathStop)> {
     run.execution
         .leaves()
         .iter()
         .zip(&run.bridged.paths)
-        .map(|(leaf, path)| {
-            (
-                leaf.halt,
-                leaf.feasibility,
-                leaf.every_instance_stuck,
-                path.stop,
-            )
-        })
+        .map(|(leaf, path)| (leaf.halt, leaf.feasibility, path.stop))
         .collect()
 }
 
@@ -1883,7 +1916,6 @@ fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
         [(
             HaltClass::Stuck,
             by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
-            true,
             PathStop::SolverUnknown,
         )]
     );
@@ -1910,18 +1942,18 @@ fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
 fn constrained_and_remainder_stuck_leaves_complete_under_z3() {
     use HaltClass::{Indeterminate, Stuck};
     use LeafFeasibility::{Solver, Syntactic};
-    let complete = (Stuck, Solver, true, PathStop::Terminal);
+    let complete = (Stuck, Solver, PathStop::Terminal);
     for (program, decided) in [
         (g1(), (PatternOutcome::Match, None)),
         (g2(), (PatternOutcome::NoMatch, None)),
     ] {
         let (mut run, vocabulary) = run(Fixture::Guard, program, BUDGET);
         let facts = run.execution.definition_facts();
-        assert!(facts.applicability_conditions && facts.free_rule_patterns);
+        assert!(facts.applicability_conditions);
         assert_eq!(
             leaf_rows(&run),
             by_profile(
-                vec![(Indeterminate, Syntactic, false, PathStop::BackendLimit)],
+                vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
                 vec![complete; 3]
             )
         );
@@ -1929,7 +1961,7 @@ fn constrained_and_remainder_stuck_leaves_complete_under_z3() {
         assert_eq!(
             evaluation,
             by_profile(
-                (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+                (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
                 decided
             )
         );
@@ -2010,7 +2042,7 @@ struct ProfileRow {
 /// and so is when a solver `Sat` counts (SYM-3B-03, README 4.2); no Z3 cell is provisional.
 #[test]
 fn profile_table_rows() {
-    use PathStop::{BackendLimit, BranchLimit, DepthLimit, SolverUnknown, Terminal};
+    use PathStop::{BranchLimit, DepthLimit, SolverUnknown, Terminal};
     use PatternOutcome::{Match, NoMatch, Unknown};
     let depth = ExecutionBudget {
         max_depth: Some(1),
@@ -2156,12 +2188,12 @@ fn profile_table_rows() {
             program: g1,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (&[BackendLimit], &[Terminal, Terminal, Terminal]),
+            stops: (&[SolverUnknown], &[Terminal, Terminal, Terminal]),
             structural: (
-                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
                 (Unknown, Some(SolverUnknown)),
             ),
-            decided: ((Unknown, Some(BackendLimit)), (Match, None)),
+            decided: ((Unknown, Some(SolverUnknown)), (Match, None)),
         },
         ProfileRow {
             id: "G2-GWL-after",
@@ -2169,12 +2201,12 @@ fn profile_table_rows() {
             program: g2,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (&[BackendLimit], &[Terminal, Terminal, Terminal]),
+            stops: (&[SolverUnknown], &[Terminal, Terminal, Terminal]),
             structural: (
-                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
                 (Unknown, Some(SolverUnknown)),
             ),
-            decided: ((Unknown, Some(BackendLimit)), (NoMatch, None)),
+            decided: ((Unknown, Some(SolverUnknown)), (NoMatch, None)),
         },
         ProfileRow {
             id: "G3-GWL-after",
@@ -2205,13 +2237,13 @@ fn profile_table_rows() {
             program: owise_program,
             plan: wl_after,
             budget: BUDGET,
-            stops: (&[BackendLimit], &[SolverUnknown, SolverUnknown]),
+            stops: (&[SolverUnknown], &[SolverUnknown, SolverUnknown]),
             structural: (
-                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
                 (Unknown, Some(SolverUnknown)),
             ),
             decided: (
-                (Unknown, Some(BackendLimit)),
+                (Unknown, Some(SolverUnknown)),
                 (Unknown, Some(SolverUnknown)),
             ),
         },
@@ -2638,19 +2670,19 @@ fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
     for (id, op, negated_depth) in programs {
         let (mut run, vocabulary) = run(Fixture::Narrow, write_op_load(op, integer("X")), BUDGET);
         let facts = run.execution.definition_facts();
-        assert!(facts.applicability_conditions && facts.free_rule_patterns && facts.total_rules);
+        assert!(facts.applicability_conditions);
         let mut rows = leaf_rows(&run)
             .into_iter()
             .zip(run.execution.leaves().iter().map(|leaf| leaf.branch.depth))
             .collect::<Vec<_>>();
         rows.sort_by_key(|(_, depth)| *depth);
         let expected = by_profile(
-            vec![((Indeterminate, Syntactic, false, PathStop::BackendLimit), 1)],
+            vec![((Indeterminate, Syntactic, PathStop::SolverUnknown), 1)],
             // The narrowed path has both events (depth 3); the negated one stops at the op
             // (depth 1), or, for `pick`, takes the `owise` rule to `halt` (depth 2).
             vec![
-                ((Stuck, Solver, true, PathStop::Terminal), negated_depth),
-                ((Stuck, Solver, true, PathStop::Terminal), 3),
+                ((Stuck, Solver, PathStop::Terminal), negated_depth),
+                ((Stuck, Solver, PathStop::Terminal), 3),
             ],
         );
         assert_eq!(rows, expected, "{id}");
@@ -2666,7 +2698,7 @@ fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
         assert_eq!(
             decided_outcome(&mut run, &gwl_after(&vocabulary)),
             by_profile(
-                (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+                (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
                 (PatternOutcome::Match, None)
             ),
             "{id}"
@@ -2674,13 +2706,53 @@ fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
     }
 }
 
+/// A `Stuck` halt holds for every instance of its state in both profiles (k-rust KK-54/KK-55),
+/// so a feasible stuck leaf of a definition without `ensures` is complete even when its state
+/// keeps variables of any inhabited sort. After the write, `seq(pin(1), P)` clashes with the
+/// `pin(0)` rule at a rigid domain value, whatever the program `P` is: every instance is stuck
+/// after the write event, and no load follows. Before, only the Z3 profile claimed this, and only
+/// for `Int`/`Bool` variables; the leaf was `SolverUnknown` and the result `unknown`.
+#[test]
+fn symbolic_stuck_leaf_is_complete_in_both_profiles() {
+    use HaltClass::Stuck;
+    use LeafFeasibility::Syntactic;
+    let program = seq(
+        write(addr(integer("X")), integer("V")),
+        seq(
+            support::app("Lblpin", vec![support::int(1)]),
+            support::var("P", "SortProg"),
+        ),
+    );
+    let (mut run, vocabulary) = run(Fixture::Narrow, program, BUDGET);
+    assert_eq!(leaf_rows(&run), [(Stuck, Syntactic, PathStop::Terminal)]);
+    let [path] = run.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert!(path.complete);
+    assert_eq!(path.events.len(), 1);
+    let terminal = path.execution_terminal.as_ref().expect("terminal");
+    assert!(!terminal.state.free_variables().is_empty());
+    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+    let plan = gwl_after(&vocabulary);
+    let plain = outcome(&run, &plan);
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        (PatternOutcome::NoMatch, None)
+    );
+    assert_eq!(
+        decided_outcome(&mut run, &plan),
+        (PatternOutcome::NoMatch, None)
+    );
+}
+
 /// SYM-3B-05 (README R19): `&Int` is `smtlib(andInt)`, which k-rust declares as an
-/// uninterpreted SMT function, and `smt::translates_exactly` does not count that. Z3 answers
-/// `Sat` for `X &Int 1 ==Int 2` although no integer satisfies it, so k-rust takes `gate` under
-/// that condition, and the leaf after the load was `Solver`-feasible, complete and a witness:
-/// WL-after was a wrong `match` (every instance is stuck at `gate` after the write). A solver
-/// `Sat` now needs every symbol interpreted by SMT itself, so that leaf, and the remainder stuck
-/// at `gate` under the negated condition, are `SolverUnknown`, and the result is `unknown`.
+/// uninterpreted SMT function, and k-rust 347f693e's `smt::translates_exactly` did not count
+/// that. Z3 answers `Sat` for `X &Int 1 ==Int 2` although no integer satisfies it, so k-rust
+/// takes `gate` under that condition, and the leaf after the load was `Solver`-feasible,
+/// complete and a witness: WL-after was a wrong `match` (every instance is stuck at `gate`
+/// after the write). `translates_exactly` now rejects `smtlib` symbols (k-rust KK-48), so that
+/// leaf, and the remainder stuck at `gate` under the negated condition, are `SolverUnknown`, and
+/// the result is `unknown`.
 #[test]
 fn uninterpreted_smt_function_does_not_make_a_path_feasible() {
     use HaltClass::{Indeterminate, Stuck};
@@ -2690,12 +2762,12 @@ fn uninterpreted_smt_function_does_not_make_a_path_feasible() {
     assert_eq!(
         leaf_rows(&run),
         by_profile(
-            vec![(Indeterminate, Syntactic, false, PathStop::BackendLimit)],
-            vec![(Stuck, Unknown, true, PathStop::SolverUnknown); 2]
+            vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
+            vec![(Stuck, Unknown, PathStop::SolverUnknown); 2]
         )
     );
     let plan = gwl_after(&vocabulary);
-    let failure = by_profile(PathStop::BackendLimit, PathStop::SolverUnknown);
+    let failure = PathStop::SolverUnknown;
     assert_both(&mut run, &plan, PatternOutcome::Unknown, Some(failure));
 }
 
@@ -2704,11 +2776,13 @@ fn uninterpreted_smt_function_does_not_make_a_path_feasible() {
 /// `0` is `no-match` for it; every other instance loads from `0` but writes elsewhere. k-rust
 /// 347f693e simplified the symbolic condition to `true` without its definedness `X =/=Int 0`,
 /// so the symbolic run had one leaf after both events with predicate `\top`, and the backend
-/// decider matched it under the assumption `X = 0` (a wrong `match`, in both profiles). Since
-/// k-rust KK-45/KK-46 the condition states `X =/=Int 0`: without a solver the step is
-/// `Indeterminate`; with Z3 it splits into the step under `X =/=Int 0` and a stuck remainder
-/// under `X = 0` after the write only. A definition whose rewrite rules mention a partial
-/// function still keeps no real prefix below depth 0 for a symbolic run: `unknown`.
+/// decider matched it under the assumption `X = 0` (a wrong `match`, in both profiles); K-in-K2
+/// then withheld every real prefix of symbolic runs over rules with partial functions. The
+/// condition now states `X =/=Int 0` (k-rust KK-45/KK-46). Without a solver the step is
+/// `Indeterminate` for want of one (`SolverUnknown`). With Z3 it splits like the ground run:
+/// `halt` after both events under `X =/=Int 0`, and a stuck remainder at `half` after the write
+/// only under `X = 0`; both are exactly feasible and complete, and the only candidate needs
+/// `X = 0` on the first path, which Z3 refutes: `no-match`.
 #[test]
 fn dropped_definedness_condition_is_not_a_witness() {
     use HaltClass::{Indeterminate, Stuck};
@@ -2718,14 +2792,17 @@ fn dropped_definedness_condition_is_not_a_witness() {
         write_op_load(support::app("Lblhalf", vec![integer("X")]), support::int(0)),
         BUDGET,
     );
-    let facts = symbolic.execution.definition_facts();
-    assert!(!facts.total_rules && !facts.applicability_conditions);
-    assert!(!symbolic.execution.conditions_kept());
+    assert!(
+        symbolic
+            .execution
+            .definition_facts()
+            .applicability_conditions
+    );
     assert_eq!(
         leaf_rows(&symbolic),
         by_profile(
-            vec![(Indeterminate, Syntactic, false, PathStop::BackendLimit)],
-            vec![(Stuck, Solver, true, PathStop::SolverUnknown); 2]
+            vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
+            vec![(Stuck, Solver, PathStop::Terminal); 2]
         )
     );
     let events = symbolic
@@ -2745,11 +2822,18 @@ fn dropped_definedness_condition_is_not_a_witness() {
         "every Z3 leaf carries X =/=Int 0 or its negation"
     );
     let plan = gwl_after(&vocabulary);
-    assert_both(
-        &mut symbolic,
-        &plan,
-        PatternOutcome::Unknown,
-        Some(by_profile(PathStop::BackendLimit, PathStop::SolverUnknown)),
+    let plain = outcome(&symbolic, &plan);
+    // Under Z3 the structural decider cannot relate `X` to `0`.
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+    );
+    assert_eq!(
+        decided_outcome(&mut symbolic, &plan),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+            (PatternOutcome::NoMatch, None)
+        )
     );
 
     // The ground instance `X = 0` (values `5`) stops at `half` after the write only.
@@ -2765,7 +2849,6 @@ fn dropped_definedness_condition_is_not_a_witness() {
         ),
         BUDGET,
     );
-    assert!(ground.execution.conditions_kept());
     let [path] = ground.bridged.paths.as_slice() else {
         panic!("one path")
     };

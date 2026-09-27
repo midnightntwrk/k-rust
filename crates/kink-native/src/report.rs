@@ -153,14 +153,18 @@ fn ground_leaf(leaf: &AdaptedLeaf, path: &PathInput) -> bool {
         | Pattern::Variable(_)) && term.free_variables().is_empty())
 }
 
-fn feasibility(path: &PathInput, execution: &AdaptedExecution) -> &'static str {
-    let leaf = path.path_key.as_ref().and_then(|key| {
+/// The execution leaf of `path`.
+fn path_leaf<'e>(path: &PathInput, execution: &'e AdaptedExecution) -> Option<&'e AdaptedLeaf> {
+    path.path_key.as_ref().and_then(|key| {
         execution
             .leaves()
             .iter()
             .find(|leaf| leaf_key(leaf) == *key)
-    });
-    match leaf {
+    })
+}
+
+fn feasibility(path: &PathInput, execution: &AdaptedExecution) -> &'static str {
+    match path_leaf(path, execution) {
         Some(leaf) if ground_leaf(leaf, path) => "ground",
         Some(leaf) => match leaf.feasibility {
             LeafFeasibility::Syntactic => "syntactic",
@@ -219,6 +223,9 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
         "stop": enum_name(path.stop),
         "execution_stop": enum_name(path.execution_stop),
         "feasibility": feasibility(path, execution),
+        "cause": path_leaf(path, execution)
+            .and_then(|leaf| leaf.cause.as_ref())
+            .map(|cause| serde_json::to_value(cause).expect("an indeterminate cause encodes as JSON")),
         "predicate": term(&path.path_predicate),
         "terminal": path.execution_terminal.as_ref().map(|terminal| term(&terminal.state)),
         "events": events,
@@ -226,10 +233,12 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
 }
 
 /// The report schema version. Version 2 (SYM-3B-01) adds the SMT options to `budget`; version 3
-/// (SYM-3B-02) adds `discarded` and the path feasibility values `"solver"` and `"unsat"`.
-pub const REPORT_VERSION: u64 = 3;
+/// (SYM-3B-02) adds `discarded` and the path feasibility values `"solver"` and `"unsat"`;
+/// version 4 adds the path `cause`, the k-rust `SearchFailure` of an indeterminate leaf (null
+/// otherwise).
+pub const REPORT_VERSION: u64 = 4;
 
-/// Builds the exact version-3 step-3 report schema.
+/// Builds the exact version-4 step-3 report schema.
 #[must_use]
 pub fn step3_report(input: ReportInput<'_>) -> Value {
     let budget = input.budget;
@@ -399,7 +408,7 @@ mod tests {
                 rollbacks: Vec::new(),
             },
             feasibility: LeafFeasibility::Syntactic,
-            every_instance_stuck: true,
+            cause: None,
             diagnostics: Vec::new(),
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
@@ -457,10 +466,7 @@ mod tests {
                 timed_out: false,
                 definition: DefinitionFacts {
                     applicability_conditions: true,
-                    free_rule_patterns: true,
-                    total_rules: true,
                 },
-                conditions_kept: true,
             },
             BridgedPaths {
                 paths: vec![path],
@@ -553,6 +559,7 @@ mod tests {
                 "stop",
                 "execution_stop",
                 "feasibility",
+                "cause",
                 "predicate",
                 "terminal",
                 "events",
@@ -600,7 +607,8 @@ mod tests {
             BTreeSet::from(["left", "right"])
         );
         assert_eq!(report["schema"], "kink-step3-report");
-        assert_eq!(report["version"], 3);
+        assert_eq!(report["version"], 4);
+        assert_eq!(path["cause"], Value::Null);
         assert_eq!(report["discarded"], json!([]));
         assert_eq!(report["profile"], "no-z3");
         assert_eq!(report["outcome"], "match");
@@ -727,6 +735,16 @@ mod tests {
             execution.leaves[0].feasibility = feasibility;
             assert_eq!(render(&execution)["paths"][0]["feasibility"], name);
         }
+        // An indeterminate leaf reports k-rust's structured cause.
+        execution.leaves[0].halt = HaltClass::Indeterminate;
+        execution.leaves[0].cause = Some(k_rust::backend::SearchFailureOutput::Requires {
+            rule: "r".to_owned(),
+            predicates: Vec::new(),
+        });
+        assert_eq!(
+            render(&execution)["paths"][0]["cause"],
+            json!({ "kind": "requires", "rule": "r", "predicates": [] })
+        );
     }
 
     /// A leaf the bridge discards appears under `discarded` with its halt and reason, not

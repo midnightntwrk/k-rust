@@ -13,12 +13,15 @@
 //!   cancellation from timeout), and `Unknown` otherwise, including a backend diagnostic.
 //! - A single crash terminal is a `SemanticCrash` side carrying its terminal term; a
 //!   crash among several terminals is `Unknown`.
+//! - A terminal term with a free variable is `Unknown`. A symbolic run's complete stuck leaf
+//!   stands for all of its instances, so its term is not one value: comparing such terms
+//!   structurally, or classifying them, is not a comparison of the values the programs compute.
 //! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`
 //!   evaluations and pattern failures are never values, and declared bindings need
 //!   complete exhaustive coverage. A `Match` needs witnesses on real prefixes only
-//!   (`PathStop::has_real_prefix`): the bridge makes a vacuous, trivial, symbolic or
-//!   constrained leaf `SolverUnknown` and every path of a run with a backend diagnostic
-//!   `BackendLimit`, and an occurrence there is no witness.
+//!   (`PathStop::has_real_prefix`): the bridge makes a vacuous or trivial leaf, and a symbolic
+//!   or constrained leaf not shown feasible, `SolverUnknown`, and every path of a run with a
+//!   backend diagnostic `BackendLimit`, and an occurrence there is no witness.
 //!
 //! A run the watchdog cancelled is `TestRun::Failed(TimeLimit)`; an adapter or bridge
 //! failure is `TestRun::Failed(Infrastructure)`. A rejected mutant runs nothing. The
@@ -141,7 +144,9 @@ pub struct TestCase {
 
 /// Everything a campaign runs against. Every compiled side executes `module`, observes
 /// `observed_rules` (resolved to that side's own rule identities), and classifies its
-/// ground terminal terms with `classify`.
+/// ground terminal terms with `classify`. A symbolic test state can also give terminal terms
+/// with free variables; they reach `classify` too (the bridge's contract then applies), but a
+/// state oracle over them is `Unknown`.
 pub struct Campaign<'a> {
     pub validator: &'a NativeValidator,
     pub module: &'a str,
@@ -657,6 +662,12 @@ pub fn state_side(projection: &StateProjection, bridged: &BridgedPaths) -> Oracl
     else {
         return OracleSide::Error;
     };
+    if terminals
+        .iter()
+        .any(|terminal| !terminal.state.free_variables().is_empty())
+    {
+        return OracleSide::Unknown;
+    }
     if terminals
         .iter()
         .any(|terminal| terminal.kind == ExecutionTerminalKind::SemanticCrash)

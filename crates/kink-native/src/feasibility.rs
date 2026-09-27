@@ -9,21 +9,23 @@
 //! so every valuation of the variables over their inhabited sorts gives a value: the state has
 //! an instance. With a solver present, a constrained state over such a term is
 //! [`LeafFeasibility::Solver`] when the solver answers `Sat` for exactly its predicate
-//! conjuncts and they translate without approximation (`smt::translates_exactly`, and no
-//! uninterpreted `smtlib` symbol; Z3 abstracts every term without an SMT translation, so its
-//! `Sat` is otherwise not evidence), and [`LeafFeasibility::Unsat`] when
-//! the solver answers `Unsat` (always sound: abstraction only weakens the query). A feasible
-//! state has an instance, and that instance follows the leaf's path, because k-rust keeps every
-//! rule condition it relied on (`requires`, narrowing conditions, remainders) in the leaf
+//! conjuncts and they translate without approximation (`smt::translates_exactly`: no term
+//! abstracted to a fresh constant, no uninterpreted `smtlib` function, no partial function
+//! made total, and only `Int`/`Bool` variables and quantifiers; otherwise a `Sat` is not
+//! evidence), and [`LeafFeasibility::Unsat`] when the solver answers `Unsat` (always sound:
+//! abstraction only weakens the query). A feasible state has an instance, and that instance
+//! follows the leaf's path, because k-rust keeps every rule condition it relied on (`requires`
+//! with the definedness of its partial terms, narrowing conditions, remainders, and the
+//! definedness of partial terms in right-hand sides and simplified states) in the leaf
 //! predicate.
 //!
-//! **Stuckness.** [`every_instance_stuck`] says whether a `Stuck` halt holds for every instance
-//! of the state and not only for its symbolic term: always for a ground term, and, with a
-//! solver present, for a term whose variables all have domain-value sorts (`Int`, `Bool`) under
-//! a definition whose rewrite-rule patterns decompose freely. [`DefinitionFacts`] records
-//! whether every path condition is an applicability condition (no rewrite rule has `ensures`
-//! or a partial right-hand side), which the bridge needs before it completes a constrained or
-//! symbolic stuck leaf or discards an infeasible one.
+//! **Stuckness.** A `Stuck` halt says that no instance of the leaf state under its constraints
+//! has a rewrite successor, in both profiles: k-rust offers every rule to a subject whose top
+//! is not rigid, refutes a rule only at a head that is the same on every instance, and ends an
+//! undecided step `Indeterminate`. The halt does not say that the state has an instance.
+//! [`DefinitionFacts`] records whether every path condition is an applicability condition (no
+//! rewrite rule has `ensures` or a partial right-hand side), which the bridge needs before it
+//! completes a constrained or symbolic stuck leaf or discards an infeasible one.
 //!
 //! **Relations.** [`BackendRelations`] answers `relate` by jointly unifying the assumptions made
 //! so far with the new pair through `unify_term_pairs`, and `feasible` by jointly unifying the
@@ -33,8 +35,8 @@
 //! free constructor against an injection, distinct canonical `Int`/`Bool`/`String` values, and a
 //! variable occurring under free constructors); anything else, including a residual function
 //! equation, is undecided. Two distinct ground terms are not assumed unequal. Terms that the
-//! unifier would decompose through a symbol other than a free constructor (an `anywhere` or
-//! overloaded production is `injective` without being free) are undecided unless identical.
+//! unifier would decompose through an `injective` symbol other than a free constructor are
+//! undecided unless identical (see `decomposes_freely`).
 //!
 //! `feasible` decides the *relation query* of a real-prefix path: its path predicate, the
 //! residual constraints of the assumptions' joint unification, and the unifier's substitution.
@@ -61,11 +63,9 @@ use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
 use k_rust_backend::rule::{Predicate, RuleRhs};
-use k_rust_backend::smt::{Satisfiability, SmtSolver, SmtType, translates_exactly};
+use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
 use k_rust_backend::substitution::{Substitution, substitute};
-use k_rust_backend::term::{
-    FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
-};
+use k_rust_backend::term::{Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
 use k_rust_backend::unification::{
     Unification, UnificationFailure, UnificationResult, unify_term_pairs,
 };
@@ -93,50 +93,25 @@ pub enum LeafFeasibility {
 pub struct DefinitionFacts {
     /// No rewrite rule has an `ensures` clause or a right-hand side with partial symbols, so
     /// every conjunct a rewrite step adds to a path condition is an applicability condition of
-    /// the step (its `requires`, a narrowing condition, or the negation of a sibling's
-    /// condition in a remainder). The leaves of a run then cover every instance of the initial
-    /// state that reaches them: an instance that a step does not take lies in a remainder or a
-    /// sibling. An `ensures` or a definedness obligation instead removes the instances that
-    /// violate it after their prefix events have happened, and no leaf keeps them.
+    /// the step (its `requires` with the definedness of its terms, a narrowing condition, or
+    /// the negation of a sibling's condition in a remainder). The leaves of a run then cover
+    /// every instance of the initial state that reaches them: an instance that a step does not
+    /// take, including one where a `requires` is undefined, lies in a remainder or a sibling.
+    /// An `ensures` or a right-hand-side definedness obligation instead removes the instances
+    /// that violate it after their prefix events have happened, and no leaf keeps them.
     pub applicability_conditions: bool,
-    /// Every rewrite rule's left-hand side decomposes freely (see `decomposes_freely`), so a
-    /// clash the unifier finds between it and a subject of free constructors is a real clash.
-    pub free_rule_patterns: bool,
-    /// No rewrite rule mentions a partial function: none in its left-hand side, right-hand
-    /// side (`undefined_symbols`, which a `preserves-definedness` rule clears), `requires` or
-    /// `ensures`. k-rust's symbolic simplification can drop the definedness condition of a
-    /// partial term in a rule condition: `requires 10 /Int A ==Int 10 /Int A` becomes `true`,
-    /// so the leaf predicate claims that `A = 0` follows the rule, while the ground instance is
-    /// stuck (SYM-3B-05, README R18). Without this fact no leaf of a symbolic run below depth
-    /// 0 is a real prefix, and `applicability_conditions` is false.
-    pub total_rules: bool,
 }
 
 impl DefinitionFacts {
     #[must_use]
     pub fn of(definition: &BackendDefinition) -> Self {
-        let rules = || {
-            definition
+        Self {
+            applicability_conditions: definition
                 .rewrite_theory
                 .values()
                 .flat_map(|priorities| priorities.values())
                 .flatten()
-        };
-        let total_rules = rules().all(|rule| {
-            rule.computed_attributes.undefined_symbols.is_empty()
-                && total_predicates(&rule.requires)
-                && total_predicates(&rule.ensures)
-                && match &rule.rhs {
-                    RuleRhs::Disjunction(alternatives) => alternatives
-                        .iter()
-                        .all(|alternative| total_predicates(&alternative.ensures)),
-                    RuleRhs::Predicates(predicates) => total_predicates(predicates),
-                    RuleRhs::Term(_) | RuleRhs::Top | RuleRhs::Bottom => true,
-                }
-        });
-        Self {
-            applicability_conditions: total_rules
-                && rules().all(|rule| {
+                .all(|rule| {
                     rule.ensures.is_empty()
                         && rule.computed_attributes.undefined_symbols.is_empty()
                         && match &rule.rhs {
@@ -147,65 +122,8 @@ impl DefinitionFacts {
                             RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
                         }
                 }),
-            free_rule_patterns: rules().all(|rule| decomposes_freely(&rule.lhs)),
-            total_rules,
         }
     }
-}
-
-/// Whether no term of `predicates` applies a partial function.
-fn total_predicates(predicates: &[Predicate]) -> bool {
-    predicates.iter().all(|predicate| {
-        let mut total = true;
-        predicate.visit_terms(&mut |term: &Term| {
-            term.visit_symbols(&mut |symbol| {
-                total &=
-                    symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial);
-            });
-        });
-        total
-    })
-}
-
-/// `smt::translates_exactly`, and every symbol is interpreted by the SMT logic itself and every
-/// quantified variable is of sort `Int` or `Bool`. k-rust declares a symbol with an `smtlib`
-/// name as an uninterpreted SMT function (`SmtPrelude::from_definition`, `declare-fun`), which
-/// knows nothing of the K function's rules, and `translates_exactly` does not count that
-/// approximation: `X &Int 1 ==Int 2` (`&Int` is `smtlib(andInt)`) has no instance, but Z3
-/// answers `Sat` (SYM-3B-05, README R19). A quantified variable of another sort ranges over an
-/// uninterpreted SMT sort, which knows nothing of the sort's values.
-fn translates_without_approximation(predicates: &[Predicate]) -> bool {
-    fn quantifiers_exact(predicate: &Predicate) -> bool {
-        match predicate {
-            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
-                (variable.sort.is_builtin(BuiltinSort::Int)
-                    || variable.sort.is_builtin(BuiltinSort::Bool))
-                    && quantifiers_exact(inner)
-            }
-            Predicate::Not(inner) => quantifiers_exact(inner),
-            Predicate::And(inner) | Predicate::Or(inner) => inner.iter().all(quantifiers_exact),
-            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
-                quantifiers_exact(left) && quantifiers_exact(right)
-            }
-            Predicate::True
-            | Predicate::False
-            | Predicate::Term(_)
-            | Predicate::Equals(..)
-            | Predicate::Ceil(_)
-            | Predicate::Floor(_)
-            | Predicate::In(..) => true,
-        }
-    }
-    translates_exactly(predicates)
-        && predicates.iter().all(|predicate| {
-            let mut interpreted = quantifiers_exact(predicate);
-            predicate.visit_terms(&mut |term: &Term| {
-                term.visit_symbols(&mut |symbol| {
-                    interpreted &= !matches!(symbol.attributes.smt, Some(SmtType::Lib(_)));
-                });
-            });
-            interpreted
-        })
 }
 
 /// The sorts of a backend definition that have a value: a sort with domain values, a hooked
@@ -315,11 +233,6 @@ fn constructor_term(term: &Term, inhabitation: &Inhabitation) -> bool {
     }
 }
 
-/// Whether `solver` answers satisfiability queries at all; `NoSolver` never does.
-fn solver_present(solver: &dyn SmtSolver) -> bool {
-    solver.is_sat(&[], &Substitution::new()).is_ok()
-}
-
 /// The feasibility of a leaf state (KORE JSON) per the module documentation. Only the solver's
 /// `Sat` and `Unsat` are used, and `Sat` only when the query translates exactly; `NoSolver`
 /// contributes nothing.
@@ -345,54 +258,11 @@ pub(crate) fn leaf_feasibility(
     }
     match solver.is_sat(&internal.constraints, &Substitution::new()) {
         Ok(Satisfiability::Unsat) => LeafFeasibility::Unsat,
-        Ok(Satisfiability::Sat)
-            if instances && translates_without_approximation(&internal.constraints) =>
-        {
+        Ok(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
             LeafFeasibility::Solver
         }
         Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
     }
-}
-
-/// Whether a `Stuck` halt of the leaf state (KORE JSON) holds for every instance of the state.
-///
-/// A ground term has one instance. A symbolic term qualifies only with a solver present, a
-/// top-level free constructor, free constructors, injections and domain values elsewhere, and
-/// element variables of the domain-value sorts `Int` and `Bool` only, under a definition whose
-/// rewrite-rule patterns decompose freely. Then every instance differs from the term only in
-/// domain values below the same constructors, so k-rust's rule index offers the term every rule
-/// it offers an instance; a proved clash with a rule pattern holds for every instance; and a
-/// rule condition refuted under the path condition (solver `Unsat`, always sound) or excluded by
-/// k-rust's complete remainder holds for no instance of the leaf. Without a solver, narrowing and
-/// unclear conditions are `Indeterminate` rather than `Stuck`, but 3a's decision that a symbolic
-/// stuck leaf stays unknown (README Q4) is kept for that profile.
-pub(crate) fn every_instance_stuck(
-    definition: &BackendDefinition,
-    solver: &dyn SmtSolver,
-    facts: DefinitionFacts,
-    inhabitation: &Inhabitation,
-    state: &serde_json::Value,
-) -> bool {
-    let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
-        return false;
-    };
-    let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
-        return false;
-    };
-    let term = &internal.term;
-    let variables = &term.attributes().variables;
-    if variables.is_empty() {
-        return true;
-    }
-    solver_present(solver)
-        && facts.free_rule_patterns
-        && matches!(term.kind(), TermKind::Application { symbol, .. } if free_constructor(symbol))
-        && constructor_term(term, inhabitation)
-        && variables.iter().all(|variable| {
-            variable.kind == VariableKind::Element
-                && (variable.sort.is_builtin(BuiltinSort::Int)
-                    || variable.sort.is_builtin(BuiltinSort::Bool))
-        })
 }
 
 /// The first free element variable of `state` whose sort is not shown inhabited, or the
@@ -464,12 +334,23 @@ fn occurs_under_free_constructors(variable: &Variable, term: &Term) -> bool {
     !matches!(term.kind(), TermKind::Variable(_)) && below(variable, term)
 }
 
-/// Whether the unifier decomposes `term` only through free constructors and injections: every
-/// application it may decompose (a constructor or an `injective` symbol) is a free constructor.
-/// Decomposing any other symbol is not an equivalence. k-rust's kompile marks an `anywhere` or
-/// overloaded production `injective` although its equations identify distinct applications
-/// (`wrap(s(z)) => wrap(z) [anywhere]`), so a clash or solved form found below it proves
-/// nothing. Collections are unsupported by the unifier and conservatively excluded.
+/// Whether every application in `term` that the unifier may decompose through its
+/// `constructor` type or its `injective` attribute is a free constructor.
+///
+/// Decomposing `f(a) = f(b)` into `a = b` is an equivalence only when equal applications of `f`
+/// have equal arguments. k-rust's unifier decomposes an `anywhere` application only when both
+/// sides are normal forms on every instance (no equation can rewrite any instance), where
+/// distinct arguments give distinct normal forms and hence distinct values; an `anywhere`
+/// symbol that is neither `constructor` nor `injective` is therefore accepted here. For any
+/// other symbol it trusts the KORE `injective` attribute, which a frontend emits and the
+/// equations do not check: k-rust's kompile withholds it from `anywhere` and macro heads and from
+/// an overload family above one, but KORE from another frontend declares every `anywhere` and
+/// overloaded production `injective` (`wrap(s(z)) => wrap(z) [anywhere]` identifies distinct
+/// applications), and hand-written KORE can declare any function `injective`. A clash or solved
+/// form found below such a symbol proves nothing, so every `injective` symbol that is not a free
+/// constructor is refused, `anywhere` or not. A `constructor` symbol that is not free (hand-written
+/// KORE with the `function` attribute too) is refused for the same reason. Collections are
+/// unsupported by the unifier and conservatively excluded.
 fn decomposes_freely(term: &Term) -> bool {
     match term.kind() {
         TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
@@ -648,9 +529,7 @@ impl<'a> BackendRelations<'a> {
         });
         match self.solver.is_sat(&query, &Substitution::new()) {
             Ok(Satisfiability::Unsat) => Feasibility::Unsat,
-            Ok(Satisfiability::Sat)
-                if idempotent && stable && translates_without_approximation(&query) =>
-            {
+            Ok(Satisfiability::Sat) if idempotent && stable && translates_exactly(&query) => {
                 Feasibility::Sat
             }
             Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => Feasibility::Unknown,
@@ -1686,21 +1565,22 @@ mod tests {
         }
     }
 
-    /// Which definitions keep every path condition an applicability condition, whose rule
-    /// patterns decompose freely, and whose rewrite rules mention no partial function.
+    /// Which definitions keep every path condition an applicability condition. A `requires`
+    /// over a partial function (sympartial's `10 /Int A ==Int 10 /Int A`) no longer excludes
+    /// it: the condition carries its definedness, so an instance where it is undefined lies in
+    /// the step's remainder like one where it is false.
     #[test]
     fn definition_facts_follow_the_rewrite_rules() {
         let rows = [
-            ("symmem.k", "SYMMEM", true, true, true),
-            ("guardedmem.k", "GUARDEDMEM", true, true, true),
-            ("symensures.k", "SYMENSURES", false, true, true),
-            ("symbottom.k", "SYMBOTTOM", false, true, true),
-            ("symwrap.k", "SYMWRAP", true, true, true),
-            ("symnarrow.k", "SYMNARROW", true, true, true),
-            // `requires 10 /Int A ==Int 10 /Int A` (SYM-3B-05, README R18).
-            ("sympartial.k", "SYMPARTIAL", false, true, false),
+            ("symmem.k", "SYMMEM", true),
+            ("guardedmem.k", "GUARDEDMEM", true),
+            ("symensures.k", "SYMENSURES", false),
+            ("symbottom.k", "SYMBOTTOM", false),
+            ("symwrap.k", "SYMWRAP", true),
+            ("symnarrow.k", "SYMNARROW", true),
+            ("sympartial.k", "SYMPARTIAL", true),
         ];
-        for (name, module, applicability, free, total) in rows {
+        for (name, module, applicability) in rows {
             let mut backend = backend(name, module);
             let facts = backend
                 .with_solver(None, |definition, _| {
@@ -1711,122 +1591,10 @@ mod tests {
                 facts,
                 DefinitionFacts {
                     applicability_conditions: applicability,
-                    free_rule_patterns: free,
-                    total_rules: total,
                 },
                 "{name}"
             );
         }
-        // An `anywhere` symbol that is `injective` but not free: a rewrite rule whose pattern
-        // mentions it no longer decomposes freely. k-rust's kompile no longer declares symwrap's
-        // `anywhere` symbol `injective` (k-rust KK-53), but KORE from other frontends does, so the
-        // attribute is set here.
-        let mut wrap = backend("symwrap.k", "SYMWRAP");
-        let facts = wrap
-            .with_solver(None, |definition, _| {
-                let mut definition = definition.clone();
-                let symbol = definition.symbols.get_mut("Lblwrap").expect("wrap symbol");
-                std::sync::Arc::make_mut(symbol).attributes.injective = true;
-                let pattern = definition
-                    .internalize_term(&support::app("Lblwrap", vec![z()]), &[])
-                    .expect("wrap(z)");
-                let rule = definition
-                    .rewrite_theory
-                    .values_mut()
-                    .flat_map(|priorities| priorities.values_mut())
-                    .flatten()
-                    .next()
-                    .expect("a rewrite rule");
-                let mut changed = (*rule.rule).clone();
-                changed.lhs = pattern;
-                rule.rule = std::sync::Arc::new(changed);
-                Ok::<_, BackendError>(DefinitionFacts::of(&definition))
-            })
-            .expect("definition");
-        assert!(!facts.free_rule_patterns);
-        assert!(facts.applicability_conditions);
-    }
-
-    /// Stuckness holds for every instance of a ground term, and of a symbolic term only with a
-    /// solver, free rule patterns, a free-constructor top and `Int`/`Bool` variables.
-    #[test]
-    fn every_instance_stuck_needs_a_solver_and_domain_value_variables() {
-        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
-        let answers = guarded
-            .with_solver(None, |definition, _| {
-                let inhabitation = Inhabitation::of(definition);
-                let facts = DefinitionFacts::of(definition);
-                let x = support::var("X", "SortInt");
-                let plus = support::app(
-                    &hooked(definition, "INT.add"),
-                    vec![x.clone(), support::int(1)],
-                );
-                let sat = Scripted(Ok(Satisfiability::Sat));
-                let none = Scripted(Err(SmtError::Unavailable));
-                let stuck = |solver: &Scripted, facts: DefinitionFacts, state: &Pattern| {
-                    every_instance_stuck(
-                        definition,
-                        solver,
-                        facts,
-                        &inhabitation,
-                        &codec::to_value(state).expect("state JSON"),
-                    )
-                };
-                let unfree = DefinitionFacts {
-                    free_rule_patterns: false,
-                    ..facts
-                };
-                Ok::<_, BackendError>([
-                    (
-                        "ground",
-                        stuck(
-                            &none,
-                            unfree,
-                            &guarded_write(support::int(1), support::int(2)),
-                        ),
-                    ),
-                    (
-                        "int-variables",
-                        stuck(&sat, facts, &guarded_state(x.clone())),
-                    ),
-                    ("no-solver", stuck(&none, facts, &guarded_state(x.clone()))),
-                    (
-                        "unfree-rules",
-                        stuck(&sat, unfree, &guarded_state(x.clone())),
-                    ),
-                    ("function-term", stuck(&sat, facts, &guarded_state(plus))),
-                    (
-                        "bare-variable",
-                        stuck(&sat, facts, &support::var("T", "SortInt")),
-                    ),
-                ])
-            })
-            .expect("definition");
-        assert_eq!(
-            answers,
-            [
-                ("ground", true),
-                ("int-variables", true),
-                ("no-solver", false),
-                ("unfree-rules", false),
-                ("function-term", false),
-                ("bare-variable", false),
-            ]
-        );
-        // A variable of a constructor sort can hide any constructor.
-        let mut symmem = backend("symmem.k", "SYMMEM");
-        let nat_variables = symmem
-            .with_solver(None, |definition, _| {
-                Ok::<_, BackendError>(every_instance_stuck(
-                    definition,
-                    &Scripted(Ok(Satisfiability::Sat)),
-                    DefinitionFacts::of(definition),
-                    &Inhabitation::of(definition),
-                    &codec::to_value(&symmem_state()).expect("state JSON"),
-                ))
-            })
-            .expect("definition");
-        assert!(!nat_variables);
     }
 
     const WRAP: &str = r"[]
@@ -1839,10 +1607,11 @@ mod tests {
             symbol Lblboth{}(SortNat{}) : SortNat{} [constructor{}(), function{}()]
         endmodule []";
 
-    /// Audit (SYM-3A-09): k-rust's kompile marks an `anywhere` production `injective`, and the
-    /// unifier decomposes it, but its equations can identify `wrap(s(z))` with `wrap(z)`. A
-    /// clash or solved form below it is therefore not evidence; identical terms still are. The
-    /// same holds for a symbol that k-rust types as a constructor although it is a `function`.
+    /// Audit (SYM-3A-09): KORE from another frontend (and k-rust's kompile before KK-53) marks an
+    /// `anywhere` production `injective`, but its equations can identify `wrap(s(z))` with
+    /// `wrap(z)`. A clash or solved form below a non-free `injective` symbol is therefore not
+    /// evidence; identical terms still are. The same holds for a symbol that k-rust types as a
+    /// constructor although it is a `function`.
     #[test]
     fn non_free_injective_symbols_leave_relations_undecided() {
         let definition =

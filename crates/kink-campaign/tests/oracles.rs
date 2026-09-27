@@ -552,6 +552,40 @@ fn e4_operand_eligibility() {
     );
 }
 
+/// A complete terminal term with a free variable stands for every instance of a symbolic run,
+/// not for one value: no state projection reads it, whatever the terminal class.
+#[test]
+fn symbolic_terminal_terms_are_unknown_to_state_oracles() {
+    let symbolic = app(
+        "top",
+        vec![
+            app("k", vec![constant("done")]),
+            app(
+                "counter",
+                vec![Pattern::Variable(k_rust::kore::ast::Variable {
+                    kind: k_rust::kore::ast::VariableKind::Element,
+                    name: "X".to_owned(),
+                    sort: kore_sort("SortInt"),
+                })],
+            ),
+        ],
+    );
+    for projection in [
+        exit_stop(None),
+        exit_stop(Some("counter")),
+        StateProjection::WholeTerm,
+        StateProjection::TermPaths(vec![vec![0, 0]]),
+    ] {
+        for kind in [Normal, Stuck, SemanticCrash] {
+            assert_eq!(
+                state_side(&projection, &single(kind, symbolic.clone())),
+                OracleSide::Unknown,
+                "{projection:?} {kind:?}"
+            );
+        }
+    }
+}
+
 /// The side of a single leaf that halted with `halt`, as the bridge reads it: a stuck
 /// leaf is a ground normal terminal.
 fn halt_side(
