@@ -282,6 +282,36 @@ Its `execute-trivial-configuration` request sends the evaluated configuration `<
 That response is the case's `rpc.oracle-exception` row in the [differential manifest](../scripts/reference-differential.toml): the gate fails when k-rust's answer leaves the committed expectation or when the proxy's answer becomes equal to it, and the proxy's measured answer is kept beside the expectation in the [RPC fixtures](../crates/k-rust/tests/fixtures/reference/rpc).
 [Rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs), including `a_trivial_rule_shadows_lower_priority_rules`, cover concrete and symbolic remainders.
 
+## Set concatenation is nilpotent
+
+k-rust implements one theory of `_Set_`, in concrete and in symbolic evaluation: concatenation is nilpotent.
+`S1 S2` is the disjoint union, defined only when `S1` and `S2` share no element; `SetItem(X) SetItem(X)` is `\bottom`.
+The union of sets that may overlap is `|Set`, which `domains.md` defines as `S1 (S2 -Set S1)` and which is unchanged.
+This is the theory the `domains.md` prose states ([`domains.md`](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/k-distribution/include/kframework/builtin/domains.md), "Set concatenation": "the concatenation of two sets containing elements in common is `#False`").
+It is also the theory AC matching of sets rests on: a pattern `SetItem(X) R` decomposes a set in one way per element because `X` is not in `R`.
+
+So a concrete run that concatenates sets sharing an element ends in an undefined step, like any rule whose right-hand side is undefined ([Undefined steps in proofs](#undefined-steps-in-proofs), [Trivial rule results](#trivial-rule-results)).
+`krun` warns that the rule "applied with an undefined result" and prints `\bottom`; a hooked function applied to such a set, such as `size`, is `\bottom` too.
+Concatenating disjoint sets and `|Set` give the same results as before.
+A cell collection declared with `type="Set"` is such a set too: a step that adds a cell equal to one the collection holds, or makes two of its cells equal, is undefined, where it used to merge them.
+The `STAR-CELL-HEATING-SET` fixture shows it: its two tasks complete to the same cell, so `two.pgm` ends in an undefined step at depth 10.
+
+The reason is that concrete and symbolic evaluation are two evaluators of one definition and must agree on every ground instance.
+The symbolic side already reads concatenation as nilpotent: the definedness of `S SetItem(I)` is `I` not in `S`.
+Before this rule, the concrete side merged the shared element, so `start(1)` with the set `SetItem(1)` reached a successor that the symbolic step, specialised to that instance, says does not exist; a ground claim was proven while its symbolic generalisation failed.
+The concrete check costs nothing extra: concatenation inserts every element of one set into the other, which is where a shared element shows.
+Internally, `Term::set` keeps a repeated element (sorted, adjacent), as `Term::map` keeps a repeated key, so definedness (`\not(X = X)`), matching (no match) and the hooks (`\bottom`) all see it.
+
+This diverges from the reference concrete execution, which merges overlapping sets; `domains.md` notes that overlap "may be silently allowed during concrete execution".
+A definition whose concrete runs rely on that merge gets an undefined step in k-rust at the step that concatenates; writing `|Set` there states the union it means.
+
+The `_Set_` production in `domains.md` also carries `idem`, which states `S S = S`.
+That contradicts nilpotency for every `S` except `.Set`.
+k-rust accepts the attribute and does not honour it: `kcompile` still translates it into its KORE axiom `_Set_(K, K) = K`, as for any `idem` production, so the compiled KORE is unchanged; the backend evaluates and matches by no `assoc`, `comm`, `unit` or `idem` axiom (a hooked collection implements its algebra in its representation), and the `SET.concat` hook fixes concatenation as nilpotent.
+A `total` function whose equation concatenates overlapping sets is not total; k-rust trusts the attribute and does not check its result's definedness, as for any `total` function.
+
+The `set_concatenation_is_nilpotent_in_krun_and_kprove` CLI test, `spawning_a_duplicate_ground_cell_is_an_undefined_step` and `a_set_holding_an_element_twice_matches_nothing` in the [backend tests](../crates/k-rust-backend/tests/backend), and the unit tests of [set.rs](../crates/k-rust-backend/src/builtin/set.rs) cover this.
+
 ## Hook specification exceptions
 
 The hook contract is K's [`k-distribution/include/kframework/builtin/domains.md`](https://github.com/runtimeverification/k/blob/4a46d1231473b599c699160132fd6e76a5c46406/k-distribution/include/kframework/builtin/domains.md).
@@ -612,7 +642,7 @@ The reference toolchain's rejection of the claim remains checked as the case's o
 
 A step is undefined on a configuration when a rule applies to it but has an empty result there, and no rule of the same priority gives it a defined result.
 The rule applies: it matches and its `requires` holds.
-The result is empty because its `ensures` fails, or because its right-hand side is undefined, for example a partial function such as `/Int` by zero, or a `Set` or `Map` union whose operands share an element or key.
+The result is empty because its `ensures` fails, or because its right-hand side is undefined, for example a partial function such as `/Int` by zero, or a `Set` or `Map` concatenation whose operands share an element or key ([Set concatenation is nilpotent](#set-concatenation-is-nilpotent)).
 Such a configuration is not stuck, because the applying rule also shuts out the lower priorities.
 It is not empty either: it exists, and the path to it is real.
 It simply has no successor.
@@ -638,6 +668,7 @@ Its only step is `<set>... .Set => SetItem(I) ...</set>`, which rewrites the set
 So on every configuration whose set already contains `I`, the step is undefined, for example `start(1)` with the set `SetItem(1)`.
 Such a configuration never reaches `end`, so the claim does not hold for it.
 k-rust reports `failed` with a `Trivial` leaf under `I in S`, and proves the claim with `--allow-vacuous`.
+The ground instance fails in the same way: the claim `<k> start(1) => end ...</k> <set> SetItem(1) (.Set => SetItem(2) ?_:Set) </set>` has the undefined step `SetItem(1) SetItem(1)` and is `failed`, because concrete concatenation is nilpotent too.
 
 ## Proof oracle incompleteness
 
