@@ -157,6 +157,9 @@ The CLI and KORE RPC `execute` produce state-set results.
 A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
 Strategy `any` commits the first applicable rule of a step and makes no coverage claim, but it keeps that rule's right-hand-side alternatives and passes a symbolic remainder to later rules, so it can produce several leaves; `result_modality` applies to whatever leaves it produces, and the two readings coincide whenever no two of those leaves share a configuration.
 With `stop_at_branch`, execution stops at the first branch point and reports its successors inside the branch halt.
+For the same request, `Backend::execute` and `Backend::execute_observed` return leaves in the same order, equal in every field except `branch` and `observations`.
+Unobserved execution leaves `branch` empty.
+Observed branch identities do not depend on the rule filter: `ObservedRequest.rules = Some(vec![])` yields every identity and no observation events.
 
 Printed execution, search, and pattern-match disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
 

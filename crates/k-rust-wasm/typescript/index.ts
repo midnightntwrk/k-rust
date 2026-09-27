@@ -251,6 +251,7 @@ export interface ExecutionLeaf {
   /** Legacy human-readable context only; use cause, candidates and remainder for halt evidence. */
   detail?: string
   trace: BackendTraceEntry[]
+  /** Filter-independent transition identities; absent in unobserved execution. */
   branch?: TransitionId[]
   /** Ordered effects committed on this branch, independent of observation. */
   effects?: BackendEffect[]
@@ -353,7 +354,7 @@ export type ObservationEvent =
   | UncommittedObservation
 
 export interface ObservationOptions {
-  /** Exact executable rewrite, equation, simplification, or definedness ids. Omit to include builtins. */
+  /** Exact executable rewrite, equation, simplification, or definedness ids. [] emits no events but retains every branch identity. Omit to include builtins. */
   rules?: string[]
 }
 

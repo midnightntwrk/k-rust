@@ -511,6 +511,7 @@ overhead.
 execution, simplification, implication checking, model generation, reachability proving, and
 stateful module addition. Native sessions cache Z3 preludes per selected module.
 `execute` and `executeObserved` accept `resultModality`: `state-set` (the default) merges structurally equal final configurations, `path-set` returns one leaf per explored path, so converging paths keep their own trace, branch identity, and observations; every `ExecutionResult` reports its `modality`.
+For the same request, observation preserves every non-observation leaf field and leaf order; `executeObserved` with `rules: []` returns every branch identity and no events.
 Persistent reachability is available as separate state-set/path-set and graph/pattern methods, with opt-in observed twins that serialize branch-local transition evidence and effects.
 Observed `transition` events are the committed transitions of `branch` that the rule filter admits, in branch order; equation, simplification, and builtin applications are `evaluation` events whose `anchor` counts the branch entries that precede the state they normalized, and they are diagnostics whose presence and order depend on the simplifier's strategy.
 Search requests negotiate schema version 1, reject unknown fields, and return a closed structural `incomplete` union; bounded synchronous responses are fully materialized and do not yet expose streaming or cancellation.

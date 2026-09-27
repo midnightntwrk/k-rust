@@ -190,6 +190,8 @@ pub struct ExecutionLeaf {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub trace: Vec<TraceEntry>,
+    /// Committed transition identities, independent of the observation rule filter.
+    /// Unobserved execution leaves this empty; an empty allowlist retains every identity.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub branch: Vec<TransitionIdOutput>,
     /// Ordered effects committed on this branch, regardless of observation.
@@ -577,10 +579,16 @@ impl Backend {
         self.session.add_module(source, module, name_as_id)
     }
 
+    /// Execute without observation; every leaf's `branch` and `observations` are empty.
+    /// `execute_observed` returns the same non-observation leaf fields in the same order.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
     }
 
+    /// Execute with observation without changing the leaves or their order.
+    /// For the same request, leaves match `execute` after clearing `branch` and `observations`.
+    /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
+    /// every identity and no observation events.
     pub fn execute_observed(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
@@ -1347,6 +1355,34 @@ mod tests {
                 \and{SortState{}}(initial{}(), \top{SortState{}}()),
                 right{}(log{}(\dv{SortString{}}("right")))
             ) [label{}("right")]
+        endmodule []"#;
+
+    const OBSERVATION_ERASURE_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortString{} [hasDomainValues{}()]
+            sort SortK{} []
+            sort SortState{} []
+            symbol initial{}() : SortState{} [constructor{}()]
+            symbol left{}(SortK{}) : SortState{} [constructor{}()]
+            symbol right{}(SortK{}) : SortState{} [constructor{}()]
+            symbol merged{}() : SortState{} [constructor{}()]
+            symbol dotk{}() : SortK{} [constructor{}()]
+            hooked-symbol log{}(SortString{}) : SortK{}
+                [function{}(), hook{}("IO.logString")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                left{}(log{}(\dv{SortString{}}("same")))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                right{}(log{}(\dv{SortString{}}("same")))
+            ) [label{}("right")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(left{}(dotk{}()), \top{SortState{}}()), merged{}()
+            ) [label{}("left-merged")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(right{}(dotk{}()), \top{SortState{}}()), merged{}()
+            ) [label{}("right-merged")]
         endmodule []"#;
 
     const UNSUPPORTED_HOOK_DEFINITION: &str = r#"[]
@@ -2352,6 +2388,84 @@ mod tests {
             .unwrap();
         assert_eq!(branch_effects(&observed), branch_effects(&ordinary));
         assert!(observed.effects.is_empty());
+    }
+
+    #[test]
+    fn observation_preserves_facade_leaves_order_and_filter_independent_identities() {
+        let mut backend = Backend::new(
+            OBSERVATION_ERASURE_DEFINITION,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let erase = |mut result: ExecutionResult| {
+            for leaf in &mut result.leaves {
+                leaf.branch.clear();
+                leaf.observations.clear();
+            }
+            serde_json::to_value(result).unwrap()
+        };
+
+        for (modality, expected_leaves) in [
+            (ResultModalityOutput::StateSet, 1),
+            (ResultModalityOutput::PathSet, 2),
+        ] {
+            let request = ExecuteRequest {
+                state: json("initial{}()"),
+                result_modality: modality,
+                ..ExecuteRequest::default()
+            };
+            let plain = backend.execute(request.clone()).unwrap();
+            let all = backend
+                .execute_observed(ObservedRequest {
+                    request: request.clone(),
+                    rules: None,
+                })
+                .unwrap();
+            let selected = backend
+                .execute_observed(ObservedRequest {
+                    request: request.clone(),
+                    rules: Some(vec!["left".into()]),
+                })
+                .unwrap();
+            let none = backend
+                .execute_observed(ObservedRequest {
+                    request,
+                    rules: Some(vec![]),
+                })
+                .unwrap();
+
+            assert_eq!(plain.leaves.len(), expected_leaves, "{modality:?}");
+            assert!(plain.leaves.iter().all(|leaf| leaf.branch.is_empty()));
+            assert!(plain.leaves.iter().all(|leaf| leaf.observations.is_empty()));
+            assert!(plain.leaves.iter().all(|leaf| leaf.effects
+                == [EffectOutput::UserLog {
+                    message: "same".into(),
+                }]));
+            let expected = erase(plain);
+            for observed in [&all, &selected, &none] {
+                assert_eq!(erase(observed.clone()), expected, "{modality:?}");
+                assert_eq!(
+                    observed
+                        .leaves
+                        .iter()
+                        .map(|leaf| &leaf.branch)
+                        .collect::<Vec<_>>(),
+                    all.leaves
+                        .iter()
+                        .map(|leaf| &leaf.branch)
+                        .collect::<Vec<_>>(),
+                    "{modality:?}"
+                );
+            }
+            assert!(
+                all.leaves
+                    .iter()
+                    .all(|leaf| leaf.depth > 0 && !leaf.branch.is_empty())
+            );
+            assert!(all.leaves.iter().any(|leaf| !leaf.observations.is_empty()));
+            assert!(none.leaves.iter().all(|leaf| leaf.observations.is_empty()));
+        }
     }
 
     #[test]

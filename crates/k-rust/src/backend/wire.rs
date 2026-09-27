@@ -160,6 +160,7 @@ impl Default for SearchPatternRequest {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct ObservedRequest<T> {
     pub request: T,
+    /// An optional event allowlist; an empty list emits no events but retains every branch identity.
     #[serde(default)]
     pub rules: Option<Vec<String>>,
 }
