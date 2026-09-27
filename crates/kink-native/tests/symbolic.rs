@@ -198,6 +198,12 @@ enum Fixture {
     /// `symbottom.k`: guardedmem's unguarded write/load plus rules whose `ensures` leaves a
     /// state without successor (SYM-3B-02).
     Bottom,
+    /// `symnarrow.k`: rules whose applicability to a symbolic `Int` depends on its value
+    /// without a `requires`, and a `requires` over the uninterpreted `&Int` (SYM-3B-05).
+    Narrow,
+    /// `sympartial.k`: a `requires` over a partial function whose definedness k-rust drops
+    /// (SYM-3B-05, README R18).
+    Partial,
 }
 
 impl Fixture {
@@ -209,6 +215,8 @@ impl Fixture {
             Self::Owise => "symowise.k",
             Self::Ensures => "symensures.k",
             Self::Bottom => "symbottom.k",
+            Self::Narrow => "symnarrow.k",
+            Self::Partial => "sympartial.k",
         }
     }
     fn module(self) -> &'static str {
@@ -219,18 +227,20 @@ impl Fixture {
             Self::Owise => "SYMOWISE",
             Self::Ensures => "SYMENSURES",
             Self::Bottom => "SYMBOTTOM",
+            Self::Narrow => "SYMNARROW",
+            Self::Partial => "SYMPARTIAL",
         }
     }
     fn address_sort(self) -> &'static str {
         match self {
             Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortAddress",
-            Self::Guard | Self::Bottom => "SortInt",
+            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial => "SortInt",
         }
     }
     fn value_sort(self) -> &'static str {
         match self {
             Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortNat",
-            Self::Guard | Self::Bottom => "SortInt",
+            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial => "SortInt",
         }
     }
     fn labels(self) -> &'static [&'static str; 3] {
@@ -241,6 +251,8 @@ impl Fixture {
             Self::Owise => &["SYMOWISE.write", "SYMOWISE.load", "SYMOWISE.other"],
             Self::Ensures => &["SYMENSURES.write", "SYMENSURES.load", "SYMENSURES.pin"],
             Self::Bottom => &["SYMBOTTOM.write", "SYMBOTTOM.load", "SYMBOTTOM.stop"],
+            Self::Narrow => &["SYMNARROW.write", "SYMNARROW.load", "SYMNARROW.gate"],
+            Self::Partial => &["SYMPARTIAL.write", "SYMPARTIAL.load", "SYMPARTIAL.half"],
         }
     }
 }
@@ -337,6 +349,21 @@ fn observations(fixture: Fixture, validator: &NativeValidator) -> Vec<ObservedRu
             observed(
                 validator,
                 "SYMBOTTOM.load",
+                "memoryLoad",
+                &[GUARD_LOAD_A, GUARD_LOAD_V],
+            ),
+        ],
+        // symnarrow's and sympartial's write/load rules bind the same variables as guardedmem's.
+        Fixture::Narrow | Fixture::Partial => vec![
+            observed(
+                validator,
+                fixture.labels()[0],
+                "memoryWrite",
+                &[GUARD_WRITE_A, GUARD_WRITE_V],
+            ),
+            observed(
+                validator,
+                fixture.labels()[1],
                 "memoryLoad",
                 &[GUARD_LOAD_A, GUARD_LOAD_V],
             ),
@@ -2576,4 +2603,151 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
     for evaluation in decided_by_both(&mut run, &plan, &paths) {
         assert_eq!(evaluation.outcome, PatternOutcome::Match);
     }
+}
+
+/// `seq(write(addr(X), V), seq(op, seq(load(addr(address), W), halt)))` over `Int`.
+fn write_op_load(op: Pattern, address: Pattern) -> Pattern {
+    seq(
+        write(addr(integer("X")), integer("V")),
+        seq(op, seq(load(addr(address), integer("W")), halt())),
+    )
+}
+
+/// SYM-3B-05 (README R16): rules whose applicability to a symbolic `Int` depends on its value
+/// without a `requires` do not make a symbolic `Stuck` leaf wrongly complete. With Z3, k-rust
+/// narrows a repeated rule variable (`copy(A, A)` against `copy(X, Y)`), an `Int` literal
+/// (`pin(0)`), a `Bool` literal (`flag(true)`) and a literal with an `owise` fallback
+/// (`pick(0)`): each run has the narrowed path with both events under the equation and a path
+/// under its negation, both complete, and WL-after is a match. Without Z3 the narrowing is an
+/// `Indeterminate` leaf.
+#[test]
+fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
+    use HaltClass::{Indeterminate, Stuck};
+    use LeafFeasibility::{Solver, Syntactic};
+    let pick = |op: &str, argument: Pattern| support::app(op, vec![argument]);
+    let programs = [
+        (
+            "copy",
+            support::app("Lblcopy", vec![integer("X"), integer("Y")]),
+            1,
+        ),
+        ("pin", pick("Lblpin", integer("X")), 1),
+        ("flag", pick("Lblflag", support::var("B", "SortBool")), 1),
+        ("pick", pick("Lblpick", integer("X")), 2),
+    ];
+    for (id, op, negated_depth) in programs {
+        let (mut run, vocabulary) = run(Fixture::Narrow, write_op_load(op, integer("X")), BUDGET);
+        let facts = run.execution.definition_facts();
+        assert!(facts.applicability_conditions && facts.free_rule_patterns && facts.total_rules);
+        let mut rows = leaf_rows(&run)
+            .into_iter()
+            .zip(run.execution.leaves().iter().map(|leaf| leaf.branch.depth))
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|(_, depth)| *depth);
+        let expected = by_profile(
+            vec![((Indeterminate, Syntactic, false, PathStop::BackendLimit), 1)],
+            // The narrowed path has both events (depth 3); the negated one stops at the op
+            // (depth 1), or, for `pick`, takes the `owise` rule to `halt` (depth 2).
+            vec![
+                ((Stuck, Solver, true, PathStop::Terminal), negated_depth),
+                ((Stuck, Solver, true, PathStop::Terminal), 3),
+            ],
+        );
+        assert_eq!(rows, expected, "{id}");
+        if PROFILE == SolverProfile::Z3 {
+            assert!(
+                run.bridged
+                    .paths
+                    .iter()
+                    .all(|path| !matches!(path.path_predicate, Pattern::Top { .. })),
+                "{id}: both paths carry the narrowing condition or its negation"
+            );
+        }
+        assert_eq!(
+            decided_outcome(&mut run, &gwl_after(&vocabulary)),
+            by_profile(
+                (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+                (PatternOutcome::Match, None)
+            ),
+            "{id}"
+        );
+    }
+}
+
+/// SYM-3B-05 (README R19): `&Int` is `smtlib(andInt)`, which k-rust declares as an
+/// uninterpreted SMT function, and `smt::translates_exactly` does not count that. Z3 answers
+/// `Sat` for `X &Int 1 ==Int 2` although no integer satisfies it, so k-rust takes `gate` under
+/// that condition, and the leaf after the load was `Solver`-feasible, complete and a witness:
+/// WL-after was a wrong `match` (every instance is stuck at `gate` after the write). A solver
+/// `Sat` now needs every symbol interpreted by SMT itself, so that leaf, and the remainder stuck
+/// at `gate` under the negated condition, are `SolverUnknown`, and the result is `unknown`.
+#[test]
+fn uninterpreted_smt_function_does_not_make_a_path_feasible() {
+    use HaltClass::{Indeterminate, Stuck};
+    use LeafFeasibility::{Syntactic, Unknown};
+    let gate = support::app("Lblgate", vec![integer("X")]);
+    let (mut run, vocabulary) = run(Fixture::Narrow, write_op_load(gate, integer("X")), BUDGET);
+    assert_eq!(
+        leaf_rows(&run),
+        by_profile(
+            vec![(Indeterminate, Syntactic, false, PathStop::BackendLimit)],
+            vec![(Stuck, Unknown, true, PathStop::SolverUnknown); 2]
+        )
+    );
+    let plan = gwl_after(&vocabulary);
+    let failure = by_profile(PathStop::BackendLimit, PathStop::SolverUnknown);
+    assert_both(&mut run, &plan, PatternOutcome::Unknown, Some(failure));
+}
+
+/// SYM-3B-05 (README R18): `half(A)` `requires 10 /Int A ==Int 10 /Int A`. The ground
+/// instance `X = 0` is stuck at `half` after the write, so WL-after with a load from address
+/// `0` is `no-match` for it; every other instance loads from `0` but writes elsewhere. k-rust
+/// simplifies the symbolic condition to `true` without its definedness `X =/=Int 0`, so the
+/// symbolic run has one leaf after both events with predicate `\top`, and the backend decider
+/// matched it under the assumption `X = 0` (a wrong `match`, in both profiles). A definition
+/// whose rewrite rules mention a partial function keeps no real prefix below depth 0 for a
+/// symbolic run: `unknown`.
+#[test]
+fn dropped_definedness_condition_is_not_a_witness() {
+    let (mut symbolic, vocabulary) = run(
+        Fixture::Partial,
+        write_op_load(support::app("Lblhalf", vec![integer("X")]), support::int(0)),
+        BUDGET,
+    );
+    let facts = symbolic.execution.definition_facts();
+    assert!(!facts.total_rules && !facts.applicability_conditions);
+    assert!(!symbolic.execution.conditions_kept());
+    let [path] = symbolic.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!(path.events.len(), 2);
+    assert!(matches!(path.path_predicate, Pattern::Top { .. }));
+    assert_eq!(path.stop, PathStop::SolverUnknown);
+    let plan = gwl_after(&vocabulary);
+    assert_both(
+        &mut symbolic,
+        &plan,
+        PatternOutcome::Unknown,
+        Some(PathStop::SolverUnknown),
+    );
+
+    // The ground instance `X = 0` (values `5`) stops at `half` after the write only.
+    let five = || support::int(5);
+    let (mut ground, _) = run(
+        Fixture::Partial,
+        seq(
+            write(addr(support::int(0)), five()),
+            seq(
+                support::app("Lblhalf", vec![support::int(0)]),
+                seq(load(addr(support::int(0)), five()), halt()),
+            ),
+        ),
+        BUDGET,
+    );
+    assert!(ground.execution.conditions_kept());
+    let [path] = ground.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!((path.events.len(), path.stop), (1, PathStop::Terminal));
+    assert_both(&mut ground, &plan, PatternOutcome::NoMatch, None);
 }

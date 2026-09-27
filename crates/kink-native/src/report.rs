@@ -458,7 +458,9 @@ mod tests {
                 definition: DefinitionFacts {
                     applicability_conditions: true,
                     free_rule_patterns: true,
+                    total_rules: true,
                 },
+                conditions_kept: true,
             },
             BridgedPaths {
                 paths: vec![path],

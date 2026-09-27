@@ -5,7 +5,10 @@
 //! Diagnostics affect their own path; a clean sibling remains usable evidence.
 //!
 //! A path's events are evidence for `Match` only when its prefix is real
-//! (`PathStop::has_real_prefix`). A symbolic or constrained state may be infeasible. A bounded
+//! (`PathStop::has_real_prefix`). A symbolic or constrained state may be infeasible. A symbolic
+//! run over rewrite rules that mention a partial function has no real prefix below depth 0,
+//! because k-rust may drop a definedness condition from the leaf predicate
+//! (`AdaptedExecution::conditions_kept`, README R18). A bounded
 //! leaf keeps its limit stop when its state is one ground term without a path condition, or when
 //! the adapter showed it feasible ([`LeafFeasibility::Syntactic`], or
 //! [`LeafFeasibility::Solver`] with the Z3 profile); otherwise it is `SolverUnknown`.
@@ -385,15 +388,21 @@ struct PathSet<'a> {
     /// Incomplete stops of every item, including items that add no path.
     incomplete: Vec<PathStop>,
     definition: DefinitionFacts,
+    conditions_kept: bool,
 }
 
 impl<'a> PathSet<'a> {
-    const fn new(context: &'a BridgeContext<'a>, definition: DefinitionFacts) -> Self {
+    const fn new(
+        context: &'a BridgeContext<'a>,
+        definition: DefinitionFacts,
+        conditions_kept: bool,
+    ) -> Self {
         Self {
             context,
             entries: Vec::new(),
             incomplete: Vec::new(),
             definition,
+            conditions_kept,
         }
     }
 
@@ -409,11 +418,15 @@ impl<'a> PathSet<'a> {
         // The adapter checked the internalized state. A syntactic claim needs the split to
         // agree that no path condition is left, so such a cut path always has predicate
         // `\top`; a solver claim is about the predicate conjuncts it found.
-        let feasible = match leaf.feasibility {
-            LeafFeasibility::Syntactic => split.predicates.is_empty(),
-            LeafFeasibility::Solver => true,
-            LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
-        };
+        // A symbolic run over rules with partial functions may have lost a rule condition, so
+        // below depth 0 no state is evidence that an instance follows the path (README R18).
+        let kept = self.conditions_kept || branch.depth == 0;
+        let feasible = kept
+            && match leaf.feasibility {
+                LeafFeasibility::Syntactic => split.predicates.is_empty(),
+                LeafFeasibility::Solver => true,
+                LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
+            };
         let stuck_term = match split.terms.as_slice() {
             [term]
                 if feasible
@@ -426,7 +439,7 @@ impl<'a> PathSet<'a> {
         };
         let mapped = match leaf_path(
             halt,
-            split.decided_term(),
+            split.decided_term().filter(|_| kept),
             feasible,
             stuck_term,
             self.context.classify,
@@ -531,7 +544,7 @@ pub fn paths_from_execution(
     if execution.leaves.is_empty() {
         return Err(BridgeFailure::NoLeaves);
     }
-    let mut paths = PathSet::new(context, execution.definition);
+    let mut paths = PathSet::new(context, execution.definition, execution.conditions_kept);
     for leaf in &execution.leaves {
         paths.push(leaf)?;
     }
@@ -691,6 +704,7 @@ mod tests {
         DefinitionFacts {
             applicability_conditions,
             free_rule_patterns: true,
+            total_rules: true,
         }
     }
 
@@ -831,6 +845,7 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 definition: facts(applicability),
+                conditions_kept: true,
             };
             assert_eq!(
                 discarded(&execution.leaves[0], execution.definition),
@@ -928,6 +943,7 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 definition: facts(true),
+                conditions_kept: true,
             };
             assert_eq!(discarded(&execution.leaves[0], execution.definition), None);
             let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
@@ -949,6 +965,7 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
             definition: facts(true),
+            conditions_kept: true,
         };
         let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
         assert_eq!(bridged.paths.len(), 1);
@@ -1043,6 +1060,7 @@ mod tests {
                 effects: Vec::new(),
                 timed_out: false,
                 definition: facts(true),
+                conditions_kept: true,
             };
             let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
             assert_eq!(bridged.collection.stop, CollectionStop::BackendLimit);
@@ -1080,6 +1098,7 @@ mod tests {
             effects: Vec::new(),
             timed_out: false,
             definition: facts(true),
+            conditions_kept: true,
         };
         assert_eq!(
             paths_from_execution(&execution, &bridge_context(&sorts)),

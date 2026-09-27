@@ -198,6 +198,10 @@ pub struct AdaptedExecution {
     pub(crate) effects: Vec<EffectOutput>,
     pub(crate) timed_out: bool,
     pub(crate) definition: DefinitionFacts,
+    /// Every rule condition the run relied on is kept in its leaf predicates: the initial state
+    /// is ground (k-rust evaluates ground conditions), or no rewrite rule mentions a partial
+    /// function (`DefinitionFacts::total_rules`, README R18).
+    pub(crate) conditions_kept: bool,
 }
 
 /// A path-set leaf after observation state is erased.
@@ -241,6 +245,14 @@ impl AdaptedExecution {
     #[must_use]
     pub const fn definition_facts(&self) -> DefinitionFacts {
         self.definition
+    }
+
+    /// Whether every rule condition the run relied on is kept in its leaf predicates (the
+    /// initial state is ground, or `DefinitionFacts::total_rules` holds). Without it no leaf
+    /// below depth 0 is a real prefix (README R18).
+    #[must_use]
+    pub const fn conditions_kept(&self) -> bool {
+        self.conditions_kept
     }
 
     /// The watchdog cancelled the run. Its leaf states must not be decoded: a cancelled run
@@ -385,7 +397,12 @@ impl ExecutionAdapter {
                 )
             })?
         };
+        let conditions_kept = facts.total_rules || state.free_variables().is_empty();
         self.adapt(result, timed_out, &budget, evidence, facts)
+            .map(|execution| AdaptedExecution {
+                conditions_kept,
+                ..execution
+            })
     }
 
     /// Executes the same PathSet request without observation rules.
@@ -464,6 +481,7 @@ impl ExecutionAdapter {
             effects: result.effects,
             timed_out,
             definition,
+            conditions_kept: definition.total_rules,
         })
     }
 }

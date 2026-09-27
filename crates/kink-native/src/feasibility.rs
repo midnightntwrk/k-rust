@@ -9,8 +9,9 @@
 //! so every valuation of the variables over their inhabited sorts gives a value: the state has
 //! an instance. With a solver present, a constrained state over such a term is
 //! [`LeafFeasibility::Solver`] when the solver answers `Sat` for exactly its predicate
-//! conjuncts and `smt::translates_exactly` holds for them (Z3 abstracts every term without an
-//! SMT translation, so its `Sat` is otherwise not evidence), and [`LeafFeasibility::Unsat`] when
+//! conjuncts and they translate without approximation (`smt::translates_exactly`, and no
+//! uninterpreted `smtlib` symbol; Z3 abstracts every term without an SMT translation, so its
+//! `Sat` is otherwise not evidence), and [`LeafFeasibility::Unsat`] when
 //! the solver answers `Unsat` (always sound: abstraction only weakens the query). A feasible
 //! state has an instance, and that instance follows the leaf's path, because k-rust keeps every
 //! rule condition it relied on (`requires`, narrowing conditions, remainders) in the leaf
@@ -42,7 +43,7 @@
 //! any valuation of the other variables extends to one satisfying it (define `x` as the value of
 //! `t`; the substitution is idempotent). The remaining conjuncts are the solver query. `Sat` needs
 //! either an empty query (no solver is asked, in both profiles), or a solver `Sat` for exactly
-//! that query with `smt::translates_exactly` holding for all of it and every variable of it an
+//! that query with all of it translating without approximation and every variable of it an
 //! initial-state variable: the model then values the query's `Int`/`Bool` variables, every other
 //! variable takes any value of its inhabited sort, and the eliminated ones follow. A solver
 //! `Unsat` always counts, because the query is implied by the path predicate and the
@@ -60,9 +61,11 @@ use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
 use k_rust_backend::rule::{Predicate, RuleRhs};
-use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
+use k_rust_backend::smt::{Satisfiability, SmtSolver, SmtType, translates_exactly};
 use k_rust_backend::substitution::{Substitution, substitute};
-use k_rust_backend::term::{Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
+use k_rust_backend::term::{
+    FunctionType, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+};
 use k_rust_backend::unification::{
     Unification, UnificationFailure, UnificationResult, unify_term_pairs,
 };
@@ -99,6 +102,14 @@ pub struct DefinitionFacts {
     /// Every rewrite rule's left-hand side decomposes freely (see `decomposes_freely`), so a
     /// clash the unifier finds between it and a subject of free constructors is a real clash.
     pub free_rule_patterns: bool,
+    /// No rewrite rule mentions a partial function: none in its left-hand side, right-hand
+    /// side (`undefined_symbols`, which a `preserves-definedness` rule clears), `requires` or
+    /// `ensures`. k-rust's symbolic simplification can drop the definedness condition of a
+    /// partial term in a rule condition: `requires 10 /Int A ==Int 10 /Int A` becomes `true`,
+    /// so the leaf predicate claims that `A = 0` follows the rule, while the ground instance is
+    /// stuck (SYM-3B-05, README R18). Without this fact no leaf of a symbolic run below depth
+    /// 0 is a real prefix, and `applicability_conditions` is false.
+    pub total_rules: bool,
 }
 
 impl DefinitionFacts {
@@ -111,21 +122,90 @@ impl DefinitionFacts {
                 .flat_map(|priorities| priorities.values())
                 .flatten()
         };
+        let total_rules = rules().all(|rule| {
+            rule.computed_attributes.undefined_symbols.is_empty()
+                && total_predicates(&rule.requires)
+                && total_predicates(&rule.ensures)
+                && match &rule.rhs {
+                    RuleRhs::Disjunction(alternatives) => alternatives
+                        .iter()
+                        .all(|alternative| total_predicates(&alternative.ensures)),
+                    RuleRhs::Predicates(predicates) => total_predicates(predicates),
+                    RuleRhs::Term(_) | RuleRhs::Top | RuleRhs::Bottom => true,
+                }
+        });
         Self {
-            applicability_conditions: rules().all(|rule| {
-                rule.ensures.is_empty()
-                    && rule.computed_attributes.undefined_symbols.is_empty()
-                    && match &rule.rhs {
-                        RuleRhs::Term(_) => true,
-                        RuleRhs::Disjunction(alternatives) => alternatives
-                            .iter()
-                            .all(|alternative| alternative.ensures.is_empty()),
-                        RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
-                    }
-            }),
+            applicability_conditions: total_rules
+                && rules().all(|rule| {
+                    rule.ensures.is_empty()
+                        && rule.computed_attributes.undefined_symbols.is_empty()
+                        && match &rule.rhs {
+                            RuleRhs::Term(_) => true,
+                            RuleRhs::Disjunction(alternatives) => alternatives
+                                .iter()
+                                .all(|alternative| alternative.ensures.is_empty()),
+                            RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
+                        }
+                }),
             free_rule_patterns: rules().all(|rule| decomposes_freely(&rule.lhs)),
+            total_rules,
         }
     }
+}
+
+/// Whether no term of `predicates` applies a partial function.
+fn total_predicates(predicates: &[Predicate]) -> bool {
+    predicates.iter().all(|predicate| {
+        let mut total = true;
+        predicate.visit_terms(&mut |term: &Term| {
+            term.visit_symbols(&mut |symbol| {
+                total &=
+                    symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial);
+            });
+        });
+        total
+    })
+}
+
+/// `smt::translates_exactly`, and every symbol is interpreted by the SMT logic itself and every
+/// quantified variable is of sort `Int` or `Bool`. k-rust declares a symbol with an `smtlib`
+/// name as an uninterpreted SMT function (`SmtPrelude::from_definition`, `declare-fun`), which
+/// knows nothing of the K function's rules, and `translates_exactly` does not count that
+/// approximation: `X &Int 1 ==Int 2` (`&Int` is `smtlib(andInt)`) has no instance, but Z3
+/// answers `Sat` (SYM-3B-05, README R19). A quantified variable of another sort ranges over an
+/// uninterpreted SMT sort, which knows nothing of the sort's values.
+fn translates_without_approximation(predicates: &[Predicate]) -> bool {
+    fn quantifiers_exact(predicate: &Predicate) -> bool {
+        match predicate {
+            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+                (variable.sort.is_builtin(BuiltinSort::Int)
+                    || variable.sort.is_builtin(BuiltinSort::Bool))
+                    && quantifiers_exact(inner)
+            }
+            Predicate::Not(inner) => quantifiers_exact(inner),
+            Predicate::And(inner) | Predicate::Or(inner) => inner.iter().all(quantifiers_exact),
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                quantifiers_exact(left) && quantifiers_exact(right)
+            }
+            Predicate::True
+            | Predicate::False
+            | Predicate::Term(_)
+            | Predicate::Equals(..)
+            | Predicate::Ceil(_)
+            | Predicate::Floor(_)
+            | Predicate::In(..) => true,
+        }
+    }
+    translates_exactly(predicates)
+        && predicates.iter().all(|predicate| {
+            let mut interpreted = quantifiers_exact(predicate);
+            predicate.visit_terms(&mut |term: &Term| {
+                term.visit_symbols(&mut |symbol| {
+                    interpreted &= !matches!(symbol.attributes.smt, Some(SmtType::Lib(_)));
+                });
+            });
+            interpreted
+        })
 }
 
 /// The sorts of a backend definition that have a value: a sort with domain values, a hooked
@@ -265,7 +345,9 @@ pub(crate) fn leaf_feasibility(
     }
     match solver.is_sat(&internal.constraints, &Substitution::new()) {
         Ok(Satisfiability::Unsat) => LeafFeasibility::Unsat,
-        Ok(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
+        Ok(Satisfiability::Sat)
+            if instances && translates_without_approximation(&internal.constraints) =>
+        {
             LeafFeasibility::Solver
         }
         Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
@@ -566,7 +648,9 @@ impl<'a> BackendRelations<'a> {
         });
         match self.solver.is_sat(&query, &Substitution::new()) {
             Ok(Satisfiability::Unsat) => Feasibility::Unsat,
-            Ok(Satisfiability::Sat) if idempotent && stable && translates_exactly(&query) => {
+            Ok(Satisfiability::Sat)
+                if idempotent && stable && translates_without_approximation(&query) =>
+            {
                 Feasibility::Sat
             }
             Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => Feasibility::Unknown,
@@ -1262,6 +1346,15 @@ mod tests {
                 };
                 let x_ge = at_least_zero(&x);
                 let y_ge = at_least_zero(&y);
+                // `X &Int 1 ==Int 2`: no instance, but `&Int` is uninterpreted in SMT (R19).
+                let uninterpreted = equals(
+                    "SortInt",
+                    support::app(
+                        &hooked(definition, "INT.and"),
+                        vec![x.clone(), support::int(1)],
+                    ),
+                    support::int(2),
+                );
                 let foreign_ge = at_least_zero(&int("Q"));
                 // A predicate over `Address`, which Z3 abstracts.
                 let abstracted = equals("SortAddress", addr(x.clone()), addr(v.clone()));
@@ -1331,6 +1424,13 @@ mod tests {
                         vec![x_is_y.clone()],
                         inexact,
                         Some(vec![predicate(&abstracted), binds(&x, &y)]),
+                    ),
+                    (
+                        "uninterpreted-smtlib-function",
+                        path(PathStop::Terminal, uninterpreted.clone()),
+                        vec![x_is_y.clone()],
+                        inexact,
+                        Some(vec![predicate(&uninterpreted), binds(&x, &y)]),
                     ),
                     (
                         "foreign-predicate-variable",
@@ -1513,10 +1613,24 @@ mod tests {
                     addr(x.clone()),
                     addr(support::var("Y", "SortInt")),
                 );
+                // `X &Int 1 ==Int 2`: `&Int` is `smtlib(andInt)`, an uninterpreted SMT function
+                // (SYM-3B-05, README R19).
+                let uninterpreted = equals(
+                    "SortInt",
+                    support::app(
+                        &hooked(definition, "INT.and"),
+                        vec![x.clone(), support::int(1)],
+                    ),
+                    support::int(2),
+                );
                 let states = [
                     (
                         "exact",
                         constrained(guarded_state(x.clone()), guard.clone()),
+                    ),
+                    (
+                        "uninterpreted",
+                        constrained(guarded_state(x.clone()), uninterpreted),
                     ),
                     (
                         "abstracted",
@@ -1556,13 +1670,13 @@ mod tests {
         use LeafFeasibility::{Solver, Syntactic, Unknown as U, Unsat as N};
         let expected = [
             // Sat
-            Solver, U, U, Syntactic, //
+            Solver, U, U, U, Syntactic, //
             // Unsat
-            N, N, N, Syntactic, //
+            N, N, N, N, Syntactic, //
             // Unknown
-            U, U, U, Syntactic, //
+            U, U, U, U, Syntactic, //
             // NoSolver
-            U, U, U, Syntactic,
+            U, U, U, U, Syntactic,
         ];
         assert_eq!(answers.len(), expected.len());
         for ((id, answer), expected) in answers.into_iter().zip(expected) {
@@ -1570,18 +1684,21 @@ mod tests {
         }
     }
 
-    /// Which definitions keep every path condition an applicability condition, and whose rule
-    /// patterns decompose freely.
+    /// Which definitions keep every path condition an applicability condition, whose rule
+    /// patterns decompose freely, and whose rewrite rules mention no partial function.
     #[test]
     fn definition_facts_follow_the_rewrite_rules() {
         let rows = [
-            ("symmem.k", "SYMMEM", true, true),
-            ("guardedmem.k", "GUARDEDMEM", true, true),
-            ("symensures.k", "SYMENSURES", false, true),
-            ("symbottom.k", "SYMBOTTOM", false, true),
-            ("symwrap.k", "SYMWRAP", true, true),
+            ("symmem.k", "SYMMEM", true, true, true),
+            ("guardedmem.k", "GUARDEDMEM", true, true, true),
+            ("symensures.k", "SYMENSURES", false, true, true),
+            ("symbottom.k", "SYMBOTTOM", false, true, true),
+            ("symwrap.k", "SYMWRAP", true, true, true),
+            ("symnarrow.k", "SYMNARROW", true, true, true),
+            // `requires 10 /Int A ==Int 10 /Int A` (SYM-3B-05, README R18).
+            ("sympartial.k", "SYMPARTIAL", false, true, false),
         ];
-        for (name, module, applicability, free) in rows {
+        for (name, module, applicability, free, total) in rows {
             let mut backend = backend(name, module);
             let facts = backend
                 .with_solver(None, |definition, _| {
@@ -1593,6 +1710,7 @@ mod tests {
                 DefinitionFacts {
                     applicability_conditions: applicability,
                     free_rule_patterns: free,
+                    total_rules: total,
                 },
                 "{name}"
             );
