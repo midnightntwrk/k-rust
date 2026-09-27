@@ -148,6 +148,7 @@ A rule application whose result is empty on some instances ends those instances 
 The leaf's state is the configuration before the step, restricted to the instances the application's result is empty on and that no other applied candidate of its priority group takes to a defined successor.
 That covers a refuted `ensures` or definedness obligation, a bottom right-hand side, and the part of a carried (partly holding, undecided) `ensures`, right-hand-side definedness obligation, or right-hand-side simplification constraint where it fails; the rule's fresh variables (`?X`) are existentially quantified in that condition.
 The leaf is reported before the step's successors, without a satisfiability check, so its constraint may have no instance; when observed, the application is also recorded in `discarded`, since its events are on no path.
+A step with exactly one applied candidate and no remainder, whatever trivial entries it also has, goes on as a step with a single successor in both branch modes: it is no branch point, the cut-point and terminal rules apply to its candidate as to any single successor, and a candidate whose constraint turns out `\bottom` ends `vacuous` (or `trivial`) one step later, never as a `stuck` pre-step state.
 Under strategy `all`, a run without depth, breadth, branch, cut-point, time, or cancellation stops and without diagnostics therefore covers its initial state: every ground instance satisfying the initial constraint satisfies some leaf's constraint (the variables a path introduced taken existentially).
 The result has one of two readings, selected by `result_modality` and reported on the result as `modality`.
 A `state-set` result (the default) is the disjunction of those leaves' configurations, merging structurally equal configurations, including depth- and breadth-bounded frontiers.
@@ -166,7 +167,9 @@ The public-path [symbolic definedness tests](../crates/k-rust/tests/symbolic_def
 `ExecutionResult.effects` holds the transcript only when exactly one leaf remains, which under `path-set` means one explored path.
 The CLI and KORE RPC `execute` produce state-set results.
 A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path.
-A `trivial` leaf is an undefined step: under its constraint some rule applies to every instance and no instance has a defined successor; like `stuck`, it does not assert that an instance exists.
+A `trivial` leaf is an undefined step: under its constraint some rule applies to every instance and, under strategy `all`, no instance has a defined successor; like `stuck`, it does not assert that an instance exists.
+Under strategy `any` the claim is relative to the one rule the step committed: none of its right-hand-side alternatives gives a defined successor, but another rule of the same priority that the step did not try might.
+An `ensures` of a `[simplification]` or function equation that the right-hand side's evaluation applied is trusted as the definition's axiom: the successor keeps it, and it never makes a step undefined.
  `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
 A `stuck` leaf with term `t` and constraint `phi` asserts that no instance `sigma(t)` has a rewrite successor under the definition when `sigma` assigns every free variable of `t` and `phi` a ground term of its declared sort and satisfies `phi` under the definition.
 The assertion ranges over all such substitutions, not only the ground terms a client enumerates or the models a solver finds, and it does not assert that any satisfying instance exists.

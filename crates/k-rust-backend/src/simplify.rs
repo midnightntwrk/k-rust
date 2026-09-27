@@ -153,6 +153,11 @@ pub struct Simplification {
     /// obligation that made a successor empty. It is deliberately separate from
     /// `constraints`: other simplification paths can also produce `false`.
     pub undefined_term: Option<Term>,
+    /// The members of `constraints` that an applied equation's `ensures` contributed: facts the
+    /// definition asserts wherever it applies the equation, trusted as its axioms, and not
+    /// conditions for the term to be defined (those are the other members). Execution keeps
+    /// both kinds on the successor, but only the other kind can leave a step undefined.
+    pub assumed: Vec<Predicate>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2402,6 +2407,7 @@ fn simplify_with_budget(
 ) -> Result<Simplification, SimplificationError> {
     let mut term = term.clone();
     let mut constraints = Vec::new();
+    let mut assumed = Vec::new();
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
     let mut exhausted = None;
@@ -2426,6 +2432,7 @@ fn simplify_with_budget(
                 effects,
                 exhausted,
                 undefined_term,
+                assumed,
             });
         }
         term = assumptions.path_condition.apply(&term);
@@ -2438,6 +2445,7 @@ fn simplify_with_budget(
                 effects,
                 exhausted,
                 undefined_term,
+                assumed,
             });
         }
         let children = simplify_children(
@@ -2461,6 +2469,8 @@ fn simplify_with_budget(
         )?;
         constraints.extend(children.constraints);
         constraints.extend(root.constraints);
+        assumed.extend(children.assumed);
+        assumed.extend(root.assumed);
         applied_rules.extend(children.applied_rules);
         applied_rules.extend(root.applied_rules);
         effects.extend(children.effects);
@@ -2480,6 +2490,7 @@ fn simplify_with_budget(
                 effects,
                 exhausted,
                 undefined_term,
+                assumed,
             });
         }
         // A determined function step is the definition's own computation, not a rewrite the
@@ -2501,6 +2512,7 @@ fn simplify_with_budget(
                         subject: BudgetSubject::Term,
                     }),
                     undefined_term,
+                    assumed,
                 }),
             };
         }
@@ -2512,6 +2524,7 @@ fn simplify_with_budget(
                 effects,
                 exhausted,
                 undefined_term,
+                assumed,
             });
         }
         if charged {
@@ -2756,6 +2769,7 @@ fn simplify_children(
     mut execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<Simplification, SimplificationError> {
     let mut constraints = Vec::new();
+    let mut assumed = Vec::new();
     let mut applied_rules = Vec::new();
     let mut effects = Vec::new();
     let mut exhausted = None;
@@ -2782,6 +2796,7 @@ fn simplify_children(
             execution.as_deref_mut(),
         )?;
         constraints.extend(result.constraints);
+        assumed.extend(result.assumed);
         applied_rules.extend(result.applied_rules);
         effects.extend(result.effects);
         exhausted = exhausted.or(result.exhausted);
@@ -2907,6 +2922,7 @@ fn simplify_children(
         effects,
         exhausted,
         undefined_term,
+        assumed,
     })
 }
 
@@ -3008,6 +3024,7 @@ fn simplify_root(
                     effects,
                     exhausted: None,
                     undefined_term,
+                    assumed: Vec::new(),
                 },
                 RootStep::Other,
             ));
@@ -3060,6 +3077,7 @@ fn simplify_root(
                 effects: Vec::new(),
                 exhausted: None,
                 undefined_term: None,
+                assumed: Vec::new(),
             },
             RootStep::Other,
         ));
@@ -3112,6 +3130,7 @@ fn simplify_root(
             effects: Vec::new(),
             exhausted: None,
             undefined_term: None,
+            assumed: Vec::new(),
         },
         RootStep::Other,
     ))
@@ -3593,6 +3612,13 @@ fn apply_equation(
         0 => Ok(EquationAttempt::Applied(bottom_subject(rule, term))),
         1 => {
             let (term, mut constraints) = live.pop().expect("one live alternative");
+            // The open `ensures` is what the equation asserts of its result; a `\bottom` here
+            // is a refuted `ensures` or a bottom right-hand side, the subject's own emptiness.
+            let assumed = if constraints.contains(&Predicate::False) {
+                Vec::new()
+            } else {
+                constraints.clone()
+            };
             if !constraints.contains(&Predicate::False) {
                 for predicate in definedness {
                     if !constraints.contains(&predicate) {
@@ -3607,6 +3633,7 @@ fn apply_equation(
                 effects: Vec::new(),
                 exhausted: None,
                 undefined_term: None,
+                assumed,
             }))
         }
         alternatives => Err(SimplificationError::DisjunctiveResult {
@@ -3627,6 +3654,7 @@ fn bottom_subject(rule: &RewriteRule, term: &Term) -> Simplification {
         effects: Vec::new(),
         exhausted: None,
         undefined_term: None,
+        assumed: Vec::new(),
     }
 }
 

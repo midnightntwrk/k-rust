@@ -250,7 +250,8 @@ pub struct TrivialApplication {
     /// The instances of `before` whose step is undefined because of this entry: `applicability`
     /// conjoined with `not D_j` for every applied candidate `j` of the same priority group, so
     /// that an instance another rule (or another right-hand-side alternative) takes to a defined
-    /// successor is excluded. Not checked for satisfiability; it may be syntactically `\bottom`.
+    /// successor is excluded. The sequential (`Any`) step restricts only by the candidates of the
+    /// rule it committed. Not checked for satisfiability; it may be syntactically `\bottom`.
     pub undefined: Predicate,
     /// The pattern the rule was applied to: the step's subject for the first productive priority
     /// group, the (simplified) remainder of the higher groups for a lower one.
@@ -405,9 +406,12 @@ pub enum HaltReason {
     /// its term a rewrite successor. The set of satisfying instances may be empty.
     Stuck,
     /// An undefined step: under the leaf pattern's constraints, some rule applies to every
-    /// instance (it matches, its `requires` holds, and it blocks the lower priorities), and no
-    /// instance has a defined successor. `rule_id` names the rule when one application is
-    /// responsible. The set of satisfying instances may be empty.
+    /// instance (it matches, its `requires` holds, and it blocks the lower priorities), and, under
+    /// `ExecutionMode::All`, no instance has a defined successor. Under `ExecutionMode::Any` the
+    /// claim is relative to the rule the step committed: no right-hand-side alternative of that
+    /// rule gives a defined successor, but a rule of the same priority it did not try might.
+    /// `rule_id` names the rule when one application is responsible. The set of satisfying
+    /// instances may be empty.
     Trivial {
         /// Semantic depth after the rule that produced the empty successor.
         depth: u64,

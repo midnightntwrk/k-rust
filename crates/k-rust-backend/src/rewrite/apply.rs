@@ -207,7 +207,8 @@ fn negation(predicate: &Predicate) -> Predicate {
 }
 
 /// The conjunction of `predicates` with nested conjunctions flattened, `True` and repeated
-/// conjuncts dropped, and `False` absorbing, as does a conjunct beside its own negation.
+/// conjuncts dropped, and `False` absorbing, as does a negated conjunction beside all of its
+/// conjuncts (up to alpha-equivalence).
 fn conjoin_flat(predicates: impl IntoIterator<Item = Predicate>) -> Predicate {
     fn flatten(predicate: Predicate, conjuncts: &mut Vec<Predicate>) {
         match predicate {
@@ -228,9 +229,20 @@ fn conjoin_flat(predicates: impl IntoIterator<Item = Predicate>) -> Predicate {
     for predicate in predicates {
         flatten(predicate, &mut conjuncts);
     }
-    let contradictory = conjuncts.iter().any(|conjunct| {
-        *conjunct == Predicate::False
-            || matches!(conjunct, Predicate::Not(inner) if conjuncts.contains(inner))
+    // `not (p1 /\ .. /\ pn)` beside every `pi` is `\bottom`. The comparison is syntactic up to
+    // the renaming of bound variables: two alpha-equivalent closures denote the same set, and a
+    // free name denotes one variable throughout one conjunction. So the fold never drops a
+    // satisfiable conjunction.
+    let contradictory = conjuncts.iter().any(|conjunct| match conjunct {
+        Predicate::False => true,
+        Predicate::Not(inner) => {
+            let mut negated = Vec::new();
+            flatten((**inner).clone(), &mut negated);
+            negated
+                .iter()
+                .all(|predicate| conjunctively_contains_alpha_equivalent(&conjuncts, predicate))
+        }
+        _ => false,
     });
     if contradictory {
         return Predicate::False;
@@ -1384,9 +1396,9 @@ fn apply_rhs_alternative(
     });
     let mut condition_knowledge = condition_knowledge.to_vec();
     let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
-    let (rhs, mut rhs_constraints, effects, undefined_term) =
+    let (rhs, mut rhs_constraints, effects, undefined_term, assumed) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
-            (rhs, Vec::new(), Vec::new(), None)
+            (rhs, Vec::new(), Vec::new(), None, Vec::new())
         } else {
             let simplified = match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
@@ -1411,6 +1423,7 @@ fn apply_rhs_alternative(
                     simplified.constraints,
                     simplified.effects,
                     simplified.undefined_term,
+                    simplified.assumed,
                 ),
                 Err(error) => {
                     return RhsAlternativeAttempt::Simplification(error);
@@ -1507,15 +1520,20 @@ fn apply_rhs_alternative(
     extend_unique(&mut rule_predicates, ensures);
     // What the result adds to the applicability: the right-hand side's simplification
     // constraints, its carried definedness obligations and the carried `ensures`. The instances
-    // of the applicability where it fails have no result from this alternative.
+    // of the applicability where it fails have no result from this alternative. An `ensures` of
+    // an equation the right-hand side's simplification applied (`assumed`) is not among them:
+    // it is what the definition asserts of that equation's result wherever the equation applies,
+    // a trusted axiom rather than a condition for the result to exist. The successor keeps it.
     let added = rule_predicates[applicability_conditions..]
         .iter()
-        .filter(|predicate| **predicate != Predicate::True)
+        .filter(|predicate| **predicate != Predicate::True && !assumed.contains(predicate))
         .cloned()
         .collect::<Vec<_>>();
     let carried = (!added.is_empty()).then(|| conjunction(&added));
     let defined = if carried.is_some() {
-        quantify_introduced_variables(pattern, rule_predicates.clone())
+        let mut defining = rule_predicates[..applicability_conditions].to_vec();
+        defining.extend(added.iter().cloned());
+        quantify_introduced_variables(pattern, defining)
     } else {
         applicability.clone()
     };

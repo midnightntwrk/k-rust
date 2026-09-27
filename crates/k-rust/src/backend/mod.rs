@@ -233,9 +233,12 @@ pub enum HaltReasonOutput {
     /// This does not assert that a satisfying instance exists.
     Stuck,
     /// An undefined step. Under the leaf's constraint some rule applies to every ground
-    /// instance: it matches, its `requires` holds, and it blocks the lower priorities. No
-    /// instance has a defined successor, because the rule's right-hand side is undefined there
-    /// or its `ensures` is false there, and no other applicable rule gives one.
+    /// instance: it matches, its `requires` holds, and it blocks the lower priorities. Under
+    /// strategy `all`, no instance has a defined successor, because the rule's right-hand side
+    /// is undefined there or its `ensures` is false there, and no other applicable rule gives
+    /// one. Under strategy `any`, which commits one rule per step, the claim is relative to that
+    /// rule: none of its right-hand-side alternatives gives a defined successor, but another rule
+    /// of the same priority might.
     /// The leaf's state is the configuration before that step, and its constraint is the
     /// condition under which the step is undefined. That constraint may existentially quantify
     /// the rule's fresh variables (`?X`).

@@ -2132,6 +2132,68 @@ mod tests {
         ))
     }
 
+    /// `hz(I) => val(10 /Int I) ensures I ==Int 0`, compiled from K source: every instance of
+    /// `hz(X)` has an applicable rule whose one candidate carries `10 /Int X` defined and
+    /// `X = 0`, which together are `\bottom`.
+    fn carried_empty_candidate_service() -> RpcService {
+        use k_rust::{
+            backend::Backend,
+            builtin::embedded,
+            kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+            outer::{LoadOptions, ResolvedSource, load_with_options},
+        };
+        const SOURCE: &str = r#"module HZ-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= hz(Int) [symbol(hz)] | val(Int) [symbol(val)]
+endmodule
+
+module HZ
+  imports HZ-SYNTAX
+  imports BASIC-K
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [hz]: <k> hz(I) => val(10 /Int I) </k> ensures I ==Int 0
+endmodule
+"#;
+        let mut resolver = |_: &str, required: &str| {
+            embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+        };
+        let loaded = load_with_options(
+            ResolvedSource::new("hz.k", SOURCE),
+            "HZ",
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust.excluded_module_attribute().into(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap();
+        let compiled = compile_loaded_definition(&loaded, CompileOptions::default()).unwrap();
+        RpcService::with_backend(
+            Backend::new(&compiled.definition_kore, "HZ", BackendOptions::default()).unwrap(),
+        )
+    }
+
+    /// The candidate's successor is empty, so `execute` answers `vacuous` one step on; the
+    /// pre-step state is not `stuck`, since a rule applies to every instance of it.
+    #[test]
+    fn execute_answers_vacuous_for_a_carried_step_with_an_empty_successor() {
+        let mut service = carried_empty_candidate_service();
+        let state = encode_kore(
+            &parse_pattern(
+                "Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortProg{}, SortKItem{}}(Lblhz{}(X:SortInt{})), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\")))",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+        assert_eq!(response["result"]["reason"], "vacuous", "{response}");
+        assert_eq!(response["result"]["depth"], 1, "{response}");
+    }
+
     fn symbolic_branch_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(

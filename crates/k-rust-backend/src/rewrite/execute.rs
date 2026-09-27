@@ -765,6 +765,15 @@ impl<'a> Execution<'a> {
                 self.leaves.push(leaf);
             }
         }
+        if branches.len() == 1 && remainder.is_none() {
+            // The only candidate is the unique successor of this state, whatever the branch
+            // mode: the other instances are the trivial entries' leaves above, so the step is no
+            // branch point, and it goes on exactly as a `Finished` step does, the stop rules
+            // included. Its successor is normalised by its own expansion, where a `\bottom`
+            // constraint makes it `Vacuous` (or `Trivial`) rather than leaving this state stuck.
+            let applied = branches.into_iter().next().expect("one branch remains");
+            return self.finished(state, applied, step_timer);
+        }
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
             // The branch leaf is the parent state: its diagnostics are the parent path's and its
             // pattern's simplification; each candidate it reports carries its own.
@@ -978,12 +987,6 @@ impl<'a> Execution<'a> {
                     ));
                 }
             }
-        }
-        if branches.len() == 1 && remainder.is_none() {
-            // The only candidate is the unique successor of this state, as a `Finished` step's
-            // application is: the stop rules apply to it alike.
-            let applied = branches.into_iter().next().expect("one branch remains");
-            return self.finished(state, applied, step_timer);
         }
         let mut next = Vec::with_capacity(branches.len() + usize::from(remainder.is_some()));
         for applied in branches {

@@ -11,8 +11,8 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ExecutionResult, HaltReasonOutput,
-        ObservedRequest, PatternRequest, ResultModalityOutput,
+        Backend, BackendOptions, ExecuteRequest, ExecutionLeaf, ExecutionResult, ExecutionStrategy,
+        HaltReasonOutput, ObservedRequest, PatternRequest, ResultModalityOutput,
     },
     builtin::embedded,
     kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
@@ -33,6 +33,14 @@ const SOURCE: &str = r#"module UNDEF-SYNTAX
                 | over(Int) [symbol(over)]
                 | half(Int) [symbol(half)]
                 | guarded(Int, Int) [symbol(guarded)]
+                | uselem(Int) [symbol(uselem)]
+                | keep(Int) [symbol(keep)]
+                | hz(Int) [symbol(hz)]
+                | cmp(Int, Int) [symbol(cmp)]
+                | cut(Int) [symbol(cut)]
+                | sel(Int) [symbol(sel)]
+  syntax Int ::= g(Int) [function, total, symbol(g)]
+               | f(Int) [function, total, symbol(f)]
 endmodule
 
 module UNDEF
@@ -51,6 +59,16 @@ module UNDEF
   rule [overok]:  <k> over(_) => done </k>
   rule [half]:    <k> half(I) => val(10 /Int I) </k>
   rule [guarded]: <k> guarded(I1, I2) => val(I1 /Int I2) </k> requires I2 =/=Int 0
+  rule [flem]:    f(X) => g(X) ensures g(X) >Int 0 [simplification]
+  rule [uselem]:  <k> uselem(I) => val(f(I) /Int 2) </k>
+  rule [keep]:    <k> keep(V) => val(V /Int 1) </k>
+  rule [hz]:      <k> hz(I) => val(10 /Int I) </k> ensures I ==Int 0
+  rule [cmpbot]:  <k> cmp(I, J) => halt </k> requires I >Int 0 andBool J >Int 0 ensures false
+  rule [cmpok]:   <k> cmp(I, J) => done </k> requires I >Int 0 andBool J >Int 0
+  rule [cutbot]:  <k> cut(_) => halt </k> ensures false
+  rule [cutok]:   <k> cut(_) => done </k>
+  rule [selpos]:  <k> sel(I) => halt </k> ensures I >Int 0
+  rule [selany]:  <k> sel(_) => done </k>
 endmodule
 "#;
 
@@ -385,4 +403,146 @@ fn a_discharged_right_hand_side_obligation_leaves_no_trivial_leaf() {
         "{:#?}",
         summary(&result)
     );
+}
+
+/// A `[simplification]` lemma's `ensures` is an axiom of the definition, trusted wherever the
+/// lemma applies: evaluating `f(I)` in the right-hand side to `g(I)` with the open `ensures
+/// g(I) >Int 0` does not make the step undefined where that fails. The successor keeps it.
+#[test]
+fn a_simplification_lemmas_ensures_is_trusted_not_an_undefined_step() {
+    let mut backend = backend();
+    let result = execute(&mut backend, &format!("Lbluselem{{}}({X})"));
+    assert_eq!(
+        reasons(&result),
+        [HaltReasonOutput::Stuck],
+        "{:#?}",
+        summary(&result)
+    );
+    assert!(
+        text(&result.leaves[0]).contains("Lbl'Unds-GT-'Int'Unds'{}(Lblg{}(X:SortInt{})"),
+        "the successor keeps the lemma's fact: {:#?}",
+        summary(&result)
+    );
+}
+
+/// With `assume_state_defined`, the initial state's partial subterm `10 /Int X` is defined, so
+/// the right-hand side's obligation on it leaves no undefined instance.
+#[test]
+fn an_assumed_initial_definedness_leaves_no_undefined_step() {
+    let mut backend = backend();
+    let mut assumed = request(&format!(
+        "Lblkeep{{}}(Lbl'UndsSlsh'Int'Unds'{{}}({}, {X}))",
+        int(10)
+    ));
+    assumed.assume_state_defined = true;
+    let result = backend.execute(assumed).unwrap();
+    assert_eq!(
+        reasons(&result),
+        [HaltReasonOutput::Stuck],
+        "{:#?}",
+        summary(&result)
+    );
+}
+
+/// Stopping at branches, a step whose one candidate carries its condition is no branch point:
+/// it goes on as the step did before the undefined part was reported, and the candidate's
+/// `\bottom` successor (`I = 0` makes `10 /Int I` undefined) is `Vacuous` one step later, never
+/// a `Stuck` pre-step state. The `Trivial` leaf of the undefined part comes first.
+#[test]
+fn stopping_at_branches_a_carried_step_goes_on_as_one_successor() {
+    let mut backend = backend();
+    let mut stopped = request(&format!("Lblhz{{}}({X})"));
+    stopped.stop_at_branch = true;
+    let result = backend.execute(stopped).unwrap();
+    assert_eq!(
+        result
+            .leaves
+            .iter()
+            .map(|leaf| (leaf.reason, leaf.depth))
+            .collect::<Vec<_>>(),
+        [
+            (HaltReasonOutput::Trivial, 0),
+            (HaltReasonOutput::Vacuous, 1)
+        ],
+        "{:#?}",
+        summary(&result)
+    );
+}
+
+/// An overlapping pair with a compound applicability: `cmpok` takes every instance `cmpbot`
+/// rewrites to bottom, `not (X > 0 /\ Y > 0)` beside both conjuncts folds to `\bottom`, and
+/// no undefined step is reported.
+#[test]
+fn a_defined_sibling_with_a_compound_applicability_leaves_no_trivial_leaf() {
+    let mut backend = backend();
+    let result = execute(&mut backend, &format!("Lblcmp{{}}({X}, {Y})"));
+    assert!(
+        trivial_leaves(&result).is_empty(),
+        "{:#?}",
+        summary(&result)
+    );
+    if backend.capabilities().smt {
+        assert!(
+            result
+                .leaves
+                .iter()
+                .any(|leaf| text(leaf).contains("Lbldone{}()")),
+            "{:#?}",
+            summary(&result)
+        );
+    }
+}
+
+/// Exploring all paths, a step with one applied candidate beside a refuted sibling has one
+/// successor, as a `Finished` step does, so the stop rules apply to it alike: `cutok` as a
+/// cut point stops at the pre-step state, and as a terminal rule stops at its successor.
+#[test]
+fn stop_rules_apply_to_a_one_candidate_step_beside_a_refuted_sibling() {
+    let mut backend = backend();
+    for program in [
+        format!("Lblcut{{}}({X})"),
+        format!("Lblcut{{}}({})", int(3)),
+    ] {
+        let mut cut = request(&program);
+        cut.cut_point_rules = vec!["UNDEF.cutok".into()];
+        let result = backend.execute(cut).unwrap();
+        assert_eq!(
+            result
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.reason, leaf.depth))
+                .collect::<Vec<_>>(),
+            [(HaltReasonOutput::CutPoint, 0)],
+            "{program}: {:#?}",
+            summary(&result)
+        );
+        let mut terminal = request(&program);
+        terminal.terminal_rules = vec!["UNDEF.cutok".into()];
+        let result = backend.execute(terminal).unwrap();
+        assert_eq!(
+            result
+                .leaves
+                .iter()
+                .map(|leaf| (leaf.reason, leaf.depth))
+                .collect::<Vec<_>>(),
+            [(HaltReasonOutput::Terminal, 1)],
+            "{program}: {:#?}",
+            summary(&result)
+        );
+    }
+}
+
+/// Strategy `any` commits one rule, and its `Trivial` leaves are relative to it: under `sel`'s
+/// committed rule the instances `not (X > 0)` are undefined, although another rule of the same
+/// priority would rewrite them. Strategy `all` reports no such leaf.
+#[test]
+fn under_strategy_any_a_trivial_leaf_is_relative_to_the_committed_rule() {
+    let mut backend = backend();
+    let program = format!("Lblsel{{}}({X})");
+    let all = execute(&mut backend, &program);
+    assert!(trivial_leaves(&all).is_empty(), "{:#?}", summary(&all));
+    let mut any = request(&program);
+    any.strategy = ExecutionStrategy::Any;
+    let any = backend.execute(any).unwrap();
+    assert_eq!(trivial_leaves(&any).len(), 1, "{:#?}", summary(&any));
 }
