@@ -34,19 +34,6 @@ class StableNameProbeTests(unittest.TestCase):
 
 
 class DiagnosticProbeTests(unittest.TestCase):
-    def test_aggregate_report_does_not_hide_missing_cli_translation(self) -> None:
-        module = load(HERE / "diagnostics/probe.py", "diagnostic_probe")
-        report = module.report()
-        self.assertTrue(report["rust_expansion_fixture"])
-        self.assertTrue(report["rust_analyzer_exact_range_wired"])
-        self.assertTrue(report["krs_analysis_cross_item_fixture"])
-        self.assertTrue(report["k_frontend_exact_sidecar_probe"])
-        if report["krs_cli_structured_analysis_range"]:
-            module.verify(report)
-        else:
-            with self.assertRaisesRegex(RuntimeError, "diagnostic release boundaries incomplete"):
-                module.verify(report)
-
     def test_k_frontend_mapping_requires_exact_content_identity(self) -> None:
         module = load(HERE / "diagnostics/k-frontend/probe.py", "frontend_probe")
         authored = b"before ExactToken after\n"

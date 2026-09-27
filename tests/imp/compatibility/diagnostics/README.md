@@ -20,5 +20,5 @@ The native boundary is covered in Rust rather than here:
 rejects on both backends and requires one schema-1 `native` JSON envelope
 selecting the exact authored item.
 
-`probe.py` is the static release audit. The analysis probe accepts `--krs PATH`
-to exercise the production CLI end to end.
+The IMP gate runs every probe here; there is no separate static audit. The
+analysis probe accepts `--krs PATH` to exercise the production CLI end to end.
