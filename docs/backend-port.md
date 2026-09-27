@@ -144,16 +144,21 @@ Configurations whose constraints simplify to false and whole-state trivial or va
 The host backend retains `DepthBound` as an incompleteness signal for accepted frontier configurations; the CLI does not render that signal as an error.
 
 Under strategy `all` without `stop_at_branch`, every path explored within `max_depth` and `max_breadth` ends in exactly one leaf before final merging.
-A rule application with an empty result beside other applications of the same step ends no configuration; when observed, it is recorded in `discarded`.
+A rule application whose result is empty on some instances ends those instances in a `trivial` leaf of their own, also when other applications of the same step continue: an undefined step.
+The leaf's state is the configuration before the step, restricted to the instances the application's result is empty on and that no other applied candidate of its priority group takes to a defined successor.
+That covers a refuted `ensures` or definedness obligation, a bottom right-hand side, and the part of a carried (partly holding, undecided) `ensures`, right-hand-side definedness obligation, or right-hand-side simplification constraint where it fails; the rule's fresh variables (`?X`) are existentially quantified in that condition.
+The leaf is reported before the step's successors, without a satisfiability check, so its constraint may have no instance; when observed, the application is also recorded in `discarded`, since its events are on no path.
+A step with exactly one applied candidate and no remainder, whatever trivial entries it also has, goes on as a step with a single successor in both branch modes: it is no branch point, the cut-point and terminal rules apply to its candidate as to any single successor, and a candidate whose constraint turns out `\bottom` ends `vacuous` (or `trivial`) one step later, never as a `stuck` pre-step state.
+Under strategy `all`, a run without depth, breadth, branch, cut-point, time, or cancellation stops and without diagnostics therefore covers its initial state: every ground instance satisfying the initial constraint satisfies some leaf's constraint (the variables a path introduced taken existentially).
 The result has one of two readings, selected by `result_modality` and reported on the result as `modality`.
 A `state-set` result (the default) is the disjunction of those leaves' configurations, merging structurally equal configurations, including depth- and breadth-bounded frontiers.
 Merging loses no state: two leaves with one term, one constraint set, one effect journal, and one console state have the same future.
 The first leaf in depth-first order retains its trace and halt reason.
 Whole-state trivial and vacuous leaves carry no final configuration and are never merged.
-A `path-set` result is those leaves unmerged: every explored path is exactly one leaf, with the same empty-result exception, and paths that converge on one configuration each keep their own trace, branch identity, observations, and halt reason.
+A `path-set` result is those leaves unmerged: every explored path is exactly one leaf, each undefined step's `trivial` leaf included, and paths that converge on one configuration each keep their own trace, branch identity, observations, and halt reason.
 The deduplicated configurations of a path-set result are the configurations of the state-set result, and exploration is identical under both.
 An execution leaf's predicate implies the definedness of every partial term that a `requires`, `ensures`, right-hand side, or simplified state relied on along its path, with and without Z3, subject to the initial-state assumption below.
-An instance excluded by a `requires` belongs to a remainder; an instance excluded by a carried right-hand-side definedness obligation or an `ensures` has no leaf.
+An instance excluded by a `requires` belongs to a remainder; an instance excluded by a carried right-hand-side definedness obligation or an `ensures` belongs to a `trivial` leaf.
 With `assume_state_defined: true`, the initial state's definedness is assumed and need not be restated in the leaf predicate.
 Builtin hooks are strict in every argument, including `andThenBool`, `orElseBool`, and `#if`, in concrete and symbolic evaluation; a value returned after a shortcut still carries the definedness of its arguments.
 A rule or equation condition states the definedness of its Boolean terms when instantiated, before simplification or solver decisions can discharge the condition.
@@ -161,7 +166,11 @@ The contract interprets `total`, `functional`, and `preserves-definedness` attri
 The public-path [symbolic definedness tests](../crates/k-rust/tests/symbolic_definedness.rs) cover rule conditions in both solver profiles and the `assume_state_defined` modes; [rewrite tests](../crates/k-rust-backend/tests/backend/rewrite.rs) cover discarded hook operands and their leaf obligations.
 `ExecutionResult.effects` holds the transcript only when exactly one leaf remains, which under `path-set` means one explored path.
 The CLI and KORE RPC `execute` produce state-set results.
-A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
+A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path.
+A `trivial` leaf is an undefined step: under its constraint some rule applies to every instance and, under strategy `all`, no instance has a defined successor; like `stuck`, it does not assert that an instance exists.
+Under strategy `any` the claim is relative to the one rule the step committed: none of its right-hand-side alternatives gives a defined successor, but another rule of the same priority that the step did not try might.
+An `ensures` of a `[simplification]` or function equation that the right-hand side's evaluation applied is trusted as the definition's axiom: the successor keeps it, and it never makes a step undefined.
+ `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
 A `stuck` leaf with term `t` and constraint `phi` asserts that no instance `sigma(t)` has a rewrite successor under the definition when `sigma` assigns every free variable of `t` and `phi` a ground term of its declared sort and satisfies `phi` under the definition.
 The assertion ranges over all such substitutions, not only the ground terms a client enumerates or the models a solver finds, and it does not assert that any satisfying instance exists.
 It holds under both execution strategies and with or without an SMT solver; when rule applicability or a symbolic remainder cannot be decided, the leaf is `indeterminate` with a reason instead of `stuck`.
@@ -169,6 +178,7 @@ It holds under both execution strategies and with or without an SMT solver; when
 Proof certification uses the same assertion for a stuck leaf and handles non-emptiness separately.
 Strategy `any` commits the first applicable rule of a step and makes no coverage claim, but it keeps that rule's right-hand-side alternatives and passes a symbolic remainder to later rules, so it can produce several leaves; `result_modality` applies to whatever leaves it produces, and the two readings coincide whenever no two of those leaves share a configuration.
 With `stop_at_branch`, execution stops at the first branch point and reports its successors inside the branch halt.
+It still reports the `trivial` leaves of the steps it takes, before the leaf where it stops; KORE RPC `execute` answers with that last leaf, since its one-state response cannot express the undefined instances.
 For the same request, `Backend::execute` and `Backend::execute_observed` return leaves in the same order, equal in every field except `branch` and `observations`.
 Unobserved execution leaves `branch` empty.
 Observed branch identities do not depend on the rule filter: `ObservedRequest.rules = Some(vec![])` yields every identity and no observation events.

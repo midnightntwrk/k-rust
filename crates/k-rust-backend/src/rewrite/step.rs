@@ -53,8 +53,8 @@ use crate::{
 
 use super::{
     AppliedRule, IndeterminateReason, Pattern, RemainderBranch, RemainderSimplification,
-    RewriteResult, RuleAttempt, TrivialApplication, Truth, UndecidedStep,
-    apply::{RuleApplication, RuleApplicationGroup},
+    RewriteResult, RuleAttempt, TrivialApplication, TrivialKind, Truth, UndecidedStep,
+    apply::{RuleApplication, RuleApplicationGroup, restrict_to_undefined},
     apply_rule, extend_unique, predicates_truth, violates_finite_constructor_domain,
 };
 
@@ -88,6 +88,9 @@ fn apply_priority_group(
     // The work every application of the group (candidate or refuted) depends on: the remainder
     // is built from the negation of each application's applicability, so it depends on all of it.
     let mut remainder_work = Vec::new();
+    // The work every `Trivial` leaf of the group depends on: its own sub-case is excluded from
+    // the defined sub-case of every applied candidate, so it derives from all of it.
+    let mut undefined_work = Vec::new();
     for rule in rules {
         // A rule attempt attributes its own work (`RuleApplicationGroup::common`,
         // `RuleApplication::diagnostics`); the work of an attempt that does not apply is on no
@@ -110,9 +113,12 @@ fn apply_priority_group(
                     for mut application in group.applied {
                         application.applied.diagnostics =
                             in_emission_order([common.as_slice(), &application.diagnostics]);
+                        undefined_work.extend(application.diagnostics.iter().cloned());
                         applied.push(application);
                     }
                     trivial.extend(group.trivial);
+                    undefined_work.extend(group.trivial_work);
+                    undefined_work.extend(common.iter().cloned());
                     remainder_work.extend(common);
                 }
             }
@@ -126,6 +132,11 @@ fn apply_priority_group(
     }
     if applied.is_empty() && trivial.is_empty() {
         return PriorityGroupOutcome::NotProductive;
+    }
+    restrict_to_undefined(&mut trivial, &applied);
+    let undefined_diagnostics = in_emission_order([undefined_work.as_slice()]);
+    for entry in &mut trivial {
+        entry.diagnostics.clone_from(&undefined_diagnostics);
     }
     let rule_ids = applied
         .iter()
@@ -537,6 +548,14 @@ fn fold_lower_priority_groups(
                         .remainder_simplifications
                         .splice(0..0, previous.simplifications.iter().cloned());
                 }
+                for entry in &mut lower_trivial {
+                    entry
+                        .remainder_simplifications
+                        .splice(0..0, previous.simplifications.iter().cloned());
+                    let mut diagnostics = previous.diagnostics.clone();
+                    extend_distinct(&mut diagnostics, &entry.diagnostics);
+                    entry.diagnostics = diagnostics;
+                }
                 let mut lower_remainder = lower_remainder;
                 inherit_diagnostics(&mut lower, lower_remainder.as_mut(), &previous.diagnostics);
                 lower.append(branches);
@@ -597,6 +616,9 @@ impl SequentialDeterminism {
                 group
                     .trivial
                     .iter()
+                    // A carried entry is part of its applied candidate's sub-case, not a case
+                    // of its own.
+                    .filter(|application| application.kind == TrivialKind::Refuted)
                     .map(|application| application.applicability.clone()),
             )
             .map(|applicability| {
@@ -788,6 +810,22 @@ pub(super) fn rewrite_step_any(
                     .next()
                     .expect("a unified rule has an application group");
                 let common = group.common.unwrap_or_default();
+                let mut group_trivial = group.trivial;
+                restrict_to_undefined(&mut group_trivial, &group.applied);
+                let mut undefined_diagnostics = remaining_diagnostics.clone();
+                extend_distinct(
+                    &mut undefined_diagnostics,
+                    &in_emission_order(
+                        std::iter::once(common.as_slice())
+                            .chain(
+                                group
+                                    .applied
+                                    .iter()
+                                    .map(|application| application.diagnostics.as_slice()),
+                            )
+                            .chain(std::iter::once(group.trivial_work.as_slice())),
+                    ),
+                );
                 for application in group.applied {
                     extend_unique(
                         &mut remainder_conditions,
@@ -812,7 +850,8 @@ pub(super) fn rewrite_step_any(
                     &mut remaining_diagnostics,
                     &in_emission_order([common.as_slice()]),
                 );
-                for application in group.trivial {
+                for mut application in group_trivial {
+                    application.diagnostics.clone_from(&undefined_diagnostics);
                     extend_unique(
                         &mut remainder_conditions,
                         std::iter::once(application.remainder.clone()),

@@ -65,8 +65,9 @@ use super::{
     AppliedRule, ExecutionBranchMode, ExecutionLeaf, ExecutionOptions, ExecutionResult, HaltReason,
     IndeterminateReason, InitialSimplificationStatus, Pattern, RemainderBranch, RewriteResult,
     TraceEntry, TraceKind, TrivialApplication, Truth, UndecidedStep, applied_trivial_halt,
-    normalize_pattern_substitution, predicates_truth, retain_substitution_predicates,
-    rewrite_step_with_optional_execution, trivial_halt, vacuous_halt,
+    extend_unique, normalize_pattern_substitution, predicates_truth,
+    retain_substitution_predicates, rewrite_step_with_optional_execution, trivial_halt,
+    vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -756,6 +757,23 @@ impl<'a> Execution<'a> {
         step_timer: &mut StepTimer<'_>,
     ) -> Phase<Vec<ExecutionState>> {
         record_trivial_candidates(&mut self.discarded, &trivial, &original, self.observation);
+        // The instances the step leaves without a defined successor are no candidate's and not
+        // the remainder's: each trivial entry's are a leaf of their own, whatever the other
+        // candidates become.
+        for entry in &trivial {
+            if let Some(leaf) = self.undefined_leaf(&state, entry) {
+                self.leaves.push(leaf);
+            }
+        }
+        if branches.len() == 1 && remainder.is_none() {
+            // The only candidate is the unique successor of this state, whatever the branch
+            // mode: the other instances are the trivial entries' leaves above, so the step is no
+            // branch point, and it goes on exactly as a `Finished` step does, the stop rules
+            // included. Its successor is normalised by its own expansion, where a `\bottom`
+            // constraint makes it `Vacuous` (or `Trivial`) rather than leaving this state stuck.
+            let applied = branches.into_iter().next().expect("one branch remains");
+            return self.finished(state, applied, step_timer);
+        }
         if self.options.branch_mode == ExecutionBranchMode::StopAtBranch {
             // The branch leaf is the parent state: its diagnostics are the parent path's and its
             // pattern's simplification; each candidate it reports carries its own.
@@ -993,6 +1011,59 @@ impl<'a> Execution<'a> {
             next.push(remaining);
         }
         Ok(next)
+    }
+
+    /// The `Trivial` leaf of `entry`, a bottom-result sub-case of the step `state` took: the
+    /// pattern `entry` was applied to, restricted to `entry.undefined`, on `state`'s path
+    /// extended by the higher-priority remainder simplifications it went through. `None` when
+    /// that predicate is syntactically `\bottom`; no solver is asked, so the leaf may have no
+    /// instance.
+    fn undefined_leaf(
+        &mut self,
+        state: &ExecutionState,
+        entry: &TrivialApplication,
+    ) -> Option<ExecutionLeaf> {
+        let mut pattern = entry.before.clone();
+        match &entry.undefined {
+            Predicate::And(conjuncts) => {
+                extend_unique(&mut pattern.constraints, conjuncts.iter().cloned());
+            }
+            Predicate::True => {}
+            predicate => {
+                extend_unique(&mut pattern.constraints, std::iter::once(predicate.clone()))
+            }
+        }
+        if predicates_truth(&pattern.constraints) == Truth::False {
+            return None;
+        }
+        let mut leaf = state.clone();
+        leaf.diagnostics.extend(&entry.diagnostics);
+        for simplification in &entry.remainder_simplifications {
+            leaf.observation = self.observation_log.append_simplification(
+                leaf.observation,
+                self.definition,
+                simplification.before.clone(),
+                &simplification.after,
+                &simplification.applied_rules,
+                &simplification.effects,
+                self.observation,
+            );
+            leaf.effects.commit(simplification.effects.iter().cloned());
+            leaf.trace.extend(
+                simplification
+                    .applied_rules
+                    .iter()
+                    .cloned()
+                    .map(|unique_id| TraceEntry {
+                        depth: state.depth,
+                        kind: TraceKind::Simplification,
+                        label: None,
+                        unique_id,
+                    }),
+            );
+        }
+        let halt_reason = applied_trivial_halt(state.depth + 1, entry);
+        Some(leaf.leaf_with_pattern(pattern, halt_reason, &self.observation_log))
     }
 
     /// After a push: `BreadthBound` when `pending` exceeds `max_breadth` (the bound appends

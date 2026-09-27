@@ -899,12 +899,19 @@ impl AlphaComparable for TrivialApplication {
         collect_predicate(&self.obligation, &other.obligation, context)?;
         collect_predicate(&self.applicability, &other.applicability, context)?;
         collect_predicate(&self.remainder, &other.remainder, context)?;
+        collect_predicate(&self.undefined, &other.undefined, context)?;
+        self.before.collect_alpha(&other.before, context)?;
+        self.remainder_simplifications
+            .collect_alpha(&other.remainder_simplifications, context)?;
         if self.rule_id != other.rule_id
             || self.label != other.label
+            || self.kind != other.kind
             || self.effects != other.effects
         {
             return Err("non-predicate trivial-application fields differ".into());
         }
+        self.diagnostics
+            .collect_alpha(&other.diagnostics, context)?;
         Ok(())
     }
 
@@ -912,10 +919,15 @@ impl AlphaComparable for TrivialApplication {
         Ok(Self {
             rule_id: self.rule_id.clone(),
             label: self.label.clone(),
+            kind: self.kind,
             obligation: rename_predicate(&self.obligation, context),
             applicability: rename_predicate(&self.applicability, context),
             remainder: rename_predicate(&self.remainder, context),
+            undefined: rename_predicate(&self.undefined, context),
+            before: self.before.rename_alpha(context)?,
             effects: self.effects.clone(),
+            diagnostics: self.diagnostics.rename_alpha(context)?,
+            remainder_simplifications: self.remainder_simplifications.rename_alpha(context)?,
         })
     }
 }

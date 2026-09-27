@@ -55,11 +55,12 @@ use crate::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rewrite::{
-        IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind, Truth,
-        UndecidedStep, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
-        predicates_truth, quantify_introduced_variables, recover_indeterminate_match,
-        rewrite_step_sequential_tracking_dropped, rewrite_step_sequential_with_options,
-        rewrite_step_with_options, simplify_leaf_pattern, substitute_predicates,
+        IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind,
+        TrivialKind, Truth, UndecidedStep, collection_unification_definedness,
+        conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
+        recover_indeterminate_match, rewrite_step_sequential_tracking_dropped,
+        rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
+        substitute_predicates,
     },
     simplify::{
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions,
@@ -689,7 +690,12 @@ pub fn prove_claim(
                         solver,
                     ));
                 }
-                for trivial in trivial {
+                // Only a refuted result makes proof leaves here: the prover still assumes a
+                // carried result condition, so a `Carried` entry's instances are not leaves.
+                for trivial in trivial
+                    .into_iter()
+                    .filter(|trivial| trivial.kind == TrivialKind::Refuted)
+                {
                     let mut trivial_state = state.clone();
                     trivial_state.depth += 1;
                     trivial_state.trace.push(TraceEntry {

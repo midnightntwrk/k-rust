@@ -1358,10 +1358,26 @@ fn a_trivial_rule_joins_the_group_remainder_symbolically() {
         Predicate::Not(Box::new(trivial.applicability.clone()))
     );
 
-    let execution = execute_with_solver(&definition, initial, ExecutionOptions::default(), &solver);
-    let [leaf] = execution.leaves.as_slice() else {
-        panic!("the complement should reach the fallback exactly once");
+    let execution = execute_with_solver(
+        &definition,
+        initial.clone(),
+        ExecutionOptions::default(),
+        &solver,
+    );
+    // The trivial sub-case is an undefined step of its own, reported before the successors;
+    // the complement reaches the fallback exactly once.
+    let [undefined, leaf] = execution.leaves.as_slice() else {
+        panic!("expected the undefined step and the fallback: {execution:#?}");
     };
+    assert!(
+        matches!(&undefined.halt_reason, HaltReason::Trivial { depth: 1, rule_id: Some(rule), .. } if rule == "trivial"),
+        "{undefined:#?}"
+    );
+    assert_eq!(undefined.pattern.term, initial.term);
+    assert_eq!(
+        undefined.pattern.constraints,
+        vec![trivial.applicability.clone()]
+    );
     assert!(matches!(leaf.halt_reason, HaltReason::Stuck));
     assert!(matches!(
         leaf.pattern.term.kind(),
@@ -1406,10 +1422,12 @@ fn a_mixed_group_keeps_its_trivial_sub_case_visible() {
     assert_eq!(trivial[0].rule_id, "trivial");
     assert_eq!(trivial[0].applicability, Predicate::True);
     assert_eq!(trivial[0].remainder, Predicate::False);
+    // The survivor takes every instance to a defined successor: no instance is undefined.
+    assert_eq!(trivial[0].undefined, Predicate::False);
 
     let execution = execute(&definition, initial, ExecutionOptions::default());
     let [leaf] = execution.leaves.as_slice() else {
-        panic!("execution must drop only the trivial sub-case");
+        panic!("the survivor covers the trivial sub-case: {execution:#?}");
     };
     assert!(matches!(
         leaf.pattern.term.kind(),
@@ -2347,7 +2365,8 @@ fn untranslatable_requires_is_an_smt_indeterminate_leaf() {
 
 /// The rewriter's leaf for one solver verdict.
 enum VerdictLeaf {
-    /// The step rewrites and its successor carries exactly these constraints.
+    /// The step rewrites and its successor carries exactly these constraints. A carried
+    /// condition leaves the rest of the sub-case to one `Carried` trivial entry.
     Finished(Vec<Predicate>),
     /// The step is trivial on the pre-step pattern.
     Trivial,
@@ -2370,10 +2389,29 @@ fn assert_solver_verdicts(
         let result = rewrite_step_with_solver(definition, subject, &mut fresh, &solver);
         match expected {
             VerdictLeaf::Finished(constraints) => {
-                let RewriteResult::Finished(applied) = result else {
-                    panic!("{validity:?} should rewrite, got {result:?}");
+                let (applied, trivial) = match result {
+                    RewriteResult::Finished(applied) => (applied, Vec::new()),
+                    RewriteResult::Branch {
+                        mut branches,
+                        remainder: None,
+                        trivial,
+                        ..
+                    } if branches.len() == 1 => (branches.pop().unwrap(), trivial),
+                    result => panic!("{validity:?} should rewrite, got {result:?}"),
                 };
                 assert_eq!(&applied.pattern.constraints, constraints, "{validity:?}");
+                assert!(
+                    trivial.len() <= 1
+                        && trivial
+                            .iter()
+                            .all(|entry| entry.kind == TrivialKind::Carried),
+                    "{validity:?}: {trivial:?}"
+                );
+                assert_eq!(
+                    trivial.is_empty(),
+                    constraints.is_empty(),
+                    "{validity:?}: a carried condition leaves its complement as a trivial entry"
+                );
             }
             VerdictLeaf::Trivial => {
                 assert!(
@@ -4888,6 +4926,17 @@ fn lower_grow_diagnostics() -> Vec<BackendDiagnostic> {
     ]
 }
 
+/// The `Trivial` leaf of the undefined step of rule `rule_id`.
+fn undefined_step_leaf<'a>(result: &'a ExecutionResult, rule_id: &str) -> &'a ExecutionLeaf {
+    result
+        .leaves
+        .iter()
+        .find(|leaf| {
+            matches!(&leaf.halt_reason, HaltReason::Trivial { rule_id: Some(rule), .. } if rule == rule_id)
+        })
+        .unwrap_or_else(|| panic!("no undefined step of {rule_id}: {:#?}", result.leaves))
+}
+
 fn leaf_with_term<'a>(
     definition: &BackendDefinition,
     result: &'a ExecutionResult,
@@ -4914,13 +4963,28 @@ fn a_step_attributes_a_candidates_own_work_to_that_candidate_only() {
         &satisfiable_solver(),
     );
 
-    assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
+    // The carried definedness of `grow(tag(50))` leaves its failing instances an undefined
+    // step, derived from the same construction.
+    assert_eq!(result.leaves.len(), 3, "{:#?}", result.leaves);
     let lower = leaf_ending_in(&result, "held");
     let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
+    let undefined = undefined_step_leaf(&result, "lower-grow");
     assert_eq!(lower.halt_reason, HaltReason::Stuck);
     assert_eq!(lower.diagnostics, lower_grow_diagnostics());
     assert_eq!(first.halt_reason, HaltReason::Stuck);
     assert_eq!(first.diagnostics, []);
+    assert_eq!(undefined.diagnostics, lower_grow_diagnostics());
+    // The lower rule was applied to the remainder `not (X < 0)`: the undefined step keeps it,
+    // beside the failing obligation.
+    assert!(
+        matches!(
+            undefined.pattern.constraints.as_slice(),
+            [Predicate::Not(remainder), Predicate::Not(obligation)]
+                if matches!(**remainder, Predicate::Term(_))
+                    && matches!(**obligation, Predicate::And(_) | Predicate::Ceil(_))
+        ),
+        "{undefined:#?}"
+    );
 }
 
 /// A state cut off by the breadth bound is never expanded; its leaf carries what its path
@@ -4936,7 +5000,12 @@ fn a_breadth_bound_frontier_state_carries_the_diagnostics_of_its_derivation() {
         &satisfiable_solver(),
     );
 
-    assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
+    // The undefined step is a leaf of the step, not a frontier state.
+    assert_eq!(result.leaves.len(), 3, "{:#?}", result.leaves);
+    assert_eq!(
+        undefined_step_leaf(&result, "lower-grow").diagnostics,
+        lower_grow_diagnostics()
+    );
     let lower = leaf_ending_in(&result, "held");
     let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
     assert_eq!(lower.halt_reason, HaltReason::BreadthBound);
@@ -4958,9 +5027,17 @@ fn a_branch_leaf_reports_each_candidates_diagnostics_on_that_candidate() {
         &satisfiable_solver(),
     );
 
-    let [leaf] = result.leaves.as_slice() else {
-        panic!("expected one branch leaf: {:#?}", result.leaves);
+    // The undefined step precedes the branch leaf.
+    let [undefined, leaf] = result.leaves.as_slice() else {
+        panic!(
+            "expected an undefined step and one branch leaf: {:#?}",
+            result.leaves
+        );
     };
+    assert_eq!(undefined.diagnostics, lower_grow_diagnostics());
+    assert!(
+        matches!(&undefined.halt_reason, HaltReason::Trivial { rule_id: Some(rule), .. } if rule == "lower-grow")
+    );
     assert_eq!(leaf.diagnostics, []);
     let HaltReason::Branch {
         branches,
@@ -5248,17 +5325,27 @@ fn a_non_applicable_attempts_work_is_on_no_path() {
         )
     });
 
-    let [leaf] = result.leaves.as_slice() else {
-        panic!("expected one leaf: {:#?}", result.leaves);
+    // `earlier`'s carried definedness leaves an undefined step, derived from its construction
+    // only: `later` did not apply, and its work is on neither leaf.
+    let [undefined, leaf] = result.leaves.as_slice() else {
+        panic!(
+            "expected an undefined step and one leaf: {:#?}",
+            result.leaves
+        );
     };
+    assert!(
+        matches!(&undefined.halt_reason, HaltReason::Trivial { rule_id: Some(rule), .. } if rule == "earlier")
+    );
+    assert_eq!(undefined.diagnostics, lower_grow_diagnostics());
     assert_eq!(leaf.diagnostics, lower_grow_diagnostics());
     assert!(collected.contains(&missing_hook()), "{collected:?}");
 }
 
 /// A rule (for `X < 0`) whose only right-hand side is refuted by its ensures after its
-/// construction exhausted the budget produces no candidate: that work is on no path, in
-/// particular not on a same-priority rule's candidate, nor, in the sequential step, on the
-/// candidate the rule's remainder `X >= 0` feeds.
+/// construction exhausted the budget produces no candidate: that work is on no candidate's path,
+/// in particular not on a same-priority rule's candidate, nor, in the sequential step, on the
+/// candidate the rule's remainder `X >= 0` feeds. Only an undefined step derives from it, and
+/// the survivor, defined everywhere, leaves none.
 #[test]
 fn a_refuted_rules_work_is_not_shared_with_other_candidates() {
     let definition = be08_portable_definition(&format!(
@@ -6078,10 +6165,23 @@ fn run_equation_requires_budget(
     })
 }
 
+/// `dispatch` rewrites to the unevaluated partial `prepare(S)`: its successor carries
+/// `\ceil(prepare(S))`, and the instances where that fails are an undefined step reported first.
 fn assert_indeterminate_on_unevaluated_prepare(result: &ExecutionResult) {
-    let [leaf] = result.leaves.as_slice() else {
-        panic!("expected one execution leaf, found {:?}", result.leaves);
+    let [undefined, leaf] = result.leaves.as_slice() else {
+        panic!(
+            "expected an undefined step and one execution leaf, found {:?}",
+            result.leaves
+        );
     };
+    assert!(
+        matches!(&undefined.halt_reason, HaltReason::Trivial { depth: 1, rule_id: Some(rule), .. } if rule == "dispatch"),
+        "{undefined:?}"
+    );
+    assert!(
+        matches!(undefined.pattern.constraints.as_slice(), [Predicate::Not(inner)] if matches!(**inner, Predicate::Ceil(_))),
+        "{undefined:?}"
+    );
     assert_eq!(leaf.depth, 1);
     assert!(matches!(leaf.halt_reason, HaltReason::Indeterminate(_)));
     assert!(
@@ -6134,7 +6234,7 @@ fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
         }
     }
     assert_eq!(path.len(), 3, "{path:?}");
-    assert_eq!(run.result.leaves[0].diagnostics, path);
+    assert_eq!(run.result.leaves[1].diagnostics, path);
 }
 
 #[test]
@@ -6261,12 +6361,18 @@ fn terminal_rule_keeps_a_partial_result_after_budget_exhaustion() {
         },
     );
 
-    let [leaf] = result.leaves.as_slice() else {
+    // `expand` is partial, so the instances where `expand(X)` is undefined are an undefined
+    // step, and the terminal rule still stops the one successor.
+    let [undefined, leaf] = result.leaves.as_slice() else {
         panic!(
-            "expected one failed terminal result, found {:?}",
+            "expected an undefined step and one failed terminal result, found {:?}",
             result.leaves
         );
     };
+    assert!(
+        matches!(&undefined.halt_reason, HaltReason::Trivial { rule_id: Some(rule), .. } if rule == "stop"),
+        "{undefined:?}"
+    );
     assert_not_iteration_limit(&leaf.halt_reason);
 }
 
@@ -12177,7 +12283,26 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
 
         let explored = execute(&definition, initial.clone(), ExecutionOptions::default());
         assert!(!explored.leaves.is_empty());
-        for leaf in &explored.leaves {
+        // Where the obligation fails, each rule's step is undefined: a leaf on the initial state.
+        let (undefined, explored_leaves): (Vec<_>, Vec<_>) = explored
+            .leaves
+            .iter()
+            .partition(|leaf| matches!(leaf.halt_reason, HaltReason::Trivial { .. }));
+        assert_eq!(
+            undefined.len(),
+            if second_rule { 2 } else { 1 },
+            "{explored:#?}"
+        );
+        for leaf in undefined {
+            assert_eq!(leaf.pattern.term, initial.term);
+            assert_eq!(
+                leaf.pattern.constraints,
+                vec![Predicate::Not(Box::new(obligation.clone()))],
+                "{leaf:#?}"
+            );
+        }
+        assert!(!explored_leaves.is_empty());
+        for leaf in explored_leaves {
             assert!(matches!(leaf.halt_reason, HaltReason::Stuck), "{leaf:#?}");
             assert_eq!(
                 leaf.pattern.term,
@@ -12203,9 +12328,14 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
                 ..ExecutionOptions::default()
             },
         );
-        let [leaf] = stopped.leaves.as_slice() else {
-            panic!("expected one branch leaf, found {:?}", stopped.leaves);
+        let [.., leaf] = stopped.leaves.as_slice() else {
+            panic!("expected a branch leaf, found {:?}", stopped.leaves);
         };
+        assert_eq!(
+            stopped.leaves.len(),
+            3,
+            "two undefined steps precede the branch"
+        );
         let HaltReason::Branch {
             branches,
             remainder,
