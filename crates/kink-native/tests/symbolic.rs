@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, num::NonZeroUsize, time::Duration};
 use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
-use k_rust::kore::{ast::Pattern, codec, parser::parse_definition};
+use k_rust::kore::{ast::Pattern, codec, parser::parse_definition, walk::for_each_post_order};
 use k_rust_backend::rule::Predicate;
 use k_rust_backend::smt::{
     NoSolver, Satisfiability, SmtError, SmtSolver, Validity, translates_exactly,
@@ -849,6 +849,124 @@ fn ground_guard_is_decided_without_z3() {
         outcome(&run, &gwl_after(&vocabulary)).outcome,
         PatternOutcome::Match
     );
+}
+
+#[test]
+fn z3_shared_int_address_witness_carries_feasible_constraint() {
+    let (mut run, vocabulary) = run(Fixture::Guard, g1(), BUDGET);
+    let plan = gwl_after(&vocabulary);
+    let stops: Vec<_> = run.bridged.paths.iter().map(|path| path.stop).collect();
+    assert_eq!(
+        stops,
+        by_profile(vec![PathStop::BackendLimit], vec![PathStop::Terminal; 3])
+    );
+    let plain = outcome(&run, &plan);
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+        )
+    );
+
+    let evaluation = decided(&mut run, &plan);
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Match, None)
+        )
+    );
+    assert_witness_paths(&run, &evaluation);
+    if cfg!(feature = "z3") {
+        assert!(evaluation.complete_coverage);
+        assert_eq!(evaluation.primary_witness, Some(0));
+        let [witness] = evaluation.witnesses.as_slice() else {
+            panic!("one G1 witness: {evaluation:?}")
+        };
+        assert_eq!(witness.path_ordinal, 0);
+        assert_eq!(witness.event_indices, [0, 1]);
+        assert_eq!(witness.stop_reason, PathStop::Terminal);
+        assert_eq!(witness.bindings.len(), 1);
+        assert_eq!(witness.bindings[0].name, "A");
+        assert_eq!(witness.bindings[0].term, integer("X"));
+        assert_eq!(
+            witness.assumptions,
+            [TermRelation {
+                left: integer("X"),
+                right: integer("Y"),
+            }]
+        );
+        let mut guarded_variables = Vec::new();
+        for_each_post_order(&witness.path_predicate, |node| {
+            if let Pattern::Application { symbol, arguments } = node
+                && symbol.name == "Lbl'Unds-GT-Eqls'Int'Unds'"
+            {
+                assert_eq!(arguments.len(), 2);
+                assert_eq!(arguments[1], support::int(0));
+                guarded_variables.push(arguments[0].clone());
+            }
+        });
+        assert_eq!(guarded_variables.len(), 2);
+        assert!(guarded_variables.contains(&integer("X")));
+        assert!(guarded_variables.contains(&integer("Y")));
+
+        let report = step3_report(ReportInput {
+            profile: PROFILE,
+            test_id: "G1-GWL-after",
+            budget: &BUDGET,
+            backend_options: BACKEND_OPTIONS,
+            result: ReportResult::Ok {
+                execution: &run.execution,
+                bridged: &run.bridged,
+                evaluation: &evaluation,
+            },
+        });
+        assert_eq!(report["profile"], "z3");
+        assert_eq!(report["witnesses"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            report["witnesses"][0]["assumptions"],
+            serde_json::json!([{
+                "left": codec::to_value(&integer("X")).expect("X encodes"),
+                "right": codec::to_value(&integer("Y")).expect("Y encodes"),
+            }])
+        );
+    } else {
+        assert!(!evaluation.complete_coverage);
+        assert_eq!(evaluation.primary_witness, None);
+        assert!(evaluation.witnesses.is_empty());
+    }
+}
+
+#[test]
+fn z3_infeasible_shared_address_is_no_match() {
+    let (mut run, vocabulary) = run(Fixture::Guard, g2(), BUDGET);
+    let plan = gwl_after(&vocabulary);
+    let stops: Vec<_> = run.bridged.paths.iter().map(|path| path.stop).collect();
+    assert_eq!(
+        stops,
+        by_profile(vec![PathStop::BackendLimit], vec![PathStop::Terminal; 3])
+    );
+    let plain = outcome(&run, &plan);
+    assert_eq!(
+        (plain.outcome, plain.failure),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
+        )
+    );
+    let evaluation = decided(&mut run, &plan);
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+            (PatternOutcome::NoMatch, None)
+        )
+    );
+    assert_eq!(evaluation.complete_coverage, cfg!(feature = "z3"));
+    assert_eq!(evaluation.primary_witness, None);
+    assert!(evaluation.witnesses.is_empty());
+    assert_witness_paths(&run, &evaluation);
 }
 
 fn assert_both(
