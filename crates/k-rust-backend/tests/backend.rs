@@ -17,6 +17,8 @@ mod rule_index;
 mod search;
 #[path = "backend/simplify.rs"]
 mod simplify;
+#[path = "backend/stuck_instances.rs"]
+mod stuck_instances;
 #[path = "backend/support.rs"]
 mod support;
 #[path = "backend/term_order.rs"]

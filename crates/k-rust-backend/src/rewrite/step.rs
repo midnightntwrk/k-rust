@@ -305,8 +305,7 @@ pub(super) fn rewrite_step_all(
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let index = term_index(&pattern.term);
     let subject = subject_index(definition, &pattern.term);
-    let priority_groups =
-        applicable_rewrite_groups(definition, &pattern.term, &subject);
+    let priority_groups = applicable_rewrite_groups(definition, &pattern.term, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -366,8 +365,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
 ) -> RewriteResult {
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
-    let priority_groups =
-        applicable_rewrite_groups(definition, &pattern.term, &subject);
+    let priority_groups = applicable_rewrite_groups(definition, &pattern.term, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }
@@ -488,11 +486,8 @@ fn fold_lower_priority_groups(
                 subject_index(definition, &current.pattern.term),
             );
             if keys != lower.selected_for {
-                let mut groups = applicable_rewrite_groups(
-                    definition,
-                    &current.pattern.term,
-                    &keys.1,
-                );
+                let mut groups =
+                    applicable_rewrite_groups(definition, &current.pattern.term, &keys.1);
                 let visited = lower.visited;
                 groups.retain(|priority, _| *priority > visited);
                 lower.groups = groups;
@@ -721,8 +716,7 @@ pub(super) fn rewrite_step_any(
     let _apart = crate::rule::ApartScope::enter();
     let _span = measure::algorithm_span(Algorithm::BackendRewriteStep);
     let subject = subject_index(definition, &pattern.term);
-    let priority_groups =
-        applicable_rewrite_groups(definition, &pattern.term, &subject);
+    let priority_groups = applicable_rewrite_groups(definition, &pattern.term, &subject);
     if priority_groups.is_empty() {
         return RewriteResult::Stuck(pattern.clone());
     }

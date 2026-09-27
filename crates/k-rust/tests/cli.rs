@@ -9748,3 +9748,65 @@ endmodule
     );
     assert_eq!(leaves, [failed_stuck_leaf("frame-restarts")]);
 }
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kore_exec_search_final_keeps_symbolic_anywhere_remainder_constrained() {
+    // wrap(s(z)) denotes wrap(z), so X = z gives the symbolic state a successor.
+    // A final remainder may contain wrap(s(X)) only under a constraint excluding that instance.
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"[]
+module MAIN
+  sort SortNat{} []
+  sort SortW{} []
+  symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+  symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+  symbol done{}() : SortW{} [constructor{}(), functional{}(), injective{}()]
+  symbol wrap{}(SortNat{}) : SortW{} [anywhere{}(), functional{}(), injective{}()]
+  axiom{R} \implies{R}(
+    \and{R}(
+      \top{R}(),
+      \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+    ),
+    \equals{SortW{}, R}(
+      wrap{}(X0:SortNat{}),
+      \and{SortW{}}(wrap{}(z{}()), \top{SortW{}}())
+    )
+  ) [label{}("collapse"), anywhere{}()]
+  axiom{} \rewrites{SortW{}}(
+    \and{SortW{}}(wrap{}(z{}()), \top{SortW{}}()),
+    done{}()
+  ) [label{}("finish")]
+endmodule []
+"#,
+    )
+    .unwrap();
+    let initial = root.join("initial.kore");
+    for state in [
+        "wrap{}(s{}(X:SortNat{}))",
+        "wrap{}(X:SortNat{})",
+        "W:SortW{}",
+    ] {
+        fs::write(&initial, state).unwrap();
+        let output = output_with_watchdog({
+            let mut command = Command::new(env!("CARGO_BIN_EXE_krust"));
+            command.args([
+                "kore-exec",
+                definition.to_str().unwrap(),
+                "--module",
+                "MAIN",
+                "--pattern",
+                initial.to_str().unwrap(),
+                "--search-final",
+            ]);
+            command
+        });
+        assert!(output.status.success(), "{state}: {output:?}");
+        let final_states = String::from_utf8(output.stdout).unwrap();
+        assert!(final_states.contains("done{}()"), "{state}: {final_states}");
+        assert!(final_states.contains("\\not{"), "{state}: {final_states}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}

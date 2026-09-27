@@ -358,6 +358,8 @@ pub enum TraceKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HaltReason {
     Cancelled,
+    /// No sort-correct ground substitution satisfying the leaf pattern's constraints gives
+    /// its term a rewrite successor. The set of satisfying instances may be empty.
     Stuck,
     Trivial {
         /// Semantic depth after the rule that produced the empty successor.
