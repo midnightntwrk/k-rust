@@ -1360,14 +1360,13 @@ mod tests {
     const INDETERMINATE_DEFINITION: &str = r#"[]
         module MAIN
             sort SortS{} []
-            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
-            symbol zero{}() : SortS{} [constructor{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            symbol wrap{}(SortInt{}) : SortS{} [constructor{}()]
             symbol done{}() : SortS{} [constructor{}()]
-            symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(
-                    wrap{}(X:SortS{}),
-                    \equals{SortS{}, SortS{}}(X:SortS{}, zero{}())
+                    wrap{}(X:SortInt{}),
+                    \equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("0"))
                 ), done{}()
             ) [label{}("guarded")]
         endmodule []"#;
@@ -1401,7 +1400,7 @@ mod tests {
     #[test]
     fn execution_indeterminate_leaves_publish_search_causes() {
         let cases = [
-            (INDETERMINATE_DEFINITION, "wrap{}(Y:SortS{})", "requires"),
+            (INDETERMINATE_DEFINITION, "wrap{}(Y:SortInt{})", "requires"),
             (NARROWING_DEFINITION, "wrap{}(Y:SortS{})", "smt"),
             (SET_BINDING_DEFINITION, "wrap{}(@Y:SortS{})", "match"),
         ];
