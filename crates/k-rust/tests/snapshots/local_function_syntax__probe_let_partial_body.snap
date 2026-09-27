@@ -2,13 +2,7 @@
 source: crates/k-rust/tests/local_function_syntax.rs
 expression: "rule op(A) => val(#let Y = A #in 10 /Int Y)"
 ---
-  symbol Lbl'Hash'lambdaA'UndsUnds'{}(SortInt{}) : SortInt{}
-  axiom{R}
-    \exists{R}(
-      Val:SortInt{},
-      \equals{SortInt{}, R}(Val:SortInt{}, Lbl'Hash'lambdaA'UndsUnds'{}(K0:SortInt{}))
-    )
-    [functional{}()]
+  symbol Lbl'Hash'lambdaA'UndsUnds'{}(SortInt{}) : SortInt{} [function{}()]
   axiom{}
     \rewrites{SortGeneratedTopCell{}}(
       \and{SortGeneratedTopCell{}}(
