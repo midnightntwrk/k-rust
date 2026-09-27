@@ -67,7 +67,6 @@ module MAIN
     anywhere{}(),
     functional{}(),
     impure{}(),
-    injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,76)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("impureAnywhere")
@@ -85,7 +84,6 @@ module MAIN
     anywhere{}(),
     functional{}(),
     impure{}(),
-    injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,18,11,74)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("macroAnywhere")
@@ -317,7 +315,6 @@ module MAIN
     format{}(),
     functional{}(),
     impure{}(),
-    injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,76)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -345,7 +342,6 @@ module MAIN
     format{}(),
     functional{}(),
     impure{}(),
-    injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,18,11,74)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),

@@ -17,9 +17,7 @@ module MAIN
   ]
   symbol Lblplain{}(SortExp{}) : SortExp{}
   [
-    constructor{}(),
     functional{}(),
-    injective{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
     symbol'Kywd'{}("plain")
@@ -27,7 +25,6 @@ module MAIN
   symbol Lblmacro{}(SortExp{}) : SortExp{}
   [
     functional{}(),
-    injective{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -36,7 +33,6 @@ module MAIN
   symbol LblmacroRec{}(SortExp{}) : SortExp{}
   [
     functional{}(),
-    injective{}(),
     macro{}(),
     macro-rec{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(5,18,5,67)"),
@@ -47,7 +43,6 @@ module MAIN
   [
     alias'Kywd'{}(),
     functional{}(),
-    injective{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -57,7 +52,6 @@ module MAIN
   [
     alias-rec{}(),
     functional{}(),
-    injective{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -80,18 +74,9 @@ module MAIN
       Lbldone{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
     )
     [constructor{}()]
-  axiom{}
-    \not{SortExp{}}(\and{SortExp{}}(Lbldone{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})))
-    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
     [functional{}()]
-  axiom{}
-    \implies{SortExp{}}(
-      \and{SortExp{}}(Lblplain{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})),
-      Lblplain{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
-    )
-    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
     [functional{}()]
@@ -149,10 +134,8 @@ module MAIN
   ]
   symbol Lblplain{}(SortExp{}) : SortExp{}
   [
-    constructor{}(),
     format{}(),
     functional{}(),
-    injective{}(),
     left{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -165,7 +148,6 @@ module MAIN
   [
     format{}(),
     functional{}(),
-    injective{}(),
     left{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(4,18,4,57)"),
@@ -179,7 +161,6 @@ module MAIN
   [
     format{}(),
     functional{}(),
-    injective{}(),
     left{}(),
     macro{}(),
     macro-rec{}(),
@@ -195,7 +176,6 @@ module MAIN
     alias'Kywd'{}(),
     format{}(),
     functional{}(),
-    injective{}(),
     left{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,18,6,57)"),
@@ -210,7 +190,6 @@ module MAIN
     alias-rec{}(),
     format{}(),
     functional{}(),
-    injective{}(),
     left{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,67)"),

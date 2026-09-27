@@ -72,6 +72,16 @@ pub(super) fn generated_axioms(
     Ok(GeneratedAxioms { semantics, syntax })
 }
 
+/// The productions whose applications are free values of their sort: no two distinct
+/// applications of them denote the same element, which the emitted `constructor` attribute and
+/// no-confusion axioms assert.
+///
+/// A production is excluded when an emitted sentence equates its applications with other
+/// terms: a function, an `assoc`/`comm`/`idem` production, the head of an `anywhere` rule, and
+/// the head of a macro-like rule, whether the production or the rule carries the macro-like
+/// attribute. A rule `plain(X) => done(X) [macro]` is the equation `plain(X) = done(X)`, so
+/// declaring `plain` a constructor next to `done` would add `plain(X) != done(Y)` and make the
+/// theory inconsistent.
 pub(super) fn constructor_productions(
     productions: &ProductionCatalog<'_>,
     _overloads: &OverloadOrder<'_>,
@@ -98,7 +108,8 @@ pub(super) fn constructor_productions(
             }
             let algebraic =
                 attributes.has_any(&[AttributeKey::Assoc, AttributeKey::Comm, AttributeKey::Idem]);
-            let is_macro = attributes.has_any(&AttributeKey::MACRO_LIKE);
+            let is_macro = attributes.has_any(&AttributeKey::MACRO_LIKE)
+                || rules.macro_labels().contains(&LabelHead::from(label));
             (!attributes.has(AttributeKey::Function)
                 && !algebraic
                 && !is_macro

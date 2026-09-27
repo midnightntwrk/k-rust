@@ -527,7 +527,109 @@ fn emitted_kore_matches_the_reference_frontend() {
     let actual = parse_definition(&actual_source).unwrap();
     let (removed, owise) = normalize_unsupported_sort_predicates(&mut reference);
     println!("unsupported sort-predicate axioms normalized: {removed} true, {owise} owise");
+    let withheld = normalize_withheld_injective(&mut reference, &actual);
+    println!("injective withheld from equation-headed symbols (N33): {withheld}");
     compare_definitions(reference, actual);
+}
+
+/// N33: on the reference side, drop `injective{}()` from a symbol declaration that carries
+/// `anywhere{}()` or a macro-like attribute, only when the port declares the same symbol without
+/// `injective`. Such a symbol heads an anywhere, overload or macro equation, which may identify
+/// applications with different arguments, so the port declares `injective` only where the
+/// equations provably preserve it (docs/compatibility.md#anywhere-rules). Every other attribute
+/// and every other symbol stays compared, and the port can never gain `injective` this way.
+/// Returns the number of declarations changed.
+fn normalize_withheld_injective(reference: &mut Definition, actual: &Definition) -> usize {
+    const EQUATION_HEAD_ATTRIBUTES: [&str; 5] =
+        ["anywhere", "macro", "macro-rec", "alias", "alias-rec"];
+    let has = |attributes: &Attributes, name: &str| {
+        attributes.0.iter().any(|attribute| {
+            matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == name && arguments.is_empty())
+        })
+    };
+    let without_injective = actual
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::SymbolDeclaration {
+                symbol, attributes, ..
+            } if !has(attributes, "injective") => Some(symbol.name.clone()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
+    let mut changed = 0;
+    for sentence in reference
+        .modules
+        .iter_mut()
+        .flat_map(|module| &mut module.sentences)
+    {
+        let Sentence::SymbolDeclaration {
+            symbol, attributes, ..
+        } = sentence
+        else {
+            continue;
+        };
+        if !without_injective.contains(&symbol.name)
+            || !has(attributes, "injective")
+            || !EQUATION_HEAD_ATTRIBUTES
+                .iter()
+                .any(|name| has(attributes, name))
+        {
+            continue;
+        }
+        attributes.0.retain(|attribute| {
+            !matches!(attribute, Pattern::Application { symbol, arguments }
+                if symbol.name == "injective" && arguments.is_empty())
+        });
+        changed += 1;
+    }
+    changed
+}
+
+#[test]
+fn withheld_injective_normalizer_applies_only_to_equation_heads_the_port_withholds() {
+    let definition = |wrap: &str, plain: &str| {
+        parse_definition(&format!(
+            r#"[]
+            module TEST
+              sort S{{}} []
+              symbol Lblwrap{{}}(S{{}}) : S{{}} [{wrap}]
+              symbol Lblplain{{}}(S{{}}) : S{{}} [{plain}]
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let port = definition(
+        "anywhere{}(), functional{}()",
+        "constructor{}(), functional{}()",
+    );
+    let mut reference = definition(
+        "anywhere{}(), functional{}(), injective{}()",
+        "constructor{}(), functional{}(), injective{}()",
+    );
+    assert_eq!(normalize_withheld_injective(&mut reference, &port), 1);
+    assert_eq!(
+        reference,
+        definition(
+            "anywhere{}(), functional{}()",
+            "constructor{}(), functional{}(), injective{}()",
+        ),
+        "a symbol without an equation-head attribute keeps its difference"
+    );
+    // The port declaring `injective` leaves the reference untouched.
+    let mut reference = definition(
+        "anywhere{}(), functional{}(), injective{}()",
+        "constructor{}(), functional{}()",
+    );
+    let original = reference.clone();
+    let port = definition(
+        "anywhere{}(), functional{}(), injective{}()",
+        "constructor{}(), functional{}()",
+    );
+    assert_eq!(normalize_withheld_injective(&mut reference, &port), 0);
+    assert_eq!(reference, original);
 }
 
 /// Remove only sort-predicate equations whose injected argument has no declared embedding into

@@ -372,3 +372,11 @@ anchor_helpers = [
 ]
 rule = "On the reference side only, drop a generated sort-predicate true equation whose sole match places X:S at K through inj{S,KItem} in a one-element K sequence (or inj{S,K}), only when the KORE definition has no subsort{S,KItem} axiom. In its matching owise false equation, replace the negation of exactly that existential match disjoined with bottom by the negation of bottom; retain every other condition and sentence. A declared subsort{S,KItem} leaves both equations untouched."
 justification = "A predicate takes a K argument, so isS(X:S) => true is well-sorted only if S is placeable there. Without an axiom embedding S in KItem, the injected match cannot denote a K term; its true equation is ill-sorted and its negated owise disjunct has no witness. See docs/compatibility.md#sorts-of-compiled-terms."
+
+[[normalisation]]
+id = "N33"
+gate = "compile semantic and syntax KORE"
+anchor = "crates/k-rust/tests/reference_differential.rs:normalize_withheld_injective"
+anchor_symbol = "normalize_withheld_injective"
+rule = "On the reference side only, drop `injective{}()` from a symbol declaration that also carries `anywhere{}()`, `macro{}()`, `macro-rec{}()`, `alias{}()` or `alias-rec{}()`, and only when the port declares the same symbol without `injective`. The comparison prints the number of declarations changed. Every other attribute, every symbol without one of those attributes, and a port declaration that carries `injective` stay compared."
+justification = "`injective` is an axiom (equal applications have equal arguments). A symbol that heads an anywhere, overload or macro-like equation can have two applications with different arguments identified by that equation (`wrap(s(X)) = wrap(X)` gives `wrap(s(z)) = wrap(z)`), which with the constructor axioms of the arguments makes the declared theory inconsistent. The port withholds the attribute from every such head except an overload-greater production whose lesser productions are all equation-free constructors, where the overload equations preserve it. See docs/compatibility.md#anywhere-rules."
