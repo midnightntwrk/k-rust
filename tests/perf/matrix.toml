@@ -1,0 +1,54 @@
+# Scenario corpus for tests/perf/bench.py.
+#
+# Every edit applies to the harness's scratch copy of the semantics workspace,
+# never to the repository. `old` must occur exactly once in the port's source;
+# `bench.py --dry-run` checks that against the repository copy, so an edit that
+# no longer anchors fails before any measurement starts. Repetitions of an edit
+# scenario alternate between applying and reverting it, so each one recompiles
+# the same one-token change.
+schema = 1
+
+[[port]]
+key = "kwasm"
+label = "KWasm"
+source = "src/lib.rs"
+
+[port.edits.edit-rule]
+description = "one rule-body token: the i32 constant normalization offset in `constant_i32`"
+old = "instrs: [crate::Chop(IntegerType::I32, int::add(value, 4_294_967_296)), ..],"
+new = "instrs: [crate::Chop(IntegerType::I32, int::add(value, 4_294_967_297)), ..],"
+
+[port.edits.edit-enum]
+description = "one constructor-enum variant: the concrete syntax of `IntegerBinOp::Mul`"
+old = '#[k::syntax("mul")]'
+new = '#[k::syntax("mulx")]'
+
+[[port]]
+key = "kmir"
+label = "KMIR"
+source = "src/lib.rs"
+
+[port.edits.edit-rule]
+description = "one rule-body token: the entry block index in `begin`"
+old = "k: [Execution::ExecBlockIdx(0), ..],"
+new = "k: [Execution::ExecBlockIdx(1), ..],"
+
+[port.edits.edit-enum]
+description = "one constructor-enum variant: the concrete syntax of the unknown type"
+old = '#[k::syntax("TyUnknown")]'
+new = '#[k::syntax("TyUnknownX")]'
+
+[[port]]
+key = "kevm"
+label = "KEVM"
+source = "src/lib.rs"
+
+[port.edits.edit-rule]
+description = "one rule-body token: the gas cost in `begin_push_zero`"
+old = "k: [crate::PreparePush { op: Operation::PushZero, stack, gas, cost: 2 }, ..],"
+new = "k: [crate::PreparePush { op: Operation::PushZero, stack, gas, cost: 3 }, ..],"
+
+[port.edits.edit-enum]
+description = "one constructor-enum variant: the concrete syntax of `PUSHZERO`"
+old = '#[k::syntax("PUSHZERO")]'
+new = '#[k::syntax("PUSHZEROX")]'

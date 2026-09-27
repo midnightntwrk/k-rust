@@ -98,6 +98,11 @@ jobs:
         working-directory: starstream-fv/krs/tests
         run: python3 -m unittest discover support
 
+      - name: Check the compile-performance harness matrix without measuring
+        run: |
+          python3 -m unittest discover -s tests/perf -t tests
+          python3 tests/perf/bench.py --dry-run
+
       - name: Test the workspace
         run: cargo +stable test --workspace --locked --offline
 
