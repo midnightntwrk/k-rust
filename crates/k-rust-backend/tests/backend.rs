@@ -17,6 +17,8 @@ mod rule_index;
 mod search;
 #[path = "backend/simplify.rs"]
 mod simplify;
+#[path = "backend/structural_distinctness.rs"]
+mod structural_distinctness;
 #[path = "backend/support.rs"]
 mod support;
 #[path = "backend/term_order.rs"]
