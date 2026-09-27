@@ -1,0 +1,1 @@
+\forall{SortBool{}}(VarA:SortNat{}, \forall{SortBool{}}(VarB:SortNat{}, \equals{SortNat{}, SortBool{}}(VarA:SortNat{}, VarB:SortNat{})))

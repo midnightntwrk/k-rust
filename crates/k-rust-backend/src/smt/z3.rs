@@ -49,6 +49,7 @@ use z3::{
 
 use super::{
     ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
+    translates_exactly,
 };
 use crate::{
     cancellation::{CancellationToken, cancellation_requested},
@@ -85,6 +86,8 @@ pub struct Z3Solver {
 
 const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
 const RESULT_CACHE_KEY_BYTE_LIMIT: usize = 8 * 1024 * 1024;
+const APPROXIMATE_MODEL_REASON: &str =
+    "the query abstracts symbols or sorts; a solver model is not a model of the predicate";
 
 #[derive(Clone, Debug)]
 enum PreludeState {
@@ -352,6 +355,7 @@ impl Z3Solver {
         &self,
         query: &TranslatedQuery,
         variables: &BTreeSet<Variable>,
+        exact: bool,
     ) -> Result<ModelResult, SmtError> {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         if let Some(error) = self.prelude_failure() {
@@ -371,6 +375,9 @@ impl Z3Solver {
             match solver.check() {
                 SatResult::Sat => {
                     self.confirm_answer(Satisfiability::Sat)?;
+                    if !exact {
+                        return Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()));
+                    }
                     let model = solver.get_model().ok_or(SmtError::MissingModel)?;
                     return self.extract_model(&model, &query.mappings, variables);
                 }
@@ -532,8 +539,16 @@ impl SmtSolver for Z3Solver {
             .cloned()
             .chain(predicates.iter().flat_map(Predicate::free_variables))
             .collect::<BTreeSet<_>>();
+        let exact_predicates = predicates
+            .iter()
+            .cloned()
+            .chain(substitution.iter().map(|(variable, term)| {
+                Predicate::Equals(Term::variable(variable.clone()), term.clone())
+            }))
+            .collect::<Vec<_>>();
+        let exact = translates_exactly(&exact_predicates);
         let query = self.prelude.query(predicates, substitution, &[], false)?;
-        self.solve_model(&query, &variables)
+        self.solve_model(&query, &variables, exact)
     }
 }
 
@@ -559,6 +574,8 @@ mod tests {
                 symbol opaque{}(SortInt{}) : SortInt{} [function{}()]
                 symbol lt{}(SortInt{}, SortInt{}) : SortBool{}
                     [function{}(), total{}(), smt-hook{}("<")]
+                symbol bitwise{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), smtlib{}("bitwise")]
             endmodule []"#,
         )
         .expect("definition should parse");
@@ -678,6 +695,59 @@ mod tests {
                 x(),
                 Term::domain_value(Sort::simple("SortInt"), "7")
             )]))
+        );
+    }
+
+    #[test]
+    fn model_from_an_uninterpreted_function_is_unknown() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let bitwise = term(
+            &definition,
+            r#"bitwise{}(X:SortInt{}, \dv{SortInt{}}("1"))"#,
+        );
+        let predicate = Predicate::Equals(
+            bitwise.clone(),
+            Term::domain_value(Sort::simple("SortInt"), "2"),
+        );
+        assert_eq!(
+            solver.get_model(&[predicate], &Substitution::new()),
+            Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()))
+        );
+        assert_eq!(
+            solver.get_model(&[], &Substitution::from([(x(), bitwise.clone())])),
+            Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()))
+        );
+        assert_eq!(
+            solver.get_model(
+                &[
+                    Predicate::Equals(
+                        bitwise.clone(),
+                        Term::domain_value(Sort::simple("SortInt"), "1"),
+                    ),
+                    Predicate::Equals(bitwise, Term::domain_value(Sort::simple("SortInt"), "2"),),
+                ],
+                &Substitution::new(),
+            ),
+            Ok(ModelResult::Unsat)
+        );
+    }
+
+    #[test]
+    fn model_with_an_uninterpreted_quantifier_sort_is_unknown() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let variable = Variable::new("A", Sort::simple("SortS"));
+        let predicate = Predicate::Forall(
+            variable.clone(),
+            Box::new(Predicate::Equals(
+                Term::variable(variable.clone()),
+                Term::variable(variable),
+            )),
+        );
+        assert_eq!(
+            solver.get_model(&[predicate], &Substitution::new()),
+            Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()))
         );
     }
 
@@ -1058,16 +1128,13 @@ mod tests {
 
         let opaque = Variable::new("Y", Sort::simple("SortS"));
         let opaque_term = Term::variable(opaque.clone());
-        let ModelResult::Sat(model) = solver
-            .get_model(
+        assert_eq!(
+            solver.get_model(
                 &[Predicate::Equals(opaque_term.clone(), opaque_term)],
                 &Substitution::new(),
-            )
-            .unwrap()
-        else {
-            panic!("reflexive opaque equality should be satisfiable")
-        };
-        assert_eq!(model.get(&opaque), Some(&Term::variable(opaque.clone())));
+            ),
+            Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into()))
+        );
     }
 
     #[test]

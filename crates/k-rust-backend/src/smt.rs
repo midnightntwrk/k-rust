@@ -596,19 +596,44 @@ impl SmtPrelude {
 /// Whether `predicates` translate to SMT-LIB without approximating anything, so that a `Sat`
 /// answer for them has a model over the values the predicates speak about.
 ///
-/// The translation approximates in three ways, each of which can make an unsatisfiable set
-/// answer `Sat`: a term or predicate without an SMT translation becomes an unrelated fresh
-/// constant (no congruence, no constructor injectivity); a variable of a sort other than `Int`
-/// or `Bool` ranges over an uninterpreted sort, which knows nothing of the sort's values; and a
-/// partial function becomes a total SMT operation that has a value where the function has none.
-/// This answers true only when none of them happened.
+/// The translation has five approximations that can make an unsatisfiable set answer `Sat`:
+/// a term or predicate without an SMT translation becomes an unrelated fresh constant (no
+/// congruence or constructor injectivity); a free variable of a sort other than `Int` or `Bool`
+/// ranges over an uninterpreted sort; a partial function becomes a total SMT operation; an
+/// `smtlib` symbol becomes an uninterpreted function; and a quantified variable of a sort other
+/// than `Int` or `Bool` ranges over an uninterpreted sort. The uninterpreted functions retain
+/// only congruence, and uninterpreted sorts need not have the K sort's values.
+/// SMT hook translations, SMT lemma axioms, and the user prelude are trusted.
+/// This answers true only when none of these approximations occur.
 ///
-/// The third approximation also affects `SmtSolver::check_predicates`: a `Valid` answer holds
-/// for the total operation, including on instances where the partial function has no value. It
-/// is sound for a predicate only when the definedness of its partial terms is explicit in the
-/// predicate. The rewrite and equation condition callers make it explicit before deciding
-/// (`definedness::condition_definedness` on every `requires` and `ensures`).
+/// The partial-function approximation also affects `SmtSolver::check_predicates`: a `Valid`
+/// answer holds for the total operation, including on instances where the partial function has
+/// no value. It is sound for a predicate only when the definedness of its partial terms is
+/// explicit in the predicate. The rewrite and equation condition callers make it explicit before
+/// deciding (`definedness::condition_definedness` on every `requires` and `ensures`).
 pub fn translates_exactly(predicates: &[Predicate]) -> bool {
+    fn quantifiers_exact(predicate: &Predicate) -> bool {
+        match predicate {
+            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+                (variable.sort.is_builtin(BuiltinSort::Int)
+                    || variable.sort.is_builtin(BuiltinSort::Bool))
+                    && quantifiers_exact(inner)
+            }
+            Predicate::Not(inner) => quantifiers_exact(inner),
+            Predicate::And(inner) | Predicate::Or(inner) => inner.iter().all(quantifiers_exact),
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                quantifiers_exact(left) && quantifiers_exact(right)
+            }
+            Predicate::True
+            | Predicate::False
+            | Predicate::Term(_)
+            | Predicate::Equals(..)
+            | Predicate::Ceil(_)
+            | Predicate::Floor(_)
+            | Predicate::In(..) => true,
+        }
+    }
+
     let mut translation = TranslationState::new();
     if predicates
         .iter()
@@ -624,14 +649,15 @@ pub fn translates_exactly(predicates: &[Predicate]) -> bool {
                     || term.sort().is_builtin(BuiltinSort::Bool))
         })
         && predicates.iter().all(|predicate| {
-            let mut total = true;
+            let mut exact = quantifiers_exact(predicate);
             predicate.visit_terms(&mut |term: &Term| {
                 term.visit_symbols(&mut |symbol| {
-                    total &= symbol.attributes.symbol_type
-                        != SymbolType::Function(FunctionType::Partial);
+                    exact &= symbol.attributes.symbol_type
+                        != SymbolType::Function(FunctionType::Partial)
+                        && !matches!(symbol.attributes.smt, Some(SmtType::Lib(_)));
                 });
             });
-            total
+            exact
         })
 }
 
@@ -848,6 +874,8 @@ pub trait SmtSolver {
         checked: &[Predicate],
     ) -> Result<Validity, SmtError>;
 
+    /// A `Sat` substitution must satisfy `predicates` and `substitution` in K.
+    /// An approximate SMT model is reported as `Unknown` instead.
     fn get_model(
         &self,
         _predicates: &[Predicate],
@@ -1010,6 +1038,56 @@ mod tests {
                 .to_string(),
             "(exists ((SMT-1 Int)) (= SMT-1 1))"
         );
+    }
+
+    #[test]
+    fn exactness_rejects_uninterpreted_smtlib_symbols_at_any_predicate_depth() {
+        let int = Sort::simple("SortInt");
+        let variable = Variable::new("X", int.clone());
+        let application = |smt| {
+            Term::application(
+                symbol("bitwise", smt, vec![int.clone(), int.clone()], int.clone()),
+                Vec::new(),
+                vec![Term::variable(variable.clone()), integer("1")],
+            )
+        };
+        let equality = |term| Predicate::Equals(term, integer("2"));
+        let uninterpreted = application(Some(SmtType::Lib("andInt".into())));
+        let hooked = application(Some(SmtType::Hook(SExpr::atom("+"))));
+
+        assert!(!translates_exactly(&[equality(uninterpreted.clone())]));
+        assert!(!translates_exactly(&[Predicate::Not(Box::new(
+            Predicate::Exists(
+                variable,
+                Box::new(Predicate::Or(vec![equality(uninterpreted)])),
+            ),
+        ))]));
+        assert!(translates_exactly(&[equality(hooked)]));
+    }
+
+    #[test]
+    fn exactness_rejects_quantifiers_over_uninterpreted_sorts() {
+        let nat = Variable::new("N", Sort::simple("SortNat"));
+        let int = Variable::new("I", Sort::simple("SortInt"));
+        let body = |variable: &Variable| {
+            Predicate::Equals(
+                Term::variable(variable.clone()),
+                Term::variable(variable.clone()),
+            )
+        };
+
+        assert!(!translates_exactly(&[Predicate::Forall(
+            nat.clone(),
+            Box::new(body(&nat)),
+        )]));
+        assert!(!translates_exactly(&[Predicate::Exists(
+            nat,
+            Box::new(Predicate::True),
+        )]));
+        assert!(translates_exactly(&[Predicate::Exists(
+            int.clone(),
+            Box::new(Predicate::Equals(Term::variable(int), integer("1"))),
+        )]));
     }
 
     #[test]

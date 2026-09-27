@@ -5181,6 +5181,15 @@ mod tests {
         let sat: serde_json::Value = serde_json::from_str(&sat).unwrap();
         assert_eq!(sat["satisfiable"], "Sat");
         assert_eq!(sat["substitution"]["format"], "KORE");
+        let unconstrained: serde_json::Value = serde_json::from_str(
+            &model_output(
+                ModelResult::Sat(Substitution::new()),
+                Some(&BackendSort::simple("SortBool")),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(unconstrained, serde_json::json!({ "satisfiable": "Sat" }));
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&unsat).unwrap()["satisfiable"],
             "Unsat"

@@ -1567,6 +1567,13 @@ expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-sear
 reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-implies-consequent-universal.reference.json"
 reason = "The consequent's X:SortState is free and absent from the antecedent. k-rust reads it as universally quantified over the implication (docs/compatibility.md#rpc-behavior), so the match binding X := start is an obligation the ground antecedent does not entail, and the answer is invalid with that binding. The proxy rejects the request with error code 4, The RHS must not have free variables not present in the LHS."
 
+[[rpc.oracle-exception]]
+oracle = "kore-rpc-booster"
+response = "model-unsat"
+expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-model-unsat.json"
+reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-model-unsat.reference.json"
+reason = "start and done are distinct constructors, so their equality is Unsat in K. The oracle reports Sat for this equality; k-rust decides constructor distinctness before asking SMT."
+
 # execute-trivial sends krun's depth-0 state, whose initializer functions Booster cannot match, so
 # the proxy answers it through its Kore fallback. execute-trivial-configuration sends the evaluated
 # configuration <k> a </k>, which Booster rewrites itself; its answer is the recorded exception below.

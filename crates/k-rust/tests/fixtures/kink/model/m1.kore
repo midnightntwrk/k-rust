@@ -1,0 +1,1 @@
+\equals{SortInt{}, SortBool{}}(Lbl'UndsAnd-'Int'Unds'{}(VarX:SortInt{}, \dv{SortInt{}}("1")), \dv{SortInt{}}("2"))

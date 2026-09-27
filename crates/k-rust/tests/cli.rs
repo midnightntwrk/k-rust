@@ -4548,6 +4548,53 @@ endmodule []
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kore_get_model_reports_unknown_for_approximate_smt_models() {
+    let (root, _) = fixture();
+    let source = root.join("nat.k");
+    fs::write(&source, include_str!("fixtures/kink/model/nat.k")).unwrap();
+    let compiled = root.join("nat-kompiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", source.to_str().unwrap(), "-m", "NATP", "-o"])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+
+    for (name, pattern) in [
+        ("m1", include_str!("fixtures/kink/model/m1.kore")),
+        ("m2", include_str!("fixtures/kink/model/m2.kore")),
+    ] {
+        let pattern_path = root.join(format!("{name}.kore"));
+        fs::write(&pattern_path, pattern).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kore-get-model",
+                compiled.join("definition.kore").to_str().unwrap(),
+                "--module",
+                "NATP",
+                "--pattern",
+                pattern_path.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{name}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let answer: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(answer["satisfiable"], "Unknown", "{name}: {answer}");
+        assert!(answer.get("substitution").is_none(), "{name}: {answer}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn kore_implies_returns_the_matching_condition() {
     let (root, _) = fixture();
@@ -6023,6 +6070,49 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
             "{allowed_stdout}"
         );
     }
+}
+
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("andint.k"),
+        include_str!("fixtures/kink/andint/andint.k"),
+    )
+    .unwrap();
+    let specification = root.join("andint-spec.k");
+    fs::write(
+        &specification,
+        include_str!("fixtures/kink/andint/andint-spec.k"),
+    )
+    .unwrap();
+
+    for (claim, verdict, certified) in
+        [("vacuous", "failed", false), ("control", "disproved", true)]
+    {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                specification.to_str().unwrap(),
+                "--main-module",
+                "ANDINT-SPEC",
+                "--definition-module",
+                "ANDINT",
+                "--claim",
+                claim,
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!output.status.success(), "{stdout}");
+        assert!(
+            stdout.contains(&format!("claim ANDINT-SPEC.{claim}: {verdict}")),
+            "{stdout}"
+        );
+        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// A destination whose condition is false on the reached state covers none of it, so the whole
