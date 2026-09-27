@@ -6148,8 +6148,8 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     );
     assert!(
         rejected_stdout.contains(
-            "the left-hand side of the claim has been simplified to bottom \
-             (--allow-vacuous accepts such branches)"
+            "undefined step: a rule applies to these configurations but its result is empty \
+             for them, so they have no successor (--allow-vacuous accepts such branches)"
         ),
         "{rejected_stdout}"
     );
@@ -6260,6 +6260,7 @@ fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
         assert_eq!(verdict(&stdout, claim), "proven", "{claim}: {stdout}");
     }
     assert!(stdout.contains("Trivial at depth 1"), "{stdout}");
+    assert!(stdout.contains("  undefined step: "), "{stdout}");
 
     let (success, stdout) = prove(&["--allow-vacuous"]);
     assert!(success, "{stdout}");
@@ -6558,7 +6559,7 @@ endmodule
                 .collect::<Vec<_>>();
             assert_eq!(leaves, [leaf], "{context}");
             assert!(stdout.contains(leaf_term), "{context}");
-            assert!(!stdout.contains("simplified to bottom"), "{context}");
+            assert!(!stdout.contains("--allow-vacuous accepts"), "{context}");
         }
     }
     fs::remove_dir_all(root).unwrap();
