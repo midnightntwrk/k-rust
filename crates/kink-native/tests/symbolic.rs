@@ -16,7 +16,8 @@ use k_rust_backend::smt::{
 use k_rust_backend::substitution::Substitution;
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
-    AdaptedExecution, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
+    AdaptedExecution, AdaptedLeaf, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass,
+    SolverProfile,
 };
 use kink_native::feasibility::{BackendRelations, LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
@@ -2002,6 +2003,71 @@ fn apart_undefined_step_is_complete_evidence() {
                 &serde_json::json!(cfg!(feature = "z3")),
                 &serde_json::json!(by_profile("unknown", "solver")),
             ),
+            "{id}"
+        );
+    }
+}
+
+/// An undefined step commits no transition, so its rule appears in no event; k-rust names it on
+/// the `Trivial` leaf instead (`ExecutionLeaf::rule_id`/`rule_label`). The adapter keeps it and the
+/// report states it as the path's `undefined_rule`: the `stop` rule for the ground `stop(1)`,
+/// whose `ensures` is refuted, and the `apart` rule for `apart(X, Y)` under `X = Y`, whose
+/// `ensures` is carried. The id is the one the rule catalog gives the rule. The rule is named
+/// whether or not the leaf is shown feasible, and every other path's `undefined_rule` is null.
+#[test]
+fn undefined_step_names_its_rule_in_the_report() {
+    for (id, program, label) in [
+        ("ground-stop", trivial_program(), "SYMBOTTOM.stop"),
+        ("symbolic-apart", apart_program(), "SYMBOTTOM.apart"),
+    ] {
+        let (mut run, vocabulary) = run(Fixture::Bottom, program, BUDGET);
+        let catalog_id = run
+            .backend
+            .rule_catalog(Some(Fixture::Bottom.module()))
+            .expect("rule catalog")
+            .into_iter()
+            .find(|rule| rule.label.as_deref() == Some(label))
+            .unwrap_or_else(|| panic!("{id}: {label} is in the catalog"))
+            .id;
+        let named = |leaf: &AdaptedLeaf| {
+            leaf.undefined_rule
+                .as_ref()
+                .map(|rule| (rule.id.clone(), rule.label.clone()))
+        };
+        let leaves = run.execution.leaves().to_vec();
+        assert_eq!(leaves[0].halt, HaltClass::Trivial, "{id}");
+        assert_eq!(
+            named(&leaves[0]),
+            Some((catalog_id.clone(), Some(label.to_owned()))),
+            "{id}"
+        );
+        assert!(
+            leaves[1..].iter().all(|leaf| leaf.undefined_rule.is_none()),
+            "{id}"
+        );
+        let evaluation = decided(&mut run, &gwl_after(&vocabulary));
+        let report = step3_report(ReportInput {
+            profile: PROFILE,
+            test_id: id,
+            budget: &BUDGET,
+            backend_options: BACKEND_OPTIONS,
+            result: ReportResult::Ok {
+                execution: &run.execution,
+                bridged: &run.bridged,
+                evaluation: &evaluation,
+            },
+        });
+        let paths = report["paths"].as_array().expect("paths");
+        assert_eq!(paths.len(), leaves.len(), "{id}");
+        assert_eq!(
+            paths[0]["undefined_rule"],
+            serde_json::json!({ "id": catalog_id, "label": label }),
+            "{id}"
+        );
+        assert!(
+            paths[1..]
+                .iter()
+                .all(|path| path["undefined_rule"].is_null()),
             "{id}"
         );
     }

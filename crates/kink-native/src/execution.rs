@@ -189,6 +189,35 @@ pub struct AdaptedLeaf {
     pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
     pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
+    /// The rule responsible for the undefined step of a `Trivial` leaf, when k-rust names one;
+    /// `None` for every other halt.
+    pub undefined_rule: Option<UndefinedStepRule>,
+}
+
+/// The rule whose application a `Trivial` leaf's undefined step is: it applies to every
+/// instance of the pre-step state under the leaf's predicate, and its result is `\bottom` there.
+/// The step commits no transition, so this is the only place the rule is named.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UndefinedStepRule {
+    /// k-rust's compiled rule identity, the one `Backend::rule_catalog` and a committed
+    /// transition's `TransitionIdOutput::rule` use.
+    pub id: String,
+    /// The compiled qualified label (`MODULE.label`), when the rule has one.
+    pub label: Option<String>,
+}
+
+impl UndefinedStepRule {
+    /// The rule a facade leaf names, kept only for a `Trivial` halt: the facade gives
+    /// `rule_id`/`rule_label` exactly for the rule of an undefined step.
+    fn of(halt: HaltClass, rule_id: Option<String>, rule_label: Option<String>) -> Option<Self> {
+        (halt == HaltClass::Trivial)
+            .then_some(())
+            .and(rule_id)
+            .map(|id| Self {
+                id,
+                label: rule_label,
+            })
+    }
 }
 
 /// The adapted leaves of one execution. Built only by [`ExecutionAdapter::execute`].
@@ -214,6 +243,7 @@ pub struct BaselineLeaf {
     /// The transition identities of the branch. Empty for an unobserved leaf: k-rust's
     /// unobserved execution does not compute them.
     pub branch: Vec<TransitionIdOutput>,
+    pub undefined_rule: Option<UndefinedStepRule>,
 }
 
 impl AdaptedExecution {
@@ -234,6 +264,7 @@ impl AdaptedExecution {
                     candidate_diagnostics: leaf.candidate_diagnostics.clone(),
                     remainder_diagnostics: leaf.remainder_diagnostics.clone(),
                     branch: branch.identity,
+                    undefined_rule: leaf.undefined_rule.clone(),
                 }
             })
             .collect()
@@ -457,6 +488,7 @@ impl ExecutionAdapter {
                         .remainder
                         .map_or_else(Vec::new, |remainder| remainder.diagnostics),
                     branch: leaf.branch,
+                    undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
                 })
             })
             .collect()
@@ -481,6 +513,7 @@ impl ExecutionAdapter {
                 Ok(AdaptedLeaf {
                     halt,
                     feasibility,
+                    undefined_rule: UndefinedStepRule::of(halt, leaf.rule_id, leaf.rule_label),
                     cause: leaf.cause,
                     diagnostics: leaf.diagnostics,
                     candidate_diagnostics: leaf

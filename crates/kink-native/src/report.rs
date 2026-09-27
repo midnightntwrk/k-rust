@@ -217,6 +217,9 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
             .map(|cause| serde_json::to_value(cause).expect("an indeterminate cause encodes as JSON")),
         "predicate": term(&path.path_predicate),
         "terminal": path.execution_terminal.as_ref().map(|terminal| term(&terminal.state)),
+        "undefined_rule": path_leaf(path, execution)
+            .and_then(|leaf| leaf.undefined_rule.as_ref())
+            .map(|rule| json!({ "id": rule.id, "label": rule.label })),
         "events": events,
     })
 }
@@ -225,10 +228,13 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
 /// (SYM-3B-02) adds `discarded` and the path feasibility values `"solver"` and `"unsat"`;
 /// version 4 adds the path `cause`, the k-rust `SearchFailure` of an indeterminate leaf (null
 /// otherwise); version 5 adds the stop `"undefined-step"` of a `Trivial` leaf, whose `terminal` is
-/// its pre-step term, and the `undefined@N` suffix of its key (`bridge::leaf_keys`).
-pub const REPORT_VERSION: u64 = 5;
+/// its pre-step term, and the `undefined@N` suffix of its key (`bridge::leaf_keys`); version 6
+/// adds the path `undefined_rule`, the compiled `id` and qualified `label` of the rule whose
+/// application is the undefined step of a `Trivial` leaf (null for every other path, and for a
+/// `Trivial` leaf k-rust names no rule for).
+pub const REPORT_VERSION: u64 = 6;
 
-/// Builds the exact version-5 step-3 report schema.
+/// Builds the exact version-6 step-3 report schema.
 #[must_use]
 pub fn step3_report(input: ReportInput<'_>) -> Value {
     let budget = input.budget;
@@ -401,6 +407,7 @@ mod tests {
             diagnostics: Vec::new(),
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
+            undefined_rule: None,
         };
         let event = Event {
             index: 0,
@@ -548,6 +555,7 @@ mod tests {
                 "cause",
                 "predicate",
                 "terminal",
+                "undefined_rule",
                 "events",
             ])
         );
@@ -593,8 +601,9 @@ mod tests {
             BTreeSet::from(["left", "right"])
         );
         assert_eq!(report["schema"], "kink-step3-report");
-        assert_eq!(report["version"], 5);
+        assert_eq!(report["version"], 6);
         assert_eq!(path["cause"], Value::Null);
+        assert_eq!(path["undefined_rule"], Value::Null);
         assert_eq!(report["discarded"], json!([]));
         assert_eq!(report["profile"], "no-z3");
         assert_eq!(report["outcome"], "match");

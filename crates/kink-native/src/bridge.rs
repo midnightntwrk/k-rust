@@ -23,7 +23,9 @@
 //! term, whose kind is [`ExecutionTerminalKind::UndefinedStep`] and is never asked of `classify`.
 //! Its prefix is real: every earlier step is defined on each instance, and a ground run of an
 //! instance performs those steps and emits their events, as `stop(1)` in `symbottom.k` does.
-//! The undefined step itself commits no transition, so it adds no event. That reading holds for
+//! The undefined step itself commits no transition, so it adds no event; k-rust names its rule on
+//! the leaf instead ([`crate::execution::AdaptedLeaf::undefined_rule`]), and the report states it
+//! as the path's `undefined_rule`. That reading holds for
 //! ground and symbolic leaves alike. It needs strategy `all`, which the adapter always requests:
 //! under `any` another rule may give an instance of the leaf a defined successor.
 //! A `Trivial` leaf's key is its committed transitions followed by `undefined@N`, where `N`
@@ -763,6 +765,7 @@ mod tests {
             diagnostics: Vec::new(),
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
+            undefined_rule: None,
         }
     }
 
@@ -1111,6 +1114,7 @@ mod tests {
             diagnostics: Vec::new(),
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
+            undefined_rule: None,
         };
         let diagnostic = BackendDiagnosticOutput::UnsupportedHookUnevaluated {
             hook: "TEST.hook".into(),
@@ -1213,6 +1217,7 @@ mod tests {
                     diagnostics: Vec::new(),
                     candidate_diagnostics: Vec::new(),
                     remainder_diagnostics: Vec::new(),
+                    undefined_rule: None,
                 },
                 AdaptedLeaf {
                     halt: H::Stuck,
@@ -1222,6 +1227,7 @@ mod tests {
                     diagnostics: Vec::new(),
                     candidate_diagnostics: Vec::new(),
                     remainder_diagnostics: Vec::new(),
+                    undefined_rule: None,
                 },
             ],
             effects: Vec::new(),
