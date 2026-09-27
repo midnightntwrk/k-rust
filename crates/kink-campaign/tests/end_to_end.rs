@@ -551,8 +551,8 @@ fn baseline_admission_gates_crashes_and_unknown_rules() {
 /// feasibility is undecided, or in a run that collected a backend diagnostic, is no witness,
 /// so the pattern side is `Unknown`. A mutant that makes `carry` (a carried `ensures`) or
 /// `slow` (a simplifier-budget diagnostic) apply is therefore not killed against the
-/// baseline's complete absence, and a baseline whose only occurrence is undecided (a carried
-/// `ensures`, a vacuous successor) is not admitted.
+/// baseline's complete absence. A carried `ensures` baseline is not admitted. A vacuous
+/// successor has no instance and is discarded, so its baseline has complete absence.
 #[test]
 fn undecided_occurrences_neither_kill_nor_pass_admission() {
     with_stack(|| {
@@ -619,15 +619,15 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
             assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
         }
 
-        // (id, observed rule, initial state)
+        // (id, observed rule, initial state, expected baseline outcome)
         #[rustfmt::skip]
         let baselines = [
-            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS")),
-            ("vacuous-baseline-is-refused", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS")),
+            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), false),
+            ("vacuous-baseline-has-complete-absence", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), true),
         ];
-        for (id, label, state) in baselines {
+        for (id, label, state, admitted) in baselines {
             let (vocabulary, tests, observed) = declared(label, state);
-            let refused = run_campaign(
+            let result = run_campaign(
                 &Campaign {
                     validator: &validator,
                     module: "UNDECIDED",
@@ -639,13 +639,24 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                 },
                 &generation(baseline, &[]),
                 ScheduleMode::Full,
-            )
-            .expect_err(id);
-            assert_eq!(
-                refused.kind(),
-                CampaignFailureKind::BaselineOracleFailed,
-                "{id}"
             );
+            if admitted {
+                let run = result.expect(id);
+                assert_eq!(
+                    sides(&run.baseline[0]),
+                    [OracleSide::Normal(OracleValue::Pattern(
+                        PatternValue::NoMatch
+                    ))],
+                    "{id}"
+                );
+                assert!(run.mutants.is_empty(), "{id}");
+            } else {
+                assert_eq!(
+                    result.expect_err(id).kind(),
+                    CampaignFailureKind::BaselineOracleFailed,
+                    "{id}"
+                );
+            }
         }
     });
 }

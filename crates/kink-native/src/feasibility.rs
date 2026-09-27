@@ -23,9 +23,9 @@
 //! has a rewrite successor, in both profiles: k-rust offers every rule to a subject whose top
 //! is not rigid, refutes a rule only at a head that is the same on every instance, and ends an
 //! undecided step `Indeterminate`. The halt does not say that the state has an instance.
-//! [`DefinitionFacts`] records whether every path condition is an applicability condition (no
-//! rewrite rule has `ensures` or a partial right-hand side), which the bridge needs before it
-//! completes a constrained or symbolic stuck leaf or discards an infeasible one.
+//! k-rust gives an undefined rewrite step a `Trivial` leaf with its pre-step state and the
+//! condition under which no defined successor exists. The leaves of an unbounded execution
+//! therefore cover the initial state under strategy `all`.
 //!
 //! **Relations.** [`BackendRelations`] answers `relate` by jointly unifying the assumptions made
 //! so far with the new pair through `unify_term_pairs`, and `feasible` by jointly unifying the
@@ -62,7 +62,7 @@ use k_rust::kore::ast::{Pattern, Variable as KoreVariable};
 use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
-use k_rust_backend::rule::{Predicate, RuleRhs};
+use k_rust_backend::rule::Predicate;
 use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
 use k_rust_backend::substitution::{Substitution, substitute};
 use k_rust_backend::term::{Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
@@ -85,45 +85,6 @@ pub enum LeafFeasibility {
     Unsat,
     /// Neither shown.
     Unknown,
-}
-
-/// Properties of the rewrite rules of a backend definition that the bridge's stop semantics
-/// depend on.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DefinitionFacts {
-    /// No rewrite rule has an `ensures` clause or a right-hand side with partial symbols, so
-    /// every conjunct a rewrite step adds to a path condition is an applicability condition of
-    /// the step (its `requires` with the definedness of its terms, a narrowing condition, or
-    /// the negation of a sibling's condition in a remainder). The leaves of a run then cover
-    /// every instance of the initial state that reaches them: an instance that a step does not
-    /// take, including one where a `requires` is undefined, lies in a remainder or a sibling.
-    /// An `ensures` or a right-hand-side definedness obligation instead removes the instances
-    /// that violate it after their prefix events have happened, and no leaf keeps them.
-    pub applicability_conditions: bool,
-}
-
-impl DefinitionFacts {
-    #[must_use]
-    pub fn of(definition: &BackendDefinition) -> Self {
-        Self {
-            applicability_conditions: definition
-                .rewrite_theory
-                .values()
-                .flat_map(|priorities| priorities.values())
-                .flatten()
-                .all(|rule| {
-                    rule.ensures.is_empty()
-                        && rule.computed_attributes.undefined_symbols.is_empty()
-                        && match &rule.rhs {
-                            RuleRhs::Term(_) => true,
-                            RuleRhs::Disjunction(alternatives) => alternatives
-                                .iter()
-                                .all(|alternative| alternative.ensures.is_empty()),
-                            RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
-                        }
-                }),
-        }
-    }
 }
 
 /// The sorts of a backend definition that have a value: a sort with domain values, a hooked
@@ -1562,38 +1523,6 @@ mod tests {
         assert_eq!(answers.len(), expected.len());
         for ((id, answer), expected) in answers.into_iter().zip(expected) {
             assert_eq!(answer, expected, "{id}");
-        }
-    }
-
-    /// Which definitions keep every path condition an applicability condition. A `requires`
-    /// over a partial function (sympartial's `10 /Int A ==Int 10 /Int A`) no longer excludes
-    /// it: the condition carries its definedness, so an instance where it is undefined lies in
-    /// the step's remainder like one where it is false.
-    #[test]
-    fn definition_facts_follow_the_rewrite_rules() {
-        let rows = [
-            ("symmem.k", "SYMMEM", true),
-            ("guardedmem.k", "GUARDEDMEM", true),
-            ("symensures.k", "SYMENSURES", false),
-            ("symbottom.k", "SYMBOTTOM", false),
-            ("symwrap.k", "SYMWRAP", true),
-            ("symnarrow.k", "SYMNARROW", true),
-            ("sympartial.k", "SYMPARTIAL", true),
-        ];
-        for (name, module, applicability) in rows {
-            let mut backend = backend(name, module);
-            let facts = backend
-                .with_solver(None, |definition, _| {
-                    Ok::<_, BackendError>(DefinitionFacts::of(definition))
-                })
-                .expect("definition");
-            assert_eq!(
-                facts,
-                DefinitionFacts {
-                    applicability_conditions: applicability,
-                },
-                "{name}"
-            );
         }
     }
 

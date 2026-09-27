@@ -204,6 +204,8 @@ enum Fixture {
     /// `sympartial.k`: a `requires` over a partial function whose definedness k-rust 347f693e
     /// dropped (SYM-3B-05, README R18).
     Partial,
+    /// A guarded partial right-hand side after write and load events.
+    Division,
 }
 
 impl Fixture {
@@ -217,6 +219,7 @@ impl Fixture {
             Self::Bottom => "symbottom.k",
             Self::Narrow => "symnarrow.k",
             Self::Partial => "sympartial.k",
+            Self::Division => "guardeddiv.k",
         }
     }
     fn module(self) -> &'static str {
@@ -229,18 +232,19 @@ impl Fixture {
             Self::Bottom => "SYMBOTTOM",
             Self::Narrow => "SYMNARROW",
             Self::Partial => "SYMPARTIAL",
+            Self::Division => "GUARDEDDIV",
         }
     }
     fn address_sort(self) -> &'static str {
         match self {
             Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortAddress",
-            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial => "SortInt",
+            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial | Self::Division => "SortInt",
         }
     }
     fn value_sort(self) -> &'static str {
         match self {
             Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortNat",
-            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial => "SortInt",
+            Self::Guard | Self::Bottom | Self::Narrow | Self::Partial | Self::Division => "SortInt",
         }
     }
     fn labels(self) -> &'static [&'static str; 3] {
@@ -253,6 +257,7 @@ impl Fixture {
             Self::Bottom => &["SYMBOTTOM.write", "SYMBOTTOM.load", "SYMBOTTOM.stop"],
             Self::Narrow => &["SYMNARROW.write", "SYMNARROW.load", "SYMNARROW.gate"],
             Self::Partial => &["SYMPARTIAL.write", "SYMPARTIAL.load", "SYMPARTIAL.half"],
+            Self::Division => &["GUARDEDDIV.write", "GUARDEDDIV.load", "GUARDEDDIV.divide"],
         }
     }
 }
@@ -354,7 +359,7 @@ fn observations(fixture: Fixture, validator: &NativeValidator) -> Vec<ObservedRu
             ),
         ],
         // symnarrow's and sympartial's write/load rules bind the same variables as guardedmem's.
-        Fixture::Narrow | Fixture::Partial => vec![
+        Fixture::Narrow | Fixture::Partial | Fixture::Division => vec![
             observed(
                 validator,
                 fixture.labels()[0],
@@ -1761,9 +1766,7 @@ fn symmem_manifest_rejects_wrong_cardinality() {
 /// to be exactly `\top`. `pin` pins `X = z` and `Y = s(z)` after the write/load events, so
 /// `X = Y` is infeasible with the leaf predicate; k-rust keeps both equations in the leaf
 /// predicate rather than substituting them away, so the leaf is `SolverUnknown` and the result
-/// stays `unknown`. That is also the right answer: the instances with `X = Y` emit both events
-/// before `pin` leaves them without a successor (SYM-3B-02: an `ensures` is not an
-/// applicability condition, so no leaf of a definition with one is completed on its predicate).
+/// stays `unknown`. Instances with an undefined `pin` result have a separate `Trivial` leaf.
 #[test]
 fn ensures_constraint_keeps_a_later_witness_unknown() {
     let program = seq(
@@ -1841,9 +1844,8 @@ fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, PathStop)> {
 
 /// SYM-3B-02, README 3.1: `stop(1)`'s only rewrite is undefined, so k-rust reports the state
 /// `stop(1)` itself as a `Trivial` leaf after the write and load. Those events happen, so the
-/// leaf is never discarded (that would be a wrong `no-match`) and, because a `Trivial` halt
-/// does not say whether its state or its successor is `\bottom`, it is `SolverUnknown` in both
-/// profiles.
+/// leaf is feasible and remains `SolverUnknown` in both profiles. Its events cannot witness a
+/// match until the undefined-step status is decided separately.
 #[test]
 fn trivial_leaf_is_never_discarded() {
     let (mut run, vocabulary) = run(Fixture::Bottom, trivial_program(), BUDGET);
@@ -1900,28 +1902,24 @@ fn vacuous_initial_state_is_a_discarded_path() {
     );
 }
 
-/// SYM-3B-02, README 3.1 and R15: `apart` `ensures X =/=Int Y` after the write and load. The
-/// one leaf is `halt` under `X =/=Int Y`, which Z3 shows exactly `Sat`, and its stuckness
-/// holds for every instance; but the instances with `X = Y` emit both events and then have no
-/// successor, and no leaf keeps them. Completing the leaf would make the candidate `X = Y`
-/// `Unsat` and the result a wrong `no-match`. Because symbottom has an `ensures`, its path
-/// conditions are not all applicability conditions, and the leaf stays `SolverUnknown`.
+/// `apart` emits a `Trivial` leaf under `X = Y` before its stuck successor under `X =/=Int Y`.
+/// Z3 shows both feasible. The stuck leaf is complete; the feasible `Trivial` leaf stays
+/// `SolverUnknown` and cannot witness a match, so the result remains unknown.
 #[test]
 fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
     let (mut run, vocabulary) = run(Fixture::Bottom, apart_program(), BUDGET);
-    assert!(!run.execution.definition_facts().applicability_conditions);
     assert_eq!(
         leaf_rows(&run),
         [
             (
                 HaltClass::Trivial,
-                LeafFeasibility::Unknown,
+                by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
                 PathStop::SolverUnknown
             ),
             (
                 HaltClass::Stuck,
                 by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
-                PathStop::SolverUnknown,
+                by_profile(PathStop::SolverUnknown, PathStop::Terminal),
             ),
         ]
     );
@@ -1935,6 +1933,51 @@ fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
         PatternOutcome::Unknown,
         Some(PathStop::SolverUnknown),
     );
+}
+
+/// A guarded `/Int` result has no undefined-step leaf under Z3. Zero-denominator instances
+/// stay in the rule remainder, while the defined instances reach `done`.
+#[test]
+fn guarded_division_covers_disjoint_and_shared_addresses() {
+    use HaltClass::{Indeterminate, Stuck};
+    use LeafFeasibility::{Solver, Syntactic};
+    let program = |write_at, load_at| {
+        seq(
+            write(addr(support::int(write_at)), integer("V")),
+            seq(
+                load(addr(support::int(load_at)), integer("W")),
+                support::app("Lbldivide", vec![support::int(10), integer("D")]),
+            ),
+        )
+    };
+    for (write_at, load_at, z3_outcome) in [
+        (1, 2, PatternOutcome::NoMatch),
+        (1, 1, PatternOutcome::Match),
+    ] {
+        let (mut run, vocabulary) = run(Fixture::Division, program(write_at, load_at), BUDGET);
+        assert_eq!(
+            leaf_rows(&run),
+            by_profile(
+                vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
+                vec![(Stuck, Solver, PathStop::Terminal); 2],
+            )
+        );
+        assert!(
+            run.execution
+                .leaves()
+                .iter()
+                .all(|leaf| leaf.halt != HaltClass::Trivial)
+        );
+        let evaluation = decided(&mut run, &gwl_after(&vocabulary));
+        assert_eq!(
+            evaluation.outcome,
+            by_profile(PatternOutcome::Unknown, z3_outcome)
+        );
+        assert_eq!(
+            evaluation.failure,
+            by_profile(Some(PathStop::SolverUnknown), None)
+        );
+    }
 }
 
 /// SYM-3B-02, README 3.1: under Z3, guardedmem's `requires` split G1 and G2 into `Stuck`
@@ -1954,8 +1997,6 @@ fn constrained_and_remainder_stuck_leaves_complete_under_z3() {
         (g2(), (PatternOutcome::NoMatch, None)),
     ] {
         let (mut run, vocabulary) = run(Fixture::Guard, program, BUDGET);
-        let facts = run.execution.definition_facts();
-        assert!(facts.applicability_conditions);
         assert_eq!(
             leaf_rows(&run),
             by_profile(
@@ -2266,7 +2307,7 @@ fn profile_table_rows() {
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
-        // SYM-3B-02: a `Trivial` leaf is never discarded (`trivial_leaf_is_never_discarded`).
+        // This ground `Trivial` leaf is feasible and remains `SolverUnknown`.
         ProfileRow {
             id: "symbottom-trivial-GWL-after",
             fixture: Fixture::Bottom,
@@ -2277,18 +2318,14 @@ fn profile_table_rows() {
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
-        // SYM-3B-02: an `ensures` keeps a feasible constrained stuck leaf incomplete
-        // (`ensures_condition_keeps_a_constrained_stuck_leaf_unknown`).
+        // The feasible `Trivial` leaf stays incomplete; the stuck successor completes.
         ProfileRow {
             id: "symbottom-apart-GWL-after",
             fixture: Fixture::Bottom,
             program: apart_program,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (
-                &[SolverUnknown, SolverUnknown],
-                &[SolverUnknown, SolverUnknown],
-            ),
+            stops: (&[SolverUnknown, SolverUnknown], &[SolverUnknown, Terminal]),
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
@@ -2681,8 +2718,6 @@ fn value_dependent_rule_patterns_are_narrowed_not_stuck() {
     ];
     for (id, op, negated_depth) in programs {
         let (mut run, vocabulary) = run(Fixture::Narrow, write_op_load(op, integer("X")), BUDGET);
-        let facts = run.execution.definition_facts();
-        assert!(facts.applicability_conditions);
         let mut rows = leaf_rows(&run)
             .into_iter()
             .zip(run.execution.leaves().iter().map(|leaf| leaf.branch.depth))
@@ -2803,12 +2838,6 @@ fn dropped_definedness_condition_is_not_a_witness() {
         Fixture::Partial,
         write_op_load(support::app("Lblhalf", vec![integer("X")]), support::int(0)),
         BUDGET,
-    );
-    assert!(
-        symbolic
-            .execution
-            .definition_facts()
-            .applicability_conditions
     );
     assert_eq!(
         leaf_rows(&symbolic),

@@ -19,6 +19,6 @@ module SYMBOTTOM
   rule [load]:  seq(load(addr(A), V), P) => P
   // `stop(1)` has no successor: its only rewrite is undefined (a `Trivial` leaf).
   rule [stop]:  stop(I) => halt ensures I <Int 0
-  // Instances with A = B have no successor; no leaf keeps them.
+  // Instances with A = B have an undefined-step Trivial leaf.
   rule [apart]: apart(A, B) => halt ensures A =/=Int B
 endmodule

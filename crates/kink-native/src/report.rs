@@ -182,7 +182,7 @@ fn discarded_values(execution: &AdaptedExecution) -> Vec<Value> {
         .leaves()
         .iter()
         .filter_map(|leaf| {
-            discarded(leaf, execution.definition_facts()).map(|reason| {
+            discarded(leaf).map(|reason| {
                 json!({
                     "key": leaf_key(leaf),
                     "halt": enum_name(leaf.halt),
@@ -365,7 +365,6 @@ mod tests {
     use super::*;
     use crate::{
         execution::{AdaptedLeaf, HaltClass},
-        feasibility::DefinitionFacts,
         observation::AdaptedBranch,
     };
 
@@ -464,9 +463,6 @@ mod tests {
                 leaves: vec![leaf],
                 effects: Vec::new(),
                 timed_out: false,
-                definition: DefinitionFacts {
-                    applicability_conditions: true,
-                },
             },
             BridgedPaths {
                 paths: vec![path],
@@ -784,24 +780,6 @@ mod tests {
                 { "key": "root", "halt": "vacuous", "reason": "vacuous" },
                 { "key": "r@u", "halt": "stuck", "reason": "unsat" },
             ])
-        );
-        // Under an `ensures` clause the refuted leaf is kept, so only the depth-0 leaf is
-        // discarded.
-        execution.definition.applicability_conditions = false;
-        let report = step3_report(ReportInput {
-            profile: SolverProfile::Z3,
-            test_id: "t",
-            budget: &budget(),
-            backend_options: backend_options(),
-            result: ReportResult::Ok {
-                execution: &execution,
-                bridged: &bridged,
-                evaluation: &evaluation,
-            },
-        });
-        assert_eq!(
-            report["discarded"],
-            json!([{ "key": "root", "halt": "vacuous", "reason": "vacuous" }])
         );
     }
 

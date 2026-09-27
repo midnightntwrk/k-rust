@@ -25,9 +25,7 @@ use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
 use kink_pattern::ExecutionBounds;
 
-use crate::feasibility::{
-    DefinitionFacts, Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable,
-};
+use crate::feasibility::{Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable};
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
 };
@@ -199,7 +197,6 @@ pub struct AdaptedExecution {
     pub(crate) leaves: Vec<AdaptedLeaf>,
     pub(crate) effects: Vec<EffectOutput>,
     pub(crate) timed_out: bool,
-    pub(crate) definition: DefinitionFacts,
 }
 
 /// A path-set leaf after observation state is erased: every field of the backend leaf that
@@ -250,12 +247,6 @@ impl AdaptedExecution {
     #[must_use]
     pub fn effects(&self) -> &[EffectOutput] {
         &self.effects
-    }
-
-    /// The facts about the executed definition's rewrite rules.
-    #[must_use]
-    pub const fn definition_facts(&self) -> DefinitionFacts {
-        self.definition
     }
 
     /// The watchdog cancelled the run. Its leaf states must not be decoded: a cancelled run
@@ -359,10 +350,10 @@ impl ExecutionAdapter {
         self.check_profile(backend)?;
         let encoded = codec::to_value(state)
             .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
-        let (inhabitation, facts) = with_definition(backend, |definition| {
+        let inhabitation = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
-                Ok(None) => Ok((inhabitation, DefinitionFacts::of(definition))),
+                Ok(None) => Ok(inhabitation),
                 Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
@@ -389,7 +380,7 @@ impl ExecutionAdapter {
                 )
             })?
         };
-        self.adapt(result, timed_out, &budget, feasibility, facts)
+        self.adapt(result, timed_out, &budget, feasibility)
     }
 
     /// The branch identity of every leaf of the observed PathSet run of `state`, in leaf order,
@@ -475,7 +466,6 @@ impl ExecutionAdapter {
         timed_out: bool,
         budget: &ExecutionBudget,
         feasibility: Vec<LeafFeasibility>,
-        definition: DefinitionFacts,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
@@ -515,7 +505,6 @@ impl ExecutionAdapter {
             leaves,
             effects: result.effects,
             timed_out,
-            definition,
         })
     }
 }
