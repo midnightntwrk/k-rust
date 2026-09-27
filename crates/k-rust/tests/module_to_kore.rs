@@ -817,6 +817,63 @@ module_snapshot!(
     "MAIN"
 );
 
+/// `injective` is an axiom of the emitted theory, so it is declared only for productions whose
+/// equations cannot identify two applications with different arguments.
+#[test]
+fn declares_injective_only_where_no_equation_can_identify_applications() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Nat ::= "z" [symbol(z)]
+                       | "s(" Nat ")" [symbol(s)]
+          syntax Number ::= Nat
+          syntax Value ::= Number
+          syntax K ::= Value
+
+          syntax Value ::= "wrap(" Nat ")" [symbol(wrap)]
+          rule wrap(s(X:Nat)) => wrap(X:Nat) [anywhere]
+
+          syntax Nat ::= "narrow(" Nat ")" [overload(project), symbol(narrow)]
+          syntax Number ::= "wide(" Number ")" [overload(project), symbol(wide)]
+
+          syntax Nat ::= "low(" Nat ")" [overload(collapse), symbol(low)]
+          syntax Number ::= "middle(" Number ")" [overload(collapse), symbol(middle)]
+          syntax Value ::= "high(" Value ")" [overload(collapse), symbol(high)]
+          rule low(s(X:Nat)) => low(X:Nat) [anywhere]
+
+          syntax Value ::= "expand(" Nat ")" [macro, symbol(expand)]
+          rule expand(X:Nat) => wrap(X:Nat)
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let declared = |module: &k_rust::kore::ast::Module, symbol: &str| {
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared.name == symbol => Some(attributes.0.iter().any(|attribute| {
+                    matches!(attribute, Pattern::Application { symbol, .. } if symbol.name == "injective")
+                })),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{symbol} should be declared"))
+    };
+    for module in [&modules.semantics, &modules.syntax] {
+        // Constructors, and an overload family whose only equations lower to them.
+        for symbol in ["Lblz", "Lbls", "Lblnarrow", "Lblwide"] {
+            assert!(declared(module, symbol), "{symbol} in {}", module.name);
+        }
+        // An anywhere head (`wrap(s(z)) = wrap(z)`), every production above an anywhere-ruled
+        // lesser production (`middle(s(z)) = middle(z)`, transitively `high`), and a macro head.
+        for symbol in ["Lblwrap", "Lbllow", "Lblmiddle", "Lblhigh", "Lblexpand"] {
+            assert!(!declared(module, symbol), "{symbol} in {}", module.name);
+        }
+    }
+}
+
 module_snapshot!(
     emits_algebraic_axioms,
     r#"

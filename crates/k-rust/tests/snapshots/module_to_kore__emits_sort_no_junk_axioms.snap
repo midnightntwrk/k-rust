@@ -47,7 +47,6 @@ module MAIN
   symbol Lblexpand{}(SortExp{}) : SortExp{}
   [
     functional{}(),
-    injective{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,59)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -164,7 +163,6 @@ module MAIN
   [
     format{}(),
     functional{}(),
-    injective{}(),
     left{}(),
     macro{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(7,18,7,59)"),

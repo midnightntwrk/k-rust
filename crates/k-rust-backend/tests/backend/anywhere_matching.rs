@@ -13,11 +13,35 @@ use k_rust_kore::kore::parser::parse_definition;
 use crate::support::internal_term;
 
 /// `wrap` carries the anywhere equation `wrap(s(z)) = wrap(z)` and `into` the anywhere equation
-/// `into(s(X)) = addr(X)`, both emitted with `\in` binders and the `injective` attribute as
-/// kompile emits anywhere rules; `f` is a total function with the equation `f(wrap(z)) = done`.
+/// `into(s(X)) = addr(X)`, both emitted with `\in` binders as kompile emits anywhere rules; the
+/// symbols also carry `injective`, as KORE from other frontends may declare it, which matching
+/// must not rely on. `f` is a total function with the equation `f(wrap(z)) = done`.
 fn definition() -> BackendDefinition {
-    let syntax = parse_definition(
-        r#"[]
+    internalize(DEFINITION)
+}
+
+/// The same definition with the anywhere symbols declared without `injective`, as kompile
+/// declares them: an anywhere equation may identify two applications with different arguments.
+fn definition_without_injective() -> BackendDefinition {
+    let source = DEFINITION
+        .replace(
+            "wrap{}(SortNat{}) : SortW{} [anywhere{}(), functional{}(), injective{}()]",
+            "wrap{}(SortNat{}) : SortW{} [anywhere{}(), functional{}()]",
+        )
+        .replace(
+            "into{}(SortNat{}) : SortW{} [anywhere{}(), functional{}(), injective{}()]",
+            "into{}(SortNat{}) : SortW{} [anywhere{}(), functional{}()]",
+        );
+    assert_eq!(source.matches("anywhere{}(), functional{}()]").count(), 2);
+    internalize(&source)
+}
+
+fn internalize(source: &str) -> BackendDefinition {
+    let syntax = parse_definition(source).expect("definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+const DEFINITION: &str = r#"[]
             module MAIN
                 sort SortNat{} []
                 sort SortW{} []
@@ -58,11 +82,7 @@ fn definition() -> BackendDefinition {
                         \and{SortW{}}(done{}(), \top{SortW{}}())
                     )
                 ) [label{}("fhit")]
-            endmodule []"#,
-    )
-    .expect("definition should parse");
-    BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
-}
+            endmodule []"#;
 
 fn matching(mode: MatchMode, pattern: &str, subject: &str) -> MatchResult {
     let definition = definition();
@@ -232,4 +252,57 @@ fn equation_matching_compares_arguments_by_value_and_the_root_as_written() {
         "wrap{}(s{}(s{}(X:SortNat{})))",
     );
     assert!(matches!(result, MatchResult::Failed(_)), "{result:?}");
+}
+
+/// Whether an instance-normal anywhere application is compared by its arguments does not depend
+/// on the `injective` attribute, in any mode: its head is the head of the normal form it denotes.
+#[test]
+fn instance_normal_anywhere_applications_decompose_without_injective() {
+    let definition = definition_without_injective();
+    let run = |mode: MatchMode, pattern: &str, subject: &str| {
+        let (pattern, subject) = if mode == MatchMode::Evaluate {
+            (format!("f{{}}({pattern})"), format!("f{{}}({subject})"))
+        } else {
+            (pattern.to_owned(), subject.to_owned())
+        };
+        match_terms_in_definition(
+            mode,
+            &definition,
+            &internal_term(&definition, &pattern),
+            &internal_term(&definition, &subject),
+        )
+    };
+    for mode in MODES {
+        assert_eq!(
+            run(mode, "wrap{}(Y:SortNat{})", "wrap{}(s{}(s{}(X:SortNat{})))"),
+            MatchResult::Success(Substitution::from([(
+                Variable::new("Y", Sort::simple("SortNat")),
+                internal_term(&definition, "s{}(s{}(X:SortNat{}))"),
+            )])),
+            "{mode:?}"
+        );
+        let result = run(mode, "wrap{}(z{}())", "wrap{}(s{}(s{}(X:SortNat{})))");
+        assert!(
+            matches!(result, MatchResult::Failed(_)),
+            "{mode:?}: {result:?}"
+        );
+        let result = run(mode, "wrap{}(z{}())", "wrap{}(s{}(X:SortNat{}))");
+        assert!(
+            matches!(result, MatchResult::Indeterminate { .. }),
+            "{mode:?}: {result:?}"
+        );
+    }
+    // The root of an equation is still tried on the redex it names.
+    assert_eq!(
+        match_terms_in_definition(
+            MatchMode::Evaluate,
+            &definition,
+            &internal_term(&definition, "wrap{}(s{}(N:SortNat{}))"),
+            &internal_term(&definition, "wrap{}(s{}(z{}()))"),
+        ),
+        MatchResult::Success(Substitution::from([(
+            Variable::new("N", Sort::simple("SortNat")),
+            internal_term(&definition, "z{}()"),
+        )]))
+    );
 }

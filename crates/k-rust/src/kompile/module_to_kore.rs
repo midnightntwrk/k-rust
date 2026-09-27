@@ -497,12 +497,18 @@ pub fn declaration_modules_from_resolved_with_options(
                 .copied()
         })
         .collect::<BTreeSet<_>>();
-    let anywhere_labels = definition
-        .rule_catalog(module_id)
+    let rules = definition.rule_catalog(module_id);
+    let anywhere_labels = rules
         .rules()
         .filter(|(_, rule)| rule.attributes().has(AttributeKey::Anywhere))
         .map(|(_, rule)| match_rule_label(rule).name)
         .collect::<BTreeSet<_>>();
+    let equation_heads = anywhere_labels
+        .iter()
+        .map(LabelHead::new)
+        .chain(rules.all_macro_labels(&productions))
+        .collect::<BTreeSet<_>>();
+    let injectivity_withheld = injectivity_withheld(&productions, &overloads, &equation_heads);
     let priorities = definition
         .priorities(module_id)
         .map_err(|cycle| DeclarationError::CircularPriority(cycle.path))?;
@@ -545,6 +551,7 @@ pub fn declaration_modules_from_resolved_with_options(
                 &valued_attributes,
                 &overloaded_greater,
                 &anywhere_labels,
+                &injectivity_withheld,
                 &impure_labels,
                 None,
                 items,
@@ -559,6 +566,7 @@ pub fn declaration_modules_from_resolved_with_options(
             &valued_attributes,
             &overloaded_greater,
             &anywhere_labels,
+            &injectivity_withheld,
             &impure_labels,
             Some(SyntaxDeclaration::UnderLabel(&syntax_relations)),
             items,
@@ -612,6 +620,7 @@ pub fn declaration_modules_from_resolved_with_options(
             &valued_attributes,
             &overloaded_greater,
             &anywhere_labels,
+            &injectivity_withheld,
             &impure_labels,
             Some(SyntaxDeclaration::UnderBracketLabel),
             items,
@@ -1302,6 +1311,75 @@ fn collection_attribute_overrides(
     Ok(())
 }
 
+/// Whether a production's applications are its own values when no equation is headed by it:
+/// it is not a function, and no `assoc`, `comm` or `idem` axiom identifies applications with
+/// different arguments.
+fn is_base_constructor(attributes: &KAttributes) -> bool {
+    !attributes.has_any(&[
+        AttributeKey::Function,
+        AttributeKey::Assoc,
+        AttributeKey::Comm,
+        AttributeKey::Idem,
+    ])
+}
+
+/// The base constructors whose `injective` axiom an emitted equation can falsify.
+///
+/// The emitted `injective` attribute is an axiom: equal applications have equal arguments. In
+/// the definition's intended model every value is the value of a normal form of its equations,
+/// and distinct normal forms are distinct values. A base constructor `c` that heads no
+/// equation has `c(a)` as a normal form for normal arguments `a`, so it is injective. It stops
+/// being so as soon as it heads an equation that is not a lemma:
+///
+/// - an `anywhere` rule or a macro-like rule (`equation_heads`) may identify applications with
+///   different arguments (`wrap(s(X)) = wrap(X)` gives `wrap(s(z)) = wrap(z)`), and whether one
+///   does is undecidable in general, so such a head is withheld;
+/// - the overload equations `g(inj(x)) = inj(l(x))` of a production `g` over each lesser
+///   production `l` of its family (transitively) send `g(a)` to the injected normal form of the
+///   most specific lesser production that accepts `a`, or leave `g(a)` normal when none does.
+///   Two argument tuples then reach the same normal form only through the same production at the
+///   same arguments, and an injection is determined by its operand, so `g` is injective exactly
+///   when that production is. `g` is therefore withheld when some production below it is not a
+///   base constructor or heads an `anywhere` or macro-like rule.
+///
+/// `simplification` rules are lemmas, true in the model the other sentences define, so they
+/// cannot falsify an axiom that holds there and are not counted.
+fn injectivity_withheld(
+    productions: &ProductionCatalog<'_>,
+    overloads: &OverloadOrder<'_>,
+    equation_heads: &BTreeSet<LabelHead>,
+) -> BTreeSet<ProductionId> {
+    let heads_equation = |production: &Sentence| match production {
+        Sentence::Production {
+            label: Some(label), ..
+        } => equation_heads.contains(&LabelHead::from(label)),
+        _ => false,
+    };
+    let locally_injective = |production: &Sentence| {
+        is_base_constructor(production.attributes()) && !heads_equation(production)
+    };
+    let mut withheld = productions
+        .productions()
+        .filter(|(_, production)| heads_equation(production))
+        .map(|(id, _)| id)
+        .collect::<BTreeSet<_>>();
+    // `relations_from` is transitively closed, so one pass covers every chain of lowerings.
+    for lesser in overloads.order().elements() {
+        if locally_injective(overloads.production(*lesser)) {
+            continue;
+        }
+        withheld.extend(
+            overloads
+                .order()
+                .relations_from(lesser)
+                .into_iter()
+                .flatten()
+                .copied(),
+        );
+    }
+    withheld
+}
+
 #[allow(clippy::too_many_arguments)]
 fn symbol_attributes(
     source: &KAttributes,
@@ -1311,6 +1389,7 @@ fn symbol_attributes(
     valued: &BTreeSet<String>,
     overloaded_greater: &BTreeSet<crate::definition::ProductionId>,
     anywhere_labels: &BTreeSet<String>,
+    injectivity_withheld: &BTreeSet<crate::definition::ProductionId>,
     impure_labels: &BTreeSet<String>,
     syntax: Option<SyntaxDeclaration<'_>>,
     items: &[ProductionItem],
@@ -1332,11 +1411,8 @@ fn symbol_attributes(
     }
 
     let function = source.has(AttributeKey::Function);
-    let base_constructor = !function
-        && !source.has(AttributeKey::Assoc)
-        && !source.has(AttributeKey::Comm)
-        && !source.has(AttributeKey::Idem);
-    let injective = base_constructor;
+    let base_constructor = is_base_constructor(source);
+    let injective = base_constructor && !injectivity_withheld.contains(&id);
     let macro_like = source.has_any(&AttributeKey::MACRO_LIKE);
     let anywhere = overloaded_greater.contains(&id) || anywhere_labels.contains(&label.name);
     if is_real_hook(source, hook_namespaces)

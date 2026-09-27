@@ -652,7 +652,10 @@ impl<'a> Matcher<'a> {
                 || (self.mode == MatchMode::Rewrite
                     && is_rewrite_rigid(pattern.kind())
                     && is_rewrite_rigid(subject.kind()))
-                || (pattern_symbol.attributes.injective
+                // An equal `anywhere` head is compared by arguments in every mode without asking
+                // for `injective`: the subject's head is fixed (checked above), so its arguments
+                // are those of the normal form it denotes, and the pattern is read as written.
+                || ((pattern_symbol.attributes.injective || is_anywhere_application(&pattern))
                     && pattern_symbol.name == subject_symbol.name)
                 || (self.mode == MatchMode::Evaluate
                     && is_function(&pattern)
