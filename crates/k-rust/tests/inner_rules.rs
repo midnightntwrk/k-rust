@@ -5070,6 +5070,7 @@ fn unary_cycle_message_names_its_productions_and_location() {
 // `wrap : Exp ::= Opt Exp Opt` with a nullable `Opt` derives `Exp` from `Exp` over the same text,
 // so every `Exp` has infinitely many parses. The parser reports the repetition at the first rule
 // instead of building ever deeper wrappers.
+#[cfg(feature = "z3-inference")]
 #[test]
 fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
     let source = indoc! {r#"
