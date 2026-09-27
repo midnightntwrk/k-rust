@@ -440,11 +440,17 @@ pub struct EventOrigin {
 }
 
 /// Closed execution terminal kinds carried by a trace.
+///
+/// `Normal`, `Stuck` and `SemanticCrash` classify a configuration to which no rule applies.
+/// `UndefinedStep` is not a classification of the term: the backend showed that a rule applies
+/// to every instance of the path's last state and that no instance has a defined successor, so
+/// the path ends there after its last committed transition.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ExecutionTerminalKind {
     Normal,
     Stuck,
     SemanticCrash,
+    UndefinedStep,
 }
 
 /// A terminal and its configuration: a crash is its own terminal term.
@@ -485,6 +491,10 @@ pub struct TermRelation {
 pub enum PathStop {
     Terminal,
     Stuck,
+    /// The path's next step is undefined for every instance: some rule applies and its result
+    /// is `\bottom`. The path is complete: its events are exactly the events of its committed
+    /// transitions, and the undefined step adds none.
+    UndefinedStep,
     MatchFound,
     DepthLimit,
     TimeLimit,
@@ -499,7 +509,7 @@ pub enum PathStop {
 impl PathStop {
     #[must_use]
     pub const fn is_complete(self) -> bool {
-        matches!(self, Self::Terminal | Self::Stuck)
+        matches!(self, Self::Terminal | Self::Stuck | Self::UndefinedStep)
     }
 
     /// Whether the events of a path with this stop happened: the path is complete, the
@@ -512,6 +522,7 @@ impl PathStop {
         match self {
             Self::Terminal
             | Self::Stuck
+            | Self::UndefinedStep
             | Self::MatchFound
             | Self::DepthLimit
             | Self::TimeLimit
@@ -528,6 +539,7 @@ impl PathStop {
 pub enum ExecutionStop {
     Terminal,
     Stuck,
+    UndefinedStep,
     QuerySatisfied,
     DepthLimit,
     TimeLimit,
@@ -1039,6 +1051,7 @@ fn validate_path(
     let expected_execution_stop = match path.stop {
         PathStop::Terminal => ExecutionStop::Terminal,
         PathStop::Stuck => ExecutionStop::Stuck,
+        PathStop::UndefinedStep => ExecutionStop::UndefinedStep,
         PathStop::MatchFound => ExecutionStop::QuerySatisfied,
         PathStop::DepthLimit => ExecutionStop::DepthLimit,
         PathStop::TimeLimit => ExecutionStop::TimeLimit,
@@ -1064,6 +1077,7 @@ fn validate_path(
             Some(ExecutionTerminalKind::Normal | ExecutionTerminalKind::SemanticCrash),
         )
         | (ExecutionStop::Stuck, Some(ExecutionTerminalKind::Stuck))
+        | (ExecutionStop::UndefinedStep, Some(ExecutionTerminalKind::UndefinedStep))
         | (
             ExecutionStop::QuerySatisfied
             | ExecutionStop::DepthLimit

@@ -16,15 +16,28 @@
 //! A stuck leaf is complete for a ground term without a path condition. Otherwise it is complete
 //! when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
 //!
+//! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
+//! its pre-step state and no instance has a defined successor, because the rule's result
+//! (`ensures`, right-hand-side definedness) is `\bottom` there. It is complete on the same terms
+//! as a stuck leaf, with stop [`PathStop::UndefinedStep`] and its pre-step term as the terminal
+//! term, whose kind is [`ExecutionTerminalKind::UndefinedStep`] and is never asked of `classify`.
+//! Its prefix is real: every earlier step is defined on each instance, and a ground run of an
+//! instance performs those steps and emits their events, as `stop(1)` in `symbottom.k` does.
+//! The undefined step itself commits no transition, so it adds no event. That reading holds for
+//! ground and symbolic leaves alike. It needs strategy `all`, which the adapter always requests:
+//! under `any` another rule may give an instance of the leaf a defined successor.
+//! A `Trivial` leaf's key is its committed transitions followed by `undefined@N`, where `N`
+//! counts the earlier `Trivial` leaves after the same transitions, since one step can leave
+//! several undefined sub-cases.
+//!
 //! An `Indeterminate` leaf whose step needed an SMT solver that the build lacks
 //! (`SearchFailureOutput::solver_unavailable` of its cause) is `SolverUnknown`; any other
 //! indeterminate leaf is `BackendLimit`. Either way the path is incomplete.
 //!
 //! A leaf proved to have no instance is discarded: no path, no stop, counted by the report. That
 //! is a `Vacuous` leaf, or a stuck, trivial or bounded leaf whose predicate the solver refuted
-//! ([`LeafFeasibility::Unsat`]). A feasible or undecided `Trivial` leaf stays `SolverUnknown`:
-//! its prefix may be real, but it cannot witness a match in this bridge. A diagnosed leaf is
-//! never discarded.
+//! ([`LeafFeasibility::Unsat`]). An undecided `Trivial` leaf is `SolverUnknown`, like an
+//! undecided stuck leaf. A diagnosed leaf is never discarded.
 
 use k_rust::backend::{EffectOutput, SearchFailureOutput};
 use k_rust::kore::{
@@ -47,7 +60,8 @@ pub struct BridgeContext<'a> {
     /// initial state. A complete stuck leaf of a symbolic run may be constrained or symbolic,
     /// and a variable stands for any value of its sort that the path predicate admits; the
     /// classifier must then answer alike for every instance, so it may only read the parts of
-    /// the term that no variable can change.
+    /// the term that no variable can change. It is asked only about stuck terms and must not
+    /// answer `UndefinedStep` ([`BridgeFailure::ClassifiedUndefinedStep`]).
     pub classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
     /// Symbol sorts of the compiled definition, to find the sort of a bare leaf state.
     pub sorts: &'a SymbolSorts,
@@ -72,6 +86,9 @@ pub enum BridgeFailure {
     UndecidedStateSort,
     /// Two different branches have one identity, so they would share a path key.
     DuplicatePathIdentity(String),
+    /// `classify` answered [`ExecutionTerminalKind::UndefinedStep`] for a stuck term. Only a
+    /// `Trivial` halt shows an undefined step.
+    ClassifiedUndefinedStep,
 }
 
 /// How one execution leaf becomes a path.
@@ -127,18 +144,18 @@ fn diagnosed(leaf: &crate::execution::AdaptedLeaf) -> bool {
 }
 
 /// The stop of a leaf with halt class `halt`, before its state is read, or the contract
-/// violation it is. `None` is a stuck leaf: it is complete when its state is a ground terminal
+/// violation it is. `None` is a stuck or trivial leaf: it is complete when its state is a ground
 /// term, or when the adapter's evidence completes it (see the module documentation), and
-/// `SolverUnknown` otherwise, because a symbolic or constrained stuck leaf may be infeasible or
-/// not cover every instance. An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
+/// `SolverUnknown` otherwise, because a symbolic or constrained leaf may be infeasible.
+/// An `Indeterminate` leaf is `BackendLimit` here; [`indeterminate_stop`]
 /// refines it by its cause. A requested depth or breadth bound keeps its limit stop only
 /// for a decided or feasible state (see `decided_stop`). A vacuous leaf that is not discarded
 /// is `SolverUnknown`.
 /// The adapter rejects unrequested bound halts. Exhaustive over `HaltClass`.
 pub const fn halt_stop(halt: HaltClass) -> Result<Option<PathStop>, BridgeFailure> {
     Ok(Some(match halt {
-        HaltClass::Stuck => return Ok(None),
-        HaltClass::Trivial | HaltClass::Vacuous => PathStop::SolverUnknown,
+        HaltClass::Stuck | HaltClass::Trivial => return Ok(None),
+        HaltClass::Vacuous => PathStop::SolverUnknown,
         HaltClass::Indeterminate | HaltClass::UnsupportedHook | HaltClass::SimplificationError => {
             PathStop::BackendLimit
         }
@@ -175,23 +192,33 @@ pub(crate) const fn decided_stop(stop: PathStop, feasible: bool) -> PathStop {
 }
 
 /// The path of a leaf, or the contract violation it is (see [`halt_stop`]). `decided` is the
-/// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck leaf that is
-/// its terminal term. `feasible` says the adapter showed the state feasible; it keeps a limit
-/// stop real. `stuck_term` is the term of a stuck leaf that is not decided but complete: its
-/// state is feasible (see the module documentation).
+/// leaf's state when it is decided (see `SplitState::decided_term`); for a stuck or trivial leaf
+/// that is its terminal term. `feasible` says the adapter showed the state feasible; it keeps a
+/// limit stop real. `complete_term` is the term of a stuck or trivial leaf that is not decided
+/// but complete: its state is feasible (see the module documentation). A stuck terminal is
+/// classified by `classify`; a trivial one is an undefined step.
 pub(crate) fn leaf_path(
     halt: HaltClass,
     decided: Option<Pattern>,
     feasible: bool,
-    stuck_term: Option<Pattern>,
+    complete_term: Option<Pattern>,
     classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind,
 ) -> Result<LeafPath, BridgeFailure> {
-    Ok(match (halt_stop(halt)?, decided.or(stuck_term)) {
+    Ok(match (halt_stop(halt)?, decided.or(complete_term)) {
         (Some(stop), decided) => {
             LeafPath::Incomplete(decided_stop(stop, decided.is_some() || feasible))
         }
         (None, Some(term)) => LeafPath::Complete(ExecutionTerminal {
-            kind: classify(&term),
+            kind: if halt == HaltClass::Trivial {
+                ExecutionTerminalKind::UndefinedStep
+            } else {
+                match classify(&term) {
+                    ExecutionTerminalKind::UndefinedStep => {
+                        return Err(BridgeFailure::ClassifiedUndefinedStep);
+                    }
+                    kind => kind,
+                }
+            },
             state: term,
         }),
         (None, None) => LeafPath::Incomplete(PathStop::SolverUnknown),
@@ -259,7 +286,7 @@ impl SplitState {
 }
 
 /// `rule@target` of each transition joined by `/`, or `root` for the initial state.
-fn path_key(branch: &AdaptedBranch) -> String {
+fn branch_key(branch: &AdaptedBranch) -> String {
     if branch.identity.is_empty() {
         "root".to_owned()
     } else {
@@ -270,6 +297,32 @@ fn path_key(branch: &AdaptedBranch) -> String {
             .collect::<Vec<_>>()
             .join("/")
     }
+}
+
+/// The path key of each leaf, in leaf order: its branch key, and for a `Trivial` leaf also
+/// `undefined@N`, where `N` counts the earlier `Trivial` leaves with the same branch key. A
+/// trivial leaf commits no transition, so it shares its branch with its step's other undefined
+/// sub-cases.
+#[must_use]
+pub fn leaf_keys(leaves: &[crate::execution::AdaptedLeaf]) -> Vec<String> {
+    let mut seen = std::collections::BTreeMap::<String, usize>::new();
+    leaves
+        .iter()
+        .map(|leaf| {
+            let key = branch_key(&leaf.branch);
+            if leaf.halt != HaltClass::Trivial {
+                return key;
+            }
+            let ordinal = seen.entry(key.clone()).or_default();
+            let undefined = format!("undefined@{ordinal}");
+            *ordinal += 1;
+            if leaf.branch.identity.is_empty() {
+                undefined
+            } else {
+                format!("{key}/{undefined}")
+            }
+        })
+        .collect()
 }
 
 fn events(branch: &AdaptedBranch) -> Result<Vec<Event>, BridgeFailure> {
@@ -358,6 +411,7 @@ const fn execution_stop(stop: PathStop) -> ExecutionStop {
     match stop {
         PathStop::Terminal => ExecutionStop::Terminal,
         PathStop::Stuck => ExecutionStop::Stuck,
+        PathStop::UndefinedStep => ExecutionStop::UndefinedStep,
         PathStop::MatchFound => ExecutionStop::QuerySatisfied,
         PathStop::DepthLimit => ExecutionStop::DepthLimit,
         PathStop::TimeLimit => ExecutionStop::TimeLimit,
@@ -381,7 +435,9 @@ const fn collection_stop(stop: PathStop) -> CollectionStop {
         PathStop::BackendLimit => CollectionStop::BackendLimit,
         PathStop::Error => CollectionStop::Error,
         // Complete and query-level stops never reach here.
-        PathStop::Terminal | PathStop::Stuck | PathStop::MatchFound => CollectionStop::Error,
+        PathStop::Terminal | PathStop::Stuck | PathStop::UndefinedStep | PathStop::MatchFound => {
+            CollectionStop::Error
+        }
     }
 }
 
@@ -403,7 +459,11 @@ impl<'a> PathSet<'a> {
         }
     }
 
-    fn push(&mut self, leaf: &crate::execution::AdaptedLeaf) -> Result<(), BridgeFailure> {
+    fn push(
+        &mut self,
+        leaf: &crate::execution::AdaptedLeaf,
+        key: String,
+    ) -> Result<(), BridgeFailure> {
         let branch = &leaf.branch;
         let halt = leaf.halt;
         // Check the contract before anything is dropped.
@@ -420,7 +480,7 @@ impl<'a> PathSet<'a> {
             LeafFeasibility::Solver => true,
             LeafFeasibility::Unsat | LeafFeasibility::Unknown => false,
         };
-        let stuck_term = match split.terms.as_slice() {
+        let complete_term = match split.terms.as_slice() {
             [term] if feasible => Some(term.clone()),
             _ => None,
         };
@@ -428,7 +488,7 @@ impl<'a> PathSet<'a> {
             halt,
             split.decided_term(),
             feasible,
-            stuck_term,
+            complete_term,
             self.context.classify,
         )? {
             _ if diagnosed(leaf) => LeafPath::Incomplete(PathStop::BackendLimit),
@@ -444,6 +504,7 @@ impl<'a> PathSet<'a> {
                         PathStop::Terminal
                     }
                     ExecutionTerminalKind::Stuck => PathStop::Stuck,
+                    ExecutionTerminalKind::UndefinedStep => PathStop::UndefinedStep,
                 };
                 (true, stop, Some(terminal))
             }
@@ -453,6 +514,7 @@ impl<'a> PathSet<'a> {
             }
         };
         self.insert(
+            key,
             branch,
             complete,
             stop,
@@ -463,13 +525,13 @@ impl<'a> PathSet<'a> {
 
     fn insert(
         &mut self,
+        key: String,
         branch: &AdaptedBranch,
         complete: bool,
         stop: PathStop,
         execution_terminal: Option<ExecutionTerminal>,
         path_predicate: Pattern,
     ) -> Result<(), BridgeFailure> {
-        let key = path_key(branch);
         if let Some((_, existing, path)) = self.entries.iter().find(|(other, ..)| *other == key) {
             return if existing == branch && path.stop == stop {
                 Ok(())
@@ -535,8 +597,8 @@ pub fn paths_from_execution(
         return Err(BridgeFailure::NoLeaves);
     }
     let mut paths = PathSet::new(context);
-    for leaf in &execution.leaves {
-        paths.push(leaf)?;
+    for (leaf, key) in execution.leaves.iter().zip(leaf_keys(&execution.leaves)) {
+        paths.push(leaf, key)?;
     }
     Ok(paths.finish())
 }
@@ -719,22 +781,25 @@ mod tests {
     /// One row: halt, leaf state, adapter feasibility, depth, expected path.
     type Row = (HaltClass, &'static str, LeafFeasibility, u64, Expected);
 
-    /// The leaf mapping in both profiles. Feasible `Trivial` leaves stay incomplete and cannot
-    /// witness a match; a refuted leaf adds no path.
+    /// The leaf mapping in both profiles. A decided or feasible `Trivial` leaf is a complete
+    /// undefined step whose prefix witnesses a match; an undecided one is `SolverUnknown`; a
+    /// refuted leaf adds no path.
     #[test]
     fn execution_leaf_rows_map_to_paths() {
-        use ExecutionTerminalKind::{Normal, SemanticCrash};
+        use ExecutionTerminalKind::{Normal, SemanticCrash, UndefinedStep};
         use Expected::{Complete, Discarded, Incomplete, Violation};
         use LeafFeasibility::{Solver as Z, Unsat as N};
         #[rustfmt::skip]
-        let rows: [Row; 45] = [
+        let rows: [Row; 46] = [
             // Halts without solver facts.
             (H::Stuck, GROUND, U, 1, Complete(Normal, GROUND)),
             (H::Stuck, CRASH, U, 1, Complete(SemanticCrash, CRASH)),
             (H::Stuck, SYMBOLIC, U, 1, Incomplete(P::SolverUnknown)),
             (H::Stuck, CONSTRAINED, U, 1, Incomplete(P::SolverUnknown)),
-            (H::Trivial, GROUND, U, 1, Incomplete(P::SolverUnknown)),
-            (H::Trivial, SYMBOLIC, F, 1, Incomplete(P::SolverUnknown)),
+            // An undefined step completes like a stuck leaf; `classify` is not asked.
+            (H::Trivial, GROUND, U, 1, Complete(UndefinedStep, GROUND)),
+            (H::Trivial, CRASH, U, 1, Complete(UndefinedStep, CRASH)),
+            (H::Trivial, SYMBOLIC, F, 1, Complete(UndefinedStep, SYMBOLIC)),
             (H::Vacuous, GROUND, U, 1, Discarded(DiscardReason::Vacuous)),
             (H::Branch, GROUND, U, 1, Violation),
             (H::CutPoint, GROUND, U, 1, Violation),
@@ -776,8 +841,8 @@ mod tests {
             (H::Indeterminate, CONSTRAINED, N, 1, Incomplete(P::BackendLimit)),
             (H::Trivial, CONSTRAINED, N, 0, Discarded(DiscardReason::Unsat)),
             (H::Trivial, CONSTRAINED, U, 1, Incomplete(P::SolverUnknown)),
-            (H::Trivial, CONSTRAINED, Z, 1, Incomplete(P::SolverUnknown)),
-            (H::Trivial, GROUND, F, 1, Incomplete(P::SolverUnknown)),
+            (H::Trivial, CONSTRAINED, Z, 1, Complete(UndefinedStep, GROUND)),
+            (H::Trivial, GROUND, F, 1, Complete(UndefinedStep, GROUND)),
             // A vacuous leaf is discarded at any depth.
             (H::Vacuous, BOTTOM, U, 0, Discarded(DiscardReason::Vacuous)),
             (H::Vacuous, BARE_BOTTOM, U, 0, Discarded(DiscardReason::Vacuous)),
@@ -831,12 +896,22 @@ mod tests {
             let [path] = bridged.paths.as_slice() else {
                 panic!("{id}: one path");
             };
-            assert_eq!(path.path_key.as_deref(), Some("rule-0@target-0"), "{id}");
+            let key = if halt == H::Trivial {
+                "rule-0@target-0/undefined@0"
+            } else {
+                "rule-0@target-0"
+            };
+            assert_eq!(path.path_key.as_deref(), Some(key), "{id}");
             assert_eq!(bridged.collection.empty_search_decision, None, "{id}");
             match expected {
                 Complete(kind, term) => {
                     assert!(path.complete, "{id}");
-                    assert_eq!(path.stop, P::Terminal, "{id}");
+                    let stop = if kind == UndefinedStep {
+                        P::UndefinedStep
+                    } else {
+                        P::Terminal
+                    };
+                    assert_eq!(path.stop, stop, "{id}");
                     let terminal = path.execution_terminal.as_ref().expect("terminal");
                     assert_eq!(terminal.kind, kind, "{id}");
                     assert_eq!(terminal.state, parse_pattern(term).expect("term"), "{id}");
@@ -1064,6 +1139,65 @@ mod tests {
             assert_eq!(presence(&bridged), PatternOutcome::Match);
             assert_eq!(absence(&bridged), PatternOutcome::Unknown);
         }
+    }
+
+    /// A trivial leaf commits no transition, so the undefined sub-cases of one step share their
+    /// branch. Each gets its own `undefined@N` key and path; the step's other leaves keep theirs.
+    #[test]
+    fn undefined_sub_cases_of_one_step_are_distinct_paths() {
+        let sorts = sorts();
+        let trivial = |state| leaf(H::Trivial, state, F, 1);
+        let execution = AdaptedExecution {
+            leaves: vec![
+                trivial(GROUND),
+                trivial(CRASH),
+                leaf(H::Stuck, GROUND, U, 1),
+            ],
+            effects: Vec::new(),
+            timed_out: false,
+        };
+        assert_eq!(
+            leaf_keys(&execution.leaves),
+            [
+                "rule-0@target-0/undefined@0",
+                "rule-0@target-0/undefined@1",
+                "rule-0@target-0",
+            ]
+        );
+        let bridged = paths_from_execution(&execution, &bridge_context(&sorts)).unwrap();
+        assert_eq!(
+            bridged
+                .paths
+                .iter()
+                .map(|path| path.stop)
+                .collect::<Vec<_>>(),
+            [P::UndefinedStep, P::UndefinedStep, P::Terminal]
+        );
+        assert_eq!(bridged.collection.stop, CollectionStop::SearchExhausted);
+        let mut root = trivial(GROUND);
+        root.branch.identity.clear();
+        assert_eq!(leaf_keys(&[root]), ["undefined@0"]);
+    }
+
+    /// Only a `Trivial` halt shows an undefined step; a classifier that says so of a stuck term
+    /// breaks its contract.
+    #[test]
+    fn a_classified_undefined_step_is_rejected() {
+        let sorts = sorts();
+        let execution = AdaptedExecution {
+            leaves: vec![leaf(H::Stuck, GROUND, U, 1)],
+            effects: Vec::new(),
+            timed_out: false,
+        };
+        let context = BridgeContext {
+            test_id: "t",
+            classify: &|_| ExecutionTerminalKind::UndefinedStep,
+            sorts: &sorts,
+        };
+        assert_eq!(
+            paths_from_execution(&execution, &context),
+            Err(BridgeFailure::ClassifiedUndefinedStep)
+        );
     }
 
     #[test]

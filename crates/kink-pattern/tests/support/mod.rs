@@ -110,6 +110,7 @@ pub fn symbol_sorts() -> SymbolSorts {
         ("Lbldone".to_owned(), Vec::new(), sort("SortState")),
         ("Lblstuck".to_owned(), Vec::new(), sort("SortState")),
         ("Lblcrashed".to_owned(), Vec::new(), sort("SortState")),
+        ("Lblundefined".to_owned(), Vec::new(), sort("SortState")),
     ])
 }
 
@@ -426,6 +427,7 @@ pub const fn execution_stop(stop: PathStop) -> ExecutionStop {
     match stop {
         PathStop::Terminal => ExecutionStop::Terminal,
         PathStop::Stuck => ExecutionStop::Stuck,
+        PathStop::UndefinedStep => ExecutionStop::UndefinedStep,
         PathStop::MatchFound => ExecutionStop::QuerySatisfied,
         PathStop::DepthLimit => ExecutionStop::DepthLimit,
         PathStop::TimeLimit => ExecutionStop::TimeLimit,
@@ -482,6 +484,7 @@ pub fn terminal_state(kind: ExecutionTerminalKind) -> Pattern {
             ExecutionTerminalKind::Normal => "Lbldone",
             ExecutionTerminalKind::Stuck => "Lblstuck",
             ExecutionTerminalKind::SemanticCrash => "Lblcrashed",
+            ExecutionTerminalKind::UndefinedStep => "Lblundefined",
         },
         Vec::new(),
     )
@@ -501,6 +504,7 @@ pub fn path(spec: &PathSpec, test_id: &str, path_ordinal: usize) -> PathInput {
     let execution_terminal = match execution_stop {
         ExecutionStop::Terminal => Some(ExecutionTerminalKind::Normal),
         ExecutionStop::Stuck => Some(ExecutionTerminalKind::Stuck),
+        ExecutionStop::UndefinedStep => Some(ExecutionTerminalKind::UndefinedStep),
         _ => None,
     }
     .map(|kind| ExecutionTerminal {
@@ -559,7 +563,9 @@ pub fn collection(paths: &[PathInput], search: SearchPolicy) -> CollectionEviden
             PathStop::BackendLimit => CollectionStop::BackendLimit,
             PathStop::Error => CollectionStop::Error,
             PathStop::MatchFound => CollectionStop::MatchFound,
-            PathStop::Terminal | PathStop::Stuck => CollectionStop::SearchExhausted,
+            PathStop::Terminal | PathStop::Stuck | PathStop::UndefinedStep => {
+                CollectionStop::SearchExhausted
+            }
         }
     };
     CollectionEvidence {

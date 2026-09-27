@@ -16,10 +16,13 @@
 //! - A terminal term with a free variable is `Unknown`. A symbolic run's complete stuck leaf
 //!   stands for all of its instances, so its term is not one value: comparing such terms
 //!   structurally, or classifying them, is not a comparison of the values the programs compute.
+//! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
+//!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
+//!   is its last configuration, the pre-step term, as for a stuck terminal.
 //! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`
 //!   evaluations and pattern failures are never values, and declared bindings need
 //!   complete exhaustive coverage. A `Match` needs witnesses on real prefixes only
-//!   (`PathStop::has_real_prefix`): the bridge makes a vacuous or trivial leaf, and a symbolic
+//!   (`PathStop::has_real_prefix`): the bridge makes a vacuous leaf, and a symbolic
 //!   or constrained leaf not shown feasible, `SolverUnknown`, and every path of a run with a
 //!   backend diagnostic `BackendLimit`, and an occurrence there is no witness.
 //!
@@ -613,6 +616,7 @@ const fn path_stop_side(stop: PathStop) -> OracleSide {
         // A complete stop on a path not marked complete is not evidence either.
         PathStop::Terminal
         | PathStop::Stuck
+        | PathStop::UndefinedStep
         | PathStop::MatchFound
         | PathStop::DepthLimit
         | PathStop::BranchLimit
@@ -692,11 +696,12 @@ fn project(projection: &StateProjection, terminals: &[&ExecutionTerminal]) -> Op
                         class: match terminal.kind {
                             ExecutionTerminalKind::Normal => TerminalClass::Normal,
                             ExecutionTerminalKind::Stuck => TerminalClass::Stuck,
+                            ExecutionTerminalKind::UndefinedStep => TerminalClass::UndefinedStep,
                             ExecutionTerminalKind::SemanticCrash => return None,
                         },
-                        code: match exit_code_cell {
-                            Some(cell) => Some(exit_code(&terminal.state, cell)?),
-                            None => None,
+                        code: match (exit_code_cell, terminal.kind) {
+                            (_, ExecutionTerminalKind::UndefinedStep) | (None, _) => None,
+                            (Some(cell), _) => Some(exit_code(&terminal.state, cell)?),
                         },
                     })
                 })
@@ -820,7 +825,8 @@ impl From<&BridgeFailure> for ExecutionFailureKind {
             | BridgeFailure::UndecodablePayload(_)
             | BridgeFailure::UndecodableState(_)
             | BridgeFailure::UndecidedStateSort
-            | BridgeFailure::DuplicatePathIdentity(_) => Self::Infrastructure,
+            | BridgeFailure::DuplicatePathIdentity(_)
+            | BridgeFailure::ClassifiedUndefinedStep => Self::Infrastructure,
         }
     }
 }

@@ -279,7 +279,9 @@ impl From<ObservationFailure> for ExecutionAdapterFailure {
     }
 }
 
-/// The bounded PathSet request.
+/// The bounded PathSet request. Strategy `all` is what makes a `Trivial` leaf an undefined step
+/// for each of its instances: under `any`, a rule the committed one excluded may still give such
+/// an instance a defined successor, so the bridge's reading of `Trivial` would not hold.
 fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest {
     ExecuteRequest {
         state,

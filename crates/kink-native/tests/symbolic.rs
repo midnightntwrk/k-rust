@@ -1843,11 +1843,12 @@ fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, PathStop)> {
 }
 
 /// SYM-3B-02, README 3.1: `stop(1)`'s only rewrite is undefined, so k-rust reports the state
-/// `stop(1)` itself as a `Trivial` leaf after the write and load. Those events happen, so the
-/// leaf is feasible and remains `SolverUnknown` in both profiles. Its events cannot witness a
-/// match until the undefined-step status is decided separately.
+/// `stop(1)` itself as a `Trivial` leaf after the write and load. KK-66: a ground run of this
+/// program performs the write and the load and then has no defined step, so the leaf is a
+/// complete `UndefinedStep` path in both profiles. Its events are real and witness the match; the
+/// undefined step emits no event.
 #[test]
-fn trivial_leaf_is_never_discarded() {
+fn ground_undefined_step_prefix_witnesses_a_match() {
     let (mut run, vocabulary) = run(Fixture::Bottom, trivial_program(), BUDGET);
     let [leaf] = run.execution.leaves() else {
         panic!("one leaf")
@@ -1856,14 +1857,26 @@ fn trivial_leaf_is_never_discarded() {
     let [path] = run.bridged.paths.as_slice() else {
         panic!("one path")
     };
-    assert_eq!(path.stop, PathStop::SolverUnknown);
+    assert_eq!(path.stop, PathStop::UndefinedStep);
+    assert!(path.complete);
+    let terminal = path.execution_terminal.as_ref().expect("terminal");
+    assert_eq!(terminal.kind, ExecutionTerminalKind::UndefinedStep);
+    assert!(terminal.state.free_variables().is_empty());
     assert_eq!(path.events.len(), 2);
-    assert_both(
-        &mut run,
-        &gwl_after(&vocabulary),
-        PatternOutcome::Unknown,
-        Some(PathStop::SolverUnknown),
-    );
+    let plan = gwl_after(&vocabulary);
+    let plain = outcome(&run, &plan);
+    for evaluation in [plain, decided(&mut run, &plan)] {
+        assert_eq!(
+            (evaluation.outcome, evaluation.failure),
+            (PatternOutcome::Match, None)
+        );
+        assert!(evaluation.complete_coverage);
+        let [witness] = evaluation.witnesses.as_slice() else {
+            panic!("one witness")
+        };
+        assert_eq!(witness.stop_reason, PathStop::UndefinedStep);
+        assert_eq!(witness.bindings[0].term, support::int(1));
+    }
 }
 
 /// SYM-3B-02, README 3.1: an initial state whose path condition is `\bottom` has no instance.
@@ -1902,36 +1915,147 @@ fn vacuous_initial_state_is_a_discarded_path() {
     );
 }
 
-/// `apart` emits a `Trivial` leaf under `X = Y` before its stuck successor under `X =/=Int Y`.
-/// Z3 shows both feasible. The stuck leaf is complete; the feasible `Trivial` leaf stays
-/// `SolverUnknown` and cannot witness a match, so the result remains unknown.
+/// `apart` emits a `Trivial` leaf under `X = Y` before its stuck successor under `X =/=Int Y`
+/// (KK-66). Z3 shows both feasible. The `Trivial` leaf is a complete undefined step: its instances
+/// perform the write and the load, and then no defined step exists. With a shared address the
+/// write/load pattern is a `match` on it under `X = Y`; with disjoint addresses every leaf is
+/// complete and the result is `no-match`. Without Z3 neither leaf is shown feasible: `unknown`.
 #[test]
-fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
-    let (mut run, vocabulary) = run(Fixture::Bottom, apart_program(), BUDGET);
+fn apart_undefined_step_is_complete_evidence() {
+    let disjoint = || {
+        seq(
+            write(addr(support::int(1)), integer("V")),
+            seq(
+                load(addr(support::int(2)), integer("W")),
+                support::app("Lblapart", vec![integer("X"), integer("Y")]),
+            ),
+        )
+    };
+    for (id, program, z3_outcome) in [
+        ("shared", apart_program(), PatternOutcome::Match),
+        ("disjoint", disjoint(), PatternOutcome::NoMatch),
+    ] {
+        let (mut run, vocabulary) = run(Fixture::Bottom, program, BUDGET);
+        assert_eq!(
+            leaf_rows(&run),
+            [
+                (
+                    HaltClass::Trivial,
+                    by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
+                    by_profile(PathStop::SolverUnknown, PathStop::UndefinedStep),
+                ),
+                (
+                    HaltClass::Stuck,
+                    by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
+                    by_profile(PathStop::SolverUnknown, PathStop::Terminal),
+                ),
+            ],
+            "{id}"
+        );
+        let undefined = &run.bridged.paths[0];
+        assert!(
+            undefined
+                .path_key
+                .as_deref()
+                .is_some_and(|key| key.ends_with("/undefined@0")),
+            "{id}"
+        );
+        assert_eq!(undefined.events.len(), 2, "{id}");
+        assert!(
+            !matches!(undefined.path_predicate, Pattern::Top { .. }),
+            "{id}"
+        );
+        let evaluation = decided(&mut run, &gwl_after(&vocabulary));
+        assert_eq!(
+            (evaluation.outcome, evaluation.failure),
+            by_profile(
+                (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+                (z3_outcome, None)
+            ),
+            "{id}"
+        );
+        if evaluation.outcome == PatternOutcome::Match {
+            assert!(
+                evaluation
+                    .witnesses
+                    .iter()
+                    .all(|witness| witness.stop_reason == PathStop::UndefinedStep),
+                "{id}"
+            );
+        }
+        let report = step3_report(ReportInput {
+            profile: PROFILE,
+            test_id: id,
+            budget: &BUDGET,
+            backend_options: BACKEND_OPTIONS,
+            result: ReportResult::Ok {
+                execution: &run.execution,
+                bridged: &run.bridged,
+                evaluation: &evaluation,
+            },
+        });
+        let path = &report["paths"][0];
+        assert_eq!(
+            (&path["stop"], &path["complete"], &path["feasibility"]),
+            (
+                &serde_json::json!(by_profile("solver-unknown", "undefined-step")),
+                &serde_json::json!(cfg!(feature = "z3")),
+                &serde_json::json!(by_profile("unknown", "solver")),
+            ),
+            "{id}"
+        );
+    }
+}
+
+/// `window(I)` at the root: undefined for `I >Int 5` and `I >=Int 10`, `halt` for `5 < I < 10`,
+/// stuck for `I <=Int 5`. The undefined sub-case has no committed transition, so its key is
+/// `undefined@0`. With Z3 all three leaves are feasible and complete, so an absent pattern is
+/// `no-match`; without Z3 the `requires` is undecided and the result is `unknown`.
+#[test]
+fn root_undefined_step_completes_an_absence() {
+    let (mut run, vocabulary) = run(
+        Fixture::Bottom,
+        support::app("Lblwindow", vec![integer("I")]),
+        BUDGET,
+    );
+    let complete = (
+        HaltClass::Stuck,
+        LeafFeasibility::Solver,
+        PathStop::Terminal,
+    );
     assert_eq!(
         leaf_rows(&run),
-        [
-            (
-                HaltClass::Trivial,
-                by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
+        by_profile(
+            // Without a solver the `requires` is undecided: the step stops.
+            vec![(
+                HaltClass::Indeterminate,
+                LeafFeasibility::Syntactic,
                 PathStop::SolverUnknown
-            ),
-            (
-                HaltClass::Stuck,
-                by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
-                by_profile(PathStop::SolverUnknown, PathStop::Terminal),
-            ),
-        ]
+            )],
+            vec![
+                (
+                    HaltClass::Trivial,
+                    LeafFeasibility::Solver,
+                    PathStop::UndefinedStep
+                ),
+                complete,
+                complete,
+            ]
+        )
     );
-    assert!(!matches!(
-        run.bridged.paths[1].path_predicate,
-        Pattern::Top { .. }
-    ));
-    assert_both(
-        &mut run,
-        &gwl_after(&vocabulary),
-        PatternOutcome::Unknown,
-        Some(PathStop::SolverUnknown),
+    if cfg!(feature = "z3") {
+        assert_eq!(
+            run.bridged.paths[0].path_key.as_deref(),
+            Some("undefined@0")
+        );
+    }
+    let evaluation = decided(&mut run, &gwl_after(&vocabulary));
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        by_profile(
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+            (PatternOutcome::NoMatch, None)
+        )
     );
 }
 
@@ -2089,7 +2213,7 @@ struct ProfileRow {
 /// and so is when a solver `Sat` counts (SYM-3B-03, README 4.2); no Z3 cell is provisional.
 #[test]
 fn profile_table_rows() {
-    use PathStop::{BranchLimit, DepthLimit, SolverUnknown, Terminal};
+    use PathStop::{BranchLimit, DepthLimit, SolverUnknown, Terminal, UndefinedStep};
     use PatternOutcome::{Match, NoMatch, Unknown};
     let depth = ExecutionBudget {
         max_depth: Some(1),
@@ -2307,27 +2431,28 @@ fn profile_table_rows() {
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
-        // This ground `Trivial` leaf is feasible and remains `SolverUnknown`.
+        // KK-66: this ground `Trivial` leaf is a complete undefined step whose prefix matches.
         ProfileRow {
             id: "symbottom-trivial-GWL-after",
             fixture: Fixture::Bottom,
             program: trivial_program,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (&[SolverUnknown], &[SolverUnknown]),
-            structural: same((Unknown, Some(SolverUnknown))),
-            decided: same((Unknown, Some(SolverUnknown))),
+            stops: (&[UndefinedStep], &[UndefinedStep]),
+            structural: matched,
+            decided: matched,
         },
-        // The feasible `Trivial` leaf stays incomplete; the stuck successor completes.
+        // KK-66: under Z3 the feasible `Trivial` leaf is an undefined step, and the match under
+        // `X = Y` needs the solver's relation decision; the stuck successor completes.
         ProfileRow {
             id: "symbottom-apart-GWL-after",
             fixture: Fixture::Bottom,
             program: apart_program,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (&[SolverUnknown, SolverUnknown], &[SolverUnknown, Terminal]),
+            stops: (&[SolverUnknown, SolverUnknown], &[UndefinedStep, Terminal]),
             structural: same((Unknown, Some(SolverUnknown))),
-            decided: same((Unknown, Some(SolverUnknown))),
+            decided: ((Unknown, Some(SolverUnknown)), (Match, None)),
         },
     ];
     let mut failures = Vec::new();

@@ -8,7 +8,7 @@ use kink_pattern::{Evaluation, EventAttribution, PathInput, PatternFailure, Patt
 use serde_json::{Value, json};
 
 use crate::{
-    bridge::{BridgeFailure, BridgedPaths, discarded},
+    bridge::{BridgeFailure, BridgedPaths, discarded, leaf_keys},
     execution::{
         AdaptedExecution, AdaptedLeaf, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
     },
@@ -49,6 +49,7 @@ impl ReportError {
             BridgeFailure::UndecodableState(_) => "UndecodableState",
             BridgeFailure::UndecidedStateSort => "UndecidedStateSort",
             BridgeFailure::DuplicatePathIdentity(_) => "DuplicatePathIdentity",
+            BridgeFailure::ClassifiedUndefinedStep => "ClassifiedUndefinedStep",
         };
         Self {
             stage: "bridge",
@@ -124,19 +125,6 @@ fn term(pattern: &Pattern) -> Value {
     codec::to_value(pattern).expect("evaluated KORE term encodes as KORE JSON")
 }
 
-fn leaf_key(leaf: &AdaptedLeaf) -> String {
-    if leaf.branch.identity.is_empty() {
-        "root".to_owned()
-    } else {
-        leaf.branch
-            .identity
-            .iter()
-            .map(|id| format!("{}@{}", id.rule, id.target))
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-}
-
 fn ground_leaf(leaf: &AdaptedLeaf, path: &PathInput) -> bool {
     let Pattern::Top { sort } = &path.path_predicate else {
         return false;
@@ -155,12 +143,12 @@ fn ground_leaf(leaf: &AdaptedLeaf, path: &PathInput) -> bool {
 
 /// The execution leaf of `path`.
 fn path_leaf<'e>(path: &PathInput, execution: &'e AdaptedExecution) -> Option<&'e AdaptedLeaf> {
-    path.path_key.as_ref().and_then(|key| {
-        execution
-            .leaves()
-            .iter()
-            .find(|leaf| leaf_key(leaf) == *key)
-    })
+    let key = path.path_key.as_ref()?;
+    execution
+        .leaves()
+        .iter()
+        .zip(leaf_keys(execution.leaves()))
+        .find_map(|(leaf, leaf_key)| (leaf_key == *key).then_some(leaf))
 }
 
 fn feasibility(path: &PathInput, execution: &AdaptedExecution) -> &'static str {
@@ -181,10 +169,11 @@ fn discarded_values(execution: &AdaptedExecution) -> Vec<Value> {
     execution
         .leaves()
         .iter()
-        .filter_map(|leaf| {
+        .zip(leaf_keys(execution.leaves()))
+        .filter_map(|(leaf, key)| {
             discarded(leaf).map(|reason| {
                 json!({
-                    "key": leaf_key(leaf),
+                    "key": key,
                     "halt": enum_name(leaf.halt),
                     "reason": reason.name(),
                 })
@@ -235,10 +224,11 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
 /// The report schema version. Version 2 (SYM-3B-01) adds the SMT options to `budget`; version 3
 /// (SYM-3B-02) adds `discarded` and the path feasibility values `"solver"` and `"unsat"`;
 /// version 4 adds the path `cause`, the k-rust `SearchFailure` of an indeterminate leaf (null
-/// otherwise).
-pub const REPORT_VERSION: u64 = 4;
+/// otherwise); version 5 adds the stop `"undefined-step"` of a `Trivial` leaf, whose `terminal` is
+/// its pre-step term, and the `undefined@N` suffix of its key (`bridge::leaf_keys`).
+pub const REPORT_VERSION: u64 = 5;
 
-/// Builds the exact version-4 step-3 report schema.
+/// Builds the exact version-5 step-3 report schema.
 #[must_use]
 pub fn step3_report(input: ReportInput<'_>) -> Value {
     let budget = input.budget;
@@ -603,7 +593,7 @@ mod tests {
             BTreeSet::from(["left", "right"])
         );
         assert_eq!(report["schema"], "kink-step3-report");
-        assert_eq!(report["version"], 4);
+        assert_eq!(report["version"], 5);
         assert_eq!(path["cause"], Value::Null);
         assert_eq!(report["discarded"], json!([]));
         assert_eq!(report["profile"], "no-z3");

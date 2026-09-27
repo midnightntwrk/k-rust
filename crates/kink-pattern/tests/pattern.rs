@@ -715,14 +715,15 @@ fn structural_decider_decides_only_empty_assumptions() {
 fn witnesses_count_only_on_paths_with_a_real_prefix() {
     use PathStop::{
         BackendLimit, BranchLimit, MatchFound, ResourceLimit, ResultLimit, Stuck, Terminal,
-        TimeLimit,
+        TimeLimit, UndefinedStep,
     };
     let table = side_table();
     // (stop of the only path, which carries `wa la`, and the expected outcome)
     #[rustfmt::skip]
-    let rows: [(PathStop, PatternOutcome); 11] = [
+    let rows: [(PathStop, PatternOutcome); 12] = [
         (Terminal, Match),
         (Stuck, Match),
+        (UndefinedStep, Match),
         (MatchFound, Match),
         (DepthLimit, Match),
         (TimeLimit, Match),
@@ -793,6 +794,54 @@ fn witnesses_count_only_on_paths_with_a_real_prefix() {
         .unwrap_or_else(|error| panic!("{id}: {error}"));
         assert_eq!(result.outcome, outcome, "{id}");
         assert!(!result.complete_coverage, "{id}");
+        assert_eq!(
+            result
+                .witnesses
+                .iter()
+                .map(|witness| witness.path_key.as_deref().expect("keyed witness"))
+                .collect::<Vec<_>>(),
+            keys,
+            "{id}"
+        );
+    }
+}
+
+/// An undefined-step path is complete: its events are all the events of its instances, so it
+/// supports absence beside other complete paths, and an occurrence on it is a witness.
+#[test]
+fn an_undefined_step_path_is_complete_evidence() {
+    let table = side_table();
+    let undefined = |key, events| PathSpec {
+        stop: PathStop::UndefinedStep,
+        ..done(key, events)
+    };
+    /// (id, paths, outcome, complete coverage, witness path keys)
+    type Row = (
+        &'static str,
+        Vec<PathSpec>,
+        PatternOutcome,
+        bool,
+        &'static [&'static str],
+    );
+    #[rustfmt::skip]
+    let rows: [Row; 3] = [
+        ("undefined-absence", vec![undefined("undefined", &["wa"]), done("done", &["wa"])], NoMatch, true, &[]),
+        ("undefined-witness", vec![undefined("undefined", &["wa", "la"]), done("done", &["wa"])], Match, true, &["undefined"]),
+        ("undefined-beside-cut", vec![undefined("undefined", &["wa"]), stopped("cut", DepthLimit, &["wa"])], Unknown, false, &[]),
+    ];
+    for (id, specs, outcome, coverage, keys) in rows {
+        let paths = paths(&specs, id);
+        let result = evaluate(
+            &context(id),
+            &plan("write-eventually-load"),
+            &paths,
+            &collection(&paths, SearchPolicy::Exhaustive),
+            Some(&table),
+            exhaustive_options(),
+        )
+        .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(result.outcome, outcome, "{id}");
+        assert_eq!(result.complete_coverage, coverage, "{id}");
         assert_eq!(
             result
                 .witnesses
