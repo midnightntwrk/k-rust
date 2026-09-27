@@ -115,6 +115,8 @@ algorithms! {
     ParserGrammarRecords => "parser.grammar.records",
     /// Detection of productive unary grammar cycles.
     ParserGrammarUnaryCycles => "parser.grammar.unary_cycles",
+    /// Detection of productions on same-span derivation cycles.
+    ParserGrammarSameSpanCycles => "parser.grammar.same_span_cycles",
     /// Epsilon-nullability analysis by worklist.
     ParserPredictionNullability => "parser.prediction.nullability",
     /// Scanner-identity FIRST-set analysis by monotone propagation.
@@ -129,6 +131,8 @@ algorithms! {
     ParserForestPack => "parser.forest.pack",
     /// Structural ordering of packed parse forests.
     ParserForestOrder => "parser.forest.order",
+    /// Same-span repetition check of packed nodes built by cyclic productions.
+    ParserForestCycleCheck => "parser.forest.cycle_check",
     /// Completed-node memoization for Earley charts.
     ParserChartCompletedMemo => "parser.chart.completed_memo",
     /// Priority and associativity filtering of packed terms.

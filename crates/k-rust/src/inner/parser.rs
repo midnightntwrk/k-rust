@@ -83,6 +83,7 @@
 //! and lowering run in that order after recognition.
 
 mod chart;
+mod cycles;
 mod disambiguation;
 mod forest;
 mod grammar;
@@ -96,6 +97,7 @@ mod scanner;
 mod z3_inference;
 
 use self::chart::*;
+use self::cycles::{SameSpanCycles, check_same_span_repetition};
 use self::disambiguation::PackedPriorityMemos;
 use self::forest::*;
 use self::grammar::ProductionText;
@@ -211,6 +213,19 @@ pub struct TokenPrecedenceDeclaration {
     pub precedence: i32,
 }
 
+/// A sort that derives itself over `text` without consuming input, so the text has infinitely
+/// many parses.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CyclicDerivation {
+    pub sort: Sort,
+    pub text: String,
+    /// The productions of the repeated derivation, outermost first.
+    pub productions: Vec<String>,
+    /// The items that the repetition matched with the empty string.
+    pub empty: Vec<String>,
+    pub span: Option<TermSpan>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ParseError {
     InvalidRegex {
@@ -242,6 +257,8 @@ pub enum ParseError {
         span: Option<TermSpan>,
     },
     CyclicParseForest,
+    /// A sort derives itself over a text without consuming input (`cycles.rs`).
+    CyclicDerivation(Box<CyclicDerivation>),
     CircularPriorities {
         path: Vec<String>,
     },
@@ -380,6 +397,37 @@ impl fmt::Display for ParseError {
             }
             Self::CyclicParseForest => {
                 formatter.write_str("parse forest is infinite because of a productive unary cycle")
+            }
+            Self::CyclicDerivation(cycle) => {
+                let CyclicDerivation {
+                    sort,
+                    text,
+                    productions,
+                    empty,
+                    ..
+                } = &**cycle;
+                // The span of a node ends after the layout that follows it; the reader needs only
+                // the text itself.
+                match text.trim() {
+                    "" => formatter.write_str("Parsing ambiguity: the empty text")?,
+                    text => write!(formatter, "Parsing ambiguity: `{text}`")?,
+                }
+                write!(
+                    formatter,
+                    " has infinitely many parses, because {sort} derives itself without consuming input:"
+                )?;
+                for production in productions {
+                    write!(formatter, "\n    {production}")?;
+                }
+                match empty.as_slice() {
+                    [] => Ok(()),
+                    [item] => write!(formatter, "\nwhere {item} matches the empty string."),
+                    items => write!(
+                        formatter,
+                        "\nwhere {} match the empty string.",
+                        items.join(", ")
+                    ),
+                }
             }
             Self::CircularPriorities { path } => {
                 write!(
@@ -710,6 +758,9 @@ pub struct Grammar {
     by_result: Vec<Vec<usize>>,
     scanner: Scanner,
     prediction_analysis: OnceLock<PredictionAnalysis>,
+    // Invariant: when set, this is `SameSpanCycles::new(self)`; cleared with the prediction
+    // analysis on every grammar change.
+    same_span_cycles: OnceLock<SameSpanCycles>,
     source_production_texts: BTreeMap<ProductionIdentity, ProductionText>,
     layout: Layout,
     priorities: PartialOrder<String>,
@@ -739,6 +790,7 @@ impl Default for Grammar {
             by_result: Vec::new(),
             scanner: Scanner::default(),
             prediction_analysis: OnceLock::new(),
+            same_span_cycles: OnceLock::new(),
             source_production_texts: BTreeMap::new(),
             layout: Layout::default(),
             priorities: PartialOrder::new([]).expect("an empty relation is acyclic"),
@@ -756,6 +808,7 @@ impl Default for Grammar {
 impl Grammar {
     fn invalidate_prediction_analysis(&mut self) {
         self.prediction_analysis.take();
+        self.same_span_cycles.take();
         self.generation = next_grammar_generation();
     }
 
@@ -936,6 +989,9 @@ impl Grammar {
             self.prediction_analysis
                 .get_or_init(|| PredictionAnalysis::new(self))
         });
+        let cycles = self
+            .same_span_cycles
+            .get_or_init(|| SameSpanCycles::new(self));
         let mut charts = (0..=input.len())
             .map(|_| Chart::new(self.sorts.len()))
             .collect::<Vec<_>>();
@@ -1089,7 +1145,11 @@ impl Grammar {
                             input,
                             provenance,
                             &priority_memos,
+                            cycles,
                         );
+                        if let Some(cycle) = &completed.cycle {
+                            return Err(cycle.clone());
+                        }
                         if first_violation.is_none() {
                             first_violation.clone_from(&completed.violation);
                         }
@@ -1166,6 +1226,17 @@ impl Grammar {
                                 .filter_or_defer_packed_priority(Rc::clone(&term), &priority_memos)
                             {
                                 Ok(term) => {
+                                    if cycles.contains(state.production) {
+                                        check_same_span_repetition(
+                                            self,
+                                            &charts[position],
+                                            state.production,
+                                            &term,
+                                            input,
+                                            state.origin,
+                                            position,
+                                        )?;
+                                    }
                                     nodes.insert(term);
                                 }
                                 Err(error) => {
@@ -1260,7 +1331,11 @@ impl Grammar {
                 input,
                 provenance,
                 &priority_memos,
+                cycles,
             );
+            if let Some(cycle) = &completed.cycle {
+                return Err(cycle.clone());
+            }
             parses.extend(completed.nodes.iter().cloned());
             if first_violation.is_none() {
                 first_violation.clone_from(&completed.violation);

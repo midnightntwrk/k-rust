@@ -10,7 +10,9 @@ mod programs;
 mod rules;
 
 pub use config::{ConfigError, resolve_configuration_bubbles};
-pub use parser::{AmbiguousParse, Grammar, NoParseInput, ParseError, TokenPrecedenceDeclaration};
+pub use parser::{
+    AmbiguousParse, CyclicDerivation, Grammar, NoParseInput, ParseError, TokenPrecedenceDeclaration,
+};
 #[cfg(feature = "cli")]
 pub(crate) use parser::{DEFAULT_LAYOUT, concretize_parametric_productions};
 #[cfg(feature = "cli")]

@@ -14,7 +14,7 @@
 //! id = "parser.chart.completed_memo"
 //! name = "completed-node memoization for Earley charts"
 //! sites = ["completed_nodes", "Chart::invalidate_completed_node"]
-//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation"
+//! variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
 //! counters = ["ParserCompletedNodesHits", "ParserCompletedNodesMisses", "ParserCompletedNodesInvalidated", "ParserChartCompletionCandidates"]
 //!
 //! [[cost]]
@@ -46,6 +46,7 @@ use k_rust_kore::measure::{self, Counter};
 
 use crate::kast::TermSpan;
 
+use super::cycles::{SameSpanCycles, check_same_span_repetition};
 use super::disambiguation::PackedPriorityMemos;
 use super::forest::{
     Derivation, PackedNode, PackedTerm, build_packed_term, cmp_packed_structurally,
@@ -223,6 +224,8 @@ type CompletedNodeKey = (usize, usize);
 pub(super) struct CompletedNodes {
     pub(super) nodes: BTreeSet<Rc<PackedTerm>>,
     pub(super) violation: Option<ParseError>,
+    /// A same-span repetition met while building them; the parse fails with it (`cycles.rs`).
+    pub(super) cycle: Option<ParseError>,
 }
 
 #[derive(Clone, Debug)]
@@ -241,6 +244,9 @@ pub(super) struct Chart {
     pub(super) popped: StateSet,
     // Java exposes one completed node for each stable (sort, origin, end) chart boundary.
     pub(super) completed_nodes: RefCell<IndexMap<CompletedNodeKey, Rc<CompletedNodes>>>,
+    // The nodes ending here that productions flagged by `SameSpanCycles` built, each with the
+    // building production; the entry keeps its node alive so the address stays unique.
+    pub(super) cycle_nodes: RefCell<IndexMap<*const PackedTerm, (Rc<PackedTerm>, usize)>>,
 }
 
 impl Default for Chart {
@@ -260,6 +266,7 @@ impl Chart {
             #[cfg(any(test, feature = "measure"))]
             popped: StateSet::default(),
             completed_nodes: RefCell::new(IndexMap::default()),
+            cycle_nodes: RefCell::new(IndexMap::default()),
         }
     }
 }
@@ -627,6 +634,7 @@ pub(super) fn completed_nodes(
     input: &str,
     provenance: ParseProvenance,
     priority_memos: &RefCell<PackedPriorityMemos>,
+    cycles: &SameSpanCycles,
 ) -> Rc<CompletedNodes> {
     // Invariant: on a cache miss, every completed state for this exact boundary contributes each
     // derivation once; the memo is populated only with the complete packed result and first error.
@@ -644,6 +652,7 @@ pub(super) fn completed_nodes(
     update_chart_work_counters(|counters| counters.completed_nodes_misses += 1);
     let mut nodes = BTreeSet::new();
     let mut invalid = Vec::new();
+    let mut cycle = None;
     for state in chart.completed.get(&sort_id).into_iter().flatten() {
         if state.origin != origin {
             continue;
@@ -667,6 +676,20 @@ pub(super) fn completed_nodes(
             );
             match grammar.filter_or_defer_packed_priority(Rc::clone(&term), priority_memos) {
                 Ok(term) => {
+                    if cycles.contains(state.production)
+                        && cycle.is_none()
+                        && let Err(error) = check_same_span_repetition(
+                            grammar,
+                            chart,
+                            state.production,
+                            &term,
+                            input,
+                            state.origin,
+                            end,
+                        )
+                    {
+                        cycle = Some(error);
+                    }
                     nodes.insert(term);
                 }
                 Err(error) => {
@@ -676,7 +699,11 @@ pub(super) fn completed_nodes(
         }
     }
     let violation = (!invalid.is_empty()).then(|| canonical_packed_error(invalid));
-    let completed = Rc::new(CompletedNodes { nodes, violation });
+    let completed = Rc::new(CompletedNodes {
+        nodes,
+        violation,
+        cycle,
+    });
     chart
         .completed_nodes
         .borrow_mut()
@@ -872,8 +899,13 @@ mod tests {
         };
 
         let memos = RefCell::new(PackedPriorityMemos::default());
-        let first = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
-        let second = completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
+        let cycles = SameSpanCycles::default();
+        let first = completed_nodes(
+            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+        );
+        let second = completed_nodes(
+            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+        );
         assert!(Rc::ptr_eq(&first, &second));
         let first = first
             .nodes
@@ -895,8 +927,9 @@ mod tests {
                 [derivation(variable("A"))],
             )
             .unwrap();
-        let after_other_boundary =
-            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
+        let after_other_boundary = completed_nodes(
+            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+        );
         let after_other_boundary = after_other_boundary
             .nodes
             .first()
@@ -907,8 +940,9 @@ mod tests {
         grammar
             .add_chart_state(&mut chart, state, [derivation(variable("B"))])
             .unwrap();
-        let after_same_boundary =
-            completed_nodes(&chart, &grammar, sort_id, 0, 0, "", provenance, &memos);
+        let after_same_boundary = completed_nodes(
+            &chart, &grammar, sort_id, 0, 0, "", provenance, &memos, &cycles,
+        );
         assert_eq!(after_same_boundary.nodes.len(), 2);
         assert!(
             after_same_boundary

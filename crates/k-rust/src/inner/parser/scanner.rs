@@ -372,6 +372,20 @@ pub(super) fn compile_item(
     }
 }
 
+impl CompiledKRegex {
+    /// The Rust regex syntax this regex compiles to, after named references are expanded.
+    pub(super) fn rust_body(&self) -> &str {
+        &self.rust_body
+    }
+
+    /// Whether the regex may match the empty string somewhere: its shortest match has length
+    /// zero, whatever its line anchors and restrictions require of the surroundings.
+    pub(super) fn may_match_empty(&self) -> bool {
+        regex_automata::util::syntax::parse(&self.rust_body)
+            .map_or(true, |hir| hir.properties().minimum_len() == Some(0))
+    }
+}
+
 fn compile_k_regex(
     source: &str,
     lexical: &BTreeMap<String, KRegex>,

@@ -375,6 +375,7 @@ fn bubble_error(
         | ParseError::Ambiguous {
             span: Some(span), ..
         } => Some(*span),
+        ParseError::CyclicDerivation(cycle) => cycle.span,
         _ => None,
     };
     let location = span

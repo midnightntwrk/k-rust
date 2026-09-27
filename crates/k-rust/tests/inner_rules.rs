@@ -5031,6 +5031,40 @@ fn constructor_cycle_makes_a_rule_over_its_sorts_a_cyclic_forest() {
     );
 }
 
+// `wrap : Exp ::= Opt Exp Opt` with a nullable `Opt` derives `Exp` from `Exp` over the same text,
+// so every `Exp` has infinitely many parses. The parser reports the repetition at the first rule
+// instead of building ever deeper wrappers.
+#[test]
+fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
+    let source = indoc! {r#"
+        module NULL1
+          imports INT
+          syntax Opt ::= "" [klabel(none), symbol] | "q" [klabel(someq), symbol]
+          syntax Exp ::= Int | Opt Exp Opt [klabel(wrap), symbol] | Exp "+" Exp [left, klabel(plus), symbol] | "(" Exp ")" [bracket]
+          syntax KItem ::= e(Exp)
+          rule e(q 1 + 2 q) => e(3)
+          rule e(( 1 ) + q 2) => .K
+        endmodule
+    "#};
+    let Err(error) = load_with_prelude(source, "null1.k", "NULL1") else {
+        panic!("a rule over a cyclic sort is rejected");
+    };
+    let k_rust::outer::LoadError::RuleParsing(RuleError::Parse(error)) = &error else {
+        panic!("expected a rule parse error, got {error:?}");
+    };
+    assert_eq!(
+        error.error.to_string(),
+        "Parsing ambiguity: `q 1` has infinitely many parses, because Exp derives itself \
+         without consuming input:\n    syntax Exp ::= Opt Exp Opt [klabel(wrap), symbol]\n\
+         where Opt matches the empty string."
+    );
+    let ParseError::CyclicDerivation(cycle) = &error.error else {
+        panic!("expected a cyclic derivation, got {:?}", error.error);
+    };
+    let span = cycle.span.expect("the cyclic text has a span");
+    assert_eq!(&source[span.start..span.end].trim_end(), &"q 1");
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn constructor_cycle_agrees_under_checked_inference() {

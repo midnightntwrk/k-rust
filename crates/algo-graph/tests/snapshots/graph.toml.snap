@@ -5314,7 +5314,7 @@ id = "parser.chart.completed_memo"
 provenance = "declared"
 area = "parser"
 name = "completed-node memoization for Earley charts"
-variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation"
+variable = "S = completed states of the sort at this chart; C = derivations of the completed states whose origin matches; b = work of build_packed_term plus filter_or_defer_packed_priority for one derivation, plus parser.forest.cycle_check when its production is flagged"
 table = "Algorithm::ALL"
 registry_name = "ParserChartCompletedMemo"
 
@@ -5822,6 +5822,31 @@ bound = "at most two parse attempts"
 
 [[node]]
 kind = "algorithm"
+id = "parser.forest.cycle_check"
+provenance = "declared"
+area = "parser"
+name = "same-span repetition check of packed nodes built by cyclic productions"
+variable = "N = packed nodes reachable from the new node through children of its own span"
+no_counter = "the repetition check has no dedicated counter; it runs only for productions SameSpanCycles flags, which none of the measured workloads' grammars have"
+table = "Algorithm::ALL"
+registry_name = "ParserForestCycleCheck"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/cycles.rs"
+symbol = "check_same_span_repetition"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/cycles.rs"
+symbol = "check_same_span_repetition"
+
+[[node.cost]]
+mode = "one node built by a flagged production"
+bound = "O(N) expected (hashed visited set and build table)"
+
+[[node]]
+kind = "algorithm"
 id = "parser.forest.order"
 provenance = "declared"
 area = "parser"
@@ -6069,6 +6094,36 @@ symbol = "Grammar::add_record_production"
 [[node.cost]]
 mode = "one record declaration"
 bound = "O(F)"
+
+[[node]]
+kind = "algorithm"
+id = "parser.grammar.same_span_cycles"
+provenance = "declared"
+area = "parser"
+name = "detection of productions on same-span derivation cycles"
+variable = "P = recognizable productions; I = their items; V = sorts"
+no_counter = "same-span cycle detection has no dedicated counter"
+table = "Algorithm::ALL"
+registry_name = "ParserGrammarSameSpanCycles"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/cycles.rs"
+symbol = "SameSpanCycles::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/cycles.rs"
+symbol = "SameSpanCycles::new"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/cycles.rs"
+symbol = "strongly_connected_components"
+
+[[node.cost]]
+mode = "one grammar version"
+bound = "O(P + I + V)"
 
 [[node]]
 kind = "algorithm"

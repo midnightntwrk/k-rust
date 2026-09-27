@@ -157,16 +157,21 @@ fn bubble_error(
     contents: Option<&str>,
     error: ParseError,
 ) -> ConfigError {
-    let location = match &error {
+    let span = match &error {
         ParseError::NoParse {
             span: Some(span), ..
         }
         | ParseError::Ambiguous {
             span: Some(span), ..
-        } => contents
-            .and_then(|contents| span_location(attributes, contents, *span))
+        } => Some(*span),
+        ParseError::CyclicDerivation(cycle) => cycle.span,
+        _ => None,
+    };
+    let location = match span {
+        Some(span) => contents
+            .and_then(|contents| span_location(attributes, contents, span))
             .or_else(|| attributes.location()),
-        _ => attributes.location(),
+        None => attributes.location(),
     };
     ConfigError::Parse {
         module: module.to_owned(),
