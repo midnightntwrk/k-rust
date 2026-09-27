@@ -497,7 +497,7 @@ proptest! {
     }
 
     #[test]
-    fn map_order_fast_path_agrees_with_sort_and_dedup(
+    fn map_order_fast_path_agrees_with_sort(
         entries in prop::collection::vec((spec(), spec()), 0..16),
         nested in prop::collection::vec((spec(), spec()), 0..8),
     ) {
@@ -507,7 +507,6 @@ proptest! {
         let general = Term::map(definition.clone(), entries.clone(), None);
         let mut sorted = entries.clone();
         sorted.sort();
-        sorted.dedup();
         let fast = Term::map(definition.clone(), sorted, None);
         prop_assert_eq!(fast, general);
         let rest = Term::map(definition.clone(), nested, None);
@@ -518,7 +517,6 @@ proptest! {
         };
         expected_entries.extend(rest_entries.iter().cloned());
         expected_entries.sort();
-        expected_entries.dedup();
         let expected = Term::map(definition, expected_entries, None);
         prop_assert_eq!(actual, expected);
     }

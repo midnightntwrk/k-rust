@@ -20,6 +20,15 @@ use crate::{
 };
 
 pub(super) fn evaluate(hook: &str, arguments: &[Term]) -> Result<BuiltinResult, BuiltinError> {
+    // A hooked application is strict in its arguments, and an internal map that binds a key
+    // twice, with the same value or not, is `\bottom` (`Term::map`). A `ceil_free` map has
+    // pairwise distinct keys, so only other maps are scanned.
+    if arguments
+        .iter()
+        .any(|argument| !argument.attributes().ceil_free() && argument.repeated_map_key().is_some())
+    {
+        return Ok(BuiltinResult::Bottom);
+    }
     let result = match hook {
         "MAP.element" => element(arguments),
         "MAP.unit" => unit(arguments),
@@ -771,6 +780,37 @@ mod tests {
             Ok(BuiltinResult::Bottom)
         );
         assert_eq!(concat(&[left, right]), Ok(BuiltinResult::Bottom));
+    }
+
+    #[test]
+    fn a_map_argument_binding_a_key_twice_makes_the_hook_bottom() {
+        let definition = definition("SortMap");
+        let same = Term::map(
+            definition.clone(),
+            vec![(key("a"), value("one")), (key("a"), value("one"))],
+            None,
+        );
+        let different = Term::map(
+            definition.clone(),
+            vec![(key("a"), value("one")), (key("a"), value("two"))],
+            None,
+        );
+        assert_eq!(same.repeated_map_key(), Some(&key("a")));
+        for map in [same, different] {
+            assert_eq!(
+                evaluate("MAP.size", std::slice::from_ref(&map)),
+                Ok(BuiltinResult::Bottom)
+            );
+            assert_eq!(
+                evaluate("MAP.update", &[map, key("b"), value("three")]),
+                Ok(BuiltinResult::Bottom)
+            );
+        }
+        let single = Term::map(definition, vec![(key("a"), value("one"))], None);
+        assert_eq!(
+            evaluate("MAP.concat", &[single.clone(), single]),
+            Ok(BuiltinResult::Bottom)
+        );
     }
 
     #[test]

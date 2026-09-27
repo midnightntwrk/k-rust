@@ -1638,6 +1638,83 @@ fn evaluates_function_equations_with_symbolic_map_selection() {
     assert_eq!(result.applied_rules, ["non-empty-map"]);
 }
 
+/// A map that binds a key twice, with the same value or not, is `\bottom` where it is built:
+/// the simplifier reports it as it reports a builtin's undefined result, whether the map is a
+/// literal or the result of a `total` function's equation, and whether the repeated key is
+/// ground or a variable. Two keys that are not syntactically equal stay a map whose definedness
+/// is their disequality.
+#[test]
+fn a_map_binding_a_key_twice_simplifies_to_bottom_where_it_is_built() {
+    let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortKey{} [hasDomainValues{}()]
+                sort SortValue{} [hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-symbol mapUnit{}() : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortKey{}, SortValue{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                symbol dup{}(SortKey{}, SortKey{}) : SortMap{} [function{}(), total{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(
+                            \in{SortKey{}, R}(X0:SortKey{}, K:SortKey{}),
+                            \and{R}(\in{SortKey{}, R}(X1:SortKey{}, L:SortKey{}), \top{R}())
+                        )
+                    ),
+                    \equals{SortMap{}, R}(
+                        dup{}(X0:SortKey{}, X1:SortKey{}),
+                        \and{SortMap{}}(
+                            mapConcat{}(
+                                mapItem{}(K:SortKey{}, \dv{SortValue{}}("1")),
+                                mapItem{}(L:SortKey{}, \dv{SortValue{}}("1"))
+                            ),
+                            \top{SortMap{}}()
+                        )
+                    )
+                ) [label{}("dup")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let bottom = |source: &str| {
+        let input = term(&definition, source);
+        let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+        assert!(
+            result.constraints.contains(&Predicate::False) && result.undefined_term.is_some(),
+            "{source}: {result:#?}"
+        );
+    };
+    bottom(
+        r#"mapConcat{}(
+                mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1")),
+                mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1"))
+            )"#,
+    );
+    bottom(
+        r#"mapConcat{}(
+                mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("1")),
+                mapItem{}(\dv{SortKey{}}("a"), \dv{SortValue{}}("2"))
+            )"#,
+    );
+    bottom(r#"dup{}(\dv{SortKey{}}("a"), \dv{SortKey{}}("a"))"#);
+    bottom(r#"dup{}(X:SortKey{}, X:SortKey{})"#);
+
+    let input = term(&definition, r#"dup{}(X:SortKey{}, Y:SortKey{})"#);
+    let result = simplify(&definition, &input, SimplificationOptions::default()).unwrap();
+    assert!(
+        result.constraints.is_empty() && result.undefined_term.is_none(),
+        "{result:#?}"
+    );
+    assert!(matches!(result.term.kind(), TermKind::Map { entries, .. } if entries.len() == 2));
+}
+
 #[test]
 fn keeps_ambiguous_open_map_equations_indeterminate() {
     let syntax = parse_definition(

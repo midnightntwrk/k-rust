@@ -35,7 +35,7 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
     application_raw       :325-347
     domain_value          :428-441, variable :443-449
     injection             :451-469  (flattens inj-of-inj, copies the child's attributes)
-    Term::map             :471-509  (entries.sort(); entries.dedup() at :488-489, on (key, value) pairs)
+    Term::map             :471-509  (entries.sort() on (key, value) pairs; a repeated key is kept, with the same value or not)
     Term::list            :511-560
     Term::set             :562-595  (elements.sort(); a repeated element is kept: concatenation is nilpotent)
     with_evaluated_cache  :611-618  (copies the kind, changes only `evaluated`)
@@ -422,13 +422,13 @@ structure TotalOrder (le : Term → Term → Bool) : Prop where
 def lexLe (le : Term → Term → Bool) (a b : Term × Term) : Bool :=
   (le a.1 b.1 && !le b.1 a.1) || (le a.1 b.1 && le b.1 a.1 && le a.2 b.2)
 
-/-- Every adjacent pair satisfies `r` (what `sort` then `dedup` leave behind). -/
+/-- Every adjacent pair satisfies `r` (what `sort` leaves behind). -/
 def Adjacent {α} (r : α → α → Prop) : List α → Prop
   | a :: b :: rest => r a b ∧ Adjacent r (b :: rest)
   | _              => True
 
 /- What the constructors guarantee and the proof uses: map entries sorted (term.rs:488), set
-elements sorted (`sort`, :579). The map's pair dedup (:489) is not needed: `ceil_free` checks
+elements sorted (`sort`, :579). Neither constructor deduplicates: `ceil_free` checks
 adjacent keys itself, and adjacent set elements likewise (a set keeps a repeated element).
 Hypothesis: every term the public constructors build satisfies `WF`, checked by the property test
 `constructed_collections_are_sorted` of k-rust-backend `tests/backend/term_order.rs`. -/

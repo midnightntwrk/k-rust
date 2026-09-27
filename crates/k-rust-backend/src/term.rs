@@ -577,6 +577,15 @@ impl Term {
         )
     }
 
+    /// The map binding the keys of `entries` and of `rest`, its entries sorted by `(key, value)`.
+    ///
+    /// Map concatenation is nilpotent on keys: `(K |-> V1) (K |-> V2)` is `\bottom` whether or
+    /// not `V1` and `V2` are equal, because a map binds each key once (the update is `M[K <- V]`).
+    /// So this constructor keeps a key bound twice, with the same value or not, and the repeat
+    /// stays visible to definedness (`ceil_term` emits `\not(K = K)`), to matching
+    /// (`FailReason::DuplicateKeys`), to the hooks, and to the simplifier, which reports the map
+    /// as `\bottom`. A caller that builds a map from bindings that may repeat a key with intent
+    /// to overwrite (`MAP.updateAll`) resolves the repeats itself.
     pub fn map(
         definition: Arc<MapDefinition>,
         mut entries: Vec<(Self, Self)>,
@@ -594,21 +603,23 @@ impl Term {
             None => (Vec::new(), None),
         };
         entries.extend(nested_entries);
-        if !entries.windows(2).all(|pair| pair[0] < pair[1]) {
+        if !entries.windows(2).all(|pair| pair[0] <= pair[1]) {
             entries.sort();
-            entries.dedup();
         }
         if entries.is_empty()
             && let Some(rest) = rest
         {
             return rest;
         }
-        let attributes = combine_attributes(
+        let mut attributes = combine_attributes(
             entries
                 .iter()
                 .flat_map(|(key, value)| [key, value])
                 .chain(rest.iter()),
         );
+        if entries.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+            mark_repeated_collection(&mut attributes);
+        }
         Self::new(
             TermKind::Map {
                 definition,
@@ -676,7 +687,8 @@ impl Term {
     /// the union is `|Set`. So this constructor keeps an element that occurs twice, as
     /// `Term::map` keeps a repeated key, and the repeat stays visible to definedness
     /// (`ceil_term` emits `\not(X = X)` for it), to matching (`FailReason::DuplicateKeys`) and
-    /// to the hooks (a hooked application with such an argument is `\bottom`). A caller that
+    /// to the hooks (a hooked application with such an argument is `\bottom`), and to the
+    /// simplifier, which reports the set as `\bottom` where it is built. A caller that
     /// builds a set from a collection that may repeat an element (`SET.list2set`) removes the
     /// repeats itself.
     pub fn set(
@@ -702,7 +714,10 @@ impl Term {
         {
             return rest;
         }
-        let attributes = combine_attributes(elements.iter().chain(rest.iter()));
+        let mut attributes = combine_attributes(elements.iter().chain(rest.iter()));
+        if elements.windows(2).any(|pair| pair[0] == pair[1]) {
+            mark_repeated_collection(&mut attributes);
+        }
         Self::new(
             TermKind::Set {
                 definition,
@@ -723,6 +738,26 @@ impl Term {
             .windows(2)
             .find(|pair| pair[0] == pair[1])
             .map(|pair| &pair[0])
+    }
+
+    /// The least key this internal map binds twice, with the same or a different value, if
+    /// any. Such a map is `\bottom` (`Term::map`); the entries are sorted, so a repeat is
+    /// adjacent.
+    pub(crate) fn repeated_map_key(&self) -> Option<&Self> {
+        let TermKind::Map { entries, .. } = self.kind() else {
+            return None;
+        };
+        entries
+            .windows(2)
+            .find(|pair| pair[0].0 == pair[1].0)
+            .map(|pair| &pair[0].0)
+    }
+
+    /// The least element (set) or key (map) this internal collection holds twice, if any: the
+    /// syntactic repeat that makes it `\bottom` (`Term::set`, `Term::map`).
+    pub(crate) fn repeated_collection_key(&self) -> Option<&Self> {
+        self.repeated_set_element()
+            .or_else(|| self.repeated_map_key())
     }
 
     pub fn kind(&self) -> &TermKind {
@@ -1179,8 +1214,8 @@ impl Term {
 /// the attribute is false for them. Distinctness of the keys themselves comes from the sorted
 /// order the constructors keep and a check here: `Term::set` sorts its elements and keeps a
 /// repeated one (concatenation is nilpotent, so the repeat makes the set `\bottom`); `Term::map`
-/// sorts its entries by `(key, value)` but deduplicates pairs, not keys, so `k |-> 1` and
-/// `k |-> 2` can both survive. Repeats are adjacent in both, and the attribute checks that
+/// sorts its entries by `(key, value)` and keeps a repeated key, with the same value or not
+/// (the map is `\bottom` then too). Repeats are adjacent in both, and the attribute checks that
 /// adjacent elements (keys) differ.
 /// Those constructor invariants and the order they rely on are checked by
 /// `tests/backend/term_order.rs` (`constructed_collections_are_sorted`,
@@ -1519,6 +1554,15 @@ fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttr
     combined
 }
 
+/// The attributes of a set that holds an element twice or a map that binds a key twice. Such a
+/// collection is `\bottom` (set and map concatenation are nilpotent on a shared element or key),
+/// so it is neither a constructor-like value nor a normal form: the simplifier must visit it,
+/// and its root step reports it as `\bottom` (`simplify::simplify_root`).
+fn mark_repeated_collection(attributes: &mut TermAttributes) {
+    attributes.evaluated = false;
+    attributes.constructor_like = false;
+}
+
 fn calculate_hash(kind: &TermKind) -> u64 {
     let mut hasher = FxHasher::default();
     kind.hash(&mut hasher);
@@ -1708,8 +1752,12 @@ mod tests {
         let TermKind::Map { entries, .. } = map.kind() else {
             panic!("expected an internal map")
         };
-        assert_eq!(entries.len(), 2);
-        assert!(entries.windows(2).all(|pair| pair[0] < pair[1]));
+        // An identical binding is kept too: a map binds a key once, so this map is bottom.
+        assert_eq!(entries.len(), 3);
+        assert!(entries.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(map.repeated_map_key(), Some(&one));
+        assert!(!map.attributes().ceil_free());
+        assert!(!map.attributes().evaluated);
 
         let set_definition = Arc::new(SetDefinition {
             symbols: collection_symbols(),
@@ -1725,8 +1773,11 @@ mod tests {
             panic!("expected an internal set")
         };
         // A repeated element is kept: set concatenation is nilpotent, so this set is bottom.
-        assert_eq!(elements, &[one.clone(), one, two]);
+        assert_eq!(elements, &[one.clone(), one.clone(), two]);
         assert!(!set.attributes().ceil_free());
+        assert_eq!(set.repeated_collection_key(), Some(&one));
+        assert!(!set.attributes().evaluated);
+        assert!(!set.attributes().constructor_like);
     }
 
     #[test]

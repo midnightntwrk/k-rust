@@ -147,7 +147,8 @@ pub struct Simplification {
     pub applied_rules: Vec<String>,
     pub effects: Vec<BuiltinEffect>,
     pub exhausted: Option<BudgetExhaustion>,
-    /// The innermost partial builtin application that evaluated to bottom.
+    /// The innermost partial builtin application that evaluated to bottom, or the innermost
+    /// set or map that holds an element or key twice (`simplify_root`).
     ///
     /// Rewrite execution uses this provenance to report the exact definedness
     /// obligation that made a successor empty. It is deliberately separate from
@@ -2975,6 +2976,30 @@ fn simplify_root(
     solver: &dyn SmtSolver,
     execution: Option<&mut ExecutionEvaluationContext>,
 ) -> Result<(Simplification, RootStep), SimplificationError> {
+    // A set holding an element twice, or a map binding a key twice (with the same value or
+    // not), is `\bottom`: concatenation of sets and of maps is defined only on disjoint
+    // elements and keys, and syntactically equal terms denote the same element on every
+    // instance. The constructors keep the repeat (`Term::set`, `Term::map`) and leave such a
+    // node unevaluated, so it reaches this root step wherever it was built (a rule's
+    // right-hand side, a function equation's result, a substitution), and it is reported here
+    // as `\bottom`, the way a builtin's undefined result is below. Elements that are not
+    // syntactically equal may still denote one element; that stays the definedness condition
+    // `ceil_term` states for the node. A `ceil_free` collection has pairwise distinct
+    // elements and keys, so only other collections are scanned.
+    if !term.attributes().ceil_free() && term.repeated_collection_key().is_some() {
+        return Ok((
+            Simplification {
+                term: term.clone(),
+                constraints: vec![Predicate::False],
+                applied_rules: Vec::new(),
+                effects: Vec::new(),
+                exhausted: None,
+                undefined_term: Some(term.clone()),
+                assumed: Vec::new(),
+            },
+            RootStep::Other,
+        ));
+    }
     let builtin = match execution {
         Some(execution) => evaluate_builtin_in_execution(term, definition, execution),
         None => evaluate_builtin(term, definition),

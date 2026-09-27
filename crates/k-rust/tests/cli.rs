@@ -6659,6 +6659,137 @@ fn set_concatenation_is_nilpotent_in_krun_and_kprove() {
     fs::remove_dir_all(root).unwrap();
 }
 
+const REPEATED_COLLECTION: &str = r#"
+module RCOL
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k> <s> .Set </s> <m> .Map </m>
+  syntax Pgm ::= "tset" | "tsetok" | "tmapsame" | "tmapdiff" | "tmapok" | "pmapsame"
+               | "rmapsame" | "done" | tsetS(Int) | dupS(Int)
+  syntax Set ::= tAdd(Set, Int) [function, total]
+               | tDup(Int) [function, total]
+  rule tAdd(S, I) => S SetItem(I)
+  rule tDup(I) => SetItem(I) SetItem(I)
+  syntax Map ::= tPut(Map, Int, Int) [function, total]
+               | pPut(Map, Int, Int) [function]
+  rule tPut(M, K, V) => M (K |-> V)
+  rule pPut(M, K, V) => M (K |-> V)
+  rule <k> tset => done </k> <s> _ => tAdd(SetItem(1), 1) </s>
+  rule <k> tsetok => done </k> <s> _ => tAdd(SetItem(1), 2) </s>
+  rule <k> tmapsame => done </k> <m> _ => tPut(1 |-> 2, 1, 2) </m>
+  rule <k> tmapdiff => done </k> <m> _ => tPut(1 |-> 2, 1, 3) </m>
+  rule <k> tmapok => done </k> <m> _ => tPut(1 |-> 2, 2, 2) </m>
+  rule <k> pmapsame => done </k> <m> _ => pPut(1 |-> 2, 1, 2) </m>
+  rule <k> rmapsame => done </k> <m> _ => (1 |-> 2) (1 |-> 2) </m>
+  rule <k> tsetS(I) => done </k> <s> _ => tAdd(SetItem(1), I) </s>
+  rule <k> dupS(I) => done </k> <s> _ => tDup(I) </s>
+endmodule
+"#;
+
+const REPEATED_COLLECTION_SPEC: &str = r#"
+requires "definition.k"
+module RCOL-SPEC
+  imports RCOL
+  claim [gnd]: <k> tsetS(1) => done </k> <s> _ => ?_ </s> <m> _ </m>
+  claim [gndok]: <k> tsetS(2) => done </k> <s> _ => ?_ </s> <m> _ </m>
+  claim [dup]: <k> dupS(_I) => done </k> <s> _ => ?_ </s> <m> _ </m>
+endmodule
+"#;
+
+/// A set that holds an element twice and a map that binds a key twice, with the same value or
+/// not, are `\bottom` where they are built: a rule's right-hand side, or the result of a function
+/// equation, `total` or not, as a builtin's undefined result is. `krun` ends in an undefined
+/// step and `kprove` fails the claim, on a ground repeat and on a symbolic one (`I` and `I`);
+/// disjoint collections are unchanged.
+#[test]
+fn a_repeated_set_element_or_map_key_is_bottom_where_it_is_built() {
+    let (root, definition) = fixture();
+    fs::write(&definition, REPEATED_COLLECTION).unwrap();
+    let run = |program: &str| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "krun",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "RCOL",
+                "--syntax-module",
+                "RCOL",
+                "-s",
+                "Pgm",
+                "--io",
+                "off",
+                "-e",
+                program,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{program}: {output:?}");
+        (
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    for program in ["tset", "tmapsame", "tmapdiff", "pmapsame", "rmapsame"] {
+        let (stdout, stderr) = run(program);
+        assert!(
+            stderr.contains("execution ended with no successor at depth 1")
+                && stderr.contains("applied with an undefined result"),
+            "{program}: {stderr}"
+        );
+        assert!(
+            stdout.contains("\\bottom{SortGeneratedTopCell{}}()"),
+            "{program}: {stdout}"
+        );
+    }
+    let int =
+        |value: u32| format!("inj{{SortInt{{}}, SortKItem{{}}}}(\\dv{{SortInt{{}}}}(\"{value}\"))");
+    let (stdout, stderr) = run("tsetok");
+    assert!(!stderr.contains("no successor"), "{stderr}");
+    assert!(
+        stdout.contains(&format!("LblSetItem{{}}({})", int(1)))
+            && stdout.contains(&format!("LblSetItem{{}}({})", int(2))),
+        "{stdout}"
+    );
+    let (stdout, stderr) = run("tmapok");
+    assert!(!stderr.contains("no successor"), "{stderr}");
+    assert!(
+        stdout.contains(&int(1)) && stdout.contains(&int(2)) && !stdout.contains("\\bottom"),
+        "{stdout}"
+    );
+
+    let spec = root.join("rcol-spec.k");
+    fs::write(&spec, REPEATED_COLLECTION_SPEC).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            spec.to_str().unwrap(),
+            "--main-module",
+            "RCOL-SPEC",
+            "--definition-module",
+            "RCOL",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(!output.status.success(), "{stdout}");
+    let verdict = |claim: &str| {
+        let prefix = format!("claim RCOL-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    assert_eq!(verdict("gnd"), "failed", "{stdout}");
+    assert_eq!(verdict("dup"), "failed", "{stdout}");
+    assert_eq!(verdict("gndok"), "proven", "{stdout}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {

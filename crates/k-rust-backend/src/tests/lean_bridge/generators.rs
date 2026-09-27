@@ -1,6 +1,7 @@
 //! Terms built only through the public constructors of `crate::term`, so that every generated
-//! value is one the constructors can produce: maps and sets sorted and deduplicated, collection
-//! rests flattened, injections of injections collapsed, `Int` values canonicalized.
+//! value is one the constructors can produce: maps and sets sorted (a repeated key or element
+//! is kept), collection rests flattened, injections of injections collapsed, `Int` values
+//! canonicalized.
 //!
 //! The alphabets are small, so that repeated symbols, k cells at several depths and macros in
 //! every position are frequent, and they vary every field the term model keeps: each symbol
