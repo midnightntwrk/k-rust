@@ -310,9 +310,14 @@ impl From<ObservationFailure> for ExecutionAdapterFailure {
     }
 }
 
-/// The bounded PathSet request. Strategy `all` is what makes a `Trivial` leaf an undefined step
-/// for each of its instances: under `any`, a rule the committed one excluded may still give such
-/// an instance a defined successor, so the bridge's reading of `Trivial` would not hold.
+/// The bounded PathSet request. Strategy `all` is what makes the leaves the whole path set: every
+/// instance's every successor is followed, so a `Trivial` leaf is an undefined step for each of
+/// its instances and the leaves cover the initial state. Under `any` a step gives an instance one
+/// successor, from the first rule of its highest applicable priority that is defined there
+/// (k-rust KK-73), so the events of the other successors are missing; and it follows one
+/// collection candidate per rule, so an instance matched only through another candidate may have
+/// a defined successor although its leaf is `Trivial`. Stop-at-branch, cut-point and terminal
+/// rules are off, so no leaf stops at a branch or a designated rule.
 fn request(state: serde_json::Value, budget: ExecutionBudget) -> ExecuteRequest {
     ExecuteRequest {
         state,

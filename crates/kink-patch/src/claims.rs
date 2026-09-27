@@ -27,6 +27,16 @@
 //! itself writes (a hypothesis that withdrawing would undo), and a lemma, whose removal
 //! would change the rule rather than the trust in it.
 //!
+//! A lemma's `ensures` is part of its claim: k-rust assumes it wherever the lemma applies,
+//! rather than reading it as a condition under which the rewritten term is defined.
+//!
+//! The lambdas k-rust generates for `#let` and `#fun` are not claims of the written definition.
+//! They are generated when the mutant is compiled, after the patch, and a lambda is declared
+//! `total` only when its pattern is a variable and its body is built from constructors, `total`
+//! functions and such lambdas (k-rust KK-71). Its claim is thus derived from the mutant's own
+//! body, and it rests on the claims of the functions that body calls, which this relation
+//! already withdraws when their support is touched.
+//!
 //! Withdrawing is sound: removing an axiom that holds only weakens the theory, and one that
 //! may not hold can no longer make it inconsistent. The withdrawn definition is an ordinary
 //! original-relative patch result: the patch's own edits and a `RemoveAttribute` per

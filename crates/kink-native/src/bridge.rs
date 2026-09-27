@@ -27,7 +27,9 @@
 //! the leaf instead ([`crate::execution::AdaptedLeaf::undefined_rule`]), and the report states it
 //! as the path's `undefined_rule`. That reading holds for
 //! ground and symbolic leaves alike. It needs strategy `all`, which the adapter always requests:
-//! under `any` another rule may give an instance of the leaf a defined successor.
+//! under `any` a step follows one collection candidate per rule, so another candidate may give an
+//! instance of the leaf a defined successor (k-rust KK-73 made `any` relative to the whole
+//! priority, which leaves only that difference).
 //! A `Trivial` leaf's key is its committed transitions followed by `undefined@N`, where `N`
 //! counts the earlier `Trivial` leaves after the same transitions, since one step can leave
 //! several undefined sub-cases.
