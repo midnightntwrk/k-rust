@@ -21,6 +21,17 @@
 //! Collection and hook-specific theories remain separate because they may produce more than one
 //! solution. This procedure handles the common syntactic theory, saturates bindings in both
 //! orientations, and retains irreducible functional equations as predicates.
+//!
+//! An equal-name application pair is decomposed into its argument pairs only when equal
+//! applications of the symbol have equal arguments on every instance: a constructor, a
+//! non-constructor symbol declared injective without the `anywhere` attribute, or an `anywhere`
+//! symbol whose two applications are both instance-normal (`instance_normal.rs`). An `anywhere`
+//! symbol's equations may identify applications with different arguments (`wrap(s(z)) =
+//! wrap(z)` makes `wrap(s(X)) = wrap(z)` true for `X = z`), so decomposing such a pair could
+//! turn a satisfiable equation into a false clash; it stays a residual equation instead. The
+//! conservative test also keeps an overload-greater `f(X) = f(Y)` as an equation rather than
+//! `X = Y`, which costs completeness, not soundness. Only constructor heads (and domain values
+//! and injections) clash as distinct rigid heads.
 
 use std::collections::VecDeque;
 
@@ -31,7 +42,7 @@ use crate::{
     matching::{InjectionEquality, match_injection_equality, occurs_below_only_constructors},
     rule::Predicate,
     substitution::{Substitution, compose, substitute},
-    term::{SymbolType, Term, TermKind, Variable},
+    term::{Symbol, SymbolType, Term, TermKind, Variable},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -62,7 +73,8 @@ pub enum UnificationFailure {
 /// Unify all `pairs` under an existing partial substitution.
 ///
 /// Bindings are symmetric: variables from either side may be solved. Rigid constructors and sort
-/// injections are decomposed, while opaque function equations are retained as constraints. AC
+/// injections are decomposed, as are equal `anywhere` heads whose applications are normal on
+/// every instance, while opaque function equations are retained as constraints. AC
 /// collections are returned as unsupported so their dedicated multi-solution solvers can run.
 pub fn unify_term_pairs(
     definition: &BackendDefinition,
@@ -195,8 +207,7 @@ impl Unifier<'_> {
                 },
             ) if left_symbol.name == right_symbol.name
                 && left_sorts == right_sorts
-                && (left_symbol.attributes.injective
-                    || left_symbol.attributes.symbol_type == SymbolType::Constructor) =>
+                && self.decomposable(left_symbol, &left, &right) =>
             {
                 if left_arguments.len() != right_arguments.len() {
                     return Err(UnificationFailure::DifferentSymbols(left, right));
@@ -251,6 +262,27 @@ impl Unifier<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// Whether an equal-name application pair may be replaced by its argument pairs.
+    ///
+    /// A constructor is free, so equal applications have equal arguments. A non-constructor
+    /// symbol declared injective has the same property unless it carries `anywhere`: an
+    /// `anywhere` symbol's equations may identify applications with different arguments, so its
+    /// applications are compared by argument only when both are normal forms on every instance
+    /// (`BackendDefinition::instance_normal`), where distinct arguments give distinct normal
+    /// forms and hence distinct values. Any other equal-name pair stays an equation.
+    fn decomposable(&self, symbol: &Symbol, left: &Term, right: &Term) -> bool {
+        if symbol.attributes.symbol_type == SymbolType::Constructor {
+            return true;
+        }
+        // Not `instance_normal_of_normal_form`: `run` substitutes the growing substitution into
+        // every popped pair (see `Unifier::run`), so even a caller's normalized input becomes a
+        // term no normalization has seen (`wrap(X)` with `X := s(z)` is the redex `wrap(s(z))`).
+        if symbol.attributes.anywhere {
+            return self.definition.instance_normal(left) && self.definition.instance_normal(right);
+        }
+        symbol.attributes.injective
     }
 
     fn bind(&mut self, variable: Variable, term: Term) -> Result<(), UnificationFailure> {
@@ -536,6 +568,199 @@ mod tests {
             unify_term_pairs(&definition, Substitution::new(), [(left, separate)]),
             UnificationResult::Bottom(UnificationFailure::DifferentSorts(_, _))
         ));
+    }
+
+    /// `wrap` is an `anywhere` production (injective as kompile emits it today) with the
+    /// equation `wrap(s(z)) = wrap(z)`, bound through `\in` as kompile emits it; `pair` is an
+    /// `anywhere` production without equations; `f` is a declared function.
+    fn anywhere_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                sort SortAddress{} []
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol f{}(SortNat{}) : SortNat{} [function{}(), total{}(), no-evaluators{}()]
+                symbol wrap{}(SortNat{}) : SortAddress{}
+                    [anywhere{}(), functional{}(), injective{}()]
+                symbol pair{}(SortNat{}, SortNat{}) : SortAddress{}
+                    [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+                axiom{R} \implies{R}(
+                    \and{R}(
+                        \top{R}(),
+                        \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+                    ),
+                    \equals{SortAddress{}, R}(
+                        wrap{}(X0:SortNat{}),
+                        \and{SortAddress{}}(wrap{}(z{}()), \top{SortAddress{}}())
+                    )
+                ) [label{}("collapse"), anywhere{}()]
+            endmodule []"#,
+        )
+        .expect("anywhere definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    fn anywhere_term(definition: &BackendDefinition, source: &str) -> Term {
+        definition
+            .internalize_term(
+                &k_rust_kore::kore::parser::parse_pattern(source).expect("term should parse"),
+                &[],
+            )
+            .expect("term should internalize")
+    }
+
+    fn unify_anywhere(left: &str, right: &str) -> UnificationResult {
+        let definition = anywhere_definition();
+        let left = anywhere_term(&definition, left);
+        let right = anywhere_term(&definition, right);
+        unify_term_pairs(&definition, Substitution::new(), [(left, right)])
+    }
+
+    /// `X = z` makes `wrap(s(X))` equal to `wrap(z)` through the equation, so the pair must stay
+    /// an equation rather than clash `s(X)` with `z`.
+    #[test]
+    fn keeps_an_anywhere_pair_an_equation_may_identify() {
+        let left = "wrap{}(s{}(X:SortNat{}))";
+        let right = "wrap{}(z{}())";
+        let UnificationResult::Unified(result) = unify_anywhere(left, right) else {
+            panic!(
+                "an instance of wrap(s(X)) equals wrap(z): {:?}",
+                unify_anywhere(left, right)
+            );
+        };
+        let definition = anywhere_definition();
+        assert!(result.substitution.is_empty(), "{result:?}");
+        assert_eq!(
+            result.constraints,
+            [Predicate::Equals(
+                anywhere_term(&definition, left),
+                anywhere_term(&definition, right)
+            )]
+        );
+    }
+
+    /// No instance of `wrap(s(s(X)))` matches the equation `wrap(s(z))`, so every instance is a
+    /// normal form distinct from `wrap(z)`.
+    #[test]
+    fn refutes_an_anywhere_pair_no_equation_reaches() {
+        assert!(matches!(
+            unify_anywhere("wrap{}(s{}(s{}(X:SortNat{})))", "wrap{}(z{}())"),
+            UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
+        ));
+    }
+
+    /// A ground application no equation reaches is refuted by the scan.
+    #[test]
+    fn refutes_ground_anywhere_applications_no_equation_reaches() {
+        assert!(matches!(
+            unify_anywhere("wrap{}(s{}(s{}(z{}())))", "wrap{}(z{}())"),
+            UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
+        ));
+    }
+
+    /// The ground `wrap(s(z))` is concrete after normalization but is the equation's redex, and
+    /// equals `wrap(z)`: unification must not refute it, whether it arrives ground or is built
+    /// by the unifier's own substitution (`X := s(z)` into `wrap(X)`).
+    #[test]
+    fn keeps_a_ground_anywhere_redex_an_equation() {
+        let result = unify_anywhere("wrap{}(s{}(z{}()))", "wrap{}(z{}())");
+        let UnificationResult::Unified(unified) = &result else {
+            panic!("wrap(s(z)) equals wrap(z): {result:?}");
+        };
+        assert_eq!(unified.constraints.len(), 1, "{result:?}");
+
+        let definition = anywhere_definition();
+        let pairs = [
+            (
+                anywhere_term(&definition, "X:SortNat{}"),
+                anywhere_term(&definition, "s{}(z{}())"),
+            ),
+            (
+                anywhere_term(&definition, "wrap{}(X:SortNat{})"),
+                anywhere_term(&definition, "wrap{}(z{}())"),
+            ),
+        ];
+        let result = unify_term_pairs(&definition, Substitution::new(), pairs);
+        let UnificationResult::Unified(unified) = &result else {
+            panic!("X = s(z) and wrap(X) = wrap(z) are satisfiable: {result:?}");
+        };
+        assert_eq!(unified.constraints.len(), 1, "{result:?}");
+    }
+
+    /// Instance-normal applications of an equal `anywhere` head decompose into their arguments.
+    #[test]
+    fn decomposes_instance_normal_anywhere_applications() {
+        let UnificationResult::Unified(result) = unify_anywhere(
+            "pair{}(X:SortNat{}, s{}(s{}(Y:SortNat{})))",
+            "pair{}(z{}(), s{}(s{}(z{}())))",
+        ) else {
+            panic!("pair has no equations and should decompose");
+        };
+        let definition = anywhere_definition();
+        assert!(result.constraints.is_empty(), "{result:?}");
+        assert_eq!(
+            result.substitution[&Variable::new("X", Sort::simple("SortNat"))],
+            anywhere_term(&definition, "z{}()")
+        );
+        assert_eq!(
+            result.substitution[&Variable::new("Y", Sort::simple("SortNat"))],
+            anywhere_term(&definition, "z{}()")
+        );
+        assert!(matches!(
+            unify_anywhere(
+                "pair{}(X:SortNat{}, z{}())",
+                "pair{}(Y:SortNat{}, s{}(Y:SortNat{}))"
+            ),
+            UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
+        ));
+    }
+
+    /// A function argument is not instance-normal: `f(X)` may evaluate to `s(z)`, so neither
+    /// `wrap(f(X))` nor `pair(f(X), z)` exposes its arguments to a clash.
+    #[test]
+    fn keeps_anywhere_pairs_over_function_arguments_as_equations() {
+        for (left, right) in [
+            ("wrap{}(f{}(X:SortNat{}))", "wrap{}(z{}())"),
+            (
+                "pair{}(f{}(X:SortNat{}), z{}())",
+                "pair{}(z{}(), s{}(z{}()))",
+            ),
+        ] {
+            let result = unify_anywhere(left, right);
+            let UnificationResult::Unified(result) = &result else {
+                panic!("{left} = {right} should stay an equation: {result:?}");
+            };
+            assert_eq!(result.constraints.len(), 1, "{result:?}");
+        }
+    }
+
+    /// A variable argument is instance-normal, but the equation `wrap(s(z))` matches the
+    /// instance `X = s(z)`, so `wrap(X) = wrap(Y)` is not `X = Y`.
+    #[test]
+    fn keeps_an_anywhere_pair_over_variables_an_equation_matches() {
+        let UnificationResult::Unified(result) =
+            unify_anywhere("wrap{}(X:SortNat{})", "wrap{}(Y:SortNat{})")
+        else {
+            panic!("wrap(X) = wrap(Y) should stay an equation");
+        };
+        assert!(result.substitution.is_empty(), "{result:?}");
+        assert_eq!(result.constraints.len(), 1, "{result:?}");
+    }
+
+    #[test]
+    fn keeps_constructor_pairs_unchanged_beside_anywhere_symbols() {
+        assert!(matches!(
+            unify_anywhere("s{}(X:SortNat{})", "z{}()"),
+            UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
+        ));
+        let UnificationResult::Unified(result) = unify_anywhere("s{}(X:SortNat{})", "s{}(z{}())")
+        else {
+            panic!("s(X) = s(z) should unify");
+        };
+        assert!(result.constraints.is_empty(), "{result:?}");
+        assert_eq!(result.substitution.len(), 1, "{result:?}");
     }
 
     #[test]

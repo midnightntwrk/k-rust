@@ -162,6 +162,11 @@ The public-path [symbolic definedness tests](../crates/k-rust/tests/symbolic_def
 `ExecutionResult.effects` holds the transcript only when exactly one leaf remains, which under `path-set` means one explored path.
 The CLI and KORE RPC `execute` produce state-set results.
 A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
+A `stuck` leaf with term `t` and constraint `phi` asserts that no instance `sigma(t)` has a rewrite successor under the definition when `sigma` assigns every free variable of `t` and `phi` a ground term of its declared sort and satisfies `phi` under the definition.
+The assertion ranges over all such substitutions, not only the ground terms a client enumerates or the models a solver finds, and it does not assert that any satisfying instance exists.
+It holds under both execution strategies and with or without an SMT solver; when rule applicability or a symbolic remainder cannot be decided, the leaf is `indeterminate` with a reason instead of `stuck`.
+`--search-final` reports a state after a `Stuck` step under the same assertion; a search frontier or incomplete search result does not assert finality.
+Proof certification uses the same assertion for a stuck leaf and handles non-emptiness separately.
 Strategy `any` commits the first applicable rule of a step and makes no coverage claim, but it keeps that rule's right-hand-side alternatives and passes a symbolic remainder to later rules, so it can produce several leaves; `result_modality` applies to whatever leaves it produces, and the two readings coincide whenever no two of those leaves share a configuration.
 With `stop_at_branch`, execution stops at the first branch point and reports its successors inside the branch halt.
 For the same request, `Backend::execute` and `Backend::execute_observed` return leaves in the same order, equal in every field except `branch` and `observations`.

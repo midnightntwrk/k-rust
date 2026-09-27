@@ -209,6 +209,8 @@ fn solve_term_pair(
         Some(definition),
         &pattern,
         &subject,
+        // A collection element is never the root an equation is tried on.
+        false,
     ) {
         MatchResult::Success(found) => PairSolution::Solved(vec![CollectionSolution {
             substitution: compose(&found, &solution.substitution),
@@ -320,6 +322,8 @@ fn recover_rewrite_candidate(
             Some(definition),
             &pattern,
             &subject,
+            // A collection element is never the root an equation is tried on.
+            false,
         ) {
             MatchResult::Success(found) => {
                 *substitution = compose(&found, substitution);
@@ -353,6 +357,8 @@ fn solve_list_pair(
         Some(definition),
         pattern,
         subject,
+        // A collection element is never the root an equation is tried on.
+        false,
     ) {
         MatchResult::Success(found) => {
             solution.substitution = compose(&found, &solution.substitution);

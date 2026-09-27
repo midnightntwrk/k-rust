@@ -229,6 +229,8 @@ pub struct ExecutionRemainderOutput {
 #[serde(rename_all = "kebab-case")]
 pub enum HaltReasonOutput {
     Cancelled,
+    /// No ground instance satisfying the leaf's constraint has a rewrite successor.
+    /// This does not assert that a satisfying instance exists.
     Stuck,
     Trivial,
     Vacuous,
@@ -237,6 +239,7 @@ pub enum HaltReasonOutput {
     Terminal,
     DepthBound,
     BreadthBound,
+    /// Rule applicability or a remainder could not be decided; no stuckness claim is made.
     Indeterminate,
     UnsupportedHook,
     SimplificationError,

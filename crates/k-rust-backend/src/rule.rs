@@ -2,15 +2,19 @@
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
 //! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "first_with_k_cell", "find_k_cells"]
-//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
+//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key for rigid subjects, or all rules for a non-rigid subject; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 //! counters = []
 //! span = "per call"
 //! no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
 //! lean = ["KRust.TermAttributes.rule_index_same"]
 //!
 //! [[cost]]
-//! mode = "one subject"
+//! mode = "rigid subject"
 //! bound = "O(log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
+//!
+//! [[cost]]
+//! mode = "non-rigid subject"
+//! bound = "O(k log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
 //!
 //! [[cost]]
 //! mode = "subject_index"
@@ -20,15 +24,18 @@
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
 //! rewrite rules additionally filter by the head of their `<k>` cell and by the item after it
 //! (the frozen context a cooling rule waits for). Candidate count is the old
-//! exact-symbol then variable-symbol sequence filtered by `rule.index.covers(subject_index)`, so
-//! priority and declaration order remain unchanged. Selection costs O(log k) index lookups plus
-//! one `covers` check per rule stored under the subject's key and the `Variable` key;
+//! exact-symbol then variable-symbol sequence for rigid subjects, or every term-index bucket for
+//! non-rigid subjects, filtered by `rule.index.covers(subject_index)`. Selection costs O(log k)
+//! index lookups plus one `covers` check per rule in the selected buckets;
 //! `Counter::RewriteRuleAttempts` is bumped by the caller per candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions,
-//! associative or idempotent heads, subject-side `anywhere` heads, and `anywhere` heads in the
-//! item after the head. A rigid overloaded head is `Overloaded`, which covers only `Overloaded`,
-//! `Anywhere` and `Anything`; a rule's non-overloaded `anywhere` head is `Anywhere`. It strips
+//! associative or idempotent heads, subject-side `anywhere` heads that are not overloaded or
+//! not instance-normal, and `anywhere` heads in the item after the head. A rigid overloaded
+//! head is `Overloaded`, which covers only `Overloaded`, `Anywhere` and `Anything`; on the
+//! subject side an overloaded `anywhere` head is rigid only when it is instance-normal
+//! (`BackendDefinition::instance_normal`), since an equation may give an instance of any other
+//! application another head. A rule's non-overloaded `anywhere` head is `Anywhere`. It strips
 //! injections and meets conjunctions (`CellIndex::meet`); `None`, two distinct rigid
 //! conjuncts, covers only `Anything`. These
 //! conservative cases correspond to the matcher's overload, AC, variable, injection, and
@@ -53,6 +60,7 @@ use k_rust_kore::names::{KoreAttribute, MalformedAttribute, WellKnownSymbol};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError, SubsortValidation},
+    matching::rewrite_rigid_subject,
     substitution::{Substitution, substitute},
     term::{Name, SymbolType, Term, TermKind, Variable, names::VariableProvenance},
 };
@@ -236,7 +244,8 @@ pub enum CellIndex {
     Constructor(Name),
     /// A head in some `symbol-overload` relation that the rewrite matcher treats as rigid in
     /// the term the key is computed from: a constructor, or a production with `anywhere`
-    /// equations that is not a declared function. Overload resolution may lift it to another
+    /// equations that is not a declared function (on the subject side, in an instance-normal
+    /// application only). Overload resolution may lift it to another
     /// production of its relation. An `anywhere` head is rigid only in that term: simplifying
     /// the term (a remainder under a stronger path condition) may rewrite it to any
     /// constructor, so a key computed from one term must not select rules for its simplified
@@ -1359,6 +1368,18 @@ pub fn insert_rewrite_theory(theory: &mut RewriteTheory, rule: RewriteRule, inde
 }
 
 pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
+    index_of(definition, term, KeySide::Rule)
+}
+
+/// The side of the matcher a key is computed for: a rule's left-hand side, matched as written,
+/// or a subject, whose `anywhere` applications denote the values of their normal forms.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum KeySide {
+    Rule,
+    Subject,
+}
+
+fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleIndex {
     // The index keys on the one `<k>` cell not nested in a `<k>` cell, and on nothing when there
     // are none or several. The stored count, saturated at 2, says which case holds, and the cell
     // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
@@ -1375,10 +1396,12 @@ pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
     // Any other tail (`.K`, a variable, a function) keys nothing.
     let head = cell
         .and_then(k_cell_head)
-        .map_or(CellIndex::Anything, |head| cell_index(definition, head));
+        .map_or(CellIndex::Anything, |head| {
+            cell_index(definition, head, side)
+        });
     let next = match cell
         .and_then(k_cell_next)
-        .map(|next| cell_index(definition, next))
+        .map(|next| cell_index(definition, next, side))
     {
         None | Some(CellIndex::Anywhere(_)) => CellIndex::Anything,
         Some(next) => next,
@@ -1386,14 +1409,14 @@ pub fn rule_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
     RuleIndex(vec![head, next])
 }
 
+/// The keys of a subject. They differ from [`rule_index`] only at `anywhere` applications that
+/// are not declared functions: such a head is `Overloaded` when it is overloaded and
+/// instance-normal, the case in which the matcher refutes it against a rigid head outside its
+/// overload relation (`matching::rewrite_rigid_subject`), and `Anything` otherwise. An
+/// application that is not instance-normal may denote a value with any head an equation of its
+/// production produces, so it keys nothing.
 pub fn subject_index(definition: &BackendDefinition, term: &Term) -> RuleIndex {
-    let mut index = rule_index(definition, term);
-    for cell in &mut index.0 {
-        if matches!(cell, CellIndex::Anywhere(_)) {
-            *cell = CellIndex::Anything;
-        }
-    }
-    index
+    index_of(definition, term, KeySide::Subject)
 }
 
 /// The first `<k>` cell of `term` not nested in a `<k>` cell, in the order of `find_k_cells`, or
@@ -1553,11 +1576,11 @@ fn k_cell_next(cell: &Term) -> Option<&Term> {
     }
 }
 
-fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
+fn cell_index(definition: &BackendDefinition, term: &Term, side: KeySide) -> CellIndex {
     match term.kind() {
-        TermKind::Injection { term, .. } => cell_index(definition, term),
+        TermKind::Injection { term, .. } => cell_index(definition, term, side),
         TermKind::And(left, right) => {
-            cell_index(definition, left).meet(cell_index(definition, right))
+            cell_index(definition, left, side).meet(cell_index(definition, right, side))
         }
         TermKind::Variable(_) => CellIndex::Anything,
         TermKind::Application { symbol, .. }
@@ -1573,9 +1596,14 @@ fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
         TermKind::Application { symbol, .. }
             if definition.overloads.is_overloaded(&symbol.name) =>
         {
-            if symbol.attributes.symbol_type == SymbolType::Constructor
-                || (symbol.attributes.anywhere && !symbol.attributes.declared_function)
-            {
+            let rigid = match side {
+                KeySide::Rule => {
+                    symbol.attributes.symbol_type == SymbolType::Constructor
+                        || (symbol.attributes.anywhere && !symbol.attributes.declared_function)
+                }
+                KeySide::Subject => rewrite_rigid_subject(definition, term),
+            };
+            if rigid {
                 CellIndex::Overloaded
             } else {
                 CellIndex::Anything
@@ -1583,10 +1611,15 @@ fn cell_index(definition: &BackendDefinition, term: &Term) -> CellIndex {
         }
         TermKind::Application { symbol, .. } => match symbol.attributes.symbol_type {
             SymbolType::Constructor => CellIndex::Constructor(symbol.name.clone()),
+            // A subject's non-overloaded `anywhere` head keys nothing, whether or not it is
+            // instance-normal: only a rule's key uses `Anywhere`.
             SymbolType::Function(_)
                 if symbol.attributes.anywhere && !symbol.attributes.declared_function =>
             {
-                CellIndex::Anywhere(symbol.name.clone())
+                match side {
+                    KeySide::Rule => CellIndex::Anywhere(symbol.name.clone()),
+                    KeySide::Subject => CellIndex::Anything,
+                }
             }
             // The rewrite matcher evaluates or defers a function application; it refutes it
             // against no head.
@@ -1648,18 +1681,31 @@ pub(crate) fn applicable_groups(
     groups
 }
 
+/// Rewrite candidates in priority order. A subject whose top can instantiate to another head
+/// sees every term-index bucket; rigid subjects keep the top-symbol and variable lookup.
+/// Within a priority, the subject's bucket precedes `Variable`, then the remaining buckets
+/// follow `TermIndex` order. Cell keys still filter each bucket.
 pub fn applicable_rewrite_groups(
-    theory: &RewriteTheory,
-    index: &TermIndex,
+    definition: &BackendDefinition,
+    term: &Term,
     subject: &RuleIndex,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
     let _span = measure::algorithm_span(Algorithm::BackendRuleSelect);
+    let theory = &definition.rewrite_theory;
     let mut groups = BTreeMap::new();
-    let covered = if index == &TermIndex::Variable {
-        vec![index]
-    } else {
-        vec![index, &TermIndex::Variable]
-    };
+    let index = term_index(term);
+    let rigid = crate::matching::rewrite_rigid_subject(definition, term);
+    let mut covered = vec![&index];
+    if index != TermIndex::Variable {
+        covered.push(&TermIndex::Variable);
+    }
+    if !rigid {
+        covered.extend(
+            theory
+                .keys()
+                .filter(|key| **key != index && **key != TermIndex::Variable),
+        );
+    }
     for covered in covered {
         if let Some(found) = theory.get(covered) {
             for (priority, rules) in found {

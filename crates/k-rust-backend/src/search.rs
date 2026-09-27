@@ -101,7 +101,8 @@ pub use crate::transition::{PatternDigest, TransitionId};
 pub enum SearchType {
     /// Configurations reached in exactly one semantic rewrite step.
     One,
-    /// Configurations which cannot be rewritten further.
+    /// Configurations whose `Stuck` step has no successor for any ground instance satisfying
+    /// the state's constraints. A depth bound is reported as an incomplete frontier instead.
     Final,
     /// Every reachable configuration, including the initial configuration.
     Star,
