@@ -3305,6 +3305,16 @@ fn prepared_artifact_directory(path: &Path) -> PathBuf {
     }
 }
 
+fn kprove_solver_error(error: BackendError) -> io::Error {
+    io::Error::other(
+        if error.0 == "could not initialize Z3: InconsistentPrelude" {
+            "the definitions sent to the solver are inconsistent".to_owned()
+        } else {
+            error.to_string()
+        },
+    )
+}
+
 fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let _trace = start_trace(options.trace.as_deref(), options.trace_aggregate.as_deref())?;
     let started = Instant::now();
@@ -3381,15 +3391,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         },
         smt_prelude,
     )
-    .map_err(|error| {
-        io::Error::other(
-            if error.0 == "could not initialize Z3: InconsistentPrelude" {
-                "the definitions sent to the solver are inconsistent".to_owned()
-            } else {
-                error.to_string()
-            },
-        )
-    })?;
+    .map_err(kprove_solver_error)?;
 
     timings.proof_setup_seconds = setup_started.elapsed().as_secs_f64();
     drop(setup_phase);
@@ -3435,16 +3437,18 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             step_timeout: options.step_timeout,
             moving_average_timeout: options.moving_average_timeout,
         };
-        let result = backend.with_solver(None, |definition, solver| {
-            k_rust::backend::proving::run_claim(
-                definition,
-                claim,
-                &circularities,
-                proof_options,
-                solver,
-            )
-            .map_err(|error| BackendError(format!("could not prove claim: {error:?}")))
-        })?;
+        let result = backend
+            .with_solver(None, |definition, solver| {
+                k_rust::backend::proving::run_claim(
+                    definition,
+                    claim,
+                    &circularities,
+                    proof_options,
+                    solver,
+                )
+                .map_err(|error| BackendError(format!("could not prove claim: {error:?}")))
+            })
+            .map_err(kprove_solver_error)?;
         let seconds = started.elapsed().as_secs_f64();
         timings.proof_seconds += seconds;
         timings.claims.push(ClaimTiming {

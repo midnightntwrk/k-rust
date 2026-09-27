@@ -3410,17 +3410,32 @@ mod tests {
             endmodule []"#,
         )
         .unwrap();
-        let error = Backend::from_definition(syntax, "MAIN", BackendOptions::default())
-            .err()
-            .expect("contradictory SMT lemmas must reject the solver");
-        let fault = RpcFault::from(error).into_value(json!(1));
+        let mut service = RpcService {
+            backend: Backend::from_definition(syntax, "MAIN", BackendOptions::default())
+                .expect("an unused SMT prelude does not affect initialization"),
+        };
+        let zero_query = request(
+            &mut service,
+            0,
+            "get-model",
+            json!({ "state": encode_kore(&parse_pattern(r#"\dv{SortInt{}}("1")"#).unwrap()).unwrap() }),
+        );
+        assert_eq!(zero_query["result"]["satisfiable"], "Unknown");
+        let state = encode_kore(
+            &parse_pattern(
+                r#"\equals{SortInt{}, SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let fault = request(&mut service, 1, "get-model", json!({ "state": state }));
 
         assert_eq!(fault["error"]["code"], -32002, "{fault:#}");
         assert_eq!(fault["error"]["message"], "Runtime error", "{fault:#}");
         assert!(
             fault["error"]["data"]["error"]
                 .as_str()
-                .is_some_and(|error| !error.is_empty()),
+                .is_some_and(|error| error == "could not initialize Z3: InconsistentPrelude"),
             "{fault:#}"
         );
         assert!(fault["error"]["data"].get("term").is_none(), "{fault:#}");

@@ -2171,6 +2171,16 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/smt/z3.rs"
 symbol = "Z3Solver::solve_model"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::confirm_answer"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::check_prelude"
+
 [[node.cost]]
 mode = "cache hit"
 bound = "O(L x log E) for the key comparison, after an O(L) copy of the base script in solve_query"
@@ -2178,6 +2188,10 @@ bound = "O(L x log E) for the key comparison, after an O(L) copy of the base scr
 [[node.cost]]
 mode = "cache insertion"
 bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
+
+[[node.cost]]
+mode = "prelude consistency"
+bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
 
 [[node]]
 kind = "algorithm"

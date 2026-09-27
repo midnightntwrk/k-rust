@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.smt.cache"
 //! name = "bounded FIFO memoization of SMT query scripts"
-//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache", "Z3Solver::solve_model"]
+//! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache", "Z3Solver::solve_model", "Z3Solver::confirm_answer", "Z3Solver::check_prelude"]
 //! variable = "e = entries evicted; E = cached entries; L = script length in bytes"
 //! counters = ["SmtQueries", "SmtSolverRuns"]
 //! span = "per call"
@@ -14,14 +14,19 @@
 //! [[cost]]
 //! mode = "cache insertion"
 //! bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
+//!
+//! [[cost]]
+//! mode = "prelude consistency"
+//! bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
 //! ```
 //!
 //! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
-//! `Counter::SmtSolverRuns` out (the constructor's prelude check and the model path count solver
+//! `Counter::SmtSolverRuns` out (the lazy prelude check and the model path count solver
 //! runs without a query), O(L x log E) per hit for a script of L bytes among E cached entries,
 //! eviction pops the oldest entry until the entry and key-byte limits admit the new key. A solver
-//! is constructed per run, which is the visible cost in the IMP proof profile and the next
-//! measurable step.
+//! is constructed per uncached query. Construction does not create a Z3 context; a satisfiable
+//! query establishes prelude consistency, while the first unsatisfiable answer requires one
+//! explicit prelude check.
 //! A validity check (`decide_validity`) issues a positive subquery, then a negative or a base
 //! subquery, and a third on the unknown path; each subquery goes through the cache.
 
@@ -72,12 +77,20 @@ pub struct Z3Solver {
     prelude: SmtPrelude,
     options: Z3Options,
     result_cache: Arc<Mutex<SolverResultCache>>,
+    prelude_state: Arc<Mutex<PreludeState>>,
     #[cfg(test)]
     uncached_solve_count: Arc<AtomicUsize>,
 }
 
 const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
 const RESULT_CACHE_KEY_BYTE_LIMIT: usize = 8 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+enum PreludeState {
+    Unchecked,
+    Consistent,
+    Failed(SmtError),
+}
 
 #[derive(Debug)]
 struct SolverResultCache {
@@ -165,13 +178,83 @@ impl Z3Solver {
                 RESULT_CACHE_ENTRY_LIMIT,
                 RESULT_CACHE_KEY_BYTE_LIMIT,
             ))),
+            prelude_state: Arc::new(Mutex::new(PreludeState::Unchecked)),
             #[cfg(test)]
             uncached_solve_count: Arc::new(AtomicUsize::new(0)),
         };
-        match solver.solve_uncached(&solver.prelude.declarations().join("\n")) {
-            Satisfiability::Sat => Ok(solver),
-            Satisfiability::Unsat => Err(SmtError::InconsistentPrelude),
-            Satisfiability::Unknown(reason) => Err(SmtError::UnknownPrelude(reason)),
+        Ok(solver)
+    }
+
+    pub fn prelude_failure(&self) -> Option<SmtError> {
+        let state = self
+            .prelude_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state {
+            PreludeState::Failed(error) => Some(error.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn check_prelude(&self) -> Result<(), SmtError> {
+        let mut state = self
+            .prelude_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match &*state {
+            PreludeState::Consistent => return Ok(()),
+            PreludeState::Failed(error) => return Err(error.clone()),
+            PreludeState::Unchecked => {}
+        }
+        // Invariant: the lock covers the solve and state transition, so only one thread
+        // checks the prelude and no unsatisfiable answer can pass a concurrent failed check.
+        if cancellation_requested() {
+            return Err(SmtError::Unknown("request cancelled".into()));
+        }
+        let result = self.solve_uncached(&self.prelude.declarations().join("\n"));
+        if cancellation_requested() {
+            return Err(SmtError::Unknown("request cancelled".into()));
+        }
+        *state = match result {
+            Satisfiability::Sat => PreludeState::Consistent,
+            Satisfiability::Unsat => PreludeState::Failed(SmtError::InconsistentPrelude),
+            Satisfiability::Unknown(reason) => {
+                PreludeState::Failed(SmtError::UnknownPrelude(reason))
+            }
+        };
+        match &*state {
+            PreludeState::Consistent => Ok(()),
+            PreludeState::Failed(error) => Err(error.clone()),
+            PreludeState::Unchecked => unreachable!("the check records a result"),
+        }
+    }
+
+    fn confirm_answer(&self, result: Satisfiability) -> Result<Satisfiability, SmtError> {
+        match result {
+            Satisfiability::Sat => {
+                let mut state = self
+                    .prelude_state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                match &*state {
+                    PreludeState::Failed(error) => Err(error.clone()),
+                    _ => {
+                        *state = PreludeState::Consistent;
+                        Ok(Satisfiability::Sat)
+                    }
+                }
+            }
+            Satisfiability::Unsat => {
+                self.check_prelude()?;
+                Ok(Satisfiability::Unsat)
+            }
+            Satisfiability::Unknown(reason) => {
+                if let Some(error) = self.prelude_failure() {
+                    Err(error)
+                } else {
+                    Ok(Satisfiability::Unknown(reason))
+                }
+            }
         }
     }
 
@@ -231,14 +314,21 @@ impl Z3Solver {
         unreachable!("the retry loop always returns")
     }
 
-    fn solve_query(&self, query: &TranslatedQuery, assertion: Option<&str>) -> Satisfiability {
+    fn solve_query(
+        &self,
+        query: &TranslatedQuery,
+        assertion: Option<&str>,
+    ) -> Result<Satisfiability, SmtError> {
         let mut script = query.base.clone();
         if let Some(assertion) = assertion {
             script.push_str("\n(assert ");
             script.push_str(assertion);
             script.push(')');
         }
-        self.solve(&script)
+        if let Some(error) = self.prelude_failure() {
+            return Err(error);
+        }
+        self.confirm_answer(self.solve(&script))
     }
 
     fn solve_model(
@@ -247,6 +337,9 @@ impl Z3Solver {
         variables: &BTreeSet<Variable>,
     ) -> Result<ModelResult, SmtError> {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
+        if let Some(error) = self.prelude_failure() {
+            return Err(error);
+        }
         let mut timeout = self.options.timeout_ms;
         for attempt in 0..=self.options.retry_limit {
             if cancellation_requested() {
@@ -260,19 +353,23 @@ impl Z3Solver {
             solver.from_string(query.base.as_str());
             match solver.check() {
                 SatResult::Sat => {
+                    self.confirm_answer(Satisfiability::Sat)?;
                     let model = solver.get_model().ok_or(SmtError::MissingModel)?;
                     return self.extract_model(&model, &query.mappings, variables);
                 }
-                SatResult::Unsat => return Ok(ModelResult::Unsat),
+                SatResult::Unsat => {
+                    self.confirm_answer(Satisfiability::Unsat)?;
+                    return Ok(ModelResult::Unsat);
+                }
                 SatResult::Unknown if attempt < self.options.retry_limit => {
                     timeout = timeout.saturating_mul(2);
                 }
                 SatResult::Unknown => {
-                    return Ok(ModelResult::Unknown(
-                        solver
-                            .get_reason_unknown()
-                            .unwrap_or_else(|| "Z3 returned unknown".into()),
-                    ));
+                    let reason = solver
+                        .get_reason_unknown()
+                        .unwrap_or_else(|| "Z3 returned unknown".into());
+                    self.confirm_answer(Satisfiability::Unknown(reason.clone()))?;
+                    return Ok(ModelResult::Unknown(reason));
                 }
             }
         }
@@ -339,29 +436,31 @@ enum ValiditySubquery {
     Negative,
 }
 
-fn decide_validity(mut solve: impl FnMut(ValiditySubquery) -> Satisfiability) -> Validity {
-    match solve(ValiditySubquery::Positive) {
-        Satisfiability::Sat => match solve(ValiditySubquery::Negative) {
+fn decide_validity(
+    mut solve: impl FnMut(ValiditySubquery) -> Result<Satisfiability, SmtError>,
+) -> Result<Validity, SmtError> {
+    Ok(match solve(ValiditySubquery::Positive)? {
+        Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
             Satisfiability::Unsat => Validity::Valid,
             Satisfiability::Sat => Validity::Indeterminate,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
-        Satisfiability::Unsat => match solve(ValiditySubquery::Base) {
+        Satisfiability::Unsat => match solve(ValiditySubquery::Base)? {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
             Satisfiability::Sat => Validity::Invalid,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
-        Satisfiability::Unknown(positive_reason) => match solve(ValiditySubquery::Base) {
+        Satisfiability::Unknown(positive_reason) => match solve(ValiditySubquery::Base)? {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
-            Satisfiability::Sat => match solve(ValiditySubquery::Negative) {
+            Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
                 Satisfiability::Unsat => Validity::Valid,
                 Satisfiability::Sat | Satisfiability::Unknown(_) => {
                     Validity::Unknown(positive_reason)
                 }
             },
         },
-    }
+    })
 }
 
 impl SmtSolver for Z3Solver {
@@ -370,8 +469,11 @@ impl SmtSolver for Z3Solver {
         predicates: &[Predicate],
         substitution: &Substitution,
     ) -> Result<Satisfiability, SmtError> {
+        if let Some(error) = self.prelude_failure() {
+            return Err(error);
+        }
         let query = self.prelude.query(predicates, substitution, &[], false)?;
-        Ok(self.solve_query(&query, None))
+        self.solve_query(&query, None)
     }
 
     fn check_predicates(
@@ -380,18 +482,21 @@ impl SmtSolver for Z3Solver {
         substitution: &Substitution,
         checked: &[Predicate],
     ) -> Result<Validity, SmtError> {
+        if let Some(error) = self.prelude_failure() {
+            return Err(error);
+        }
         if checked.is_empty() {
             return Ok(Validity::Valid);
         }
         let query = self.prelude.query(known, substitution, checked, true)?;
         let checked = query.checked.to_string();
-        Ok(decide_validity(|subquery| match subquery {
+        decide_validity(|subquery| match subquery {
             ValiditySubquery::Base => self.solve_query(&query, None),
             ValiditySubquery::Positive => self.solve_query(&query, Some(&checked)),
             ValiditySubquery::Negative => {
                 self.solve_query(&query, Some(&format!("(not {checked})")))
             }
-        }))
+        })
     }
 
     fn get_model(
@@ -399,6 +504,9 @@ impl SmtSolver for Z3Solver {
         predicates: &[Predicate],
         substitution: &Substitution,
     ) -> Result<ModelResult, SmtError> {
+        if let Some(error) = self.prelude_failure() {
+            return Err(error);
+        }
         if predicates.is_empty() && substitution.is_empty() {
             return Ok(ModelResult::Sat(Substitution::new()));
         }
@@ -744,10 +852,21 @@ mod tests {
         let definition =
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
 
-        assert!(matches!(
-            Z3Solver::new(&definition),
+        let solver = Z3Solver::new(&definition).unwrap();
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            solver.is_sat(&[], &Substitution::new()),
             Err(SmtError::InconsistentPrelude)
-        ));
+        );
+        assert_eq!(
+            solver.prelude_failure(),
+            Some(SmtError::InconsistentPrelude)
+        );
+        assert_eq!(
+            solver.is_sat(&[], &Substitution::new()),
+            Err(SmtError::InconsistentPrelude)
+        );
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 2);
     }
 
     #[test]
@@ -756,11 +875,98 @@ mod tests {
         let consistent = "(declare-const a Int)\n(assert (> a 0))";
         let inconsistent = "(declare-const a Int)\n(assert (> a 0))\n(assert (< a 0))";
 
-        assert!(Z3Solver::with_prelude(&definition, consistent).is_ok());
-        assert!(matches!(
-            Z3Solver::with_prelude(&definition, inconsistent),
+        let consistent = Z3Solver::with_prelude(&definition, consistent).unwrap();
+        assert_eq!(consistent.check_prelude(), Ok(()));
+        let inconsistent = Z3Solver::with_prelude(&definition, inconsistent).unwrap();
+        assert_eq!(
+            inconsistent.check_prelude(),
             Err(SmtError::InconsistentPrelude)
+        );
+        let first_validity = Z3Solver::with_prelude(
+            &definition,
+            "(declare-const a Int)\n(assert (> a 0))\n(assert (< a 0))",
+        )
+        .unwrap();
+        let tautology = Predicate::Equals(
+            Term::domain_value(Sort::simple("SortInt"), "1"),
+            Term::domain_value(Sort::simple("SortInt"), "1"),
+        );
+        assert_eq!(
+            first_validity.check_predicates(&[], &Substitution::new(), &[tautology]),
+            Err(SmtError::InconsistentPrelude)
+        );
+    }
+
+    #[test]
+    fn sat_first_proves_prelude_consistency_without_an_extra_solve() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            solver.is_sat(&[], &Substitution::new()),
+            Ok(Satisfiability::Sat)
+        );
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
+        let impossible = Predicate::Equals(
+            Term::domain_value(Sort::simple("SortInt"), "1"),
+            Term::domain_value(Sort::simple("SortInt"), "2"),
+        );
+        assert_eq!(
+            solver.is_sat(&[impossible], &Substitution::new()),
+            Ok(Satisfiability::Unsat)
+        );
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 2);
+        assert_eq!(solver.check_prelude(), Ok(()));
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn concurrent_unsat_answers_check_the_prelude_once() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let solver = solver.clone();
+                scope.spawn(move || {
+                    assert_eq!(
+                        solver.confirm_answer(Satisfiability::Unsat),
+                        Ok(Satisfiability::Unsat)
+                    );
+                });
+            }
+        });
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn unknown_query_does_not_assert_prelude_consistency() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        assert_eq!(
+            solver.confirm_answer(Satisfiability::Unknown("query timed out".into())),
+            Ok(Satisfiability::Unknown("query timed out".into()))
+        );
+        assert!(matches!(
+            *solver.prelude_state.lock().unwrap(),
+            PreludeState::Unchecked
         ));
+        assert_eq!(solver.check_prelude(), Ok(()));
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn an_unknown_prelude_failure_is_sticky() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let failure = SmtError::UnknownPrelude("prelude timed out".into());
+        *solver.prelude_state.lock().unwrap() = PreludeState::Failed(failure.clone());
+        assert_eq!(solver.prelude_failure(), Some(failure.clone()));
+        assert_eq!(
+            solver.is_sat(&[], &Substitution::new()),
+            Err(failure.clone())
+        );
+        assert_eq!(solver.check_prelude(), Err(failure));
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 0);
     }
 
     #[test]
@@ -1102,8 +1308,9 @@ mod tests {
                     let mut queried = Vec::new();
                     let actual = decide_validity(|subquery| {
                         queried.push(subquery);
-                        fixed(subquery)
-                    });
+                        Ok(fixed(subquery))
+                    })
+                    .unwrap();
 
                     if matches!(base, Outcome::Sat) || !matches!(positive, Outcome::Sat) {
                         assert_eq!(actual, expected, "{base:?}, {positive:?}, {negative:?}");
@@ -1203,8 +1410,8 @@ mod tests {
         );
         assert_eq!(
             solver.uncached_solve_count.load(Ordering::Relaxed) - baseline,
-            2,
-            "an unsatisfiable positive query needs the base but not the negative query"
+            3,
+            "the first unsatisfiable query checks the prelude before solving the base"
         );
     }
 

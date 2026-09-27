@@ -339,6 +339,18 @@ A `haskell-logging` value that is not an array of strings fails parameter decodi
 
 ## Definition verification
 
+### SMT prelude consistency
+
+The backend builds the SMT prelude when it selects a definition, but it may defer checking whether that prelude is satisfiable until an SMT answer depends on consistency.
+Every SMT query includes the whole prelude, so a `sat` answer establishes its consistency without a separate check.
+Before using the first `unsat` answer, the backend checks the prelude alone; an `unsat` or `unknown` result from that check fails the operation.
+An `unknown` query answer establishes neither consistency nor inconsistency and does not trigger the prelude check.
+This is sound because the prelude constrains SMT answers only: an operation that uses no SMT answer has no result derived from it.
+
+A zero-query run can therefore succeed with an inconsistent prelude.
+An RPC server can start with that prelude and report the error on its first dependent request instead of at startup.
+With `--io on`, output produced before the first dependent answer can be visible before the error.
+
 The acceptance boundary is the theory of the selected main module, meaning that module and its transitive imports; within it, the boundary includes the sentence, declaration and pattern conditions of KORE validity as the KORE language specification states them, [`docs/kore-syntax.md`, "Validity"](https://github.com/runtimeverification/haskell-backend/blob/ad54c7a55085b726c4d3c2728242a7e0695b0439/docs/kore-syntax.md#validity).
 Among its conditions, every sort, symbol and alias an axiom uses is declared, each application agrees with its declaration in sort parameters, arity and argument sorts, and each bound variable agrees in sort with its binder.
 It does not include the two module-order conditions on import sentences: an imported module need not appear earlier in the definition (condition 6a), and an import need not precede the other declarations of its module (6b).

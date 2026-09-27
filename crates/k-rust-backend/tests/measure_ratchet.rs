@@ -865,10 +865,10 @@ mod smt {
     }
 
     #[test]
-    fn identical_queries_run_the_solver_once_after_the_prelude_check() {
+    fn identical_sat_queries_need_no_prelude_check() {
         let definition = definition(COUNTING);
         let (solver, construction) = measured(|| Z3Solver::new(&definition).unwrap());
-        assert_eq!(construction.get(Counter::SmtSolverRuns), 1);
+        assert_eq!(construction.get(Counter::SmtSolverRuns), 0);
         assert_eq!(construction.get(Counter::SmtQueries), 0);
 
         let (_, delta) = measured(|| {

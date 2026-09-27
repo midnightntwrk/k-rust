@@ -55,6 +55,34 @@ fn fixture() -> (PathBuf, PathBuf) {
 }
 
 #[test]
+fn kore_exec_zero_query_run_accepts_an_inconsistent_smt_prelude() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        include_str!("fixtures/inconsistent-smt-prelude.kore"),
+    )
+    .unwrap();
+    let initial = root.join("initial.kore");
+    fs::write(&initial, "\\dv{SortInt{}}(\"1\")\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kore-exec",
+            definition.to_str().unwrap(),
+            "--module",
+            "MAIN",
+            "--pattern",
+            initial.to_str().unwrap(),
+            "--depth",
+            "0",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"\\dv{SortInt{}}(\"1\")\n");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn kore_exec_warns_when_a_returned_leaf_exhausts_its_simplification_budget() {
     let (root, definition) = fixture();
     fs::write(&definition, include_str!("fixtures/execution-budget.kore")).unwrap();
@@ -9111,6 +9139,81 @@ endmodule
             .collect::<Vec<_>>();
         assert_eq!(leaves, expected, "{extra:?}");
     }
+}
+
+#[test]
+fn kprove_reports_an_inconsistent_external_prelude_when_a_claim_queries_smt() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("probe.k"),
+        r#"
+module PROBE
+  imports INT
+  imports BOOL
+  syntax State ::= st(Int)
+  configuration <k> $PGM:State </k>
+  rule <k> st(X) => st(0) </k> requires X =/=Int 0
+endmodule
+"#,
+    )
+    .unwrap();
+    let specification = root.join("probe-spec.k");
+    fs::write(
+        &specification,
+        r#"
+requires "probe.k"
+module PROBE-SPEC
+  imports PROBE
+  claim <k> st(X) => st(0) </k> requires X >Int 5 [label(solver-refuted)]
+  claim <k> st(X) => st(X) </k> [label(trusted), trusted]
+endmodule
+"#,
+    )
+    .unwrap();
+    let prelude = root.join("inconsistent.smt2");
+    fs::write(&prelude, "(assert false)\n").unwrap();
+    let no_query = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "PROBE-SPEC",
+            "--definition-module",
+            "PROBE",
+            "--claim",
+            "trusted",
+            "--smt-prelude",
+            prelude.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(no_query.status.success(), "{no_query:?}");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            specification.to_str().unwrap(),
+            "--main-module",
+            "PROBE-SPEC",
+            "--definition-module",
+            "PROBE",
+            "--claim",
+            "solver-refuted",
+            "--smt-prelude",
+            prelude.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("the definitions sent to the solver are inconsistent"),
+        "{output:?}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("claim solver-refuted:"),
+        "a prelude failure must not become a proof verdict: {output:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
 }
 
 /// Where `X =/=Int Y`, `q(X, Y)` rewrites to `q(Y, Y)`, which is stuck. The only witness for `?Z`

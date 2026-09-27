@@ -1,0 +1,13 @@
+[]
+module MAIN
+  hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+  symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("f")]
+  axiom{R} \implies{R}(
+    \top{R}(),
+    \equals{SortInt{}, R}(f{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}()))
+  ) [simplification{}(), smt-lemma{}(), label{}("f-is-one")]
+  axiom{R} \implies{R}(
+    \top{R}(),
+    \equals{SortInt{}, R}(f{}(X:SortInt{}), \and{SortInt{}}(\dv{SortInt{}}("2"), \top{SortInt{}}()))
+  ) [simplification{}(), smt-lemma{}(), label{}("f-is-two")]
+endmodule []

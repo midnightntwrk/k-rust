@@ -1032,10 +1032,19 @@ impl Backend {
             .map_err(E::from)?;
             self.solvers.insert(module.clone(), solver);
         }
-        operation(
-            &definition,
-            self.solvers.get(&module).expect("solver was inserted"),
-        )
+        let solver = self.solvers.get(&module).expect("solver was inserted");
+        if let Some(failure) = solver.prelude_failure() {
+            return Err(E::from(BackendError(format!(
+                "could not initialize Z3: {failure:?}"
+            ))));
+        }
+        let result = operation(&definition, solver);
+        if let Some(failure) = solver.prelude_failure() {
+            return Err(E::from(BackendError(format!(
+                "could not initialize Z3: {failure:?}"
+            ))));
+        }
+        result
     }
 
     #[cfg(not(feature = "z3-inference"))]
