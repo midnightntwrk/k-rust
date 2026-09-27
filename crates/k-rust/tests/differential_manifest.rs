@@ -315,10 +315,11 @@ fn differential_special_case_schema_is_complete() {
         adjudicated,
         [
             ("bounded-search", "implies-consequent-universal"),
+            ("bounded-search", "model-unsat"),
             ("imp", "implies"),
             ("trivial-result-rpc", "execute-trivial-configuration"),
         ],
-        "the IMP implication payload, the consequent-only universal and the trivial-rule result are the adjudicated RPC differences",
+        "the IMP implication payload, the consequent-only universal, the constructor-distinct model query and the trivial-rule result are the adjudicated RPC differences",
     );
     for (entry, exception) in rpc_exceptions {
         let name = entry["name"].as_str().unwrap_or_default();
