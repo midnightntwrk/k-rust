@@ -208,20 +208,61 @@ impl UndecidedStep {
     }
 }
 
-/// A rule that unified but whose rewritten result is bottom. Kore retains its unifier in the
-/// priority-group remainder even though execution and search have no successor to enqueue.
+/// Which part of a rule application's sub-case a [`TrivialApplication`] stands for.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum TrivialKind {
+    /// The application's result is bottom on its whole sub-case: its right-hand side, a
+    /// definedness obligation or its `ensures` was refuted, or the right-hand side is `\bottom`.
+    /// The rule has no applied candidate for this sub-case.
+    Refuted,
+    /// The application's result condition was carried, not decided: the right-hand side's
+    /// simplification constraints, an undischarged definedness obligation, or an `ensures` that
+    /// neither holds nor fails on every instance. The applied candidate of the same rule and
+    /// sub-case keeps the instances where that condition holds; this entry is the rest of the
+    /// sub-case, where the result is bottom.
+    Carried,
+}
+
+/// A rule application whose rewritten result is bottom on some instances. Kore retains its
+/// unifier in the priority-group remainder, so lower priorities never see those instances.
+///
+/// Such an instance is not stuck, since a rule applies to it and blocks the lower priorities,
+/// and it has no successor from this rule: its step is undefined.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrivialApplication {
     pub rule_id: String,
     pub label: Option<String>,
-    /// The definedness or ensures obligation refuted by this application.
+    pub kind: TrivialKind,
+    /// The definedness or ensures obligation that fails on the instances this entry stands for:
+    /// refuted for a `Refuted` entry, and the carried conjunction for a `Carried` one.
     pub obligation: Predicate,
-    /// The sub-case that rewrites to bottom: the incoming constraints and this predicate.
+    /// The sub-case this application rewrites to bottom, under `before`'s constraints.
+    ///
+    /// For `Refuted` it is the rule's applicability `A` (match conditions and undecided
+    /// `requires`, existentially closed over the variables the match introduced). For `Carried`
+    /// it is `A /\ not D`, where `D` is the existential closure, over those variables and the
+    /// rule's freshened existentials (`?X`), of the match conditions, undecided `requires` and
+    /// carried result condition: `D` is the sub-case with a defined result of this application.
     pub applicability: Predicate,
-    /// The complementary sub-case retained in the priority-group remainder.
+    /// The complementary sub-case retained in the priority-group remainder: `not A` for either
+    /// kind, so a `Carried` entry does not change the group remainder.
     pub remainder: Predicate,
+    /// The instances of `before` whose step is undefined because of this entry: `applicability`
+    /// conjoined with `not D_j` for every applied candidate `j` of the same priority group, so
+    /// that an instance another rule (or another right-hand-side alternative) takes to a defined
+    /// successor is excluded. Not checked for satisfiability; it may be syntactically `\bottom`.
+    pub undefined: Predicate,
+    /// The pattern the rule was applied to: the step's subject for the first productive priority
+    /// group, the (simplified) remainder of the higher groups for a lower one.
+    pub before: Pattern,
     /// Effects produced while constructing the candidate that simplified to bottom.
     pub effects: Vec<BuiltinEffect>,
+    /// The backend diagnostics of the work `undefined` was derived from: the matching, conditions
+    /// and right-hand sides of every application of its priority group, after the work on the
+    /// remainder it was applied to. Each distinct diagnostic once, in emission order.
+    pub diagnostics: Vec<BackendDiagnostic>,
+    /// Simplifications of a higher-priority remainder that precede this lower-priority attempt.
+    pub(crate) remainder_simplifications: Vec<RemainderSimplification>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -234,7 +275,9 @@ pub enum RewriteResult {
         original: Pattern,
         branches: Vec<AppliedRule>,
         remainder: Option<RemainderBranch>,
-        /// Bottom-result sub-cases, ignored by execution/search and consumed by proof vacuity.
+        /// Bottom-result sub-cases: execution reports each as a `Trivial` leaf over its
+        /// `undefined` instances, search ignores them, and proof vacuity consumes the `Refuted`
+        /// ones.
         trivial: Vec<TrivialApplication>,
     },
     Indeterminate {
@@ -361,6 +404,10 @@ pub enum HaltReason {
     /// No sort-correct ground substitution satisfying the leaf pattern's constraints gives
     /// its term a rewrite successor. The set of satisfying instances may be empty.
     Stuck,
+    /// An undefined step: under the leaf pattern's constraints, some rule applies to every
+    /// instance (it matches, its `requires` holds, and it blocks the lower priorities), and no
+    /// instance has a defined successor. `rule_id` names the rule when one application is
+    /// responsible. The set of satisfying instances may be empty.
     Trivial {
         /// Semantic depth after the rule that produced the empty successor.
         depth: u64,

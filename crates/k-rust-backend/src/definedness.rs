@@ -754,22 +754,38 @@ mod tests {
             .unwrap();
         let mut fresh = 0;
 
-        let RewriteResult::Finished(applied) = rewrite_step(
+        let RewriteResult::Branch {
+            branches,
+            remainder: None,
+            trivial,
+            ..
+        } = rewrite_step(
             &definition,
             &Pattern {
                 term: subject,
                 constraints: Vec::new(),
             },
             &mut fresh,
-        ) else {
+        )
+        else {
             panic!("the symbolic definedness branch should be retained");
         };
+        let [applied] = branches.as_slice() else {
+            panic!("one candidate: {branches:?}");
+        };
         assert_eq!(applied.unique_id, "uses-partial");
-        assert!(matches!(
-            applied.pattern.constraints.as_slice(),
-            [Predicate::Ceil(term)]
-                if matches!(term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "partial")
-        ));
+        let [ceil @ Predicate::Ceil(term)] = applied.pattern.constraints.as_slice() else {
+            panic!("the candidate carries the obligation: {applied:?}");
+        };
+        assert!(
+            matches!(term.kind(), TermKind::Application { symbol, .. } if symbol.name.as_ref() == "partial")
+        );
+        // The instances where the obligation fails are the carried entry's.
+        let [entry] = trivial.as_slice() else {
+            panic!("one carried entry: {trivial:?}");
+        };
+        assert_eq!(entry.kind, crate::rewrite::TrivialKind::Carried);
+        assert_eq!(entry.undefined, Predicate::Not(Box::new(ceil.clone())));
     }
 
     #[test]

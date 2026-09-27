@@ -59,12 +59,12 @@ use crate::{
 
 use super::{
     AppliedRule, GeneralUnificationRecovery, IndeterminateReason, Pattern, TrivialApplication,
-    Truth, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
-    extend_unique, freshen_unbound_rule_variables, pattern_variable_names, predicates_truth,
-    quantify_introduced_variables, recover_boolean_matches, recover_equality_matches,
-    recover_function_equality_match, recover_functional_symbolic_match,
-    recover_general_unification, recover_indeterminate_match, recover_ite_matches,
-    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
+    TrivialKind, Truth, collection_unification_definedness,
+    conjunctively_contains_alpha_equivalent, extend_unique, freshen_unbound_rule_variables,
+    pattern_variable_names, predicates_truth, quantify_introduced_variables,
+    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
+    recover_functional_symbolic_match, recover_general_unification, recover_indeterminate_match,
+    recover_ite_matches, recover_map_not_in_keys_matches, recover_overload_symbolic_match,
     recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
     substitute_predicates,
 };
@@ -91,13 +91,24 @@ pub(super) struct RuleApplicationGroup {
     /// applicability is negated into are derived from that work. `None` until the attempt
     /// level that built the group attributes it (`apply_rule_with_match`).
     pub(super) common: Option<Vec<Sequenced>>,
+    /// The diagnostics of the own construction of the right-hand-side alternatives refuted to
+    /// bottom: no candidate derives from that work, but the `Trivial` leaf of each does.
+    pub(super) trivial_work: Vec<Sequenced>,
 }
 
 pub(super) struct RuleApplication {
     pub(super) applied: AppliedRule,
     pub(super) remainder: Predicate,
+    /// The sub-case of the subject where this application has a defined result: the existential
+    /// closure, over the variables the pattern does not have (those the match introduced and
+    /// the freshened existentials), of the applicability and the carried result condition.
+    /// Equal to the applicability when nothing was carried.
+    pub(super) defined: Predicate,
+    /// The carried result condition, when the application's sub-case has instances outside
+    /// `defined`: the obligation its `Carried` trivial entry reports.
+    pub(super) carried: Option<Predicate>,
     /// The diagnostics of this right-hand-side alternative's own construction; its group's
-    /// `common` work is not in it. The work of an alternative refuted to bottom is on no path.
+    /// `common` work is not in it.
     pub(super) diagnostics: Vec<Sequenced>,
 }
 
@@ -121,8 +132,11 @@ fn remainder_of(applicability: &Predicate) -> Predicate {
     }
 }
 
+/// The `Refuted` entry of an application whose result is bottom on its whole sub-case
+/// `applicability` of `pattern`.
 fn trivial_application(
     rule: &RewriteRule,
+    pattern: &Pattern,
     applicability: &Predicate,
     obligation: Predicate,
     effects: Vec<BuiltinEffect>,
@@ -130,11 +144,98 @@ fn trivial_application(
     TrivialApplication {
         rule_id: rule.attributes.unique_id.clone(),
         label: rule.attributes.label.clone(),
+        kind: TrivialKind::Refuted,
         obligation,
         applicability: applicability.clone(),
         remainder: remainder_of(applicability),
+        undefined: applicability.clone(),
+        before: pattern.clone(),
         effects,
+        diagnostics: Vec::new(),
+        remainder_simplifications: Vec::new(),
     }
+}
+
+/// The `Carried` entry of `application`, whose carried result condition `obligation` leaves the
+/// instances of its sub-case `applicability` outside `application.defined` without a result.
+fn carried_trivial_application(
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    applicability: &Predicate,
+    application: &RuleApplication,
+    obligation: Predicate,
+) -> TrivialApplication {
+    let undefined = conjoin_flat([applicability.clone(), negation(&application.defined)]);
+    TrivialApplication {
+        rule_id: rule.attributes.unique_id.clone(),
+        label: rule.attributes.label.clone(),
+        kind: TrivialKind::Carried,
+        obligation,
+        applicability: undefined.clone(),
+        remainder: remainder_of(applicability),
+        undefined,
+        before: pattern.clone(),
+        effects: application.applied.effects.clone(),
+        diagnostics: Vec::new(),
+        remainder_simplifications: Vec::new(),
+    }
+}
+
+/// Restrict each entry of `trivial` to the instances that no applied candidate of its priority
+/// group (`applied`) takes to a defined successor: `undefined` becomes the entry's
+/// `applicability` conjoined with `not D_j` for each candidate `j`.
+pub(super) fn restrict_to_undefined(
+    trivial: &mut [TrivialApplication],
+    applied: &[RuleApplication],
+) {
+    for entry in trivial {
+        entry.undefined = conjoin_flat(
+            std::iter::once(entry.applicability.clone())
+                .chain(applied.iter().map(|sibling| negation(&sibling.defined))),
+        );
+    }
+}
+
+/// `not predicate`, with the double negation and the constants folded.
+fn negation(predicate: &Predicate) -> Predicate {
+    match predicate {
+        Predicate::True => Predicate::False,
+        Predicate::False => Predicate::True,
+        Predicate::Not(inner) => (**inner).clone(),
+        predicate => Predicate::Not(Box::new(predicate.clone())),
+    }
+}
+
+/// The conjunction of `predicates` with nested conjunctions flattened, `True` and repeated
+/// conjuncts dropped, and `False` absorbing, as does a conjunct beside its own negation.
+fn conjoin_flat(predicates: impl IntoIterator<Item = Predicate>) -> Predicate {
+    fn flatten(predicate: Predicate, conjuncts: &mut Vec<Predicate>) {
+        match predicate {
+            Predicate::And(inner) => {
+                for predicate in inner {
+                    flatten(predicate, conjuncts);
+                }
+            }
+            Predicate::True => {}
+            predicate => {
+                if !conjuncts.contains(&predicate) {
+                    conjuncts.push(predicate);
+                }
+            }
+        }
+    }
+    let mut conjuncts = Vec::new();
+    for predicate in predicates {
+        flatten(predicate, &mut conjuncts);
+    }
+    let contradictory = conjuncts.iter().any(|conjunct| {
+        *conjunct == Predicate::False
+            || matches!(conjunct, Predicate::Not(inner) if conjuncts.contains(inner))
+    });
+    if contradictory {
+        return Predicate::False;
+    }
+    conjunction(&conjuncts)
 }
 
 fn conjunction(predicates: &[Predicate]) -> Predicate {
@@ -860,11 +961,13 @@ fn definedness(
                 applied: Vec::new(),
                 trivial: vec![trivial_application(
                     context.rule,
+                    context.pattern,
                     &applicability,
                     Predicate::False,
                     Vec::new(),
                 )],
                 common: None,
+                trivial_work: Vec::new(),
             }],
         });
     }
@@ -1112,11 +1215,13 @@ fn instantiate(
                     applied: Vec::new(),
                     trivial: vec![trivial_application(
                         rule,
+                        pattern,
                         &applicability,
                         Predicate::False,
                         Vec::new(),
                     )],
                     common: None,
+                    trivial_work: Vec::new(),
                 }],
             });
         }
@@ -1124,6 +1229,7 @@ fn instantiate(
     };
     let mut applications = Vec::new();
     let mut trivial = Vec::new();
+    let mut trivial_work = Vec::new();
     for (rhs, alternative_ensures) in alternatives {
         let mut ensures = rule.ensures.clone();
         extend_unique(&mut ensures, alternative_ensures.iter().cloned());
@@ -1149,6 +1255,15 @@ fn instantiate(
         });
         match attempt {
             RhsAlternativeAttempt::Applied(mut application) => {
+                if let Some(obligation) = application.carried.take() {
+                    trivial.push(carried_trivial_application(
+                        rule,
+                        pattern,
+                        &applicability,
+                        &application,
+                        obligation,
+                    ));
+                }
                 application.diagnostics = own_diagnostics;
                 applications.push(application);
             }
@@ -1158,10 +1273,12 @@ fn instantiate(
             } => {
                 trivial.push(trivial_application(
                     rule,
+                    pattern,
                     &applicability,
                     obligation,
                     effects,
                 ));
+                trivial_work.extend(own_diagnostics);
             }
             RhsAlternativeAttempt::Indeterminate(reason) => {
                 return Err(RuleAttempt::Indeterminate(reason));
@@ -1176,6 +1293,7 @@ fn instantiate(
             applied: applications,
             trivial,
             common: None,
+            trivial_work,
         }],
     })
 }
@@ -1384,8 +1502,23 @@ fn apply_rhs_alternative(
     let mut rule_predicates = Vec::new();
     extend_unique(&mut rule_predicates, match_conditions.iter().cloned());
     extend_unique(&mut rule_predicates, unclear_requires.iter().cloned());
+    let applicability_conditions = rule_predicates.len();
     extend_unique(&mut rule_predicates, rhs_constraints);
     extend_unique(&mut rule_predicates, ensures);
+    // What the result adds to the applicability: the right-hand side's simplification
+    // constraints, its carried definedness obligations and the carried `ensures`. The instances
+    // of the applicability where it fails have no result from this alternative.
+    let added = rule_predicates[applicability_conditions..]
+        .iter()
+        .filter(|predicate| **predicate != Predicate::True)
+        .cloned()
+        .collect::<Vec<_>>();
+    let carried = (!added.is_empty()).then(|| conjunction(&added));
+    let defined = if carried.is_some() {
+        quantify_introduced_variables(pattern, rule_predicates.clone())
+    } else {
+        applicability.clone()
+    };
     let mut constraints = pattern.constraints.clone();
     extend_unique(&mut constraints, rule_predicates.iter().cloned());
     RhsAlternativeAttempt::Applied(RuleApplication {
@@ -1407,6 +1540,8 @@ fn apply_rhs_alternative(
             observations: Vec::new(),
         },
         remainder: remainder_of(applicability),
+        defined,
+        carried,
         diagnostics: Vec::new(),
     })
 }

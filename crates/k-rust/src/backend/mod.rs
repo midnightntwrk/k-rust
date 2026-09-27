@@ -232,7 +232,19 @@ pub enum HaltReasonOutput {
     /// No ground instance satisfying the leaf's constraint has a rewrite successor.
     /// This does not assert that a satisfying instance exists.
     Stuck,
+    /// An undefined step. Under the leaf's constraint some rule applies to every ground
+    /// instance: it matches, its `requires` holds, and it blocks the lower priorities. No
+    /// instance has a defined successor, because the rule's right-hand side is undefined there
+    /// or its `ensures` is false there, and no other applicable rule gives one.
+    /// The leaf's state is the configuration before that step, and its constraint is the
+    /// condition under which the step is undefined. That constraint may existentially quantify
+    /// the rule's fresh variables (`?X`).
+    /// The instances' events of that step are not on the leaf's path; an observed run records
+    /// them as rolled back in `discarded`.
+    /// This does not assert that a satisfying instance exists: the constraint is not checked for
+    /// satisfiability, and a consumer that needs to know decides it.
     Trivial,
+    /// The path's constraint was shown unsatisfiable, so the leaf has no instance.
     Vacuous,
     Branch,
     CutPoint,
@@ -588,6 +600,20 @@ impl Backend {
 
     /// Execute without observation; every leaf's `branch` and `observations` are empty.
     /// `execute_observed` returns the same non-observation leaf fields in the same order.
+    ///
+    /// Coverage. The leaves' constraints cover the initial state: take any ground instance of
+    /// the initial state that satisfies its constraint. Some leaf's constraint is satisfied by
+    /// that instance extended with values for the variables the path introduced. This holds in
+    /// both solver profiles under strategy `all`, when no leaf is `depth-bound`,
+    /// `breadth-bound`, `branch`, `cut-point`, `timeout` or `cancelled` and no leaf carries
+    /// diagnostics.
+    /// Every step covers its instances. The applied candidates take the instances where
+    /// their result is defined, the remainder takes the instances no rule of the productive
+    /// priority group applies to, and a `trivial` leaf takes the instances some rule applies to
+    /// without a defined result. That includes the instances where a carried `ensures` or
+    /// right-hand-side definedness obligation fails, even when a sibling candidate continues.
+    /// A step's `trivial` leaves precede the leaves of its successors.
+    /// Strategy `any` makes no coverage claim.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
     }

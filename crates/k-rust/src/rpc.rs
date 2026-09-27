@@ -587,10 +587,14 @@ impl RpcService {
                     },
                     solver,
                 );
+                // Stopping at branches follows one path. The only other leaves are the `Trivial`
+                // leaves of instances a step on that path left without a defined successor, each
+                // pushed when its step is taken, so the path's own leaf is the last one. The
+                // protocol answers with one state and cannot express the undefined instances.
                 let leaf = result
                     .leaves
                     .into_iter()
-                    .next()
+                    .next_back()
                     .ok_or_else(|| RpcFault::runtime("execution produced no result", None))?;
                 let mut output = Map::new();
                 let (reason, next_states, rule) = match &leaf.halt_reason {
