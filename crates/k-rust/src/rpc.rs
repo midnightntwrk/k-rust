@@ -2194,6 +2194,21 @@ endmodule
         assert_eq!(response["result"]["depth"], 1, "{response}");
     }
 
+    #[test]
+    fn execute_omits_the_rule_when_a_trivial_leaf_is_vacuous_on_the_wire() {
+        let mut service = carried_empty_candidate_service();
+        let state = encode_kore(
+            &parse_pattern(
+                "Lbl'-LT-'generatedTop'-GT-'{}(Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortProg{}, SortKItem{}}(Lblhz{}(\\dv{SortInt{}}(\"0\"))), dotk{}())), Lbl'-LT-'generatedCounter'-GT-'{}(\\dv{SortInt{}}(\"0\")))",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let response = request(&mut service, 1, "execute", json!({ "state": state }));
+        assert_eq!(response["result"]["reason"], "vacuous", "{response}");
+        assert!(response["result"].get("rule").is_none(), "{response}");
+    }
+
     fn symbolic_branch_service() -> RpcService {
         RpcService::new(BackendSession::new(
             parse_definition(

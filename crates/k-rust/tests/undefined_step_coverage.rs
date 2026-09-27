@@ -147,6 +147,23 @@ fn trivial_leaves(result: &ExecutionResult) -> Vec<&ExecutionLeaf> {
         .collect()
 }
 
+fn assert_trivial_rule(backend: &Backend, leaf: &ExecutionLeaf, label: &str) {
+    let compiled_label = format!("UNDEF.{label}");
+    let catalog = backend.rule_catalog(None).unwrap();
+    let rule = catalog
+        .iter()
+        .find(|rule| rule.label.as_deref() == Some(compiled_label.as_str()))
+        .unwrap();
+    assert_eq!(leaf.rule_id.as_deref(), Some(rule.id.as_str()));
+    assert_eq!(leaf.rule_label.as_deref(), Some(compiled_label.as_str()));
+    assert_eq!(leaf.detail, None);
+    let wire = serde_json::to_value(leaf).unwrap();
+    assert_eq!(wire["ruleId"], rule.id);
+    assert_eq!(wire["ruleLabel"], compiled_label);
+    let decoded: ExecutionLeaf = serde_json::from_value(wire.clone()).unwrap();
+    assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+}
+
 /// The solver's verdict on a leaf's state (`sat`, `unsat` or `unknown`), with Z3 only.
 fn satisfiable(backend: &mut Backend, leaf: &ExecutionLeaf) -> Option<String> {
     backend.capabilities().smt.then(|| {
@@ -192,6 +209,8 @@ fn a_carried_ensures_leaves_its_violating_instances_a_trivial_leaf() {
     let [trivial] = trivial_leaves(&result)[..] else {
         panic!("one Trivial leaf: {:#?}", summary(&result));
     };
+    assert_trivial_rule(&backend, trivial, "apart");
+    assert!(stuck.rule_id.is_none() && stuck.rule_label.is_none());
     // The undefined instances are the pre-step state under the negated `ensures`, `X = Y`.
     assert!(is_pre_step(trivial, "Lblapart{}(X:SortInt{}, Y:SortInt{})"));
     assert!(
@@ -217,6 +236,7 @@ fn a_carried_ensures_leaves_its_violating_instances_a_trivial_leaf() {
         "{:#?}",
         summary(&ground)
     );
+    assert_trivial_rule(&backend, &ground.leaves[0], "apart");
 }
 
 #[test]
@@ -317,6 +337,7 @@ fn a_refuted_ensures_beside_a_disjoint_sibling_is_a_trivial_leaf() {
         let [trivial] = trivial_leaves(&result)[..] else {
             panic!("one Trivial leaf: {:#?}", summary(&result));
         };
+        assert_trivial_rule(&backend, trivial, "pickpos");
         assert!(is_pre_step(trivial, "Lblpick{}(X:SortInt{})"));
         assert_eq!(satisfiable(&mut backend, trivial).as_deref(), Some("sat"));
         assert!(
@@ -336,6 +357,7 @@ fn a_refuted_ensures_beside_a_disjoint_sibling_is_a_trivial_leaf() {
         "{:#?}",
         summary(&ground)
     );
+    assert_trivial_rule(&backend, &ground.leaves[0], "pickpos");
     let ground = execute(&mut backend, &format!("Lblpick{{}}({})", int(0)));
     assert_eq!(
         reasons(&ground),

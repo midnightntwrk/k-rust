@@ -193,6 +193,8 @@ Other leaves omit `cause`; `detail` remains legacy human-readable context.
 The reachable causes are `surviving-macro-or-alias` (preprocessing left an executable symbol), `match` (unsupported unification remainder), `instantiation` (unbound rule variable), `requires` (undecided rule condition with no solver), `smt` (an undecided rule query), and `remainder` (an undecided priority-group remainder).
 `SearchFailureOutput::solver_unavailable()` is true for `requires`, and for `smt`, `smt-predicate`, or a `remainder` satisfiability error whose SMT failure is `unavailable`.
 It says this step needed a solver absent from the build; it does not promise that a solver-enabled build decides the path, and a `match` cause may depend on an earlier equation left unevaluated without a solver.
+When a `Trivial` halt names its responsible rule, `ExecutionLeaf.rule_id` and `rule_label` expose the same compiled id and optional label as the rule catalog (`ruleId` and `ruleLabel` in JSON).
+Both fields are omitted when no rule is named and on other halt reasons; they do not imply that the undefined step committed a transition.
 `UndecidedCondition` and `UndecidedPredicate` diagnostics report a solver that was asked and could not answer, never the absence of a solver.
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
