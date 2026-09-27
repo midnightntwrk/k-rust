@@ -1,0 +1,74 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "lambda_kore(&load(\"AMB\", source))"
+---
+  symbol Lbl'Hash'lambda'UndsUnds'{}(SortType{}) : SortMap{}
+  axiom{R}
+    \exists{R}(
+      Val:SortMap{},
+      \equals{SortMap{}, R}(Val:SortMap{}, Lbl'Hash'lambda'UndsUnds'{}(K0:SortType{}))
+    )
+    [functional{}()]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortFoo{}, SortKItem{}}(
+                Lblfoo'LParUndsRParUnds'AMB'Unds'Foo'Unds'Map{}(
+                  Lbl'UndsPipe'-'-GT-Unds'{}(
+                    inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")),
+                    inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))
+                  )
+                )
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortFoo{}, SortKItem{}}(
+                Lblfoo'LParUndsRParUnds'AMB'Unds'Foo'Unds'Map{}(
+                  Lbl'UndsPipe'-'-GT-Unds'{}(
+                    inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("1")),
+                    inj{SortMap{}, SortKItem{}}(
+                      Lbl'Hash'lambda'UndsUnds'{}(Lbltype'Unds'AMB'Unds'Type{}())
+                    )
+                  )
+                )
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d6800cb6b825e3b0bf129de2223aceb13dc2b2d0c5cb6c7cebaf4faada448337"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,60)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(AMB.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortType{}, R}(X0:SortType{}, VarT:SortType{}), \top{R}())),
+      \equals{SortMap{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortType{}),
+        \and{SortMap{}}(
+          Lbl'UndsPipe'-'-GT-Unds'{}(
+            inj{SortType{}, SortKItem{}}(VarT:SortType{}),
+            inj{SortType{}, SortKItem{}}(VarT:SortType{})
+          ),
+          \top{SortMap{}}()
+        )
+      )
+    )
+    [UNIQUE'Unds'ID{}("bbf0d08b4910885fb8323322b2309b68757271b4c2d756afd48b152e7e98e8f1")]

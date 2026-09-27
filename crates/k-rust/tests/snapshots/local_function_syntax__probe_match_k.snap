@@ -1,0 +1,75 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "rule op(A) => val(0) requires A :=K 1"
+---
+  symbol Lbl'Hash'lambda'UndsHash'SemanticCastToInt'Unds'{}(SortInt{}) : SortBool{} [function{}()]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(inj{SortOp{}, SortKItem{}}(Lblop{}(VarA:SortInt{})), Var'Unds'DotVar1:SortK{})
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          Lbl'Hash'lambda'UndsHash'SemanticCastToInt'Unds'{}(\dv{SortInt{}}("1")),
+          \dv{SortBool{}}("true")
+        )
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortOp{}, SortKItem{}}(Lblval{}(\dv{SortInt{}}("0"))),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("323a583b392a147137e60a841950a90d0ffcfbf03ae546c14dc574b84489e85d"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(P.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarA:SortInt{}), \top{R}())),
+      \equals{SortBool{}, R}(
+        Lbl'Hash'lambda'UndsHash'SemanticCastToInt'Unds'{}(X0:SortInt{}),
+        \and{SortBool{}}(\dv{SortBool{}}("true"), \top{SortBool{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("4a27f237d90a1100f9b40804580f54347bf21a9153068ae266a65bd1f84e2225")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \not{R}(
+          \or{R}(
+            \exists{R}(
+              Var'Unds'Gen0:SortInt{},
+              \and{R}(
+                \top{R}(),
+                \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Unds'Gen0:SortInt{}), \top{R}())
+              )
+            ),
+            \bottom{R}()
+          )
+        ),
+        \and{R}(
+          \top{R}(),
+          \and{R}(\in{SortInt{}, R}(X0:SortInt{}, Var'Hash'Owise:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortBool{}, R}(
+        Lbl'Hash'lambda'UndsHash'SemanticCastToInt'Unds'{}(X0:SortInt{}),
+        \and{SortBool{}}(\dv{SortBool{}}("false"), \top{SortBool{}}())
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b8b82b10ebd9b4fc14171b967183ae7f2af656632ffa625ac8f9fe9b4e6786da"),
+      owise{}()
+    ]

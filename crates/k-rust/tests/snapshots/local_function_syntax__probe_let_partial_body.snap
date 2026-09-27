@@ -1,0 +1,52 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "rule op(A) => val(#let Y = A #in 10 /Int Y)"
+---
+  symbol Lbl'Hash'lambdaA'UndsUnds'{}(SortInt{}) : SortInt{}
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(Val:SortInt{}, Lbl'Hash'lambdaA'UndsUnds'{}(K0:SortInt{}))
+    )
+    [functional{}()]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(inj{SortOp{}, SortKItem{}}(Lblop{}(VarA:SortInt{})), Var'Unds'DotVar1:SortK{})
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortOp{}, SortKItem{}}(Lblval{}(Lbl'Hash'lambdaA'UndsUnds'{}(VarA:SortInt{}))),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("fcb11e5c240082702a611e1b38bc27bfdd32c29d73042ec22a93be7ccfcd4e73"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,46)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(P.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortInt{}, R}(X0:SortInt{}, VarY:SortInt{}), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambdaA'UndsUnds'{}(X0:SortInt{}),
+        \and{SortInt{}}(
+          Lbl'UndsSlsh'Int'Unds'{}(\dv{SortInt{}}("10"), VarY:SortInt{}),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [UNIQUE'Unds'ID{}("5df9a202a5b97e44ce0f372d6fc83f12bf5b5dee509a5057d318e903a7e52b02")]

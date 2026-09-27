@@ -1,0 +1,57 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "rule op(A) => val(#let X = op(A) #in 1)"
+---
+  symbol Lbl'Hash'lambda'UndsUnds'{}(SortK{}) : SortInt{} [function{}(), functional{}(), total{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(Val:SortInt{}, Lbl'Hash'lambda'UndsUnds'{}(K0:SortK{}))
+    )
+    [functional{}()]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              \and{SortKItem{}}(
+                inj{SortOp{}, SortKItem{}}(Lblop{}(VarA:SortInt{})),
+                Var'Unds'Gen2:SortKItem{}
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortOp{}, SortKItem{}}(
+                Lblval{}(Lbl'Hash'lambda'UndsUnds'{}(kseq{}(Var'Unds'Gen2:SortKItem{}, dotk{}())))
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("32c595be10f4d3b0b81c13b85fc0f60e828b811a9b7297e20a82208ef4c04945"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,42)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(P.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarX:SortK{}), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortK{}),
+        \and{SortInt{}}(\dv{SortInt{}}("1"), \top{SortInt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("714b8a2718973740ea647762e0ad4d1eabbde680ec6497d829c6615ff133ad28")]

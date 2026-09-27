@@ -1,0 +1,295 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "lambda_kore(&load(\"LET-LIST-BINDER\", source))"
+---
+  symbol Lbl'Hash'lambda'UndsUnds'{}(SortChunks{}, SortChunks{}, SortInt{}) : SortChunks{}
+  symbol Lbl'Hash'lambdaLETARG'UndsUnds'{}(SortChunks{}, SortInt{}) : SortChunks{}
+  symbol Lbl'Hash'lambdaFUNARG'UndsUnds'{}(SortChunks{}, SortInt{}) : SortChunks{}
+  symbol Lbl'Hash'lambdaCASTARG'UndsUnds'{}(SortChunks{}, SortInt{}) : SortChunks{}
+  axiom{R}
+    \exists{R}(
+      Val:SortChunks{},
+      \equals{SortChunks{}, R}(
+        Val:SortChunks{},
+        Lbl'Hash'lambdaLETARG'UndsUnds'{}(K0:SortChunks{}, K1:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortChunks{},
+      \equals{SortChunks{}, R}(
+        Val:SortChunks{},
+        Lbl'Hash'lambdaFUNARG'UndsUnds'{}(K0:SortChunks{}, K1:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortChunks{},
+      \equals{SortChunks{}, R}(
+        Val:SortChunks{},
+        Lbl'Hash'lambdaCASTARG'UndsUnds'{}(K0:SortChunks{}, K1:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortChunks{}, R}(
+            X0:SortChunks{},
+            Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+              Lblchunk'LParUndsRParUnds'LET-LIST-BINDER'Unds'Chunk'Unds'Item{}(VarI:SortItem{}),
+              VarREST:SortChunks{}
+            )
+          ),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        Lblconcat'LParUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+          X0:SortChunks{},
+          X1:SortInt{}
+        ),
+        \and{SortChunks{}}(
+          Lbl'Hash'lambda'UndsUnds'{}(
+            Lblmk'LParUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Item'Unds'Int{}(
+              VarI:SortItem{},
+              VarN:SortInt{}
+            ),
+            VarREST:SortChunks{},
+            VarN:SortInt{}
+          ),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("488e115672b3a0a6b34918654cda76eb48753adb5e299fe901576e1659e270a9"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,3,12,104)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(LET-LIST-BINDER.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortChunks{}, R}(
+            X0:SortChunks{},
+            Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+              Lblchunk'LParUndsRParUnds'LET-LIST-BINDER'Unds'Chunk'Unds'Item{}(
+                Var'Unds'Gen0:SortItem{}
+              ),
+              Var'Unds'Gen1:SortChunks{}
+            )
+          ),
+          \and{R}(
+            \in{SortChunks{}, R}(X1:SortChunks{}, VarLETARG:SortChunks{}),
+            \and{R}(\in{SortInt{}, R}(X2:SortInt{}, VarN:SortInt{}), \top{R}())
+          )
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        LblletInferred'LParUndsCommUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+          X0:SortChunks{},
+          X1:SortChunks{},
+          X2:SortInt{}
+        ),
+        \and{SortChunks{}}(
+          Lbl'Hash'lambdaLETARG'UndsUnds'{}(VarLETARG:SortChunks{}, VarN:SortInt{}),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("69b26113c9a0b9d5ff3d3d72c4c6ba604ec57fda415927302bf16e9a9d254be6"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,121)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(LET-LIST-BINDER.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortChunks{}, R}(
+            X0:SortChunks{},
+            Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+              Lblchunk'LParUndsRParUnds'LET-LIST-BINDER'Unds'Chunk'Unds'Item{}(
+                Var'Unds'Gen0:SortItem{}
+              ),
+              Var'Unds'Gen1:SortChunks{}
+            )
+          ),
+          \and{R}(
+            \in{SortChunks{}, R}(X1:SortChunks{}, VarFUNARG:SortChunks{}),
+            \and{R}(\in{SortInt{}, R}(X2:SortInt{}, VarN:SortInt{}), \top{R}())
+          )
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        LblfunInferred'LParUndsCommUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+          X0:SortChunks{},
+          X1:SortChunks{},
+          X2:SortInt{}
+        ),
+        \and{SortChunks{}}(
+          Lbl'Hash'lambdaFUNARG'UndsUnds'{}(VarFUNARG:SortChunks{}, VarN:SortInt{}),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("06d3b60d33a9723b34e14bdf9ba10a3753e01c99809ba1971219797587a93305"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,18,120)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(LET-LIST-BINDER.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \equals{SortBool{}, R}(
+          Lbl'Unds-GT-'Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("0")),
+          \dv{SortBool{}}("true")
+        ),
+        \and{R}(
+          \in{SortChunks{}, R}(
+            X0:SortChunks{},
+            Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+              Lblchunk'LParUndsRParUnds'LET-LIST-BINDER'Unds'Chunk'Unds'Item{}(
+                Var'Unds'Gen0:SortItem{}
+              ),
+              Var'Unds'Gen1:SortChunks{}
+            )
+          ),
+          \and{R}(
+            \in{SortChunks{}, R}(X1:SortChunks{}, VarCASTARG:SortChunks{}),
+            \and{R}(\in{SortInt{}, R}(X2:SortInt{}, VarN:SortInt{}), \top{R}())
+          )
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        LblletCast'LParUndsCommUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+          X0:SortChunks{},
+          X1:SortChunks{},
+          X2:SortInt{}
+        ),
+        \and{SortChunks{}}(
+          Lbl'Hash'lambdaCASTARG'UndsUnds'{}(VarCASTARG:SortChunks{}, VarN:SortInt{}),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b03d087da1394a809408eaff470252de345738252baca0683e7f4c81f898ce17"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,21,122)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(LET-LIST-BINDER.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortChunks{}, R}(
+            X0:SortChunks{},
+            Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+              VarSUB:SortChunk{},
+              Lbl'Stop'List'LBraQuotUndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks'QuotRBraUnds'Chunks{}()
+            )
+          ),
+          \and{R}(
+            \in{SortChunks{}, R}(X1:SortChunks{}, VarREST:SortChunks{}),
+            \and{R}(\in{SortInt{}, R}(X2:SortInt{}, VarN:SortInt{}), \top{R}())
+          )
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortChunks{}, X1:SortChunks{}, X2:SortInt{}),
+        \and{SortChunks{}}(
+          Lbl'UndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks{}(
+            VarSUB:SortChunk{},
+            Lblconcat'LParUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+              VarREST:SortChunks{},
+              Lbl'Unds'-Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))
+            )
+          ),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [UNIQUE'Unds'ID{}("572c22ac4383c5629c72b47c8bbe46565f475050c93c7b9b26ea5129542e5eb7")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortChunks{}, R}(X0:SortChunks{}, VarSUB:SortChunks{}),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        Lbl'Hash'lambdaLETARG'UndsUnds'{}(X0:SortChunks{}, X1:SortInt{}),
+        \and{SortChunks{}}(
+          LblletInferred'LParUndsCommUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+            VarSUB:SortChunks{},
+            Lbl'Stop'List'LBraQuotUndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks'QuotRBraUnds'Chunks{}(),
+            Lbl'Unds'-Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))
+          ),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [UNIQUE'Unds'ID{}("02b077d04cae75986c1173b0655837ffe68b37158f734313528da812c89052f2")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortChunks{}, R}(X0:SortChunks{}, VarSUB:SortChunks{}),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        Lbl'Hash'lambdaFUNARG'UndsUnds'{}(X0:SortChunks{}, X1:SortInt{}),
+        \and{SortChunks{}}(
+          LblfunInferred'LParUndsCommUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+            VarSUB:SortChunks{},
+            Lbl'Stop'List'LBraQuotUndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks'QuotRBraUnds'Chunks{}(),
+            Lbl'Unds'-Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))
+          ),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [UNIQUE'Unds'ID{}("438e1166fbaa405ea5a77d0db2d26349905424c7d0b63debbe5adb200a024caa")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortChunks{}, R}(X0:SortChunks{}, VarSUB:SortChunks{}),
+          \and{R}(\in{SortInt{}, R}(X1:SortInt{}, VarN:SortInt{}), \top{R}())
+        )
+      ),
+      \equals{SortChunks{}, R}(
+        Lbl'Hash'lambdaCASTARG'UndsUnds'{}(X0:SortChunks{}, X1:SortInt{}),
+        \and{SortChunks{}}(
+          LblletCast'LParUndsCommUndsCommUndsRParUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunks'Unds'Chunks'Unds'Int{}(
+            VarSUB:SortChunks{},
+            Lbl'Stop'List'LBraQuotUndsUndsUnds'LET-LIST-BINDER'Unds'Chunks'Unds'Chunk'Unds'Chunks'QuotRBraUnds'Chunks{}(),
+            Lbl'Unds'-Int'Unds'{}(VarN:SortInt{}, \dv{SortInt{}}("1"))
+          ),
+          \top{SortChunks{}}()
+        )
+      )
+    )
+    [UNIQUE'Unds'ID{}("c771ea7e874175f5e7ea0350711a0dca7d9c71391f0ef37ad35c4ecbb3fd4f6c")]

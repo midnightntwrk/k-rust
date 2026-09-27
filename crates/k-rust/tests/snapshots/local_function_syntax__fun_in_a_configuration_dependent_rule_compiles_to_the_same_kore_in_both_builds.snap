@@ -1,0 +1,59 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "lambda_kore(&load(\"FUN-CONFIG\", source))"
+---
+  symbol Lbl'Hash'lambda'UndsUnds'{}(SortK{}) : SortInt{} [function{}(), functional{}(), total{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(Val:SortInt{}, Lbl'Hash'lambda'UndsUnds'{}(K0:SortK{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortGeneratedTopCell{}, R}(
+            X0:SortGeneratedTopCell{},
+            \and{SortGeneratedTopCell{}}(
+              Lbl'-LT-'generatedTop'-GT-'{}(
+                Var'Unds'Gen2:SortKCell{},
+                Lbl'-LT-'cell'-GT-'{}(VarM:SortMap{}),
+                Var'Unds'Gen1:SortGeneratedCounterCell{}
+              ),
+              Var'Hash'Configuration:SortGeneratedTopCell{}
+            )
+          ),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        LblfunIntListAndConfig'LParRParUnds'FUN-CONFIG'Unds'Int{}(X0:SortGeneratedTopCell{}),
+        \and{SortInt{}}(
+          Lbl'Hash'lambda'UndsUnds'{}(
+            kseq{}(
+              inj{SortIntList{}, SortKItem{}}(
+                Lbl'Stop'List'LBraQuotUndsUndsUnds'FUN-CONFIG'Unds'IntList'Unds'Int'Unds'IntList'QuotRBraUnds'IntList{}()
+              ),
+              dotk{}()
+            )
+          ),
+          \top{SortInt{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("cd4a517c794027033f547acf6dbb35ef1becc2d9880ba6b363aed2816bb078e6"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,3,10,21)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(FUN-CONFIG.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, Var'Unds'V1:SortK{}), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortK{}),
+        \and{SortInt{}}(\dv{SortInt{}}("0"), \top{SortInt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("67bb034021fa246f8bb615d23594e9ac3c4a72bb7e20e8999050186915320fb8")]
