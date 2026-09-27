@@ -8,17 +8,19 @@ updated = "2026-09-27"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
-k_rust_commit = "74f1356e0331e4337cd0043acf59913388ab7978"
+# Provisional: b7eff00e is the head of k-rust kink/integration-r3; it becomes final when k-rust main fast-forwards to it.
+k_rust_commit = "b7eff00e89605f46914e355188c7d113dc2e75ef"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
 k_rust_backend_version = "0.3.0"
 k_release = "7.1.337"
 # The workspace builds against a read-only `git archive` export of this commit instead of the live checkout.
-checkout = "../k-rust-74f1356e"
+checkout = "../k-rust-b7eff00e"
 live_checkout = "../inspirations/midnightntwrk/k-rust"
 source = "Cargo.toml [workspace.dependencies] path dependency"
 
 [retired_pins]
+"74f1356e0331e4337cd0043acf59913388ab7978" = "Former K-in-K2 read-only archive pin; retired on 2026-09-28 for b7eff00e (k-rust kink/integration-r3, round-3 answers KK-63..KK-76). The KK-65/KK-66 branches built against the intermediate KK-63 snapshot 78cd00ca, which was never a K-in-K2 main pin."
 "347f693e21ae220f1844005499da262f15ca3988" = "Former K-in-K2 read-only archive pin; retired on 2026-09-27 for 74f1356e (k-rust round-2 answers KK-45..KK-62)."
 "985e0086f06e1ec05c2c533f26fb6f949c6b84fa" = "Former K-in-K2 read-only archive pin; retired by KINK-1 on 2026-09-27."
 "5fc7a083c3bdfe07b485df271e0299924823d327" = "more-semantics head audited on 2026-08-29; the branch was never merged and its fixes were reimplemented on main."
