@@ -5,8 +5,9 @@
 use k_rust_backend::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
+    simplify::{SimplificationOptions, simplify},
     substitution::Substitution,
-    term::{Sort, Variable},
+    term::{Sort, Term, Variable},
 };
 use k_rust_kore::kore::parser::parse_definition;
 
@@ -16,51 +17,62 @@ use crate::support::internal_term;
 /// `into(s(X)) = addr(X)`, both emitted with `\in` binders and the `injective` attribute as
 /// kompile emits anywhere rules; `f` is a total function with the equation `f(wrap(z)) = done`.
 fn definition() -> BackendDefinition {
-    let syntax = parse_definition(
+    definition_with("")
+}
+
+/// [`definition`] with `attribute` (a KORE attribute, or empty) added to the `into` equation
+/// `into(s(N)) = addr(N)`.
+fn definition_with(attribute: &str) -> BackendDefinition {
+    let attribute = if attribute.is_empty() {
+        String::new()
+    } else {
+        format!(", {attribute}")
+    };
+    let source = format!(
         r#"[]
             module MAIN
-                sort SortNat{} []
-                sort SortW{} []
-                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
-                symbol s{}(SortNat{}) : SortNat{} [constructor{}(), functional{}(), injective{}()]
-                symbol done{}() : SortW{} [constructor{}(), functional{}(), injective{}()]
-                symbol addr{}(SortNat{}) : SortW{} [constructor{}(), functional{}(), injective{}()]
-                symbol wrap{}(SortNat{}) : SortW{} [anywhere{}(), functional{}(), injective{}()]
-                symbol into{}(SortNat{}) : SortW{} [anywhere{}(), functional{}(), injective{}()]
-                symbol f{}(SortW{}) : SortW{} [function{}(), total{}()]
-                axiom{R} \implies{R}(
-                    \and{R}(
-                        \top{R}(),
-                        \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+                sort SortNat{{}} []
+                sort SortW{{}} []
+                symbol z{{}}() : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol s{{}}(SortNat{{}}) : SortNat{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol done{{}}() : SortW{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol addr{{}}(SortNat{{}}) : SortW{{}} [constructor{{}}(), functional{{}}(), injective{{}}()]
+                symbol wrap{{}}(SortNat{{}}) : SortW{{}} [anywhere{{}}(), functional{{}}(), injective{{}}()]
+                symbol into{{}}(SortNat{{}}) : SortW{{}} [anywhere{{}}(), functional{{}}(), injective{{}}()]
+                symbol f{{}}(SortW{{}}) : SortW{{}} [function{{}}(), total{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, s{{}}(z{{}}())), \top{{R}}())
                     ),
-                    \equals{SortW{}, R}(
-                        wrap{}(X0:SortNat{}),
-                        \and{SortW{}}(wrap{}(z{}()), \top{SortW{}}())
+                    \equals{{SortW{{}}, R}}(
+                        wrap{{}}(X0:SortNat{{}}),
+                        \and{{SortW{{}}}}(wrap{{}}(z{{}}()), \top{{SortW{{}}}}())
                     )
-                ) [label{}("collapse"), anywhere{}()]
-                axiom{R} \implies{R}(
-                    \and{R}(
-                        \top{R}(),
-                        \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(N:SortNat{})), \top{R}())
+                ) [label{{}}("collapse"), anywhere{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(\in{{SortNat{{}}, R}}(X0:SortNat{{}}, s{{}}(N:SortNat{{}})), \top{{R}}())
                     ),
-                    \equals{SortW{}, R}(
-                        into{}(X0:SortNat{}),
-                        \and{SortW{}}(addr{}(N:SortNat{}), \top{SortW{}}())
+                    \equals{{SortW{{}}, R}}(
+                        into{{}}(X0:SortNat{{}}),
+                        \and{{SortW{{}}}}(addr{{}}(N:SortNat{{}}), \top{{SortW{{}}}}())
                     )
-                ) [label{}("into"), anywhere{}()]
-                axiom{R} \implies{R}(
-                    \and{R}(
-                        \top{R}(),
-                        \and{R}(\in{SortW{}, R}(X0:SortW{}, wrap{}(z{}())), \top{R}())
+                ) [label{{}}("into"), anywhere{{}}(){attribute}]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(\in{{SortW{{}}, R}}(X0:SortW{{}}, wrap{{}}(z{{}}())), \top{{R}}())
                     ),
-                    \equals{SortW{}, R}(
-                        f{}(X0:SortW{}),
-                        \and{SortW{}}(done{}(), \top{SortW{}}())
+                    \equals{{SortW{{}}, R}}(
+                        f{{}}(X0:SortW{{}}),
+                        \and{{SortW{{}}}}(done{{}}(), \top{{SortW{{}}}}())
                     )
-                ) [label{}("fhit")]
-            endmodule []"#,
-    )
-    .expect("definition should parse");
+                ) [label{{}}("fhit")]
+            endmodule []"#
+    );
+    let syntax = parse_definition(&source).expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
 }
 
@@ -232,4 +244,77 @@ fn equation_matching_compares_arguments_by_value_and_the_root_as_written() {
         "wrap{}(s{}(s{}(X:SortNat{})))",
     );
     assert!(matches!(result, MatchResult::Failed(_)), "{result:?}");
+}
+
+fn simplified(definition: &BackendDefinition, source: &str) -> Term {
+    simplify(
+        definition,
+        &internal_term(definition, source),
+        SimplificationOptions::default(),
+    )
+    .expect("the term should simplify")
+    .term
+}
+
+/// A normal form the simplifier certified (its `evaluated` bit) keeps its head without the
+/// equation scan: rewrite matching refutes a different head on it, rewrite and implication
+/// matching refute different arguments, and a pattern variable binds through it, exactly as for
+/// the unsimplified instance-normal term.
+#[test]
+fn a_certified_normal_form_is_decided_by_its_head_and_arguments() {
+    let definition = definition();
+    let subject = simplified(&definition, "wrap{}(s{}(s{}(z{}())))");
+    assert!(subject.attributes().evaluated);
+    for mode in [MatchMode::Rewrite, MatchMode::Implies] {
+        let patterns: &[&str] = if mode == MatchMode::Rewrite {
+            &["wrap{}(z{}())", "addr{}(z{}())"]
+        } else {
+            &["wrap{}(z{}())"]
+        };
+        for pattern in patterns {
+            let result = match_terms_in_definition(
+                mode,
+                &definition,
+                &internal_term(&definition, pattern),
+                &subject,
+            );
+            assert!(
+                matches!(result, MatchResult::Failed(_)),
+                "{mode:?} {pattern}: {result:?}"
+            );
+        }
+        assert_eq!(
+            match_terms_in_definition(
+                mode,
+                &definition,
+                &internal_term(&definition, "wrap{}(Y:SortNat{})"),
+                &subject,
+            ),
+            MatchResult::Success(Substitution::from([(
+                Variable::new("Y", Sort::simple("SortNat")),
+                internal_term(&definition, "s{}(s{}(z{}()))"),
+            )]))
+        );
+    }
+}
+
+/// With `into` marked `symbolic`, the evaluator does not rewrite the ground `into(s(z))`, but
+/// the equation still makes it equal to `addr(z)`. The simplifier does not certify it, so
+/// matching falls back to the equation scan and does not refute `addr(z)` on it.
+#[test]
+fn an_uncertified_simplifier_fixed_point_is_not_refuted() {
+    let definition = definition_with("symbolic{}()");
+    let subject = simplified(&definition, "into{}(s{}(z{}()))");
+    assert_eq!(subject, internal_term(&definition, "into{}(s{}(z{}()))"));
+    assert!(!subject.attributes().evaluated);
+    let result = match_terms_in_definition(
+        MatchMode::Rewrite,
+        &definition,
+        &internal_term(&definition, "addr{}(z{}())"),
+        &subject,
+    );
+    assert!(
+        matches!(result, MatchResult::Indeterminate { .. }),
+        "{result:?}"
+    );
 }

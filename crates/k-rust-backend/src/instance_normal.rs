@@ -69,6 +69,40 @@ pub(crate) fn is_anywhere_application(term: &Term) -> bool {
     )
 }
 
+/// Whether `term` is an `anywhere` application that the simplifier certified as a normal form,
+/// so that its head is fixed without the equation scan of [`BackendDefinition::instance_normal`].
+///
+/// Only `simplify::simplify_root` sets the `evaluated` bit on an application that is not a
+/// constructor (`Term::with_evaluated_cache`). It does so on a ground term whose arguments carry
+/// the bit, and only when both equation scans end `NotApplicable`. Every equation that equation
+/// selection offers the head or a bare variable, in the function and simplification theories,
+/// failed to match the term: its `Evaluate` match failed, or its collection match had no
+/// solution. The bit is set only in a definition where that selection reaches every term
+/// equation that could match an application
+/// (`BackendDefinition::equation_selection_is_complete_for_applications`). A simplification
+/// with an `\and` left-hand side, which is filed apart, disables the mark for the whole
+/// definition. A `requires` does not count: undecided it blocks the scan, refuted it makes the
+/// scan context dependent, and both withhold the bit. An equation whose left-hand side matched
+/// but that the evaluator set aside (`concrete`, `symbolic`, a binding outside the left-hand
+/// side, a predicate right-hand side) also withholds it.
+///
+/// A failed `Evaluate` match holds on every instance, which is the test `instance_normal`
+/// applies. A ground term is its own only instance, and the matcher reads no path condition, so
+/// the certificate is independent of the path the term is met on. It is a property of the
+/// term's structure, and it survives any later substitution that keeps the term by pointer.
+///
+/// The arguments carry the bit as well. So every `anywhere` subterm was certified the same way,
+/// and constructor, injection and domain-value subterms are values. A marked function argument
+/// (a stuck overloaded function) is allowed: equation matching defers on a function subject, so
+/// an equation can fail on the parent only through another position, and then it fails for
+/// every value of the function. A collection argument carries the bit when its elements do. The
+/// collection axioms only identify representations of one value, and matching compares
+/// collections as values. Each of these arguments is compared by the matcher's own arm for its
+/// kind when the parent is decomposed.
+pub(crate) fn certified_normal_form(term: &Term) -> bool {
+    term.attributes().evaluated && is_anywhere_application(term)
+}
+
 impl BackendDefinition {
     /// Whether every instance of `term` is a normal form of this definition's equations; see
     /// the [module documentation](self) for the definition and why it is sound to decompose or

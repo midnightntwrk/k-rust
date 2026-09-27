@@ -1,6 +1,4 @@
-/- Executable checks of the model of `KRust.TermAttributes`: `#guard` evaluates each at build time.
-Anchors verified at ce4084a5 (term.rs:888 is the `_ => false` arm of
-`structurally_distinct_after_normalization`). -/
+/- Executable checks of the model of `KRust.TermAttributes`: `#guard` evaluates each at build time. -/
 import KRust.TermAttributes
 
 namespace KRust.Examples
@@ -13,12 +11,30 @@ def ctor (n : String) : Sym :=
     injective := false, macroOrAlias := false, other := "" }
 def kcell : Sym := ctor kCellName
 def mac : Sym := { ctor "macro" with macroOrAlias := true }
+def wrap : Sym := { ctor "wrap" with symbolType := .function .Total, anywhere := true, injective := true }
 
 -- Distinct domain values are structurally distinct; equal ones are not (the `self == other` guard).
-#guard structDistinct (int "1") (int "2")
-#guard !structDistinct (int "1") (int "1")
--- Mixed headers fall to the `_ => false` arm (term.rs:888): the matcher would decide them.
-#guard !structDistinct (injK "SortInt" (int "1")) (injK "SortString" (.dv "SortString" "a"))
+#guard structDistinct (fun _ => false) (fun _ _ => false) (int "1") (int "2")
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (int "1") (int "1")
+-- Mixed headers fall to the `_ => false` arm: the matcher would decide them.
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (injK "SortInt" (int "1"))
+  (injK "SortString" (.dv "SortString" "a"))
+-- An anywhere application decides only when the simplifier certified it as a normal form
+-- (`evaluated`): `wrap(s(z))` may equal `wrap(z)` by an anywhere equation.
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (.app wrap [] [.app (ctor "s") [] [.app (ctor "z") [] []]])
+  (.app wrap [] [.app (ctor "z") [] []])
+#guard structDistinct (fun _ => true) (fun _ _ => false) (.app wrap [] [.app (ctor "s") [] [.app (ctor "z") [] []]])
+  (.app wrap [] [.app (ctor "z") [] []])
+-- Constructors decide without a certificate, whatever lies below them.
+#guard structDistinct (fun _ => false) (fun _ _ => false) (.app (ctor "c") [] [.app wrap [] [.app (ctor "z") [] []]])
+  (.app (ctor "d") [] [.app wrap [] [.app (ctor "z") [] []]])
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (.app (ctor "c") [] [.app (ctor "z") [] []])
+  (.app wrap [] [.app (ctor "z") [] []])
+-- A constructor application is not the value of an injection; an uncertified anywhere one may be.
+#guard structDistinct (fun _ => false) (fun _ _ => false) (.app (ctor "c") [] [])
+  (injK "SortInt" (int "1"))
+#guard !structDistinct (fun _ => false) (fun _ _ => false) (.app wrap [] [.app (ctor "z") [] []])
+  (injK "SortInt" (int "1"))
 
 -- Narrowed class: one header per map.
 #guard ceilFree (.map "M" [(injK "SortInt" (int "1"), int "0"), (injK "SortInt" (int "2"), int "0")] none)

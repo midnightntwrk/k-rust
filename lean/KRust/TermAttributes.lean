@@ -40,7 +40,7 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
     Term::set             :562-595  (elements.sort(); elements.dedup() at :579-580)
     with_evaluated_cache  :611-618  (copies the kind, changes only `evaluated`)
     visit_symbols         :760-805, macro_or_alias_symbol :808-816
-    structurally_distinct_after_normalization :834-890
+    structurally_distinct_after_normalization, certified_normal_application (KK-59)
     Term::new             :919-923  (private; the only place a TermData is built)
     combine_attributes    :1085-1110 (empty conjunction is true)
     PartialEq / Ord       :1118-1137 (Eq = pointer or (hash and kind); Ord = derived order on kind)
@@ -234,20 +234,34 @@ def concreteRest : Option (Term × List Term) → Bool
   | some (m, ts) => concrete m && concreteList ts
 end
 
-/- `structurally_distinct_after_normalization` (term.rs:834-890), complete. -/
+/- `structurally_distinct_with` (term.rs), complete; `structurally_distinct_after_normalization`
+is the instance whose `injd` is constantly false. `ev` is the stored `evaluated` attribute, which
+the model does not compute from the kind: `with_evaluated_cache` sets it on an anywhere
+application only when the simplifier found every equation inapplicable, so an anywhere
+application decides only when `ev` certifies it as a normal form (term.rs
+`certified_normal_application`); a constructor application always decides. `injd` is the answer
+for two injections with different sources or targets, opened in Rust by the `injections`
+callback (definedness.rs `ground_terms_structurally_distinct`: the sort graph's
+`InjectionEquality`, with the recursive comparison of a split pair); the model keeps it opaque. -/
 mutual
-def structDistinct (a b : Term) : Bool :=
+def structDistinct (ev : Term → Bool) (injd : Term → Term → Bool) (a b : Term) : Bool :=
   decide (a ≠ b) && concrete a && concrete b &&
   match a, b with
   | .dv s v, .dv s' v' => s != s' || v != v'
   | .app f fs as, .app g gs bs =>
-      if f.name != g.name || fs != gs then true
-      else (f.symbolType == .constructor || f.injective) && structDistinctZip as bs
-  | .inj s t x, .inj s' t' y => if s == s' && t == t' then structDistinct x y else false
+      if !((f.symbolType == .constructor || ev (.app f fs as))
+          && (g.symbolType == .constructor || ev (.app g gs bs))) then false
+      else if f.name != g.name || fs != gs then true
+      else structDistinctZip ev injd as bs
+  | .inj s t x, .inj s' t' y =>
+      if s == s' && t == t' then structDistinct ev injd x y else injd (.inj s t x) (.inj s' t' y)
+  | .app f fs as, .inj _ _ _ => f.symbolType == .constructor || ev (.app f fs as)
+  | .inj _ _ _, .app g gs bs => g.symbolType == .constructor || ev (.app g gs bs)
   | _, _ => false
-/-- `left_arguments.iter().zip(right_arguments).any(…)` (:869-872). -/
-def structDistinctZip : List Term → List Term → Bool
-  | a :: as, b :: bs => structDistinct a b || structDistinctZip as bs
+/-- `left_arguments.iter().zip(right_arguments).any(…)`. -/
+def structDistinctZip (ev : Term → Bool) (injd : Term → Term → Bool) :
+    List Term → List Term → Bool
+  | a :: as, b :: bs => structDistinct ev injd a b || structDistinctZip ev injd as bs
   | _, _             => false
 end
 
@@ -266,6 +280,12 @@ structure Oracles where
   /-- `matches!(match_terms_in_definition(MatchMode::Rewrite, definition, l, r), Failed(_))`
   (definedness.rs:204-213). -/
   matchFails      : Term → Term → Bool
+  /-- The stored `evaluated` attribute (term.rs `TermAttributes`), which only the simplifier's
+  fixed-point cache sets on an anywhere application. -/
+  evaluated       : Term → Bool
+  /-- The sort graph's answer for two injections with different sources or targets
+  (definedness.rs `ground_terms_structurally_distinct`). -/
+  injectionsDistinct : Term → Term → Bool
   /-- `not_in_collection` (definedness.rs:284). -/
   notInCollection : String → Term → Term → Pred
   /-- `deduplicate` (definedness.rs:307-310). -/
@@ -274,10 +294,12 @@ structure Oracles where
   Rust test: definedness.rs `tests::deduplicate_keeps_an_empty_vector_empty`. -/
   dedup_nil       : dedup [] = []
 
-/-- `normalized_ground_terms_are_distinct` (definedness.rs:196-214), opened: the structural test
-first, then the matcher in both directions. -/
+/-- `normalized_ground_terms_are_distinct` (definedness.rs), opened: the structural test first,
+then, for two certified normal forms (concrete and `evaluated`), the matcher in both directions. -/
 def normDistinct (O : Oracles) (l r : Term) : Bool :=
-  structDistinct l r || (concrete l && concrete r && O.matchFails l r && O.matchFails r l)
+  structDistinct O.evaluated O.injectionsDistinct l r
+    || (concrete l && O.evaluated l && concrete r && O.evaluated r
+        && O.matchFails l r && O.matchFails r l)
 
 /-- Per position: the pairwise obligations against every later key, then the not-in obligation
 (definedness.rs:135-147). -/
@@ -520,10 +542,11 @@ theorem ne_or_ne_of_ne {α β} [DecidableEq α] {a a' : α} {b b' : β}
   · exact .inr fun hb => h ⟨ha, hb⟩
   · exact .inl ha
 
-/-- Two distinct keys with the same header are structurally distinct (term.rs:834-890): the
+/-- Two distinct keys with the same header are structurally distinct (term.rs), whatever `ev` and `injd`: the
 `self == other` guard is false, both keys are concrete, and the arm for their header decides. -/
-theorem structDistinct_complete (k k' : Term) (h : (keyHeader k).isSome)
-    (hh : keyHeader k = keyHeader k') (hne : k ≠ k') : structDistinct k k' = true := by
+theorem structDistinct_complete (ev : Term → Bool) (injd : Term → Term → Bool) (k k' : Term)
+    (h : (keyHeader k).isSome) (hh : keyHeader k = keyHeader k') (hne : k ≠ k') :
+    structDistinct ev injd k k' = true := by
   obtain ⟨hdr, hk⟩ := Option.isSome_iff_exists.mp h
   have hk' : keyHeader k' = some hdr := hh ▸ hk
   rcases keyHeader_some hk with ⟨s, v, rfl, rfl⟩ | ⟨s, t, a, x, rfl, rfl⟩ <;>
@@ -563,7 +586,7 @@ theorem map_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O 
   refine (map_keys_pairwise_distinct hle es hs hadj).imp_of_mem ?_
   intro a b ha hb hne
   have := oneHeader_same _ hh a.1 (List.mem_map_of_mem ha) b.1 (List.mem_map_of_mem hb)
-  simp [normDistinct, structDistinct_complete a.1 b.1 this.1 this.2 hne]
+  simp [normDistinct, structDistinct_complete O.evaluated O.injectionsDistinct a.1 b.1 this.1 this.2 hne]
 
 theorem set_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O : Oracles)
     (es : List Term) (hs : Adjacent (fun a b => le a b = true ∧ a ≠ b) es)
@@ -572,7 +595,7 @@ theorem set_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O 
   refine (set_pairwise_distinct hle es hs).imp_of_mem ?_
   intro a b ha hb hne
   have := oneHeader_same _ hh a ha b hb
-  simp [normDistinct, structDistinct_complete a b this.1 this.2 hne]
+  simp [normDistinct, structDistinct_complete O.evaluated O.injectionsDistinct a b this.1 this.2 hne]
 
 /-! ## 9. Case study 1: the attribute is sound for the early return
 

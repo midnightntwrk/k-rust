@@ -73,9 +73,9 @@ use crate::{
     matching::SortGraph,
     rewrite::Pattern,
     rule::{
-        AxiomError, ClassifiedAxiom, InternalizedRule, PredicateTheory, RewriteTheory, RuleKind,
-        RulePatternError, Theory, classify_axiom, collapse_equal_axioms, insert_rewrite_theory,
-        insert_theory, internalize_axiom,
+        AxiomError, ClassifiedAxiom, InternalizedRule, Predicate, PredicateTheory, RewriteTheory,
+        RuleKind, RulePatternError, TermIndex, Theory, classify_axiom, collapse_equal_axioms,
+        insert_rewrite_theory, insert_theory, internalize_axiom,
         internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern, rule_index,
     },
@@ -223,6 +223,11 @@ pub struct BackendDefinition {
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
     inhabited_sorts: OnceLock<BTreeSet<Name>>,
+    /// Whether some simplification axiom states an equation between terms but was filed in
+    /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
+    /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
+    /// [`Self::equation_selection_is_complete_for_applications`].
+    term_equation_in_predicate_theory: bool,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -757,6 +762,7 @@ impl BackendDefinition {
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
+            term_equation_in_predicate_theory: false,
         };
         let rules = result
             .classified_axioms
@@ -803,9 +809,40 @@ impl BackendDefinition {
             .into_iter()
             .flatten()
             .collect();
+        result.term_equation_in_predicate_theory = result
+            .predicate_simplification_theory
+            .values()
+            .flatten()
+            .any(|rule| has_term_component(&rule.lhs));
         result.finite_sort_constructors = collect_finite_sort_constructors(&result);
         crate::definedness::discharge_rewrite_definedness(&mut result);
         Ok(result)
+    }
+
+    /// Whether the term simplifier's equation selection (`rule::applicable_groups` on
+    /// `rule::term_index`) offers an application every equation of the definition whose
+    /// left-hand side could match it. Selection offers the function and simplification equations
+    /// indexed by the application's symbol, plus those indexed by a bare variable.
+    ///
+    /// Two shapes of term equation escape it; a definition holding either gives no evaluated
+    /// mark (`Term::with_evaluated_cache`):
+    ///
+    /// - A simplification axiom whose left-hand side is not a term pattern (an `\and` of term
+    ///   patterns) is filed in `predicate_simplification_theory` as a predicate over those terms.
+    ///   The term simplifier never tries it, yet it states an equation between terms.
+    ///   Internalization records this. kompile does not emit it for anywhere or overload
+    ///   equations, but hand-written KORE (RPC, library callers) can.
+    /// - A term-theory entry indexed `TermIndex::And`. Internalization never produces one:
+    ///   function equations need an application left-hand side, and a conjunction goes to the
+    ///   predicate theory. The theories are public, so the key is checked on each use.
+    ///
+    /// Every other left-hand side fails to match an application it is not offered to. A head of
+    /// another symbol is refuted by equation matching. So is a domain value, an injection, or a
+    /// collection against a concrete subject.
+    pub(crate) fn equation_selection_is_complete_for_applications(&self) -> bool {
+        !self.term_equation_in_predicate_theory
+            && !self.function_theory.contains_key(&TermIndex::And)
+            && !self.simplification_theory.contains_key(&TermIndex::And)
     }
 
     /// The may-contain-`KVar` sort fact, a least fixpoint computed at most once per definition.
@@ -2149,6 +2186,27 @@ fn reject_name_duplicates(parameters: &[Name]) -> Result<(), DefinitionError> {
         }
     }
     Ok(())
+}
+
+/// Whether `predicate` has a term in predicate position (`Predicate::Term`), at any depth of its
+/// connectives: the internalized form of a term pattern inside a non-term left-hand side.
+fn has_term_component(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Term(_) => true,
+        Predicate::True
+        | Predicate::False
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..) => false,
+        Predicate::Not(inner) | Predicate::Exists(_, inner) | Predicate::Forall(_, inner) => {
+            has_term_component(inner)
+        }
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().any(has_term_component),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            has_term_component(left) || has_term_component(right)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -54,7 +54,7 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     cancellation::cancellation_requested,
-    definedness::{ceil_term, condition_definedness},
+    definedness::{ceil_term, condition_definedness, ground_terms_structurally_distinct},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
@@ -1175,7 +1175,7 @@ fn simplify_predicate_with_budget(
             let equality = normalize_injection_equality(definition, equality);
             let equality = match equality {
                 Predicate::Equals(left, right)
-                    if left.structurally_distinct_after_normalization(&right) =>
+                    if ground_terms_structurally_distinct(definition, &left, &right) =>
                 {
                     Predicate::False
                 }
@@ -1450,7 +1450,7 @@ fn apply_ceil_theory(
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
             GroupScan::Blocked => return Ok(None),
-            GroupScan::ContextDependent | GroupScan::NotApplicable => {}
+            GroupScan::NotCacheable | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -1581,7 +1581,7 @@ fn apply_predicate_theory(
         })? {
             GroupScan::Applied(result) => return Ok(Some(result)),
             GroupScan::Blocked => return Ok(None),
-            GroupScan::ContextDependent | GroupScan::NotApplicable => {}
+            GroupScan::NotCacheable | GroupScan::NotApplicable => {}
         }
     }
     Ok(None)
@@ -3094,6 +3094,8 @@ fn simplify_root(
             });
         }
     }
+    // The fixed point is recorded only when both scans are `NotApplicable`: every equation
+    // offered the term failed to match it, which holds on every path (`Term::with_evaluated_cache`).
     let equation_fixed_point = matches!(function_scan, TheoryScan::NotApplicable)
         && matches!(simplification_scan, TheoryScan::NotApplicable);
     let term =
@@ -3180,14 +3182,18 @@ enum IndeterminateEquation {
 enum TheoryScan {
     Applied(Simplification),
     Blocked,
-    ContextDependent,
+    /// No equation applied, but some equation was set aside for a reason other than a failed
+    /// match (see [`GroupScan::NotCacheable`]); the term is not a fixed point to record.
+    NotCacheable,
+    /// Every equation offered the term failed to match it.
     NotApplicable,
 }
 
 /// Whether `term` is one of the normalized value-like equation heads whose fixed point can be
 /// retained in the term itself. Fully evaluated children exclude a closed parent whose child
 /// scan was blocked, and the empty variable set keeps a symbolic application out of the cache.
-/// The caller separately rejects a scan whose result depended on the current path condition.
+/// The caller separately rejects a scan that set an equation aside for any reason other than a
+/// failed match (`TheoryScan::NotCacheable`, `TheoryScan::Blocked`).
 fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool {
     let TermKind::Application {
         symbol, arguments, ..
@@ -3200,6 +3206,7 @@ fn cacheable_equation_head(definition: &BackendDefinition, term: &Term) -> bool 
             .iter()
             .all(|argument| argument.attributes().evaluated)
         && (symbol.attributes.anywhere || definition.overloads.is_overloaded(&symbol.name))
+        && definition.equation_selection_is_complete_for_applications()
 }
 
 fn apply_theory(
@@ -3214,7 +3221,7 @@ fn apply_theory(
     let (theory, indeterminate_equation) = theory;
     let groups = applicable_groups(theory, &term_index(term));
     let mut blocked = false;
-    let mut context_dependent = false;
+    let mut not_cacheable = false;
     for rules in groups.values() {
         match scan_group(rules, |rule| {
             apply_equation(
@@ -3235,14 +3242,14 @@ fn apply_theory(
                 return Ok(TheoryScan::Blocked);
             }
             GroupScan::Blocked => blocked = true,
-            GroupScan::ContextDependent => context_dependent = true,
+            GroupScan::NotCacheable => not_cacheable = true,
             GroupScan::NotApplicable => {}
         }
     }
     Ok(if blocked {
         TheoryScan::Blocked
-    } else if context_dependent {
-        TheoryScan::ContextDependent
+    } else if not_cacheable {
+        TheoryScan::NotCacheable
     } else {
         TheoryScan::NotApplicable
     })
@@ -3254,6 +3261,14 @@ enum EquationAttempt<T> {
     /// term is simplified under different assumptions. Unlike `Indeterminate`, this does not
     /// block lower-priority equations in the current scan.
     ContextDependent,
+    /// The equation's left-hand side matched, or its shape keeps the evaluator from using it as
+    /// a term rewrite, and the evaluator does not use it on this term: a `concrete` or
+    /// `symbolic` attribute rejected the binding, the match bound a variable outside the
+    /// left-hand side, or the right-hand side is a predicate. These are choices of when the
+    /// evaluator uses an equation, not of what the definition means: the equation still holds,
+    /// so the term may equal its right-hand side. Like `ContextDependent`, this lets
+    /// lower-priority equations of the scan fire and keeps the term out of the evaluated cache.
+    Unused,
     Indeterminate(ConditionIndeterminacy),
     Applied(T),
 }
@@ -3261,7 +3276,10 @@ enum EquationAttempt<T> {
 enum GroupScan<T> {
     Applied(T),
     Blocked,
-    ContextDependent,
+    /// No equation applied, and some equation was `ContextDependent` or `Unused`: the scan's
+    /// answer may differ under another path condition, or an equation that matched was set aside,
+    /// so the term must not be recorded as a fixed point.
+    NotCacheable,
     NotApplicable,
 }
 
@@ -3270,19 +3288,19 @@ fn scan_group<R, T>(
     mut attempt: impl FnMut(&R) -> Result<EquationAttempt<T>, SimplificationError>,
 ) -> Result<GroupScan<T>, SimplificationError> {
     let mut indeterminate = false;
-    let mut context_dependent = false;
+    let mut not_cacheable = false;
     for rule in rules {
         match attempt(rule)? {
             EquationAttempt::Applied(result) => return Ok(GroupScan::Applied(result)),
             EquationAttempt::Indeterminate(_reason) => indeterminate = true,
-            EquationAttempt::ContextDependent => context_dependent = true,
+            EquationAttempt::ContextDependent | EquationAttempt::Unused => not_cacheable = true,
             EquationAttempt::NotApplicable => {}
         }
     }
     Ok(if indeterminate {
         GroupScan::Blocked
-    } else if context_dependent {
-        GroupScan::ContextDependent
+    } else if not_cacheable {
+        GroupScan::NotCacheable
     } else {
         GroupScan::NotApplicable
     })
@@ -3445,14 +3463,16 @@ fn apply_equation(
             }
             MatchResult::Success(substitution) => substitution,
         };
+    // The left-hand side matched. The two checks below decide whether the evaluator uses the
+    // equation here, not whether it holds, so a rejection is `Unused`, never `NotApplicable`.
     if substitution
         .keys()
         .any(|variable| !rule.lhs.attributes().variables.contains(variable))
     {
-        return Ok(EquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::Unused);
     }
     if check_concreteness(rule, &substitution).is_some() {
-        return Ok(EquationAttempt::NotApplicable);
+        return Ok(EquationAttempt::Unused);
     }
     if binds_element_variable_to_set_pattern(&substitution) {
         return Ok(EquationAttempt::Indeterminate(
@@ -3533,7 +3553,7 @@ fn apply_equation(
                 rule_id: rule.attributes.unique_id.clone(),
             });
         }
-        RuleRhs::Predicates(_) => return Ok(EquationAttempt::NotApplicable),
+        RuleRhs::Predicates(_) => return Ok(EquationAttempt::Unused),
     };
     let mut live = Vec::new();
     for (rhs, ensures, rhs_is_bottom) in alternatives {
