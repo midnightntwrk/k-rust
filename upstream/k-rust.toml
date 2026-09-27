@@ -8,7 +8,7 @@ updated = "2026-09-28"
 
 [reference_pin]
 # Status is judged against this commit of the on-disk checkout that the workspace builds against: kink-pattern, kink-patch, kink-native and kink-campaign all depend on k-rust.
-# Provisional: 9b91332e is the final head of k-rust kink/integration-r3 (round 3 plus KK-71 follow-up and KK-79); it becomes final when k-rust main fast-forwards to it.
+# 9b91332e is k-rust main (round 3 plus the KK-71 follow-up and KK-79), fast-forwarded on 2026-09-28.
 k_rust_commit = "9b91332e06f9b3f706119dfbe0019842432f2d08"
 k_rust_version = "0.4.0"
 # kink-native also depends on k-rust-backend from the same checkout, for execution cancellation and diagnostics.
