@@ -8,7 +8,7 @@ use kink_pattern::{Evaluation, EventAttribution, PathInput, PatternFailure, Patt
 use serde_json::{Value, json};
 
 use crate::{
-    bridge::{BridgeFailure, BridgedPaths},
+    bridge::{BridgeFailure, BridgedPaths, discarded},
     execution::{
         AdaptedExecution, AdaptedLeaf, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
     },
@@ -162,9 +162,31 @@ fn feasibility(path: &PathInput, execution: &AdaptedExecution) -> &'static str {
     });
     match leaf {
         Some(leaf) if ground_leaf(leaf, path) => "ground",
-        Some(leaf) if leaf.feasibility == LeafFeasibility::Syntactic => "syntactic",
-        _ => "unknown",
+        Some(leaf) => match leaf.feasibility {
+            LeafFeasibility::Syntactic => "syntactic",
+            LeafFeasibility::Solver => "solver",
+            LeafFeasibility::Unsat => "unsat",
+            LeafFeasibility::Unknown => "unknown",
+        },
+        None => "unknown",
     }
+}
+
+/// The leaves the bridge discarded as proved to have no instance, in leaf order.
+fn discarded_values(execution: &AdaptedExecution) -> Vec<Value> {
+    execution
+        .leaves()
+        .iter()
+        .filter_map(|leaf| {
+            discarded(leaf, execution.definition_facts()).map(|reason| {
+                json!({
+                    "key": leaf_key(leaf),
+                    "halt": enum_name(leaf.halt),
+                    "reason": reason.name(),
+                })
+            })
+        })
+        .collect()
 }
 
 fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
@@ -203,10 +225,11 @@ fn path_value(path: &PathInput, execution: &AdaptedExecution) -> Value {
     })
 }
 
-/// The report schema version. Version 2 (SYM-3B-01) adds the SMT options to `budget`.
-pub const REPORT_VERSION: u64 = 2;
+/// The report schema version. Version 2 (SYM-3B-01) adds the SMT options to `budget`; version 3
+/// (SYM-3B-02) adds `discarded` and the path feasibility values `"solver"` and `"unsat"`.
+pub const REPORT_VERSION: u64 = 3;
 
-/// Builds the exact version-2 step-3 report schema.
+/// Builds the exact version-3 step-3 report schema.
 #[must_use]
 pub fn step3_report(input: ReportInput<'_>) -> Value {
     let budget = input.budget;
@@ -227,65 +250,76 @@ pub fn step3_report(input: ReportInput<'_>) -> Value {
         }
         result => result,
     };
-    let (outcome, failure, error, complete_coverage, collection, paths, witnesses, primary_witness) =
-        match result {
-            ReportResult::Error(error) => (
-                "error".to_owned(),
-                None,
-                json!({ "stage": error.stage, "kind": error.kind }),
-                false,
-                json!({ "stop": "error", "pending_work": 0 }),
-                Vec::new(),
-                Vec::new(),
-                None,
-            ),
-            ReportResult::Ok {
-                execution,
-                bridged,
-                evaluation,
-            } => {
-                let paths = bridged
-                    .paths
-                    .iter()
-                    .map(|path| path_value(path, execution))
-                    .collect();
-                let witnesses = evaluation
-                    .witnesses
-                    .iter()
-                    .map(|witness| {
-                        json!({
-                            "path_ordinal": witness.path_ordinal,
-                            "path_key": witness.path_key,
-                            "arm_ordinal": witness.arm_ordinal,
-                            "event_indices": witness.event_indices,
-                            "bindings": witness.bindings.iter().map(|binding| json!({
-                                "name": binding.name,
-                                "term": term(&binding.term),
-                            })).collect::<Vec<_>>(),
-                            "assumptions": witness.assumptions.iter().map(|relation| json!({
-                                "left": term(&relation.left),
-                                "right": term(&relation.right),
-                            })).collect::<Vec<_>>(),
-                            "path_predicate": term(&witness.path_predicate),
-                            "stop": enum_name(witness.stop_reason),
-                        })
-                    })
-                    .collect();
-                (
-                    enum_name(evaluation.outcome),
-                    evaluation.failure.map(enum_name),
-                    Value::Null,
-                    evaluation.complete_coverage,
+    let (
+        outcome,
+        failure,
+        error,
+        complete_coverage,
+        collection,
+        paths,
+        discarded,
+        witnesses,
+        primary_witness,
+    ) = match result {
+        ReportResult::Error(error) => (
+            "error".to_owned(),
+            None,
+            json!({ "stage": error.stage, "kind": error.kind }),
+            false,
+            json!({ "stop": "error", "pending_work": 0 }),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+        ),
+        ReportResult::Ok {
+            execution,
+            bridged,
+            evaluation,
+        } => {
+            let paths = bridged
+                .paths
+                .iter()
+                .map(|path| path_value(path, execution))
+                .collect();
+            let witnesses = evaluation
+                .witnesses
+                .iter()
+                .map(|witness| {
                     json!({
-                        "stop": enum_name(bridged.collection.stop),
-                        "pending_work": bridged.collection.pending_work,
-                    }),
-                    paths,
-                    witnesses,
-                    evaluation.primary_witness,
-                )
-            }
-        };
+                        "path_ordinal": witness.path_ordinal,
+                        "path_key": witness.path_key,
+                        "arm_ordinal": witness.arm_ordinal,
+                        "event_indices": witness.event_indices,
+                        "bindings": witness.bindings.iter().map(|binding| json!({
+                            "name": binding.name,
+                            "term": term(&binding.term),
+                        })).collect::<Vec<_>>(),
+                        "assumptions": witness.assumptions.iter().map(|relation| json!({
+                            "left": term(&relation.left),
+                            "right": term(&relation.right),
+                        })).collect::<Vec<_>>(),
+                        "path_predicate": term(&witness.path_predicate),
+                        "stop": enum_name(witness.stop_reason),
+                    })
+                })
+                .collect();
+            (
+                enum_name(evaluation.outcome),
+                evaluation.failure.map(enum_name),
+                Value::Null,
+                evaluation.complete_coverage,
+                json!({
+                    "stop": enum_name(bridged.collection.stop),
+                    "pending_work": bridged.collection.pending_work,
+                }),
+                paths,
+                discarded_values(execution),
+                witnesses,
+                evaluation.primary_witness,
+            )
+        }
+    };
     json!({
         "schema": "kink-step3-report",
         "version": REPORT_VERSION,
@@ -298,6 +332,7 @@ pub fn step3_report(input: ReportInput<'_>) -> Value {
         "complete_coverage": complete_coverage,
         "collection": collection,
         "paths": paths,
+        "discarded": discarded,
         "witnesses": witnesses,
         "primary_witness": primary_witness,
     })
@@ -321,6 +356,7 @@ mod tests {
     use super::*;
     use crate::{
         execution::{AdaptedLeaf, HaltClass},
+        feasibility::DefinitionFacts,
         observation::AdaptedBranch,
     };
 
@@ -363,6 +399,7 @@ mod tests {
                 rollbacks: Vec::new(),
             },
             feasibility: LeafFeasibility::Syntactic,
+            every_instance_stuck: true,
             diagnostics: Vec::new(),
             candidate_diagnostics: Vec::new(),
             remainder_diagnostics: Vec::new(),
@@ -418,6 +455,10 @@ mod tests {
                 leaves: vec![leaf],
                 effects: Vec::new(),
                 timed_out: false,
+                definition: DefinitionFacts {
+                    applicability_conditions: true,
+                    free_rule_patterns: true,
+                },
             },
             BridgedPaths {
                 paths: vec![path],
@@ -480,6 +521,7 @@ mod tests {
                 "complete_coverage",
                 "collection",
                 "paths",
+                "discarded",
                 "witnesses",
                 "primary_witness",
             ])
@@ -556,7 +598,8 @@ mod tests {
             BTreeSet::from(["left", "right"])
         );
         assert_eq!(report["schema"], "kink-step3-report");
-        assert_eq!(report["version"], 2);
+        assert_eq!(report["version"], 3);
+        assert_eq!(report["discarded"], json!([]));
         assert_eq!(report["profile"], "no-z3");
         assert_eq!(report["outcome"], "match");
         assert_eq!(path["stop"], "terminal");
@@ -611,6 +654,7 @@ mod tests {
             });
             assert_eq!(report["outcome"], "error");
             assert_eq!(report["paths"], json!([]));
+            assert_eq!(report["discarded"], json!([]));
             assert_eq!(report["witnesses"], json!([]));
             assert_eq!(report["error"], json!({ "stage": stage, "kind": kind }));
             assert_eq!(keys(&report["error"]), BTreeSet::from(["stage", "kind"]));
@@ -673,8 +717,72 @@ mod tests {
         assert_eq!(report["paths"][0]["stop"], "depth-limit");
         assert_eq!(report["paths"][0]["execution_stop"], "depth-limit");
         assert_eq!(report["paths"][0]["feasibility"], "syntactic");
-        execution.leaves[0].feasibility = LeafFeasibility::Unknown;
-        assert_eq!(render(&execution)["paths"][0]["feasibility"], "unknown");
+        for (feasibility, name) in [
+            (LeafFeasibility::Solver, "solver"),
+            (LeafFeasibility::Unsat, "unsat"),
+            (LeafFeasibility::Unknown, "unknown"),
+        ] {
+            execution.leaves[0].feasibility = feasibility;
+            assert_eq!(render(&execution)["paths"][0]["feasibility"], name);
+        }
+    }
+
+    /// A leaf the bridge discards appears under `discarded` with its halt and reason, not
+    /// under `paths`.
+    #[test]
+    fn report_lists_discarded_leaves() {
+        let (mut execution, mut bridged, mut evaluation) = fixture();
+        let mut vacuous = execution.leaves[0].clone();
+        vacuous.halt = HaltClass::Vacuous;
+        vacuous.branch.identity.clear();
+        vacuous.branch.depth = 0;
+        vacuous.branch.state = term(&pattern(r"\bottom{SortS{}}()"));
+        let mut refuted = execution.leaves[0].clone();
+        refuted.feasibility = LeafFeasibility::Unsat;
+        refuted.branch.identity[0].target = "u".to_owned();
+        execution.leaves = vec![vacuous, refuted];
+        bridged.paths.clear();
+        bridged.collection.empty_search_decision = Some(kink_pattern::EmptySearchDecision);
+        evaluation.outcome = PatternOutcome::NoMatch;
+        evaluation.witnesses.clear();
+        evaluation.primary_witness = None;
+        let report = step3_report(ReportInput {
+            profile: SolverProfile::Z3,
+            test_id: "t",
+            budget: &budget(),
+            backend_options: backend_options(),
+            result: ReportResult::Ok {
+                execution: &execution,
+                bridged: &bridged,
+                evaluation: &evaluation,
+            },
+        });
+        assert_eq!(report["paths"], json!([]));
+        assert_eq!(
+            report["discarded"],
+            json!([
+                { "key": "root", "halt": "vacuous", "reason": "vacuous" },
+                { "key": "r@u", "halt": "stuck", "reason": "unsat" },
+            ])
+        );
+        // Under an `ensures` clause the refuted leaf is kept, so only the depth-0 leaf is
+        // discarded.
+        execution.definition.applicability_conditions = false;
+        let report = step3_report(ReportInput {
+            profile: SolverProfile::Z3,
+            test_id: "t",
+            budget: &budget(),
+            backend_options: backend_options(),
+            result: ReportResult::Ok {
+                execution: &execution,
+                bridged: &bridged,
+                evaluation: &evaluation,
+            },
+        });
+        assert_eq!(
+            report["discarded"],
+            json!([{ "key": "root", "halt": "vacuous", "reason": "vacuous" }])
+        );
     }
 
     #[test]

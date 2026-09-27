@@ -190,6 +190,9 @@ enum Fixture {
     Owise,
     /// `symensures.k`: an `ensures` that constrains payload variables after their events.
     Ensures,
+    /// `symbottom.k`: guardedmem's unguarded write/load plus rules whose `ensures` leaves a
+    /// state without successor (SYM-3B-02).
+    Bottom,
 }
 
 impl Fixture {
@@ -200,6 +203,7 @@ impl Fixture {
             Self::Wrap => "symwrap.k",
             Self::Owise => "symowise.k",
             Self::Ensures => "symensures.k",
+            Self::Bottom => "symbottom.k",
         }
     }
     fn module(self) -> &'static str {
@@ -209,18 +213,19 @@ impl Fixture {
             Self::Wrap => "SYMWRAP",
             Self::Owise => "SYMOWISE",
             Self::Ensures => "SYMENSURES",
+            Self::Bottom => "SYMBOTTOM",
         }
     }
     fn address_sort(self) -> &'static str {
         match self {
             Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortAddress",
-            Self::Guard => "SortInt",
+            Self::Guard | Self::Bottom => "SortInt",
         }
     }
     fn value_sort(self) -> &'static str {
         match self {
             Self::Sym | Self::Wrap | Self::Owise | Self::Ensures => "SortNat",
-            Self::Guard => "SortInt",
+            Self::Guard | Self::Bottom => "SortInt",
         }
     }
     fn labels(self) -> &'static [&'static str; 3] {
@@ -230,6 +235,7 @@ impl Fixture {
             Self::Wrap => &["SYMWRAP.write", "SYMWRAP.load", "SYMWRAP.collapse"],
             Self::Owise => &["SYMOWISE.write", "SYMOWISE.load", "SYMOWISE.other"],
             Self::Ensures => &["SYMENSURES.write", "SYMENSURES.load", "SYMENSURES.pin"],
+            Self::Bottom => &["SYMBOTTOM.write", "SYMBOTTOM.load", "SYMBOTTOM.stop"],
         }
     }
 }
@@ -315,6 +321,21 @@ fn observations(fixture: Fixture, validator: &NativeValidator) -> Vec<ObservedRu
                 &[SYM_LOAD_A, SYM_LOAD_V],
             ),
         ],
+        // symbottom's write/load rules bind the same variables as guardedmem's.
+        Fixture::Bottom => vec![
+            observed(
+                validator,
+                "SYMBOTTOM.write",
+                "memoryWrite",
+                &[GUARD_WRITE_A, GUARD_WRITE_V],
+            ),
+            observed(
+                validator,
+                "SYMBOTTOM.load",
+                "memoryLoad",
+                &[GUARD_LOAD_A, GUARD_LOAD_V],
+            ),
+        ],
         Fixture::Guard => vec![
             observed(
                 validator,
@@ -344,7 +365,7 @@ fn run_side(
     fixture: Fixture,
     rules: &[ObservedRule],
     vocabulary: &EventVocabulary,
-    program: Pattern,
+    state: Pattern,
     budget: ExecutionBudget,
 ) -> Run {
     let manifest = validator
@@ -352,7 +373,6 @@ fn run_side(
         .expect("manifest installs");
     let selected_rules = manifest.rules().cloned().collect();
     let mut backend = backend(&side.artifacts().definition_kore, fixture.module());
-    let state = support::initial_state(program, "SortProg");
     let execution = adapter(manifest)
         .execute(&mut backend, &state, budget)
         .expect("execution adapts");
@@ -385,6 +405,11 @@ fn run_side(
 }
 
 fn run(fixture: Fixture, program: Pattern, budget: ExecutionBudget) -> (Run, EventVocabulary) {
+    run_state(fixture, support::initial_state(program, "SortProg"), budget)
+}
+
+/// `run` from an initial state that may carry a path condition.
+fn run_state(fixture: Fixture, state: Pattern, budget: ExecutionBudget) -> (Run, EventVocabulary) {
     let validator = NativeValidator::bind(support::load(fixture.name()), CompileOptions::default());
     let side = validator.compile_baseline().expect("fixture compiles");
     let vocabulary = vocabulary(fixture);
@@ -396,7 +421,7 @@ fn run(fixture: Fixture, program: Pattern, budget: ExecutionBudget) -> (Run, Eve
             fixture,
             &rules,
             &vocabulary,
-            program,
+            state,
             budget,
         ),
         vocabulary,
@@ -707,7 +732,12 @@ fn observed_binding_indices_follow_variable_names() {
         labels,
         ["GUARDEDMEM.write", "GUARDEDMEM.load", "GUARDEDMEM.loadNeg"]
     );
-    for (_, names) in guard.iter().chain(&neg) {
+    let bottom = binding_names(Fixture::Bottom, trivial_program());
+    assert_eq!(
+        bottom.iter().map(|(label, _)| *label).collect::<Vec<_>>(),
+        ["SYMBOTTOM.write", "SYMBOTTOM.load"]
+    );
+    for (_, names) in guard.iter().chain(&neg).chain(&bottom) {
         assert_eq!(
             names.iter().map(String::as_str).collect::<Vec<_>>(),
             vec![
@@ -1441,9 +1471,11 @@ fn owise_rule_is_not_taken_for_a_symbolic_subject() {
     let (mut symbolic, vocabulary) = run(Fixture::Owise, program(nat("X")), BUDGET);
     // No-Z3: matching `z` or `s(_)` against `X` needs a narrowing condition, which `NoSolver`
     // cannot accept, so the priority group is undecided and the one leaf is `Indeterminate`.
-    // Z3: narrowing is accepted; `zero` and `succ` each give a `Stuck` leaf whose predicate
-    // keeps its narrowing condition (`X = z`, `X = s(_)`), and `other` is still not taken. The
-    // Z3 column (constrained symbolic `Stuck` is `SolverUnknown`) is provisional: SYM-3B-02.
+    // Z3: narrowing is accepted; `zero` and `succ` each give a `Stuck` leaf on the ground
+    // `halt` whose predicate keeps its narrowing condition (`X = z`, `X = s(_)`), and `other`
+    // is not taken (k-rust refutes its remainder by the finite constructors of `Nat`). The
+    // predicates are over `Nat`, which Z3 abstracts, so no exact `Sat` shows the leaves
+    // feasible and they stay `SolverUnknown` (SYM-3B-02).
     let stops: Vec<_> = symbolic
         .bridged
         .paths
@@ -1542,8 +1574,11 @@ fn symmem_manifest_rejects_wrong_cardinality() {
 
 /// Audit (SYM-3A-09): the solver-free `Sat` for witness assumptions needs the path predicate
 /// to be exactly `\top`. `pin` pins `X = z` and `Y = s(z)` after the write/load events, so
-/// `X = Y` is infeasible on the path; k-rust keeps both equations in the leaf predicate rather
-/// than substituting them away, so the leaf is `SolverUnknown` and the result stays `unknown`.
+/// `X = Y` is infeasible with the leaf predicate; k-rust keeps both equations in the leaf
+/// predicate rather than substituting them away, so the leaf is `SolverUnknown` and the result
+/// stays `unknown`. That is also the right answer: the instances with `X = Y` emit both events
+/// before `pin` leaves them without a successor (SYM-3B-02: an `ensures` is not an
+/// applicability condition, so no leaf of a definition with one is completed on its predicate).
 #[test]
 fn ensures_constraint_keeps_a_later_witness_unknown() {
     let program = seq(
@@ -1564,6 +1599,222 @@ fn ensures_constraint_keeps_a_later_witness_unknown() {
         (evaluation.outcome, evaluation.failure),
         (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
     );
+}
+
+/// `symbottom.k`: write and load at address 1, then `stop(1)`, whose only rewrite `ensures`
+/// `1 <Int 0`.
+fn trivial_program() -> Pattern {
+    seq(
+        write(addr(support::int(1)), integer("V")),
+        seq(
+            load(addr(support::int(1)), integer("W")),
+            support::app("Lblstop", vec![support::int(1)]),
+        ),
+    )
+}
+/// `symbottom.k`: write `X`, load `Y`, then `apart(X, Y)`, which `ensures X =/=Int Y`.
+fn apart_program() -> Pattern {
+    seq(
+        write(addr(integer("X")), integer("V")),
+        seq(
+            load(addr(integer("Y")), integer("W")),
+            support::app("Lblapart", vec![integer("X"), integer("Y")]),
+        ),
+    )
+}
+/// `symbottom.k`: G3's ground write/load under the initial path condition `1 = 2`.
+fn vacuous_state() -> Pattern {
+    let top = kore_sort("SortGeneratedTopCell");
+    Pattern::And {
+        sort: top.clone(),
+        arguments: vec![
+            support::initial_state(
+                seq(
+                    write(addr(support::int(1)), integer("V")),
+                    seq(load(addr(support::int(1)), integer("W")), halt()),
+                ),
+                "SortProg",
+            ),
+            Pattern::Equals {
+                operand_sort: kore_sort("SortInt"),
+                result_sort: top,
+                left: Box::new(support::int(1)),
+                right: Box::new(support::int(2)),
+            },
+        ],
+    }
+}
+
+/// The halt, feasibility, every-instance stuckness and bridged stop of each leaf, in order.
+fn leaf_rows(run: &Run) -> Vec<(HaltClass, LeafFeasibility, bool, PathStop)> {
+    run.execution
+        .leaves()
+        .iter()
+        .zip(&run.bridged.paths)
+        .map(|(leaf, path)| {
+            (
+                leaf.halt,
+                leaf.feasibility,
+                leaf.every_instance_stuck,
+                path.stop,
+            )
+        })
+        .collect()
+}
+
+/// SYM-3B-02, README 3.1: `stop(1)`'s only rewrite is undefined, so k-rust reports the state
+/// `stop(1)` itself as a `Trivial` leaf after the write and load. Those events happen, so the
+/// leaf is never discarded (that would be a wrong `no-match`) and, because a `Trivial` halt
+/// does not say whether its state or its successor is `\bottom`, it is `SolverUnknown` in both
+/// profiles.
+#[test]
+fn trivial_leaf_is_never_discarded() {
+    let (mut run, vocabulary) = run(Fixture::Bottom, trivial_program(), BUDGET);
+    let [leaf] = run.execution.leaves() else {
+        panic!("one leaf")
+    };
+    assert_eq!((leaf.halt, leaf.branch.depth), (HaltClass::Trivial, 2));
+    let [path] = run.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!(path.stop, PathStop::SolverUnknown);
+    assert_eq!(path.events.len(), 2);
+    assert_both(
+        &mut run,
+        &gwl_after(&vocabulary),
+        PatternOutcome::Unknown,
+        Some(PathStop::SolverUnknown),
+    );
+}
+
+/// SYM-3B-02, README 3.1: an initial state whose path condition is `\bottom` has no instance.
+/// k-rust reports one `Vacuous` leaf at depth 0; the bridge discards it in both profiles, the
+/// collection is an empty clean exhaustion, the result is `no-match` with complete coverage,
+/// and the report lists the leaf under `discarded`.
+#[test]
+fn vacuous_initial_state_is_a_discarded_path() {
+    let (mut run, vocabulary) = run_state(Fixture::Bottom, vacuous_state(), BUDGET);
+    let [leaf] = run.execution.leaves() else {
+        panic!("one leaf")
+    };
+    assert_eq!((leaf.halt, leaf.branch.depth), (HaltClass::Vacuous, 0));
+    assert!(run.bridged.paths.is_empty());
+    assert_eq!(run.bridged.collection.stop, CollectionStop::SearchExhausted);
+    assert!(run.bridged.collection.empty_search_decision.is_some());
+    let plan = gwl_after(&vocabulary);
+    let evaluation = assert_both(&mut run, &plan, PatternOutcome::NoMatch, None);
+    assert!(evaluation.complete_coverage);
+    let report = step3_report(ReportInput {
+        profile: PROFILE,
+        test_id: "vacuous",
+        budget: &BUDGET,
+        backend_options: BACKEND_OPTIONS,
+        result: ReportResult::Ok {
+            execution: &run.execution,
+            bridged: &run.bridged,
+            evaluation: &evaluation,
+        },
+    });
+    assert_eq!(report["outcome"], "no-match");
+    assert_eq!(report["paths"], serde_json::json!([]));
+    assert_eq!(
+        report["discarded"],
+        serde_json::json!([{ "key": "root", "halt": "vacuous", "reason": "vacuous" }])
+    );
+}
+
+/// SYM-3B-02, README 3.1 and R15: `apart` `ensures X =/=Int Y` after the write and load. The
+/// one leaf is `halt` under `X =/=Int Y`, which Z3 shows exactly `Sat`, and its stuckness
+/// holds for every instance; but the instances with `X = Y` emit both events and then have no
+/// successor, and no leaf keeps them. Completing the leaf would make the candidate `X = Y`
+/// `Unsat` and the result a wrong `no-match`. Because symbottom has an `ensures`, its path
+/// conditions are not all applicability conditions, and the leaf stays `SolverUnknown`.
+#[test]
+fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
+    let (mut run, vocabulary) = run(Fixture::Bottom, apart_program(), BUDGET);
+    assert!(!run.execution.definition_facts().applicability_conditions);
+    assert_eq!(
+        leaf_rows(&run),
+        [(
+            HaltClass::Stuck,
+            by_profile(LeafFeasibility::Unknown, LeafFeasibility::Solver),
+            true,
+            PathStop::SolverUnknown,
+        )]
+    );
+    assert!(!matches!(
+        run.bridged.paths[0].path_predicate,
+        Pattern::Top { .. }
+    ));
+    assert_both(
+        &mut run,
+        &gwl_after(&vocabulary),
+        PatternOutcome::Unknown,
+        Some(PathStop::SolverUnknown),
+    );
+}
+
+/// SYM-3B-02, README 3.1: under Z3, guardedmem's `requires` split G1 and G2 into `Stuck`
+/// leaves whose predicates over `Int` translate exactly and are `Sat`. guardedmem has no
+/// `ensures`, so every leaf is complete; G2's `loadNeg` remainder (`Y >=Int 0`) is a symbolic
+/// `Stuck` leaf over `Int` variables, complete because its stuckness holds for every instance.
+/// G2's only candidate needs `X = Y` with `X >=Int 0 ∧ Y <Int 0`, which Z3 refutes: `no-match`.
+/// G1's candidate needs a trusted solver `Sat` (SYM-3B-03). Without Z3 both stay one
+/// `Indeterminate` leaf.
+#[test]
+fn constrained_and_remainder_stuck_leaves_complete_under_z3() {
+    use HaltClass::{Indeterminate, Stuck};
+    use LeafFeasibility::{Solver, Syntactic};
+    let complete = (Stuck, Solver, true, PathStop::Terminal);
+    for (program, decided) in [
+        (
+            g1(),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+        ),
+        (g2(), (PatternOutcome::NoMatch, None)),
+    ] {
+        let (mut run, vocabulary) = run(Fixture::Guard, program, BUDGET);
+        let facts = run.execution.definition_facts();
+        assert!(facts.applicability_conditions && facts.free_rule_patterns);
+        assert_eq!(
+            leaf_rows(&run),
+            by_profile(
+                vec![(Indeterminate, Syntactic, false, PathStop::BackendLimit)],
+                vec![complete; 3]
+            )
+        );
+        let evaluation = decided_outcome(&mut run, &gwl_after(&vocabulary));
+        assert_eq!(
+            evaluation,
+            by_profile(
+                (PatternOutcome::Unknown, Some(PathStop::BackendLimit)),
+                decided
+            )
+        );
+        if PROFILE == SolverProfile::Z3 {
+            let symbolic = run
+                .bridged
+                .paths
+                .iter()
+                .filter_map(|path| path.execution_terminal.as_ref())
+                .filter(|terminal| !terminal.state.free_variables().is_empty())
+                .count();
+            // G2's `loadNeg` remainder keeps `Y` and `W` in its terminal term.
+            assert_eq!(symbolic, usize::from(decided.0 == PatternOutcome::NoMatch));
+            assert!(
+                run.bridged
+                    .paths
+                    .iter()
+                    .all(|path| !matches!(path.path_predicate, Pattern::Top { .. }))
+            );
+        }
+    }
+}
+
+/// The backend decider's outcome and failure.
+fn decided_outcome(run: &mut Run, plan: &PatternPlan) -> Status {
+    let evaluation = decided(run, plan);
+    (evaluation.outcome, evaluation.failure)
 }
 
 /// `symwrap.k`: write to `wrap(s(X))`, load from `wrap(z)`.
@@ -1613,10 +1864,9 @@ struct ProfileRow {
     decided: (Status, Status),
 }
 
-/// Every symbolic row in both profiles. A Z3 cell that differs from its no-Z3 cell is what the
-/// SYM-3B-01 code produces and is provisional: SYM-3B-02 decides Z3 stop semantics
-/// (constrained or symbolic `Stuck`, `Vacuous`, `Trivial`), SYM-3B-03 when a solver `Sat`
-/// counts, and SYM-3B-04 fills G1/G2 from README 6.2 (target: G1 match, G2 no-match).
+/// Every symbolic row in both profiles. Z3 stop semantics are decided (SYM-3B-02, README 3.1).
+/// A Z3 cell that still differs from its target is provisional: SYM-3B-03 decides when a solver
+/// `Sat` counts (P6, G1), and SYM-3B-04 fills G1/G2 from README 6.2 (target: G1 match).
 #[test]
 fn profile_table_rows() {
     use PathStop::{BackendLimit, BranchLimit, DepthLimit, SolverUnknown, Terminal};
@@ -1754,19 +2004,18 @@ fn profile_table_rows() {
             structural: same((Unknown, Some(BranchLimit))),
             decided: same((Unknown, Some(BranchLimit))),
         },
-        // G1/G2 Z3 provisional (SYM-3B-02): Z3 decides the `requires`, giving three
-        // constrained ground `Stuck` leaves (halt, fault after the write, fault), all
-        // `SolverUnknown` until constrained `Stuck` leaves are decided.
+        // G1/G2 under Z3 (SYM-3B-02): Z3 decides the `requires`, giving three `Stuck` leaves
+        // whose predicates translate exactly and are `Sat`; guardedmem has no `ensures`, so
+        // they are complete (`constrained_and_remainder_stuck_leaves_complete_under_z3`). G1's
+        // candidate needs a trusted `Sat` for `X = Y`: unknown until SYM-3B-03. G2's only
+        // candidate is `Unsat` with its path predicate: no-match.
         ProfileRow {
             id: "G1-GWL-after",
             fixture: Fixture::Guard,
             program: g1,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (
-                &[BackendLimit],
-                &[SolverUnknown, SolverUnknown, SolverUnknown],
-            ),
+            stops: (&[BackendLimit], &[Terminal, Terminal, Terminal]),
             structural: (
                 (Unknown, Some(BackendLimit)),
                 (Unknown, Some(SolverUnknown)),
@@ -1782,18 +2031,12 @@ fn profile_table_rows() {
             program: g2,
             plan: gwl_after,
             budget: BUDGET,
-            stops: (
-                &[BackendLimit],
-                &[SolverUnknown, SolverUnknown, SolverUnknown],
-            ),
+            stops: (&[BackendLimit], &[Terminal, Terminal, Terminal]),
             structural: (
                 (Unknown, Some(BackendLimit)),
                 (Unknown, Some(SolverUnknown)),
             ),
-            decided: (
-                (Unknown, Some(BackendLimit)),
-                (Unknown, Some(SolverUnknown)),
-            ),
+            decided: ((Unknown, Some(BackendLimit)), (NoMatch, None)),
         },
         ProfileRow {
             id: "G3-GWL-after",
@@ -1815,7 +2058,9 @@ fn profile_table_rows() {
             structural: same((Unknown, Some(SolverUnknown))),
             decided: same((Unknown, Some(SolverUnknown))),
         },
-        // Z3 provisional (SYM-3B-02): narrowing gives two constrained symbolic `Stuck` leaves.
+        // Z3 (SYM-3B-02): narrowing gives two `Stuck` leaves on the ground `halt` whose
+        // predicates (`X = z`, `X = s(_)`) are over `Nat`, which Z3 abstracts, so no exact `Sat`
+        // shows them feasible: `SolverUnknown`.
         ProfileRow {
             id: "symowise-WL-after",
             fixture: Fixture::Owise,
@@ -1837,6 +2082,29 @@ fn profile_table_rows() {
             fixture: Fixture::Ensures,
             program: ensures_program,
             plan: wl_after,
+            budget: BUDGET,
+            stops: (&[SolverUnknown], &[SolverUnknown]),
+            structural: same((Unknown, Some(SolverUnknown))),
+            decided: same((Unknown, Some(SolverUnknown))),
+        },
+        // SYM-3B-02: a `Trivial` leaf is never discarded (`trivial_leaf_is_never_discarded`).
+        ProfileRow {
+            id: "symbottom-trivial-GWL-after",
+            fixture: Fixture::Bottom,
+            program: trivial_program,
+            plan: gwl_after,
+            budget: BUDGET,
+            stops: (&[SolverUnknown], &[SolverUnknown]),
+            structural: same((Unknown, Some(SolverUnknown))),
+            decided: same((Unknown, Some(SolverUnknown))),
+        },
+        // SYM-3B-02: an `ensures` keeps a feasible constrained stuck leaf incomplete
+        // (`ensures_condition_keeps_a_constrained_stuck_leaf_unknown`).
+        ProfileRow {
+            id: "symbottom-apart-GWL-after",
+            fixture: Fixture::Bottom,
+            program: apart_program,
+            plan: gwl_after,
             budget: BUDGET,
             stops: (&[SolverUnknown], &[SolverUnknown]),
             structural: same((Unknown, Some(SolverUnknown))),

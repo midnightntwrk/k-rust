@@ -1,13 +1,28 @@
-//! Solver-free feasibility of execution leaves and backend-decided payload relations.
+//! Feasibility of execution leaves and backend-decided payload relations.
 //!
-//! Both are decided by k-rust's own definition and unifier, never by host term comparison.
+//! Both are decided by k-rust's own definition, unifier and solver, never by host term
+//! comparison.
 //!
 //! **Leaf feasibility.** A leaf state is [`LeafFeasibility::Syntactic`] when it internalizes to a
 //! term with no predicate conjunct that contains only free constructors, sort injections, domain
 //! values and element variables of inhabited sorts. Free constructors are total and injective,
 //! so every valuation of the variables over their inhabited sorts gives a value: the state has
-//! an instance. The bridge uses this only to keep a depth or breadth cut a real prefix; it never
-//! makes a symbolic stuck leaf complete, because a symbolic `Stuck` is not a completeness claim.
+//! an instance. With a solver present, a constrained state over such a term is
+//! [`LeafFeasibility::Solver`] when the solver answers `Sat` for exactly its predicate
+//! conjuncts and `smt::translates_exactly` holds for them (Z3 abstracts every term without an
+//! SMT translation, so its `Sat` is otherwise not evidence), and [`LeafFeasibility::Unsat`] when
+//! the solver answers `Unsat` (always sound: abstraction only weakens the query). A feasible
+//! state has an instance, and that instance follows the leaf's path, because k-rust keeps every
+//! rule condition it relied on (`requires`, narrowing conditions, remainders) in the leaf
+//! predicate.
+//!
+//! **Stuckness.** [`every_instance_stuck`] says whether a `Stuck` halt holds for every instance
+//! of the state and not only for its symbolic term: always for a ground term, and, with a
+//! solver present, for a term whose variables all have domain-value sorts (`Int`, `Bool`) under
+//! a definition whose rewrite-rule patterns decompose freely. [`DefinitionFacts`] records
+//! whether every path condition is an applicability condition (no rewrite rule has `ensures`
+//! or a partial right-hand side), which the bridge needs before it completes a constrained or
+//! symbolic stuck leaf or discards an infeasible one.
 //!
 //! **Relations.** [`BackendRelations`] answers `relate` by jointly unifying the assumptions made
 //! so far with the new pair through `unify_term_pairs`, and `feasible` by jointly unifying the
@@ -35,20 +50,71 @@ use k_rust::kore::ast::{Pattern, Variable as KoreVariable};
 use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
-use k_rust_backend::smt::{Satisfiability, SmtSolver};
+use k_rust_backend::rule::RuleRhs;
+use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
 use k_rust_backend::substitution::{Substitution, substitute};
 use k_rust_backend::term::{Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
 use k_rust_backend::unification::{UnificationFailure, UnificationResult, unify_term_pairs};
 use kink_pattern::{Feasibility, PathInput, RelationDecider, RelationDecision, TermRelation};
 
-/// Whether a leaf state is shown to have an instance.
+/// Whether a leaf state is shown to have an instance, or shown to have none.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum LeafFeasibility {
     /// A predicate-free term of free constructors, injections, domain values and element
-    /// variables of inhabited sorts.
+    /// variables of inhabited sorts: every valuation is an instance.
     Syntactic,
-    /// Not shown feasible without a solver.
+    /// Such a term under predicate conjuncts that translate exactly to SMT and that the solver
+    /// answered `Sat`: the solver's model, extended by any values of the other variables, is an
+    /// instance.
+    Solver,
+    /// The solver answered `Unsat` for the predicate conjuncts: the state has no instance.
+    Unsat,
+    /// Neither shown.
     Unknown,
+}
+
+/// Properties of the rewrite rules of a backend definition that the bridge's stop semantics
+/// depend on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DefinitionFacts {
+    /// No rewrite rule has an `ensures` clause or a right-hand side with partial symbols, so
+    /// every conjunct a rewrite step adds to a path condition is an applicability condition of
+    /// the step (its `requires`, a narrowing condition, or the negation of a sibling's
+    /// condition in a remainder). The leaves of a run then cover every instance of the initial
+    /// state that reaches them: an instance that a step does not take lies in a remainder or a
+    /// sibling. An `ensures` or a definedness obligation instead removes the instances that
+    /// violate it after their prefix events have happened, and no leaf keeps them.
+    pub applicability_conditions: bool,
+    /// Every rewrite rule's left-hand side decomposes freely (see `decomposes_freely`), so a
+    /// clash the unifier finds between it and a subject of free constructors is a real clash.
+    pub free_rule_patterns: bool,
+}
+
+impl DefinitionFacts {
+    #[must_use]
+    pub fn of(definition: &BackendDefinition) -> Self {
+        let rules = || {
+            definition
+                .rewrite_theory
+                .values()
+                .flat_map(|priorities| priorities.values())
+                .flatten()
+        };
+        Self {
+            applicability_conditions: rules().all(|rule| {
+                rule.ensures.is_empty()
+                    && rule.computed_attributes.undefined_symbols.is_empty()
+                    && match &rule.rhs {
+                        RuleRhs::Term(_) => true,
+                        RuleRhs::Disjunction(alternatives) => alternatives
+                            .iter()
+                            .all(|alternative| alternative.ensures.is_empty()),
+                        RuleRhs::Top | RuleRhs::Bottom | RuleRhs::Predicates(_) => false,
+                    }
+            }),
+            free_rule_patterns: rules().all(|rule| decomposes_freely(&rule.lhs)),
+        }
+    }
 }
 
 /// The sorts of a backend definition that have a value: a sort with domain values, a hooked
@@ -158,24 +224,82 @@ fn constructor_term(term: &Term, inhabitation: &Inhabitation) -> bool {
     }
 }
 
-/// The feasibility of a leaf state (KORE JSON) per the module documentation.
+/// Whether `solver` answers satisfiability queries at all; `NoSolver` never does.
+fn solver_present(solver: &dyn SmtSolver) -> bool {
+    solver.is_sat(&[], &Substitution::new()).is_ok()
+}
+
+/// The feasibility of a leaf state (KORE JSON) per the module documentation. Only the solver's
+/// `Sat` and `Unsat` are used, and `Sat` only when the query translates exactly; `NoSolver`
+/// contributes nothing.
 pub(crate) fn leaf_feasibility(
     definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
     inhabitation: &Inhabitation,
     state: &serde_json::Value,
 ) -> LeafFeasibility {
     let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
         return LeafFeasibility::Unknown;
     };
-    match definition.internalize_pattern(&pattern, &[]) {
-        Ok(internal)
-            if internal.constraints.is_empty()
-                && constructor_term(&internal.term, inhabitation) =>
-        {
+    let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
+        return LeafFeasibility::Unknown;
+    };
+    let instances = constructor_term(&internal.term, inhabitation);
+    if internal.constraints.is_empty() {
+        return if instances {
             LeafFeasibility::Syntactic
-        }
-        _ => LeafFeasibility::Unknown,
+        } else {
+            LeafFeasibility::Unknown
+        };
     }
+    match solver.is_sat(&internal.constraints, &Substitution::new()) {
+        Ok(Satisfiability::Unsat) => LeafFeasibility::Unsat,
+        Ok(Satisfiability::Sat) if instances && translates_exactly(&internal.constraints) => {
+            LeafFeasibility::Solver
+        }
+        Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => LeafFeasibility::Unknown,
+    }
+}
+
+/// Whether a `Stuck` halt of the leaf state (KORE JSON) holds for every instance of the state.
+///
+/// A ground term has one instance. A symbolic term qualifies only with a solver present, a
+/// top-level free constructor, free constructors, injections and domain values elsewhere, and
+/// element variables of the domain-value sorts `Int` and `Bool` only, under a definition whose
+/// rewrite-rule patterns decompose freely. Then every instance differs from the term only in
+/// domain values below the same constructors, so k-rust's rule index offers the term every rule
+/// it offers an instance; a proved clash with a rule pattern holds for every instance; and a
+/// rule condition refuted under the path condition (solver `Unsat`, always sound) or excluded by
+/// k-rust's complete remainder holds for no instance of the leaf. Without a solver, narrowing and
+/// unclear conditions are `Indeterminate` rather than `Stuck`, but 3a's decision that a symbolic
+/// stuck leaf stays unknown (README Q4) is kept for that profile.
+pub(crate) fn every_instance_stuck(
+    definition: &BackendDefinition,
+    solver: &dyn SmtSolver,
+    facts: DefinitionFacts,
+    inhabitation: &Inhabitation,
+    state: &serde_json::Value,
+) -> bool {
+    let Ok(pattern) = k_rust::kore::codec::from_value(state) else {
+        return false;
+    };
+    let Ok(internal) = definition.internalize_pattern(&pattern, &[]) else {
+        return false;
+    };
+    let term = &internal.term;
+    let variables = &term.attributes().variables;
+    if variables.is_empty() {
+        return true;
+    }
+    solver_present(solver)
+        && facts.free_rule_patterns
+        && matches!(term.kind(), TermKind::Application { symbol, .. } if free_constructor(symbol))
+        && constructor_term(term, inhabitation)
+        && variables.iter().all(|variable| {
+            variable.kind == VariableKind::Element
+                && (variable.sort.is_builtin(BuiltinSort::Int)
+                    || variable.sort.is_builtin(BuiltinSort::Bool))
+        })
 }
 
 /// The first free element variable of `state` whose sort is not shown inhabited, or the
@@ -335,7 +459,7 @@ impl<'a> BackendRelations<'a> {
             solver,
             inhabitation,
             variables,
-            solver_present: solver.is_sat(&[], &Substitution::new()).is_ok(),
+            solver_present: solver_present(solver),
         }
     }
 
@@ -634,11 +758,12 @@ mod tests {
             ],
         };
         let rows = symmem
-            .with_solver(None, |definition, _| {
+            .with_solver(None, |definition, solver| {
                 let inhabitation = Inhabitation::of(definition);
                 let feasibility = |pattern: &Pattern| {
                     leaf_feasibility(
                         definition,
+                        solver,
                         &inhabitation,
                         &codec::to_value(pattern).expect("state JSON"),
                     )
@@ -670,7 +795,7 @@ mod tests {
         // `X +Int 1` in address position: a function symbol.
         let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
         let function = guarded
-            .with_solver(None, |definition, _| {
+            .with_solver(None, |definition, solver| {
                 let plus = definition
                     .symbols
                     .values()
@@ -691,6 +816,7 @@ mod tests {
                 );
                 Ok::<_, BackendError>(leaf_feasibility(
                     definition,
+                    solver,
                     &Inhabitation::of(definition),
                     &codec::to_value(&state).expect("state JSON"),
                 ))
@@ -736,6 +862,7 @@ mod tests {
         assert_eq!(
             leaf_feasibility(
                 &definition,
+                &k_rust_backend::smt::NoSolver,
                 &inhabitation,
                 &codec::to_value(&state).expect("state JSON")
             ),
@@ -980,6 +1107,280 @@ mod tests {
                 (Unknown, equal_if),
             ]
         );
+    }
+
+    fn top_sort() -> k_rust::kore::ast::Sort {
+        k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell")
+    }
+
+    /// `state` under the predicate conjunct `predicate`.
+    fn constrained(state: Pattern, predicate: Pattern) -> Pattern {
+        Pattern::And {
+            sort: top_sort(),
+            arguments: vec![state, predicate],
+        }
+    }
+
+    /// `\equals{Sort, Top}(left, right)`.
+    fn equals(sort: &str, left: Pattern, right: Pattern) -> Pattern {
+        Pattern::Equals {
+            operand_sort: k_rust::kompile::initial_configuration::kore_sort(sort),
+            result_sort: top_sort(),
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    /// The guardedmem symbol named by `hook`.
+    fn hooked(definition: &BackendDefinition, hook: &str) -> String {
+        definition
+            .symbols
+            .values()
+            .find(|symbol| symbol.attributes.hook.as_deref() == Some(hook))
+            .unwrap_or_else(|| panic!("{hook}"))
+            .name
+            .to_string()
+    }
+
+    /// `seq(write(addr(address), V), halt)` of guardedmem.
+    fn guarded_state(address: Pattern) -> Pattern {
+        guarded_write(address, support::var("V", "SortInt"))
+    }
+
+    /// `seq(write(addr(address), value), halt)` of guardedmem.
+    fn guarded_write(address: Pattern, value: Pattern) -> Pattern {
+        support::initial_state(
+            support::app(
+                "Lblseq",
+                vec![
+                    support::app("Lblwrite", vec![addr(address), value]),
+                    support::app("Lblhalt", vec![]),
+                ],
+            ),
+            "SortProg",
+        )
+    }
+
+    /// Leaf feasibility uses the solver's `Unsat` always and its `Sat` only for an exactly
+    /// translated predicate over a constructor term; `NoSolver` adds nothing.
+    #[test]
+    fn solver_feasibility_needs_exact_sat_and_counts_every_unsat() {
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        let answers = guarded
+            .with_solver(None, |definition, _| {
+                let inhabitation = Inhabitation::of(definition);
+                let x = support::var("X", "SortInt");
+                let guard = equals(
+                    "SortBool",
+                    Pattern::DomainValue {
+                        sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                        value: "true".into(),
+                    },
+                    support::app(
+                        &hooked(definition, "INT.ge"),
+                        vec![x.clone(), support::int(0)],
+                    ),
+                );
+                let plus = support::app(
+                    &hooked(definition, "INT.add"),
+                    vec![x.clone(), support::int(1)],
+                );
+                // A predicate over the `Address` sort, which Z3 abstracts.
+                let abstracted = equals(
+                    "SortAddress",
+                    addr(x.clone()),
+                    addr(support::var("Y", "SortInt")),
+                );
+                let states = [
+                    (
+                        "exact",
+                        constrained(guarded_state(x.clone()), guard.clone()),
+                    ),
+                    (
+                        "abstracted",
+                        constrained(guarded_state(x.clone()), abstracted),
+                    ),
+                    ("function-term", constrained(guarded_state(plus), guard)),
+                    ("predicate-free", guarded_state(x)),
+                ];
+                let rows = [
+                    Ok(Satisfiability::Sat),
+                    Ok(Satisfiability::Unsat),
+                    Ok(Satisfiability::Unknown("scripted".into())),
+                    Err(SmtError::Unavailable),
+                ]
+                .into_iter()
+                .flat_map(|answer| {
+                    let solver = Scripted(answer.clone());
+                    states
+                        .iter()
+                        .map(|(id, state)| {
+                            (
+                                format!("{answer:?} {id}"),
+                                leaf_feasibility(
+                                    definition,
+                                    &solver,
+                                    &inhabitation,
+                                    &codec::to_value(state).expect("state JSON"),
+                                ),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+                Ok::<_, BackendError>(rows)
+            })
+            .expect("definition");
+        use LeafFeasibility::{Solver, Syntactic, Unknown as U, Unsat as N};
+        let expected = [
+            // Sat
+            Solver, U, U, Syntactic, //
+            // Unsat
+            N, N, N, Syntactic, //
+            // Unknown
+            U, U, U, Syntactic, //
+            // NoSolver
+            U, U, U, Syntactic,
+        ];
+        assert_eq!(answers.len(), expected.len());
+        for ((id, answer), expected) in answers.into_iter().zip(expected) {
+            assert_eq!(answer, expected, "{id}");
+        }
+    }
+
+    /// Which definitions keep every path condition an applicability condition, and whose rule
+    /// patterns decompose freely.
+    #[test]
+    fn definition_facts_follow_the_rewrite_rules() {
+        let rows = [
+            ("symmem.k", "SYMMEM", true, true),
+            ("guardedmem.k", "GUARDEDMEM", true, true),
+            ("symensures.k", "SYMENSURES", false, true),
+            ("symbottom.k", "SYMBOTTOM", false, true),
+            ("symwrap.k", "SYMWRAP", true, true),
+        ];
+        for (name, module, applicability, free) in rows {
+            let mut backend = backend(name, module);
+            let facts = backend
+                .with_solver(None, |definition, _| {
+                    Ok::<_, BackendError>(DefinitionFacts::of(definition))
+                })
+                .expect("definition");
+            assert_eq!(
+                facts,
+                DefinitionFacts {
+                    applicability_conditions: applicability,
+                    free_rule_patterns: free,
+                },
+                "{name}"
+            );
+        }
+        // symwrap's `anywhere` symbol is `injective` but not free: a rewrite rule whose pattern
+        // mentions it no longer decomposes freely.
+        let mut wrap = backend("symwrap.k", "SYMWRAP");
+        let facts = wrap
+            .with_solver(None, |definition, _| {
+                let mut definition = definition.clone();
+                let pattern = definition
+                    .internalize_term(&support::app("Lblwrap", vec![z()]), &[])
+                    .expect("wrap(z)");
+                let rule = definition
+                    .rewrite_theory
+                    .values_mut()
+                    .flat_map(|priorities| priorities.values_mut())
+                    .flatten()
+                    .next()
+                    .expect("a rewrite rule");
+                let mut changed = (*rule.rule).clone();
+                changed.lhs = pattern;
+                rule.rule = std::sync::Arc::new(changed);
+                Ok::<_, BackendError>(DefinitionFacts::of(&definition))
+            })
+            .expect("definition");
+        assert!(!facts.free_rule_patterns);
+        assert!(facts.applicability_conditions);
+    }
+
+    /// Stuckness holds for every instance of a ground term, and of a symbolic term only with a
+    /// solver, free rule patterns, a free-constructor top and `Int`/`Bool` variables.
+    #[test]
+    fn every_instance_stuck_needs_a_solver_and_domain_value_variables() {
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        let answers = guarded
+            .with_solver(None, |definition, _| {
+                let inhabitation = Inhabitation::of(definition);
+                let facts = DefinitionFacts::of(definition);
+                let x = support::var("X", "SortInt");
+                let plus = support::app(
+                    &hooked(definition, "INT.add"),
+                    vec![x.clone(), support::int(1)],
+                );
+                let sat = Scripted(Ok(Satisfiability::Sat));
+                let none = Scripted(Err(SmtError::Unavailable));
+                let stuck = |solver: &Scripted, facts: DefinitionFacts, state: &Pattern| {
+                    every_instance_stuck(
+                        definition,
+                        solver,
+                        facts,
+                        &inhabitation,
+                        &codec::to_value(state).expect("state JSON"),
+                    )
+                };
+                let unfree = DefinitionFacts {
+                    free_rule_patterns: false,
+                    ..facts
+                };
+                Ok::<_, BackendError>([
+                    (
+                        "ground",
+                        stuck(
+                            &none,
+                            unfree,
+                            &guarded_write(support::int(1), support::int(2)),
+                        ),
+                    ),
+                    (
+                        "int-variables",
+                        stuck(&sat, facts, &guarded_state(x.clone())),
+                    ),
+                    ("no-solver", stuck(&none, facts, &guarded_state(x.clone()))),
+                    (
+                        "unfree-rules",
+                        stuck(&sat, unfree, &guarded_state(x.clone())),
+                    ),
+                    ("function-term", stuck(&sat, facts, &guarded_state(plus))),
+                    (
+                        "bare-variable",
+                        stuck(&sat, facts, &support::var("T", "SortInt")),
+                    ),
+                ])
+            })
+            .expect("definition");
+        assert_eq!(
+            answers,
+            [
+                ("ground", true),
+                ("int-variables", true),
+                ("no-solver", false),
+                ("unfree-rules", false),
+                ("function-term", false),
+                ("bare-variable", false),
+            ]
+        );
+        // A variable of a constructor sort can hide any constructor.
+        let mut symmem = backend("symmem.k", "SYMMEM");
+        let nat_variables = symmem
+            .with_solver(None, |definition, _| {
+                Ok::<_, BackendError>(every_instance_stuck(
+                    definition,
+                    &Scripted(Ok(Satisfiability::Sat)),
+                    DefinitionFacts::of(definition),
+                    &Inhabitation::of(definition),
+                    &codec::to_value(&symmem_state()).expect("state JSON"),
+                ))
+            })
+            .expect("definition");
+        assert!(!nat_variables);
     }
 
     const WRAP: &str = r"[]

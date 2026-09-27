@@ -1,8 +1,9 @@
 //! Observed, time-bounded path-set execution through the public k-rust facade.
 //! Each explored path retains its own halt, observations, effects, and diagnostics.
 //! A watchdog cancels execution when the time budget expires.
-//! Each leaf also records whether its state is shown feasible without a solver
-//! ([`crate::feasibility`]).
+//! Each leaf also records whether its state is shown feasible or infeasible, and whether its
+//! stuckness holds for every instance of its state; the execution records the definition facts
+//! the bridge needs to use them ([`crate::feasibility`]).
 
 use std::{
     num::NonZeroUsize,
@@ -23,7 +24,10 @@ use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
 use kink_pattern::ExecutionBounds;
 
-use crate::feasibility::{Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable};
+use crate::feasibility::{
+    DefinitionFacts, Inhabitation, LeafFeasibility, every_instance_stuck, leaf_feasibility,
+    uninhabited_variable,
+};
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
 };
@@ -178,6 +182,10 @@ pub struct AdaptedLeaf {
     pub branch: AdaptedBranch,
     /// `Unknown` for every leaf of a timed-out run, whose states are not decoded.
     pub feasibility: LeafFeasibility,
+    /// For a `Stuck` leaf: its stuckness holds for every instance of its state
+    /// ([`crate::feasibility::every_instance_stuck`]). `false` for every other halt and for
+    /// every leaf of a timed-out run.
+    pub every_instance_stuck: bool,
     pub diagnostics: Vec<BackendDiagnosticOutput>,
     pub candidate_diagnostics: Vec<Vec<BackendDiagnosticOutput>>,
     pub remainder_diagnostics: Vec<BackendDiagnosticOutput>,
@@ -189,6 +197,7 @@ pub struct AdaptedExecution {
     pub(crate) leaves: Vec<AdaptedLeaf>,
     pub(crate) effects: Vec<EffectOutput>,
     pub(crate) timed_out: bool,
+    pub(crate) definition: DefinitionFacts,
 }
 
 /// A path-set leaf after observation state is erased.
@@ -226,6 +235,12 @@ impl AdaptedExecution {
     #[must_use]
     pub fn effects(&self) -> &[EffectOutput] {
         &self.effects
+    }
+
+    /// The facts about the executed definition's rewrite rules.
+    #[must_use]
+    pub const fn definition_facts(&self) -> DefinitionFacts {
+        self.definition
     }
 
     /// The watchdog cancelled the run. Its leaf states must not be decoded: a cancelled run
@@ -329,10 +344,10 @@ impl ExecutionAdapter {
         self.check_profile(backend)?;
         let encoded = codec::to_value(state)
             .map_err(|error| ExecutionAdapterFailure::InvalidState(error.to_string()))?;
-        let inhabitation = with_definition(backend, |definition| {
+        let (inhabitation, facts) = with_definition(backend, |definition| {
             let inhabitation = Inhabitation::of(definition);
             match uninhabited_variable(definition, &inhabitation, state) {
-                Ok(None) => Ok(inhabitation),
+                Ok(None) => Ok((inhabitation, DefinitionFacts::of(definition))),
                 Ok(Some(variable)) => Err(ExecutionAdapterFailure::UninhabitedVariable(variable)),
                 Err(error) => Err(ExecutionAdapterFailure::InvalidState(error)),
             }
@@ -344,18 +359,33 @@ impl ExecutionAdapter {
                     rules: Some(self.manifest.backend_rule_ids()),
                 })
             })?;
-        let feasibility = if timed_out {
-            vec![LeafFeasibility::Unknown; result.leaves.len()]
+        let evidence = if timed_out {
+            vec![(LeafFeasibility::Unknown, false); result.leaves.len()]
         } else {
-            with_definition(backend, |definition| {
-                Ok(result
-                    .leaves
-                    .iter()
-                    .map(|leaf| leaf_feasibility(definition, &inhabitation, &leaf.state))
-                    .collect())
+            backend.with_solver(None, |definition, solver| {
+                Ok::<_, ExecutionAdapterFailure>(
+                    result
+                        .leaves
+                        .iter()
+                        .map(|leaf| {
+                            let stuck = HaltClass::from_output(leaf.reason) == HaltClass::Stuck
+                                && every_instance_stuck(
+                                    definition,
+                                    solver,
+                                    facts,
+                                    &inhabitation,
+                                    &leaf.state,
+                                );
+                            (
+                                leaf_feasibility(definition, solver, &inhabitation, &leaf.state),
+                                stuck,
+                            )
+                        })
+                        .collect(),
+                )
             })?
         };
-        self.adapt(result, timed_out, &budget, feasibility)
+        self.adapt(result, timed_out, &budget, evidence, facts)
     }
 
     /// Executes the same PathSet request without observation rules.
@@ -392,13 +422,14 @@ impl ExecutionAdapter {
         result: ExecutionResult,
         timed_out: bool,
         budget: &ExecutionBudget,
-        feasibility: Vec<LeafFeasibility>,
+        evidence: Vec<(LeafFeasibility, bool)>,
+        definition: DefinitionFacts,
     ) -> Result<AdaptedExecution, ExecutionAdapterFailure> {
         let leaves = result
             .leaves
             .into_iter()
-            .zip(feasibility)
-            .map(|(leaf, feasibility)| {
+            .zip(evidence)
+            .map(|(leaf, (feasibility, every_instance_stuck))| {
                 let halt = HaltClass::from_output(leaf.reason);
                 if !halt.adapter_admits(budget) {
                     return Err(ExecutionAdapterFailure::ContractViolation(halt));
@@ -406,6 +437,7 @@ impl ExecutionAdapter {
                 Ok(AdaptedLeaf {
                     halt,
                     feasibility,
+                    every_instance_stuck,
                     diagnostics: leaf.diagnostics,
                     candidate_diagnostics: leaf
                         .candidates
@@ -431,6 +463,7 @@ impl ExecutionAdapter {
             leaves,
             effects: result.effects,
             timed_out,
+            definition,
         })
     }
 }
