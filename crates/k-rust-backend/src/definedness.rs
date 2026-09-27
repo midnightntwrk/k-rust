@@ -30,12 +30,15 @@ use rustc_hash::FxHashSet;
 
 use crate::{
     definition::BackendDefinition,
-    matching::{MatchMode, MatchResult, match_terms_in_definition},
+    matching::{
+        InjectionEquality, MatchMode, MatchResult, match_injection_equality,
+        match_terms_in_definition,
+    },
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver},
     smt::NoSolver,
-    term::{FunctionType, SymbolType, Term, TermKind, VariableKind},
+    term::{FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind},
 };
 
 pub(crate) fn discharge_rewrite_definedness(definition: &mut BackendDefinition) {
@@ -223,21 +226,53 @@ fn ceil_term_node(
     predicates
 }
 
-/// Whether two ground normal forms cannot denote the same collection element.
+/// `Term::structurally_distinct_after_normalization`, where two injections from different source
+/// sorts into one position are also separated when the sort graph shows that no value of one
+/// source injects to a value of the other (`InjectionEquality::Distinct`: the sources have no
+/// common subsort, or one argument has a constructor head and so is not an injection from a
+/// common subsort). That argument uses only the sorts of the injected terms, which equation
+/// normalization preserves, so it needs no normal-form certificate.
+pub(crate) fn ground_terms_structurally_distinct(
+    definition: &BackendDefinition,
+    left: &Term,
+    right: &Term,
+) -> bool {
+    left.structurally_distinct_with(right, &|left, right| match match_injection_equality(
+        Some(&definition.sort_graph),
+        left,
+        right,
+    ) {
+        Some(InjectionEquality::Distinct) => InjectionComparison::Distinct,
+        Some(InjectionEquality::Direct(left, right) | InjectionEquality::Split(left, right)) => {
+            InjectionComparison::Compare(left, right)
+        }
+        Some(InjectionEquality::Unknown) | None => InjectionComparison::Undecided,
+    })
+}
+
+/// Whether two collection keys or elements cannot denote the same value.
 ///
-/// The structural fast path covers equal injective spines. Rewrite matching additionally knows
-/// how to compare normalized overloads and widening injections, which occur in generated cells.
-/// Requiring failure in both directions keeps the decision independent of matching orientation.
+/// The keys reach here from any term `ceil_term` walks, including instantiated right-hand sides
+/// no simplification has seen, so nothing here assumes they are normal forms.
+/// `ground_terms_structurally_distinct` is sound on any ground terms. Rewrite matching
+/// additionally compares overloads and widening injections, which occur in generated cells; it
+/// treats `anywhere` heads as rigid, so its failure separates two terms only when both are
+/// normal forms. It is consulted only for ground terms whose every subterm is certified normal
+/// by the `evaluated` bit (a constructor or injection over certified arguments, a domain value,
+/// or an `anywhere` application the simplifier cached as a fixed point). Requiring failure in
+/// both directions keeps the decision independent of matching orientation.
 fn normalized_ground_terms_are_distinct(
     definition: &BackendDefinition,
     left: &Term,
     right: &Term,
 ) -> bool {
-    if left.structurally_distinct_after_normalization(right) {
+    if ground_terms_structurally_distinct(definition, left, right) {
         return true;
     }
-    left.concrete_after_normalization()
-        && right.concrete_after_normalization()
+    let certified_normal_form =
+        |term: &Term| term.concrete_after_normalization() && term.attributes().evaluated;
+    certified_normal_form(left)
+        && certified_normal_form(right)
         && matches!(
             match_terms_in_definition(MatchMode::Rewrite, definition, left, right),
             MatchResult::Failed(_)

@@ -76,10 +76,22 @@ fn ground_normalized_inequality_is_decided_but_symbolic_inequality_is_not() {
             .internalize_term(&parse_pattern(source).unwrap(), &[])
             .unwrap()
     };
+    let normalized = |source: &str| {
+        crate::simplify::simplify(&definition, &term(source), SimplificationOptions::default())
+            .unwrap()
+            .term
+    };
     let value = r#"\dv{SortValue{}}("a")"#;
-    let ground = Predicate::Equals(
-        term(&format!("cell{{}}(f{{}}({value}))")),
-        term(&format!("cell{{}}(g{{}}({value}))")),
+    let left = format!("cell{{}}(f{{}}({value}))");
+    let right = format!("cell{{}}(g{{}}({value}))");
+    let ground = Predicate::Equals(normalized(&left), normalized(&right));
+    // The same ground terms before the simplifier certified `f(a)` and `g(a)` as normal forms:
+    // their shape alone does not show that no equation rewrites them (an anywhere equation
+    // `f(X) = g(X)` would make them equal).
+    let unnormalized = Predicate::Equals(term(&left), term(&right));
+    let constructors = Predicate::Equals(
+        term(&format!("cell{{}}({value})")),
+        term(r#"cell{}(\dv{SortValue{}}("b"))"#),
     );
     let symbolic = Predicate::Equals(
         term("cell{}(f{}(X:SortValue{}))"),
@@ -87,6 +99,8 @@ fn ground_normalized_inequality_is_decided_but_symbolic_inequality_is_not() {
     );
 
     assert_eq!(predicates_truth(&[ground]), Truth::False);
+    assert_eq!(predicates_truth(&[unnormalized]), Truth::Unknown);
+    assert_eq!(predicates_truth(&[constructors]), Truth::False);
     assert_eq!(predicates_truth(&[symbolic]), Truth::Unknown);
 }
 
