@@ -277,6 +277,8 @@ algorithms! {
     KorePrinterRender => "kore.printer.render",
     /// Explicit-stack traversal and rebuilding of KORE patterns.
     KorePatternWalk => "kore.pattern.walk",
+    /// Node-at-a-time reading of KORE patterns: order, flattening, and materialization.
+    KorePatternSource => "kore.pattern.source",
 }
 
 /// An entered tracing span for one algorithm invocation.

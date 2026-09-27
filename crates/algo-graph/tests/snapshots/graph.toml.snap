@@ -4907,6 +4907,67 @@ bound = "O(N x h) subtree clones plus O(N log N) ordered-map probes keyed by who
 
 [[node]]
 kind = "algorithm"
+id = "kore.pattern.source"
+provenance = "declared"
+area = "kore"
+name = "node-at-a-time reading of KORE patterns: order, flattening, and materialization"
+variable = "p = pattern nodes the operation reaches"
+no_counter = "reading a pattern source has no dedicated counter"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "KorePatternSource"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "PatternNode::split"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "PatternNode::split"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "PatternNode::fill"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "PatternNode::into_pattern"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "PatternNode::discriminant"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "PatternNode::compare_scalars"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "compare"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "flatten_at"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/node.rs"
+symbol = "materialize"
+
+[[node.cost]]
+mode = "one comparison, flattening, or materialization"
+bound = "O(p)"
+
+[[node]]
+kind = "algorithm"
 id = "kore.pattern.walk"
 provenance = "declared"
 area = "kore"
@@ -4957,7 +5018,7 @@ id = "kore.printer.build"
 provenance = "declared"
 area = "kore"
 name = "construction of KORE pretty-print documents"
-variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack; Printer::write_pattern pulls those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
+variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack, which reads each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
 no_counter = "KORE document construction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
@@ -5031,6 +5092,11 @@ symbol = "Printer::write_pattern"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "Printer::write_source"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "attributes_doc"
 
 [[node.sites]]
@@ -5052,6 +5118,41 @@ symbol = "join"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/printer.rs"
 symbol = "expand"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "sorted_connective"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "sorted_binder"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "fixpoint"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "two_sorted"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "push_grouped"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "delimited_task"
+
+[[node.sites]]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/kore/printer.rs"
+symbol = "owned_text"
 
 [[node.cost]]
 mode = "one syntax tree"
