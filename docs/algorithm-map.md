@@ -134,7 +134,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - backend.matching.relation_query — O(g x log |S|) +2 modes — at backend/matching/mod.rs `SortGraph::check_subsort`
 - backend.rewrite.apply — one matching problem, at most one is_sat query… +1 mode — in: [match result], [extracted substitution] — at backend/rewrite/apply.rs `apply_rule_with_match`
 - backend.rewrite.recover — each strategy either declines or returns matches… +1 mode — in: [match result], [collection solution], [unification result] — at backend/rewrite/recover.rs `recover_indeterminate_match`
-- backend.rule.select — O(log k) index lookups plus O(r) covers checks… +1 mode — at backend/rule.rs `applicable_groups`
+- backend.rule.select — O(log k) index lookups plus O(r) covers checks… +2 modes — at backend/rule.rs `applicable_groups`
 - backend.search.configurations — O(n) rewrite steps plus O(r) pattern comparisons… +1 mode — in: [rewrite result] — at backend/search.rs `search_graph_using`
 - backend.search.paths — exponential in b and d, plus O(d) visited-list… — in: [rewrite result] — at backend/search.rs `search_paths_using`
 - backend.search.patterns — O(m) matches, each followed by one predicate… — in: [match result] — at backend/search.rs `search_pattern_using`

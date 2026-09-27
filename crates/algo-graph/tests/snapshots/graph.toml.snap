@@ -1374,7 +1374,7 @@ symbol = "eliminate_existential_witnesses"
 
 [[node.cost]]
 mode = "one consequent (check_implication_with_existentials_and_options_and_policy)"
-bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to two is_sat queries"
+bound = "O(r) matching problems and antecedent simplifications, then one discharge with one check_predicates (up to three solver subqueries) and up to three is_sat queries (the third only for an invalid answer of the complete policy)"
 
 [[node.cost]]
 mode = "several consequents (check_disjunctive_implication_with_existentials)"
@@ -1868,7 +1868,7 @@ id = "backend.rule.select"
 provenance = "declared"
 area = "backend"
 name = "single-symbol rule selection"
-variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
+variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key for rigid subjects, or all rules for a non-rigid subject; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
 span = "per call"
 table = "Algorithm::ALL"
@@ -1921,8 +1921,12 @@ file = "crates/k-rust-backend/src/rule.rs"
 symbol = "find_k_cells"
 
 [[node.cost]]
-mode = "one subject"
+mode = "rigid subject"
 bound = "O(log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
+
+[[node.cost]]
+mode = "non-rigid subject"
+bound = "O(k log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
 
 [[node.cost]]
 mode = "subject_index"
