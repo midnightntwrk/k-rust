@@ -2,15 +2,19 @@
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
 //! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "first_with_k_cell", "find_k_cells"]
-//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
+//! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key for rigid subjects, or all rules for a non-rigid subject; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 //! counters = []
 //! span = "per call"
 //! no_counter = "rule selection has no dedicated counter; RewriteRuleAttempts is bumped by apply_rule_with_match for each candidate the caller tries"
 //! lean = ["KRust.TermAttributes.rule_index_same"]
 //!
 //! [[cost]]
-//! mode = "one subject"
+//! mode = "rigid subject"
 //! bound = "O(log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
+//!
+//! [[cost]]
+//! mode = "non-rigid subject"
+//! bound = "O(k log k) index lookups plus O(r) covers checks plus O(c) candidate clones"
 //!
 //! [[cost]]
 //! mode = "subject_index"
@@ -20,9 +24,9 @@
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
 //! rewrite rules additionally filter by the head of their `<k>` cell and by the item after it
 //! (the frozen context a cooling rule waits for). Candidate count is the old
-//! exact-symbol then variable-symbol sequence filtered by `rule.index.covers(subject_index)`, so
-//! priority and declaration order remain unchanged. Selection costs O(log k) index lookups plus
-//! one `covers` check per rule stored under the subject's key and the `Variable` key;
+//! exact-symbol then variable-symbol sequence for rigid subjects, or every term-index bucket for
+//! non-rigid subjects, filtered by `rule.index.covers(subject_index)`. Selection costs O(log k)
+//! index lookups plus one `covers` check per rule in the selected buckets;
 //! `Counter::RewriteRuleAttempts` is bumped by the caller per candidate tried.
 //!
 //! The index uses `Anything` for absent or malformed `<k>` cells, variables, functions,
@@ -1648,18 +1652,43 @@ pub(crate) fn applicable_groups(
     groups
 }
 
+/// Rewrite candidates in priority order. A subject whose top can instantiate to another head
+/// sees every term-index bucket; rigid subjects keep the top-symbol and variable lookup.
+/// Within a priority, the subject's bucket precedes `Variable`, then the remaining buckets
+/// follow `TermIndex` order. Cell keys still filter each bucket.
 pub fn applicable_rewrite_groups(
     theory: &RewriteTheory,
-    index: &TermIndex,
+    term: &Term,
     subject: &RuleIndex,
 ) -> BTreeMap<u8, Vec<Arc<RewriteRule>>> {
     let _span = measure::algorithm_span(Algorithm::BackendRuleSelect);
     let mut groups = BTreeMap::new();
-    let covered = if index == &TermIndex::Variable {
-        vec![index]
-    } else {
-        vec![index, &TermIndex::Variable]
-    };
+    let index = term_index(term);
+    let rigid = matches!(
+        term.kind(),
+        TermKind::Application { symbol, .. }
+            if symbol.attributes.symbol_type == SymbolType::Constructor
+                || symbol.attributes.macro_or_alias
+                || (symbol.attributes.anywhere && !symbol.attributes.declared_function)
+    ) || matches!(
+        term.kind(),
+        TermKind::Injection { .. }
+            | TermKind::DomainValue { .. }
+            | TermKind::Map { .. }
+            | TermKind::List { .. }
+            | TermKind::Set { .. }
+    );
+    let mut covered = vec![&index];
+    if index != TermIndex::Variable {
+        covered.push(&TermIndex::Variable);
+    }
+    if !rigid {
+        covered.extend(
+            theory
+                .keys()
+                .filter(|key| **key != index && **key != TermIndex::Variable),
+        );
+    }
     for covered in covered {
         if let Some(found) = theory.get(covered) {
             for (priority, rules) in found {

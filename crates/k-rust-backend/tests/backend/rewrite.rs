@@ -95,6 +95,54 @@ fn definition(axioms: &str) -> BackendDefinition {
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
 }
 
+#[test]
+fn bare_variable_can_narrow_to_a_constructor_rule() {
+    let source = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol state{}() : SortS{} [constructor{}(), total{}()]
+            symbol done{}() : SortS{} [constructor{}(), total{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(state{}(), \top{SortS{}}()),
+                done{}()
+            ) [label{}("advance")]
+        endmodule []"#;
+    let syntax = parse_definition(source).expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let subject = Pattern {
+        term: internal_term(&definition, "C:SortS{}"),
+        constraints: Vec::new(),
+    };
+    assert!(matches!(
+        rewrite_step_with_solver(&definition, &subject, &mut 0, &NoSolver),
+        RewriteResult::Indeterminate { .. }
+    ));
+    let execution = execute_with_solver(
+        &definition,
+        subject.clone(),
+        ExecutionOptions::default(),
+        &NoSolver,
+    );
+    assert!(matches!(
+        execution.leaves.as_slice(),
+        [ExecutionLeaf {
+            halt_reason: HaltReason::Indeterminate(_),
+            ..
+        }]
+    ));
+
+    #[cfg(feature = "z3")]
+    {
+        let solver = k_rust_backend::smt::Z3Solver::new(&definition).unwrap();
+        let result = rewrite_step_with_solver(&definition, &subject, &mut 0, &solver);
+        assert!(
+            matches!(result, RewriteResult::Branch { .. }),
+            "the constructor instance should branch: {result:?}"
+        );
+    }
+}
+
 fn console_io_definition(axioms: &str) -> BackendDefinition {
     let source = format!(
         r#"[]
@@ -1646,6 +1694,7 @@ fn be08_portable_definition(rules: &str) -> BackendDefinition {
             symbol dotk{}() : SortK{} [constructor{}(), total{}()]
             symbol done{}() : SortK{} [constructor{}(), total{}()]
             symbol tag{}(SortInt{}) : SortK{} [constructor{}(), total{}(), injective{}()]
+            symbol held{}(SortK{}) : SortK{} [constructor{}(), total{}(), injective{}()]
             symbol dead{}(SortK{}) : SortK{} [function{}(), total{}()]
             symbol expand{}(SortK{}) : SortK{} [function{}(), total{}()]
             symbol opaque{}() : SortBool{} [function{}(), total{}(), no-evaluators{}()]
@@ -4609,7 +4658,7 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
     )
 }
 
-/// `start => g(a)` (and `start => b` when `branching`), with the simplification equation
+/// `start => held(g(a))` (and `start => b` when `branching`), with the simplification equation
 /// `g(X) = g(g(X))`: simplifying any `g` application exhausts every budget, and nothing else
 /// in the definition simplifies.
 fn growing_equation_definition(branching: bool) -> BackendDefinition {
@@ -4629,6 +4678,7 @@ fn growing_equation_definition(branching: bool) -> BackendDefinition {
                 symbol start{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol a{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol b{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol held{{}}(SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), functional{{}}()]
                 axiom{{R}} \implies{{R}}(
                     \top{{R}}(),
@@ -4639,7 +4689,7 @@ fn growing_equation_definition(branching: bool) -> BackendDefinition {
                 ) [label{{}}("grow"), simplification{{}}()]
                 axiom{{}} \rewrites{{SortS{{}}}}(
                     \and{{SortS{{}}}}(start{{}}(), \top{{SortS{{}}}}()),
-                    \and{{SortS{{}}}}(g{{}}(a{{}}()), \top{{SortS{{}}}}())
+                    \and{{SortS{{}}}}(held{{}}(g{{}}(a{{}}())), \top{{SortS{{}}}}())
                 ) [label{{}}("to-g")]
                 {right_rule}
             endmodule []"#
@@ -4708,7 +4758,7 @@ fn execution_attributes_a_diagnostic_to_the_branch_that_emitted_it_only() {
     let result = execute_growing_equation(&definition);
 
     assert_eq!(result.leaves.len(), 2, "{:?}", result.leaves);
-    let exhausted = leaf_ending_in(&result, "g");
+    let exhausted = leaf_ending_in(&result, "held");
     let normal = leaf_ending_in(&result, "b");
     assert_eq!(exhausted.halt_reason, HaltReason::Stuck);
     assert_eq!(exhausted.diagnostics, [term_budget_exhausted(3)]);
@@ -4729,7 +4779,7 @@ fn a_collector_around_execution_sees_every_diagnostic_of_every_path() {
 
     assert_eq!(diagnostics, COLLECTED_AROUND_GROWING_BRANCHES);
     assert_eq!(
-        leaf_ending_in(&result, "g").diagnostics,
+        leaf_ending_in(&result, "held").diagnostics,
         [term_budget_exhausted(3)]
     );
     assert_eq!(leaf_ending_in(&result, "b").diagnostics, []);
@@ -4770,7 +4820,7 @@ const LOWER_GROW_RULES: &str = r#"
     ) [label{}("first"), priority{}("10")]
     axiom{} \rewrites{SortK{}}(
         \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
-        grow{}(tag{}(\dv{SortInt{}}("50")))
+        held{}(grow{}(tag{}(\dv{SortInt{}}("50"))))
     ) [label{}("lower-grow"), priority{}("50")]
 "#;
 
@@ -4865,7 +4915,7 @@ fn a_step_attributes_a_candidates_own_work_to_that_candidate_only() {
     );
 
     assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
-    let lower = leaf_ending_in(&result, "grow");
+    let lower = leaf_ending_in(&result, "held");
     let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
     assert_eq!(lower.halt_reason, HaltReason::Stuck);
     assert_eq!(lower.diagnostics, lower_grow_diagnostics());
@@ -4887,7 +4937,7 @@ fn a_breadth_bound_frontier_state_carries_the_diagnostics_of_its_derivation() {
     );
 
     assert_eq!(result.leaves.len(), 2, "{:#?}", result.leaves);
-    let lower = leaf_ending_in(&result, "grow");
+    let lower = leaf_ending_in(&result, "held");
     let first = leaf_with_term(&definition, &result, r#"tag{}(\dv{SortInt{}}("10"))"#);
     assert_eq!(lower.halt_reason, HaltReason::BreadthBound);
     assert_eq!(lower.diagnostics, lower_grow_diagnostics());
@@ -5098,7 +5148,7 @@ fn a_right_hand_side_alternatives_own_work_stays_on_its_candidate() {
         ) [label{}("grow"), simplification{}()]
         axiom{} \rewrites{SortK{}}(
             \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
-            \or{SortK{}}(grow{}(tag{}(\dv{SortInt{}}("50"))), tag{}(\dv{SortInt{}}("10")))
+            \or{SortK{}}(held{}(grow{}(tag{}(\dv{SortInt{}}("50")))), tag{}(\dv{SortInt{}}("10")))
         ) [label{}("either")]
         "#,
     );
@@ -5115,7 +5165,7 @@ fn a_right_hand_side_alternatives_own_work_stays_on_its_candidate() {
         );
         assert_eq!(explored.leaves.len(), 2, "{mode:?}: {:#?}", explored.leaves);
         assert_eq!(
-            leaf_ending_in(&explored, "grow").diagnostics,
+            leaf_ending_in(&explored, "held").diagnostics,
             lower_grow_diagnostics(),
             "{mode:?}"
         );
@@ -5174,7 +5224,7 @@ fn a_non_applicable_attempts_work_is_on_no_path() {
         r#"
         axiom{} \rewrites{SortK{}}(
             \and{SortK{}}(state{}(X:SortInt{}), \top{SortK{}}()),
-            grow{}(tag{}(\dv{SortInt{}}("50")))
+            held{}(grow{}(tag{}(\dv{SortInt{}}("50"))))
         ) [label{}("earlier"), priority{}("10")]
         axiom{} \rewrites{SortK{}}(
             \and{SortK{}}(
@@ -5223,7 +5273,7 @@ fn a_refuted_rules_work_is_not_shared_with_other_candidates() {
                 )
             ),
             \and{SortK{}}(
-                grow{}(tag{}(\dv{SortInt{}}("50"))),
+                held{}(grow{}(tag{}(\dv{SortInt{}}("50")))),
                 \equals{SortBool{}, SortK{}}(\dv{SortBool{}}("false"), \dv{SortBool{}}("true"))
             )
         ) [label{}("refuted"), priority{}("10")]
@@ -5360,7 +5410,7 @@ fn a_candidates_diagnostics_keep_emission_order_across_units() {
                 state{}(X:SortInt{}),
                 \equals{SortBool{}, SortK{}}(missing{}(X:SortInt{}), \dv{SortBool{}}("true"))
             ),
-            grow{}(tag{}(\dv{SortInt{}}("50")))
+            held{}(grow{}(tag{}(\dv{SortInt{}}("50"))))
         ) [label{}("guarded-grow"), priority{}("10")]
         "#
     ));
@@ -5372,7 +5422,7 @@ fn a_candidates_diagnostics_keep_emission_order_across_units() {
         &satisfiable_solver(),
     );
 
-    let grown = leaf_ending_in(&result, "grow");
+    let grown = leaf_ending_in(&result, "held");
     let mut expected = vec![missing_hook()];
     expected.extend(lower_grow_diagnostics());
     assert_eq!(grown.diagnostics, expected);
@@ -6028,12 +6078,12 @@ fn run_equation_requires_budget(
     })
 }
 
-fn assert_stuck_on_unevaluated_prepare(result: &ExecutionResult) {
+fn assert_indeterminate_on_unevaluated_prepare(result: &ExecutionResult) {
     let [leaf] = result.leaves.as_slice() else {
         panic!("expected one execution leaf, found {:?}", result.leaves);
     };
     assert_eq!(leaf.depth, 1);
-    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert!(matches!(leaf.halt_reason, HaltReason::Indeterminate(_)));
     assert!(
         matches!(
             leaf.pattern.term.kind(),
@@ -6073,7 +6123,7 @@ fn assert_only_prepare_exhaustions(diagnostics: &[BackendDiagnostic], limit: usi
 fn equation_requires_budget_exhaustion_is_diagnosed_and_keeps_the_halt() {
     let run = run_equation_requires_budget(SizeEquations::Simplification, ChainTail::Nil, 64, 1);
 
-    assert_stuck_on_unevaluated_prepare(&run.result);
+    assert_indeterminate_on_unevaluated_prepare(&run.result);
     assert_only_prepare_exhaustions(&run.diagnostics, 1);
     // The single leaf's path emitted every diagnostic; it records each distinct one once, so the
     // budget exhaustion the two qualified rules share appears once, before both qualifiers.
@@ -6100,7 +6150,7 @@ fn equation_requires_exhaustion_at_the_default_budget_is_diagnosed() {
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
     );
 
-    assert_stuck_on_unevaluated_prepare(&run.result);
+    assert_indeterminate_on_unevaluated_prepare(&run.result);
     assert_only_prepare_exhaustions(&run.diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
 }
 
@@ -6175,7 +6225,7 @@ fn symbolic_function_recursion_still_stops_at_the_budget() {
         DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
     );
 
-    assert_stuck_on_unevaluated_prepare(&run.result);
+    assert_indeterminate_on_unevaluated_prepare(&run.result);
     assert_only_prepare_exhaustions(&run.diagnostics, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS);
 }
 
@@ -10479,6 +10529,7 @@ fn any_mode_passes_only_the_first_rules_remainder_to_later_rules() {
         },
         ExecutionOptions {
             mode: ExecutionMode::Any,
+            max_depth: 1,
             ..ExecutionOptions::default()
         },
         &solver,
