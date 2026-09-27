@@ -54,7 +54,7 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     cancellation::cancellation_requested,
-    definedness::ceil_term,
+    definedness::{ceil_term, ground_terms_structurally_distinct},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
@@ -1058,7 +1058,7 @@ fn simplify_predicate_with_budget(
             let equality = normalize_injection_equality(definition, equality);
             let equality = match equality {
                 Predicate::Equals(left, right)
-                    if left.structurally_distinct_after_normalization(&right) =>
+                    if ground_terms_structurally_distinct(definition, &left, &right) =>
                 {
                     Predicate::False
                 }

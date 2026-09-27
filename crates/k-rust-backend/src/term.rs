@@ -951,12 +951,41 @@ impl Term {
         self.attributes().concrete_after_normalization
     }
 
-    /// Whether two normalized concrete terms are structurally distinct.
+    /// Whether two ground terms are structurally distinct: `true` is a proof that they denote
+    /// different values, for any ground terms, however they were built.
     ///
-    /// Distinct rigid heads cannot denote the same normalized program value. Equal heads expose
-    /// their arguments only when the symbol is a constructor or is declared injective. This keeps
-    /// ordinary functions and non-injective symbolic applications out of structural decisions.
+    /// Only heads whose application is known to be a normal form decide: a domain value, a
+    /// constructor application (no equation is headed by a constructor), a sort injection, and
+    /// an application of an `anywhere` production that the simplifier certified as a normal form
+    /// by setting its `evaluated` bit ([`Self::with_evaluated_cache`]: every equation that may
+    /// apply to it was scanned and found inapplicable independently of the path condition, and
+    /// its arguments are certified too). Distinct normal forms are distinct values, so two
+    /// such heads that differ refute the equality, and equal heads refute it when some pair of
+    /// arguments is distinct. The argument does not depend on the `injective` attribute.
+    ///
+    /// An `anywhere` application without the certificate decides nothing, even when it is
+    /// ground: [`Self::concrete_after_normalization`] is a shape, not evidence that no equation
+    /// applies, and an anywhere equation `wrap(s(z)) = wrap(z)` makes the ground `wrap(s(z))`
+    /// equal to `wrap(z)` and possibly to a term with another head. Terms containing ordinary
+    /// function applications, variables, or collections are never decided here.
+    ///
+    /// Two injections from different source sorts decide nothing here; see
+    /// [`Self::structurally_distinct_with`] for a caller that can compare the sorts.
     pub fn structurally_distinct_after_normalization(&self, other: &Self) -> bool {
+        self.structurally_distinct_with(other, &|_, _| InjectionComparison::Undecided)
+    }
+
+    /// [`Self::structurally_distinct_after_normalization`] where two injections into the same
+    /// position with different source sorts are compared by `injections`, which is called on the
+    /// two injections (their arguments need not be normal forms). It answers
+    /// [`InjectionComparison::Distinct`] only when no value of one injection equals a value of
+    /// the other, and [`InjectionComparison::Compare`] with a pair of terms that are equal
+    /// exactly when the two injections are.
+    pub(crate) fn structurally_distinct_with(
+        &self,
+        other: &Self,
+        injections: &dyn Fn(&Self, &Self) -> InjectionComparison,
+    ) -> bool {
         if self == other
             || !self.concrete_after_normalization()
             || !other.concrete_after_normalization()
@@ -986,15 +1015,16 @@ impl Term {
                     arguments: right_arguments,
                 },
             ) => {
+                if !self.certified_normal_application() || !other.certified_normal_application() {
+                    return false;
+                }
                 if left_symbol.name != right_symbol.name || left_sorts != right_sorts {
                     return true;
                 }
-                (left_symbol.attributes.symbol_type == SymbolType::Constructor
-                    || left_symbol.attributes.injective)
-                    && left_arguments
-                        .iter()
-                        .zip(right_arguments)
-                        .any(|(left, right)| left.structurally_distinct_after_normalization(right))
+                left_arguments
+                    .iter()
+                    .zip(right_arguments)
+                    .any(|(left, right)| left.structurally_distinct_with(right, injections))
             }
             (
                 TermKind::Injection {
@@ -1007,8 +1037,39 @@ impl Term {
                     target: right_target,
                     term: right,
                 },
-            ) if left_source == right_source && left_target == right_target => {
-                left.structurally_distinct_after_normalization(right)
+            ) => {
+                if left_source == right_source && left_target == right_target {
+                    return left.structurally_distinct_with(right, injections);
+                }
+                match injections(self, other) {
+                    InjectionComparison::Distinct => true,
+                    InjectionComparison::Compare(left, right) => {
+                        left.structurally_distinct_with(&right, injections)
+                    }
+                    InjectionComparison::Undecided => false,
+                }
+            }
+            // A normal form headed by a constructor or an anywhere production is not the value of
+            // a sort injection.
+            (TermKind::Application { .. }, TermKind::Injection { .. }) => {
+                self.certified_normal_application()
+            }
+            (TermKind::Injection { .. }, TermKind::Application { .. }) => {
+                other.certified_normal_application()
+            }
+            _ => false,
+        }
+    }
+
+    /// Whether this application of a head that [`Self::concrete_after_normalization`] admits
+    /// (a constructor, or an `anywhere` production that is not a declared function) is known to
+    /// be a normal form: a constructor application is one when its arguments are, and an
+    /// `anywhere` application is one only when the simplifier has set its `evaluated` bit.
+    fn certified_normal_application(&self) -> bool {
+        match self.kind() {
+            TermKind::Application { symbol, .. } => {
+                symbol.attributes.symbol_type == SymbolType::Constructor
+                    || self.attributes().evaluated
             }
             _ => false,
         }
@@ -1176,6 +1237,17 @@ fn k_cells(kind: &TermKind) -> u8 {
     fold_children(kind, 0, |count, child| {
         (count + child.attributes().k_cells).min(2)
     })
+}
+
+/// How two injections with different source sorts into one position compare; see
+/// [`Term::structurally_distinct_with`].
+pub(crate) enum InjectionComparison {
+    /// No value of one injection is a value of the other.
+    Distinct,
+    /// The injections are equal exactly when these two terms are.
+    Compare(Term, Term),
+    /// Nothing is known.
+    Undecided,
 }
 
 /// The class of a collection key for which `structurally_distinct_after_normalization` decides
