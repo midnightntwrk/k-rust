@@ -98,11 +98,15 @@ const HOOK_SHORTCUTS: [&str; 8] = [
 const REQUIRES: [&str; 5] = ["half", "orb", "orelse", "andthen", "keq"];
 
 fn backend() -> Backend {
+    backend_for(SOURCE)
+}
+
+fn backend_for(source: &str) -> Backend {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
     let loaded = load_with_options(
-        ResolvedSource::new("defprobe.k", SOURCE),
+        ResolvedSource::new("defprobe.k", source),
         "DEFPROBE",
         &mut resolver,
         &LoadOptions {
@@ -428,6 +432,75 @@ fn ground_zero_is_stuck_or_trivial() {
         assert!(
             matches!(leaves.as_slice(), [leaf] if leaf.depth == 0 && leaf.reason == expected),
             "{name}(0): expected one {expected:?} leaf at depth 0: {leaves:#?}"
+        );
+    }
+}
+
+/// A `#let` binds its argument through a generated lambda whose only equation equates the
+/// application with the body, so a condition or right-hand side over `#let Y = A #in 10 /Int Y`
+/// is defined exactly where `10 /Int A` is: its leaves must keep `X =/=Int 0` as the plain
+/// operations `lt` and `rhsdiv` do, and the ground `X = 0` is Stuck.
+///
+/// The portable build's inner parser does not parse `#let` (it rejects the bound variable after
+/// `#let`), so these operations are compiled only with Z3 inference.
+#[cfg(feature = "z3-inference")]
+mod generated_lambda {
+    use super::*;
+
+    const LET_RULES: &str = r#"  syntax Op ::= letlt(Int)  [symbol(letlt)]
+              | letrhs(Int) [symbol(letrhs)]
+  rule [letlt]:   seq(letlt(A), P) => P requires (#let Y = A #in 10 /Int Y) <=Int (#let Y = A #in 10 /Int Y)
+  rule [letrhs]:  seq(letrhs(A), P) => seq(val(#let Y = A #in 10 /Int Y), P)
+endmodule
+"#;
+
+    fn backend() -> Backend {
+        let source = SOURCE
+            .trim_end()
+            .strip_suffix("endmodule")
+            .expect("the probe source ends with its main module");
+        backend_for(&format!("{source}{LET_RULES}"))
+    }
+
+    #[test]
+    fn a_let_bound_partial_body_keeps_its_definedness() {
+        let mut backend = backend();
+        let mut violations = Vec::new();
+        for name in ["letlt", "letrhs"] {
+            for assume in [false, true] {
+                let leaves = execute(&mut backend, &op(name, X), assume);
+                violations.extend(nonzero_violation(
+                    &format!("{name}(X) assume={assume}"),
+                    &leaves,
+                ));
+            }
+        }
+        assert_no_violation(&violations);
+    }
+
+    #[test]
+    fn a_solver_splits_a_let_bound_partial_requires_like_the_ground_run() {
+        let mut backend = backend();
+        assert!(backend.capabilities().smt);
+        let leaves = execute(&mut backend, &op("letlt", X), false);
+        let remainder = format!(
+            "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
+        );
+        assert!(
+            leaves.iter().any(|leaf| leaf.depth == 0
+                && leaf.reason == HaltReasonOutput::Stuck
+                && leaf.text.contains(&remainder))
+                && leaves
+                    .iter()
+                    .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO)),
+            "letlt(X): expected a Stuck remainder admitting X = 0 and a step under X =/=Int 0: \
+             {leaves:#?}"
+        );
+        let ground = execute(&mut backend, &op("letlt", ZERO), false);
+        assert!(
+            matches!(ground.as_slice(), [leaf] if leaf.depth == 0
+                && leaf.reason == HaltReasonOutput::Stuck),
+            "letlt(0): expected one Stuck leaf at depth 0: {ground:#?}"
         );
     }
 }

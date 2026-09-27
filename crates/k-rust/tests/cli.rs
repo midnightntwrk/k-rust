@@ -5226,6 +5226,77 @@ fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
     }
 }
 
+/// A condition over `10 /Int A`, written directly (`PLAIN`) or through the lambda a `#let`
+/// generates (`LET`).
+const LET_PARTIAL_CONDITION: &str = r#"
+module LETDIV-SYNTAX
+  imports INT-SYNTAX
+  syntax Op ::= half(Int) [symbol(half)]
+  syntax Prog ::= "halt" [symbol(halt)] | seq(Op, Prog) [symbol(seq)]
+endmodule
+
+module LETDIV
+  imports LETDIV-SYNTAX
+  imports INT
+  configuration <k> .K </k>
+  rule [half]: seq(half(A), P) => P requires $CONDITION
+endmodule
+
+module LETDIV-SPEC
+  imports LETDIV
+  claim [symbolic]: <k> seq(half(_X:Int), halt) => halt </k>
+  claim [ground]: <k> seq(half(0), halt) => halt </k>
+endmodule
+"#;
+
+/// `10 /Int A` is undefined at `A = 0`, where the ground claim is disproved, so the symbolic
+/// claim is false and must not be proven, whether the division is bound by `#let` or not.
+#[test]
+fn kprove_keeps_the_definedness_of_a_let_bound_partial_condition() {
+    for (case, condition) in [
+        ("plain", "10 /Int A <=Int 10 /Int A"),
+        (
+            "let",
+            "(#let Y = A #in 10 /Int Y) <=Int (#let Y = A #in 10 /Int Y)",
+        ),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(
+            &definition,
+            LET_PARTIAL_CONDITION.replace("$CONDITION", condition),
+        )
+        .unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "LETDIV-SPEC",
+                "--definition-module",
+                "LETDIV",
+            ])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!output.status.success(), "{case}: {stdout}");
+        let verdict = |claim: &str| {
+            let prefix = format!("claim LETDIV-SPEC.{claim}: ");
+            stdout
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .unwrap_or_else(|| panic!("{case}: no {claim} verdict in {stdout}"))
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        assert_ne!(verdict("symbolic"), "proven", "{case}: {stdout}");
+        assert_eq!(verdict("ground"), "disproved", "{case}: {stdout}");
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// The modal claim fixture prepared once with `kcompile --for-proving`, so that a `kprove`
 /// child loads the compiled KORE instead of compiling the definition and its prelude.
 fn compiled_modal_claim_fixture() -> (PathBuf, PathBuf) {
