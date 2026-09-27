@@ -26,10 +26,13 @@
 //!   a conjunction are not instance-normal: their value is whatever their equations or their
 //!   collection axioms make it, so their shape does not determine their value.
 //!
-//! A term that is [`Term::concrete_after_normalization`] is instance-normal without the scan:
-//! it is ground, so its only instance is itself, and the classification is taken, as everywhere
-//! it is used, of a term that equation normalization has already brought to a fixed point.
-//! A ground term that has not been normalized yet must not rely on this fast path.
+//! [`BackendDefinition::instance_normal`] scans ground terms too. That
+//! [`Term::concrete_after_normalization`] holds is a syntactic fact (ground, every head a
+//! constructor or an anywhere non-function production), not evidence that no equation applies:
+//! the ground `wrap(s(z))` has it and is not a normal form.
+//! [`BackendDefinition::instance_normal_of_normal_form`] is the variant for a caller that can
+//! point at the equation normalization that made its term a fixed point: every subterm of a
+//! normal form is a normal form, so a ground subterm is instance-normal without the scan.
 //!
 //! The syntactic unifiability test asks whether some instance of the subject could match the
 //! equation's pattern, not whether two values are equal, so it decomposes every equal-name
@@ -49,26 +52,46 @@ use crate::{
 impl BackendDefinition {
     /// Whether every instance of `term` is a normal form of this definition's equations; see
     /// the [module documentation](self) for the definition and why it is sound to decompose or
-    /// refute an `anywhere` head only on applications for which this holds.
+    /// refute an `anywhere` head only on applications for which this holds. Makes no
+    /// assumption about how `term` was produced.
     pub(crate) fn instance_normal(&self, term: &Term) -> bool {
-        if term.concrete_after_normalization() {
+        self.instance_normal_under(term, false)
+    }
+
+    /// [`Self::instance_normal`] for a term the caller guarantees is a fixed point of equation
+    /// normalization, where a [`Term::concrete_after_normalization`] subterm is instance-normal
+    /// without the equation scan. A caller must cite the normalization that establishes the
+    /// precondition; a term assembled or substituted after normalization does not meet it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the rewrite and equation matchers (KK-52) call it on normalized subjects"
+        )
+    )]
+    pub(crate) fn instance_normal_of_normal_form(&self, term: &Term) -> bool {
+        self.instance_normal_under(term, true)
+    }
+
+    fn instance_normal_under(&self, term: &Term, normalized: bool) -> bool {
+        if normalized && term.concrete_after_normalization() {
             return true;
         }
+        let arguments_normal = |arguments: &[Term]| {
+            arguments
+                .iter()
+                .all(|argument| self.instance_normal_under(argument, normalized))
+        };
         match term.kind() {
             TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
-            TermKind::Injection { term, .. } => self.instance_normal(term),
+            TermKind::Injection { term, .. } => self.instance_normal_under(term, normalized),
             TermKind::Application {
                 symbol, arguments, ..
             } => {
                 if symbol.attributes.symbol_type == SymbolType::Constructor {
-                    arguments
-                        .iter()
-                        .all(|argument| self.instance_normal(argument))
+                    arguments_normal(arguments)
                 } else if symbol.attributes.anywhere && !symbol.attributes.declared_function {
-                    arguments
-                        .iter()
-                        .all(|argument| self.instance_normal(argument))
-                        && !self.some_equation_may_apply(term)
+                    arguments_normal(arguments) && !self.some_equation_may_apply(term)
                 } else {
                     false
                 }
@@ -369,6 +392,24 @@ mod tests {
             .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
             .expect("term should internalize");
         definition.instance_normal(&term)
+    }
+
+    /// The ground `wrap(s(z))` is concrete after normalization but not a normal form: only the
+    /// normal-form variant, whose caller vouches for normalization, may skip the scan.
+    #[test]
+    fn ground_terms_are_scanned_unless_the_caller_vouches_for_normalization() {
+        let definition = definition();
+        let term = |source: &str| {
+            definition
+                .internalize_term(&parse_pattern(source).expect("term should parse"), &[])
+                .expect("term should internalize")
+        };
+        let redex = term("wrap{}(s{}(z{}()))");
+        assert!(redex.concrete_after_normalization());
+        assert!(!definition.instance_normal(&redex));
+        assert!(definition.instance_normal_of_normal_form(&redex));
+        assert!(definition.instance_normal(&term("wrap{}(s{}(s{}(z{}())))")));
+        assert!(!definition.instance_normal(&term("any{}(z{}())")));
     }
 
     #[test]

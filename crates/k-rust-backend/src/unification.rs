@@ -276,6 +276,9 @@ impl Unifier<'_> {
         if symbol.attributes.symbol_type == SymbolType::Constructor {
             return true;
         }
+        // Not `instance_normal_of_normal_form`: `run` substitutes the growing substitution into
+        // every popped pair (see `Unifier::run`), so even a caller's normalized input becomes a
+        // term no normalization has seen (`wrap(X)` with `X := s(z)` is the redex `wrap(s(z))`).
         if symbol.attributes.anywhere {
             return self.definition.instance_normal(left) && self.definition.instance_normal(right);
         }
@@ -648,13 +651,42 @@ mod tests {
         ));
     }
 
-    /// A ground normalized application is instance-normal by its concreteness alone.
+    /// A ground application no equation reaches is refuted by the scan.
     #[test]
-    fn refutes_ground_normalized_anywhere_applications() {
+    fn refutes_ground_anywhere_applications_no_equation_reaches() {
         assert!(matches!(
             unify_anywhere("wrap{}(s{}(s{}(z{}())))", "wrap{}(z{}())"),
             UnificationResult::Bottom(UnificationFailure::DifferentSymbols(_, _))
         ));
+    }
+
+    /// The ground `wrap(s(z))` is concrete after normalization but is the equation's redex, and
+    /// equals `wrap(z)`: unification must not refute it, whether it arrives ground or is built
+    /// by the unifier's own substitution (`X := s(z)` into `wrap(X)`).
+    #[test]
+    fn keeps_a_ground_anywhere_redex_an_equation() {
+        let result = unify_anywhere("wrap{}(s{}(z{}()))", "wrap{}(z{}())");
+        let UnificationResult::Unified(unified) = &result else {
+            panic!("wrap(s(z)) equals wrap(z): {result:?}");
+        };
+        assert_eq!(unified.constraints.len(), 1, "{result:?}");
+
+        let definition = anywhere_definition();
+        let pairs = [
+            (
+                anywhere_term(&definition, "X:SortNat{}"),
+                anywhere_term(&definition, "s{}(z{}())"),
+            ),
+            (
+                anywhere_term(&definition, "wrap{}(X:SortNat{})"),
+                anywhere_term(&definition, "wrap{}(z{}())"),
+            ),
+        ];
+        let result = unify_term_pairs(&definition, Substitution::new(), pairs);
+        let UnificationResult::Unified(unified) = &result else {
+            panic!("X = s(z) and wrap(X) = wrap(z) are satisfiable: {result:?}");
+        };
+        assert_eq!(unified.constraints.len(), 1, "{result:?}");
     }
 
     /// Instance-normal applications of an equal `anywhere` head decompose into their arguments.

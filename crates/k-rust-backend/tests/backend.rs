@@ -19,3 +19,5 @@ mod simplify;
 mod support;
 #[path = "backend/term_order.rs"]
 mod term_order;
+#[path = "backend/unification.rs"]
+mod unification;
