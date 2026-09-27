@@ -16,3 +16,6 @@ kink-pattern.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+
+[features]
+z3 = ["kink-native/z3"]

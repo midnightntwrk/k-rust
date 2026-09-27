@@ -1505,6 +1505,76 @@ fn probe2_symbolic_test_does_not_spare_a_killed_mutant() {
     });
 }
 
+/// The baseline's `f(I)` equation asserts a tautology; the mutant asserts `I > 0`.
+/// At `I = 0` the mutant stops before the load. In the Z3 profile, before claim support
+/// included equation `ensures`, the symbolic-only campaign survived because the `I > 0`
+/// path was a feasible match. Its instance at zero was a ground kill. The portable profile
+/// already returned Unknown, but now both profiles name the unsupported claim explicitly.
+#[test]
+fn equation_ensures_mutation_makes_symbolic_test_unknown_but_keeps_ground_kill() {
+    with_stack(|| {
+        let campaign = ClaimCampaign::load("symbolic-equation-ensures.k");
+        let baseline = campaign.baseline();
+        let i = baseline
+            .term(&TermRef::new(
+                support::rule(baseline, "SYMPARTIAL.f"),
+                [2, 0],
+            ))
+            .expect("I in the equation ensures")
+            .clone();
+        let mutation = replace(
+            baseline,
+            "SYMPARTIAL.f",
+            &[2],
+            Term::Apply {
+                label: k_rust::kast::Label::new("_>Int_"),
+                arguments: vec![
+                    i,
+                    Term::Token {
+                        token: "0".to_owned(),
+                        sort: KastSort::new("Int"),
+                    },
+                ],
+            },
+        );
+        let tests = [
+            campaign.test("X", support::var("X", "SortInt")),
+            campaign.test("0", support::int(0)),
+            campaign.test("1", support::int(1)),
+        ];
+        let run = campaign.run(&tests, std::slice::from_ref(&mutation));
+        let matches = [matched()];
+        assert_eq!(
+            test_sides(&run.baseline),
+            [
+                ("X", Ok(&matches[..])),
+                ("0", Ok(&matches[..])),
+                ("1", Ok(&matches[..]))
+            ]
+        );
+        let mutant = &run.mutants[0];
+        assert_eq!(
+            test_sides(&mutant.evidence),
+            [
+                ("X", Err(ExecutionFailureKind::UnsupportedClaims)),
+                ("0", Ok(&[unmatched()][..])),
+                ("1", Ok(&matches[..]))
+            ]
+        );
+        assert_eq!(mutant.report.status, MutantStatus::Killed);
+        assert_eq!(mutant.report.killing_test_ids, ["0"]);
+        assert!(mutant.report.claims.withdrawn.is_empty());
+        assert_eq!(
+            campaign.names(&mutant.report.claims.unsupported),
+            [("SYMPARTIAL.f".to_owned(), "ensures".to_owned())]
+        );
+        assert!(!mutant.report.claims.trusted());
+
+        let symbolic = campaign.run(&tests[..1], std::slice::from_ref(&mutation));
+        assert_eq!(symbolic.mutants[0].report.status, MutantStatus::Unknown);
+    });
+}
+
 /// A mutant of a rewrite rule no claim rests on withdraws nothing, and its symbolic test runs
 /// on its patched definition and keeps its verdict: `load` never fires, so no instance loads.
 /// A mutant that adds `preserves-definedness` to `half` asserts a claim nobody supports:

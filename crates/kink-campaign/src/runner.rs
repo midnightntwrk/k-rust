@@ -51,7 +51,9 @@ use k_rust::kore::{
     walk,
 };
 use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from_execution};
-use kink_native::execution::{ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget};
+use kink_native::execution::{
+    ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
+};
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
 };
@@ -598,9 +600,10 @@ impl Runtime {
             selected_rules: manifest.rules().cloned().collect(),
             symbol_sorts,
         };
+        let profile = SolverProfile::of(&backend);
         Ok(Self {
             backend,
-            adapter: ExecutionAdapter::new(manifest),
+            adapter: ExecutionAdapter::with_profile(manifest, profile),
             context,
         })
     }

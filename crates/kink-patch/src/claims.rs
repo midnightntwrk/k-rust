@@ -2,7 +2,8 @@
 //!
 //! k-rust takes some attributes as axioms and never checks them: on a production `total`,
 //! `functional`, `injective`, `smt-hook` and `smtlib`; on a rule `preserves-definedness`; and
-//! the lemmas, `simplification` and `smt-lemma` rules. They are claims about what terms
+//! the lemmas, `simplification` and `smt-lemma` rules; and a non-trivial `ensures` on an
+//! equation. They are claims about what terms
 //! denote. The baseline's author vouches for them. A mutant inherits them, although its
 //! patch may have changed what they are about.
 //!
@@ -27,8 +28,9 @@
 //! itself writes (a hypothesis that withdrawing would undo), and a lemma, whose removal
 //! would change the rule rather than the trust in it.
 //!
-//! A lemma's `ensures` is part of its claim: k-rust assumes it wherever the lemma applies,
-//! rather than reading it as a condition under which the rewritten term is defined.
+//! An equation's open `ensures` is assumed wherever the equation applies, whether the equation
+//! is a lemma or a definition. An equation's non-trivial `ensures` is therefore a claim of the
+//! equation, supported by its sentence and by the equations of every symbol it mentions.
 //!
 //! The lambdas k-rust generates for `#let` and `#fun` are not claims of the written definition.
 //! They are generated when the mutant is compiled, after the patch, and a lambda is declared
@@ -66,7 +68,7 @@ const RULE_CLAIMS: [AttributeKey; 1] = [AttributeKey::PreservesDefinedness];
 /// Rule attributes that make the rule a lemma about other rules rather than a definition.
 const LEMMAS: [AttributeKey; 2] = [AttributeKey::Simplification, AttributeKey::SmtLemma];
 
-/// One trusted claim of a mutant: the attribute `key` of a sentence.
+/// One trusted claim of a mutant: an attribute or a non-trivial equation `ensures`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Claim {
     /// The mutant sentence's origin: a baseline sentence or the patch's inserting edit.
@@ -80,8 +82,8 @@ pub struct Claim {
 pub struct Withdrawal {
     /// Claims whose support the patch touched, removed from the withdrawn definition.
     pub withdrawn: Vec<Claim>,
-    /// Claims the patch itself writes, and lemmas whose support it touched. No definition
-    /// with only supported claims exists for such a mutant.
+    /// Claims the patch itself writes, and lemmas or equation `ensures` whose support it
+    /// touched. No definition with only supported claims exists for such a mutant.
     pub unsupported: Vec<Claim>,
     patch: Option<Patch>,
 }
@@ -211,6 +213,17 @@ impl ClaimSupport {
                     let replaced = baseline_at.and_then(|at| replacing_edit(edits, at));
                     let edited = baseline_at.is_none_or(|at| touched.contains(at));
                     let unsupported = edited || is_affected(&mentions(sentence));
+                    if let Sentence::Rule { ensures, .. } = sentence
+                        && matches!(role(sentence, &self.defined), Role::Equation(_))
+                        && !trivial_ensures(ensures)
+                        && unsupported
+                    {
+                        withdrawal.unsupported.push(Claim {
+                            origin: origin.clone(),
+                            key: "ensures".to_owned(),
+                            value: Value::String(ensures.to_string()),
+                        });
+                    }
                     for claim in LEMMAS.into_iter().filter_map(claim) {
                         if unsupported {
                             withdrawal.unsupported.push(claim);
@@ -334,6 +347,11 @@ impl ClaimSupport {
         }
         affected
     }
+}
+
+/// The default `ensures true` asserts no property of an equation's result.
+fn trivial_ensures(ensures: &Term) -> bool {
+    matches!(ensures.unannotated(), Term::Token { token, sort } if token == "true" && sort.name == "Bool")
 }
 
 fn is_symbol_claim(key: &str) -> bool {

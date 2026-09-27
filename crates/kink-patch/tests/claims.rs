@@ -351,3 +351,49 @@ fn an_unknown_effect_withdraws_every_claim() {
     );
     assert_withdrawn_patch(&baseline, &withdrawal);
 }
+
+/// A function equation's result assertion depends on its own sentence and on equations
+/// reached through every function it mentions. A rewrite rule's `ensures` is a result
+/// condition, not a trusted claim.
+#[test]
+fn equation_ensures_follows_its_sentence_and_reachable_equations() {
+    let baseline = support::load_path(
+        &std::path::Path::new(support::DIR).join("equation-ensures-support.k"),
+        "EQSUPPORT",
+    );
+    let rule = |label: &str| support::rule(&baseline, &format!("EQSUPPORT.{label}"));
+    let replacement = |label: &str, path: &[u32], term: Term| {
+        let at = TermRef::new(rule(label), path);
+        Edit::ReplaceTerm {
+            expected: baseline.term(&at).expect("existing term").clone(),
+            at,
+            replacement: term,
+        }
+    };
+    let unsupported = |edit| {
+        let withdrawal = withdraw_for(&baseline, vec![edit]);
+        assert!(withdrawal.withdrawn.is_empty());
+        assert_eq!(withdrawal.unsupported.len(), 1);
+        let claim = &withdrawal.unsupported[0];
+        assert_eq!(claim.origin, SentenceOrigin::Baseline(rule("f")));
+        assert_eq!(claim.key, "ensures");
+        assert!(!withdrawal.trusted());
+    };
+    unsupported(replacement("f", &[0, 1], int("2")));
+    unsupported(replacement("d", &[0, 1], int("0")));
+
+    assert_eq!(
+        withdraw_for(&baseline, vec![replacement("g", &[0, 1], int("2"))]),
+        Withdrawal::default()
+    );
+    assert_eq!(
+        withdraw_for(&baseline, vec![replacement("step", &[2], bool_true())]),
+        Withdrawal::default()
+    );
+}
+
+fn withdraw_for(baseline: &Baseline, edits: Vec<Edit>) -> Withdrawal {
+    ClaimSupport::new(baseline)
+        .withdraw(baseline, &Patch::new(edits).expect("patch"))
+        .expect("the patch applies")
+}
