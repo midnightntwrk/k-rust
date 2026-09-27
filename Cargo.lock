@@ -398,6 +398,7 @@ dependencies = [
  "petgraph",
  "regex",
  "regex-automata",
+ "rustc-hash",
  "serde",
  "serde_json",
  "sha2 0.11.0",
