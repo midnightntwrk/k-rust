@@ -35,8 +35,8 @@
 //! free constructor against an injection, distinct canonical `Int`/`Bool`/`String` values, and a
 //! variable occurring under free constructors); anything else, including a residual function
 //! equation, is undecided. Two distinct ground terms are not assumed unequal. Terms that the
-//! unifier would decompose through an `injective` symbol other than a free constructor are
-//! undecided unless identical (see `decomposes_freely`).
+//! unifier would decompose on a non-`anywhere` `injective` declaration or a non-free
+//! `constructor` declaration are undecided unless identical (see `decomposes_freely`).
 //!
 //! `feasible` decides the *relation query* of a real-prefix path: its path predicate, the
 //! residual constraints of the assumptions' joint unification, and the unifier's substitution.
@@ -334,23 +334,18 @@ fn occurs_under_free_constructors(variable: &Variable, term: &Term) -> bool {
     !matches!(term.kind(), TermKind::Variable(_)) && below(variable, term)
 }
 
-/// Whether every application in `term` that the unifier may decompose through its
-/// `constructor` type or its `injective` attribute is a free constructor.
+/// Whether every application in `term` that the unifier may decompose on a declared
+/// `injective` or `constructor` attribute is a free constructor.
 ///
 /// Decomposing `f(a) = f(b)` into `a = b` is an equivalence only when equal applications of `f`
-/// have equal arguments. k-rust's unifier decomposes an `anywhere` application only when both
-/// sides are normal forms on every instance (no equation can rewrite any instance), where
-/// distinct arguments give distinct normal forms and hence distinct values; an `anywhere`
-/// symbol that is neither `constructor` nor `injective` is therefore accepted here. For any
-/// other symbol it trusts the KORE `injective` attribute, which a frontend emits and the
-/// equations do not check: k-rust's kompile withholds it from `anywhere` and macro heads and from
-/// an overload family above one, but KORE from another frontend declares every `anywhere` and
-/// overloaded production `injective` (`wrap(s(z)) => wrap(z) [anywhere]` identifies distinct
-/// applications), and hand-written KORE can declare any function `injective`. A clash or solved
-/// form found below such a symbol proves nothing, so every `injective` symbol that is not a free
-/// constructor is refused, `anywhere` or not. A `constructor` symbol that is not free (hand-written
-/// KORE with the `function` attribute too) is refused for the same reason. Collections are
-/// unsupported by the unifier and conservatively excluded.
+/// have equal arguments. As documented by `unify_term_pairs`, k-rust decomposes an `anywhere`
+/// application only when both sides are normal on every instance under the definition's
+/// equations; it does not read `injective` for such a symbol. A non-`anywhere` `injective`
+/// symbol instead decomposes on the declared axiom, which k-rust does not check against those
+/// equations. The declaration can come from kompile, hand-written KORE, or a mutant, so this
+/// decider refuses it unless the symbol is a free constructor. A non-free `constructor`, such
+/// as hand-written KORE that also declares `function`, is refused for the same reason.
+/// Collections are unsupported by the unifier and conservatively excluded.
 fn decomposes_freely(term: &Term) -> bool {
     match term.kind() {
         TermKind::Variable(_) | TermKind::DomainValue { .. } => true,
@@ -358,7 +353,7 @@ fn decomposes_freely(term: &Term) -> bool {
         TermKind::Application {
             symbol, arguments, ..
         } => {
-            let decomposed = symbol.attributes.injective
+            let decomposed = (symbol.attributes.injective && !symbol.attributes.anywhere)
                 || symbol.attributes.symbol_type == SymbolType::Constructor;
             (!decomposed || free_constructor(symbol)) && arguments.iter().all(decomposes_freely)
         }
@@ -1597,21 +1592,41 @@ mod tests {
         }
     }
 
-    const WRAP: &str = r"[]
+    const WRAP: &str = r#"[]
         module MAIN
             sort SortNat{} []
             symbol Lblz{}() : SortNat{} [constructor{}(), functional{}()]
             symbol Lbls{}(SortNat{}) : SortNat{} [constructor{}(), functional{}()]
             symbol Lblpair{}(SortNat{}, SortNat{}) : SortNat{} [constructor{}(), functional{}()]
             symbol Lblwrap{}(SortNat{}) : SortNat{} [functional{}(), injective{}(), anywhere{}()]
+            symbol Lbltag{}(SortNat{}) : SortNat{} [functional{}(), injective{}(), anywhere{}()]
+            symbol Lblperm{}(SortNat{}) : SortNat{} [function{}(), injective{}()]
             symbol Lblboth{}(SortNat{}) : SortNat{} [constructor{}(), function{}()]
-        endmodule []";
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lbls{}(Lblz{}())), \top{R}())
+                ),
+                \equals{SortNat{}, R}(
+                    Lblwrap{}(X0:SortNat{}),
+                    \and{SortNat{}}(Lblwrap{}(Lblz{}()), \top{SortNat{}}())
+                )
+            ) [label{}("collapse-wrap"), anywhere{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortNat{}, R}(X0:SortNat{}, Lbls{}(Lblz{}())), \top{R}())
+                ),
+                \equals{SortNat{}, R}(
+                    Lbltag{}(X0:SortNat{}),
+                    \and{SortNat{}}(Lbltag{}(Lblz{}()), \top{SortNat{}}())
+                )
+            ) [label{}("collapse-tag"), anywhere{}()]
+        endmodule []"#;
 
-    /// Audit (SYM-3A-09): KORE from another frontend (and k-rust's kompile before KK-53) marks an
-    /// `anywhere` production `injective`, but its equations can identify `wrap(s(z))` with
-    /// `wrap(z)`. A clash or solved form below a non-free `injective` symbol is therefore not
-    /// evidence; identical terms still are. The same holds for a symbol that k-rust types as a
-    /// constructor although it is a `function`.
+    /// The wrap equation can identify distinct arguments, while the tag equation cannot reach
+    /// `tag(s(s(X)))`. A non-`anywhere` `injective` declaration and a non-free constructor remain
+    /// untrusted even when unification returns a solved form.
     #[test]
     fn non_free_injective_symbols_leave_relations_undecided() {
         let definition =
@@ -1619,6 +1634,8 @@ mod tests {
                 .expect("definition");
         let (x, y) = (nat("X"), nat("Y"));
         let wrap = |value: Pattern| support::app("Lblwrap", vec![value]);
+        let tag = |value: Pattern| support::app("Lbltag", vec![value]);
+        let perm = |value: Pattern| support::app("Lblperm", vec![value]);
         let both = |value: Pattern| support::app("Lblboth", vec![value]);
         let state = support::app("Lblpair", vec![x.clone(), y.clone()]);
         let solver = Scripted(Err(SmtError::Unavailable));
@@ -1632,11 +1649,17 @@ mod tests {
                 relations.relate(&real, &[], &s(x.clone()), &z()),
                 relations.relate(&real, &[], &x, &y),
                 relations.relate(&real, &[], &both(z()), &both(s(z()))),
+                relations.relate(&real, &[], &tag(s(s(x.clone()))), &tag(z())),
+                relations.relate(&real, &[], &tag(s(s(x.clone()))), &tag(s(s(y.clone())))),
+                relations.relate(&real, &[], &perm(x.clone()), &perm(y.clone())),
             ],
             [
                 Indeterminate,
                 Indeterminate,
                 Equal,
+                Unequal,
+                EqualIf(vec![relation(x.clone(), y.clone())]),
+                Indeterminate,
                 Unequal,
                 EqualIf(vec![relation(x.clone(), y.clone())]),
                 Indeterminate,
