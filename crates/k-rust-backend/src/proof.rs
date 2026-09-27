@@ -3694,28 +3694,67 @@ mod tests {
                 c{}()
             ) [label{}("a-to-c")]
         "#;
-        let claims = modal_claim(ReachabilityMode::AllPath, "a", "c", false);
-        let definition = definition(rules, &claims);
-        let claim = &definition.reachability_claims[0];
+        // The one-path step tries `a-to-bottom` first; its instances, which it leaves without a
+        // result, are offered to `a-to-c`, which gives them one.
+        for mode in [ReachabilityMode::AllPath, ReachabilityMode::OnePath] {
+            let claims = modal_claim(mode, "a", "c", false);
+            let definition = definition(rules, &claims);
+            let claim = &definition.reachability_claims[0];
 
-        let proven = prove_claim(
-            &definition,
-            claim,
-            ProofOptions {
-                max_counterexamples: 2,
-                ..ProofOptions::default()
-            },
-            &NoSolver,
-        )
-        .unwrap();
-        assert_eq!(proven.status, ProofStatus::Proven, "{proven:#?}");
-        assert!(
-            !proven
-                .leaves
-                .iter()
-                .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Trivial)),
-            "{proven:#?}"
-        );
+            let proven = prove_claim(
+                &definition,
+                claim,
+                ProofOptions {
+                    max_counterexamples: 2,
+                    ..ProofOptions::default()
+                },
+                &NoSolver,
+            )
+            .unwrap();
+            assert_eq!(proven.status, ProofStatus::Proven, "{mode:?}: {proven:#?}");
+            assert!(
+                !proven
+                    .leaves
+                    .iter()
+                    .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Trivial)),
+                "{mode:?}: {proven:#?}"
+            );
+        }
+    }
+
+    /// A bottom result is offered only to the rules of its own priority: a lower-priority rule
+    /// is blocked where the bottom rule applies, so the one-path claim fails as the all-path
+    /// claim does.
+    #[test]
+    fn a_bottom_result_is_not_offered_to_a_lower_priority() {
+        let rules = r#"
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                \and{SortS{}}(b{}(), \bottom{SortS{}}())
+            ) [label{}("a-to-bottom")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                c{}()
+            ) [label{}("a-to-c"), priority{}("60")]
+        "#;
+        for mode in [ReachabilityMode::AllPath, ReachabilityMode::OnePath] {
+            let claims = modal_claim(mode, "a", "c", false);
+            let definition = definition(rules, &claims);
+            let claim = &definition.reachability_claims[0];
+            let failed =
+                prove_claim(&definition, claim, ProofOptions::default(), &NoSolver).unwrap();
+            assert_eq!(failed.status, ProofStatus::Failed, "{mode:?}: {failed:#?}");
+            assert!(
+                matches!(
+                    failed.leaves.as_slice(),
+                    [ProofLeaf {
+                        outcome: ProofLeafOutcome::Trivial,
+                        ..
+                    }]
+                ),
+                "{mode:?}: {failed:#?}"
+            );
+        }
     }
 
     #[test]

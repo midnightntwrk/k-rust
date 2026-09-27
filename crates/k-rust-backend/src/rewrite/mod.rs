@@ -250,8 +250,10 @@ pub struct TrivialApplication {
     /// The instances of `before` whose step is undefined because of this entry: `applicability`
     /// conjoined with `not D_j` for every applied candidate `j` of the same priority group, so
     /// that an instance another rule (or another right-hand-side alternative) takes to a defined
-    /// successor is excluded. The sequential (`Any`) step restricts only by the candidates of the
-    /// rule it committed. Not checked for satisfiability; it may be syntactically `\bottom`.
+    /// successor is excluded. The sequential (`Any`) step offers the entry's instances to the
+    /// later rules of the same priority and restricts it by the candidates it follows of its own
+    /// rule and of those later rules (`before` already excludes the earlier rules' defined
+    /// sub-cases). Not checked for satisfiability; it may be syntactically `\bottom`.
     pub undefined: Predicate,
     /// The pattern the rule was applied to: the step's subject for the first productive priority
     /// group, the (simplified) remainder of the higher groups for a lower one.
@@ -343,9 +345,11 @@ pub struct ExecutionOptions {
     /// configurations collapse into the first leaf in depth-first order. `PathSet` keeps one leaf
     /// per explored path, so paths that converge on one configuration keep their own trace,
     /// branch identity, and observations. Exploration is the same under both; only the final
-    /// merge differs. `ExecutionMode::Any` commits one rule per step but keeps that rule's
-    /// right-hand-side alternatives and a symbolic remainder, so it can yield several leaves;
-    /// the two readings coincide only when no two leaves share a configuration.
+    /// merge differs. `ExecutionMode::Any` gives each configuration the successors of the first
+    /// rule, in priority then definition order, that gives it a defined result (and a symbolic
+    /// remainder where none applies), keeping that rule's right-hand-side alternatives, so it can
+    /// yield several leaves; the two readings coincide only when no two leaves share a
+    /// configuration.
     pub result_modality: ResultModality,
     /// Retain the full path trace in each result leaf. Callers that only consume the final
     /// configuration can discard previous entries while keeping the latest rewrite for halts.
@@ -407,9 +411,10 @@ pub enum HaltReason {
     Stuck,
     /// An undefined step: under the leaf pattern's constraints, some rule applies to every
     /// instance (it matches, its `requires` holds, and it blocks the lower priorities), and, under
-    /// `ExecutionMode::All`, no instance has a defined successor. Under `ExecutionMode::Any` the
-    /// claim is relative to the rule the step committed: no right-hand-side alternative of that
-    /// rule gives a defined successor, but a rule of the same priority it did not try might.
+    /// `ExecutionMode::All`, no instance has a defined successor. `ExecutionMode::Any` offers
+    /// such instances to every later rule of the same priority but follows one collection
+    /// candidate per rule, so there no rule of that priority gives an instance a defined
+    /// successor through the candidate the step follows; another collection candidate might.
     /// `rule_id` names the rule when one application is responsible. The set of satisfying
     /// instances may be empty.
     Trivial {

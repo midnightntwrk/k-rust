@@ -1856,7 +1856,7 @@ bound = "O(c) rule attempts plus one SAT check per productive group and one rema
 
 [[node.cost]]
 mode = "Any"
-bound = "O(c) rule attempts plus one predicate simplification per applied rule and one SAT check per step"
+bound = "O(c) rule attempts plus one predicate simplification per applied rule and per priority whose rules left some applicable instance without a defined result, and one SAT check per step"
 
 [[node.cost]]
 mode = "Any with dropped-successor tracking (SequentialDeterminism)"
