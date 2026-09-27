@@ -888,8 +888,8 @@ enum StuckEvidence {
 ///   application or conjunction of terms, and its constraints, which carry the complement of
 ///   every destination coverage condition on the trace, together with the definedness of its
 ///   term are satisfiable by a query that approximates nothing (`smt::translates_exactly`), or
-///   are true syntactically (`implication::shown_nonempty`, shared with the complete
-///   implication policy).
+///   are true syntactically, and every free variable has an inhabited sort
+///   (`implication::shown_nonempty`, shared with the complete implication policy).
 ///   Those complements say "outside the destination" only if every state on the trace had its
 ///   implication check run and decided (`ProofState::destination_undecided`): a skipped or
 ///   undecided check leaves no complement, and the configurations that continued past it may

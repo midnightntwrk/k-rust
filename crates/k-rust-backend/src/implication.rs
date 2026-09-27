@@ -50,6 +50,7 @@ use crate::{
     substitution::{Substitution, compose, extract_substitution_for, substitute},
     term::names::FreshMarker,
     term::{Term, TermKind, Variable},
+    unification::{Unification, UnificationResult, unify_term_pairs},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -193,12 +194,9 @@ pub fn special_case(
             vacuous: false,
         })
     } else if matches!(consequent, kore::Pattern::Not { .. }) {
-        Some(ImplicationResult {
-            status: ImplicationStatus::Invalid,
-            condition: None,
-            failure: None,
-            vacuous: false,
-        })
+        // The syntax alone does not decide `A -> \not C`; `check_negated_consequent` does
+        // where it can.
+        Some(indeterminate())
     } else {
         None
     }
@@ -231,6 +229,102 @@ pub fn grade_special_case(
         },
         solver,
     )
+}
+
+/// Check `A -> \not C`, the special case [`special_case`] leaves indeterminate.
+///
+/// Under the universal closure of the free variables of both sides, `A -> \not C` holds exactly
+/// when no valuation gives `A` and `C` a common value, that is when the pattern `A /\ C` is
+/// empty. The terms of `A` and `C` are unified with their shared variables denoting the same
+/// value; the existentials of either side are renamed apart from the other's free variables
+/// first, because `(\exists E. A) /\ C` is `\exists E. (A /\ C)` for `E` not free in `C`.
+/// - A unification clash (different constructors, values or sorts, or an occurs cycle below
+///   constructors) or constraints the solver refutes (`Unsat` is sound under every
+///   approximation) show `A /\ C` empty: `valid`.
+/// - A unifier whose instance of `A` with both sides' constraints [`shown_nonempty`] shows
+///   nonempty is a common value: `invalid`.
+/// - Anything else, including a collection unification left unsupported and a consequent
+///   `\exists E. \not C` (which asks for `C` to fail for some `E` rather than for all), is
+///   `indeterminate`.
+pub fn check_negated_consequent(
+    definition: &BackendDefinition,
+    antecedent: &Pattern,
+    antecedent_existentials: &BTreeSet<Variable>,
+    consequent: &kore::Pattern,
+    sort_variables: &[crate::term::Name],
+    solver: &dyn SmtSolver,
+) -> Result<ImplicationResult, crate::definition::DefinitionError> {
+    let kore::Pattern::Not { argument, .. } = consequent else {
+        return Ok(indeterminate());
+    };
+    let (negated, negated_existentials) =
+        definition.internalize_implication_pattern(argument, sort_variables)?;
+    let renamed = rename_existentials_apart(antecedent, antecedent_existentials, &negated);
+    let antecedent = renamed.as_ref().unwrap_or(antecedent);
+    let renamed = rename_existentials_apart(&negated, &negated_existentials, antecedent);
+    let negated = renamed.as_ref().unwrap_or(&negated);
+    let unification = unify_term_pairs(
+        definition,
+        Substitution::new(),
+        [(antecedent.term.clone(), negated.term.clone())],
+    );
+    let Unification {
+        substitution,
+        constraints,
+    } = match unification {
+        UnificationResult::Bottom(_) => {
+            return Ok(valid_with_witnesses(
+                Substitution::new(),
+                Substitution::new(),
+            ));
+        }
+        UnificationResult::Unsupported { .. } => return Ok(indeterminate()),
+        UnificationResult::Unified(unification) => unification,
+    };
+    let mut conjunction = Pattern {
+        term: substitute(&antecedent.term, &substitution),
+        constraints: substitute_predicates(&antecedent.constraints, &substitution),
+    };
+    // The bindings' values must denote values too, even where the term no longer mentions them.
+    let definedness = substitution
+        .values()
+        .flat_map(|value| ceil_term(definition, value))
+        .collect::<Vec<_>>();
+    for predicate in substitute_predicates(&negated.constraints, &substitution)
+        .into_iter()
+        .chain(substitute_predicates(&constraints, &substitution))
+        .chain(definedness)
+    {
+        if !conjunction.constraints.contains(&predicate) {
+            conjunction.constraints.push(predicate);
+        }
+    }
+    if shown_nonempty(definition, &conjunction, &[], solver) {
+        return Ok(ImplicationResult {
+            status: ImplicationStatus::Invalid,
+            condition: None,
+            failure: None,
+            vacuous: false,
+        });
+    }
+    let mut query = conjunction.constraints.clone();
+    for predicate in ceil_term(definition, &conjunction.term) {
+        if !query.contains(&predicate) {
+            query.push(predicate);
+        }
+    }
+    if predicates_truth(&query) == Truth::False
+        || matches!(
+            solver.is_sat(&query, &Substitution::new()),
+            Ok(Satisfiability::Unsat)
+        )
+    {
+        return Ok(valid_with_witnesses(
+            Substitution::new(),
+            Substitution::new(),
+        ));
+    }
+    Ok(indeterminate())
 }
 
 /// The condition under which an implication was established.
@@ -1152,8 +1246,15 @@ fn refutation_result(
 /// such a term is not shown nonempty. The remaining predicates must be true syntactically, or
 /// satisfiable by a solver `Sat` on a query that approximates nothing
 /// (`smt::translates_exactly`): an approximate `Sat` may come from an SMT model that is no K
-/// valuation. A free variable of the term that the query does not mention needs no witness,
-/// because every sort's carrier is nonempty.
+/// valuation.
+///
+/// A pattern with a free variable denotes the union, over every value of the variable's sort,
+/// of what it denotes with the variable bound to that value; over an empty sort that union is
+/// empty, whatever the constraints say. Neither a syntactically true query nor a variable the
+/// query does not mention says anything about the variable's sort, so every free variable of
+/// the term and of the query must have a sort the definition shows inhabited
+/// ([`BackendDefinition::sort_is_inhabited`]). The `Int` and `Bool` variables an exact query
+/// may mention always are.
 pub(crate) fn shown_nonempty(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1172,6 +1273,17 @@ pub(crate) fn shown_nonempty(
         if !query.contains(&predicate) {
             query.push(predicate);
         }
+    }
+    if !pattern
+        .term
+        .attributes()
+        .variables
+        .iter()
+        .cloned()
+        .chain(query.iter().flat_map(Predicate::free_variables))
+        .all(|variable| definition.sort_is_inhabited(&variable.sort))
+    {
+        return false;
     }
     predicates_truth(&query) == Truth::True
         || (translates_exactly(&query)
@@ -3199,6 +3311,14 @@ mod tests {
                     [function{}(), total{}(), smtlib{}("andInt")]
                 symbol plus{}(SortInt{}, SortInt{}) : SortInt{}
                     [function{}(), total{}(), smt-hook{}("+")]
+                sort SortVoid{} []
+                sort SortLoop{} []
+                sort SortU{} []
+                symbol loop{}(SortLoop{}) : SortLoop{} [constructor{}()]
+                symbol u{}() : SortU{} [constructor{}()]
+                symbol hold{}(SortVoid{}) : SortKItem{} [constructor{}()]
+                symbol spin{}(SortLoop{}) : SortKItem{} [constructor{}()]
+                symbol keep{}(SortU{}) : SortKItem{} [constructor{}()]
             endmodule []"#,
         )
         .expect("bitwise definition should parse");
@@ -3368,5 +3488,152 @@ mod tests {
             assert_eq!(result.status, status, "{op}: {result:#?}");
             assert_eq!(result.condition, special.condition, "{op}: {result:#?}");
         }
+    }
+
+    /// `SortVoid` has no production and every value of `SortLoop` needs another one, so both
+    /// are empty; `SortU` has `u()`, and `SortKItem` has `stay(0)`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn inhabited_sorts_are_the_least_fixed_point_of_value_building_productions() {
+        let definition = bitwise_definition();
+        for (sort, inhabited) in [
+            ("SortVoid", false),
+            ("SortLoop", false),
+            ("SortU", true),
+            ("SortInt", true),
+            ("SortKItem", true),
+        ] {
+            assert_eq!(
+                definition.sort_is_inhabited(&Sort::simple(sort)),
+                inhabited,
+                "{sort}"
+            );
+        }
+    }
+
+    /// A pattern with a free variable of an empty sort denotes nothing, so a term mismatch from
+    /// it is no instance outside the consequent; over an inhabited sort it is.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn complete_policy_reports_invalid_only_over_inhabited_variable_sorts() {
+        let definition = bitwise_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let consequent = pattern(&definition, "other{}(Y:SortInt{})");
+        for (antecedent, status) in [
+            ("hold{}(V:SortVoid{})", ImplicationStatus::Indeterminate),
+            ("spin{}(L:SortLoop{})", ImplicationStatus::Indeterminate),
+            ("keep{}(U:SortU{})", ImplicationStatus::Invalid),
+        ] {
+            let result = check_complete(
+                &definition,
+                &pattern(&definition, antecedent),
+                &consequent,
+                &solver,
+            )
+            .expect("implication should be checked");
+            assert_eq!(result.status, status, "{antecedent}: {result:#?}");
+            assert_eq!(
+                result.failure,
+                Some(ImplicationFailure::TermMismatch),
+                "{antecedent}: {result:#?}"
+            );
+        }
+    }
+
+    #[cfg(feature = "z3")]
+    fn negated(
+        definition: &BackendDefinition,
+        antecedent: Pattern,
+        consequent: &str,
+    ) -> ImplicationStatus {
+        let solver = Z3Solver::new(definition).expect("Z3 should initialize");
+        check_negated_consequent(
+            definition,
+            &antecedent,
+            &BTreeSet::new(),
+            &parse_pattern(consequent).expect("consequent should parse"),
+            &[],
+            &solver,
+        )
+        .expect("the negated consequent should internalize")
+        .status
+    }
+
+    /// `A -> \not C` is invalid exactly when `A /\ C` is nonempty and valid exactly when it is
+    /// empty.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_negated_consequent_is_decided_by_the_conjunction_of_both_sides() {
+        let definition = bitwise_definition();
+        let plus = |value| {
+            format!(
+                r#"\and{{SortKItem{{}}}}(
+                    stay{{}}(X:SortInt{{}}),
+                    \equals{{SortInt{{}}, SortKItem{{}}}}(
+                        plus{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                        \dv{{SortInt{{}}}}("{value}")
+                    )
+                )"#
+            )
+        };
+        let not = |pattern: &str| format!(r#"\not{{SortKItem{{}}}}({pattern})"#);
+        let x_plus_one_is_two = constrained(&definition, "stay", "plus", "2");
+
+        // `stay(1)` is a common value.
+        assert_eq!(
+            negated(
+                &definition,
+                x_plus_one_is_two.clone(),
+                &not("stay{}(Y:SortInt{})")
+            ),
+            ImplicationStatus::Invalid
+        );
+        assert_eq!(
+            negated(&definition, x_plus_one_is_two.clone(), &not(&plus("2"))),
+            ImplicationStatus::Invalid
+        );
+        // Different constructors, and `X + 1 = 2 /\ X + 1 = 3` for the shared `X`, are disjoint.
+        assert_eq!(
+            negated(
+                &definition,
+                x_plus_one_is_two.clone(),
+                &not("other{}(Y:SortInt{})")
+            ),
+            ImplicationStatus::Valid
+        );
+        assert_eq!(
+            negated(&definition, x_plus_one_is_two, &not(&plus("3"))),
+            ImplicationStatus::Valid
+        );
+        // The solver's `Sat` for `X &Int 1 = 2` is no common value, and nothing refutes it.
+        assert_eq!(
+            negated(
+                &definition,
+                constrained(&definition, "stay", "andInt", "2"),
+                &not("stay{}(Y:SortInt{})")
+            ),
+            ImplicationStatus::Indeterminate
+        );
+        // A variable of an empty sort has no value to share.
+        assert_eq!(
+            negated(
+                &definition,
+                pattern(&definition, "hold{}(V:SortVoid{})"),
+                &not("hold{}(W:SortVoid{})")
+            ),
+            ImplicationStatus::Indeterminate
+        );
+        // `\exists Y. \not C` is not the negation of `C`.
+        assert_eq!(
+            negated(
+                &definition,
+                pattern(&definition, "stay{}(X:SortInt{})"),
+                &format!(
+                    r#"\exists{{SortKItem{{}}}}(Y:SortInt{{}}, {})"#,
+                    not("stay{}(Y:SortInt{})")
+                )
+            ),
+            ImplicationStatus::Indeterminate
+        );
     }
 }

@@ -7,8 +7,8 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, grade_special_case, special_case,
-        validate_request,
+        check_implication_with_existentials_complete, check_negated_consequent, grade_special_case,
+        special_case, validate_request,
     },
     substitution::Substitution,
     term::{Name, Sort, Term, TermKind},
@@ -105,6 +105,19 @@ impl Backend {
             };
             let result = if let Some(result) = special_result {
                 match &antecedent_pattern {
+                    Some((pattern, existentials))
+                        if matches!(consequent.strip_exists(), KorePattern::Not { .. }) =>
+                    {
+                        check_negated_consequent(
+                            definition,
+                            pattern,
+                            existentials,
+                            consequent,
+                            &sort_variables,
+                            solver,
+                        )
+                        .map_err(error("could not internalize implication consequent"))?
+                    }
                     Some((pattern, _)) => grade_special_case(definition, pattern, result, solver),
                     None => result,
                 }

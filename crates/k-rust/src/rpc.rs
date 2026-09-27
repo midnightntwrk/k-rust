@@ -30,7 +30,7 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationError, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        grade_special_case, special_case, validate_request,
+        check_negated_consequent, grade_special_case, special_case, validate_request,
     },
     matching::SortGraph,
     rewrite::{
@@ -901,9 +901,18 @@ impl RpcService {
             .map_err(|error| pattern_fault(error, &antecedent))?;
         let result_sort = antecedent_pattern.term.sort();
         if matches!(consequent.strip_exists(), KorePattern::Not { .. }) {
-            let result = special_result
+            special_result
                 .take()
                 .expect("not consequents are a shared implication special case");
+            let result = check_negated_consequent(
+                definition,
+                &antecedent_pattern,
+                &antecedent_existentials,
+                &consequent,
+                &sort_variables,
+                solver,
+            )
+            .map_err(|error| pattern_fault(error, &consequent))?;
             let antecedent = simplified_implication_response_syntax(
                 definition,
                 &antecedent,
