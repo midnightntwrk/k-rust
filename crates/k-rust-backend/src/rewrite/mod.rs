@@ -277,8 +277,8 @@ pub enum RewriteResult {
         branches: Vec<AppliedRule>,
         remainder: Option<RemainderBranch>,
         /// Bottom-result sub-cases: execution reports each as a `Trivial` leaf over its
-        /// `undefined` instances, search ignores them, and proof vacuity consumes the `Refuted`
-        /// ones.
+        /// `undefined` instances, search ignores them, and a proof makes each one it does not
+        /// show empty a `Trivial` leaf, which the vacuity policy rejects.
         trivial: Vec<TrivialApplication>,
     },
     Indeterminate {

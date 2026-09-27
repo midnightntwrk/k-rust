@@ -497,6 +497,9 @@ A claim `φ => ψ` is refuted, under the manual's [one-path](https://github.com/
   The leaf constraints carry the complement of every destination condition checked on the trace, including the uncovered part of a state that the destination condition covers only in part; the complement places the leaf outside `ψ` only if every destination check on the trace ran and was decided.
 
 Every other stuck leaf, and every empty leaf the vacuity policy rejects (`Trivial`, `Vacuous`), makes the claim `failed`: the search stopped there without establishing that the claim is false.
+A `Trivial` leaf of a step is the set of instances on which the step is undefined: some rule applies, its result is empty there because its `ensures` or the definedness of its right-hand side fails, and no applied rule of the same priority gives them a defined result.
+This covers a condition the step could not decide as well as a refuted one, so a symbolic claim is never proven while one of its instances fails: `apart(X, Y) => halt` under `rule apart(A, B) => halt ensures A =/=Int B` fails like its instance `apart(0, 0) => halt`.
+The leaf is dropped only when its constraint is refuted, for example when `ensures ?X >Int 0` always has a witness.
 When leaves disagree, the first of `disproved`, `failed`, `indeterminate`, `depth bound`, `breadth bound` applies.
 The conditions are sufficient, not necessary: a false claim whose refutation k-rust cannot certify is reported `failed`, never `disproved` without evidence.
 The conformance driver compares kprove recipes only as proven, not proven or error (`kprove_verdicts` in `scripts/conformance/run.py`), so `disproved` and `failed` are the same outcome there.
