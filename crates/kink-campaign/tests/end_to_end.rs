@@ -553,8 +553,8 @@ fn baseline_admission_gates_crashes_and_unknown_rules() {
 /// feasibility is undecided, or in a run that collected a backend diagnostic, is no witness,
 /// so the pattern side is `Unknown`. A mutant that makes `carry` (a carried `ensures`) or
 /// `slow` (a simplifier-budget diagnostic) apply is therefore not killed against the
-/// baseline's complete absence, and a baseline whose only occurrence is undecided (a carried
-/// `ensures`, a vacuous successor) is not admitted.
+/// baseline's complete absence. A carried `ensures` baseline is not admitted. A vacuous
+/// successor has no instance and is discarded, so its baseline has complete absence.
 #[test]
 fn undecided_occurrences_neither_kill_nor_pass_admission() {
     with_stack(|| {
@@ -621,15 +621,15 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
             assert_eq!(run.score.map(|score| score.killed), Some(0), "{id}");
         }
 
-        // (id, observed rule, initial state)
+        // (id, observed rule, initial state, expected baseline outcome)
         #[rustfmt::skip]
         let baselines = [
-            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS")),
-            ("vacuous-baseline-is-refused", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS")),
+            ("carried-ensures-baseline-is-refused", "UNDECIDED.carryAlways", support::initial_state(constant("LblcarryAlways"), "SortS"), false),
+            ("vacuous-baseline-has-complete-absence", "UNDECIDED.step", support::deferred_vacuous_state(constant("Lblvacuous"), "SortS"), true),
         ];
-        for (id, label, state) in baselines {
+        for (id, label, state, admitted) in baselines {
             let (vocabulary, tests, observed) = declared(label, state);
-            let refused = run_campaign(
+            let result = run_campaign(
                 &Campaign {
                     validator: &validator,
                     module: "UNDECIDED",
@@ -641,14 +641,140 @@ fn undecided_occurrences_neither_kill_nor_pass_admission() {
                 },
                 &generation(baseline, &[]),
                 ScheduleMode::Full,
-            )
-            .expect_err(id);
-            assert_eq!(
-                refused.kind(),
-                CampaignFailureKind::BaselineOracleFailed,
-                "{id}"
             );
+            if admitted {
+                let run = result.expect(id);
+                assert_eq!(
+                    sides(&run.baseline[0]),
+                    [OracleSide::Normal(OracleValue::Pattern(
+                        PatternValue::NoMatch
+                    ))],
+                    "{id}"
+                );
+                assert!(run.mutants.is_empty(), "{id}");
+            } else {
+                assert_eq!(
+                    result.expect_err(id).kind(),
+                    CampaignFailureKind::BaselineOracleFailed,
+                    "{id}"
+                );
+            }
         }
+    });
+}
+
+/// KK-66: dropping `requires I2 =/=Int 0` from guardeddiv's `divide` makes `divide(10, 0)` an
+/// undefined step, since its right-hand side `10 /Int 0` is undefined. The baseline is stuck on
+/// that term, so the exit-stop oracle distinguishes the classes `Stuck` and `UndefinedStep` and
+/// kills the mutant. The final result is the same term, and the write/load prefix is real on both
+/// sides, so those oracles agree. A nonzero divisor agrees everywhere.
+#[test]
+fn dropping_a_division_guard_is_killed_by_its_undefined_step() {
+    with_stack(|| {
+        let validator =
+            NativeValidator::bind(support::load("guardeddiv.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let int = |value: &str| Pattern::DomainValue {
+            sort: kore_sort("SortInt"),
+            value: value.into(),
+        };
+        let app = |symbol: &str, arguments| kore_application(symbol, Vec::new(), arguments);
+        let program = |divisor: &str| {
+            let op = |symbol| app(symbol, vec![app("Lbladdr", vec![int("1")]), int("0")]);
+            support::initial_state(
+                app(
+                    "Lblseq",
+                    vec![
+                        op("Lblwrite"),
+                        app(
+                            "Lblseq",
+                            vec![
+                                op("Lblload"),
+                                app("Lbldivide", vec![int("10"), int(divisor)]),
+                            ],
+                        ),
+                    ],
+                ),
+                "SortProg",
+            )
+        };
+        let vocabulary = vocabulary(&["rule:GUARDEDDIV.load"]);
+        let observed = [ObservedRule {
+            rule: support::rule(baseline, "GUARDEDDIV.load"),
+            emit_rule_applied: true,
+            domain_events: Vec::new(),
+        }];
+        let exit_stop = OracleDeclaration::new(
+            CrashPolicy::CompareIdentity,
+            Projection::State(StateProjection::ExitStop {
+                exit_code_cell: None,
+            }),
+        )
+        .expect("exit-stop declaration");
+        let tests = ["0", "2"].map(|divisor| TestCase {
+            id: format!("divide-by-{divisor}"),
+            initial_state: program(divisor),
+            oracles: vec![
+                exit_stop.clone(),
+                whole_term(CrashPolicy::CompareIdentity),
+                occurs(&vocabulary, "rule:GUARDEDDIV.load"),
+            ],
+        });
+        // A configuration that still holds `divide` did not finish.
+        let classify = |term: &Pattern| {
+            if contains(term, "Lbldivide") {
+                ExecutionTerminalKind::Stuck
+            } else {
+                ExecutionTerminalKind::Normal
+            }
+        };
+        let run = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "GUARDEDDIV",
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+                classify: &classify,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation(
+                baseline,
+                &[replace(
+                    baseline,
+                    "GUARDEDDIV.divide",
+                    &[1],
+                    bool_token("true"),
+                )],
+            ),
+            ScheduleMode::Full,
+        )
+        .expect("admitted");
+        let class = |class| {
+            OracleSide::Normal(OracleValue::ExitStop(
+                [kink_campaign::ExitStop { class, code: None }].into(),
+            ))
+        };
+        use kink_campaign::TerminalClass::{Normal, Stuck, UndefinedStep};
+        assert_eq!(sides(&run.baseline[0])[0], class(Stuck));
+        assert_eq!(sides(&run.baseline[1])[0], class(Normal));
+        let [mutant] = run.mutants.as_slice() else {
+            panic!("one mutant");
+        };
+        assert_eq!(sides(&mutant.evidence[0])[0], class(UndefinedStep));
+        assert_eq!(
+            sides(&mutant.evidence[0])[1..],
+            sides(&run.baseline[0])[1..]
+        );
+        assert_eq!(
+            outcomes(&mutant.plan.tests),
+            [
+                ("divide-by-0", vec![Distinguish, Agree, Agree]),
+                ("divide-by-2", vec![Agree, Agree, Agree]),
+            ]
+        );
+        assert_eq!(mutant.report.status, MutantStatus::Killed);
+        assert_eq!(mutant.report.killing_test_ids, ["divide-by-0"]);
     });
 }
 

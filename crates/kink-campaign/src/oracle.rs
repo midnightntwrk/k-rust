@@ -30,18 +30,25 @@ pub enum CrashPolicy {
     Distinguish,
 }
 
-/// How a complete, non-crash terminal ended, as the declaration's classifier says.
+/// How a complete, non-crash terminal ended: as the declaration's classifier says for a
+/// configuration to which no rule applies, or an undefined step.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TerminalClass {
     Normal,
     Stuck,
+    /// A rule applies to the last configuration and its result is undefined
+    /// (`kink_pattern::ExecutionTerminalKind::UndefinedStep`). It differs from both other
+    /// classes, so a mutant that makes a step undefined where the baseline completes or is stuck
+    /// is distinguished, and one that removes an undefined step likewise.
+    UndefinedStep,
 }
 
 /// One terminal's exit-stop projection.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct ExitStop {
     pub class: TerminalClass,
-    /// The declared exit-code cell's value, or `None` when no cell is declared.
+    /// The declared exit-code cell's value, or `None` when no cell is declared. An undefined step
+    /// has no exit code: the program did not exit, so its cell is not read and this is `None`.
     pub code: Option<i64>,
 }
 

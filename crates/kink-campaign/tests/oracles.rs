@@ -35,7 +35,7 @@ use kink_pattern::{
 };
 
 use CrashPolicy::{CompareIdentity, Distinguish as Distinguishes, Reject};
-use ExecutionTerminalKind::{Normal, SemanticCrash, Stuck};
+use ExecutionTerminalKind::{Normal, SemanticCrash, Stuck, UndefinedStep};
 use OracleOutcome::{Agree, Distinguish, Incomparable};
 
 const POLICIES: [CrashPolicy; 3] = [Reject, CompareIdentity, Distinguishes];
@@ -87,6 +87,7 @@ fn path(
         execution_stop: match stop {
             PathStop::Terminal => ExecutionStop::Terminal,
             PathStop::Stuck => ExecutionStop::Stuck,
+            PathStop::UndefinedStep => ExecutionStop::UndefinedStep,
             PathStop::MatchFound => ExecutionStop::QuerySatisfied,
             PathStop::DepthLimit => ExecutionStop::DepthLimit,
             PathStop::TimeLimit => ExecutionStop::TimeLimit,
@@ -107,10 +108,10 @@ fn path(
 
 /// A complete path ending in `state`, classified `kind`.
 fn terminal(ordinal: usize, kind: ExecutionTerminalKind, state: Pattern) -> PathInput {
-    let stop = if kind == Stuck {
-        PathStop::Stuck
-    } else {
-        PathStop::Terminal
+    let stop = match kind {
+        Stuck => PathStop::Stuck,
+        UndefinedStep => PathStop::UndefinedStep,
+        Normal | SemanticCrash => PathStop::Terminal,
     };
     path(ordinal, true, stop, Some((kind, state)))
 }
@@ -552,6 +553,59 @@ fn e4_operand_eligibility() {
     );
 }
 
+/// An undefined step is its own exit-stop class. It has no exit code, so a declared exit-code cell
+/// is not read. A mutant that makes a stuck or normal terminal an undefined step is
+/// distinguished, and two undefined steps agree. The final result of an undefined step is its
+/// last configuration, so a stuck baseline and an undefined mutant at the same term agree there.
+#[test]
+fn an_undefined_step_is_its_own_exit_stop_class() {
+    let cell = "Lbl'-LT-'exit-code'-GT-'";
+    let at = |program: &str| {
+        app(
+            "top",
+            vec![
+                app("k", vec![constant(program)]),
+                kore_application(cell, Vec::new(), vec![int("7")]),
+            ],
+        )
+    };
+    let undefined = single(UndefinedStep, at("divide"));
+    let class = |class, code| normal(OracleValue::ExitStop([ExitStop { class, code }].into()));
+    for projection in [exit_stop(None), exit_stop(Some(cell))] {
+        assert_eq!(
+            state_side(&projection, &undefined),
+            class(TerminalClass::UndefinedStep, None),
+            "{projection:?}"
+        );
+    }
+    let exit = state_side(&exit_stop(None), &undefined);
+    #[rustfmt::skip]
+    let rows = [
+        ("stuck-baseline", state_side(&exit_stop(None), &single(Stuck, at("divide"))), Distinguish),
+        ("normal-baseline", state_side(&exit_stop(None), &single(Normal, at("done"))), Distinguish),
+        ("undefined-baseline", exit.clone(), Agree),
+    ];
+    for (id, baseline, expected) in rows {
+        for policy in POLICIES {
+            assert_eq!(
+                compare_supplied(OracleKind::ExitStop, policy, &baseline, &exit),
+                Ok(expected),
+                "{id} under {policy:?}"
+            );
+        }
+    }
+    let whole = |kind| state_side(&StateProjection::WholeTerm, &single(kind, at("divide")));
+    assert_eq!(
+        compare_supplied(
+            OracleKind::FinalResult,
+            CompareIdentity,
+            &whole(Stuck),
+            &whole(UndefinedStep)
+        ),
+        Ok(Agree)
+    );
+}
+
 /// A complete terminal term with a free variable stands for every instance of a symbolic run,
 /// not for one value: no state projection reads it, whatever the terminal class.
 #[test]
@@ -576,7 +630,7 @@ fn symbolic_terminal_terms_are_unknown_to_state_oracles() {
         StateProjection::WholeTerm,
         StateProjection::TermPaths(vec![vec![0, 0]]),
     ] {
-        for kind in [Normal, Stuck, SemanticCrash] {
+        for kind in [Normal, Stuck, SemanticCrash, UndefinedStep] {
             assert_eq!(
                 state_side(&projection, &single(kind, symbolic.clone())),
                 OracleSide::Unknown,
@@ -587,7 +641,7 @@ fn symbolic_terminal_terms_are_unknown_to_state_oracles() {
 }
 
 /// The side of a single leaf that halted with `halt`, as the bridge reads it: a stuck
-/// leaf is a ground normal terminal.
+/// leaf is a ground normal terminal, and a trivial leaf a ground undefined step.
 fn halt_side(
     projection: &StateProjection,
     halt: HaltClass,
@@ -596,7 +650,14 @@ fn halt_side(
         Ok(Some(stop)) => Ok(state_side(projection, &run(vec![incomplete(0, stop)]))),
         Ok(None) => Ok(state_side(
             projection,
-            &single(Normal, configuration("done", "1")),
+            &single(
+                if halt == HaltClass::Trivial {
+                    UndefinedStep
+                } else {
+                    Normal
+                },
+                configuration("done", "1"),
+            ),
         )),
         Err(failure) => Err(ExecutionFailureKind::from(&failure)),
     }
@@ -707,7 +768,6 @@ fn bounded_or_indeterminate_sides_are_unknown_even_against_a_crash() {
     let projection = StateProjection::WholeTerm;
     let done = configuration("done", "1");
     let mut bounded = [
-        HaltClass::Trivial,
         HaltClass::Vacuous,
         HaltClass::Indeterminate,
         HaltClass::UnsupportedHook,
@@ -791,7 +851,8 @@ fn exhaustive_bridge_failure(failure: &BridgeFailure) {
         | BridgeFailure::UndecodablePayload(_)
         | BridgeFailure::UndecodableState(_)
         | BridgeFailure::UndecidedStateSort
-        | BridgeFailure::DuplicatePathIdentity(_) => {}
+        | BridgeFailure::DuplicatePathIdentity(_)
+        | BridgeFailure::ClassifiedUndefinedStep => {}
     }
 }
 
@@ -840,7 +901,8 @@ fn runner_mapping_is_exhaustive() {
     #[rustfmt::skip]
     let halts: [(HaltClass, Result<OracleSide, ExecutionFailureKind>); 13] = [
         (H::Stuck, Ok(value(std::slice::from_ref(&done)))),
-        (H::Trivial, Ok(OracleSide::Unknown)),
+        // An undefined step's final result is its last configuration.
+        (H::Trivial, Ok(value(std::slice::from_ref(&done)))),
         (H::Vacuous, Ok(OracleSide::Unknown)),
         (H::Branch, infrastructure.clone()),
         (H::CutPoint, infrastructure.clone()),

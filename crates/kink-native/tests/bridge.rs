@@ -891,9 +891,12 @@ fn undecided_live_occurrences_are_no_witness() {
             &state,
             budget,
         );
-        let [leaf] = run.execution.leaves() else {
-            panic!("{id}: one leaf");
-        };
+        if id == "carried-ensures" {
+            assert_eq!(run.execution.leaves()[0].halt, HaltClass::Trivial);
+            assert_eq!(run.bridged.paths[0].stop, PathStop::SolverUnknown);
+            assert!(run.bridged.paths[0].events.is_empty());
+        }
+        let leaf = run.execution.leaves().last().expect("one successor leaf");
         let diagnostics = leaf
             .diagnostics
             .iter()
@@ -918,9 +921,19 @@ fn undecided_live_occurrences_are_no_witness() {
             );
         }
         assert_eq!(leaf.halt, halt, "{id}");
-        let [path] = run.bridged.paths.as_slice() else {
-            panic!("{id}: one path");
-        };
+        if id == "vacuous-successor" {
+            assert!(
+                run.bridged.paths.is_empty(),
+                "{id}: refuted leaf is discarded"
+            );
+            assert_eq!(
+                outcome(&run, &single_atom(&vocabulary, &constructor, None)).outcome,
+                PatternOutcome::NoMatch,
+                "{id}"
+            );
+            continue;
+        }
+        let path = run.bridged.paths.last().expect("one successor path");
         assert_eq!(
             path.events
                 .iter()
