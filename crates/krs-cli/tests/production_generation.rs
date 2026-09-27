@@ -68,6 +68,7 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
 
     assert!(manifest.contains("__krs_host_runtime = { package = \"krs\""));
     assert!(manifest.contains("__krs_compiler_runtime = { package = \"krs-compiler\""));
+    assert!(manifest.ends_with("\n[workspace]\n\n[profile.dev]\ndebug = 0\n"));
     let package_name = manifest
         .lines()
         .find(|line| line.starts_with("name = "))

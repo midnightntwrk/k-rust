@@ -146,6 +146,7 @@ fn render_manifest(plan: &CollectorPlan, package_name: &str) -> Result<String, G
         )?;
     }
     output.push_str("\n[workspace]\n");
+    output.push_str("\n[profile.dev]\ndebug = 0\n");
     Ok(output)
 }
 
