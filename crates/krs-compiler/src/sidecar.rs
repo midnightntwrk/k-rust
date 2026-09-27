@@ -248,7 +248,10 @@ pub enum SourceMapNodeKind {
     Term,
 }
 
-/// Half-open range in the canonical generated `.k` artifact.
+/// Byte ranges rendered for each Definition node in one generated artifact.
+pub(crate) type GeneratedRanges = BTreeMap<SourceMapKey, (usize, usize)>;
+
+/// Half-open range in one canonical generated `.k` artifact.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GeneratedRange {
@@ -262,7 +265,12 @@ pub struct GeneratedRange {
 }
 
 impl GeneratedRange {
-    pub(crate) fn new(source: &str, start: usize, end: usize) -> Result<Self, SidecarError> {
+    pub(crate) fn new(
+        artifact: &str,
+        source: &str,
+        start: usize,
+        end: usize,
+    ) -> Result<Self, SidecarError> {
         if start > end
             || end > source.len()
             || !source.is_char_boundary(start)
@@ -273,7 +281,7 @@ impl GeneratedRange {
         let (start_line, start_column) = line_column(source, start)?;
         let (end_line, end_column) = line_column(source, end)?;
         Ok(Self {
-            artifact: "definition.k".to_owned(),
+            artifact: artifact.to_owned(),
             start_byte: u64::try_from(start).map_err(|_| SidecarError::RangeOverflow)?,
             end_byte: u64::try_from(end).map_err(|_| SidecarError::RangeOverflow)?,
             start_line,
@@ -541,14 +549,20 @@ impl SourceMap {
         canonical_json(self)
     }
 
+    /// Attaches each artifact's ranges; `artifacts` holds `(name, source, ranges)`
+    /// and a key must be rendered in at most one artifact.
     pub(crate) fn with_generated_ranges(
         mut self,
-        source: &str,
-        ranges: &BTreeMap<SourceMapKey, (usize, usize)>,
+        artifacts: &[(&str, &str, &GeneratedRanges)],
     ) -> Result<Self, SidecarError> {
         for entry in &mut self.entries {
-            if let Some((start, end)) = ranges.get(&entry.key) {
-                entry.generated = Some(GeneratedRange::new(source, *start, *end)?);
+            for (artifact, source, ranges) in artifacts {
+                if let Some((start, end)) = ranges.get(&entry.key) {
+                    if entry.generated.is_some() {
+                        return Err(SidecarError::DuplicateSourceMapKey(entry.key.clone()));
+                    }
+                    entry.generated = Some(GeneratedRange::new(artifact, source, *start, *end)?);
+                }
             }
         }
         self.reject_path_leaks()?;

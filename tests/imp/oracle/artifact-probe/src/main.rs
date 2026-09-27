@@ -88,6 +88,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         lowered.definition().to_canonical_json()?,
     )?;
     write(&output.join("definition.k"), emitted.source())?;
+    let spec = emitted
+        .spec()
+        .ok_or("the complete IMP definition emits its claims to spec.k")?;
+    write(&output.join("spec.k"), spec.source())?;
     write(
         &output.join("symbols.json"),
         emitted.symbol_map().to_canonical_json()?,

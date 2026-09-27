@@ -41,12 +41,12 @@ class DiagnosticProbeTests(unittest.TestCase):
         self.assertTrue(report["rust_analyzer_exact_range_wired"])
         self.assertTrue(report["krs_analysis_cross_item_fixture"])
         self.assertTrue(report["k_frontend_exact_sidecar_probe"])
-        self.assertTrue(report["backend"]["adapter_structured_diagnostic"])
+        self.assertTrue(report["native_frontend"]["adapter_structured_diagnostic"])
         repaired = (
             report["krs_cli_structured_analysis_range"]
-            and report["backend"]["cli_structured_diagnostic_envelope"]
-            and report["backend"]["cli_authored_origin_translation"]
-            and report["backend"]["cli_structured_diagnostic_rendering"]
+            and report["native_frontend"]["cli_structured_diagnostic_envelope"]
+            and report["native_frontend"]["cli_authored_origin_translation"]
+            and report["native_frontend"]["cli_structured_diagnostic_rendering"]
         )
         if repaired:
             module.verify(report)
@@ -57,9 +57,9 @@ class DiagnosticProbeTests(unittest.TestCase):
     def test_k_frontend_mapping_requires_exact_content_identity(self) -> None:
         module = load(HERE / "diagnostics/k-frontend/probe.py", "frontend_probe")
         authored = b"before ExactToken after\n"
-        definition = b"module M\n  rule exact\nendmodule\n"
+        spec = b"module M-SPEC\n  claim exact\nendmodule\n"
         source_start = authored.index(b"ExactToken")
-        generated_start = definition.index(b"exact")
+        generated_start = spec.index(b"exact")
         entry = {
             "origin": [{
                 "frame_type": "ranged",
@@ -74,13 +74,13 @@ class DiagnosticProbeTests(unittest.TestCase):
                 },
             }],
             "generated": {
-                "artifact": "definition.k",
+                "artifact": "spec.k",
                 "start_byte": generated_start,
                 "end_byte": generated_start + len(b"exact"),
             },
         }
         origin, generated = module.exact_mapping(
-            definition, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
+            spec, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
         )
         self.assertEqual(origin["start_byte"], source_start)
         self.assertEqual(generated["start_byte"], generated_start)
@@ -88,7 +88,7 @@ class DiagnosticProbeTests(unittest.TestCase):
         entry["origin"][0]["range"]["file"]["content_sha256"] = "0" * 64
         with self.assertRaisesRegex(module.GateError, "expected one exact sidecar mapping"):
             module.exact_mapping(
-                definition, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
+                spec, {"entries": [entry]}, authored, "src/lib.rs", "ExactToken"
             )
 
 

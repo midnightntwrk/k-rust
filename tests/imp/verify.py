@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -31,7 +32,7 @@ from support.hashing import (  # noqa: E402
     sha256_file,
     sha256_text,
 )
-from support.kdefinition import split_claims  # noqa: E402
+from support.kdefinition import emitted_claims  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
@@ -366,7 +367,7 @@ class Artifacts:
     def detail(self) -> str:
         return (
             "124 descriptors; deterministic reviewed Rust expansion; 83-descriptor replacement parity; "
-            "six repeated CLI/API source artifacts; repeated native build and LLVM capability boundary; "
+            "seven repeated CLI/API source artifacts; repeated claim-free LLVM and Haskell native builds; "
             f"sha256={json_sha256(self.hashes)}"
         )
 
@@ -613,8 +614,10 @@ ARTIFACT_NAMES = (
     "native-source.txt",
     "semantic-ir.json",
     "sources.json",
+    "spec.k",
     "symbols.json",
 )
+NATIVE_ARTIFACTS = (".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore")
 
 
 def krs_base(krs: Path) -> list[str]:
@@ -627,49 +630,25 @@ def krs_base(krs: Path) -> list[str]:
 
 
 def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Path:
-    """Build the native definition twice and pin it, with the LLVM capability boundary."""
+    """Build the native definition twice per backend and pin both.
 
-    llvm_evidence: list[subprocess.CompletedProcess[str]] = []
-    for name in ("llvm-failure-a", "llvm-failure-b"):
+    The concrete LLVM backend does not prove, so its build omits every claim.
+    """
+
+    llvm_builds: list[Path] = []
+    for name in ("llvm-a", "llvm-b"):
         output = context.workspace / name
         process = run(
-            [
-                krs, "build", *krs_base(krs)[1:],
-                "--backend", "llvm", "--output", output,
-            ],
+            [krs, "build", *krs_base(krs)[1:], "--backend", "llvm", "--output", output],
             timeout=900,
             environment=env,
-            check=False,
         )
-        if process.returncode != 1 or output.exists():
-            raise GateError(
-                f"LLVM existential capability boundary differs: rc={process.returncode}, "
-                f"output_exists={output.exists()}"
-            )
-        llvm_evidence.append(process)
-    if (
-        llvm_evidence[0].stdout != llvm_evidence[1].stdout
-        or llvm_evidence[0].stderr != llvm_evidence[1].stderr
-    ):
-        raise GateError("repeated LLVM capability diagnostics differ byte-for-byte")
-    diagnostic_text = llvm_evidence[0].stdout + llvm_evidence[0].stderr
-    envelopes = []
-    for line in diagnostic_text.splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError as error:
-            raise GateError(f"LLVM capability boundary emitted non-JSON: {line!r}") from error
-        if not isinstance(value, dict) or (
-            value.get("schema_version") != 1
-            or value.get("stage") != "backend-capability"
-            or value.get("code") != "UnsupportedExistentialVariable"
-            or value.get("severity") != "error"
-        ):
-            raise GateError("LLVM capability diagnostic lost its typed classification")
-        envelopes.append(value)
-    if len(envelopes) != 6:
-        raise GateError(f"expected six deduplicated LLVM diagnostics, found {len(envelopes)}")
-    context.pins.expect(("native_comparison", "llvm_failure_sha256"), sha256_text(diagnostic_text))
+        omitted = f"omitted {CLAIM_COUNT} claims: the llvm backend executes but does not prove\n"
+        if not process.stdout.endswith(omitted):
+            raise GateError(f"LLVM build did not report its omitted claims: {process.stdout!r}")
+        llvm_builds.append(output)
+    for name, digest in exact_directory(llvm_builds[0], llvm_builds[1], NATIVE_ARTIFACTS).items():
+        context.pins.expect(("llvm_artifact_sha256", name), digest)
 
     builds: list[Path] = []
     for name in ("native-a", "native-b"):
@@ -758,6 +737,7 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
         "descriptor-bundle.json",
         "semantic-ir.json",
         "sources.json",
+        "spec.k",
         "symbols.json",
     )
     for name, digest in exact_directory(emit_a, emit_b, emitted_names).items():
@@ -781,6 +761,7 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
         "descriptor-bundle.json",
         "semantic-ir.json",
         "sources.json",
+        "spec.k",
         "symbols.json",
     ):
         if emit_a.joinpath(name).read_bytes() != probes[0].joinpath(name).read_bytes():
@@ -793,10 +774,9 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
 
 def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
-    definition_source = artifacts.paths / "definition.k"
-    claim_free, labels, _ = split_claims(definition_source.read_text(encoding="utf-8"), CLAIM_COUNT)
+    labels, _ = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT)
     actual_source = context.workspace / "actual-execution.k"
-    actual_source.write_text(claim_free, encoding="utf-8")
+    shutil.copy2(artifacts.paths / "definition.k", actual_source)
     if labels != context.pins.get("claim_labels"):
         raise GateError("emitted claim order differs from its exact pin")
 
@@ -940,19 +920,16 @@ def phase_native(context: Context, artifacts: Artifacts, definitions: SourceDefi
         reference_kore, native_kore, MODULE,
     ]
     native_policy = table(context.pins.get("native_comparison"), "pins.native_comparison")
-    expected_native_policy_fields = {
-        "status", "label_map", "reference_claims_module", "llvm_failure_sha256"
-    }
+    expected_native_policy_fields = {"status", "label_map", "reference_claims_module"}
     if set(native_policy) != expected_native_policy_fields or native_policy.get("status") != "ready":
         raise GateError("native comparison policy is not the exact ready schema")
-    # K's frontend rejects claims in an executable definition.  Compile the
-    # exact emitted claims as a supplemental spec through the supported
-    # kprove --dry-run route, then require the comparator to merge only that
-    # one-import/claims-only KORE module.
+    # K's frontend rejects claims in an executable definition, so emit-k
+    # writes them to spec.k.  Compile the exact emitted claims as a
+    # supplemental spec through the supported kprove --dry-run route, then
+    # require the comparator to merge only that one-import/claims-only KORE
+    # module.
     execution_source = definitions.actual_execution_k
-    _, labels, claim_source = split_claims(
-        artifacts.paths.joinpath("definition.k").read_text(encoding="utf-8"), CLAIM_COUNT
-    )
+    labels, claim_source = emitted_claims(artifacts.paths, MODULE, CLAIM_COUNT)
     if labels != context.pins.get("claim_labels"):
         raise GateError("native supplemental claim order differs")
     spec_module = str(native_policy.get("reference_claims_module"))
@@ -1081,7 +1058,7 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
         [context.tools["python"], HERE / "compatibility/diagnostics/krs-analysis/probe.py", "--krs", rust_build.krs],
         [
             context.tools["python"], HERE / "compatibility/diagnostics/k-frontend/probe.py",
-            "--definition", artifacts.paths / "definition.k",
+            "--spec", artifacts.paths / "spec.k",
             "--sources", artifacts.paths / "sources.json",
             "--authored", HERE / "rust-definition/src/claims.rs",
             "--source-relative-path", "src/claims.rs", "--token", "bool::and",
@@ -1089,13 +1066,12 @@ def phase_compatibility(context: Context, rust_build: RustBuild, artifacts: Arti
             "--verification-definition", ROOT.parent
             / "inspirations/runtimeverification/imp-semantics/src/kimp/kdist/imp-semantics",
         ],
-        [context.tools["python"], HERE / "compatibility/diagnostics/backend-capability/probe.py", "--krs", rust_build.krs],
+        [context.tools["python"], HERE / "compatibility/diagnostics/native-frontend/probe.py"],
         [context.tools["python"], HERE / "compatibility/diagnostics/probe.py"],
     ]
-    # Each probe owns its Cargo target and scratch directories, except that the
-    # aggregate audit (last) re-runs the backend-capability probe (sixth) in
-    # the same target, so those two run in sequence. Reports keep this order.
-    groups = [[command] for command in commands[:5]] + [commands[5:]]
+    # Each probe owns its Cargo target and scratch directories. Reports keep
+    # this order.
+    groups = [[command] for command in commands]
 
     def run_group(group: list[list[Any]]) -> list[str]:
         return [run(command, timeout=900, environment=env).stdout.strip() for command in group]

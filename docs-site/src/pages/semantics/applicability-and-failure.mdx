@@ -46,7 +46,7 @@ Numeric `priority` belongs to equations; simplifications have a separate priorit
 
 `tests/tour-negatives/verify.py` also pins four focused authoring failures to their exact tokens: a wrapper-free field missing `#[k::cell]`, forbidden initializer control flow, a constructor omitted from an exhaustive precedence chain, and an invalid rule-result update base.
 
-## Four outcomes with four different owners
+## Three outcomes with three different owners
 
 These cases are deliberately not interchangeable:
 
@@ -55,13 +55,13 @@ These cases are deliberately not interchangeable:
 | `#nonnegativeIdentity(-1)` | The partial function's only equation requires `0 <=Int -1`, so the application denotes bottom. | Static semantics; see [functions and static semantics](/semantics/static-semantics#an-undefined-partial-application). |
 | `y = x + 1;` in the checked IMP stuck-state fixture | LLVM performs two rewrites, exits successfully, and leaves a non-final configuration containing the unresolved lookup. | The authored IMP transition system is stuck: syntax was accepted, but no rule can make further progress. |
 | `i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs` from KWasm | The checked final instruction sequence is `trap ~> .Instrs ~> .K` with an empty value stack. | KWasm authors `trap` as an `Instruction::Trap` constructor and rules that reach it. |
-| Complete IMP definition with `--backend llvm` | Build exits `1` with six deduplicated schema-1 `backend-capability` / `UnsupportedExistentialVariable` envelopes and creates no partial artifacts. | The selected backend boundary rejects otherwise collected existential claims. |
 
 A **normal form** is the remaining non-error possibility: no transition applies, and that state may be an intended completed result.
-The IMP stuck-state verifier hash-pins both configurations; the KWasm corpus checks both 32- and 64-bit division-by-zero traps through its native K-Rust runner, with an optional pinned K reference gate; and the complete IMP compatibility probe checks exact authored ranges for every LLVM rejection.
+The IMP stuck-state verifier hash-pins both configurations, and the KWasm corpus checks both 32- and 64-bit division-by-zero traps through its native K-Rust runner, with an optional pinned K reference gate.
 
 The absence of a rule is not automatically an exception.
-Bottom supplies no denotation, stuckness preserves an object-language configuration, a trap is a language-authored state, and a capability diagnostic prevents the backend operation from producing artifacts.
+Bottom supplies no denotation, stuckness preserves an object-language configuration, and a trap is a language-authored state.
+A backend capability failure is a fourth, separate kind: the selected backend cannot compile a valid definition, and no artifacts are produced.
 None of these is the LLVM integer-hook abort used by a separate IMP division-by-zero oracle.
 
 Next, [inspect the lowering](/semantics/lowering) to see which stage owns each representation and diagnostic.

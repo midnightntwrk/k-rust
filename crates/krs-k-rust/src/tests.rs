@@ -37,8 +37,9 @@ use super::{
     Adapter, Author, Backend, CapabilityAvailability, CompileOptions, FRONTEND_CAPABILITIES,
     FRONTEND_PIN, GeneratingPass, InputAddress, InputSentenceKind, InputSpace, LoadedDefinition,
     NativeNodeRole, PORTABLE_PRELUDE_POLICY, PortablePreludePolicy, ProvenanceError, TermContext,
-    adapt_definition, compile_definition, compile_definition_provisional_oracle,
-    compile_loaded_definition, module_builtin_imports, prepare_definition,
+    adapt_definition, adapt_definition_for, compile_definition,
+    compile_definition_provisional_oracle, compile_loaded_definition, module_builtin_imports,
+    prepare_definition,
 };
 
 const MODULE: &str = "KRS-ADAPTER-TEST";
@@ -270,7 +271,7 @@ fn typed_hook_maps_to_the_exact_native_frontend_attribute() {
     )
     .unwrap();
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
         panic!("hooked function must remain a native production")
@@ -310,7 +311,7 @@ fn typed_sha256_hook_maps_to_the_exact_native_frontend_attribute() {
     )
     .unwrap();
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
         panic!("hooked function must remain a native production")
@@ -354,7 +355,7 @@ fn typed_ripemd160_hook_maps_to_the_exact_native_frontend_attribute() {
     )
     .unwrap();
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
         panic!("hooked function must remain a native production")
@@ -416,7 +417,7 @@ fn typed_ecdsa_recover_hook_maps_to_the_exact_native_frontend_attribute() {
     )
     .unwrap();
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let native = adapter.production(&production, MODULE, 0).unwrap();
     let Sentence::Production { attributes, .. } = native else {
         panic!("hooked function must remain a native production")
@@ -545,7 +546,7 @@ fn typed_bn128_hooks_map_to_exact_native_frontend_attributes() {
     )
     .unwrap();
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     for (index, (production, expected)) in [
         (&valid, "KRYPTO.bn128valid"),
         (&add, "KRYPTO.bn128add"),
@@ -715,7 +716,7 @@ fn pin_and_portable_capabilities_are_explicit() {
 #[allow(clippy::too_many_lines)] // Qualifies all structured builtin families in one definition.
 fn builtin_map_list_set_and_bytes_terms_map_structurally_and_infer_imports() {
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let int =
         |key, value| DefinitionTerm::token(node(key), DefinitionSortRef::int(), value).unwrap();
     let id = |key, value| DefinitionTerm::token(node(key), DefinitionSortRef::id(), value).unwrap();
@@ -1201,7 +1202,7 @@ fn pinned_native_prelude_evaluates_set_union() {
     )
     .unwrap();
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let item = |value: i32| {
         format!(
             "LblSetItem{{}}(inj{{SortInt{{}}, SortKItem{{}}}}(\\dv{{SortInt{{}}}}(\"{value}\")))"
@@ -1270,7 +1271,7 @@ fn pinned_native_prelude_evaluates_set_union() {
 #[allow(clippy::too_many_lines)]
 fn grammar_items_attributes_and_group_sentences_map_structurally() {
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let application_group = ProductionGroupId::new("group.application").unwrap();
     let atom_group = ProductionGroupId::new("group.atom").unwrap();
     adapter
@@ -1416,7 +1417,7 @@ fn grammar_items_attributes_and_group_sentences_map_structurally() {
 #[test]
 fn fixed_configuration_preserves_config_variables_and_cell_properties() {
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let cell = SymbolId::new("schema9.cell.k").unwrap();
     let program = semantic_id("program");
     let value_sort = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
@@ -1515,7 +1516,7 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
     }
 
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let parent = SymbolId::new("schema26.cell.parent").unwrap();
     let left = SymbolId::new("schema26.cell.left").unwrap();
     let right = SymbolId::new("schema26.cell.right").unwrap();
@@ -1566,7 +1567,7 @@ fn complete_cell_terms_use_the_pinned_frontend_structured_shape() {
 #[allow(clippy::too_many_lines)]
 fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let universal = semantic_id("_B__krs_0");
     let existential = semantic_id("n");
     let body = DefinitionTerm::rewrite(
@@ -1718,7 +1719,7 @@ fn claims_and_context_aliases_preserve_native_forms_and_origin_roles() {
 #[test]
 fn alias_clause_relies_on_aliased_production_propagation() {
     let definition = smoke_definition();
-    let mut adapter = Adapter::new(&definition);
+    let mut adapter = Adapter::new(&definition, true);
     let body = DefinitionTerm::rewrite(
         node("schema9.alias.body"),
         DefinitionSortRef::int(),
@@ -1954,8 +1955,8 @@ fn smoke_relation_covers_emitted_ids_and_authors() {
     }));
 }
 
-#[test]
-fn authored_claim_has_an_emitted_identity_with_its_origin() {
+/// The smoke definition with one authored one-path claim, and that claim's origin.
+fn smoke_definition_with_claim() -> (DefinitionIr, NodeOrigin) {
     let ir = smoke_definition();
     let main = &ir.modules()[0];
     let value = DefinitionSortRef::declared(SymbolId::new("sort.value").unwrap());
@@ -2022,6 +2023,12 @@ fn authored_claim_has_an_emitted_identity_with_its_origin() {
         vec![main, ir.modules()[1].clone()],
     )
     .unwrap();
+    (ir, origin)
+}
+
+#[test]
+fn authored_claim_has_an_emitted_identity_with_its_origin() {
+    let (ir, origin) = smoke_definition_with_claim();
     let artifacts = compile_definition(
         &ir,
         CompileOptions {
@@ -2030,6 +2037,7 @@ fn authored_claim_has_an_emitted_identity_with_its_origin() {
         },
     )
     .unwrap();
+    assert_eq!(artifacts.omitted_claims, 0);
     let relation_ids = artifacts
         .sentence_provenance
         .iter()
@@ -2045,6 +2053,43 @@ fn authored_claim_has_an_emitted_identity_with_its_origin() {
             matches!(author, Author::Krs { kind: InputSentenceKind::Claim, origin: actual, .. } if actual == &origin)
         }));
     }
+}
+
+#[test]
+fn llvm_compilation_omits_claims_and_keeps_provenance_consistent() {
+    let (ir, origin) = smoke_definition_with_claim();
+    let adapted = adapt_definition_for(&ir, Backend::Llvm).unwrap();
+    assert_eq!(adapted.omitted_claims(), 1);
+    assert!(adapted.definition().modules.iter().all(|module| {
+        module
+            .local_sentences
+            .iter()
+            .all(|sentence| !matches!(**sentence, Sentence::Claim { .. }))
+    }));
+    assert!(
+        adapted
+            .origins()
+            .iter()
+            .all(|mapping| mapping.key != *origin.key())
+    );
+
+    let artifacts = compile_definition(&ir, CompileOptions::default())
+        .expect("a claim does not prevent concrete compilation");
+    assert_eq!(artifacts.omitted_claims, 1);
+    assert!(
+        artifacts
+            .sentence_provenance
+            .emitted_by(origin.key())
+            .is_empty()
+    );
+    let relation_ids = artifacts
+        .sentence_provenance
+        .iter()
+        .map(|(id, _)| id.to_owned())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut emitted_ids = unique_ids(&artifacts.definition_kore);
+    emitted_ids.extend(macro_unique_ids(&artifacts.macros_kore));
+    assert_eq!(relation_ids, emitted_ids);
 }
 
 #[test]

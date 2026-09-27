@@ -18,7 +18,7 @@ mod sidecar;
 pub use collect::{
     PackageContext, collect_host_descriptors, collect_host_descriptors_with_builtins,
 };
-pub use emit::{EmitError, EmittedK, emit_k};
+pub use emit::{DEFINITION_ARTIFACT, EmitError, EmittedK, EmittedSpec, SPEC_ARTIFACT, emit_k};
 pub use error::{AnalysisError, AnalysisErrorKind, CollectionError, CollectionErrorKind};
 pub use lowering::{LoweredDefinition, LoweringError, lower_semantic_theory};
 pub use reference::{ReferenceExpansionError, expand_reference_source};

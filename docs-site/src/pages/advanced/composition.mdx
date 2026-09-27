@@ -80,6 +80,7 @@ Duplicate stable public identities are an authoring error.
 ## Choose a backend
 
 `--backend llvm` is the default; `--backend haskell` selects the other native target dialect.
+Only the Haskell target keeps claims; an LLVM build omits them because that backend executes but does not prove.
 Backend choice is an explicit build input and may change capability diagnostics, but it must not change authored symbol identity.
 `emit-k` and `build` require `--output`; backend failures are distinct from Rust expansion, KRS semantic analysis, and K frontend diagnostics.
 

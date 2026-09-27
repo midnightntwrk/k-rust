@@ -104,45 +104,29 @@ def verify_authored_trap() -> None:
     )
 
 
-def verify_backend_rejection() -> None:
+def verify_llvm_claim_omission() -> None:
     lock = tomllib.loads(text("Krs.lock"))
-    if lock.get("backend_policy", {}).get("llvm_existential_claims") != (
-        "typed-backend-capability-error"
-    ):
-        raise GateError("Krs.lock no longer pins the LLVM existential policy")
+    if lock.get("backend_policy", {}).get("llvm_claims") != "omitted":
+        raise GateError("Krs.lock no longer pins the LLVM claim-omission policy")
 
     pins = json.loads(text("tests/imp/pins.json"))
-    digest = pins.get("native_comparison", {}).get("llvm_failure_sha256")
-    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise GateError("IMP's LLVM failure transcript hash is absent")
-
-    probe = run(
-        [sys.executable, ROOT / "tests/imp/compatibility/diagnostics/backend-capability/probe.py"],
-        check=False,
-    )
-    if probe.returncode != 0:
-        raise GateError(f"backend static probe failed: {probe.stderr.strip()}")
-    report = json.loads(probe.stdout)
-    expected_true = {
-        "adapter_structured_diagnostic",
-        "cli_structured_diagnostic_envelope",
-        "cli_authored_origin_translation",
-        "cli_structured_diagnostic_rendering",
-    }
-    if any(report.get(key) is not True for key in expected_true):
-        raise GateError(f"backend static diagnostic seam is incomplete: {report!r}")
+    llvm = pins.get("llvm_artifact_sha256", {})
+    if set(llvm) != {".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore"} or not all(
+        isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) for digest in llvm.values()
+    ):
+        raise GateError("IMP's claim-free LLVM artifacts are not pinned")
 
     require_fragments(
-        "tests/imp/compatibility/diagnostics/backend-capability/probe.py",
-        'EXPECTED_LABELS = {',
-        'envelope.get("stage") != "backend-capability"',
-        'envelope.get("code") != "UnsupportedExistentialVariable"',
-        '"partial_artifacts_absent": artifacts_absent',
+        "crates/krs-k-rust/src/lib.rs",
+        "pub const fn proves_claims(self) -> bool {\n        matches!(self, Self::Haskell)",
     )
     require_fragments(
-        "docs-site/src/pages/semantics/applicability-and-failure.mdx",
-        "six deduplicated schema-1 `backend-capability` / `UnsupportedExistentialVariable` envelopes",
-        "creates no partial artifacts",
+        "tests/imp/verify.py",
+        'omitted = f"omitted {CLAIM_COUNT} claims: the llvm backend executes but does not prove\\n"',
+    )
+    require_fragments(
+        "docs-site/src/pages/verification/reachability-claims.mdx",
+        "`krs build --backend llvm` omits every claim from its KORE and reports how many it omitted",
     )
 
 
@@ -174,7 +158,7 @@ def verify_capability_matrix() -> None:
     require_fragments(
         "tests/kwasm/verify.py",
         "semantics.reference_definition(",
-        'semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])',
+        'semantics.reference_proof(PORT, definition, spec, k["kprove"])',
         '"1 reference proof deferred to --java-reference"',
     )
     require_fragments(
@@ -189,11 +173,11 @@ def verify_capability_matrix() -> None:
     require_fragments(
         "crates/krs-compiler/tests/control_flow_lowering.rs",
         "ClaimModality::OnePath",
-        'assert!(source.contains("[one-path]"), "{source}")',
+        'assert!(spec.contains("[one-path]"), "{spec}")',
     )
     require_fragments(
         "docs-site/src/pages/verification/reachability-claims.mdx",
-        "| Claim form | Collection and emitted K | Haskell route | LLVM route |",
+        "| Claim form | Collection and emitted K | Haskell route |",
         "All-path, without existential binders",
         "including a proved `addition-1` claim",
         "only when its gate receives `--java-reference`",
@@ -208,11 +192,11 @@ def main() -> int:
     verify_undefined_partial()
     verify_stuck_state()
     verify_authored_trap()
-    verify_backend_rejection()
+    verify_llvm_claim_omission()
     verify_capability_matrix()
     print(
         "PASS tour proof evidence: undefined partial, stuck state, authored trap, "
-        "backend rejection, and capability matrix"
+        "LLVM claim omission, and capability matrix"
     )
     return 0
 

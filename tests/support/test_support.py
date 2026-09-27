@@ -251,28 +251,26 @@ class CheckoutTests(unittest.TestCase):
 
 
 class KDefinitionTests(unittest.TestCase):
-    SOURCE = (
-        "module M\n"
-        "  syntax A ::= \"a\"\n"
-        "  claim [one]:\n"
-        "    <k> a => a </k>\n"
-        "  rule [r]: a => a\n"
-        "  claim [two]: <k> a </k>\n"
-        "endmodule\n"
-    )
+    CLAIMS = "  claim [one]:\n    <k> a => a </k>\n  claim [two]: <k> a </k>\n"
+    SPEC = f'requires "definition.k"\n\nmodule M-SPEC\n  imports M\n\n{CLAIMS}endmodule\n'
 
-    def test_split_claims_preserves_every_other_byte(self) -> None:
-        value, labels, claims = kdefinition.split_claims(self.SOURCE, 2)
-        self.assertEqual(value, 'module M\n  syntax A ::= "a"\n  rule [r]: a => a\nendmodule\n')
-        self.assertEqual(labels, ["one", "two"])
-        self.assertEqual(claims, "  claim [one]:\n    <k> a => a </k>\n  claim [two]: <k> a </k>\n")
+    def emitted(self, spec: str) -> tuple[list[str], str]:
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "spec.k").write_text(spec, encoding="utf-8")
+            return kdefinition.emitted_claims(Path(directory), "M", 2)
 
-    def test_split_claims_counts_distinct_labels(self) -> None:
-        with self.assertRaisesRegex(GateError, "expected 1 emitted claims"):
-            kdefinition.split_claims(self.SOURCE, 1)
-        duplicated = self.SOURCE.replace("[two]", "[one]")
+    def test_emitted_claims_returns_labels_and_sentences(self) -> None:
+        self.assertEqual(self.emitted(self.SPEC), (["one", "two"], self.CLAIMS))
+
+    def test_emitted_claims_counts_distinct_labels(self) -> None:
         with self.assertRaisesRegex(GateError, "distinct labels"):
-            kdefinition.split_claims(duplicated, 2)
+            self.emitted(self.SPEC.replace("[two]", "[one]"))
+
+    def test_emitted_claims_requires_the_exact_frame(self) -> None:
+        with self.assertRaisesRegex(GateError, "exact M-SPEC frame"):
+            self.emitted(self.SPEC.replace("imports M", "imports N"))
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(GateError, "no spec.k"):
+            kdefinition.emitted_claims(Path(directory), "M", 2)
 
     def test_normalized_kore_is_location_and_binder_independent(self) -> None:
         def kore(directory: Path, variable: str, k_install: str) -> str:

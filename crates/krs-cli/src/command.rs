@@ -4,8 +4,9 @@ use crate::{
     RegistrationMode, exact_authored_range_from_origin,
 };
 use krs_compiler::{
-    DescriptorLoweringError, EmitError, LoweringError, ReferenceExpansionError, emit_k,
-    expand_reference_source, lower_descriptor_bundle, lower_semantic_theory,
+    DEFINITION_ARTIFACT, DescriptorLoweringError, EmitError, LoweringError,
+    ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_reference_source,
+    lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_ir::{
     Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId, RangedOriginKind,
@@ -13,7 +14,7 @@ use krs_ir::{
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
-    compile_definition, diagnostic_source_map_key,
+    adapt_definition_for, compile_definition, diagnostic_source_map_key,
 };
 use sha2::{Digest, Sha256};
 use std::error::Error;
@@ -420,11 +421,23 @@ fn emit(prepared: &PreparedDefinition, output: &Path) -> Result<CommandOutcome, 
     )?;
     write_output(output, "semantic-ir.json", semantic_ir.as_bytes())?;
     write_output(output, "definition-ir.json", definition_ir.as_bytes())?;
-    write_output(output, "definition.k", emitted.source().as_bytes())?;
+    write_output(output, DEFINITION_ARTIFACT, emitted.source().as_bytes())?;
+    if let Some(spec) = emitted.spec() {
+        write_output(output, SPEC_ARTIFACT, spec.source().as_bytes())?;
+    }
     write_output(output, "symbols.json", symbols.as_bytes())?;
     write_output(output, "sources.json", sources.as_bytes())?;
+    let spec = if emitted.spec().is_some() {
+        format!(" {SPEC_ARTIFACT},")
+    } else {
+        String::new()
+    };
     Ok(CommandOutcome {
-        stdout: b"emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, definition.k, symbols.json, sources.json\n".to_vec(),
+        stdout: format!(
+            "emitted descriptor-bundle.json, semantic-ir.json, definition-ir.json, \
+             {DEFINITION_ARTIFACT},{spec} symbols.json, sources.json\n"
+        )
+        .into_bytes(),
     })
 }
 
@@ -440,7 +453,7 @@ fn build(
             ..CompileOptions::default()
         },
     )
-    .map_err(|error| native_command_error(prepared, error))?;
+    .map_err(|error| native_command_error(prepared, backend, error))?;
     // Do not create the output directory until structured compilation has
     // succeeded. A typed capability failure therefore leaves no artifacts.
     prepare_output(output)?;
@@ -455,13 +468,21 @@ fn build(
         artifacts.syntax_definition_kore.as_bytes(),
     )?;
     write_output(output, "macros.kore", artifacts.macros_kore.as_bytes())?;
+    // Only a backend that does not prove omits claims.
+    let omitted = match artifacts.omitted_claims {
+        0 => String::new(),
+        1 => "omitted 1 claim: the llvm backend executes but does not prove\n".to_owned(),
+        count => format!("omitted {count} claims: the llvm backend executes but does not prove\n"),
+    };
+    let stdout = format!("built definition.kore, syntaxDefinition.kore, macros.kore\n{omitted}");
     Ok(CommandOutcome {
-        stdout: b"built definition.kore, syntaxDefinition.kore, macros.kore\n".to_vec(),
+        stdout: stdout.into_bytes(),
     })
 }
 
 fn native_command_error(
     prepared: &PreparedDefinition,
+    backend: Backend,
     error: DefinitionCompileError,
 ) -> CommandError {
     let DefinitionCompileError::Compile { diagnostics, .. } = &error else {
@@ -470,7 +491,7 @@ fn native_command_error(
     if diagnostics.is_empty() {
         return CommandError::Native(error);
     }
-    let Ok(adapted) = adapt_definition(prepared.lowered.definition()) else {
+    let Ok(adapted) = adapt_definition_for(prepared.lowered.definition(), backend) else {
         return CommandError::Native(error);
     };
     let mut translated = Vec::with_capacity(diagnostics.len());

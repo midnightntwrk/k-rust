@@ -226,20 +226,25 @@ fn main() {
     let emitted = emit_k(&lowered).expect("claims emit deterministic K source");
     let reordered_emitted = emit_k(&reordered_lowered).expect("reordered claims emit K source");
     assert_eq!(emitted, reordered_emitted);
+    assert!(!emitted.source().contains("claim"), "{}", emitted.source());
+    let spec = emitted
+        .spec()
+        .expect("claims emit a separate specification")
+        .source();
     for label in ["branching", "sum-loop", "sum-spec"] {
         assert!(
-            emitted.source().contains(&format!("claim [{label}]:")),
+            spec.contains(&format!("claim [{label}]:")),
             "missing claim label {label}:\n{}",
-            emitted.source()
+            spec
         );
     }
-    assert!(emitted.source().contains("?N:Int"), "{}", emitted.source());
-    assert!(emitted.source().contains("_B:Bool"), "{}", emitted.source());
-    assert!(emitted.source().contains("ensures "), "{}", emitted.source());
-    assert!(emitted.source().contains("orBool"), "{}", emitted.source());
-    assert!(emitted.source().contains("circularity"), "{}", emitted.source());
-    assert!(!emitted.source().contains("all-path"), "{}", emitted.source());
-    assert!(emitted.source().contains("$n"), "{}", emitted.source());
+    assert!(spec.contains("?N:Int"), "{}", spec);
+    assert!(spec.contains("_B:Bool"), "{}", spec);
+    assert!(spec.contains("ensures "), "{}", spec);
+    assert!(spec.contains("orBool"), "{}", spec);
+    assert!(spec.contains("circularity"), "{}", spec);
+    assert!(!spec.contains("all-path"), "{}", spec);
+    assert!(spec.contains("$n"), "{}", spec);
     for rule in &definition_claims {
         let source_entry = emitted
             .source_map()
@@ -248,8 +253,10 @@ fn main() {
             .find(|entry| entry.key() == rule.origin().key())
             .expect("each claim sentence has a source-map entry");
         assert!(
-            source_entry.generated().is_some(),
-            "each rendered claim sentence has a generated range"
+            source_entry
+                .generated()
+                .is_some_and(|range| range.artifact() == "spec.k"),
+            "each rendered claim sentence has a generated range in spec.k"
         );
     }
     let symbol_map_json = emitted.symbol_map().to_canonical_json().unwrap();

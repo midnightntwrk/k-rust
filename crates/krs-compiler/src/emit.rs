@@ -13,22 +13,60 @@ use krs_ir::{
     SentenceKind, SetOperation, SourceMapKey, StrictnessKind, SymbolId, SymbolIdentity,
 };
 
-use crate::sidecar::SidecarError;
+use crate::sidecar::{GeneratedRanges, SidecarError};
 use crate::{LoweredDefinition, SourceMap, SymbolMap};
 
+/// Generated artifact holding the claim-free semantics.
+pub const DEFINITION_ARTIFACT: &str = "definition.k";
+
+/// Generated artifact holding the claims, present only when a claim exists.
+pub const SPEC_ARTIFACT: &str = "spec.k";
+
 /// Canonical K source and its deterministic shared sidecars.
+///
+/// Claims are proof obligations, which K accepts only outside an executable
+/// definition, so they are rendered into a separate specification module that
+/// `requires` the semantics and imports its main module.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EmittedK {
     source: String,
+    spec: Option<EmittedSpec>,
     symbol_map: SymbolMap,
     source_map: SourceMap,
 }
 
-impl EmittedK {
+/// Canonical claims-only K specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EmittedSpec {
+    source: String,
+    module: String,
+}
+
+impl EmittedSpec {
     /// Returns canonical parseable `.k` source with one trailing newline.
     #[must_use]
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// Returns the specification module name, the main module suffixed `-SPEC`.
+    #[must_use]
+    pub fn module(&self) -> &str {
+        &self.module
+    }
+}
+
+impl EmittedK {
+    /// Returns canonical parseable claim-free `.k` source with one trailing newline.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    /// Returns the claims-only specification, or `None` when no claim exists.
+    #[must_use]
+    pub const fn spec(&self) -> Option<&EmittedSpec> {
+        self.spec.as_ref()
     }
 
     /// Returns the symbol sidecar shared with non-source adapters.
@@ -97,25 +135,60 @@ impl From<SidecarError> for EmitError {
 /// Returns [`EmitError`] for an unsupported source shape, invalid reference,
 /// duplicate range, or sidecar invariant failure.
 pub fn emit_k(lowered: &LoweredDefinition) -> Result<EmittedK, EmitError> {
-    let context = EmitContext::new(lowered.definition());
+    let definition = lowered.definition();
+    let context = EmitContext::new(definition);
     let mut writer = Writer::default();
-    let mut modules = lowered.definition().modules().iter().collect::<Vec<_>>();
+    let mut claims = Vec::new();
+    let mut modules = definition.modules().iter().collect::<Vec<_>>();
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     for (index, module) in modules.into_iter().enumerate() {
         if index != 0 {
             writer.push("\n");
         }
-        emit_module(module, &context, &mut writer)?;
+        emit_module(module, &context, &mut writer, &mut claims)?;
     }
     if !writer.source.ends_with('\n') {
         writer.push("\n");
     }
-    let source_map = lowered
-        .source_map()
-        .clone()
-        .with_generated_ranges(&writer.source, &writer.ranges)?;
+    let mut spec_writer = Writer::default();
+    let spec_module = if claims.is_empty() {
+        None
+    } else {
+        let main = definition.main_module().as_str();
+        let module = format!("{main}-SPEC");
+        if definition
+            .modules()
+            .iter()
+            .any(|candidate| candidate.id().as_str() == module)
+        {
+            return Err(EmitError::UnsupportedShape {
+                node: "module",
+                detail: format!("module {module:?} collides with the generated claims module"),
+            });
+        }
+        spec_writer.push("requires \"");
+        spec_writer.push(DEFINITION_ARTIFACT);
+        spec_writer.push("\"\n\nmodule ");
+        spec_writer.push(&module);
+        spec_writer.push("\n  imports ");
+        spec_writer.push(main);
+        spec_writer.push("\n\n");
+        for claim in claims {
+            emit_sentence(claim, &context, &mut spec_writer)?;
+        }
+        spec_writer.push("endmodule\n");
+        Some(module)
+    };
+    let source_map = lowered.source_map().clone().with_generated_ranges(&[
+        (DEFINITION_ARTIFACT, &writer.source, &writer.ranges),
+        (SPEC_ARTIFACT, &spec_writer.source, &spec_writer.ranges),
+    ])?;
     Ok(EmittedK {
         source: writer.source,
+        spec: spec_module.map(|module| EmittedSpec {
+            source: spec_writer.source,
+            module,
+        }),
         symbol_map: lowered.symbol_map().clone(),
         source_map,
     })
@@ -275,7 +348,7 @@ fn collect_emit_cells<'a>(
 #[derive(Default)]
 struct Writer {
     source: String,
-    ranges: BTreeMap<SourceMapKey, (usize, usize)>,
+    ranges: GeneratedRanges,
 }
 
 impl Writer {
@@ -300,10 +373,12 @@ impl Writer {
     }
 }
 
-fn emit_module(
-    module: &DefinitionModule,
+/// Renders `module` without its claims, which are appended to `claims`.
+fn emit_module<'a>(
+    module: &'a DefinitionModule,
     context: &EmitContext<'_>,
     writer: &mut Writer,
+    claims: &mut Vec<&'a DefinitionSentence>,
 ) -> Result<(), EmitError> {
     let module_start = writer.source.len();
     writer.push("module ");
@@ -322,12 +397,15 @@ fn emit_module(
         writer.push(import);
         writer.push("\n");
     }
-    if !imports.is_empty() && !module.sentences().is_empty() {
-        writer.push("\n");
-    }
-
     let mut sentences = module.sentences().iter().collect::<Vec<_>>();
     sentences.sort_by_key(|sentence| sentence_key(sentence));
+    let (module_claims, sentences): (Vec<_>, Vec<_>) = sentences
+        .into_iter()
+        .partition(|sentence| is_claim(sentence));
+    claims.extend(module_claims);
+    if !imports.is_empty() && !sentences.is_empty() {
+        writer.push("\n");
+    }
     let mut previous_group = None;
     for sentence in sentences {
         let group = sentence_group(sentence);
@@ -2148,6 +2226,10 @@ fn render_list(
         }
     }
     Ok(())
+}
+
+fn is_claim(sentence: &DefinitionSentence) -> bool {
+    matches!(sentence, DefinitionSentence::Rule(rule) if rule.kind() == SentenceKind::Claim)
 }
 
 fn sentence_group(sentence: &DefinitionSentence) -> u8 {

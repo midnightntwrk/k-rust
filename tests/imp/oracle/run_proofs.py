@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Callable, Mapping, Sequence
@@ -18,7 +19,7 @@ import proofs  # noqa: E402
 from support import ROOT, GateError  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
-from support.kdefinition import split_claims  # noqa: E402
+from support.kdefinition import emitted_claims  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import load_json  # noqa: E402
 from support.process import run  # noqa: E402
@@ -148,12 +149,11 @@ def compile_definitions(
         ["cargo", "run", "--locked", "--quiet", "--manifest-path", ARTIFACT_MANIFEST, "--", artifacts],
         timeout=WATCHDOG_SECONDS,
     )
-    source = artifacts.joinpath("definition.k").read_text(encoding="utf-8")
-    execution_text, labels, claims = split_claims(source, len(expected_labels))
+    labels, claims = emitted_claims(artifacts, ACTUAL_MODULE, len(expected_labels))
     if labels != list(expected_labels):
         raise GateError(f"emitted claims differ from ordered pin: {labels}")
     actual_source = workspace / "actual-execution.k"
-    actual_source.write_text(execution_text, encoding="utf-8")
+    shutil.copy2(artifacts / "definition.k", actual_source)
     actual_spec = workspace / "actual-spec.k"
     actual_spec.write_text(
         actual_spec_source(actual_source, claims),

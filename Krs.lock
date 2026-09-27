@@ -29,4 +29,4 @@ version = "4.12.5"
 
 [backend_policy]
 haskell = "exact-kore-comparison"
-llvm_existential_claims = "typed-backend-capability-error"
+llvm_claims = "omitted"

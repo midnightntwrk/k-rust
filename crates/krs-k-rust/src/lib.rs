@@ -76,6 +76,18 @@ pub enum Backend {
     Haskell,
 }
 
+impl Backend {
+    /// Returns whether this backend consumes claims.
+    ///
+    /// Claims are proof obligations. A concrete execution backend has no
+    /// prover, so compilation for it omits every claim rather than rejecting
+    /// the semantics that carry them.
+    #[must_use]
+    pub const fn proves_claims(self) -> bool {
+        matches!(self, Self::Haskell)
+    }
+}
+
 /// Capabilities of this adapter build.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrontendCapabilities {
@@ -225,6 +237,7 @@ pub struct OriginMapping {
 pub struct AdaptedDefinition {
     definition: NativeDefinition,
     origins: Vec<OriginMapping>,
+    omitted_claims: usize,
 }
 
 impl AdaptedDefinition {
@@ -238,6 +251,12 @@ impl AdaptedDefinition {
     #[must_use]
     pub fn origins(&self) -> &[OriginMapping] {
         &self.origins
+    }
+
+    /// Returns the number of claims left out for a backend that does not prove.
+    #[must_use]
+    pub const fn omitted_claims(&self) -> usize {
+        self.omitted_claims
     }
 }
 
@@ -379,6 +398,8 @@ pub struct CompiledArtifacts {
     pub diagnostics: Vec<FrontendDiagnostic>,
     /// Rule and claim identities joined to KRS source origins.
     pub sentence_provenance: SentenceProvenance,
+    /// Claims left out because the backend does not prove them.
+    pub omitted_claims: usize,
 }
 
 /// Textual KORE artifacts with the native, unjoined input relation.
@@ -644,7 +665,21 @@ impl Error for ProvisionalCompileError {
 /// Returns [`AdapterError`] for unsupported sentence/term positions or an
 /// inconsistent symbol index.
 pub fn adapt_definition(ir: &DefinitionIr) -> Result<AdaptedDefinition, AdapterError> {
-    Adapter::new(ir).adapt(ir)
+    Adapter::new(ir, true).adapt(ir)
+}
+
+/// Adapt Definition IR as compiled for `backend`, omitting every claim when
+/// [`Backend::proves_claims`] is false. Sentence indices and origin mappings
+/// describe the adapted modules, so they stay consistent with the omission.
+///
+/// # Errors
+///
+/// Returns [`AdapterError`] under the same conditions as [`adapt_definition`].
+pub fn adapt_definition_for(
+    ir: &DefinitionIr,
+    backend: Backend,
+) -> Result<AdaptedDefinition, AdapterError> {
+    Adapter::new(ir, backend.proves_claims()).adapt(ir)
 }
 
 /// Prepare one structurally adapted definition through the public structured
@@ -687,25 +722,15 @@ pub fn compile_definition(
     ir: &DefinitionIr,
     options: CompileOptions,
 ) -> Result<CompiledArtifacts, DefinitionCompileError> {
-    let adapted = adapt_definition(ir).map_err(DefinitionCompileError::Adapter)?;
+    let adapted =
+        adapt_definition_for(ir, options.backend).map_err(DefinitionCompileError::Adapter)?;
     let loaded = prepare_definition(adapted.definition.clone(), options.backend)
         .map_err(DefinitionCompileError::Preparation)?;
     let artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
-        let authored_existential_keys = authored_existential_sentence_keys(ir);
-        let diagnostics = error
-            .diagnostics()
-            .iter()
-            .filter(|diagnostic| {
-                diagnostic.code != "UnsupportedExistentialVariable"
-                    || diagnostic_source_map_key(adapted.origins(), diagnostic)
-                        .is_none_or(|key| authored_existential_keys.contains(key.as_str()))
-            })
-            .cloned()
-            .collect();
         DefinitionCompileError::Compile {
             stage: error.stage(),
             message: error.message().to_owned(),
-            diagnostics,
+            diagnostics: error.diagnostics().to_vec(),
         }
     })?;
     parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
@@ -729,22 +754,8 @@ pub fn compile_definition(
         macros_kore: artifacts.macros_kore,
         diagnostics: artifacts.diagnostics,
         sentence_provenance,
+        omitted_claims: adapted.omitted_claims,
     })
-}
-
-fn authored_existential_sentence_keys(ir: &DefinitionIr) -> BTreeSet<&str> {
-    ir.modules()
-        .iter()
-        .flat_map(krs_ir::DefinitionModule::sentences)
-        .filter_map(|sentence| {
-            let DefinitionSentence::Rule(rule) = sentence else {
-                return None;
-            };
-            rule.claim()
-                .is_some_and(|claim| !claim.existentials().is_empty())
-                .then(|| rule.origin().key().as_str())
-        })
-        .collect()
 }
 
 /// Resolve a native diagnostic's Structured sentence address to its KRS source key.
@@ -783,7 +794,8 @@ pub fn compile_definition_provisional_oracle(
     ir: &DefinitionIr,
     options: CompileOptions,
 ) -> Result<CompiledArtifacts, ProvisionalCompileError> {
-    let adapted = adapt_definition(ir).map_err(ProvisionalCompileError::Adapter)?;
+    let adapted =
+        adapt_definition_for(ir, options.backend).map_err(ProvisionalCompileError::Adapter)?;
     let loaded = prepare_provisional_oracle(&adapted, options.backend)?;
     let artifacts =
         compile_loaded_definition(&loaded, options).map_err(ProvisionalCompileError::Compile)?;
@@ -808,6 +820,7 @@ pub fn compile_definition_provisional_oracle(
         macros_kore: artifacts.macros_kore,
         diagnostics: artifacts.diagnostics,
         sentence_provenance,
+        omitted_claims: adapted.omitted_claims,
     })
 }
 
@@ -1070,6 +1083,8 @@ struct Adapter {
     initializer_variables: BTreeMap<SemanticId, String>,
     context_here: Option<SemanticId>,
     origins: Vec<OriginMapping>,
+    keep_claims: bool,
+    omitted_claims: usize,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -1080,7 +1095,7 @@ enum TermContext {
 }
 
 impl Adapter {
-    fn new(ir: &DefinitionIr) -> Self {
+    fn new(ir: &DefinitionIr, keep_claims: bool) -> Self {
         let mut symbols = BTreeMap::new();
         let mut groups = BTreeMap::new();
         let mut context_aliases = BTreeMap::new();
@@ -1124,6 +1139,8 @@ impl Adapter {
             initializer_variables: BTreeMap::new(),
             context_here: None,
             origins: Vec::new(),
+            keep_claims,
+            omitted_claims: 0,
         }
     }
 
@@ -1140,6 +1157,7 @@ impl Adapter {
                 attributes: NativeAttributes::default(),
             },
             origins: self.origins,
+            omitted_claims: self.omitted_claims,
         })
     }
 
@@ -1148,6 +1166,12 @@ impl Adapter {
         self.map_origin(module.origin(), &module_name, None, NativeNodeRole::Module);
         let mut local_sentences = Vec::with_capacity(module.sentences().len());
         for sentence in module.sentences() {
+            if !self.keep_claims
+                && matches!(sentence, DefinitionSentence::Rule(rule) if rule.claim().is_some())
+            {
+                self.omitted_claims += 1;
+                continue;
+            }
             let sentence_index = local_sentences.len();
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(std::sync::Arc::new(native));

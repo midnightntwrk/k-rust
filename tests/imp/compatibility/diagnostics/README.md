@@ -1,6 +1,7 @@
-# Four diagnostic-boundary adversaries
+# Diagnostic-boundary adversaries
 
-Each subdirectory owns one intentional failure and an exact authored anchor.
+Each of the first three subdirectories owns one intentional failure and an
+exact authored anchor.
 The fixtures do not accept a raw collector path, generated `.k` location, or
 unstructured backend string as a substitute for an authored Rust range.
 
@@ -10,15 +11,13 @@ unstructured backend string as a substitute for an authored Rust range.
 - `krs-analysis` contains a cross-item emitted-symbol collision. The production
   CLI returns one schema-1 `analysis`/`symbol-name-collision` JSON envelope
   selecting the exact second authored `Collision` byte range.
-- `k-frontend` supplies a sidecar-driven mutation probe. It accepts only an
-  exact generated range with an exact ranged authored origin and requires K's
-  four-coordinate `Location` to select that generated range before mapping it
-  back.
-- `backend-capability` audits both the structured native seam and full IMP LLVM
-  failure. The latter must produce only schema-1 `backend-capability` /
-  `UnsupportedExistentialVariable` JSON envelopes at exact hash-checked claim
-  label ranges, must not expose collector paths, and must not create partial
-  artifacts.
+- `k-frontend` supplies a sidecar-driven mutation probe over the emitted
+  `spec.k`. It accepts only an exact generated range with an exact ranged
+  authored origin and requires K's four-coordinate `Location` to select that
+  generated range before mapping it back.
+- `native-frontend` statically audits the structured native diagnostic seam:
+  the adapter's diagnostic fields and the CLI's authored-origin translation and
+  JSON rendering. It has no dynamic adversary.
 
-`probe.py` is the static release audit. The analysis and backend probes accept
-`--krs PATH` to exercise the production CLI end to end.
+`probe.py` is the static release audit. The analysis probe accepts `--krs PATH`
+to exercise the production CLI end to end.

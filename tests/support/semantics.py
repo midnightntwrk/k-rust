@@ -28,7 +28,7 @@ from typing import Any, Mapping, Sequence
 from support import ROOT, GateError
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
-from support.kdefinition import EMITTED_ARTIFACTS, normalized_kore_sha256, split_claims
+from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256
 from support.lock import msrv
 from support.pins import Ledger
 from support.process import run
@@ -229,7 +229,7 @@ def artifact_gate(
     outputs = [workspace / "emit-a", workspace / "emit-b"]
     for output in outputs:
         run([krs, "emit-k", *base, "--output", output], environment=environment)
-    for name, digest in exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS).items():
+    for name, digest in exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS_WITH_SPEC).items():
         pins.expect(("artifact_sha256", name), digest)
 
     expanded_output = workspace / "expanded-emit"
@@ -246,8 +246,11 @@ def artifact_gate(
     if readable.split("\n  rule ", 1)[0] != replacement.split("\n  rule ", 1)[0]:
         raise GateError("independently compiled expansion changed syntax or configuration")
     sentence = re.compile(r"^  (rule|claim)(?: \[([^]]+)\])?", re.MULTILINE)
-    if sentence.findall(readable) != sentence.findall(replacement):
-        raise GateError("independently compiled expansion changed rule or claim identity transport")
+    for name in ("definition.k", "spec.k"):
+        readable = (outputs[0] / name).read_text(encoding="utf-8")
+        replacement = (expanded_output / name).read_text(encoding="utf-8")
+        if sentence.findall(readable) != sentence.findall(replacement):
+            raise GateError("independently compiled expansion changed rule or claim identity transport")
     return outputs[0]
 
 
@@ -356,18 +359,18 @@ def reference_definition(
     kompile: str,
     claim_count: int,
     pins: Ledger,
-) -> tuple[Path, Path, str]:
-    """Kompile the claim-free emitted definition with the pinned K frontend.
+) -> tuple[Path, Path]:
+    """Kompile the emitted claim-free definition with the pinned K frontend.
 
-    Records its normalized KORE digest and returns the kompiled directory, the
-    semantics source, and the claim sentences.
+    Records its normalized KORE digest and returns the kompiled directory and
+    the emitted specification, whose claims are checked against `claim_count`.
     """
 
-    claim_free, _, claims = split_claims(
-        (artifacts / "definition.k").read_text(encoding="utf-8"), claim_count
-    )
-    semantics = workspace / "semantics.k"
-    semantics.write_text(claim_free, encoding="utf-8")
+    emitted_claims(artifacts, port.module, claim_count)
+    semantics = workspace / "definition.k"
+    shutil.copy2(artifacts / "definition.k", semantics)
+    spec = workspace / "spec.k"
+    shutil.copy2(artifacts / "spec.k", spec)
     definition = workspace / "semantics-kompiled"
     run(
         [
@@ -378,25 +381,12 @@ def reference_definition(
         timeout=900,
     )
     pins.expect("definition_kore_sha256", normalized_kore_sha256(definition / "definition.kore", semantics))
-    return definition, semantics, claims
+    return definition, spec
 
 
-def reference_proof(
-    port: Port,
-    workspace: Path,
-    definition: Path,
-    semantics: Path,
-    claims: str,
-    kprove: str,
-) -> None:
+def reference_proof(port: Port, definition: Path, spec: Path, kprove: str) -> None:
     """Prove the emitted claims with the Haskell prover selected by `kprove`."""
 
-    spec = workspace / "spec.k"
-    spec.write_text(
-        f'requires "{semantics.name}"\n\nmodule {port.spec_module}\n'
-        f"  imports {port.module}\n\n{claims}endmodule\n",
-        encoding="utf-8",
-    )
     base = [kprove, spec, "--definition", definition, "--spec-module", port.spec_module]
     dry = run([*base, "--dry-run"], timeout=180)
     if "kore-exec" not in dry.stdout or "--prove" not in dry.stdout:

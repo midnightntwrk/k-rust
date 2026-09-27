@@ -89,7 +89,7 @@ def java_reference_gate(
     corpus: Mapping[str, Any],
     native_outcomes: list[dict[str, Any]],
 ) -> int:
-    definition, source, claims = semantics.reference_definition(
+    definition, spec = semantics.reference_definition(
         PORT, workspace, artifacts, k["kompile"], CLAIM_COUNT, pins
     )
     behavior = corpus.get("behavior")
@@ -122,7 +122,7 @@ def java_reference_gate(
     for outcome in outcomes:
         native.checked(cases_by_id[str(outcome["id"])], outcome)
 
-    semantics.reference_proof(PORT, workspace, definition, source, claims, k["kprove"])
+    semantics.reference_proof(PORT, definition, spec, k["kprove"])
     return CLAIM_COUNT
 
 

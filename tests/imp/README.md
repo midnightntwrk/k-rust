@@ -80,7 +80,7 @@ the IMP state, IMP control flow, and IMP static semantics ledgers, IMP checks th
   Each external checkout must be clean at its pinned revision, which fixes every
   external file, so no external file is digested separately;
 - outputs KRS produces: the artifact and native artifact digests, the
-  source-definition projection digests, the LLVM capability diagnostic digest,
+  source-definition projection digests, the claim-free LLVM artifact digests,
   the behavior summary, and the compatibility report digest;
 - reviewed comparison policy: claim labels, the source-definition and term
   allowances, the native label map, and the 21 reference proof outcomes, which

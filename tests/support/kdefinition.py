@@ -20,47 +20,38 @@ EMITTED_ARTIFACTS = (
     "sources.json",
     "symbols.json",
 )
-"""The exact file set one `krs emit-k` run writes."""
+"""The exact file set one `krs emit-k` run writes for a definition without claims."""
 
-_SENTENCE_START = re.compile(
-    r"^(?:endmodule\b|  (?:syntax\b|configuration\b|context alias\b|rule\b|claim \[))"
-)
-_CLAIM_HEADER = re.compile(r"^  claim \[([^]]+)\]")
+EMITTED_ARTIFACTS_WITH_SPEC = tuple(sorted((*EMITTED_ARTIFACTS, "spec.k")))
+"""The exact file set one `krs emit-k` run writes when the definition has claims."""
+
+_CLAIM_HEADER = re.compile(r"^  claim \[([^]]+)\]", re.MULTILINE)
 
 
-def split_claims(source: str, expected: int) -> tuple[str, list[str], str]:
-    """Split the top-level claims out of one emitted module.
+def emitted_claims(directory: Path, module: str, expected: int) -> tuple[list[str], str]:
+    """Read the claims `krs emit-k` wrote to `spec.k` beside `definition.k`.
 
-    Returns the claim-free module with every other byte preserved, the claim
-    labels in order, and the claim sentences. Exactly `expected` claims with
-    distinct labels must be present.
+    Checks the exact specification frame for main module `module` and returns
+    the claim labels in order and the claim sentences between the frame's
+    header and terminator. Exactly `expected` claims with distinct labels must
+    be present.
     """
 
-    lines = source.splitlines(keepends=True)
-    kept: list[str] = []
-    labels: list[str] = []
-    claims: list[str] = []
-    index = 0
-    while index < len(lines):
-        header = _CLAIM_HEADER.match(lines[index])
-        if header is None:
-            kept.append(lines[index])
-            index += 1
-            continue
-        labels.append(header.group(1))
-        start = index
-        index += 1
-        while index < len(lines) and _SENTENCE_START.match(lines[index]) is None:
-            index += 1
-        claims.extend(lines[start:index])
+    path = directory / "spec.k"
+    if not path.is_file():
+        raise GateError(f"emit-k wrote no spec.k in {directory}")
+    source = path.read_text(encoding="utf-8")
+    header = f'requires "definition.k"\n\nmodule {module}-SPEC\n  imports {module}\n\n'
+    footer = "endmodule\n"
+    if not source.startswith(header) or not source.endswith(footer):
+        raise GateError(f"spec.k does not have the exact {module}-SPEC frame")
+    claims = source[len(header) : -len(footer)]
+    labels = _CLAIM_HEADER.findall(claims)
     if len(labels) != expected or len(set(labels)) != expected:
         raise GateError(f"expected {expected} emitted claims with distinct labels, found {labels!r}")
-    value = "".join(kept)
-    if "  claim [" in value:
-        raise GateError("claim stripping left a top-level claim sentence")
-    if not value.endswith("endmodule\n"):
-        raise GateError("claim-free emitted definition lost its exact module terminator")
-    return value, labels, "".join(claims)
+    if not claims.startswith("  claim [") or "\nendmodule" in claims:
+        raise GateError("spec.k holds more than its claim sentences")
+    return labels, claims
 
 
 _GENERATED_BINDER = re.compile(

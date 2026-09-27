@@ -13,7 +13,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
-from support.kdefinition import split_claims  # noqa: E402
+from support.kdefinition import emitted_claims  # noqa: E402
 from support.process import run  # noqa: E402
 
 
@@ -32,7 +32,7 @@ def ranged_origins(entry: dict[str, object]) -> list[dict[str, object]]:
 
 
 def exact_mapping(
-    definition: bytes, sidecar: dict[str, object], source: bytes, source_relative_path: str, token: str
+    spec: bytes, sidecar: dict[str, object], source: bytes, source_relative_path: str, token: str
 ) -> tuple[dict[str, object], dict[str, object]]:
     matches = []
     for entry in sidecar.get("entries", []):
@@ -52,10 +52,10 @@ def exact_mapping(
         generated_start, generated_end = int(generated["start_byte"]), int(generated["end_byte"])
         if (
             0 <= start < end <= len(source)
-            and 0 <= generated_start < generated_end <= len(definition)
-            and generated.get("artifact") == "definition.k"
+            and 0 <= generated_start < generated_end <= len(spec)
+            and generated.get("artifact") == "spec.k"
             and source[start:end].decode() == token
-            and definition[generated_start:generated_end]
+            and spec[generated_start:generated_end]
         ):
             matches.append((origin, generated))
     if len(matches) != 1:
@@ -65,7 +65,7 @@ def exact_mapping(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--definition", type=Path, required=True)
+    parser.add_argument("--spec", type=Path, required=True, help="emitted spec.k beside definition.k")
     parser.add_argument("--sources", type=Path, required=True)
     parser.add_argument("--authored", type=Path, required=True)
     parser.add_argument("--source-relative-path", required=True)
@@ -74,15 +74,15 @@ def main() -> int:
     parser.add_argument("--module")
     parser.add_argument("--verification-definition", type=Path)
     arguments = parser.parse_args()
-    definition = arguments.definition.read_bytes()
+    spec = arguments.spec.read_bytes()
     source = arguments.authored.read_bytes()
     sidecar = json.loads(arguments.sources.read_text(encoding="utf-8"))
     origin, generated = exact_mapping(
-        definition, sidecar, source, arguments.source_relative_path, arguments.token
+        spec, sidecar, source, arguments.source_relative_path, arguments.token
     )
     start, end = int(generated["start_byte"]), int(generated["end_byte"])
-    artifact_line = definition[:start].count(b"\n") + 1
-    artifact_column = start - definition.rfind(b"\n", 0, start)
+    artifact_line = spec[:start].count(b"\n") + 1
+    artifact_column = start - spec.rfind(b"\n", 0, start)
     if not arguments.kompile:
         print(json.dumps({
             "artifact_generated_location": [artifact_line, artifact_column],
@@ -97,9 +97,10 @@ def main() -> int:
     if not verification_definition.joinpath("imp-verification.k").is_file():
         raise GateError("verification definition lacks imp-verification.k")
 
-    execution_text, _, claims_text = split_claims(definition.decode("utf-8"), EMITTED_CLAIMS)
-    execution, claims = execution_text.encode("utf-8"), claims_text.encode("utf-8")
-    mapped = definition[start:end]
+    _, claims_text = emitted_claims(arguments.spec.parent, arguments.module, EMITTED_CLAIMS)
+    execution = arguments.spec.with_name("definition.k").read_bytes()
+    claims = claims_text.encode("utf-8")
+    mapped = spec[start:end]
     if not mapped or claims.count(mapped) != 1:
         raise GateError("mapped generated range is not unique in emitted claims")
     claim_start = claims.index(mapped)

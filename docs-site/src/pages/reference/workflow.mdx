@@ -34,6 +34,7 @@ krs emit-k --package my-semantics --definition main --output target/krs-k
 
 `expand` prints the deterministic explicit Rust-facing reference surface.
 `emit-k` writes the generated K definition and sidecars, including stable symbol and source attribution data.
+Claims go to a separate `spec.k` beside `definition.k`, the layout `kompile` and `kprove` expect.
 These outputs are audit artifacts, not a second source file to edit.
 
 The lowering page names the descriptor, semantic, definition, K, symbol, source, and KORE boundaries in detail.
@@ -50,6 +51,7 @@ krs build \
 ```
 
 `build` continues through K frontend and selected backend compilation.
+The LLVM backend executes but does not prove, so an LLVM build omits the definition's claims and says how many it omitted.
 The current commands are `fmt`, `check`, `expand`, `emit-k`, and `build`.
 There is no `krs run` command and no `krs prove` command; execution and proof are owned by named downstream K/KORE tools or repository harnesses.
 

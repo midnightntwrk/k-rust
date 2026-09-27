@@ -63,7 +63,8 @@ The variable names in emitted K are encoded deterministically; `sources.json` ca
 - `descriptor-bundle.json`, the collected host declarations;
 - `semantic-ir.json`, the resolved symbolic theory;
 - `definition-ir.json`, the backend-neutral definition;
-- `definition.k`, emitted K source;
+- `definition.k`, emitted K source for the semantics;
+- `spec.k`, the definition's claims, when it has any;
 - `symbols.json`, stable-to-emitted identity mappings; and
 - `sources.json`, generated ranges traced through authored macro and transformation frames.
 
@@ -77,7 +78,11 @@ krs emit-k \
   --output /tmp/krs-imp-emitted
 ```
 
+K accepts claims only outside an executable definition, so `definition.k` holds no claims.
+`spec.k` wraps them in a `<MAIN>-SPEC` module that `requires "definition.k"` and imports the main module: kompile `definition.k` once, then pass `spec.k` to `kprove` against that kompiled definition.
+
 `krs build` continues from Definition IR to selected LLVM or Haskell KORE artifacts.
+The Haskell target carries the claims for proving; LLVM executes but does not prove, so its build omits the claims and reports how many.
 It does not execute the object program, and KRS currently has no `run` command.
 
 ## Identity and diagnostics

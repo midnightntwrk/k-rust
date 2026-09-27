@@ -30,16 +30,14 @@ blocker in this fixture surface.
 - KRS analysis: the two locally valid `Collision` declarations produce one
   schema-1 `analysis`/`symbol-name-collision` envelope at the exact second
   authored `Collision` range, with no generated collector path.
-- K frontend: mutating the unique generated range mapped from authored
-  `bool::and` produces K `Location(171,12,...)`, and the schema-2 sidecar maps
-  it to the exact hash-checked `src/claims.rs` bytes 11930..11939. The reusable
+- K frontend: mutating the unique `spec.k` range mapped from authored
+  `bool::and` produces K `Location(65,14,...)`, and the schema-2 sidecar maps
+  it to the exact hash-checked `src/claims.rs` bytes 12765..12774. The reusable
   probe is green, and the released translation API requires that same exact
   interval rather than line/column containment.
-- Backend/capability: full IMP LLVM compilation returns six deduplicated schema-1
-  `backend-capability`/`UnsupportedExistentialVariable` envelopes, each at an
-  exact hash-checked authored claim-label range. It emits no collector paths or
-  partial artifacts. The underlying frontend reports duplicate occurrences;
-  CLI canonicalization intentionally collapses identical envelopes.
+- Native frontend: the structured diagnostic seam is audited statically. Full
+  IMP LLVM compilation succeeds and omits the 20 claims, since that backend
+  executes but does not prove, so it no longer supplies a dynamic adversary.
 
 Raw generated collector paths, a generated K range without its exact sidecar
 mapping, or an unstructured error string are never accepted as authored

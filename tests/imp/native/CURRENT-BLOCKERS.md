@@ -36,9 +36,10 @@ The pinned frontend allocates each generated `_GenN` name once per sentence, wha
 
 ## Reproduction contract
 
-1. Run `krs emit-k` for `tests/imp/rust-definition`, split its 20 claims into a
-   spec module which imports the claim-free semantic module, and compile the
-   shell with K 7.1.337's Haskell backend.
+1. Run `krs emit-k` for `tests/imp/rust-definition`, wrap the 20 claims of its
+   `spec.k` in a spec module which also imports the upstream verification
+   syntax, and compile the claim-free `definition.k` with K 7.1.337's Haskell
+   backend.
 2. Run `kprove --dry-run` on that spec module to obtain `spec.kore`.
 3. Run `krs build --backend haskell` on the same Rust definition.
 4. Invoke the comparator as follows, supplying one mapping for every label
@@ -89,7 +90,5 @@ and comparing the artifacts:
 | native `syntaxDefinition.kore` | `fff23aeb8958155d5cd6bff5ad3f8606a60cc99f5be9601250cf1b5c947b8ca8` |
 | native `macros.kore` | `e1d5a374973b2fa9eb2502c3acdee5244ee7a89a965dd7acd69cda4b7d7814e0` |
 
-The LLVM route still intentionally rejects existential claims. That is a
-typed backend limitation: the CLI emits exact authored
-`backend-capability`/`UnsupportedExistentialVariable` envelopes and creates no
-partial artifacts. It is not a native/reference semantic parity failure.
+The LLVM route omits all 20 claims, since that backend executes but does not
+prove; `pins.json` pins its claim-free KORE separately.

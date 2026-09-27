@@ -1181,24 +1181,40 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
         "{source}"
     );
     assert!(source.contains("[simplification(42), label("), "{source}");
-    assert!(source.contains("claim [branching]:"), "{source}");
-    assert!(source.contains("_B:Bool"), "{source}");
-    assert!(source.contains("?N:Int"), "{source}");
-    assert!(source.contains("ensures "), "{source}");
-    assert!(source.contains("[circularity]"), "{source}");
-    assert!(source.contains("claim [one-path-claim]:"), "{source}");
-    assert!(source.contains("[one-path]"), "{source}");
-    assert!(!source.contains("all-path"), "{source}");
     assert!(!source.contains("\n    [simplification"), "{source}");
+    assert!(!source.contains("claim"), "{source}");
 
-    for (kind, count) in [
-        (SourceMapNodeKind::ContextAlias, 3),
-        (SourceMapNodeKind::ClaimModality, 2),
-        (SourceMapNodeKind::ClaimCircularity, 1),
-        (SourceMapNodeKind::ClaimBinder, 3),
-        (SourceMapNodeKind::ClaimEnsures, 1),
-        (SourceMapNodeKind::Simplification, 1),
-        (SourceMapNodeKind::SimplificationPriority, 1),
+    let main = lowered.definition().main_module().as_str();
+    let spec = emitted
+        .spec()
+        .expect("claims are emitted as a specification");
+    assert_eq!(spec.module(), format!("{main}-SPEC"));
+    let spec = spec.source();
+    assert!(
+        spec.starts_with(&format!(
+            "requires \"definition.k\"\n\nmodule {main}-SPEC\n  imports {main}\n\n  claim "
+        )),
+        "{spec}"
+    );
+    assert!(spec.ends_with("endmodule\n"), "{spec}");
+    assert!(spec.contains("claim [branching]:"), "{spec}");
+    assert!(spec.contains("_B:Bool"), "{spec}");
+    assert!(spec.contains("?N:Int"), "{spec}");
+    assert!(spec.contains("ensures "), "{spec}");
+    assert!(spec.contains("[circularity]"), "{spec}");
+    assert!(spec.contains("claim [one-path-claim]:"), "{spec}");
+    assert!(spec.contains("[one-path]"), "{spec}");
+    assert!(!spec.contains("all-path"), "{spec}");
+    assert!(!spec.contains("rule "), "{spec}");
+
+    for (kind, count, artifact) in [
+        (SourceMapNodeKind::ContextAlias, 3, "definition.k"),
+        (SourceMapNodeKind::ClaimModality, 2, "spec.k"),
+        (SourceMapNodeKind::ClaimCircularity, 1, "spec.k"),
+        (SourceMapNodeKind::ClaimBinder, 3, "spec.k"),
+        (SourceMapNodeKind::ClaimEnsures, 1, "spec.k"),
+        (SourceMapNodeKind::Simplification, 1, "definition.k"),
+        (SourceMapNodeKind::SimplificationPriority, 1, "definition.k"),
     ] {
         let entries = emitted
             .source_map()
@@ -1208,8 +1224,10 @@ fn context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role() {
             .collect::<Vec<_>>();
         assert_eq!(entries.len(), count, "unexpected {kind:?} entry count");
         assert!(
-            entries.iter().all(|entry| entry.generated().is_some()),
-            "at least one {kind:?} entry has no generated range"
+            entries.iter().all(|entry| entry
+                .generated()
+                .is_some_and(|range| range.artifact() == artifact)),
+            "at least one {kind:?} entry has no generated range in {artifact}"
         );
     }
 }

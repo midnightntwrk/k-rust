@@ -30,7 +30,7 @@ def report() -> dict[str, object]:
     command = (ROOT / "crates/krs-cli/src/command.rs").read_text(encoding="utf-8")
     diagnostic = (ROOT / "crates/krs-cli/src/diagnostic.rs").read_text(encoding="utf-8")
     main = (ROOT / "crates/krs-cli/src/main.rs").read_text(encoding="utf-8")
-    backend = load(HERE / "backend-capability/probe.py", "imp_backend_probe").report()
+    native_frontend = load(HERE / "native-frontend/probe.py", "imp_native_frontend_probe").report()
     return {
         "schema": 1,
         "rust_expansion_fixture": '#[k::constructor(syntax = "broken")]' in rust_source,
@@ -42,7 +42,7 @@ def report() -> dict[str, object]:
         )) and "Diagnostics(Vec<DiagnosticEnvelope>)" in command
             and ".diagnostics()" in main and "to_json_line()" in main,
         "k_frontend_exact_sidecar_probe": (HERE / "k-frontend/probe.py").is_file(),
-        "backend": backend,
+        "native_frontend": native_frontend,
     }
 
 
@@ -55,12 +55,12 @@ def verify(value: dict[str, object]) -> None:
     ):
         if value.get(key) is not True:
             missing.append(key)
-    backend = value.get("backend")
-    if not isinstance(backend, dict) or not all(backend.get(key) is True for key in (
+    native_frontend = value.get("native_frontend")
+    if not isinstance(native_frontend, dict) or not all(native_frontend.get(key) is True for key in (
         "adapter_structured_diagnostic", "cli_structured_diagnostic_envelope",
         "cli_authored_origin_translation", "cli_structured_diagnostic_rendering",
     )):
-        missing.append("backend_structured_authored_translation")
+        missing.append("native_frontend_structured_authored_translation")
     if missing:
         raise RuntimeError(f"diagnostic release boundaries incomplete: {missing}")
 
