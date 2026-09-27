@@ -439,11 +439,12 @@ fn ground_zero_is_stuck_or_trivial() {
 /// A `#let` binds its argument through a generated lambda whose only equation equates the
 /// application with the body, so a condition or right-hand side over `#let Y = A #in 10 /Int Y`
 /// is defined exactly where `10 /Int A` is: its leaves must keep `X =/=Int 0` as the plain
-/// operations `lt` and `rhsdiv` do, and the ground `X = 0` is Stuck.
+/// operations `lt` and `rhsdiv` do. The instances `X = 0` do not step: `letlt(0)` is Stuck (the
+/// `requires` is undefined, so the rule does not apply) and `letrhs(0)` is an undefined step
+/// (Trivial), as is the symbolic `letrhs(X)` under `X = 0`.
 ///
-/// The portable build's inner parser does not parse `#let` (it rejects the bound variable after
-/// `#let`), so these operations are compiled only with Z3 inference.
-#[cfg(feature = "z3-inference")]
+/// Both builds' rule grammars parse `#let`, so these operations are compiled with and without
+/// Z3 inference; only the solver-dependent test needs Z3.
 mod generated_lambda {
     use super::*;
 
@@ -481,7 +482,9 @@ endmodule
     #[test]
     fn a_solver_splits_a_let_bound_partial_requires_like_the_ground_run() {
         let mut backend = backend();
-        assert!(backend.capabilities().smt);
+        if !backend.capabilities().smt {
+            return;
+        }
         let leaves = execute(&mut backend, &op("letlt", X), false);
         let remainder = format!(
             "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
