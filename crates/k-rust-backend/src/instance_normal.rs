@@ -24,9 +24,14 @@
 //!   matches only if the two terms unify, and a refutation by equation matching holds for every
 //!   instance; ignoring `requires` only makes the test report more applications as possibly
 //!   rewritten;
-//! - a declared-function application, any other non-constructor application, a collection, and
-//!   a conjunction are not instance-normal: their value is whatever their equations or their
-//!   collection axioms make it, so their shape does not determine their value.
+//! - a map, list or set term is instance-normal when its elements (keys, values, and the rest)
+//!   are and no equation offered its collection index or a bare variable applies to it, as
+//!   above: the collection axioms only identify representations of one collection value, which
+//!   the matcher's collection matching compares as such, and equations over collection
+//!   functions are headed by those functions, not by the collection term;
+//! - a declared-function application, any other non-constructor application, and a conjunction
+//!   are not instance-normal: their value is whatever their equations make it, so their shape
+//!   does not determine their value.
 //!
 //! [`BackendDefinition::instance_normal`] scans ground terms too. That
 //! [`Term::concrete_after_normalization`] holds is a syntactic fact (ground, every head a
@@ -50,7 +55,7 @@ use rustc_hash::FxHashMap;
 use crate::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, SortGraph, match_terms_in_definition},
-    rule::{TermIndex, Theory},
+    rule::{TermIndex, Theory, term_index},
     term::{Sort, SymbolType, Term, TermKind, Variable},
 };
 
@@ -110,6 +115,9 @@ impl BackendDefinition {
                 .iter()
                 .all(|argument| self.instance_normal_under(argument, normalized))
         };
+        let rest_normal = |rest: Option<&Term>| {
+            rest.is_none_or(|rest| self.instance_normal_under(rest, normalized))
+        };
         match term.kind() {
             TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
             TermKind::Injection { term, .. } => self.instance_normal_under(term, normalized),
@@ -124,10 +132,26 @@ impl BackendDefinition {
                     false
                 }
             }
-            TermKind::Map { .. }
-            | TermKind::List { .. }
-            | TermKind::Set { .. }
-            | TermKind::And(..) => false,
+            TermKind::Map { entries, rest, .. } => {
+                entries.iter().all(|(key, value)| {
+                    self.instance_normal_under(key, normalized)
+                        && self.instance_normal_under(value, normalized)
+                }) && rest_normal(rest.as_ref())
+                    && !self.some_equation_may_apply(term)
+            }
+            TermKind::List { heads, rest, .. } => {
+                arguments_normal(heads)
+                    && rest.as_ref().is_none_or(|(middle, tails)| {
+                        self.instance_normal_under(middle, normalized) && arguments_normal(tails)
+                    })
+                    && !self.some_equation_may_apply(term)
+            }
+            TermKind::Set { elements, rest, .. } => {
+                arguments_normal(elements)
+                    && rest_normal(rest.as_ref())
+                    && !self.some_equation_may_apply(term)
+            }
+            TermKind::And(..) => false,
         }
     }
 
@@ -140,10 +164,7 @@ impl BackendDefinition {
     /// (`matching::match_terms_in_definition`). The second test knows what the first does not:
     /// the sorts of injections and the productions of an overload family.
     fn some_equation_may_apply(&self, subject: &Term) -> bool {
-        let TermKind::Application { symbol, .. } = subject.kind() else {
-            return true;
-        };
-        let indices = [TermIndex::Symbol(symbol.name.clone()), TermIndex::Variable];
+        let indices = [term_index(subject), TermIndex::Variable];
         let theory_may_apply = |theory: &Theory| {
             indices.iter().any(|index| {
                 theory.get(index).is_some_and(|groups| {
@@ -553,6 +574,38 @@ mod tests {
         assert!(normal(&definition, "twin{}(z{}(), s{}(Y:SortNat{}))"));
         assert!(!normal(&definition, "twin{}(Y:SortNat{}, z{}())"));
         assert!(!normal(&definition, "twin{}(X:SortNat{}, X:SortNat{})"));
+    }
+
+    /// A collection argument is a value when its elements are: an anywhere application over a
+    /// map stays instance-normal, and a function element in the map does not.
+    #[test]
+    fn collections_are_instance_normal_when_their_elements_are() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                sort SortNat{} []
+                sort SortBox{} []
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                symbol z{}() : SortNat{} [constructor{}(), functional{}(), injective{}()]
+                symbol f{}(SortNat{}) : SortNat{} [function{}(), total{}(), no-evaluators{}()]
+                symbol box{}(SortMap{}) : SortBox{} [anywhere{}(), functional{}(), injective{}()]
+                hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortNat{}, SortNat{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        assert!(normal(&definition, "box{}(mapItem{}(z{}(), z{}()))"));
+        assert!(normal(
+            &definition,
+            "box{}(mapConcat{}(mapItem{}(z{}(), z{}()), M:SortMap{}))"
+        ));
+        assert!(!normal(&definition, "box{}(mapItem{}(z{}(), f{}(z{}())))"));
     }
 
     /// Priority and `requires` are ignored: an `owise` equation still rewrites some instances.
