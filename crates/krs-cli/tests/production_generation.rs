@@ -5,7 +5,10 @@ use krs_cli::{
     GeneratedCollector, PackageSelector, PlanningErrorKind, RegistrationMode,
 };
 use serde_json::json;
+use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
 
 #[test]
 fn production_collector_owns_the_complete_collection_entrypoint() {
@@ -224,4 +227,44 @@ fn explicit_registration_rejects_an_unselected_krs_dependent() {
     let error = plan.with_explicit_registration().unwrap_err();
     assert_eq!(error.kind(), PlanningErrorKind::UnregisteredKrsDependent);
     assert!(error.to_string().contains("helper 0.1.0"));
+}
+
+#[test]
+fn writing_an_unchanged_collector_preserves_generated_file_mtimes() {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let output = std::env::temp_dir().join(format!(
+        "krs-production-generation-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let generated =
+        GeneratedCollector::from_plan(&explicit_plan(&explicit_metadata(&[], false))).unwrap();
+    generated.write_to(&output).unwrap();
+
+    let files = [
+        ".krs-collector",
+        "Cargo.toml",
+        "src/main.rs",
+        ".cargo/config.toml",
+        "krs-selection.json",
+    ];
+    let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    for file in files {
+        fs::OpenOptions::new()
+            .write(true)
+            .open(output.join(file))
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+    }
+
+    generated.write_to(&output).unwrap();
+    for file in files {
+        assert_eq!(
+            fs::metadata(output.join(file)).unwrap().modified().unwrap(),
+            old,
+            "{file}"
+        );
+    }
+    fs::remove_dir_all(&output).unwrap();
 }

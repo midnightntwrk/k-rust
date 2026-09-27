@@ -322,6 +322,12 @@ fn toml_string(value: &str) -> String {
 }
 
 fn write(path: &Path, bytes: &[u8]) -> Result<(), GenerationError> {
+    match fs::read(path) {
+        Ok(existing) if existing == bytes => return Ok(()),
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => return Err(GenerationError::io(path, source)),
+    }
     fs::write(path, bytes).map_err(|source| GenerationError::io(path, source))
 }
 
