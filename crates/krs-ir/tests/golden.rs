@@ -126,6 +126,37 @@ fn populated_bundle_matches_golden() {
 }
 
 #[test]
+fn measured_canonical_json_is_identical_and_counts_provenance_values() {
+    let bundle = populated_bundle(false);
+    let canonical = bundle.to_canonical_json().unwrap();
+    let (bytes, provenance) = bundle.to_canonical_json_measured().unwrap();
+    assert_eq!(bytes, canonical.as_bytes());
+    // Independently measure every `"provenance": {...}` value by brace matching;
+    // the fixture's provenance strings contain no braces.
+    let marker = "\"provenance\": ";
+    let mut expected = 0;
+    for (start, _) in canonical.match_indices(marker) {
+        let value = &canonical[start + marker.len()..];
+        let mut depth = 0usize;
+        for (index, character) in value.char_indices() {
+            match character {
+                '{' | '[' => depth += 1,
+                '}' | ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        expected += index + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    assert!(expected > 0);
+    assert_eq!(provenance, u64::try_from(expected).unwrap());
+}
+
+#[test]
 fn canonical_json_ignores_insertion_order() {
     assert_eq!(
         populated_bundle(false).to_canonical_json().unwrap(),

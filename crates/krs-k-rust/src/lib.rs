@@ -44,6 +44,8 @@ pub use k_rust::definition::Definition as NativeDefinition;
 pub use k_rust::kompile::EmittedSentenceProvenance;
 pub use k_rust::outer::LoadedDefinition;
 pub use k_rust::provenance::{GeneratingPass, InputAddress, InputSentenceKind, InputSpace};
+pub use k_rust::timings::PhaseTimings as NativePhaseTimings;
+use krs_ir::measure::Timings;
 
 /// Metadata for the source and builtin revisions forming the native frontend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -722,32 +724,62 @@ pub fn compile_definition(
     ir: &DefinitionIr,
     options: CompileOptions,
 ) -> Result<CompiledArtifacts, DefinitionCompileError> {
-    let adapted =
-        adapt_definition_for(ir, options.backend).map_err(DefinitionCompileError::Adapter)?;
-    let loaded = prepare_definition(adapted.definition.clone(), options.backend)
-        .map_err(DefinitionCompileError::Preparation)?;
-    let artifacts = compile_loaded_definition(&loaded, options).map_err(|error| {
-        DefinitionCompileError::Compile {
-            stage: error.stage(),
-            message: error.message().to_owned(),
-            diagnostics: error.diagnostics().to_vec(),
-        }
+    compile_definition_timed(ir, options, &mut Timings::disabled())
+}
+
+/// [`compile_definition`] recording `native.*` spans in `timings`, with
+/// k-rust's own phase list nested unchanged under `native.compile` (see
+/// [`krs_ir::measure`]).
+///
+/// # Errors
+///
+/// Fails exactly when [`compile_definition`] fails.
+pub fn compile_definition_timed(
+    ir: &DefinitionIr,
+    options: CompileOptions,
+    timings: &mut Timings,
+) -> Result<CompiledArtifacts, DefinitionCompileError> {
+    let adapted = timings.try_span("native.adapt", |_| {
+        adapt_definition_for(ir, options.backend).map_err(DefinitionCompileError::Adapter)
     })?;
-    parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
-        DefinitionCompileError::KoreReparse {
-            artifact: "definition.kore",
-            message: error.to_string(),
-        }
+    let loaded = timings.try_span("native.prepare", |_| {
+        prepare_definition(adapted.definition.clone(), options.backend)
+            .map_err(DefinitionCompileError::Preparation)
     })?;
-    parse_kore_definition(&artifacts.syntax_definition_kore).map_err(|error| {
-        DefinitionCompileError::KoreReparse {
-            artifact: "syntaxDefinition.kore",
-            message: error.to_string(),
+    let artifacts = timings.try_span("native.compile", |timings| {
+        let (artifacts, phases) =
+            compile_loaded_definition_timed(&loaded, options).map_err(|error| {
+                DefinitionCompileError::Compile {
+                    stage: error.stage(),
+                    message: error.message().to_owned(),
+                    diagnostics: error.diagnostics().to_vec(),
+                }
+            })?;
+        for phase in phases.phases {
+            timings.record(phase.name, phase.seconds, phase.depth);
         }
+        Ok(artifacts)
     })?;
-    let sentence_provenance =
+    timings.try_span("native.reparse.definition", |_| {
+        parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
+            DefinitionCompileError::KoreReparse {
+                artifact: "definition.kore",
+                message: error.to_string(),
+            }
+        })
+    })?;
+    timings.try_span("native.reparse.syntax", |_| {
+        parse_kore_definition(&artifacts.syntax_definition_kore).map_err(|error| {
+            DefinitionCompileError::KoreReparse {
+                artifact: "syntaxDefinition.kore",
+                message: error.to_string(),
+            }
+        })
+    })?;
+    let sentence_provenance = timings.try_span("native.provenance", |_| {
         join_sentence_provenance(ir, &adapted, &loaded, &artifacts.sentence_provenance)
-            .map_err(DefinitionCompileError::Provenance)?;
+            .map_err(DefinitionCompileError::Provenance)
+    })?;
     Ok(CompiledArtifacts {
         definition_kore: artifacts.definition_kore,
         syntax_definition_kore: artifacts.syntax_definition_kore,
@@ -1033,11 +1065,25 @@ pub fn compile_loaded_definition(
     loaded: &LoadedDefinition,
     options: CompileOptions,
 ) -> Result<RawCompiledArtifacts, CompileError> {
+    compile_loaded_definition_timed(loaded, options).map(|(artifacts, _)| artifacts)
+}
+
+/// [`compile_loaded_definition`] that also returns k-rust's wall-clock phase
+/// timings in pipeline order. k-rust records them unconditionally, so this
+/// costs nothing over the untimed call.
+///
+/// # Errors
+///
+/// Fails exactly when [`compile_loaded_definition`] fails.
+pub fn compile_loaded_definition_timed(
+    loaded: &LoadedDefinition,
+    options: CompileOptions,
+) -> Result<(RawCompiledArtifacts, NativePhaseTimings), CompileError> {
     let backend = match options.backend {
         Backend::Llvm => kompile::CompilationBackend::Llvm,
         Backend::Haskell => kompile::CompilationBackend::Rust,
     };
-    let artifacts = kompile::compile_loaded_definition(
+    let (artifacts, phases) = kompile::compile_loaded_definition_timed(
         loaded,
         kompile::CompileOptions {
             backend,
@@ -1066,13 +1112,16 @@ pub fn compile_loaded_definition(
     )
     .map_err(CompileError::from)?;
 
-    Ok(RawCompiledArtifacts {
-        definition_kore: artifacts.definition_kore,
-        syntax_definition_kore: artifacts.syntax_definition_kore,
-        macros_kore: artifacts.macros_kore,
-        diagnostics: artifacts.diagnostics.iter().map(Into::into).collect(),
-        sentence_provenance: artifacts.sentence_provenance,
-    })
+    Ok((
+        RawCompiledArtifacts {
+            definition_kore: artifacts.definition_kore,
+            syntax_definition_kore: artifacts.syntax_definition_kore,
+            macros_kore: artifacts.macros_kore,
+            diagnostics: artifacts.diagnostics.iter().map(Into::into).collect(),
+            sentence_provenance: artifacts.sentence_provenance,
+        },
+        phases,
+    ))
 }
 
 struct Adapter {

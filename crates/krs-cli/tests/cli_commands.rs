@@ -36,6 +36,8 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
         b"KRS check passed: 9 descriptors, 1 semantic modules\n"
     );
 
+    assert_check_measurement(&temporary, &target, &manifest, &check.stdout);
+
     let emit = command(&target, &manifest, "emit-k", Some(&emitted), &[]);
     assert_success(&emit);
     assert_eq!(
@@ -98,16 +100,191 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     );
 
     let native = temporary.join("native");
-    let build = command(&target, &manifest, "build", Some(&native), &[]);
-    assert_success(&build);
-    assert_eq!(
-        build.stdout,
-        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
-    );
+    assert_build_measurement(&temporary, &target, &manifest, &native);
     assert!(native.join("definition.kore").is_file());
     assert!(native.join("syntaxDefinition.kore").is_file());
     assert!(native.join("macros.kore").is_file());
     assert!(native.join(".krs-artifacts").is_file());
+}
+
+/// `check --timings --counters` reports the whole pipeline and stable counters.
+fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, stdout: &[u8]) {
+    let timings_path = temporary.join("check-timings.json");
+    let counters_path = temporary.join("check-counters.json");
+    let measured = command(
+        target,
+        manifest,
+        "check",
+        None,
+        &[
+            "--timings",
+            timings_path.to_str().unwrap(),
+            "--counters",
+            counters_path.to_str().unwrap(),
+        ],
+    );
+    assert_success(&measured);
+    assert_eq!(measured.stdout, stdout, "measurement changed stdout");
+    let timings = read_json(&timings_path);
+    assert_eq!(timings["schema"], "krs-timings/1");
+    assert_eq!(timings["command"], "check");
+    assert_eq!(timings["status"], "ok");
+    assert!(timings["failed_span"].is_null());
+    assert_eq!(
+        span_ids(&timings),
+        [
+            ("cargo.metadata.input", 0),
+            ("host.discover", 0),
+            ("cargo.check", 0),
+            ("cargo.metadata.runtime", 0),
+            ("collector.plan", 0),
+            ("collector.generate", 0),
+            ("collector.run", 0),
+            ("collector.cargo", 1),
+            ("collector.factories", 1),
+            ("collector.builtins", 1),
+            ("collector.resolve", 1),
+            ("collector.resolve.builtins", 2),
+            ("collector.resolve.intake", 2),
+            ("collector.resolve.tables", 2),
+            ("collector.resolve.provenance", 2),
+            ("collector.resolve.payload", 2),
+            ("collector.resolve.bundle", 2),
+            ("collector.serialize", 1),
+            ("collector.write", 1),
+            ("collector.release", 1),
+            ("protocol.decode", 0),
+            ("semantic.lower", 0),
+            ("definition.lower", 0),
+            ("check.adapt", 0),
+            ("release", 0),
+        ]
+        .map(|(id, depth)| (id.to_owned(), depth))
+    );
+    assert_timing_invariants(&timings);
+    let counters = read_json(&counters_path);
+    assert_eq!(counters["schema"], "krs-counters/1");
+    assert_eq!(counters["status"], "ok");
+    let counters = &counters["counters"];
+    assert_eq!(counters["descriptors.total"], 9);
+    assert_eq!(counters["semantic.modules"], 1);
+    let bundle_bytes = counters["bundle.bytes"].as_u64().unwrap();
+    let provenance_bytes = counters["bundle.provenance_bytes"].as_u64().unwrap();
+    assert!(provenance_bytes > 0 && provenance_bytes < bundle_bytes);
+    assert_eq!(
+        counters["bundle.other_bytes"].as_u64().unwrap(),
+        bundle_bytes - provenance_bytes
+    );
+    // Counters are deterministic: a second run writes the same bytes.
+    let again_path = temporary.join("check-counters-again.json");
+    assert_success(&command(
+        target,
+        manifest,
+        "check",
+        None,
+        &["--counters", again_path.to_str().unwrap()],
+    ));
+    assert_eq!(
+        fs::read(&counters_path).unwrap(),
+        fs::read(&again_path).unwrap()
+    );
+}
+
+/// `build --timings --counters` nests k-rust phases and counts KORE bytes.
+fn assert_build_measurement(temporary: &Path, target: &Path, manifest: &Path, native: &Path) {
+    let build_timings = temporary.join("build-timings.json");
+    let build_counters = temporary.join("build-counters.json");
+    let build = command(
+        target,
+        manifest,
+        "build",
+        Some(native),
+        &[
+            "--timings",
+            build_timings.to_str().unwrap(),
+            "--counters",
+            build_counters.to_str().unwrap(),
+        ],
+    );
+    assert_success(&build);
+    let timings = read_json(&build_timings);
+    assert_timing_invariants(&timings);
+    let ids = span_ids(&timings);
+    let top = ids
+        .iter()
+        .filter(|(_, depth)| *depth == 0)
+        .map(|(id, _)| id.as_str())
+        .skip_while(|id| *id != "definition.lower")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        top,
+        [
+            "definition.lower",
+            "native.adapt",
+            "native.prepare",
+            "native.compile",
+            "native.reparse.definition",
+            "native.reparse.syntax",
+            "native.provenance",
+            "native.write",
+            "release",
+        ]
+    );
+    let compile = ids
+        .iter()
+        .position(|(id, _)| id == "native.compile")
+        .unwrap();
+    assert!(
+        ids[compile + 1..]
+            .iter()
+            .take_while(|(_, depth)| *depth > 0)
+            .any(|(id, depth)| id == "definition checks" && *depth == 1),
+        "k-rust phases are not nested below native.compile: {ids:?}"
+    );
+    let counters = &read_json(&build_counters)["counters"];
+    assert_eq!(
+        counters["native.bytes.definition.kore"].as_u64().unwrap(),
+        fs::metadata(native.join("definition.kore")).unwrap().len()
+    );
+    assert_eq!(
+        build.stdout,
+        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+    );
+}
+
+fn read_json(path: &Path) -> serde_json::Value {
+    serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+}
+
+fn span_ids(timings: &serde_json::Value) -> Vec<(String, u64)> {
+    timings["spans"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|span| {
+            (
+                span["id"].as_str().unwrap().to_owned(),
+                span["depth"].as_u64().unwrap(),
+            )
+        })
+        .collect()
+}
+
+fn assert_timing_invariants(timings: &serde_json::Value) {
+    let total = timings["total_wall_seconds"].as_f64().unwrap();
+    let unattributed = timings["unattributed_seconds"].as_f64().unwrap();
+    assert!(unattributed >= 0.0 && unattributed <= total, "{timings}");
+    let spans = timings["spans"].as_array().unwrap();
+    let mut previous_depth = 0;
+    for span in spans {
+        let depth = span["depth"].as_u64().unwrap();
+        assert!(
+            depth <= previous_depth + 1,
+            "a span skips a level: {timings}"
+        );
+        assert!(span["seconds"].as_f64().unwrap() >= 0.0);
+        previous_depth = depth;
+    }
 }
 
 fn command(
@@ -170,12 +347,27 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
 
     for backend in ["haskell", "llvm"] {
         let native = temporary.join(backend);
+        let timings_path = temporary.join(format!("{backend}-timings.json"));
         let build = command(
             &target,
             &manifest,
             "build",
             Some(&native),
-            &["--backend", backend],
+            &[
+                "--backend",
+                backend,
+                "--timings",
+                timings_path.to_str().unwrap(),
+            ],
+        );
+        let timings = read_json(&timings_path);
+        assert_eq!(timings["status"], "failed", "{backend}");
+        assert_eq!(timings["failed_span"], "native.compile", "{backend}");
+        assert_timing_invariants(&timings);
+        assert!(
+            span_ids(&timings)
+                .iter()
+                .any(|(id, depth)| id == "native.diagnostics" && *depth == 0)
         );
         let stderr = String::from_utf8(build.stderr).unwrap();
         assert!(!build.status.success(), "{backend} accepted:\n{stderr}");

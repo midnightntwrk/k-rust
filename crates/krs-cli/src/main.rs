@@ -2,9 +2,10 @@
 
 use krs_cli::{
     Backend, CommandKind, CommandRequest, FacetSelector, KrsCfg, PackageSelector, RegistrationMode,
-    execute_command,
+    execute_command_measured,
 };
 use krs_fmt::{FormatOptions, TrailingCommentStyle};
+use krs_ir::measure::Measurement;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -26,6 +27,8 @@ Options:
   --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
   --backend llvm|haskell     Native target dialect (default: llvm)
   --output DIRECTORY         Required for emit-k and build
+  --timings FILE             Write krs-timings/1 phase timings as JSON
+  --counters FILE            Write krs-counters/1 work counters as JSON
   --stdin                    Format stdin and write the result to stdout
   --check                    Report files that are not canonically formatted
   --trailing-comments STYLE  aligned or gutter (default: aligned)
@@ -43,29 +46,16 @@ fn main() {
                 std::process::exit(1);
             }
         },
-        Ok(ParseResult::Run(request)) => match execute_command(&request) {
-            Ok(outcome) => {
-                if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
-                    eprintln!("krs: could not write stdout: {error}");
-                    std::process::exit(1);
-                }
-            }
-            Err(error) => {
-                if let Some(diagnostics) = error.diagnostics() {
-                    for diagnostic in diagnostics {
-                        match diagnostic.to_json_line() {
-                            Ok(line) => eprint!("{line}"),
-                            Err(render_error) => {
-                                eprintln!("krs: could not render diagnostic: {render_error}");
-                            }
-                        }
-                    }
-                } else {
-                    eprintln!("krs: {error}");
-                }
+        Ok(ParseResult::Run(request, measure)) => {
+            let mut measurement =
+                Measurement::new(measure.timings.is_some(), measure.counters.is_some());
+            let result = execute_command_measured(&request, &mut measurement);
+            let measured =
+                write_measurement(&measure, &measurement, request.command, result.is_ok());
+            if !report_outcome(result) || !measured {
                 std::process::exit(1);
             }
-        },
+        }
         Err(error) => {
             eprintln!("krs: {error}\n\n{USAGE}");
             std::process::exit(2);
@@ -73,10 +63,75 @@ fn main() {
     }
 }
 
+/// Measurement output paths requested on the command line.
+#[derive(Default)]
+struct MeasureOptions {
+    timings: Option<PathBuf>,
+    counters: Option<PathBuf>,
+}
+
+fn write_measurement(
+    options: &MeasureOptions,
+    measurement: &Measurement,
+    command: CommandKind,
+    succeeded: bool,
+) -> bool {
+    let mut ok = true;
+    let mut write = |path: &Path, bytes: serde_json::Result<Vec<u8>>| {
+        let result = bytes
+            .map_err(|error| error.to_string())
+            .and_then(|mut bytes| {
+                bytes.push(b'\n');
+                std::fs::write(path, bytes).map_err(|error| error.to_string())
+            });
+        if let Err(error) = result {
+            eprintln!("krs: could not write `{}`: {error}", path.display());
+            ok = false;
+        }
+    };
+    if let Some(path) = &options.timings {
+        let document = measurement.timings.document(command.as_str(), succeeded);
+        write(path, serde_json::to_vec_pretty(&document));
+    }
+    if let Some(path) = &options.counters {
+        let document = measurement.counters.document(command.as_str(), succeeded);
+        write(path, serde_json::to_vec_pretty(&document));
+    }
+    ok
+}
+
+/// Print a command outcome; false when the command or stdout failed.
+fn report_outcome(result: Result<krs_cli::CommandOutcome, krs_cli::CommandError>) -> bool {
+    match result {
+        Ok(outcome) => {
+            if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
+                eprintln!("krs: could not write stdout: {error}");
+                return false;
+            }
+            true
+        }
+        Err(error) => {
+            if let Some(diagnostics) = error.diagnostics() {
+                for diagnostic in diagnostics {
+                    match diagnostic.to_json_line() {
+                        Ok(line) => eprint!("{line}"),
+                        Err(render_error) => {
+                            eprintln!("krs: could not render diagnostic: {render_error}");
+                        }
+                    }
+                }
+            } else {
+                eprintln!("krs: {error}");
+            }
+            false
+        }
+    }
+}
+
 enum ParseResult {
     Help,
     Format(FormatRequest),
-    Run(CommandRequest),
+    Run(CommandRequest, MeasureOptions),
 }
 
 struct FormatRequest {
@@ -115,6 +170,7 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
     let mut backend = Backend::Llvm;
     let mut output_directory = None;
     let mut registration = RegistrationMode::Inventory;
+    let mut measure = MeasureOptions::default();
 
     while let Some(option) = arguments.next() {
         if option == "-h" || option == "--help" {
@@ -143,6 +199,8 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
                 };
             }
             "--output" => output_directory = Some(PathBuf::from(value)),
+            "--timings" => measure.timings = Some(PathBuf::from(value)),
+            "--counters" => measure.counters = Some(PathBuf::from(value)),
             // Hidden build and parity tooling; deliberately absent from USAGE.
             "--registration" => {
                 registration = match utf8(value, "registration")?.as_str() {
@@ -155,19 +213,22 @@ fn parse(arguments: Vec<OsString>) -> Result<ParseResult, String> {
         }
     }
 
-    Ok(ParseResult::Run(CommandRequest {
-        command,
-        manifest_path,
-        root: FacetSelector {
-            package: root_package.ok_or("missing --package or --package-id")?,
-            definition: definition.ok_or("missing --definition")?,
+    Ok(ParseResult::Run(
+        CommandRequest {
+            command,
+            manifest_path,
+            root: FacetSelector {
+                package: root_package.ok_or("missing --package or --package-id")?,
+                definition: definition.ok_or("missing --definition")?,
+            },
+            dependencies,
+            cfg,
+            backend,
+            output_directory,
+            registration,
         },
-        dependencies,
-        cfg,
-        backend,
-        output_directory,
-        registration,
-    }))
+        measure,
+    ))
 }
 
 fn parse_format(arguments: Vec<OsString>) -> Result<ParseResult, String> {
@@ -336,7 +397,7 @@ mod tests {
 
     #[test]
     fn parses_complete_build() {
-        let ParseResult::Run(request) = parse(
+        let ParseResult::Run(request, measure) = parse(
             [
                 "build",
                 "--package",
@@ -349,6 +410,8 @@ mod tests {
                 "haskell",
                 "--output",
                 "out",
+                "--timings",
+                "timings.json",
             ]
             .into_iter()
             .map(OsString::from)
@@ -361,6 +424,8 @@ mod tests {
         assert_eq!(request.backend, Backend::Haskell);
         assert_eq!(request.dependencies.len(), 1);
         assert_eq!(request.output_directory, Some(PathBuf::from("out")));
+        assert_eq!(measure.timings, Some(PathBuf::from("timings.json")));
+        assert_eq!(measure.counters, None);
     }
 
     #[test]

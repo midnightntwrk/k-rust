@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use krs_ir::measure::Timings;
 use krs_ir::{
     Descriptor, DescriptorBundle, DescriptorDeclaration, HostBuiltinRegistry, HostDescriptor,
     HostDescriptorPayload, HostItemId, ItemKind, PackageId, SchemaVersion, StableItemId,
@@ -13,11 +14,13 @@ use provenance::materialize_descriptor_provenance;
 use resolve::{
     declared_cell_field_table, declared_type_table, resolve_head_rule_targets, resolve_payload,
 };
+pub use run::run_collector;
 use source::canonicalize_path;
 
 mod invocation;
 mod provenance;
 mod resolve;
+mod run;
 mod source;
 mod trivia;
 
@@ -135,7 +138,7 @@ pub fn collect_host_descriptors(
     contexts: impl IntoIterator<Item = PackageContext>,
     descriptors: impl IntoIterator<Item = HostDescriptor>,
 ) -> Result<DescriptorBundle, CollectionError> {
-    collect_host_descriptors_impl(contexts, descriptors, None)
+    collect_host_descriptors_impl(contexts, descriptors, None, &mut Timings::disabled())
 }
 
 /// Resolves host descriptors with the complete compiler-provided builtin catalog.
@@ -154,26 +157,52 @@ pub fn collect_host_descriptors_with_builtins(
     descriptors: impl IntoIterator<Item = HostDescriptor>,
     builtins: &HostBuiltinRegistry,
 ) -> Result<DescriptorBundle, CollectionError> {
-    builtins.validate().map_err(|error| {
-        CollectionError::new(
-            CollectionErrorKind::InvalidBuiltinRegistry,
-            format!("invalid builtin registry: {error}"),
-        )
+    collect_host_descriptors_with_builtins_timed(
+        contexts,
+        descriptors,
+        builtins,
+        &mut Timings::disabled(),
+    )
+}
+
+/// [`collect_host_descriptors_with_builtins`] recording its phases in
+/// `timings` (`collector.resolve.*` ids; see [`krs_ir::measure`]).
+///
+/// # Errors
+///
+/// Fails exactly when [`collect_host_descriptors_with_builtins`] fails.
+pub fn collect_host_descriptors_with_builtins_timed(
+    contexts: impl IntoIterator<Item = PackageContext>,
+    descriptors: impl IntoIterator<Item = HostDescriptor>,
+    builtins: &HostBuiltinRegistry,
+    timings: &mut Timings,
+) -> Result<DescriptorBundle, CollectionError> {
+    timings.try_span("collector.resolve.builtins", |_| {
+        builtins.validate().map_err(|error| {
+            CollectionError::new(
+                CollectionErrorKind::InvalidBuiltinRegistry,
+                format!("invalid builtin registry: {error}"),
+            )
+        })
     })?;
-    collect_host_descriptors_impl(contexts, descriptors, Some(builtins))
+    collect_host_descriptors_impl(contexts, descriptors, Some(builtins), timings)
 }
 
 fn collect_host_descriptors_impl(
     contexts: impl IntoIterator<Item = PackageContext>,
     descriptors: impl IntoIterator<Item = HostDescriptor>,
     builtins: Option<&HostBuiltinRegistry>,
+    timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
-    let descriptors = descriptors.into_iter().collect::<Vec<_>>();
-    let mut contexts = contexts.into_iter().collect::<Vec<_>>();
-    select_framework_context(&mut contexts, &descriptors)?;
-    let (contexts, context_lookup) = prepare_contexts(contexts)?;
-    let pending = collect_pending_descriptors(descriptors, &contexts, &context_lookup)?;
-    resolve_pending_descriptors(pending, &contexts, builtins)
+    let (contexts, pending) = timings.try_span("collector.resolve.intake", |_| {
+        let descriptors = descriptors.into_iter().collect::<Vec<_>>();
+        let mut contexts = contexts.into_iter().collect::<Vec<_>>();
+        select_framework_context(&mut contexts, &descriptors)?;
+        let (contexts, context_lookup) = prepare_contexts(contexts)?;
+        let pending = collect_pending_descriptors(descriptors, &contexts, &context_lookup)?;
+        Ok((contexts, pending))
+    })?;
+    resolve_pending_descriptors(pending, &contexts, builtins, timings)
 }
 
 fn select_framework_context(
@@ -264,32 +293,53 @@ fn collect_pending_descriptors(
     Ok(pending)
 }
 
+#[allow(clippy::too_many_lines)] // One resolution pass; the timers add no branches of their own.
 fn resolve_pending_descriptors(
     mut pending: Vec<PendingDescriptor>,
     contexts: &[PreparedContext],
     builtins: Option<&HostBuiltinRegistry>,
+    timings: &mut Timings,
 ) -> Result<DescriptorBundle, CollectionError> {
-    pending.sort_by(|left, right| left.id.cmp(&right.id));
-    let context_aliases = pending
-        .iter()
-        .filter(|pending| pending.id.item_kind() == ItemKind::ContextAlias)
-        .map(|pending| (pending.host.id.clone(), pending.id.clone()))
-        .collect::<HashMap<_, _>>();
-    let declarations = declared_type_table(&pending, builtins)?;
-    let cell_fields = declared_cell_field_table(&pending)?;
-    let head_targets = resolve_head_rule_targets(&pending, &cell_fields)?;
+    let (context_aliases, declarations, cell_fields, head_targets) =
+        timings.try_span("collector.resolve.tables", |_| {
+            pending.sort_by(|left, right| left.id.cmp(&right.id));
+            let context_aliases = pending
+                .iter()
+                .filter(|pending| pending.id.item_kind() == ItemKind::ContextAlias)
+                .map(|pending| (pending.host.id.clone(), pending.id.clone()))
+                .collect::<HashMap<_, _>>();
+            let declarations = declared_type_table(&pending, builtins)?;
+            let cell_fields = declared_cell_field_table(&pending)?;
+            let head_targets = resolve_head_rule_targets(&pending, &cell_fields)?;
+            Ok::<_, CollectionError>((context_aliases, declarations, cell_fields, head_targets))
+        })?;
     let mut source_cache = BTreeMap::new();
     let mut resolved = Vec::with_capacity(pending.len());
     let mut declaration_metadata = Vec::with_capacity(pending.len());
+    // Provenance reparse and payload resolution interleave per descriptor, so
+    // each is accumulated over the loop and recorded as one span.
+    let mut provenance_seconds = 0.0;
+    let mut payload_seconds = 0.0;
+    let mut loop_failure = None;
     for pending in pending {
-        let (provenance, visibility, explicit_symbol) = materialize_descriptor_provenance(
+        let started = timings.now();
+        let provenance = materialize_descriptor_provenance(
             &pending.host,
             &pending.host.payload,
             &pending.id,
             pending.context_index,
             contexts,
             &mut source_cache,
-        )?;
+        );
+        provenance_seconds += Timings::since(started);
+        let (provenance, visibility, explicit_symbol) = match provenance {
+            Ok(value) => value,
+            Err(error) => {
+                loop_failure = Some(("collector.resolve.provenance", error));
+                break;
+            }
+        };
+        let started = timings.now();
         let payload = resolve_payload(
             &pending.host.payload,
             &declarations,
@@ -297,7 +347,15 @@ fn resolve_pending_descriptors(
             &context_aliases,
             builtins,
             &head_targets,
-        )?;
+        );
+        payload_seconds += Timings::since(started);
+        let payload = match payload {
+            Ok(value) => value,
+            Err(error) => {
+                loop_failure = Some(("collector.resolve.payload", error));
+                break;
+            }
+        };
         declaration_metadata.push(DescriptorDeclaration::new(
             pending.id.clone(),
             visibility,
@@ -310,29 +368,38 @@ fn resolve_pending_descriptors(
             payload,
         });
     }
-    resolved.sort();
-    let bundle =
-        DescriptorBundle::with_declarations(resolved, declaration_metadata).map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::InvalidStableIdentity,
-                format!("invalid declaration metadata coverage: {error}"),
-            )
-        })?;
-    for descriptor in &bundle.descriptors {
-        descriptor.validate_grammar_contract().map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::ProvenanceMismatch,
-                format!("invalid stable grammar descriptor: {error}"),
-            )
-        })?;
-        descriptor.validate_state_contract().map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::ProvenanceMismatch,
-                format!("invalid stable configuration descriptor: {error}"),
-            )
-        })?;
+    timings.record("collector.resolve.provenance", provenance_seconds, 0);
+    timings.record("collector.resolve.payload", payload_seconds, 0);
+    if let Some((span, error)) = loop_failure {
+        timings.mark_failed(span);
+        return Err(error);
     }
-    Ok(bundle)
+    timings.try_span("collector.resolve.bundle", |_| {
+        resolved.sort();
+        let bundle = DescriptorBundle::with_declarations(resolved, declaration_metadata).map_err(
+            |error| {
+                CollectionError::new(
+                    CollectionErrorKind::InvalidStableIdentity,
+                    format!("invalid declaration metadata coverage: {error}"),
+                )
+            },
+        )?;
+        for descriptor in &bundle.descriptors {
+            descriptor.validate_grammar_contract().map_err(|error| {
+                CollectionError::new(
+                    CollectionErrorKind::ProvenanceMismatch,
+                    format!("invalid stable grammar descriptor: {error}"),
+                )
+            })?;
+            descriptor.validate_state_contract().map_err(|error| {
+                CollectionError::new(
+                    CollectionErrorKind::ProvenanceMismatch,
+                    format!("invalid stable configuration descriptor: {error}"),
+                )
+            })?;
+        }
+        Ok(bundle)
+    })
 }
 
 fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {

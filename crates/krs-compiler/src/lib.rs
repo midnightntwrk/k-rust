@@ -17,6 +17,7 @@ mod sidecar;
 
 pub use collect::{
     PackageContext, collect_host_descriptors, collect_host_descriptors_with_builtins,
+    collect_host_descriptors_with_builtins_timed, run_collector,
 };
 pub use emit::{DEFINITION_ARTIFACT, EmitError, EmittedK, EmittedSpec, SPEC_ARTIFACT, emit_k};
 pub use error::{AnalysisError, AnalysisErrorKind, CollectionError, CollectionErrorKind};

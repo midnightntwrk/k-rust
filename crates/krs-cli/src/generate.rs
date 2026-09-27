@@ -263,13 +263,11 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
             "__krs_host_runtime::host_descriptors_from(tables)"
         }
     };
-    output.push_str(
-        "    let builtins = __krs_host_runtime::builtin_registry();\n    let bundle = __krs_compiler_runtime::collect_host_descriptors_with_builtins(\n        contexts,\n        ",
-    );
+    // `run_collector` collects, writes the canonical bundle to stdout, and
+    // records opt-in measurement out of band when `krs` asks for it.
+    output.push_str("    __krs_compiler_runtime::run_collector(\n        contexts,\n        || ");
     output.push_str(descriptors);
-    output.push_str(
-        ",\n        &builtins,\n    )?;\n    use std::io::Write as _;\n    std::io::stdout().lock().write_all(bundle.to_canonical_json()?.as_bytes())?;\n    Ok(())\n}\n",
-    );
+    output.push_str(",\n        __krs_host_runtime::builtin_registry,\n    )\n}\n");
     output
 }
 

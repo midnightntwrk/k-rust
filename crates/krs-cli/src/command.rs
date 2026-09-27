@@ -8,13 +8,16 @@ use krs_compiler::{
     ReferenceExpansionError, SPEC_ARTIFACT, emit_k, expand_reference_source,
     lower_descriptor_bundle, lower_semantic_theory,
 };
+use krs_ir::measure::{
+    COLLECTOR_MEASURE_ENV, CollectorMeasureDocument, Counters, Measurement, unix_seconds,
+};
 use krs_ir::{
-    Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId, RangedOriginKind,
-    Sha256Digest, SourceFileId, SourceRange,
+    DefinitionSentence, Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId,
+    RangedOriginKind, Sha256Digest, SourceFileId, SourceRange,
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
-    adapt_definition_for, compile_definition, diagnostic_source_map_key,
+    adapt_definition_for, compile_definition_timed, diagnostic_source_map_key,
 };
 use sha2::{Digest, Sha256};
 use std::error::Error;
@@ -38,6 +41,19 @@ pub enum CommandKind {
     EmitK,
     /// Compile the same Definition IR through the native frontend.
     Build,
+}
+
+impl CommandKind {
+    /// The command-line spelling, as recorded in measurement documents.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Expand => "expand",
+            Self::EmitK => "emit-k",
+            Self::Build => "build",
+        }
+    }
 }
 
 /// Explicit input to one production command execution.
@@ -97,37 +113,69 @@ struct PreparedDefinition {
 /// Returns a typed stage error. In particular, the currently pinned native
 /// frontend blocker is preserved as [`CommandError::Native`].
 pub fn execute_command(request: &CommandRequest) -> Result<CommandOutcome, CommandError> {
+    execute_command_measured(request, &mut Measurement::disabled())
+}
+
+/// [`execute_command`] that records opt-in phase timings and work counters
+/// (`krs-timings/1` and `krs-counters/1`, documented in [`krs_ir::measure`]).
+///
+/// Measurement never changes stdout or any artifact. On failure, `measurement`
+/// holds every completed span and names the failing one.
+///
+/// # Errors
+///
+/// Fails exactly when [`execute_command`] fails.
+pub fn execute_command_measured(
+    request: &CommandRequest,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
     validate_request(request)?;
-    let metadata = cargo_metadata(&request.manifest_path)?;
-    let host_target = rustc_host_target()?;
+    let timings = &mut measurement.timings;
+    let metadata = timings.try_span("cargo.metadata.input", |_| {
+        cargo_metadata(&request.manifest_path)
+    })?;
+    let host_target = timings.try_span("host.discover", |_| rustc_host_target())?;
 
     if request.command == CommandKind::Check {
-        cargo_check(request, &host_target, &metadata)?;
+        timings.try_span("cargo.check", |_| {
+            cargo_check(request, &host_target, &metadata)
+        })?;
     }
 
-    let runtime = discover_runtime()?;
-    let plan = CollectorPlan::resolve_definition(
-        &metadata,
-        &DefinitionRequest {
-            root: request.root.clone(),
-            dependencies: request.dependencies.clone(),
-            host_target,
-            cfg: request.cfg.clone(),
-        },
-        runtime,
-    )?;
-    let plan = match request.registration {
-        RegistrationMode::Inventory => plan,
-        RegistrationMode::Explicit => plan.with_explicit_registration()?,
+    let runtime = timings.try_span("cargo.metadata.runtime", |_| discover_runtime())?;
+    let plan = timings.try_span("collector.plan", |_| {
+        let plan = CollectorPlan::resolve_definition(
+            &metadata,
+            &DefinitionRequest {
+                root: request.root.clone(),
+                dependencies: request.dependencies.clone(),
+                host_target,
+                cfg: request.cfg.clone(),
+            },
+            runtime,
+        )?;
+        Ok::<_, CommandError>(match request.registration {
+            RegistrationMode::Inventory => plan,
+            RegistrationMode::Explicit => plan.with_explicit_registration()?,
+        })
+    })?;
+    let prepared = prepare(&metadata, &plan, measurement)?;
+
+    let outcome = match request.command {
+        CommandKind::Check => measurement
+            .timings
+            .try_span("check.adapt", |_| check(&prepared, request.backend)),
+        CommandKind::Expand => measurement
+            .timings
+            .try_span("expand.render", |_| expand(&prepared, &plan)),
+        CommandKind::EmitK => {
+            required_output(request).and_then(|output| emit(&prepared, output, measurement))
+        }
+        CommandKind::Build => required_output(request)
+            .and_then(|output| build(&prepared, request.backend, output, measurement)),
     };
-    let prepared = prepare(&metadata, &plan)?;
-
-    match request.command {
-        CommandKind::Check => check(&prepared, request.backend),
-        CommandKind::Expand => expand(&prepared, &plan),
-        CommandKind::EmitK => emit(&prepared, required_output(request)?),
-        CommandKind::Build => build(&prepared, request.backend, required_output(request)?),
-    }
+    measurement.timings.span("release", |_| drop(prepared));
+    outcome
 }
 
 fn validate_request(request: &CommandRequest) -> Result<(), CommandError> {
@@ -157,33 +205,170 @@ fn required_output(request: &CommandRequest) -> Result<&Path, CommandError> {
 fn prepare(
     metadata: &CargoMetadata,
     plan: &CollectorPlan,
+    measurement: &mut Measurement,
 ) -> Result<PreparedDefinition, CommandError> {
-    let target = metadata.target_directory.as_deref().ok_or_else(|| {
-        CommandError::InvalidMetadata(
-            "Cargo metadata did not provide an absolute target_directory".to_owned(),
-        )
+    let collector_directory = measurement.timings.try_span("collector.generate", |_| {
+        let target = metadata.target_directory.as_deref().ok_or_else(|| {
+            CommandError::InvalidMetadata(
+                "Cargo metadata did not provide an absolute target_directory".to_owned(),
+            )
+        })?;
+        let target = Path::new(target);
+        if !target.is_absolute() {
+            return Err(CommandError::InvalidMetadata(
+                "Cargo metadata target_directory is not absolute".to_owned(),
+            ));
+        }
+        let collector = GeneratedCollector::from_plan(plan)?;
+        let collector_directory = collector_directory(target, &collector);
+        collector.write_to(&collector_directory)?;
+        Ok(collector_directory)
     })?;
-    let target = Path::new(target);
-    if !target.is_absolute() {
-        return Err(CommandError::InvalidMetadata(
-            "Cargo metadata target_directory is not absolute".to_owned(),
-        ));
-    }
-    let collector = GeneratedCollector::from_plan(plan)?;
-    let collector_directory = collector_directory(target, &collector);
-    collector.write_to(&collector_directory)?;
+    let stdout = run_collector(&collector_directory, measurement)?;
+    let bundle: DescriptorBundle = measurement
+        .timings
+        .try_span("protocol.decode", |_| {
+            let bundle = serde_json::from_slice(&stdout).map_err(CommandError::DescriptorProtocol);
+            let bytes = stdout.len();
+            drop(stdout);
+            bundle.map(|bundle| (bundle, bytes))
+        })
+        .map(|(bundle, bytes)| {
+            count_bundle(&mut measurement.counters, &bundle, bytes);
+            bundle
+        })?;
+    let semantic = measurement
+        .timings
+        .try_span("semantic.lower", |_| lower_semantic(&bundle))?;
+    measurement
+        .counters
+        .set("semantic.modules", semantic.modules().len());
+    let lowered = measurement
+        .timings
+        .try_span("definition.lower", |_| lower_definition(&semantic))?;
+    count_definition(&mut measurement.counters, &lowered);
+    Ok(PreparedDefinition {
+        bundle,
+        semantic,
+        lowered,
+    })
+}
+
+/// Run the generated collector through `cargo run` as span `collector.run`.
+///
+/// When measuring, the collector records its own phases in a sidecar file
+/// named by [`COLLECTOR_MEASURE_ENV`]; they are nested below `collector.run`
+/// after `collector.cargo`, the time from spawning Cargo until the collector
+/// started collecting.
+fn run_collector(
+    collector_directory: &Path,
+    measurement: &mut Measurement,
+) -> Result<Vec<u8>, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
     // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let output = cargo(
-        "collector execution",
-        Command::new("cargo")
-            .current_dir(&collector_directory)
-            .args(["run", "--quiet", "--manifest-path"])
-            .arg(collector_directory.join("Cargo.toml")),
-    )?;
-    let bundle: DescriptorBundle =
-        serde_json::from_slice(&output.stdout).map_err(CommandError::DescriptorProtocol)?;
-    let semantic = lower_descriptor_bundle(&bundle).map_err(|error| {
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(collector_directory)
+        .args(["run", "--quiet", "--manifest-path"])
+        .arg(collector_directory.join("Cargo.toml"));
+    // An environment variable Cargo does not track leaves the collector's
+    // fingerprint, and therefore its build, unchanged.
+    let sidecar = measurement.is_enabled().then(|| {
+        std::env::temp_dir().join(format!("krs-collector-measure-{}.json", std::process::id()))
+    });
+    if let Some(sidecar) = &sidecar {
+        let _ = fs::remove_file(sidecar);
+        command.env(COLLECTOR_MEASURE_ENV, sidecar);
+    }
+    let spawned = sidecar.as_ref().map(|_| unix_seconds());
+    let output = measurement.timings.try_span("collector.run", |_| {
+        cargo("collector execution", &mut command)
+    });
+    if let (Some(sidecar), Some(spawned)) = (sidecar, spawned) {
+        let document = fs::read(&sidecar)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<CollectorMeasureDocument>(&bytes).ok());
+        let _ = fs::remove_file(&sidecar);
+        if let Some(document) = document {
+            let timings = &mut measurement.timings;
+            timings.record(
+                "collector.cargo",
+                document.started_unix_seconds - spawned,
+                1,
+            );
+            for span in document.spans {
+                timings.record(&span.id, span.seconds, span.depth.saturating_add(1));
+            }
+            for (name, value) in document.counters {
+                measurement.counters.set(name, value);
+            }
+        }
+    }
+    Ok(output?.stdout)
+}
+
+fn count_bundle(counters: &mut Counters, bundle: &DescriptorBundle, bytes: usize) {
+    if !counters.is_enabled() {
+        return;
+    }
+    counters.set("bundle.bytes", bytes);
+    if let Some(provenance) = counters.get("bundle.provenance_bytes") {
+        let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+        counters.set("bundle.other_bytes", bytes.saturating_sub(provenance));
+    }
+    counters.set("descriptors.total", bundle.descriptors.len());
+    counters.set("declarations.total", bundle.declarations.len());
+    let mut anchors = 0;
+    let mut frames = 0;
+    for descriptor in &bundle.descriptors {
+        counters.add(
+            format!("descriptors.kind.{:?}", descriptor.id.item_kind()),
+            1u64,
+        );
+        let origins = descriptor.provenance.origins();
+        anchors += origins.len();
+        frames += origins
+            .iter()
+            .map(|node| node.origin.frames().len())
+            .sum::<usize>();
+    }
+    counters.set("provenance.anchors", anchors);
+    counters.set("provenance.origin_frames", frames);
+}
+
+fn count_definition(counters: &mut Counters, lowered: &krs_compiler::LoweredDefinition) {
+    if !counters.is_enabled() {
+        return;
+    }
+    let definition = lowered.definition();
+    counters.set("definition.modules", definition.modules().len());
+    let mut sentences = 0;
+    for module in definition.modules() {
+        sentences += module.sentences().len();
+        for sentence in module.sentences() {
+            let kind = match sentence {
+                DefinitionSentence::SyntaxSort(_) => "syntax_sort",
+                DefinitionSentence::Subsort(_) => "subsort",
+                DefinitionSentence::Production(_) => "production",
+                DefinitionSentence::Precedence(_) => "precedence",
+                DefinitionSentence::Associativity(_) => "associativity",
+                DefinitionSentence::Configuration(_) => "configuration",
+                DefinitionSentence::ContextAlias(_) => "context_alias",
+                DefinitionSentence::Rule(_) => "rule",
+            };
+            counters.add(format!("definition.sentences.{kind}"), 1u64);
+        }
+    }
+    counters.set("definition.sentences", sentences);
+    counters.set("definition.symbols", lowered.symbol_map().entries().len());
+    counters.set(
+        "definition.source_map_entries",
+        lowered.source_map().entries().len(),
+    );
+}
+
+fn lower_semantic(bundle: &DescriptorBundle) -> Result<krs_ir::SemanticTheory, CommandError> {
+    lower_descriptor_bundle(bundle).map_err(|error| {
         if let DescriptorLoweringError::OverlappingRules { first, second } = &error
             && let Some(descriptor) = bundle
                 .descriptors
@@ -207,8 +392,13 @@ fn prepare(
             return CommandError::Diagnostics(vec![diagnostic]);
         }
         CommandError::DescriptorLowering(error)
-    })?;
-    let lowered = lower_semantic_theory(&semantic).map_err(|error| {
+    })
+}
+
+fn lower_definition(
+    semantic: &krs_ir::SemanticTheory,
+) -> Result<krs_compiler::LoweredDefinition, CommandError> {
+    lower_semantic_theory(semantic).map_err(|error| {
         if let LoweringError::NameCollision {
             namespace,
             value: _,
@@ -230,11 +420,6 @@ fn prepare(
             )]);
         }
         CommandError::Lowering(error)
-    })?;
-    Ok(PreparedDefinition {
-        bundle,
-        semantic,
-        lowered,
     })
 }
 
@@ -406,27 +591,51 @@ fn authored_source_file(descriptor: &Descriptor) -> Option<&SourceFileId> {
         })
 }
 
-fn emit(prepared: &PreparedDefinition, output: &Path) -> Result<CommandOutcome, CommandError> {
-    let descriptor_bundle = prepared.bundle.to_canonical_json()?;
-    let semantic_ir = prepared.semantic.to_canonical_json()?;
-    let definition_ir = prepared.lowered.definition().to_canonical_json()?;
-    let emitted = emit_k(&prepared.lowered)?;
-    let symbols = emitted.symbol_map().to_canonical_json()?;
-    let sources = emitted.source_map().to_canonical_json()?;
-    prepare_output(output)?;
-    write_output(
-        output,
-        "descriptor-bundle.json",
-        descriptor_bundle.as_bytes(),
-    )?;
-    write_output(output, "semantic-ir.json", semantic_ir.as_bytes())?;
-    write_output(output, "definition-ir.json", definition_ir.as_bytes())?;
-    write_output(output, DEFINITION_ARTIFACT, emitted.source().as_bytes())?;
+fn emit(
+    prepared: &PreparedDefinition,
+    output: &Path,
+    measurement: &mut Measurement,
+) -> Result<CommandOutcome, CommandError> {
+    let (descriptor_bundle, semantic_ir, definition_ir, emitted, symbols, sources) =
+        measurement.timings.try_span("emit_k.render", |_| {
+            let descriptor_bundle = prepared.bundle.to_canonical_json()?;
+            let semantic_ir = prepared.semantic.to_canonical_json()?;
+            let definition_ir = prepared.lowered.definition().to_canonical_json()?;
+            let emitted = emit_k(&prepared.lowered)?;
+            let symbols = emitted.symbol_map().to_canonical_json()?;
+            let sources = emitted.source_map().to_canonical_json()?;
+            Ok::<_, CommandError>((
+                descriptor_bundle,
+                semantic_ir,
+                definition_ir,
+                emitted,
+                symbols,
+                sources,
+            ))
+        })?;
+    let mut artifacts = vec![
+        ("descriptor-bundle.json", descriptor_bundle.as_bytes()),
+        ("semantic-ir.json", semantic_ir.as_bytes()),
+        ("definition-ir.json", definition_ir.as_bytes()),
+        (DEFINITION_ARTIFACT, emitted.source().as_bytes()),
+    ];
     if let Some(spec) = emitted.spec() {
-        write_output(output, SPEC_ARTIFACT, spec.source().as_bytes())?;
+        artifacts.push((SPEC_ARTIFACT, spec.source().as_bytes()));
     }
-    write_output(output, "symbols.json", symbols.as_bytes())?;
-    write_output(output, "sources.json", sources.as_bytes())?;
+    artifacts.push(("symbols.json", symbols.as_bytes()));
+    artifacts.push(("sources.json", sources.as_bytes()));
+    measurement.timings.try_span("emit_k.write", |_| {
+        prepare_output(output)?;
+        for (name, bytes) in &artifacts {
+            write_output(output, name, bytes)?;
+        }
+        Ok::<_, CommandError>(())
+    })?;
+    for (name, bytes) in &artifacts {
+        measurement
+            .counters
+            .set(format!("emit_k.bytes.{name}"), bytes.len());
+    }
     let spec = if emitted.spec().is_some() {
         format!(" {SPEC_ARTIFACT},")
     } else {
@@ -445,29 +654,46 @@ fn build(
     prepared: &PreparedDefinition,
     backend: Backend,
     output: &Path,
+    measurement: &mut Measurement,
 ) -> Result<CommandOutcome, CommandError> {
-    let artifacts = compile_definition(
+    let artifacts = compile_definition_timed(
         prepared.lowered.definition(),
         CompileOptions {
             backend,
             ..CompileOptions::default()
         },
+        &mut measurement.timings,
     )
-    .map_err(|error| native_command_error(prepared, backend, error))?;
+    .map_err(|error| {
+        measurement.timings.span("native.diagnostics", |_| {
+            native_command_error(prepared, backend, error)
+        })
+    })?;
+    let files = [
+        ("definition.kore", artifacts.definition_kore.as_bytes()),
+        (
+            "syntaxDefinition.kore",
+            artifacts.syntax_definition_kore.as_bytes(),
+        ),
+        ("macros.kore", artifacts.macros_kore.as_bytes()),
+    ];
     // Do not create the output directory until structured compilation has
     // succeeded. A native rejection therefore leaves no artifacts.
-    prepare_output(output)?;
-    write_output(
-        output,
-        "definition.kore",
-        artifacts.definition_kore.as_bytes(),
-    )?;
-    write_output(
-        output,
-        "syntaxDefinition.kore",
-        artifacts.syntax_definition_kore.as_bytes(),
-    )?;
-    write_output(output, "macros.kore", artifacts.macros_kore.as_bytes())?;
+    measurement.timings.try_span("native.write", |_| {
+        prepare_output(output)?;
+        for (name, bytes) in files {
+            write_output(output, name, bytes)?;
+        }
+        Ok::<_, CommandError>(())
+    })?;
+    for (name, bytes) in files {
+        measurement
+            .counters
+            .set(format!("native.bytes.{name}"), bytes.len());
+    }
+    measurement
+        .counters
+        .set("native.omitted_claims", artifacts.omitted_claims);
     // Only a backend that does not prove omits claims.
     let omitted = match artifacts.omitted_claims {
         0 => String::new(),

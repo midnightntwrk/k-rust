@@ -12,7 +12,10 @@ mod generate;
 mod metadata;
 mod plan;
 
-pub use command::{CommandError, CommandKind, CommandOutcome, CommandRequest, execute_command};
+pub use command::{
+    CommandError, CommandKind, CommandOutcome, CommandRequest, execute_command,
+    execute_command_measured,
+};
 pub use diagnostic::{
     DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticSeverity,
     DiagnosticStage, exact_authored_range, exact_authored_range_from_origin,

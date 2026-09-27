@@ -72,9 +72,8 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
     assert!(package_name.starts_with("name = \"krs-generated-collector-"));
     assert_ne!(package_name, "name = \"krs-generated-collector\"");
     assert!(source.contains("__krs_host_runtime::host_descriptors()"));
-    assert!(source.contains("__krs_host_runtime::builtin_registry()"));
-    assert!(source.contains("__krs_compiler_runtime::collect_host_descriptors_with_builtins("));
-    assert!(source.contains("bundle.to_canonical_json()"));
+    assert!(source.contains("__krs_host_runtime::builtin_registry,"));
+    assert!(source.contains("__krs_compiler_runtime::run_collector("));
     assert!(!source.contains("SELECTED_FACETS"));
     assert!(!selection.contains("/language"));
     assert!(!selection.contains("/tool"));

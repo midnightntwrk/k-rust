@@ -136,6 +136,25 @@ impl DescriptorBundle {
         Ok(json)
     }
 
+    /// [`Self::to_canonical_json`] bytes, plus how many of them encode
+    /// descriptor `provenance` values. The bytes are identical; only the
+    /// count is extra, for measurement.
+    ///
+    /// # Errors
+    ///
+    /// Fails exactly when [`Self::to_canonical_json`] fails.
+    pub fn to_canonical_json_measured(&self) -> serde_json::Result<(Vec<u8>, u64)> {
+        let mut canonical = self.clone();
+        canonical.canonicalize();
+        let mut writer = crate::measure::ProvenanceCountingWriter {
+            bytes: Vec::with_capacity(128),
+            provenance: 0,
+        };
+        serde_json::to_writer_pretty(&mut writer, &canonical)?;
+        writer.bytes.push(b'\n');
+        Ok((writer.bytes, writer.provenance))
+    }
+
     fn canonicalize(&mut self) {
         for descriptor in &mut self.descriptors {
             descriptor.canonicalize();
@@ -436,10 +455,34 @@ impl DescriptorNodeOrigin {
 /// rather than discarding all but the declaration range. A configuration may
 /// merge nodes from its struct attribute and its associated initializer
 /// attribute even when they occur in different source files.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct DescriptorProvenance {
     primary_key: ProvenanceKey,
     origins: Vec<DescriptorNodeOrigin>,
+}
+
+/// Borrowed serialization form of [`DescriptorProvenance`], field for field.
+#[derive(Serialize)]
+#[serde(rename = "DescriptorProvenance")]
+struct DescriptorProvenanceRef<'a> {
+    primary_key: &'a ProvenanceKey,
+    origins: &'a [DescriptorNodeOrigin],
+}
+
+impl Serialize for DescriptorProvenance {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // The scope lets a measuring writer attribute these bytes; it changes
+        // nothing about the encoding.
+        let _scope = crate::measure::ProvenanceScope::enter();
+        DescriptorProvenanceRef {
+            primary_key: &self.primary_key,
+            origins: &self.origins,
+        }
+        .serialize(serializer)
+    }
 }
 
 #[derive(Deserialize)]
