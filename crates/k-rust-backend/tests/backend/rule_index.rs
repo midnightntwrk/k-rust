@@ -33,6 +33,8 @@ fn definition_with(extra_axioms: &str) -> BackendDefinition {
           symbol dotk{}() : SortK{} [constructor{}(), total{}()]
           symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), total{}()]
           symbol top{}(SortKCell{}) : SortGeneratedTopCell{} [constructor{}(), total{}()]
+          symbol other{}(SortKCell{}) : SortGeneratedTopCell{} [constructor{}(), total{}()]
+          symbol unknown{}() : SortGeneratedTopCell{} [function{}(), total{}(), no-evaluators{}()]
           symbol A{}() : SortKItem{} [constructor{}(), total{}()]
           symbol B{}() : SortKItem{} [constructor{}(), total{}()]
           symbol f{}() : SortKItem{} [function{}(), total{}()]
@@ -95,8 +97,8 @@ fn candidate_ids(
     subject: &k_rust_backend::term::Term,
 ) -> Vec<String> {
     applicable_rewrite_groups(
-        &definition.rewrite_theory,
-        &term_index(subject),
+        definition,
+        subject,
         &subject_index(definition, subject),
     )
     .into_values()
@@ -110,6 +112,30 @@ fn indexed(definition: &BackendDefinition, head: &str) -> k_rust_backend::term::
         definition,
         &format!("top{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}({head}, dotk{{}}())))"),
     )
+}
+
+#[test]
+fn non_rigid_top_selects_rules_under_every_symbol() {
+    let definition = definition_with(
+        r#"
+          axiom{} \rewrites{SortGeneratedTopCell{}}(
+            \and{SortGeneratedTopCell{}}(
+              other{}(Lbl'-LT-'k'-GT-'{}(kseq{}(A{}(), dotk{}()))),
+              \top{SortGeneratedTopCell{}}()
+            ),
+            top{}(Lbl'-LT-'k'-GT-'{}(kseq{}(B{}(), dotk{}())))
+          ) [label{}("other"), priority{}("50")]
+        "#,
+    );
+    let expected = ["other", "A-first", "B-only", "A-second", "wild"];
+    let variable = internal_term(&definition, "C:SortGeneratedTopCell{}");
+    let function = internal_term(&definition, "unknown{}()");
+    assert_eq!(candidate_ids(&definition, &variable), expected);
+    assert_eq!(candidate_ids(&definition, &function), expected);
+    assert_eq!(
+        candidate_ids(&definition, &indexed(&definition, "A{}()")),
+        ["A-first", "A-second", "wild"]
+    );
 }
 
 #[test]

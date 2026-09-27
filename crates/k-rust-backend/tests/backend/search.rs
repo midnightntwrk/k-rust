@@ -50,6 +50,7 @@ fn search_definition(rules: &str) -> BackendDefinition {
                 symbol b{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol c{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol ok{{}}() : SortS{{}} [constructor{{}}(), functional{{}}()]
+                symbol held{{}}(SortS{{}}) : SortS{{}} [constructor{{}}(), functional{{}}()]
                 symbol g{{}}(SortS{{}}) : SortS{{}} [function{{}}(), functional{{}}()]
                 symbol check{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
                 symbol norm{{}}(SortS{{}}) : SortS{{}} [function{{}}()]
@@ -84,9 +85,9 @@ fn rule(label: &str, left: &str, right: &str) -> String {
     )
 }
 
-/// `start => g(a)`, and `start => b` when `branching`.
+/// `start => held(g(a))`, and `start => b` when `branching`.
 fn growing_definition(branching: bool) -> BackendDefinition {
-    let mut rules = rule("to-g", "start{}()", "g{}(a{}())");
+    let mut rules = rule("to-g", "start{}()", "held{}(g{}(a{}()))");
     if branching {
         rules.push_str(&rule("to-b", "start{}()", "b{}()"));
     }
@@ -182,7 +183,7 @@ fn a_final_state_carries_the_budget_exhaustion_of_its_path() {
     let [state] = result.states.as_slice() else {
         panic!("expected one final state, found {:?}", result.states);
     };
-    assert_eq!(head(&state.pattern), "g");
+    assert_eq!(head(&state.pattern), "held");
     assert_eq!(state.diagnostics, [term_exhausted(3)]);
     assert_eq!(result.incomplete, []);
 }
@@ -196,7 +197,7 @@ fn state_search_attributes_a_diagnostic_to_the_branch_that_emitted_it_only() {
 
     assert_eq!(result.states.len(), 2, "{:?}", result.states);
     assert_eq!(
-        state_headed(&result.states, "g").diagnostics,
+        state_headed(&result.states, "held").diagnostics,
         [term_exhausted(3)]
     );
     assert_eq!(state_headed(&result.states, "b").diagnostics, []);
@@ -212,7 +213,7 @@ fn path_search_attributes_a_diagnostic_to_the_witness_that_emitted_it_only() {
 
     assert_eq!(result.witnesses.len(), 2, "{:?}", result.witnesses);
     assert_eq!(
-        witness_headed(&result.witnesses, "g").diagnostics,
+        witness_headed(&result.witnesses, "held").diagnostics,
         [term_exhausted(3)]
     );
     assert_eq!(witness_headed(&result.witnesses, "b").diagnostics, []);
@@ -241,11 +242,11 @@ fn a_collector_around_search_sees_every_diagnostic_of_every_path() {
     assert_eq!(collected_states, growing);
     assert_eq!(collected_paths, growing);
     assert_eq!(
-        state_headed(&states.states, "g").diagnostics,
+        state_headed(&states.states, "held").diagnostics,
         [term_exhausted(3)]
     );
     assert_eq!(
-        witness_headed(&paths.witnesses, "g").diagnostics,
+        witness_headed(&paths.witnesses, "held").diagnostics,
         [term_exhausted(3)]
     );
 
@@ -474,7 +475,7 @@ fn an_incomplete_entry_carries_its_states_path_diagnostics() {
     );
 
     assert_eq!(
-        state_headed(&result.states, "g").diagnostics,
+        state_headed(&result.states, "held").diagnostics,
         [term_exhausted(3)]
     );
     let [IncompleteSearch::DepthBound(bounded)] = result.incomplete.as_slice() else {
@@ -483,6 +484,6 @@ fn an_incomplete_entry_carries_its_states_path_diagnostics() {
             result.incomplete
         );
     };
-    assert_eq!(head(&bounded.pattern), "g");
+    assert_eq!(head(&bounded.pattern), "held");
     assert_eq!(bounded.diagnostics, [term_exhausted(3)]);
 }
