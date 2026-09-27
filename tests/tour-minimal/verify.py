@@ -19,7 +19,7 @@ from support.hashing import sha256_file  # noqa: E402
 from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
 from support.lock import krs_ir_schema, msrv  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import executable, rustfmt_dir, workspace_debug_binary, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -55,7 +55,7 @@ def production_binary(override: Path | None, environment: dict[str, str]) -> Pat
         ],
         environment=environment,
     )
-    binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
+    binary = workspace_debug_binary("krs")
     if not binary.is_file():
         raise GateError(f"Cargo did not produce the KRS binary at {binary}")
     return binary

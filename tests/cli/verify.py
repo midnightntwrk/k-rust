@@ -20,7 +20,7 @@ from support.hashing import sha256_bytes  # noqa: E402
 from support.lock import k_version  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, find_k_tool, k_tool  # noqa: E402
+from support.tools import executable, find_k_tool, k_tool, workspace_debug_binary  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -70,7 +70,7 @@ def build_cli(results: Results) -> Path | None:
         check=False,
         text=False,
     )
-    binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
+    binary = workspace_debug_binary("krs")
     ok = process.returncode == 0 and binary.is_file()
     results.add(
         "cli_binary",
@@ -339,13 +339,41 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
     broken_source = broken_manifest.parent / "src" / "lib.rs"
     with broken_source.open("a", encoding="utf-8") as output:
         output.write('\ncompile_error!("KRS CLI oracle induced Cargo failure");\n')
-    broken = cli_command(binary, "check", broken_manifest, workspace / "broken-target")
-    broken_ok = (
-        broken.returncode != 0
-        and b'"stage":"rust-expansion"' in broken.stderr
-        and b"KRS CLI oracle induced Cargo failure" in broken.stderr
-    )
-    results.add("cargo_check_failure", "PASS" if broken_ok else "FAIL", "krs check fails at Rust expansion with an authored diagnostic" if broken_ok else compact(broken))
+    for command in ("check", "build"):
+        broken = cli_command(
+            binary,
+            command,
+            broken_manifest,
+            workspace / "broken-target",
+            output=workspace / "broken-output" if command == "build" else None,
+        )
+        diagnostics = []
+        for line in broken.stderr.splitlines():
+            try:
+                diagnostics.append(json.loads(line))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
+        source_bytes = broken_source.read_bytes()
+        error_start = source_bytes.index(b"compile_error!")
+        broken_ok = broken.returncode != 0 and any(
+            isinstance(diagnostic, dict)
+            and diagnostic.get("schema_version") == 1
+            and diagnostic.get("stage") == "rust-expansion"
+            and diagnostic.get("code") == "rust-expansion-error"
+            and diagnostic.get("severity") == "error"
+            and "KRS CLI oracle induced Cargo failure" in diagnostic.get("message", "")
+            and diagnostic.get("authored_range", {}).get("file", {}).get("package", {}).get("cargo_name") == PACKAGE
+            and diagnostic.get("authored_range", {}).get("file", {}).get("package_relative_path") == "src/lib.rs"
+            and error_start <= diagnostic.get("authored_range", {}).get("start_byte", -1)
+            < diagnostic.get("authored_range", {}).get("end_byte", -1)
+            <= len(source_bytes)
+            for diagnostic in diagnostics
+        )
+        results.add(
+            f"collector_build_failure_{command}",
+            "PASS" if broken_ok else "FAIL",
+            f"krs {command} reports an authored Rust diagnostic from the collector build" if broken_ok else compact(broken),
+        )
 
     safe_manifest = materialize(workspace / "safe-language")
     unsafe_output = workspace / "unsafe-output"

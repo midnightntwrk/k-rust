@@ -12,7 +12,7 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
+from support.tools import executable, rustfmt_dir, workspace_debug_binary, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -75,7 +75,7 @@ def main() -> None:
 
     env = environment()
     run([cargo, "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], environment=env)
-    binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
+    binary = workspace_debug_binary("krs")
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
     run(command(binary, "check"), environment=env)
     first_expansion = run(command(binary, "expand"), environment=env).stdout

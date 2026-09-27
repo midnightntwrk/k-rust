@@ -82,9 +82,9 @@ fn run_check(
         .env("CARGO_TARGET_DIR", target)
         .env("CARGO_NET_OFFLINE", "true")
         .env("RUSTUP_TOOLCHAIN", "stable")
-        .env("RUSTC_WORKSPACE_WRAPPER", wrapper)
+        .env("RUSTC_WRAPPER", wrapper)
         .env("KRS_RATCHET_RUSTC_LOG", log)
-        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTC_WORKSPACE_WRAPPER")
         .output()
         .unwrap()
 }
@@ -103,16 +103,8 @@ fn medium_definition_counters_and_second_check_are_stable() {
         .join("../../tests/perf/fixtures/ratchet-medium/Cargo.toml")
         .canonicalize()
         .unwrap();
-    let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(
-        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"),
-        PathBuf::from,
-    );
-    let target = if target.is_absolute() {
-        target
-    } else {
-        std::env::current_dir().unwrap().join(target)
-    };
     let scratch = Scratch::new();
+    let target = scratch.0.join("target");
     let wrapper = scratch.0.join("rustc-wrapper");
     let log = scratch.0.join("rustc.log");
     let counters = scratch.0.join("counters.json");

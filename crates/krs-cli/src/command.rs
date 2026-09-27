@@ -21,7 +21,7 @@ use krs_k_rust::{
 };
 use sha2::{Digest, Sha256};
 use std::error::Error;
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -61,7 +61,7 @@ impl CommandKind {
 pub struct CommandRequest {
     /// Command to execute.
     pub command: CommandKind,
-    /// Cargo manifest used for metadata and Rust checking.
+    /// Cargo manifest used for metadata and collector planning.
     pub manifest_path: PathBuf,
     /// Selected root definition facet.
     pub root: FacetSelector,
@@ -135,12 +135,6 @@ pub fn execute_command_measured(
         cargo_metadata(&request.manifest_path)
     })?;
     let host_target = timings.try_span("host.discover", |_| rustc_host_target())?;
-
-    if request.command == CommandKind::Check {
-        timings.try_span("cargo.check", |_| {
-            cargo_check(request, &host_target, &metadata)
-        })?;
-    }
 
     let runtime = timings.try_span("cargo.metadata.runtime", |_| discover_runtime())?;
     let plan = timings.try_span("collector.plan", |_| {
@@ -224,7 +218,7 @@ fn prepare(
         collector.write_to(&collector_directory)?;
         Ok(collector_directory)
     })?;
-    let stdout = run_collector(&collector_directory, measurement)?;
+    let stdout = run_collector(&collector_directory, metadata, measurement)?;
     let bundle: DescriptorBundle = measurement
         .timings
         .try_span("protocol.decode", |_| {
@@ -255,25 +249,31 @@ fn prepare(
     })
 }
 
-/// Run the generated collector through `cargo run` as span `collector.run`.
+/// Build and run the generated collector.
 ///
 /// When measuring, the collector records its own phases in a sidecar file
 /// named by [`COLLECTOR_MEASURE_ENV`]; they are nested below `collector.run`
-/// after `collector.cargo`, the time from spawning Cargo until the collector
+/// after `collector.exec`, the time from spawning the executable until it
 /// started collecting.
 fn run_collector(
     collector_directory: &Path,
+    metadata: &CargoMetadata,
     measurement: &mut Measurement,
 ) -> Result<Vec<u8>, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
     // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let mut command = Command::new("cargo");
-    command
+    let mut build = Command::new("cargo");
+    build
         .current_dir(collector_directory)
-        .args(["run", "--quiet", "--manifest-path"])
-        .arg(collector_directory.join("Cargo.toml"));
-    // An environment variable Cargo does not track leaves the collector's
-    // fingerprint, and therefore its build, unchanged.
+        .args(["build", "--manifest-path"])
+        .arg(collector_directory.join("Cargo.toml"))
+        .args(["--message-format", "json-diagnostic-rendered-ansi"]);
+    let executable = measurement
+        .timings
+        .try_span("collector.build", |_| build_collector(&mut build, metadata))?;
+    let mut command = Command::new(executable);
+    command.current_dir(collector_directory);
+    // The sidecar affects execution only, leaving Cargo's fingerprint intact.
     let sidecar = measurement.is_enabled().then(|| {
         std::env::temp_dir().join(format!("krs-collector-measure-{}.json", std::process::id()))
     });
@@ -283,7 +283,7 @@ fn run_collector(
     }
     let spawned = sidecar.as_ref().map(|_| unix_seconds());
     let output = measurement.timings.try_span("collector.run", |_| {
-        cargo("collector execution", &mut command)
+        process("collector execution", &mut command)
     });
     if let (Some(sidecar), Some(spawned)) = (sidecar, spawned) {
         let document = fs::read(&sidecar)
@@ -292,11 +292,7 @@ fn run_collector(
         let _ = fs::remove_file(&sidecar);
         if let Some(document) = document {
             let timings = &mut measurement.timings;
-            timings.record(
-                "collector.cargo",
-                document.started_unix_seconds - spawned,
-                1,
-            );
+            timings.record("collector.exec", document.started_unix_seconds - spawned, 1);
             for span in document.spans {
                 timings.record(&span.id, span.seconds, span.depth.saturating_add(1));
             }
@@ -820,44 +816,73 @@ fn rustc_host_target() -> Result<String, CommandError> {
         })
 }
 
-fn cargo_check(
-    request: &CommandRequest,
-    host_target: &str,
+fn build_collector(
+    command: &mut Command,
     metadata: &CargoMetadata,
-) -> Result<(), CommandError> {
-    let mut command = Command::new("cargo");
-    command
-        .args(["check", "--manifest-path"])
-        .arg(&request.manifest_path)
-        .args(["--target", host_target, "--message-format", "json"]);
-    let flags = cfg_rustflags(&request.cfg);
-    if !flags.is_empty() {
-        let mut combined = std::env::var_os("RUSTFLAGS").unwrap_or_default();
-        if !combined.is_empty() {
-            combined.push(" ");
-        }
-        combined.push(flags);
-        command.env("RUSTFLAGS", combined);
-    }
+) -> Result<PathBuf, CommandError> {
     let output = command
         .output()
         .map_err(|source| CommandError::ProcessStart {
-            stage: "Cargo check",
+            stage: "collector build",
             source,
         })?;
-    if output.status.success() {
-        return Ok(());
+    if !output.status.success() {
+        let diagnostics = rust_diagnostics(&output.stdout, metadata);
+        return if diagnostics.is_empty() {
+            Err(CommandError::ProcessFailed {
+                stage: "collector build",
+                status: output.status.code(),
+                stderr: cargo_failure_text(&output),
+            })
+        } else {
+            Err(CommandError::Diagnostics(diagnostics))
+        };
     }
-    let diagnostics = rust_diagnostics(&output.stdout, metadata);
-    if diagnostics.is_empty() {
-        Err(CommandError::ProcessFailed {
-            stage: "Cargo check",
-            status: output.status.code(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    let executables = output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .filter_map(|line| serde_json::from_slice::<CargoArtifact>(line).ok())
+        .filter(|message| {
+            message.reason == "compiler-artifact"
+                && message.target.kind.iter().any(|kind| kind == "bin")
         })
-    } else {
-        Err(CommandError::Diagnostics(diagnostics))
+        .filter_map(|message| message.executable)
+        .collect::<Vec<_>>();
+    match executables.as_slice() {
+        [executable] => Ok(executable.clone()),
+        _ => Err(CommandError::InvalidMetadata(format!(
+            "collector build reported {} executables; expected one",
+            executables.len()
+        ))),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct CargoArtifact {
+    reason: String,
+    target: CargoArtifactTarget,
+    executable: Option<PathBuf>,
+}
+
+#[derive(serde::Deserialize)]
+struct CargoArtifactTarget {
+    kind: Vec<String>,
+}
+
+fn cargo_failure_text(output: &Output) -> String {
+    let mut rendered = String::new();
+    for line in output.stdout.split(|byte| *byte == b'\n') {
+        let Ok(message) = serde_json::from_slice::<CargoCompilerMessage>(line) else {
+            continue;
+        };
+        if message.reason == "compiler-message"
+            && let Some(message_text) = message.message.and_then(|diagnostic| diagnostic.rendered)
+        {
+            rendered.push_str(&message_text);
+        }
+    }
+    rendered.push_str(&String::from_utf8_lossy(&output.stderr));
+    rendered
 }
 
 #[derive(serde::Deserialize)]
@@ -873,6 +898,7 @@ struct RustDiagnostic {
     message: String,
     code: Option<RustDiagnosticCode>,
     spans: Vec<RustDiagnosticSpan>,
+    rendered: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -933,6 +959,7 @@ fn rust_source_range(
         .packages
         .iter()
         .find(|package| package.manifest_path == manifest)?;
+    package.metadata.get("krs")?.get("definitions")?;
     let manifest_directory = Path::new(manifest).parent()?;
     let path = Path::new(&span.file_name);
     let path = if path.is_absolute() {
@@ -967,40 +994,6 @@ fn rust_source_range(
     )
     .ok()?;
     SourceRange::new(file, span.byte_start, span.byte_end).ok()
-}
-
-fn cfg_rustflags(cfg: &[KrsCfg]) -> OsString {
-    let mut cfg = cfg.to_vec();
-    cfg.sort();
-    cfg.dedup();
-    let mut output = String::new();
-    for predicate in &cfg {
-        if !output.is_empty() {
-            output.push(' ');
-        }
-        output.push_str("--check-cfg=cfg(");
-        output.push_str(&predicate.key);
-        if let Some(value) = &predicate.value {
-            output.push_str(",values(");
-            output.push_str(
-                &serde_json::to_string(value).expect("cfg strings are infallibly serializable"),
-            );
-            output.push(')');
-        }
-        output.push(')');
-    }
-    for predicate in cfg {
-        output.push(' ');
-        output.push_str("--cfg ");
-        output.push_str(&predicate.key);
-        if let Some(value) = predicate.value {
-            output.push('=');
-            output.push_str(
-                &serde_json::to_string(&value).expect("cfg strings are infallibly serializable"),
-            );
-        }
-    }
-    output.into()
 }
 
 fn cargo(stage: &'static str, command: &mut Command) -> Result<Output, CommandError> {
@@ -1226,28 +1219,6 @@ impl From<serde_json::Error> for CommandError {
 mod tests {
     use super::*;
     use crate::PackageSelector;
-
-    #[test]
-    fn cfg_flags_are_canonical() {
-        let flags = cfg_rustflags(&[
-            KrsCfg {
-                key: "z".to_owned(),
-                value: None,
-            },
-            KrsCfg {
-                key: "backend".to_owned(),
-                value: Some("llvm".to_owned()),
-            },
-            KrsCfg {
-                key: "z".to_owned(),
-                value: None,
-            },
-        ]);
-        assert_eq!(
-            flags,
-            "--check-cfg=cfg(backend,values(\"llvm\")) --check-cfg=cfg(z) --cfg backend=\"llvm\" --cfg z"
-        );
-    }
 
     #[test]
     fn output_contract_is_command_specific() {

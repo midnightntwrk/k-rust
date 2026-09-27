@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.process import compact, render, run  # noqa: E402
-from support.tools import executable, z3_environment  # noqa: E402
+from support.tools import executable, workspace_debug_binary, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -73,7 +73,7 @@ def check_overlap() -> None:
         [executable("cargo"), "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
         environment=z3_environment(),
     )
-    binary = ROOT / "target" / "debug" / ("krs.exe" if os.name == "nt" else "krs")
+    binary = workspace_debug_binary("krs")
     result = run_failing(
         [
             binary,

@@ -22,8 +22,9 @@ It can format paths or stdin, and `--check` reports drift without rewriting file
 Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
 The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
 
-`check` resolves Cargo metadata and selected facets, compiles the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
-Keep ordinary `cargo check` in the loop too: it remains the authority for Rust names, types, imports, and macro expansion.
+`check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
+Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
+Run ordinary `cargo check` when you want Rust-only feedback on names, types, imports, and macro expansion while editing.
 
 ## Inspect the lowering
 

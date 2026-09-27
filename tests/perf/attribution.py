@@ -596,7 +596,7 @@ def generate_collector(work: Path, krs: Path, port: Any, registration: str, envi
     real = shutil.which("cargo", path=environment.get("PATH"))
     if real is None:
         raise GateError("cargo is not on PATH")
-    (shim / "cargo").write_text("#!/bin/sh\nif [ \"$1\" = run ]; then exit 97; fi\n"
+    (shim / "cargo").write_text("#!/bin/sh\nif [ \"$1\" = build ]; then exit 97; fi\n"
                                 f"exec \"{real}\" \"$@\"\n", encoding="utf-8")
     (shim / "cargo").chmod(0o755)
     target = work / "targets" / f"generate-{registration}"

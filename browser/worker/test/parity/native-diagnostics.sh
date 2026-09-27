@@ -6,7 +6,7 @@
 # Writes OUT/cases/<ID>/ for every case in cases.ts:
 #   D001, D002+D004, D007   cargo +stable check --message-format=json of the diagnostic bins (cargo.jsonl, exit)
 #   D003, D008              krs check of the diagnostic packages (stderr, exit) with the collector's stdout
-#                           teed to native-bundle.json by the cargo shim (lower-shim/cargo)
+#                           teed to native-bundle.json by the collector wrapper (lower-shim/collector)
 #   D005, D006              the anchor-probe (anchor-probe.json), and the lesson-level faults the
 #                           browser injects: the native tour-minimal collector binary run over an export
 #                           whose src/lib.rs is the E1 text (stale) or absent (missing) (stderr, exit)
@@ -97,17 +97,44 @@ cargo_check_bin D007 external_proc_macro
 
 # ---------------------------------------------------------------- krs check (lowering)
 
-# The cargo shim: krs-cli runs the generated collector with `cargo run`; the shim tees its stdout
-# (native bundle) or, with KRS_DIAGNOSTICS_BUNDLE, replaces it by a browser bundle (native lowering of the
-# browser bundle). Every other cargo invocation is the real cargo.
-cat >"$OUT/lower-shim/cargo" <<EOF
+# The cargo shim rewrites the collector executable path in Cargo's build message to a wrapper.
+# The wrapper tees collector stdout (native bundle) or replaces it with a browser bundle.
+# Every other Cargo invocation is forwarded unchanged.
+export KRS_DIAGNOSTICS_REAL_CARGO=$REAL_CARGO
+cat >"$OUT/lower-shim/cargo" <<'EOF'
 #!/usr/bin/env bash
-for argument in "\$@"; do [[ \$argument == run ]] && run=1; done
-if [[ -n \${run:-} && -n \${KRS_DIAGNOSTICS_BUNDLE:-} ]]; then cat "\$KRS_DIAGNOSTICS_BUNDLE"; exit 0; fi
-if [[ -n \${run:-} && -n \${KRS_DIAGNOSTICS_TEE:-} ]]; then
-  "$REAL_CARGO" "\$@" >"\$KRS_DIAGNOSTICS_TEE"; status=\$?; cat "\$KRS_DIAGNOSTICS_TEE"; exit \$status
+if [[ ${1:-} != build || -z ${KRS_DIAGNOSTICS_WRAPPER:-} ]]; then
+  exec "$KRS_DIAGNOSTICS_REAL_CARGO" "$@"
 fi
-exec "$REAL_CARGO" "\$@"
+message_file=$(mktemp)
+"$KRS_DIAGNOSTICS_REAL_CARGO" "$@" >"$message_file"
+status=$?
+if [[ $status -ne 0 ]]; then cat "$message_file"; rm -f "$message_file"; exit "$status"; fi
+python3 - "$message_file" "$KRS_DIAGNOSTICS_WRAPPER" <<'PY' || { status=$?; rm -f "$message_file"; exit "$status"; }
+import json
+import os
+import shlex
+import sys
+
+messages, wrapper = sys.argv[1:]
+with open(messages, encoding="utf-8") as source:
+    for line in source:
+        message = json.loads(line)
+        executable = message.get("executable")
+        if (message.get("reason") == "compiler-artifact"
+                and "bin" in message.get("target", {}).get("kind", []) and executable):
+            command = shlex.quote(executable)
+            with open(wrapper, "w", encoding="utf-8") as target:
+                target.write("#!/usr/bin/env bash\n")
+                target.write('if [[ -n ${KRS_DIAGNOSTICS_BUNDLE:-} ]]; then cat "$KRS_DIAGNOSTICS_BUNDLE"; exit 0; fi\n')
+                target.write(f'if [[ -n ${{KRS_DIAGNOSTICS_TEE:-}} ]]; then {command} "$@" >"$KRS_DIAGNOSTICS_TEE"; status=$?; cat "$KRS_DIAGNOSTICS_TEE"; exit $status; fi\n')
+                target.write(f'exec {command} "$@"\n')
+            os.chmod(wrapper, 0o755)
+            message["executable"] = wrapper
+            line = json.dumps(message) + "\n"
+        sys.stdout.write(line)
+PY
+rm -f "$message_file"
 EOF
 chmod +x "$OUT/lower-shim/cargo"
 
@@ -116,7 +143,8 @@ krs_check() { # ID PACKAGE-DIR PACKAGE
   mkdir -p "$dir"
   wait_for_load
   set +e
-  low env PATH="$OUT/lower-shim:$PATH" KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
+  low env PATH="$OUT/lower-shim:$PATH" KRS_DIAGNOSTICS_WRAPPER="$OUT/lower-shim/collector" \
+    KRS_DIAGNOSTICS_TEE="$dir/native-bundle.json" LD_LIBRARY_PATH="$Z3" \
     CARGO_TARGET_DIR="$OUT/target-krs" CARGO_BUILD_JOBS=4 \
     "$KRS_BIN" check --manifest-path "$OUT/workspace/$2/Cargo.toml" --package "$3" --definition main \
     >"$dir/stdout" 2>"$dir/stderr"

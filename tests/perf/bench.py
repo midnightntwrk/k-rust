@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compile-performance harness for the KRS definition pipeline.
 
-Measures `krs check|emit-k|build` and the isolated Cargo stages they contain
+Measures `krs check|emit-k|build` and isolated Cargo stages
 over the KWasm, KMIR, and KEVM semantics ports, in a matrix of stages and
 scenarios, and writes one versioned receipt per measured run.
 
@@ -56,13 +56,13 @@ class Stage:
 STAGES: dict[str, Stage] = {
     stage.name: stage
     for stage in (
-        Stage("krs-check", "`krs check`: host `cargo check`, collector build and run, lowering, checks",
+        Stage("krs-check", "`krs check`: collector build and run, lowering, checks",
               krs_command="check"),
         Stage("krs-emit-k", "`krs emit-k`: collector build and run, lowering, K and JSON emission",
               krs_command="emit-k", output=True),
         Stage("krs-build", "`krs build`: collector build and run, lowering, k-rust native frontend",
               krs_command="build", output=True),
-        Stage("cargo-check", "isolated host-target `cargo check` of the semantics crate, as `krs check` runs it"),
+        Stage("cargo-check", "isolated host-target `cargo check` of the semantics crate"),
         Stage("collector-build", "isolated `cargo build --timings` of the generated collector package"),
     )
 }
@@ -235,9 +235,9 @@ def krs_flags(krs: Path, environment: Mapping[str, str]) -> dict[str, bool]:
 def generate_collector(context: Context, port: Port) -> Path:
     """Generate the port's collector package without building it.
 
-    `krs expand` writes the generated collector and then runs it with
-    `cargo run`; a `cargo` shim ahead on PATH forwards every other Cargo
-    command and stops at `run`, so the package is written in seconds.
+    `krs expand` writes the generated collector and then builds it with
+    `cargo build`; a `cargo` shim ahead on PATH forwards every other Cargo
+    command and stops at `build`, so the package is written in seconds.
     """
 
     if port.key in context.collectors:
@@ -251,7 +251,7 @@ def generate_collector(context: Context, port: Port) -> Path:
     script = shim / "cargo"
     script.write_text(
         "#!/bin/sh\n"
-        'if [ "$1" = run ]; then echo "krs-perf: collector generated; not running it" >&2; exit 97; fi\n'
+        'if [ "$1" = build ]; then echo "krs-perf: collector generated; not building it" >&2; exit 97; fi\n'
         f'exec "{real}" "$@"\n',
         encoding="utf-8",
     )

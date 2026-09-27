@@ -18,6 +18,12 @@ Usage:
   krs fmt [--check] [--manifest-path PATH] [PATH ...]
   krs fmt --stdin
 
+Commands:
+  check                     Build and run the collector; report Rust and theory errors
+  expand                    Render the selected Rust reference surface
+  emit-k                    Emit canonical K and shared artifacts
+  build                     Compile native backend artifacts
+
 Options:
   --manifest-path PATH       Cargo manifest (default: Cargo.toml)
   --package PACKAGE          Root Cargo package name

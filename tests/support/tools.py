@@ -48,6 +48,16 @@ def executable(name: str) -> str:
     return found
 
 
+def workspace_debug_binary(name: str) -> Path:
+    """Locate a workspace binary under Cargo's configured target directory."""
+
+    target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target"))
+    if not target.is_absolute():
+        target = ROOT / target
+    suffix = ".exe" if os.name == "nt" else ""
+    return target / "debug" / f"{name}{suffix}"
+
+
 def z3_library_dir() -> Path:
     """Locate the qualified Z3 shared-library directory.
 

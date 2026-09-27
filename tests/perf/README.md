@@ -1,6 +1,6 @@
 # Compile-performance harness
 
-`tests/perf/bench.py` measures the KRS definition pipeline (`krs check`, `krs emit-k`, `krs build`) and the isolated Cargo stages inside it, over the KWasm, KMIR, and KEVM semantics ports.
+`tests/perf/bench.py` measures the KRS definition pipeline (`krs check`, `krs emit-k`, `krs build`) and isolated Cargo stages over the KWasm, KMIR, and KEVM semantics ports.
 It writes one versioned receipt per measured run and compares receipt sets.
 It is measurement infrastructure only: it never changes KRS outputs, and it is not a pass/fail gate.
 CI runs only its unit tests and `--dry-run`; wall time is never gated.
@@ -27,12 +27,12 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests/perf -t tests
 
 Stages:
 
-- `krs-check`: `krs check`, which runs a host-target `cargo check`, builds and runs the generated collector, lowers, and checks.
+- `krs-check`: `krs check`, which builds and runs the generated collector, lowers, and checks.
 - `krs-emit-k`: `krs emit-k`, which builds and runs the collector, lowers, and emits K and JSON.
 - `krs-build`: `krs build`, which builds and runs the collector, lowers, and runs the k-rust native frontend.
-- `cargo-check`: the host-target `cargo check` of the semantics crate that `krs check` runs, alone, with `--timings`.
+- `cargo-check`: an isolated host-target `cargo check` of the semantics crate with `--timings`.
 - `collector-build`: `cargo build --timings` of the generated collector package alone.
-  The harness generates the package with `krs expand` behind a `cargo` shim that stops at `cargo run`, so generation does not build it.
+  The harness generates the package with `krs expand` behind a `cargo` shim that stops at `cargo build`, so generation does not build it.
 
 Scenarios, in execution order within a cell:
 
@@ -214,7 +214,7 @@ Each run writes `ladder-report.md` and `ladder-report.json` beside its receipts.
 
 ## rustc profiling
 
-The `rustc` and `rustc-trace` modes ([`rustc_profile.py`](rustc_profile.py)) apply to the `collector-build` stage (the collector's dev-profile, host-target build, in which the semantics crate is a dependency) and the `cargo-check` stage (the host-target `cargo check` that `krs check` runs).
+The `rustc` and `rustc-trace` modes ([`rustc_profile.py`](rustc_profile.py)) apply to the `collector-build` stage (the collector's dev-profile, host-target build, in which the semantics crate is a dependency) and the `cargo-check` stage (an isolated host-target `cargo check`).
 They set `RUSTC_WRAPPER` to a generated POSIX `sh` wrapper that forwards every rustc invocation unchanged except the semantics crate's (matched by `--crate-name`), which it runs with `RUSTC_BOOTSTRAP=1 -Ztime-passes -Zmacro-stats -Zself-profile=<dir>`.
 `RUSTC_BOOTSTRAP` thus reaches one rustc process only: dependencies compile as in an unprofiled run, and in particular proc-macro2's build probe never sees it (with it, proc-macro2 enables its nightly span support and rebuilds every macro crate).
 The wrapper streams rustc's stderr through `tee`, so Cargo's pipelining is unchanged; it keeps argv, start and end times, stdout, and stderr per invocation.

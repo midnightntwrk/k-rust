@@ -53,7 +53,7 @@ DEFAULT_CPUS = "0-15"
 DEFAULT_RATE = 1000
 
 # The collector variants of `run --collector`, as Cargo profile overrides of
-# the collector's `dev` build (they reach `cargo run` through the environment).
+# the collector's `dev` build (they reach `cargo build` through the environment).
 COLLECTOR_VARIANTS: dict[str, dict[str, str]] = {
     "as-is": {},
     "line-tables": {"CARGO_PROFILE_DEV_DEBUG": "line-tables-only"},

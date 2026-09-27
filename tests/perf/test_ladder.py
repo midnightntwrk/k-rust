@@ -64,8 +64,9 @@ class FitTests(unittest.TestCase):
 
     def test_analysis_flags_superlinear_metrics_with_their_stage(self):
         found = [ladder_receipt(n, wall=0.5 * n, counters={"provenance.anchors": n * n},
-                                spans=[{"id": "collector.run", "seconds": 0.2 * n, "depth": 0},
-                                       {"id": "collector.cargo", "seconds": 0.15 * n, "depth": 1},
+                                spans=[{"id": "collector.build", "seconds": 0.1 * n, "depth": 0},
+                                       {"id": "collector.run", "seconds": 0.2 * n, "depth": 0},
+                                       {"id": "collector.exec", "seconds": 0.15 * n, "depth": 1},
                                        {"id": "native.compile", "seconds": 0.1, "depth": 0}])
                  for n in (2, 4, 8)]
         found.append(ladder_receipt(16, wall=999.0, exit_status=1))
@@ -77,7 +78,7 @@ class FitTests(unittest.TestCase):
         self.assertNotIn(("wall_seconds", "param"), flagged)
         slopes = {(row["metric"], row["x"]): row["fit"]["slope"] for row in analysis["by_axis"]}
         self.assertAlmostEqual(slopes[("wall_seconds", "counter.provenance.anchors")], 0.5)
-        self.assertEqual(analysis["dominant_leaf_span"]["span"], "collector.cargo")
+        self.assertEqual(analysis["dominant_leaf_span"]["span"], "collector.exec")
         self.assertEqual((analysis["dominant_leaf_span"]["from"], analysis["dominant_leaf_span"]["to"]), (4.0, 8.0))
         self.assertIn("## t", growth.render({"name": "t", "param": "n"}, analysis))
 

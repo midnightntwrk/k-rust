@@ -22,8 +22,9 @@
 //!   "unattributed_seconds": 0.1,
 //!   "spans": [
 //!     { "id": "cargo.metadata.input", "seconds": 0.02, "depth": 0 },
-//!     { "id": "collector.run", "seconds": 13.1, "depth": 0 },
-//!     { "id": "collector.cargo", "seconds": 0.1, "depth": 1 }
+//!     { "id": "collector.build", "seconds": 8.0, "depth": 0 },
+//!     { "id": "collector.run", "seconds": 5.1, "depth": 0 },
+//!     { "id": "collector.exec", "seconds": 0.1, "depth": 1 }
 //!   ]
 //! }
 //! ```
@@ -48,11 +49,11 @@
 //! |---|---|
 //! | `cargo.metadata.input` | `cargo metadata` on the input manifest |
 //! | `host.discover` | `rustc -vV` host-triple discovery |
-//! | `cargo.check` | `krs check` only: preliminary `cargo check` |
 //! | `cargo.metadata.runtime` | `cargo metadata` of the KRS installation |
 //! | `collector.plan` | facet and dependency-closure planning |
 //! | `collector.generate` | render and write the collector package |
-//! | `collector.run` | `cargo run` of the collector, with children below |
+//! | `collector.build` | `cargo build` of the generated collector package |
+//! | `collector.run` | execute the built collector binary, with children below |
 //! | `protocol.decode` | decode collector stdout as a descriptor bundle |
 //! | `semantic.lower` | descriptor bundle to semantic theory |
 //! | `definition.lower` | semantic theory to Definition IR and sidecars |
@@ -70,10 +71,9 @@
 //! | `release` | drop the in-memory bundle, theory, and Definition IR |
 //!
 //! `collector.run` children (depth 1, grandchildren at depth 2):
-//! `collector.cargo` is the time from spawning `cargo run` until the collector
-//! executable entered `main` (Cargo's fingerprint check or build, plus process
-//! startup), derived from wall-clock timestamps in both processes. It is
-//! followed by the collector's own spans: `collector.factories` (descriptor
+//! `collector.exec` is the time from spawning the built binary until it entered
+//! `main`, derived from wall-clock timestamps in both processes. It is followed
+//! by the collector's own spans: `collector.factories` (descriptor
 //! factory invocation over the registrations), `collector.builtins`,
 //! `collector.resolve` (with `collector.resolve.builtins`,
 //! `collector.resolve.intake`, `collector.resolve.tables`,
@@ -81,8 +81,7 @@
 //! `collector.resolve.bundle`; provenance and payload are accumulated over the
 //! per-descriptor loop that interleaves them), `collector.serialize`,
 //! `collector.write` (stdout, including the reader's pace), and
-//! `collector.release`. Collector exit and Cargo's exit remain unattributed
-//! inside `collector.run`.
+//! `collector.release`. Collector exit remains unattributed inside `collector.run`.
 //!
 //! `native.compile` children are k-rust's own `PhaseTimings` names, unchanged
 //! and in k-rust's order, one level deeper than in k-rust. A native failure
@@ -126,8 +125,8 @@
 //!
 //! # Collector sidecar
 //!
-//! When `krs` measures, it sets [`COLLECTOR_MEASURE_ENV`] on the `cargo run`
-//! child to a file path; stdout stays reserved for the descriptor protocol.
+//! When `krs` measures, it sets [`COLLECTOR_MEASURE_ENV`] on the collector
+//! process to a file path; stdout stays reserved for the descriptor protocol.
 //! The generated collector writes a [`CollectorMeasureDocument`] there, which
 //! `krs` folds into its own documents.
 

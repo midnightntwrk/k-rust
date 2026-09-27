@@ -4,7 +4,7 @@
 `bench.py --profile rustc` (and `rustc-trace`) profiles the semantics crate's
 own rustc invocation inside an otherwise ordinary harness stage: the
 `collector-build` stage (the collector's dev-profile, host-target build) and
-the `cargo-check` stage (the host-target `cargo check` that `krs check` runs).
+the `cargo-check` stage (an isolated host-target `cargo check`).
 
 The mode installs a `RUSTC_WRAPPER` that forwards every rustc invocation
 unchanged except the semantics crate's, which it runs with

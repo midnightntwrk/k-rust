@@ -2,7 +2,7 @@
 
 use krs_cli::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DefinitionRequest, FacetSelector,
-    GeneratedCollector, PackageSelector, PlanningErrorKind, RegistrationMode,
+    GeneratedCollector, KrsCfg, PackageSelector, PlanningErrorKind, RegistrationMode,
 };
 use serde_json::json;
 use std::fs;
@@ -62,6 +62,7 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
     assert!(plan.is_production());
 
     let generated = GeneratedCollector::from_plan(&plan).unwrap();
+    assert_cargo_config(&plan, &generated);
     let manifest = String::from_utf8(generated.manifest).unwrap();
     let source = String::from_utf8(generated.main_source).unwrap();
     let selection = String::from_utf8(generated.canonical_selection).unwrap();
@@ -112,6 +113,25 @@ fn production_collector_owns_the_complete_collection_entrypoint() {
         .find(|line| line.starts_with("name = "))
         .unwrap();
     assert_ne!(package_name, alternate_package_name);
+}
+
+fn assert_cargo_config(plan: &CollectorPlan, generated: &GeneratedCollector) {
+    let cargo_config = String::from_utf8(generated.cargo_config.clone()).unwrap();
+    assert!(cargo_config.contains("target = \"x86_64-unknown-linux-gnu\""));
+    assert!(cargo_config.contains("rustflags = []"));
+    let mut cfg_plan = plan.clone();
+    cfg_plan.cfg.push(KrsCfg {
+        key: "backend".to_owned(),
+        value: Some("llvm".to_owned()),
+    });
+    let cfg_config = String::from_utf8(
+        GeneratedCollector::from_plan(&cfg_plan)
+            .unwrap()
+            .cargo_config,
+    )
+    .unwrap();
+    assert!(cfg_config.contains("--check-cfg=cfg(backend,values(\\\"llvm\\\"))"));
+    assert!(cfg_config.contains("--cfg=backend=\\\"llvm\\\""));
 }
 
 fn explicit_metadata(krs_features: &[&str], helper: bool) -> CargoMetadata {
