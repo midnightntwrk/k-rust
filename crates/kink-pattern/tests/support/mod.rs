@@ -74,7 +74,7 @@ pub fn term(name: &str) -> Pattern {
 /// Path predicates by name. They are only compared, never decided.
 pub fn predicate(name: &str) -> Pattern {
     let equals = || Pattern::Equals {
-        operand_sort: sort("SortAddress"),
+        operand_sort: Box::new(sort("SortAddress")),
         result_sort: predicate_sort(),
         left: Box::new(term("symbolicX")),
         right: Box::new(term("symbolicY")),

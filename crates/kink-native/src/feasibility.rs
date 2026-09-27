@@ -867,7 +867,9 @@ mod tests {
             arguments: vec![
                 state.clone(),
                 Pattern::Equals {
-                    operand_sort: k_rust::kompile::initial_configuration::kore_sort("SortNat"),
+                    operand_sort: Box::new(k_rust::kompile::initial_configuration::kore_sort(
+                        "SortNat",
+                    )),
                     result_sort: k_rust::kompile::initial_configuration::kore_sort(
                         "SortGeneratedTopCell",
                     ),
@@ -1077,7 +1079,7 @@ mod tests {
         let mut symmem = backend("symmem.k", "SYMMEM");
         let (x, y) = (nat("X"), nat("Y"));
         let constrained = Pattern::Equals {
-            operand_sort: k_rust::kompile::initial_configuration::kore_sort("SortNat"),
+            operand_sort: Box::new(k_rust::kompile::initial_configuration::kore_sort("SortNat")),
             result_sort: k_rust::kompile::initial_configuration::kore_sort("SortGeneratedTopCell"),
             left: Box::new(y.clone()),
             right: Box::new(z()),
@@ -1546,7 +1548,7 @@ mod tests {
     /// `\equals{Sort, Top}(left, right)`.
     fn equals(sort: &str, left: Pattern, right: Pattern) -> Pattern {
         Pattern::Equals {
-            operand_sort: k_rust::kompile::initial_configuration::kore_sort(sort),
+            operand_sort: Box::new(k_rust::kompile::initial_configuration::kore_sort(sort)),
             result_sort: top_sort(),
             left: Box::new(left),
             right: Box::new(right),
@@ -1715,12 +1717,16 @@ mod tests {
                 "{name}"
             );
         }
-        // symwrap's `anywhere` symbol is `injective` but not free: a rewrite rule whose pattern
-        // mentions it no longer decomposes freely.
+        // An `anywhere` symbol that is `injective` but not free: a rewrite rule whose pattern
+        // mentions it no longer decomposes freely. k-rust's kompile no longer declares symwrap's
+        // `anywhere` symbol `injective` (k-rust KK-53), but KORE from other frontends does, so the
+        // attribute is set here.
         let mut wrap = backend("symwrap.k", "SYMWRAP");
         let facts = wrap
             .with_solver(None, |definition, _| {
                 let mut definition = definition.clone();
+                let symbol = definition.symbols.get_mut("Lblwrap").expect("wrap symbol");
+                std::sync::Arc::make_mut(symbol).attributes.injective = true;
                 let pattern = definition
                     .internalize_term(&support::app("Lblwrap", vec![z()]), &[])
                     .expect("wrap(z)");

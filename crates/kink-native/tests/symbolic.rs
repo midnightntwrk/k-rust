@@ -1781,7 +1781,7 @@ fn vacuous_state() -> Pattern {
                 "SortProg",
             ),
             Pattern::Equals {
-                operand_sort: kore_sort("SortInt"),
+                operand_sort: Box::new(kore_sort("SortInt")),
                 result_sort: top,
                 left: Box::new(support::int(1)),
                 right: Box::new(support::int(2)),
@@ -2536,7 +2536,7 @@ fn z3_sat_on_abstracted_query_is_not_a_witness() {
     };
     assert!(path.stop.has_real_prefix());
     let abstracted = Pattern::Equals {
-        operand_sort: kore_sort("SortNat"),
+        operand_sort: Box::new(kore_sort("SortNat")),
         result_sort: kore_sort("SortGeneratedTopCell"),
         left: Box::new(nat("X")),
         right: Box::new(s(nat("Y"))),
@@ -2702,13 +2702,17 @@ fn uninterpreted_smt_function_does_not_make_a_path_feasible() {
 /// SYM-3B-05 (README R18): `half(A)` `requires 10 /Int A ==Int 10 /Int A`. The ground
 /// instance `X = 0` is stuck at `half` after the write, so WL-after with a load from address
 /// `0` is `no-match` for it; every other instance loads from `0` but writes elsewhere. k-rust
-/// simplifies the symbolic condition to `true` without its definedness `X =/=Int 0`, so the
-/// symbolic run has one leaf after both events with predicate `\top`, and the backend decider
-/// matched it under the assumption `X = 0` (a wrong `match`, in both profiles). A definition
-/// whose rewrite rules mention a partial function keeps no real prefix below depth 0 for a
-/// symbolic run: `unknown`.
+/// 347f693e simplified the symbolic condition to `true` without its definedness `X =/=Int 0`,
+/// so the symbolic run had one leaf after both events with predicate `\top`, and the backend
+/// decider matched it under the assumption `X = 0` (a wrong `match`, in both profiles). Since
+/// k-rust KK-45/KK-46 the condition states `X =/=Int 0`: without a solver the step is
+/// `Indeterminate`; with Z3 it splits into the step under `X =/=Int 0` and a stuck remainder
+/// under `X = 0` after the write only. A definition whose rewrite rules mention a partial
+/// function still keeps no real prefix below depth 0 for a symbolic run: `unknown`.
 #[test]
 fn dropped_definedness_condition_is_not_a_witness() {
+    use HaltClass::{Indeterminate, Stuck};
+    use LeafFeasibility::{Solver, Syntactic};
     let (mut symbolic, vocabulary) = run(
         Fixture::Partial,
         write_op_load(support::app("Lblhalf", vec![integer("X")]), support::int(0)),
@@ -2717,18 +2721,35 @@ fn dropped_definedness_condition_is_not_a_witness() {
     let facts = symbolic.execution.definition_facts();
     assert!(!facts.total_rules && !facts.applicability_conditions);
     assert!(!symbolic.execution.conditions_kept());
-    let [path] = symbolic.bridged.paths.as_slice() else {
-        panic!("one path")
-    };
-    assert_eq!(path.events.len(), 2);
-    assert!(matches!(path.path_predicate, Pattern::Top { .. }));
-    assert_eq!(path.stop, PathStop::SolverUnknown);
+    assert_eq!(
+        leaf_rows(&symbolic),
+        by_profile(
+            vec![(Indeterminate, Syntactic, false, PathStop::BackendLimit)],
+            vec![(Stuck, Solver, true, PathStop::SolverUnknown); 2]
+        )
+    );
+    let events = symbolic
+        .bridged
+        .paths
+        .iter()
+        .map(|path| path.events.len())
+        .collect::<Vec<_>>();
+    assert_eq!(events, by_profile(vec![1], vec![2, 1]));
+    assert!(
+        symbolic
+            .bridged
+            .paths
+            .iter()
+            .all(|path| cfg!(not(feature = "z3"))
+                || !matches!(path.path_predicate, Pattern::Top { .. })),
+        "every Z3 leaf carries X =/=Int 0 or its negation"
+    );
     let plan = gwl_after(&vocabulary);
     assert_both(
         &mut symbolic,
         &plan,
         PatternOutcome::Unknown,
-        Some(PathStop::SolverUnknown),
+        Some(by_profile(PathStop::BackendLimit, PathStop::SolverUnknown)),
     );
 
     // The ground instance `X = 0` (values `5`) stops at `half` after the write only.
