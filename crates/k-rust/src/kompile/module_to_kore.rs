@@ -509,6 +509,7 @@ pub fn declaration_modules_from_resolved_with_options(
         .chain(rules.all_macro_labels(&productions))
         .collect::<BTreeSet<_>>();
     let injectivity_withheld = injectivity_withheld(&productions, &overloads, &equation_heads);
+    let macro_rule_heads = rules.macro_labels();
     let priorities = definition
         .priorities(module_id)
         .map_err(|cycle| DeclarationError::CircularPriority(cycle.path))?;
@@ -551,6 +552,7 @@ pub fn declaration_modules_from_resolved_with_options(
                 &valued_attributes,
                 &overloaded_greater,
                 &anywhere_labels,
+                macro_rule_heads,
                 &injectivity_withheld,
                 &impure_labels,
                 None,
@@ -566,6 +568,7 @@ pub fn declaration_modules_from_resolved_with_options(
             &valued_attributes,
             &overloaded_greater,
             &anywhere_labels,
+            macro_rule_heads,
             &injectivity_withheld,
             &impure_labels,
             Some(SyntaxDeclaration::UnderLabel(&syntax_relations)),
@@ -620,6 +623,7 @@ pub fn declaration_modules_from_resolved_with_options(
             &valued_attributes,
             &overloaded_greater,
             &anywhere_labels,
+            macro_rule_heads,
             &injectivity_withheld,
             &impure_labels,
             Some(SyntaxDeclaration::UnderBracketLabel),
@@ -1389,6 +1393,7 @@ fn symbol_attributes(
     valued: &BTreeSet<String>,
     overloaded_greater: &BTreeSet<crate::definition::ProductionId>,
     anywhere_labels: &BTreeSet<String>,
+    macro_rule_heads: &BTreeSet<LabelHead>,
     injectivity_withheld: &BTreeSet<crate::definition::ProductionId>,
     impure_labels: &BTreeSet<String>,
     syntax: Option<SyntaxDeclaration<'_>>,
@@ -1414,13 +1419,23 @@ fn symbol_attributes(
     let base_constructor = is_base_constructor(source);
     let injective = base_constructor && !injectivity_withheld.contains(&id);
     let macro_like = source.has_any(&AttributeKey::MACRO_LIKE);
+    // A macro-like rule headed by this production is an emitted equation between its
+    // applications and other terms, so they are not free values (`constructor_productions`).
+    // The declaration still carries no `macro` attribute: that would claim every application is
+    // expanded away, while a rule whose left side does not cover all arguments leaves others.
+    let rewritten_by_macro_rule = macro_rule_heads.contains(&LabelHead::from(label));
     let anywhere = overloaded_greater.contains(&id) || anywhere_labels.contains(&label.name);
     if is_real_hook(source, hook_namespaces)
         && let Some(hook) = source.value(AttributeKey::Hook)
     {
         entries.insert(AttributeKey::Hook.as_str().into(), hook.clone());
     }
-    if base_constructor && !macro_like && !anywhere && !is_token_production(source) {
+    if base_constructor
+        && !macro_like
+        && !rewritten_by_macro_rule
+        && !anywhere
+        && !is_token_production(source)
+    {
         entries.insert(
             AttributeKey::Constructor.as_str().into(),
             Value::String(String::new()),

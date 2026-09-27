@@ -17,7 +17,6 @@ module MAIN
   ]
   symbol Lblplain{}(SortExp{}) : SortExp{}
   [
-    constructor{}(),
     functional{}(),
     org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(3,18,3,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(declarations.k)"),
@@ -75,18 +74,9 @@ module MAIN
       Lbldone{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
     )
     [constructor{}()]
-  axiom{}
-    \not{SortExp{}}(\and{SortExp{}}(Lbldone{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})))
-    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblplain{}(K0:SortExp{})))
     [functional{}()]
-  axiom{}
-    \implies{SortExp{}}(
-      \and{SortExp{}}(Lblplain{}(X0:SortExp{}), Lblplain{}(Y0:SortExp{})),
-      Lblplain{}(\and{SortExp{}}(X0:SortExp{}, Y0:SortExp{}))
-    )
-    [constructor{}()]
   axiom{R}
     \exists{R}(Val:SortExp{}, \equals{SortExp{}, R}(Val:SortExp{}, Lblmacro{}(K0:SortExp{})))
     [functional{}()]
@@ -144,7 +134,6 @@ module MAIN
   ]
   symbol Lblplain{}(SortExp{}) : SortExp{}
   [
-    constructor{}(),
     format{}(),
     functional{}(),
     left{}(),

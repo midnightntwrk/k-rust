@@ -874,6 +874,102 @@ fn declares_injective_only_where_no_equation_can_identify_applications() {
     }
 }
 
+/// A macro-like rule on a production without a macro attribute is the emitted equation
+/// `plain(X) = done(X)`, so `plain` is not a free constructor: declaring it `constructor` with
+/// no-confusion axioms against `done` would make the theory inconsistent. The same holds when
+/// the rule's left side covers only some arguments (`part(z) = done(z)`), whose other
+/// applications survive expansion and so are not declared `macro` either.
+#[test]
+fn a_production_rewritten_by_a_macro_rule_is_not_a_constructor() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Exp ::= "z" [symbol(z)]
+          syntax Exp ::= "done(" Exp ")" [symbol(done)]
+          syntax Exp ::= "plain(" Exp ")" [symbol(plain)]
+          syntax Exp ::= "part(" Exp ")" [symbol(part)]
+          syntax Exp ::= "other(" Exp ")" [symbol(other)]
+
+          rule plain(X:Exp) => done(X:Exp) [macro]
+          rule part(z) => done(z) [alias]
+        endmodule
+    "#};
+    let modules = module_to_kore(&rules(source, "MAIN"), "MAIN").expect("KORE modules should emit");
+    let attributes = |module: &k_rust::kore::ast::Module, symbol: &str| {
+        module
+            .sentences
+            .iter()
+            .find_map(|sentence| match sentence {
+                Sentence::SymbolDeclaration {
+                    symbol: declared,
+                    attributes,
+                    ..
+                } if declared.name == symbol => Some(
+                    attributes
+                        .0
+                        .iter()
+                        .filter_map(|attribute| match attribute {
+                            Pattern::Application { symbol, .. } => Some(symbol.name.to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{symbol} should be declared"))
+    };
+    for module in [&modules.semantics, &modules.syntax] {
+        for symbol in ["Lblz", "Lbldone", "Lblother"] {
+            let attributes = attributes(module, symbol);
+            assert!(
+                attributes.iter().any(|name| name == "constructor"),
+                "{symbol} in {}: {attributes:?}",
+                module.name
+            );
+        }
+        for symbol in ["Lblplain", "Lblpart"] {
+            let attributes = attributes(module, symbol);
+            for absent in ["constructor", "injective", "macro"] {
+                assert!(
+                    !attributes.iter().any(|name| name == absent),
+                    "{symbol} in {} carries {absent}: {attributes:?}",
+                    module.name
+                );
+            }
+            assert!(
+                attributes.iter().any(|name| name == "functional"),
+                "{symbol} in {}: {attributes:?}",
+                module.name
+            );
+        }
+    }
+    let printer = Printer::compact();
+    let no_confusion = modules
+        .semantics
+        .sentences
+        .iter()
+        .filter(|sentence| {
+            matches!(sentence, Sentence::Axiom { attributes, .. }
+                if attributes.0.iter().any(|attribute| matches!(attribute,
+                    Pattern::Application { symbol, .. } if symbol.name == "constructor")))
+        })
+        .map(|sentence| printer.print_sentence(sentence))
+        .collect::<Vec<_>>();
+    assert!(
+        no_confusion
+            .iter()
+            .any(|axiom| axiom.contains("Lbldone") && axiom.contains("Lblother")),
+        "{no_confusion:#?}"
+    );
+    for axiom in &no_confusion {
+        if axiom.contains("\\not") || axiom.contains("\\implies") {
+            assert!(
+                !axiom.contains("Lblplain") && !axiom.contains("Lblpart"),
+                "{axiom}"
+            );
+        }
+    }
+}
+
 module_snapshot!(
     emits_algebraic_axioms,
     r#"
