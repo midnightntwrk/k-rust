@@ -14,6 +14,7 @@ def subsystem(step, case):
     if v == "mismatch" and changing and kind == "kompile": return "CLI (reference kompile flag dropped for krust: " + ", ".join(changing)[:40] + ")"
     if "kprint failed" in div: return "KORE emission (kprint cannot unparse krust output)"
     if v == "reference-error": return "oracle (reference toolchain or stale .out)"
+    if kind == "kore-verify": return "KORE emission (reference verifier rejects krust definition.kore)"
     if kind == "kompile":
         if case.get("kind") == "fail":
             return "kompile checks (definition checks / warnings-as-errors)"

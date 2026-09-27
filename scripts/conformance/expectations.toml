@@ -3,6 +3,7 @@ source = "Versioned conformance measurements and acceptance floors, with explici
 
 # Case names identify directories under the pinned K checkout's k-distribution/tests/regression-new.
 # step_exclusions test/out selectors match the upstream recipe's recorded strings exactly, including any ./ prefix.
+# A step_exclusions `step` selector names the driver's step kind; `verify_error` matches the first diagnostic line of a `kore-verify` step exactly.
 # These upstream filenames are independent of the curated fixtures under crates/k-rust/tests/fixtures/reference.
 # `budget` overrides the driver's 300 s case budget; `step_budget` caps one program execution inside it
 # (a capped kill is that program's krust-error and the programs behind it still run).
@@ -53,6 +54,11 @@ meaning = "The checked-in output was not reproduced by the pinned reference tool
 id = "supported-superset"
 decided_by = "docs/compatibility.md#anywhere-rules"
 meaning = "The port intentionally supports anywhere rules that the K Haskell frontend rejects."
+
+[[category]]
+id = "verifier-anywhere-argument"
+decided_by = "docs/compatibility.md#anywhere-heads-in-equation-arguments"
+meaning = "The reference KORE verifier rejects a function equation whose argument contains an anywhere head without `injective`; the port withholds the attribute because an anywhere equation of that head identifies applications with different arguments, and the equation is consistent and evaluated as specified because its argument is normal on every instance."
 
 [[category]]
 id = "declined-capability"
@@ -2071,6 +2077,9 @@ baseline_verdict = "krust-error"
 baseline_stage = "inner-parse"
 exclusion = ""
 reason = "Private CB-12-5 seven-case run (b64e130, --jobs 2): the kompile comparison and all 50 artifact-driven program steps match in 83.1 s. One Rust runtime compilation takes 2.7 s. Program time has a 0.2 s minimum and median; constructor-bst-sorting.fun takes 49.9 s, tail-recursion.fun 7.1 s, and every other program at most 0.7 s. The 300 s default case budget retains 3.6x headroom; the measured 90 s step budget retains 1.8x headroom and ensures later recipes remain observable if the outlier regresses. Earlier baseline observation: rule `try E catch(X) E'` failed to parse (not reproduced at current head)."
+step_exclusions = [
+  { step = "kore-verify", verify_error = "Found invalid subterm in argument of function equation:", exclusion = "verifier-anywhere-argument", reason = "Since the anywhere heads `_=_` and `[_|_]` carry no `injective` (their anywhere rules `F P = E => F = fun P -> E` and `[E1,E2,Es|T] => [E1|[E2,Es|T]]` identify applications with different arguments), the reference verifier rejects the `names`, `exps` and `getMatching` equations whose arguments contain them. Those arguments (`X:Name = E`, `[H | T]`) are normal on every instance, so the equations are consistent, and the definition.kore comparison and all 50 program steps stay ranked." },
+]
 
 [[case]]
 name = "poly-kitem"
