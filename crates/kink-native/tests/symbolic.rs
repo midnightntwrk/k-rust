@@ -3087,3 +3087,85 @@ fn dropped_definedness_condition_is_not_a_witness() {
     assert_eq!((path.events.len(), path.stop), (1, PathStop::Terminal));
     assert_both(&mut ground, &plan, PatternOutcome::NoMatch, None);
 }
+
+/// `halflet` requires `L <=Int L` for `L = #let Y = X #in 10 /Int Y`: true wherever it is
+/// defined, and defined exactly when `X =/=Int 0`, like `half`'s condition. The portable build
+/// parses the rule since k-rust KK-72. Since KK-71 the generated lambda is a partial function (its
+/// body `10 /Int Y` is), so the condition keeps its definedness: without a solver the step is
+/// `Indeterminate`, and with Z3 it splits into `halt` after both events under `X =/=Int 0` and a
+/// stuck remainder at `halflet` after the write. Against the pre-KK-71 snapshot `78cd00ca` the
+/// lambda was `total`, and the Z3 run was one stuck `halt` leaf after both events with no
+/// condition (syntactically feasible), so the instances `X = 0` were claimed to reach `halt`.
+///
+/// Unlike `half`'s, the remainder predicate is `\not(X =/=Int 0 /\ 10 /Int X <=Int 10 /Int X)`:
+/// k-rust does not fold `<=Int` of equal terms, and a predicate with the partial `/Int` has no
+/// exact SMT translation, so the remainder is not shown feasible and stays `SolverUnknown`. So
+/// the symbolic result is `unknown` in both profiles, never the wrong `match`. The ground
+/// instance `X = 0` stops at `halflet` after the write: `no-match`.
+#[test]
+fn let_bound_partial_condition_keeps_its_definedness() {
+    use HaltClass::{Indeterminate, Stuck};
+    use LeafFeasibility::{Solver, Syntactic, Unknown};
+    let (mut symbolic, vocabulary) = run(
+        Fixture::Partial,
+        write_op_load(
+            support::app("Lblhalflet", vec![integer("X")]),
+            support::int(0),
+        ),
+        BUDGET,
+    );
+    assert_eq!(
+        leaf_rows(&symbolic),
+        by_profile(
+            vec![(Indeterminate, Syntactic, PathStop::SolverUnknown)],
+            vec![
+                (Stuck, Solver, PathStop::Terminal),
+                (Stuck, Unknown, PathStop::SolverUnknown),
+            ]
+        )
+    );
+    let events = symbolic
+        .bridged
+        .paths
+        .iter()
+        .map(|path| path.events.len())
+        .collect::<Vec<_>>();
+    assert_eq!(events, by_profile(vec![1], vec![2, 1]));
+    if cfg!(feature = "z3") {
+        let nonzero = Pattern::Not {
+            sort: kore_sort("SortGeneratedTopCell"),
+            argument: Box::new(Pattern::Equals {
+                operand_sort: Box::new(kore_sort("SortInt")),
+                result_sort: kore_sort("SortGeneratedTopCell"),
+                left: Box::new(integer("X")),
+                right: Box::new(support::int(0)),
+            }),
+        };
+        assert_eq!(symbolic.bridged.paths[0].path_predicate, nonzero);
+    }
+    let plan = gwl_after(&vocabulary);
+    assert_both(
+        &mut symbolic,
+        &plan,
+        PatternOutcome::Unknown,
+        Some(PathStop::SolverUnknown),
+    );
+
+    let five = || support::int(5);
+    let (mut ground, _) = run(
+        Fixture::Partial,
+        seq(
+            write(addr(support::int(0)), five()),
+            seq(
+                support::app("Lblhalflet", vec![support::int(0)]),
+                seq(load(addr(support::int(0)), five()), halt()),
+            ),
+        ),
+        BUDGET,
+    );
+    let [path] = ground.bridged.paths.as_slice() else {
+        panic!("one path")
+    };
+    assert_eq!((path.events.len(), path.stop), (1, PathStop::Terminal));
+    assert_both(&mut ground, &plan, PatternOutcome::NoMatch, None);
+}
