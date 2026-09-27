@@ -981,7 +981,16 @@ fn reports_productive_unary_cycles_without_a_derivation_limit() {
         .parse(&Sort::new("Start"), "x")
         .expect_err("a productive unary cycle has an infinite parse forest");
 
-    assert_eq!(error, ParseError::CyclicParseForest);
+    let ParseError::CyclicDerivation(cycle) = error else {
+        panic!("expected a cyclic derivation");
+    };
+    assert_eq!(cycle.sort, Sort::new("Start"));
+    assert_eq!(cycle.text, "x");
+    assert_eq!(cycle.empty, Vec::<String>::new());
+    assert_eq!(cycle.productions.len(), 1);
+    assert!(cycle.productions[0].contains("syntax Start ::= Start"));
+    assert_eq!(cycle.span.unwrap().start, 0);
+    assert_eq!(cycle.span.unwrap().end, 1);
 }
 
 #[test]

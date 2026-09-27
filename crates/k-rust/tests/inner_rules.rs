@@ -5024,11 +5024,47 @@ fn constructor_cycle_makes_a_rule_over_its_sorts_a_cyclic_forest() {
     let Err(RuleError::Parse(error)) = &result else {
         panic!("expected a parse error, got {result:?}")
     };
+    let ParseError::CyclicDerivation(cycle) = &error.error else {
+        panic!("expected a cyclic derivation, got {:?}", error.error);
+    };
+    assert_eq!(cycle.sort, Sort::new("B"));
+    assert_eq!(cycle.empty, Vec::<String>::new());
+    assert_eq!(cycle.productions.len(), 2);
     assert!(
-        matches!(error.error, ParseError::CyclicParseForest),
-        "{:?}",
-        error.error
+        cycle
+            .productions
+            .iter()
+            .any(|text| text.contains("syntax A ::= B"))
     );
+    assert!(
+        cycle
+            .productions
+            .iter()
+            .any(|text| text.contains("syntax B ::= A"))
+    );
+    assert!(cycle.span.is_some());
+    let message = error.error.to_string();
+    assert!(
+        message.contains("`X` has infinitely many parses"),
+        "{message}"
+    );
+    assert!(message.contains("syntax A ::= B"), "{message}");
+    assert!(message.contains("syntax B ::= A"), "{message}");
+    assert!(!message.contains("where "), "{message}");
+}
+
+#[test]
+fn unary_cycle_message_names_its_productions_and_location() {
+    let error = resolved_rule_body(&constructor_cycle_source("p X => .K")).unwrap_err();
+    let RuleError::Parse(parse) = &error else {
+        panic!("expected a parse error, got {error:?}");
+    };
+    assert!(parse.location.is_some());
+    let message = error.to_string();
+    assert!(message.starts_with("rules.k:"), "{message}");
+    assert!(message.contains("syntax B ::= A [symbol(g)]"), "{message}");
+    assert!(message.contains("syntax A ::= B [symbol(f)]"), "{message}");
+    assert!(!message.contains("where "), "{message}");
 }
 
 // `wrap : Exp ::= Opt Exp Opt` with a nullable `Opt` derives `Exp` from `Exp` over the same text,
@@ -5054,8 +5090,8 @@ fn a_nullable_wrapper_makes_a_rule_over_its_sort_a_cyclic_derivation() {
     };
     assert_eq!(
         error.error.to_string(),
-        "Parsing ambiguity: `q 1` has infinitely many parses, because Exp derives itself \
-         without consuming input:\n    syntax Exp ::= Opt Exp Opt [klabel(wrap), symbol]\n\
+        "Parsing ambiguity: `q 1` has infinitely many parses because these productions \
+         derive Exp from itself without consuming input:\n    syntax Exp ::= Opt Exp Opt [klabel(wrap), symbol]\n\
          where Opt matches the empty string."
     );
     let ParseError::CyclicDerivation(cycle) = &error.error else {

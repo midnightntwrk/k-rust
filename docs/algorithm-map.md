@@ -194,7 +194,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - parser.grammar.program_signature — O(M x S) EquivalenceAccumulator insertions — at k-rust/inner/programs.rs `collect_public_signature`
 - parser.grammar.records — O(F) — at k-rust/inner/parser/record.rs `Grammar::add_record_productions`
 - parser.grammar.same_span_cycles — O(P + I + V) — at k-rust/inner/parser/cycles.rs `SameSpanCycles::new`
-- parser.grammar.unary_cycles — O(U x V x E) — at k-rust/inner/parser/grammar.rs `Grammar::identify_productive_unary_cycles`
+- parser.grammar.unary_cycles — O(U x V x E) +1 mode — at k-rust/inner/parser/grammar.rs `Grammar::identify_productive_unary_cycles`
 - parser.location.span — O(B) — at k-rust/inner/location.rs `span_location`
 - parser.lower.regex — O(e) — at k-rust/inner/parser.rs `expand_regex_body`
 - parser.prediction.first_sets — O(S x L x R) — at k-rust/inner/parser/prediction.rs `PredictionAnalysis::new`

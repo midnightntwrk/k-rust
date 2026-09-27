@@ -256,8 +256,7 @@ pub enum ParseError {
         alternatives: Vec<AmbiguousParse>,
         span: Option<TermSpan>,
     },
-    CyclicParseForest,
-    /// A sort derives itself over a text without consuming input (`cycles.rs`).
+    /// A sort derives itself over a text without consuming input.
     CyclicDerivation(Box<CyclicDerivation>),
     CircularPriorities {
         path: Vec<String>,
@@ -395,9 +394,6 @@ impl fmt::Display for ParseError {
                 }
                 Ok(())
             }
-            Self::CyclicParseForest => {
-                formatter.write_str("parse forest is infinite because of a productive unary cycle")
-            }
             Self::CyclicDerivation(cycle) => {
                 let CyclicDerivation {
                     sort,
@@ -414,7 +410,7 @@ impl fmt::Display for ParseError {
                 }
                 write!(
                     formatter,
-                    " has infinitely many parses, because {sort} derives itself without consuming input:"
+                    " has infinitely many parses because these productions derive {sort} from itself without consuming input:"
                 )?;
                 for production in productions {
                     write!(formatter, "\n    {production}")?;
@@ -1203,7 +1199,13 @@ impl Grammar {
                             revisit,
                         );
                         if self.productive_unary_cycles.contains(&state.production) {
-                            return Err(ParseError::CyclicParseForest);
+                            return Err(self.productive_unary_cycle_error(
+                                state.production,
+                                input,
+                                state.origin,
+                                position,
+                                provenance,
+                            ));
                         }
                         let mut nodes = BTreeSet::new();
                         let mut invalid = Vec::new();

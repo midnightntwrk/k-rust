@@ -686,13 +686,16 @@ mod tests {
             production("Cycle", vec![], "unit"),
         ])
         .unwrap();
-        assert_eq!(
-            unfiltered(&grammar, "x"),
-            Err(ParseError::CyclicParseForest)
-        );
+        let error = unfiltered(&grammar, "x").unwrap_err();
+        let ParseError::CyclicDerivation(cycle) = &error else {
+            panic!("expected a cyclic derivation, got {error:?}");
+        };
+        assert_eq!(cycle.sort, Sort::new("Cycle"));
+        assert_eq!(cycle.productions.len(), 1);
+        assert!(cycle.empty.is_empty());
         NONTERMINAL_PREDICTIONS_SKIPPED.set(0);
         PARSE_ATTEMPTS.set(0);
-        assert_eq!(filtered(&grammar, "x"), Err(ParseError::CyclicParseForest));
+        assert_eq!(filtered(&grammar, "x"), Err(error));
         assert_eq!(NONTERMINAL_PREDICTIONS_SKIPPED.get(), 1);
         assert_eq!(PARSE_ATTEMPTS.get(), 2);
     }

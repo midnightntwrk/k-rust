@@ -6131,7 +6131,7 @@ id = "parser.grammar.unary_cycles"
 provenance = "declared"
 area = "parser"
 name = "detection of productive unary grammar cycles"
-variable = "U = unary productions; V = sorts; E = unary edges"
+variable = "P = productions; U = unary productions; V = sorts; E = unary edges"
 no_counter = "productive-cycle detection has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "ParserGrammarUnaryCycles"
@@ -6151,9 +6151,18 @@ crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/grammar.rs"
 symbol = "unary_reachable"
 
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/grammar.rs"
+symbol = "Grammar::productive_unary_cycle_error"
+
 [[node.cost]]
 mode = "one grammar"
 bound = "O(U x V x E)"
+
+[[node.cost]]
+mode = "one reported unary cycle"
+bound = "O(P x V) to select a unary production path, plus its rendering"
 
 [[node]]
 kind = "algorithm"

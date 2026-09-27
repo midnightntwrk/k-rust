@@ -46,7 +46,7 @@ use crate::kast::TermSpan;
 
 use super::chart::Chart;
 use super::forest::{PackedNode, PackedTerm};
-use super::grammar::render_added_production;
+use super::grammar::render_parsing_production;
 use super::{CyclicDerivation, Grammar, Item, ParseError};
 
 /// Productions that may build a node on a derivation cycle that consumes no input.
@@ -333,17 +333,7 @@ fn cyclic_derivation(
             continue;
         };
         let descriptor = &grammar.productions[*label];
-        let text = descriptor.source_production_text.as_ref().map_or_else(
-            || {
-                render_added_production(
-                    &descriptor.result,
-                    &descriptor.declared_items,
-                    descriptor.token,
-                    None,
-                )
-            },
-            |text| text.as_str().to_owned(),
-        );
+        let text = render_parsing_production(descriptor);
         if !productions.contains(&text) {
             productions.push(text);
         }
@@ -532,8 +522,8 @@ mod tests {
         }
         assert_eq!(
             parse(&grammar, "Exp", "1").unwrap_err().to_string(),
-            "Parsing ambiguity: `1` has infinitely many parses, because Exp derives itself \
-             without consuming input:\n    syntax Exp ::= Opt Exp Opt\n\
+            "Parsing ambiguity: `1` has infinitely many parses because these productions \
+             derive Exp from itself without consuming input:\n    syntax Exp ::= Opt Exp Opt\n\
              where Opt matches the empty string."
         );
         // Opt itself is not cyclic.
@@ -585,7 +575,7 @@ mod tests {
         assert!(cycle.text.is_empty());
         assert_eq!(cycle.sort, Sort::new("Opt"));
         assert!(error.to_string().starts_with(
-            "Parsing ambiguity: the empty text has infinitely many parses, because Opt derives"
+            "Parsing ambiguity: the empty text has infinitely many parses because these productions derive Opt"
         ));
     }
 

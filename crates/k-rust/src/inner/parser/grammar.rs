@@ -14,14 +14,18 @@
 //! ```toml algorithm
 //! id = "parser.grammar.unary_cycles"
 //! name = "detection of productive unary grammar cycles"
-//! sites = ["Grammar::identify_productive_unary_cycles", "unary_reachable"]
-//! variable = "U = unary productions; V = sorts; E = unary edges"
+//! sites = ["Grammar::identify_productive_unary_cycles", "unary_reachable", "Grammar::productive_unary_cycle_error"]
+//! variable = "P = productions; U = unary productions; V = sorts; E = unary edges"
 //! counters = []
 //! no_counter = "productive-cycle detection has no dedicated counter"
 //!
 //! [[cost]]
 //! mode = "one grammar"
 //! bound = "O(U x V x E)"
+//!
+//! [[cost]]
+//! mode = "one reported unary cycle"
+//! bound = "O(P x V) to select a unary production path, plus its rendering"
 //! ```
 //!
 //! Construction of reusable parser grammars from visible K sentences.
@@ -29,8 +33,10 @@
 //! Production insertion is O(|sentences| * |items|), plus the declared relation computations and
 //! the specialized parametric, list, and record expansions. Productive unary-cycle detection is
 //! O(|unary productions| * |sorts| * |unary edges|) and runs once after construction.
+//! A completed flagged production reports the text span and the unary production path that
+//! returns from its child sort to its result sort.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 use std::sync::{Arc, OnceLock};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
@@ -45,7 +51,11 @@ use crate::kast::{FrontendSort, Label, ProductionIdentity, Sort};
 
 use super::disambiguation::parse_apply_priority;
 use super::scanner::{DeclarationSite, Item, Layout, Scanner, compile_item};
-use super::{Grammar, ParseError, ParserRole, Production, ProductionOptions};
+use super::{
+    CyclicDerivation, Grammar, ParseError, ParseProvenance, ParserRole, Production,
+    ProductionOptions,
+};
+use crate::kast::TermSpan;
 
 impl Grammar {
     pub(in crate::inner) fn from_program_sentences<'a>(
@@ -616,6 +626,64 @@ impl Grammar {
             .collect();
     }
 
+    /// Render the unary cycle selected by the existing completion check. Every edge in the
+    /// witness is a single-nonterminal production, so none matches an empty sibling item.
+    pub(super) fn productive_unary_cycle_error(
+        &self,
+        production: usize,
+        input: &str,
+        origin: usize,
+        end: usize,
+        provenance: ParseProvenance,
+    ) -> ParseError {
+        let first = &self.productions[production];
+        let [Item::NonTerminal(child)] = first.items.as_slice() else {
+            unreachable!("a productive unary cycle starts with a unary production");
+        };
+        let mut pending = VecDeque::from([child.clone()]);
+        let mut visited = BTreeSet::from([child.clone()]);
+        let mut parents = BTreeMap::new();
+        while let Some(sort) = pending.pop_front() {
+            if sort == first.result {
+                break;
+            }
+            for (index, candidate) in self.productions.iter().enumerate() {
+                let [Item::NonTerminal(next)] = candidate.items.as_slice() else {
+                    continue;
+                };
+                if candidate.result == sort && visited.insert(next.clone()) {
+                    parents.insert(next.clone(), (sort.clone(), index));
+                    pending.push_back(next.clone());
+                }
+            }
+        }
+        let mut path = Vec::new();
+        let mut sort = first.result.clone();
+        while sort != *child {
+            let (previous, index) = parents
+                .get(&sort)
+                .expect("the flagged unary production has a path back to its result");
+            path.push(*index);
+            sort = previous.clone();
+        }
+        path.reverse();
+        let productions = std::iter::once(production)
+            .chain(path)
+            .map(|index| render_parsing_production(&self.productions[index]))
+            .collect();
+        ParseError::CyclicDerivation(Box::new(CyclicDerivation {
+            sort: first.result.clone(),
+            text: input[origin..end].to_owned(),
+            productions,
+            empty: Vec::new(),
+            span: Some(TermSpan {
+                source: provenance.source,
+                start: provenance.base_offset + origin,
+                end: provenance.base_offset + end,
+            }),
+        }))
+    }
+
     fn add_production(
         &mut self,
         result: Sort,
@@ -1016,6 +1084,20 @@ pub(super) fn render_added_production(
     format!("syntax {result} ::= {items}{attributes}")
 }
 
+pub(super) fn render_parsing_production(production: &Production) -> String {
+    production.source_production_text.as_ref().map_or_else(
+        || {
+            render_added_production(
+                &production.result,
+                &production.declared_items,
+                production.token,
+                None,
+            )
+        },
+        |text| text.as_str().to_owned(),
+    )
+}
+
 fn render_production_item(item: &ProductionItem) -> String {
     match item {
         ProductionItem::NonTerminal { sort, name } => name
@@ -1149,15 +1231,17 @@ mod tests {
         ])
         .unwrap();
         for input in ["x", "x y"] {
-            assert_eq!(
-                unfiltered(&grammar, "Start", input),
-                Err(ParseError::CyclicParseForest)
-            );
+            let error = unfiltered(&grammar, "Start", input).unwrap_err();
+            let ParseError::CyclicDerivation(cycle) = &error else {
+                panic!("expected a cyclic derivation, got {error:?}");
+            };
+            assert_eq!(cycle.sort, Sort::new("Cycle"));
+            assert!(cycle.text.is_empty());
+            assert_eq!(cycle.productions.len(), 1);
+            assert!(cycle.productions[0].contains("syntax Cycle ::= Cycle"));
+            assert!(cycle.empty.is_empty());
             PARSE_ATTEMPTS.set(0);
-            assert_eq!(
-                grammar.parse(&Sort::new("Start"), input),
-                Err(ParseError::CyclicParseForest)
-            );
+            assert_eq!(grammar.parse(&Sort::new("Start"), input), Err(error));
             assert_eq!(PARSE_ATTEMPTS.get(), 2);
         }
     }
