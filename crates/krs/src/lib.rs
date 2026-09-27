@@ -28,6 +28,11 @@
 use std::any::TypeId;
 use std::marker::PhantomData;
 
+mod provenance;
+
+#[doc(hidden)]
+pub use provenance::{__KrsRawAnchor, __krs_host_provenance};
+
 pub use krs_ir::{
     AnchorPrecision, BuiltinOperation, BuiltinSort, HookOperation, HostAuthoredAnchor,
     HostBuiltinOperationRegistration, HostBuiltinRegistry, HostBuiltinRegistryError,

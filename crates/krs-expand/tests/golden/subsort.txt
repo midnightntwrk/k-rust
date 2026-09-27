@@ -45,47 +45,52 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
             }),
         ),
         cfg: ::core::default::Default::default(),
-        provenance: ::k::HostProvenance::new(
-                ::k::HostSourceAnchor::new(
-                        "src/lib.rs".to_owned(),
-                        ::k::HostSourcePosition::new(2u32, 1u32)
-                            .expect("stable proc-macro positions are one-based"),
-                        ::k::HostSourcePosition::new(2u32, 14u32)
-                            .expect("stable proc-macro positions are one-based"),
-                        ::k::AnchorPrecision::Exact,
-                    )
-                    .expect("KRS emits ordered, non-absolute display anchors"),
-                ::std::vec![
-                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("subsort_declaration",
-                    0u32).expect("KRS parser roles are nonempty"),
-                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(3u32, 1u32)
-                    .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 29u32)
-                    .expect("stable proc-macro positions are one-based"),
-                    ::k::AnchorPrecision::Exact,)
-                    .expect("KRS emits ordered, non-absolute display anchors"),),
-                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("subsort_super_sort",
-                    0u32).expect("KRS parser roles are nonempty"),
-                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(3u32, 6u32)
-                    .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 11u32)
-                    .expect("stable proc-macro positions are one-based"),
-                    ::k::AnchorPrecision::Exact,)
-                    .expect("KRS emits ordered, non-absolute display anchors"),),
-                    ::k::HostAuthoredAnchor::new(::k::ProvenanceKey::new("subsort_sub_sort",
-                    0u32).expect("KRS parser roles are nonempty"),
-                    ::k::HostSourceAnchor::new("src/lib.rs".to_owned(),
-                    ::k::HostSourcePosition::new(3u32, 16u32)
-                    .expect("stable proc-macro positions are one-based"),
-                    ::k::HostSourcePosition::new(3u32, 26u32)
-                    .expect("stable proc-macro positions are one-based"),
-                    ::k::AnchorPrecision::Exact,)
-                    .expect("KRS emits ordered, non-absolute display anchors"),)
-                ],
-            )
-            .expect("KRS shared parsers emit nonempty, uniquely keyed provenance"),
+        provenance: ::k::__krs_host_provenance(
+            "",
+            &["src/lib.rs"],
+            ::k::__KrsRawAnchor {
+                file: 0usize,
+                absolute: false,
+                start: (2u32, 1u32),
+                end: (2u32, 14u32),
+                exact: true,
+            },
+            &[
+                (
+                    "subsort_declaration",
+                    0u32,
+                    ::k::__KrsRawAnchor {
+                        file: 0usize,
+                        absolute: false,
+                        start: (3u32, 1u32),
+                        end: (3u32, 29u32),
+                        exact: true,
+                    },
+                ),
+                (
+                    "subsort_super_sort",
+                    0u32,
+                    ::k::__KrsRawAnchor {
+                        file: 0usize,
+                        absolute: false,
+                        start: (3u32, 6u32),
+                        end: (3u32, 11u32),
+                        exact: true,
+                    },
+                ),
+                (
+                    "subsort_sub_sort",
+                    0u32,
+                    ::k::__KrsRawAnchor {
+                        file: 0usize,
+                        absolute: false,
+                        start: (3u32, 16u32),
+                        end: (3u32, 26u32),
+                        exact: true,
+                    },
+                ),
+            ],
+        ),
     }
 }
 ::k::__register_host_descriptor!(__krs_subsort_descriptor_ec843611dce35b9f);

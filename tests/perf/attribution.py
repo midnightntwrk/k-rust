@@ -17,9 +17,7 @@ generated-item prefix, by construct, and by source macro kind:
 - `.text`/`.rodata`/`.data` symbol bytes in the collector binary (`nm`) and
   its section table (`readelf -SW`), including the `.init_array` entry count;
 - `-Zmacro-stats` lines per macro and `expand_proc_macro` time per macro;
-- provenance anchors: expanded lines inside `HostSourceAnchor::new(...)` per
-  construct (from `-Zunpretty=expanded`), and a least-squares estimate of
-  LLVM IR lines per anchor line.
+- provenance anchors: expanded lines inside `HostSourceAnchor::new(...)` or `__KrsRawAnchor { ... }` per construct (from `-Zunpretty=expanded`), and a least-squares estimate of LLVM IR lines per anchor line.
 
 `--registration explicit` (or `both`) repeats the build with the crate-root
 registration table that `RegistrationMode::Explicit` requires (taken from an
@@ -151,13 +149,14 @@ _FACTORY_ID = re.compile(
     r'\s*"((?:[^"\\]|\\.)*)",\s*::\w+::ItemKind::(\w+)')
 _SENTENCE = re.compile(r"::\w+::SentenceKind::(\w+)")
 _ANCHOR = "HostSourceAnchor::new("
-_POSITION = re.compile(r"HostSourcePosition::new\((\d+)u32,\s*(\d+)u32\)")
+_RAW_ANCHOR = re.compile(r"__KrsRawAnchor\s*\{")
+_POSITION = re.compile(r"(?:HostSourcePosition::new\(|start:\s*\()(\d+)u32,\s*(\d+)u32\)")
 _ITEM_NAME = re.compile(r"^(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|unsafe\s+|async\s+|extern\s+\"C\"\s+)*"
                         r"(?:fn|struct|enum|trait|type|static|const|mod|union)\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 
-def _balanced_end(text: str, start: int) -> int:
-    """Index just past the parenthesis that closes the one opened before `start`."""
+def _balanced_end(text: str, start: int, opening: str = "(", closing: str = ")") -> int:
+    """Index just past the delimiter that closes the one opened before `start`."""
 
     depth, index, length = 1, start, len(text)
     while index < length and depth:
@@ -166,9 +165,9 @@ def _balanced_end(text: str, start: int) -> int:
             index += 1
             while index < length and text[index] != '"':
                 index += 2 if text[index] == "\\" else 1
-        elif character == "(":
+        elif character == opening:
             depth += 1
-        elif character == ")":
+        elif character == closing:
             depth -= 1
         index += 1
     return index
@@ -226,6 +225,11 @@ def expanded_constructs(text: str, crate: str) -> dict[str, Any]:
             anchor_lines += chunk.count("\n", position, end) + 1
             anchor_bytes += end - position
             position = chunk.find(_ANCHOR, end)
+        for match in _RAW_ANCHOR.finditer(chunk):
+            end = _balanced_end(chunk, match.end(), "{", "}")
+            anchors += 1
+            anchor_lines += chunk.count("\n", match.start(), end) + 1
+            anchor_bytes += end - match.start()
         factory = _FACTORY_ID.search(chunk) if "HostDescriptor" in header else None
         if factory is not None and key is not None:
             sentence = _SENTENCE.search(chunk)
@@ -235,6 +239,8 @@ def expanded_constructs(text: str, crate: str) -> dict[str, Any]:
             if sentence and info["prefix"] == "rule_descriptor":
                 construct["sentence"] = sentence.group(1)
             provenance = chunk.find("HostProvenance::new(")
+            if provenance < 0:
+                provenance = chunk.find("__krs_host_provenance(")
             position = _POSITION.search(chunk, provenance if provenance >= 0 else 0)
             if position and "line" not in construct:
                 construct["line"] = int(position.group(1))

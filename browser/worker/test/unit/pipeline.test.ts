@@ -284,19 +284,21 @@ describe.skipIf(!haveAssets)("modules (staged assets)", () => {
     expect(events.map((e) => e.type)).toEqual(["diagnostics"]);
   });
 
-  test("expander output for tour-minimal equals the recorded text (77f886b9...) and lookup answers", async () => {
+  test("expander output for tour-minimal equals the recorded text and lookup answers", async () => {
     const expander = await load(pack!.modules.expander.path);
     const request = JSON.parse(fixture("expander-tour-minimal.request.json"));
     const response = await runExpander(expander, request);
     expect(await sha256Hex(new TextEncoder().encode(response.expanded!.text))).toBe(
-      "77f886b9e6673bb6c9ab80086b05e813b7fe910e9f37b860ec1543d432f50d7b",
+      "4c445a68a10a09d6ca3551e14acd4a0b1818032240ca6573cf04ef44da21533d",
     );
+    const segments = (response.source_map as { segments: Array<{ class: string; generated: [number, number] }> }).segments;
+    const generated = segments.find((segment) => segment.class === "generated-only")!;
     const lookup = await runLookup(expander, {
       schema: 1,
       authored_source: request.file.source,
       text: response.expanded!.text,
       source_map: response.source_map,
-      ranges: [[55899, 56838]],
+      ranges: [generated.generated],
     });
     expect(lookup.mappings[0]!.class).toBe("generated-only");
   });

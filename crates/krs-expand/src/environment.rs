@@ -105,7 +105,7 @@ mod tests {
         let output = crate::expand::sorts(&environment, input)
             .unwrap()
             .to_string();
-        assert!(output.contains(":: k :: HostSourceAnchor :: new"));
+        assert!(output.contains(":: k :: __krs_host_provenance"));
         assert!(output.contains("\"src/lib.rs\""));
     }
 
@@ -118,9 +118,22 @@ mod tests {
         let output = crate::provenance::host_provenance(&environment, &facade, fallback, &[])
             .unwrap()
             .to_string();
-        assert!(output.contains("\"src/lib.rs\" . to_owned ()"));
-        assert!(output.contains("HostSourcePosition :: new (1u32 , 1u32)"));
-        assert!(output.contains("HostSourcePosition :: new (1u32 , 11u32)"));
-        assert!(output.contains("AnchorPrecision :: InvocationFallback"));
+        assert!(output.contains("& [\"src/lib.rs\"]"));
+        assert!(output.contains("start : (1u32 , 1u32)"));
+        assert!(output.contains("end : (1u32 , 11u32)"));
+        assert!(output.contains("exact : false"));
+        assert!(!output.contains("CARGO_MANIFEST_DIR"));
+    }
+
+    #[test]
+    fn absolute_anchor_includes_cargo_manifest_dir() {
+        let environment = FixedEnvironment::new("/package/src/lib.rs", "::k");
+        let facade = syn::parse_str("::k").unwrap();
+        let tokens: TokenStream = "alpha beta".parse().unwrap();
+        let fallback = krs_syntax::TokenRange::for_tokens(&tokens).unwrap();
+        let output = crate::provenance::host_provenance(&environment, &facade, fallback, &[])
+            .unwrap()
+            .to_string();
+        assert!(output.contains("env ! (\"CARGO_MANIFEST_DIR\")"));
     }
 }

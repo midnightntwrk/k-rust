@@ -19,6 +19,8 @@ use krs_expand::sink::{
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use sha2::{Digest, Sha256};
 use support::{Expansion, TOUR_MINIMAL, TestEnvironment, expand_tour_minimal};
+use syn::visit::Visit;
+use syn::{Expr, ExprStruct, Lit, Member};
 
 const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
 
@@ -181,47 +183,102 @@ impl Anchor {
     }
 }
 
-fn next_after<'a>(text: &'a str, marker: &str) -> Option<&'a str> {
-    text.find(marker).map(|index| &text[index + marker.len()..])
+fn raw_field<'a>(raw: &'a ExprStruct, name: &str) -> &'a Expr {
+    &raw.fields
+        .iter()
+        .find(|field| matches!(&field.member, Member::Named(ident) if ident == name))
+        .unwrap_or_else(|| panic!("raw anchor has {name}"))
+        .expr
 }
 
-fn number(text: &str) -> (u32, &str) {
-    let digits = text
-        .find(|c: char| !c.is_ascii_digit())
-        .unwrap_or(text.len());
-    (text[..digits].parse().expect("a number"), &text[digits..])
+fn u32_literal(expr: &Expr) -> u32 {
+    let Expr::Lit(literal) = expr else {
+        panic!("integer literal")
+    };
+    let Lit::Int(value) = &literal.lit else {
+        panic!("integer literal")
+    };
+    value.base10_parse().expect("u32 literal")
 }
 
-/// Every `HostAuthoredAnchor` of `output`, converted to authored bytes.
+fn position(expr: &Expr) -> (u32, u32) {
+    let Expr::Tuple(tuple) = expr else {
+        panic!("position tuple")
+    };
+    let mut coordinates = tuple.elems.iter();
+    (
+        u32_literal(coordinates.next().expect("line")),
+        u32_literal(coordinates.next().expect("column")),
+    )
+}
+
+/// Every authored raw anchor of `output`, converted to authored bytes.
 fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
-    let text = output.to_string();
-    let mut anchors = Vec::new();
-    let mut rest = text.as_str();
-    while let Some(after) = next_after(rest, "HostAuthoredAnchor :: new (") {
-        let after = next_after(after, "ProvenanceKey :: new (\"").expect("a key");
-        let role_end = after.find('"').expect("a role");
-        let role = after[..role_end].to_owned();
-        let (ordinal, after) = number(&after[role_end + 4..]);
-        let after = next_after(after, "HostSourcePosition :: new (").expect("a start");
-        let (start_line, after) = number(after);
-        let (start_column, after) = number(&after[6..]);
-        let after = next_after(after, "HostSourcePosition :: new (").expect("an end");
-        let (end_line, after) = number(after);
-        let (end_column, after) = number(&after[6..]);
-        let after = next_after(after, "AnchorPrecision :: ").expect("a precision");
-        anchors.push(Anchor {
-            surface: surface.to_owned(),
-            role,
-            ordinal,
-            authored: (
-                byte_offset(TOUR_MINIMAL, start_line, start_column),
-                byte_offset(TOUR_MINIMAL, end_line, end_column),
-            ),
-            exact: after.starts_with("Exact"),
-        });
-        rest = after;
+    struct AnchorVisitor<'a> {
+        surface: &'a str,
+        anchors: Vec<Anchor>,
     }
-    anchors
+    impl Visit<'_> for AnchorVisitor<'_> {
+        fn visit_expr_call(&mut self, call: &syn::ExprCall) {
+            if let Expr::Path(path) = call.func.as_ref()
+                && path
+                    .path
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "__krs_host_provenance")
+            {
+                let Expr::Reference(authored) = &call.args[3] else {
+                    panic!("authored slice")
+                };
+                let Expr::Array(authored) = authored.expr.as_ref() else {
+                    panic!("authored array")
+                };
+                for entry in &authored.elems {
+                    let Expr::Tuple(tuple) = entry else {
+                        panic!("authored tuple")
+                    };
+                    let Expr::Lit(role) = &tuple.elems[0] else {
+                        panic!("role literal")
+                    };
+                    let Lit::Str(role) = &role.lit else {
+                        panic!("role string")
+                    };
+                    let Expr::Struct(raw) = &tuple.elems[2] else {
+                        panic!("raw anchor")
+                    };
+                    let start = position(raw_field(raw, "start"));
+                    let end = position(raw_field(raw, "end"));
+                    let Expr::Lit(exact) = raw_field(raw, "exact") else {
+                        panic!("precision literal")
+                    };
+                    let Lit::Bool(exact) = &exact.lit else {
+                        panic!("precision bool")
+                    };
+                    self.anchors.push(Anchor {
+                        surface: self.surface.to_owned(),
+                        role: role.value(),
+                        ordinal: u32_literal(&tuple.elems[1]),
+                        authored: (
+                            byte_offset(TOUR_MINIMAL, start.0, start.1),
+                            byte_offset(TOUR_MINIMAL, end.0, end.1),
+                        ),
+                        exact: exact.value,
+                    });
+                }
+            }
+            syn::visit::visit_expr_call(self, call);
+        }
+    }
+    if !output.to_string().contains("__krs_host_provenance") {
+        return Vec::new();
+    }
+    let file = syn::parse2::<syn::File>(output.clone()).expect("expansion parses as Rust items");
+    let mut visitor = AnchorVisitor {
+        surface,
+        anchors: Vec::new(),
+    };
+    visitor.visit_file(&file);
+    visitor.anchors
 }
 
 /// Every generated range that `lookup` maps to exactly `authored`.

@@ -253,7 +253,7 @@ In a scratch copy, `run` builds the port's generated collector three times throu
 
 1. with `-Zself-profile-events=default,args`, so that query events carry their item: per-item self time of `typeck_root`, `mir_borrowck`, `optimized_mir`, and the MIR queries they force, per-codegen-unit codegen and LLVM time, and `expand_proc_macro` time and source span per macro invocation; then `nm -S --size-sort -C` and `readelf -SW` of the collector executable (symbol bytes per section and the `.init_array` entry count);
 2. after `cargo clean -p`, non-incrementally with `--emit=llvm-ir`, read by `cargo llvm-lines --files` (IR lines and copies per function);
-3. `cargo check` with `-Zunpretty=expanded`, whose factories name their construct (`HostItemId::from_macro_context(.., name, ItemKind)`) and whose `HostSourceAnchor::new(..)` expressions are the provenance anchors.
+3. `cargo check` with `-Zunpretty=expanded`, whose factories name their construct (`HostItemId::from_macro_context(.., name, ItemKind)`) and whose `HostSourceAnchor::new(..)` or `__KrsRawAnchor { .. }` expressions are the provenance anchors.
 
 Every quantity is then grouped by item prefix, by construct, by generated construct kind, and by source macro (the innermost proc-macro invocation whose span covers the construct's invocation anchor, or the attribute macro just above it).
 rustc performs codegen and LLVM per codegen unit, not per item, so codegen time is distributed over items in proportion to their IR lines (`codegen s*`); it is an estimate, not a measurement.
@@ -263,4 +263,3 @@ Query times come from a profiled build with query keys recorded, which inflates 
 `--registration explicit` (or `both`) repeats the measurement in `RegistrationMode::Explicit`: an inventory census of the port (as `tests/explicit-registration` takes one) yields the crate-root registration table, which is appended to the scratch source, every member's `krs` dependency gets `default-features = false` (feature unification is workspace-wide), and the collector is generated with `krs expand --registration explicit`.
 The report then compares `.init_array` entries, binary and `.text` size, and the registration group's IR lines, expanded lines, and type-checking time between the two modes.
 `attribution.json` (`krs-perf-attribution/1`) holds every table; it is written under `<checkout scratch>/perf-attribution/` unless `--out` names a directory.
-

@@ -26,7 +26,9 @@ pub(crate) fn host_provenance(
         .or_else(|| capture(env, fallback, false))
         .unwrap_or_else(|| unavailable_invocation(env, fallback));
 
-    let invocation_tokens = source_anchor(facade, &invocation);
+    let mut files = Vec::new();
+    let mut any_absolute = invocation.absolute_display_file;
+    let invocation_tokens = raw_anchor(facade, &invocation, &mut files);
     let mut authored = Vec::with_capacity(anchors.len());
     for anchor in anchors {
         let captured = capture(env, anchor.range(), true).unwrap_or_else(|| {
@@ -34,7 +36,8 @@ pub(crate) fn host_provenance(
             inherited.exact = false;
             inherited
         });
-        let anchor_tokens = source_anchor(facade, &captured);
+        any_absolute |= captured.absolute_display_file;
+        let anchor_tokens = raw_anchor(facade, &captured, &mut files);
         let key = anchor.key().map_err(|error| {
             syn::Error::new(
                 anchor.range().first(),
@@ -43,21 +46,22 @@ pub(crate) fn host_provenance(
         })?;
         let role = key.role();
         let ordinal = key.ordinal();
-        authored.push(quote! {
-            #facade::HostAuthoredAnchor::new(
-                #facade::ProvenanceKey::new(#role, #ordinal)
-                    .expect("KRS parser roles are nonempty"),
-                #anchor_tokens,
-            )
-        });
+        authored.push(quote! { (#role, #ordinal, #anchor_tokens) });
     }
 
+    let manifest_dir = if any_absolute {
+        quote!(env!("CARGO_MANIFEST_DIR"))
+    } else {
+        quote!("")
+    };
+
     Ok(quote! {
-        #facade::HostProvenance::new(
+        #facade::__krs_host_provenance(
+            #manifest_dir,
+            &[#(#files),*],
             #invocation_tokens,
-            ::std::vec![#(#authored),*],
+            &[#(#authored),*],
         )
-        .expect("KRS shared parsers emit nonempty, uniquely keyed provenance")
     })
 }
 
@@ -139,39 +143,31 @@ fn is_windows_absolute(file: &str) -> bool {
     bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'/'
 }
 
-fn source_anchor(facade: &syn::Path, anchor: &CapturedAnchor) -> proc_macro2::TokenStream {
-    let display_file = &anchor.display_file;
-    let display_file = if anchor.absolute_display_file {
-        quote! {{
-            let source = ::std::path::Path::new(#display_file);
-            let manifest = ::std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-            source
-                .strip_prefix(manifest)
-                .expect("rustc's absolute display path must remain inside the Cargo package")
-                .to_string_lossy()
-                .replace('\\', "/")
-        }}
-    } else {
-        quote!(#display_file.to_owned())
-    };
+fn raw_anchor(
+    facade: &syn::Path,
+    anchor: &CapturedAnchor,
+    files: &mut Vec<String>,
+) -> proc_macro2::TokenStream {
+    let file = files
+        .iter()
+        .position(|file| file == &anchor.display_file)
+        .unwrap_or_else(|| {
+            files.push(anchor.display_file.clone());
+            files.len() - 1
+        });
+    let absolute = anchor.absolute_display_file;
     let start_line = anchor.start_line;
     let start_column = anchor.start_column;
     let end_line = anchor.end_line;
     let end_column = anchor.end_column;
-    let precision = if anchor.exact {
-        quote!(#facade::AnchorPrecision::Exact)
-    } else {
-        quote!(#facade::AnchorPrecision::InvocationFallback)
-    };
+    let exact = anchor.exact;
     quote! {
-        #facade::HostSourceAnchor::new(
-            #display_file,
-            #facade::HostSourcePosition::new(#start_line, #start_column)
-                .expect("stable proc-macro positions are one-based"),
-            #facade::HostSourcePosition::new(#end_line, #end_column)
-                .expect("stable proc-macro positions are one-based"),
-            #precision,
-        )
-        .expect("KRS emits ordered, non-absolute display anchors")
+        #facade::__KrsRawAnchor {
+            file: #file,
+            absolute: #absolute,
+            start: (#start_line, #start_column),
+            end: (#end_line, #end_column),
+            exact: #exact,
+        }
     }
 }

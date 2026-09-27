@@ -170,6 +170,28 @@ class AttributionTests(unittest.TestCase):
         self.assertEqual(chunks["authored"]["authored"], "lookup")
         self.assertIn("registration", chunks)
 
+    def test_expanded_constructs_with_compact_anchors(self):
+        compact = '''\
+#[doc(hidden)]
+fn __krs_head_rule_descriptor_0123456789abcdef() -> ::k::HostDescriptor {
+    ::k::HostDescriptor {
+        id: ::k::HostItemId::from_macro_context("krs-x", "0.1.0",
+                "/scratch/x", "krs_x", "lookup", ::k::ItemKind::Rule,
+                "").expect("valid"),
+        provenance: ::k::__krs_host_provenance(env!("CARGO_MANIFEST_DIR"),
+            &["src/lib.rs"], ::k::__KrsRawAnchor {
+                file: 0usize, absolute: false, start: (12u32, 1u32),
+                end: (14u32, 2u32), exact: true
+            }, &[]),
+    }
+}
+'''
+        expanded = attribution.expanded_constructs(compact, "krs_x")
+        construct = expanded["constructs"]["0123456789abcdef"]
+        self.assertEqual(construct["line"], 12)
+        chunks = {chunk["prefix"]: chunk for chunk in expanded["chunks"]}
+        self.assertEqual(chunks["head_rule_descriptor"]["anchors"], 1)
+
     def test_source_macro_prefers_covering_span_then_preceding_attribute(self):
         spans = [{"macro": "k::rules!", "start": 10, "end": 90}, {"macro": "#[k::equation]", "start": 100, "end": 100}]
         self.assertEqual(attribution.source_macro(12, spans), "k::rules!")
