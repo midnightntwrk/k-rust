@@ -215,6 +215,7 @@ A symbolic application, a scan with an indeterminate equation, or an equation re
 An equality from the path condition that can replace any part of a cached term must be applied before the cache can short-circuit simplification.
 Rewrite matching decomposes equal rigid heads and rejects a different rigid head, while matches against variables and ordinary function heads remain symbolic.
 A subject application of an anywhere production without the `function` attribute is a rigid head, in rewrite, equation and implication matching alike, only when it is normal on every instance (defined below); otherwise the pair stays symbolic, since an anywhere equation such as `wrap(s(z)) = wrap(z)` gives `wrap(s(X))` the value of `wrap(z)` at `X = z` and a rule for `wrap(z)` must not be refuted on it, nor `wrap(X)` decomposed against `wrap(z)` into `X = z` alone.
+A ground application that the simplifier has cached as evaluated is such a normal form without the scan. The cache is set only when every equation offered the application fails to match it, as described below for structural equality.
 The exception is the root of equation matching: an equation is tried on the application it rewrites as written, and only that application's arguments are compared as the values they denote.
 The left-hand side of a rule or equation is matched as written.
 The rule index keys a subject's overloaded anywhere head apart from unrelated rigid heads only under the same condition, and keys it as a wildcard otherwise.
