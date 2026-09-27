@@ -26,7 +26,7 @@ use kink_native::MutantRejection;
 use kink_native::bridge::{BridgeFailure, BridgedPaths, halt_stop};
 use kink_native::execution::{ExecutionAdapterFailure, HaltClass};
 use kink_native::observation::ObservationFailure;
-use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, apply};
+use kink_patch::{Edit, Patch, PatchFailureKind, TermRef, Withdrawal, apply};
 use kink_pattern::{
     Atom, Binding, CollectionEvidence, CollectionStop, Constructor, Evaluation, EvaluationContext,
     EvaluationOptions, EventVocabulary, ExecutionBounds, ExecutionStop, ExecutionTerminal,
@@ -610,6 +610,7 @@ fn mutant_status(run: TestRun) -> MutantStatus {
             run,
         }],
         mutant_failure: None,
+        claims: Withdrawal::default(),
     };
     let manifest = [ManifestTest {
         test_id: "t".to_owned(),

@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use kink_patch::Withdrawal;
+
 /// Campaign scheduling policy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ScheduleMode {
@@ -105,6 +107,11 @@ pub enum ExecutionFailureKind {
     TimeLimit,
     /// The worker, backend or other infrastructure failed during the run.
     Infrastructure,
+    /// A symbolic test was not run: the mutant has a trusted claim that its patch writes, or
+    /// a lemma whose support it touched ([`Withdrawal::unsupported`]), or its withdrawn
+    /// definition did not compile. A symbolic verdict is a claim about every ground instance,
+    /// which k-rust's answer supports only while the definition's trusted claims hold.
+    UnsupportedClaims,
 }
 
 impl ExecutionFailureKind {
@@ -112,7 +119,9 @@ impl ExecutionFailureKind {
     #[must_use]
     pub const fn status(self) -> MutantStatus {
         match self {
-            Self::Indeterminate | Self::ResourceLimit => MutantStatus::Unknown,
+            Self::Indeterminate | Self::ResourceLimit | Self::UnsupportedClaims => {
+                MutantStatus::Unknown
+            }
             Self::TimeLimit => MutantStatus::Timeout,
             Self::Infrastructure => MutantStatus::Error,
         }
@@ -176,6 +185,10 @@ pub struct MutantPlan {
     pub tests: Vec<TestPlan>,
     /// Failure invalidating every test's evidence; it decides the status.
     pub mutant_failure: Option<MutantScopeFailure>,
+    /// The trusted claims withdrawn from the definition the symbolic tests ran on, and those
+    /// that could not be withdrawn. Ground tests run on the patched definition as written, so
+    /// this is empty when no test is symbolic.
+    pub claims: Withdrawal,
 }
 
 /// One scheduled mutant result.
@@ -198,6 +211,8 @@ pub struct MutantReport {
     /// The manifest suffix the fold did not read under first-kill, whether
     /// its tests ran or were planned as `SkippedAfterKill`.
     pub skipped_test_ids: Vec<String>,
+    /// The plan's claim withdrawal, beside the candidate's canonical edits.
+    pub claims: Withdrawal,
 }
 
 /// Precedence of a status in the oracle fold; the fold keeps the maximum.
@@ -375,6 +390,7 @@ pub fn derive_mutant_report(
         executed_test_ids: executed,
         killing_test_ids: killing,
         skipped_test_ids,
+        claims: plan.claims.clone(),
     })
 }
 

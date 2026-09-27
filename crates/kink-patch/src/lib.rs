@@ -13,9 +13,14 @@
 //! [`derive_sites`], [`select`] and [`Selection::fold`] turn the baseline's
 //! term positions into a [`CandidateGeneration`] of deduplicated candidate
 //! patches.
+//!
+//! [`ClaimSupport`] relates the attributes k-rust trusts without checking them to the
+//! sentences they rest on, and [`ClaimSupport::withdraw`] removes from a mutant every such
+//! claim whose support its patch touched.
 
 mod apply;
 mod candidate;
+mod claims;
 mod failure;
 mod sort;
 
@@ -25,6 +30,7 @@ pub use candidate::{
     CandidateGeneration, Completeness, Discovery, DiscoveryTuple, PatchOrigin, Selection,
     SelectionPolicy, Site, SiteSelector, derive_sites, select,
 };
+pub use claims::{Claim, ClaimSupport, Withdrawal};
 pub use failure::{PatchFailure, PatchFailureKind};
 
 use k_rust::definition::{Definition, Sentence};
