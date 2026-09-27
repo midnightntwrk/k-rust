@@ -637,6 +637,11 @@ fn an_undefined_instance_is_not_offered_to_a_lower_priority() {
             "{strategy:?}: {:#?}",
             summary(&result)
         );
+        // The undefined step is `lowpos`'s under either strategy, and the leaf names it.
+        let [trivial] = trivial_leaves(&result)[..] else {
+            panic!("{strategy:?}: one Trivial leaf: {:#?}", summary(&result));
+        };
+        assert_trivial_rule(&backend, trivial, "lowpos");
 
         let mut ground = request(&format!("Lbllow{{}}({})", int(0)));
         ground.strategy = strategy;
@@ -647,5 +652,6 @@ fn an_undefined_instance_is_not_offered_to_a_lower_priority() {
             "{strategy:?}: {:#?}",
             summary(&ground)
         );
+        assert_trivial_rule(&backend, &ground.leaves[0], "lowpos");
     }
 }
