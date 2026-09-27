@@ -431,6 +431,15 @@ fn vacuous_halt(depth: u64, pattern: &Pattern, trace: &[TraceEntry]) -> HaltReas
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// One explored path's final constrained pattern.
+///
+/// Its predicate implies the definedness of every partial term that a `requires`, `ensures`,
+/// right-hand side, or simplified state relied on along that path, with or without a solver,
+/// subject to any initial-state definedness assumption.
+/// Builtin hooks are strict in all arguments, and rule and equation conditions state the
+/// definedness of their Boolean terms when instantiated.
+/// This guarantee uses the definition's `total`, `functional`, and `preserves-definedness`
+/// attributes as axioms; a partial function declared total is outside the contract.
 pub struct ExecutionLeaf {
     pub pattern: Pattern,
     pub depth: u64,

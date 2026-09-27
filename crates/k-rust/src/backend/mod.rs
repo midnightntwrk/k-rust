@@ -114,6 +114,10 @@ pub struct ExecuteRequest {
     pub terminal_rules: Vec<String>,
     pub step_timeout_ms: Option<u64>,
     pub moving_average_timeout: bool,
+    /// Assume the initial state's definedness instead of adding it to the path predicate.
+    /// Other path obligations still apply: an execution leaf's predicate implies the
+    /// definedness of every partial term relied on by its conditions, right-hand sides, and
+    /// simplified states in either solver profile.
     pub assume_state_defined: bool,
     /// `state-set` (the default) merges structurally equal final configurations into one leaf;
     /// `path-set` returns one leaf per explored path, so converging paths keep their own trace,
