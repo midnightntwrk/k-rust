@@ -1045,9 +1045,33 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/definedness.rs"
 symbol = "normalized_ground_terms_are_distinct"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "condition_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "condition_atom_term"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "hoist_condition_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/definedness.rs"
+symbol = "nested_condition_definedness"
+
 [[node.cost]]
 mode = "one term (ceil_term)"
 bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits with one deduplication clone each, a visit of a ceil_free subterm returning at once, plus m^2 / 2 distinctness checks per map or set with up to two matching problems each, plus O(y) per entry beside a rest, plus q matches and one predicate simplification per partial application"
+
+[[node.cost]]
+mode = "one rule or equation condition (condition_definedness)"
+bound = "one ceil_term call per Boolean atom and per atom side tested for provable definedness, each bounded as above, plus O(c + k) hashing of the c conditions and k known predicates when an obligation is hoisted"
 
 [[node.cost]]
 mode = "one definition (discharge_rewrite_definedness)"
@@ -2110,6 +2134,11 @@ symbol = "simplify_children"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_root"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "hook_argument_definedness"
 
 [[node.sites]]
 crate = "k-rust-backend"

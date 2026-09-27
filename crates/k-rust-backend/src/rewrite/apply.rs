@@ -38,7 +38,7 @@ use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     builtin::BuiltinEffect,
-    definedness::ceil_term,
+    definedness::{ceil_term, condition_definedness},
     definition::BackendDefinition,
     diagnostic::{self, Sequenced},
     fresh::freshen_existential,
@@ -718,7 +718,11 @@ fn recover_by_unification(
             ) {
                 return Ok(recovered);
             }
-            let requires = substitute_predicates(&rule.requires, &substitution);
+            let requires = condition_definedness(
+                definition,
+                substitute_predicates(&rule.requires, &substitution),
+                inherited_knowledge,
+            );
             let requires = match simplify_predicates_with_solver(
                 definition,
                 &requires,
@@ -913,9 +917,15 @@ fn requires(
     path_knowledge: Vec<Predicate>,
 ) -> Phase<(Vec<Predicate>, Vec<Predicate>)> {
     let rule = context.rule;
-    let requires = substitute_predicates(&rule.requires, substitution);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
+    // The instance satisfies `requires` only where its terms are defined; state that before the
+    // simplifier or a solver can answer for instances where they are not.
+    let requires = condition_definedness(
+        context.definition,
+        substitute_predicates(&rule.requires, substitution),
+        &match_knowledge,
+    );
     let requires = match simplify_predicates_with_solver(
         context.definition,
         &requires,
@@ -1316,6 +1326,9 @@ fn apply_rhs_alternative(
         existential_substitution,
     );
     let reported_ensures = conjunction(&ensures);
+    // An `ensures` constrains the successor only where its terms are defined, as a `requires`
+    // constrains the instance.
+    let ensures = condition_definedness(definition, ensures, &condition_knowledge);
     let mut ensures = match simplify_predicates_with_solver(
         definition,
         &ensures,

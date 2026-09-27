@@ -54,7 +54,7 @@ use crate::{
         evaluate_in_execution as evaluate_builtin_in_execution, k_sequence_item,
     },
     cancellation::cancellation_requested,
-    definedness::ceil_term,
+    definedness::{ceil_term, condition_definedness},
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic},
     matching::{
@@ -1396,7 +1396,8 @@ fn apply_ceil_equation(
         ));
     }
 
-    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+    let conditions =
+        equation_match_conditions(definition, &rule.requires, &substitution, known_predicates);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -1512,7 +1513,8 @@ fn apply_predicate_equation(
             ConditionIndeterminacy::NonFunctionalBinding,
         ));
     }
-    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+    let conditions =
+        equation_match_conditions(definition, &rule.requires, &substitution, known_predicates);
     match evaluate_rule_condition(
         definition,
         &rule.attributes.unique_id,
@@ -1673,7 +1675,7 @@ fn strict_variables(
 /// intersection of its operands and has no definedness witness of its own (`Y /\ Z` over two
 /// element variables is empty unless `Y = Z`), while `ceil_term` only collects its operands'
 /// obligations, so a term that contains one anywhere is never provably defined here.
-fn term_is_provably_defined(
+pub(crate) fn term_is_provably_defined(
     definition: &BackendDefinition,
     term: &Term,
     known: impl Fn(&Predicate) -> bool,
@@ -2584,7 +2586,12 @@ fn matches_top_equation(
             {
                 continue;
             }
-            let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+            let conditions = equation_match_conditions(
+                definition,
+                &rule.requires,
+                &substitution,
+                known_predicates,
+            );
             if !matches!(
                 evaluate_rule_condition(
                     definition,
@@ -3258,6 +3265,7 @@ fn equation_match_conditions(
     definition: &BackendDefinition,
     requires: &[Predicate],
     substitution: &Substitution,
+    known_predicates: &[Predicate],
 ) -> EquationConditions {
     let requires = substitute_predicates(requires, substitution);
     let mut definedness = Vec::new();
@@ -3270,6 +3278,17 @@ fn equation_match_conditions(
             }
         }
     }
+    // `R[t]` must hold on the element `t` denotes, and holds there only where its terms are
+    // defined, so their definedness joins the requires. The definedness of the bound terms
+    // themselves is the `\ceil(t)` factor above, which is carried rather than decided, so it
+    // is taken as known here and not restated as a requires.
+    let requires = if definedness.is_empty() {
+        condition_definedness(definition, requires, known_predicates)
+    } else {
+        let mut known = known_predicates.to_vec();
+        known.extend(definedness.iter().cloned());
+        condition_definedness(definition, requires, &known)
+    };
     EquationConditions {
         requires,
         definedness,
@@ -3339,7 +3358,8 @@ fn apply_equation(
             ConditionIndeterminacy::NonFunctionalBinding,
         ));
     }
-    let conditions = equation_match_conditions(definition, &rule.requires, &substitution);
+    let conditions =
+        equation_match_conditions(definition, &rule.requires, &substitution, known_predicates);
     // The equation `f(X) = rhs requires R` is an axiom over every element `X`. A term `t` bound
     // to `X` is a functional pattern (at most one element), so `f(t) = \ceil(t) /\ rhs[t]` when
     // `R[t]` holds on that element: both sides are empty when `t` is, and equal to `rhs[t]`
@@ -3507,7 +3527,12 @@ fn evaluate_ensures(
     active_conditions: &BTreeSet<(String, Term)>,
     solver: &dyn SmtSolver,
 ) -> Result<EnsuresVerdict, SimplificationError> {
-    let ensures = substitute_predicates(ensures, substitution);
+    // An `ensures` constrains the result only where its terms are defined.
+    let ensures = condition_definedness(
+        definition,
+        substitute_predicates(ensures, substitution),
+        known_predicates,
+    );
     let ensures = simplify_rule_predicates_or_keep(
         definition,
         &rule.attributes.unique_id,

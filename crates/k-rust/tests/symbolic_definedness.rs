@@ -6,6 +6,11 @@
 //! `\ceil(t1) /\ .. /\ \ceil(tn) /\ v`. With `10 /Int X` as such an argument, every leaf a rule
 //! reaches from a symbolic `X` must imply `X =/=Int 0`, which is what ground execution on `0`
 //! shows: the rule does not apply (Stuck) or its successor is empty (Trivial).
+//!
+//! A rule or equation condition holds on an instance only where its terms are defined, so the
+//! same holds for a condition that no hook shortcuts but a solver decides (`10 /Int A <=Int
+//! 10 /Int A`, which a solver that gives `/Int` a value at `0` finds valid) and for a condition
+//! the predicate simplifier splits into a disjunction (`a orBool b` into `a \/ b`).
 
 use k_rust::{
     backend::{
@@ -31,10 +36,18 @@ const SOURCE: &str = r#"module DEFPROBE-SYNTAX
               | ens(Int)    [symbol(ens)]
               | rhsdiv(Int) [symbol(rhsdiv)]
               | nopb(Bool)  [symbol(nopb)]
+              | lt(Int)     [symbol(lt)]
+              | orx(Int)    [symbol(orx)]
+              | andx(Int)   [symbol(andx)]
+              | enslt(Int)  [symbol(enslt)]
+              | divok(Int)  [symbol(divok)]
+              | eqf(Int)    [symbol(eqf)]
+              | eqfk(Int)   [symbol(eqfk)]
               | val(Int)    [symbol(val)]
               | flag(Bool)  [symbol(flag)]
   syntax Prog ::= "halt" [symbol(halt)]
                 | seq(Op, Prog) [symbol(seq)]
+  syntax Int ::= f(Int) [function, symbol(f)]
 endmodule
 
 module DEFPROBE
@@ -55,6 +68,14 @@ module DEFPROBE
   rule [ens]:     seq(ens(A), P) => P ensures 10 /Int A ==Int 10 /Int A
   rule [rhsdiv]:  seq(rhsdiv(A), P) => seq(val(10 /Int A), P)
   rule [nopb]:    seq(nopb(_), P) => P
+  rule [lt]:      seq(lt(A), P) => P requires 10 /Int A <=Int 10 /Int A
+  rule [orx]:     seq(orx(A), P) => P requires A >Int -1 orBool 10 /Int A >Int 0
+  rule [andx]:    seq(andx(A), P) => P requires notBool (A <=Int -1 andBool 10 /Int A <=Int 0)
+  rule [enslt]:   seq(enslt(A), P) => P ensures 10 /Int A <=Int 10 /Int A
+  rule [divok]:   seq(divok(A), P) => seq(val(10 /Int A), P) requires A =/=Int 0
+  rule [eqf]:     seq(eqf(A), P) => seq(val(f(A)), P)
+  rule [eqfk]:    seq(eqfk(A), P) => seq(val(f(A)), P) requires A =/=Int 0
+  rule f(X) => 1 requires 10 /Int X <=Int 10 /Int X [simplification]
 endmodule
 "#;
 
@@ -259,12 +280,128 @@ fn a_solver_splits_a_requires_hook_shortcut_like_the_ground_run() {
     assert_no_violation(&violations);
 }
 
+/// Operations whose condition relies on the definedness of `10 /Int A` without a hook
+/// shortcut: a solver decides it, or the simplifier splits it into a disjunction.
+const CONDITIONS: [&str; 4] = ["lt", "orx", "andx", "enslt"];
+/// Of those, the ones whose `requires` excludes `A = 0`.
+const CONDITION_REQUIRES: [&str; 3] = ["lt", "orx", "andx"];
+
+#[test]
+fn a_condition_keeps_the_definedness_of_its_terms() {
+    let mut backend = backend();
+    let mut violations = Vec::new();
+    for name in CONDITIONS {
+        for assume in [false, true] {
+            let leaves = execute(&mut backend, &op(name, X), assume);
+            violations.extend(nonzero_violation(
+                &format!("{name}(X) assume={assume}"),
+                &leaves,
+            ));
+        }
+    }
+    assert_no_violation(&violations);
+}
+
+#[test]
+fn a_solver_splits_a_partial_requires_like_the_ground_run() {
+    let mut backend = backend();
+    if !backend.capabilities().smt {
+        return;
+    }
+    let mut violations = Vec::new();
+    for name in CONDITION_REQUIRES {
+        let leaves = execute(&mut backend, &op(name, X), false);
+        // The remainder negates an applicability whose first conjunct is `X =/=Int 0`, so
+        // `X = 0` satisfies it.
+        let remainder = format!(
+            "\\not{{SortGeneratedTopCell{{}}}}(\\and{{SortGeneratedTopCell{{}}}}({X_NONZERO}, "
+        );
+        let stuck_at_zero = leaves.iter().any(|leaf| {
+            leaf.depth == 0
+                && leaf.reason == HaltReasonOutput::Stuck
+                && leaf.text.contains(&remainder)
+        });
+        let stepped = leaves
+            .iter()
+            .any(|leaf| leaf.depth == 1 && leaf.text.contains(X_NONZERO));
+        if !stuck_at_zero || !stepped {
+            violations.push(format!(
+                "{name}(X): expected a Stuck remainder admitting X = 0 and a step under \
+                 X =/=Int 0: {leaves:#?}"
+            ));
+        }
+    }
+    assert_no_violation(&violations);
+}
+
+#[test]
+fn a_ceil_free_requires_yields_the_same_leaves() {
+    let mut backend = backend();
+    let leaves = execute(&mut backend, &op("divok", X), false);
+    if backend.capabilities().smt {
+        // `X =/=Int 0` is the requires itself: the step carries it once and nothing else, and
+        // the remainder is `X = 0`.
+        assert!(
+            matches!(leaves.as_slice(), [stuck, step]
+                if stuck.depth == 0 && stuck.reason == HaltReasonOutput::Stuck
+                    && step.depth == 1 && step.text.matches(X_NONZERO).count() == 1)
+                || matches!(leaves.as_slice(), [step, stuck]
+                if stuck.depth == 0 && stuck.reason == HaltReasonOutput::Stuck
+                    && step.depth == 1 && step.text.matches(X_NONZERO).count() == 1),
+            "divok(X): expected a step under X =/=Int 0 and a Stuck remainder: {leaves:#?}"
+        );
+    } else {
+        // No solver decides `X =/=Int 0`.
+        assert!(
+            matches!(leaves.as_slice(), [leaf] if leaf.depth == 0
+                && leaf.reason == HaltReasonOutput::Indeterminate),
+            "divok(X): expected an Indeterminate requires: {leaves:#?}"
+        );
+    }
+    let ground = execute(&mut backend, &op("divok", "\\dv{SortInt{}}(\"5\")"), false);
+    assert!(
+        matches!(ground.as_slice(), [leaf] if leaf.depth == 1
+            && leaf.text.contains("Lblval{}(\\dv{SortInt{}}(\"2\"))")),
+        "divok(5): expected one step to val(2): {ground:#?}"
+    );
+}
+
+/// `f(X) => 1 requires 10 /Int X <=Int 10 /Int X` holds only on `X =/=Int 0`, so it rewrites
+/// `f(X)` where that is known and leaves `f(X)` alone otherwise.
+#[test]
+fn an_equation_requires_keeps_the_definedness_of_its_terms() {
+    let mut backend = backend();
+    let one = "Lblval{}(\\dv{SortInt{}}(\"1\"))";
+    let unevaluated = "Lblval{}(Lblf{}(X:SortInt{}))";
+    for assume in [false, true] {
+        let leaves = execute(&mut backend, &op("eqf", X), assume);
+        assert!(
+            leaves
+                .iter()
+                .any(|leaf| leaf.depth == 1 && leaf.text.contains(unevaluated))
+                && !leaves.iter().any(|leaf| leaf.text.contains(one)),
+            "eqf(X) assume={assume}: f(X) must stay unevaluated: {leaves:#?}"
+        );
+        // The rule's own `requires A =/=Int 0` needs a solver to be decided.
+        if backend.capabilities().smt {
+            let leaves = execute(&mut backend, &op("eqfk", X), assume);
+            assert!(
+                leaves
+                    .iter()
+                    .any(|leaf| leaf.depth == 1 && leaf.text.contains(one))
+                    && !leaves.iter().any(|leaf| leaf.text.contains(unevaluated)),
+                "eqfk(X) assume={assume}: f(X) must become 1 under X =/=Int 0: {leaves:#?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn ground_zero_is_stuck_or_trivial() {
     let mut backend = backend();
-    for name in HOOK_SHORTCUTS {
+    for name in HOOK_SHORTCUTS.into_iter().chain(CONDITIONS) {
         let leaves = execute(&mut backend, &op(name, ZERO), false);
-        let expected = if REQUIRES.contains(&name) {
+        let expected = if REQUIRES.contains(&name) || CONDITION_REQUIRES.contains(&name) {
             HaltReasonOutput::Stuck
         } else {
             HaltReasonOutput::Trivial
