@@ -2,13 +2,13 @@
 //! id = "kompile.functions.lift"
 //! name = "lifting of local functions into generated productions and rules"
 //! sites = ["resolve_fun", "resolve_fun_pass", "closure_variables"]
-//! variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module"
+//! variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module; S = visible sentences of a module; P = visible productions; R = sentences of the definition"
 //! counters = []
 //! no_counter = "local-function lifting has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 //!
 //! [[cost]]
 //! mode = "one definition"
-//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module"
+//! bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module, and, in a module where a lambda body applies a partial function, one O(S) pass over its visible rules with O(P) per configuration-context cell level, and one O(R) count of the rule heads of the whole definition per pass"
 //! ```
 //!
 //! This transformation pass resolves required views, transforms sentences and terms, records origins, and retargets metadata when needed.
@@ -17,14 +17,19 @@
 //! Lower local `#fun`, `#let`, and K-matching expressions into generated functions.
 
 use crate::provenance::extend_unique_sentences as extend_unique;
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    cell::OnceCell,
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    sync::Arc,
+};
 
-use crate::definition::{AttributeKey, LabelHead, ProductionCatalog};
+use crate::definition::{AttributeKey, LabelHead, ModuleId, ProductionCatalog, ResolvedDefinition};
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, Sentence},
     diagnostic::{Diagnostic, DiagnosticCode, Severity},
-    kast::{GeneratedLabel, InternalLabel, Label, Sort, Term},
+    kast::{GeneratedCell, GeneratedLabel, InternalLabel, Label, Sort, Term},
     kompile::{SortInjectionError, SortInjector, fresh_names::FreshNames},
     provenance::GeneratingPass,
 };
@@ -71,6 +76,7 @@ pub(crate) fn resolve_fun_pass(
     let views = resolved.views();
     let mut output = input.definition.clone();
     let mut diagnostics = Vec::new();
+    let rule_heads = OnceCell::new();
     let mut labels = input
         .definition
         .modules
@@ -99,6 +105,11 @@ pub(crate) fn resolve_fun_pass(
         let mut resolver = Resolver {
             injector,
             catalog: views.production_catalog(module_id),
+            resolved,
+            module_id,
+            defined_by_equation: OnceCell::new(),
+            definition: input.definition,
+            rule_heads: &rule_heads,
             total_lambdas: BTreeSet::new(),
             labels: &mut labels,
             productions: Vec::new(),
@@ -139,6 +150,16 @@ struct Resolver<'a, 'view, 'definition> {
     injector: SortInjector<'view, 'definition>,
     /// The productions visible in the module being transformed, as written.
     catalog: &'view ProductionCatalog<'definition>,
+    resolved: &'view ResolvedDefinition,
+    module_id: ModuleId,
+    /// The partial functions visible in the module that an equation defines on every argument
+    /// (`Resolver::functions_defined_by_equation`), computed when a lambda body first needs it.
+    defined_by_equation: OnceCell<BTreeSet<String>>,
+    /// The whole definition being transformed, every module of it.
+    definition: &'view Definition,
+    /// The number of rules, lemmas aside, headed by each label anywhere in `definition`
+    /// (`rule_heads`), computed once per pass when a lambda body first needs it.
+    rule_heads: &'view OnceCell<BTreeMap<String, usize>>,
     /// The lambdas generated in this module so far whose production is declared `total`.
     total_lambdas: BTreeSet<String>,
     labels: &'a mut BTreeSet<String>,
@@ -413,15 +434,16 @@ impl Resolver<'_, '_, '_> {
         let Term::Rewrite { right, .. } = body.unannotated() else {
             return false;
         };
-        self.is_defined(right)
+        self.is_defined(right, Knowledge::Equations)
     }
 
-    fn is_defined(&self, term: &Term) -> bool {
+    fn is_defined(&self, term: &Term, knowledge: Knowledge) -> bool {
         match term.unannotated() {
             Term::Variable { .. } | Term::Token { .. } | Term::InjectedLabel(_) => true,
-            Term::Sequence(items) => items.iter().all(|item| self.is_defined(item)),
+            Term::Sequence(items) => items.iter().all(|item| self.is_defined(item, knowledge)),
             Term::Apply { label, arguments } => {
-                self.label_is_defined(label) && arguments.iter().all(|a| self.is_defined(a))
+                self.label_is_defined(label, knowledge)
+                    && arguments.iter().all(|a| self.is_defined(a, knowledge))
             }
             Term::Rewrite { .. } | Term::As { .. } => false,
             Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
@@ -441,10 +463,15 @@ impl Resolver<'_, '_, '_> {
     ///   production is excluded because its application is replaced by the macro's right-hand
     ///   side after this pass, and a label with no visible production yet (a sort projection or
     ///   predicate generated later) is not known to be defined.
-    fn label_is_defined(&self, label: &Label) -> bool {
+    /// - With `Knowledge::Equations`, a partial function is also defined when one of its
+    ///   equations defines it on every argument (`functions_defined_by_equation`).
+    fn label_is_defined(&self, label: &Label, knowledge: Knowledge) -> bool {
         match label.generated() {
             Some(GeneratedLabel::SemanticCast { .. }) => return true,
-            Some(GeneratedLabel::Lambda { .. }) => return self.total_lambdas.contains(&label.name),
+            Some(GeneratedLabel::Lambda { .. }) => {
+                return knowledge == Knowledge::Equations
+                    && self.total_lambdas.contains(&label.name);
+            }
             Some(_) => return false,
             None => {}
         }
@@ -452,13 +479,111 @@ impl Resolver<'_, '_, '_> {
             return false;
         }
         let productions = self.catalog.productions_for(&LabelHead::from(label));
-        !productions.is_empty()
+        let declared = !productions.is_empty()
             && productions.iter().all(|id| {
                 let attributes = self.catalog.production(*id).attributes();
                 (!attributes.has(AttributeKey::Function) || attributes.has(AttributeKey::Total))
                     && !attributes.has_any(&AttributeKey::MACRO_LIKE)
                     && !attributes.has(AttributeKey::MlOp)
-            })
+            });
+        declared
+            || knowledge == Knowledge::Equations
+                && self
+                    .defined_by_equation
+                    .get_or_init(|| self.functions_defined_by_equation())
+                    .contains(&label.name)
+    }
+
+    /// The partial functions visible in this module that their equation defines on every
+    /// argument.
+    ///
+    /// When `f`'s only rule is an equation `f(X1, .., Xn) => R` with no condition, pairwise
+    /// distinct variables each of the sort `f`'s only production declares at its position, and a
+    /// right-hand side defined by declared attributes alone, the compiled definition has the
+    /// axiom `f(X1, .., Xn) = R` for all values of the `Xi`; since `R` denotes one value, so does
+    /// every application of `f`. A second rule headed by `f` anywhere in the definition, lemmas
+    /// aside, could take priority over it or restrict it, so `f` then does not count. The right-hand side is judged without
+    /// this set, so no function's definedness rests on its own or another derived function's
+    /// equations, and recursion needs no termination argument. An equation the backend applies
+    /// only in some cases, or that is not a defining axiom, does not count: `owise`, `priority`,
+    /// `concrete`, `symbolic`, `simplification`, `anywhere`. An equation that also inspects the
+    /// configuration (`[[ .. ]] <c> V </c>`) counts only when that pattern matches every
+    /// configuration (`Resolver::cell_covers`).
+    fn functions_defined_by_equation(&self) -> BTreeSet<String> {
+        const RESTRICTING: [AttributeKey; 6] = [
+            AttributeKey::Owise,
+            AttributeKey::Priority,
+            AttributeKey::Concrete,
+            AttributeKey::Symbolic,
+            AttributeKey::Simplification,
+            AttributeKey::Anywhere,
+        ];
+        let mut candidates = BTreeSet::new();
+        // Invariant: `candidates` holds the labels whose covering, unconditional equation with a declared-defined right-hand side is among the visible sentences before `sentence`; each iteration consumes one sentence.
+        for sentence in self.resolved.sentences(self.module_id) {
+            let Some((context, left, right)) = defining_rule(sentence) else {
+                continue;
+            };
+            let Sentence::Rule {
+                requires,
+                ensures,
+                attributes,
+                ..
+            } = sentence
+            else {
+                continue;
+            };
+            let Term::Apply { label, arguments } = left.unannotated() else {
+                continue;
+            };
+            if !is_true(requires) || !is_true(ensures) || attributes.has_any(&RESTRICTING) {
+                continue;
+            }
+            // `[[ f(..) => R ]] <c> V </c>`: the equation also matches the configuration, which
+            // is a pattern over every configuration exactly when `self.cell_covers` says so.
+            if context.is_some_and(|cell| !self.cell_covers(cell)) {
+                continue;
+            }
+            let [production] = self.catalog.productions_for(&LabelHead::from(label)) else {
+                continue;
+            };
+            let Sentence::Production {
+                items, attributes, ..
+            } = self.catalog.production(*production)
+            else {
+                continue;
+            };
+            if !attributes.has(AttributeKey::Function)
+                || attributes.has(AttributeKey::Total)
+                || attributes.has_any(&AttributeKey::MACRO_LIKE)
+            {
+                continue;
+            }
+            let parameter_sorts = items.iter().filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            });
+            if parameter_sorts.clone().count() != arguments.len() {
+                continue;
+            }
+            let mut names = BTreeSet::new();
+            let covering = arguments
+                .iter()
+                .zip(parameter_sorts)
+                .all(|(argument, sort)| {
+                    covering_variable(argument, sort)
+                        .is_some_and(|name| is_anonymous(name) || names.insert(name.to_owned()))
+                });
+            if covering && self.is_defined(right, Knowledge::Declared) {
+                candidates.insert(label.name.clone());
+            }
+        }
+        // A second rule of `f` anywhere in the definition, even one this module cannot see, is
+        // an axiom of the compiled definition that may take priority over the candidate or
+        // restrict it.
+        let heads = self.rule_heads.get_or_init(|| rule_heads(self.definition));
+        candidates.retain(|label| heads.get(label) == Some(&1));
+        candidates
     }
 
     fn term_sort(&mut self, term: &Term, attributes: &Attributes) -> Option<Sort> {
@@ -491,6 +616,116 @@ impl Resolver<'_, '_, '_> {
             attempt += 1;
         }
     }
+}
+
+impl Resolver<'_, '_, '_> {
+    /// Whether the configuration context `cell` of a `[[ .. ]]` equation matches every
+    /// configuration: it is one cell `<c> V </c>` without dots whose content `V` is a variable of
+    /// the cell's content sort, and `c` and each cell enclosing it up to `<generatedTop>` occur
+    /// exactly once in every configuration. A cell with a multiplicity or an optional cell is
+    /// absent from some configurations, so it does not cover them.
+    fn cell_covers(&self, cell: &Term) -> bool {
+        let Term::Apply { label, arguments } = cell.unannotated() else {
+            return false;
+        };
+        let [before, content, after] = arguments.as_slice() else {
+            return false;
+        };
+        let no_dots = |term: &Term| {
+            matches!(term.unannotated(), Term::Apply { label, arguments }
+                if label.is(InternalLabel::NoDots) && arguments.is_empty())
+        };
+        if !no_dots(before) || !no_dots(after) {
+            return false;
+        }
+        let Some((sort, contents)) = self.single_cell(&label.name) else {
+            return false;
+        };
+        let [content_sort] = contents.as_slice() else {
+            return false;
+        };
+        if covering_variable(content, content_sort).is_none() {
+            return false;
+        }
+        let mut sort = sort.clone();
+        let mut name = label.name.clone();
+        // Invariant: the cell `name` of sort `sort` and every cell below it on the path to the context cell occur exactly once in every configuration of their parent; each iteration moves to the parent, and a chain longer than the number of productions has repeated a cell, so the bound rejects it.
+        for _ in 0..=self.catalog.len() {
+            if name == GeneratedCell::Top.label() {
+                return true;
+            }
+            let parents = self
+                .catalog
+                .productions()
+                .filter(|(_, production)| {
+                    production.attributes().has(AttributeKey::Cell)
+                        && matches!(production, Sentence::Production { items, .. }
+                            if items.iter().any(|item| matches!(item,
+                                ProductionItem::NonTerminal { sort: item_sort, .. }
+                                    if *item_sort == sort)))
+                })
+                .collect::<Vec<_>>();
+            let [
+                (
+                    _,
+                    Sentence::Production {
+                        label: Some(parent),
+                        ..
+                    },
+                ),
+            ] = parents.as_slice()
+            else {
+                return false;
+            };
+            let Some((parent_sort, _)) = self.single_cell(&parent.name) else {
+                return false;
+            };
+            sort = parent_sort.clone();
+            name = parent.name.clone();
+        }
+        false
+    }
+
+    /// The result sort and the content sorts of the only production of cell `name`, when that
+    /// cell occurs exactly once in its parent (no multiplicity, not optional).
+    fn single_cell(&self, name: &str) -> Option<(&Sort, Vec<&Sort>)> {
+        let [production] = self.catalog.productions_for(&LabelHead::new(name)) else {
+            return None;
+        };
+        let Sentence::Production {
+            sort,
+            items,
+            attributes,
+            ..
+        } = self.catalog.production(*production)
+        else {
+            return None;
+        };
+        if !attributes.has(AttributeKey::Cell)
+            || (attributes.has(AttributeKey::Multiplicity)
+                && attributes.string(AttributeKey::Multiplicity) != Some("1"))
+            || attributes.has(AttributeKey::CellOptAbsent)
+        {
+            return None;
+        }
+        let contents = items
+            .iter()
+            .filter_map(|item| match item {
+                ProductionItem::NonTerminal { sort, .. } => Some(sort),
+                _ => None,
+            })
+            .collect();
+        Some((sort, contents))
+    }
+}
+
+/// What `Resolver::is_defined` may use to know that an application is defined.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Knowledge {
+    /// Only the attributes the productions declare.
+    Declared,
+    /// Also the total lambdas generated so far and the functions an equation defines everywhere.
+    Equations,
 }
 
 enum LambdaResult {
@@ -889,6 +1124,81 @@ fn bool_token(value: bool) -> Term {
         token: value.to_string(),
         sort: Sort::builtin(BuiltinSort::Bool),
     }
+}
+
+/// A rule's configuration context, left-hand side and right-hand side when it is not a lemma and
+/// its body is a rewrite at the top, possibly under `[[ .. ]]`.
+fn defining_rule(sentence: &Sentence) -> Option<(Option<&Term>, &Term, &Term)> {
+    let Sentence::Rule {
+        body, attributes, ..
+    } = sentence
+    else {
+        return None;
+    };
+    if attributes.has(AttributeKey::Simplification) {
+        return None;
+    }
+    let (context, equation) = match body.unannotated() {
+        Term::Apply { label, arguments } if label.is(InternalLabel::WithConfig) => {
+            match arguments.as_slice() {
+                [equation, cell] => (Some(cell), equation),
+                _ => return None,
+            }
+        }
+        _ => (None, body),
+    };
+    match equation.unannotated() {
+        Term::Rewrite { left, right } => Some((context, &**left, &**right)),
+        _ => None,
+    }
+}
+
+/// The number of rules, lemmas aside, whose left-hand side is headed by each label, over every
+/// module of `definition`.
+fn rule_heads(definition: &Definition) -> BTreeMap<String, usize> {
+    let mut heads = BTreeMap::new();
+    // Invariant: `heads` counts the non-lemma rules headed by each label among the modules and sentences before the current one; each iteration consumes one sentence.
+    for sentence in definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.local_sentences)
+    {
+        if let Some((_, left, _)) = defining_rule(sentence)
+            && let Term::Apply { label, .. } = left.unannotated()
+        {
+            *heads.entry(label.name.clone()).or_default() += 1;
+        }
+    }
+    heads
+}
+
+/// The name of the variable `argument` binds when it matches every value of `sort`: a variable
+/// of that sort or of no sort, possibly under a semantic cast to exactly `sort`, whose sort check
+/// holds for every value of `sort`.
+fn covering_variable<'a>(argument: &'a Term, sort: &Sort) -> Option<&'a str> {
+    match argument.unannotated() {
+        Term::Variable {
+            name,
+            sort: variable_sort,
+        } if variable_sort
+            .as_ref()
+            .is_none_or(|variable| variable == sort) =>
+        {
+            Some(name)
+        }
+        Term::Apply { label, arguments } if label.semantic_cast_sort().as_ref() == Some(sort) => {
+            match arguments.as_slice() {
+                [inner] => covering_variable(inner, sort),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn is_true(term: &Term) -> bool {
+    matches!(term.unannotated(), Term::Token { token, sort }
+        if token == "true" && *sort == Sort::builtin(BuiltinSort::Bool))
 }
 
 fn is_anonymous(name: &str) -> bool {

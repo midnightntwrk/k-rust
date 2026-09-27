@@ -1609,6 +1609,291 @@ fn declares_a_generated_lambda_total_only_when_its_body_is_defined() {
     assert_eq!(declared_total, expected);
 }
 
+/// A partial function whose only rule is an unconditional equation over distinct variables of
+/// its declared argument sorts, with a right-hand side defined by declared attributes, has one
+/// value on every argument; a lambda that applies it is total. Any other equation shape leaves
+/// the function's definedness unknown, and the lambda partial.
+#[test]
+fn a_lambda_over_a_function_its_equation_defines_everywhere_is_total() {
+    let int = || Some(Sort::new("Int"));
+    let variable = |name: &str| Term::Variable {
+        name: name.into(),
+        sort: int(),
+    };
+    let token = |value: &str| Term::Token {
+        token: value.into(),
+        sort: Sort::new("Int"),
+    };
+    let function = |label: &str, arity: usize| Sentence::Production {
+        label: Some(Label::new(label)),
+        parameters: Vec::new(),
+        sort: Sort::new("Int"),
+        items: (0..arity)
+            .map(|_| ProductionItem::NonTerminal {
+                sort: Sort::new("Int"),
+                name: None,
+            })
+            .collect(),
+        attributes: attributes(&[("function", json!(""))]),
+    };
+    let equation = |label: &str, arguments: Vec<Term>, right: Term| {
+        rule(
+            rewrite(application(label, arguments), right),
+            Attributes::default(),
+        )
+    };
+    // (label, arity, its rules, whether the equation defines it everywhere)
+    let cases: Vec<(&str, usize, Vec<Sentence>, bool)> = vec![
+        (
+            "constant",
+            0,
+            vec![equation("constant", vec![], token("1"))],
+            true,
+        ),
+        (
+            "project",
+            2,
+            vec![equation(
+                "project",
+                vec![variable("X"), Term::variable("_")],
+                variable("X"),
+            )],
+            true,
+        ),
+        (
+            "cast",
+            1,
+            vec![equation(
+                "cast",
+                vec![application("#SemanticCastToInt", vec![Term::variable("X")])],
+                Term::variable("X"),
+            )],
+            true,
+        ),
+        (
+            "lemma",
+            1,
+            vec![
+                equation("lemma", vec![variable("X")], variable("X")),
+                rule(
+                    rewrite(application("lemma", vec![token("0")]), token("0")),
+                    attributes(&[("simplification", json!(""))]),
+                ),
+            ],
+            true,
+        ),
+        (
+            "second",
+            1,
+            vec![
+                equation("second", vec![variable("X")], variable("X")),
+                equation("second", vec![token("0")], token("0")),
+            ],
+            false,
+        ),
+        (
+            "conditional",
+            1,
+            vec![Sentence::Rule {
+                body: rewrite(
+                    application("conditional", vec![variable("X")]),
+                    variable("X"),
+                ),
+                requires: application("positive", vec![variable("X")]),
+                ensures: truth(),
+                attributes: Attributes::default(),
+            }],
+            false,
+        ),
+        (
+            "fallback",
+            1,
+            vec![rule(
+                rewrite(application("fallback", vec![variable("X")]), variable("X")),
+                attributes(&[("owise", json!(""))]),
+            )],
+            false,
+        ),
+        (
+            "narrow",
+            1,
+            vec![equation("narrow", vec![token("1")], token("1"))],
+            false,
+        ),
+        (
+            "nonlinear",
+            2,
+            vec![equation(
+                "nonlinear",
+                vec![variable("X"), variable("X")],
+                variable("X"),
+            )],
+            false,
+        ),
+        (
+            "subsorted",
+            1,
+            vec![equation(
+                "subsorted",
+                vec![Term::Variable {
+                    name: "X".into(),
+                    sort: Some(Sort::new("Nat")),
+                }],
+                token("0"),
+            )],
+            false,
+        ),
+        (
+            "undefined",
+            1,
+            vec![equation(
+                "undefined",
+                vec![variable("X")],
+                application("div", vec![variable("X"), variable("X")]),
+            )],
+            false,
+        ),
+        // A second equation in a module MAIN does not see (EXTRA, below).
+        (
+            "hidden",
+            1,
+            vec![equation("hidden", vec![variable("X")], variable("X"))],
+            false,
+        ),
+        (
+            "recursive",
+            1,
+            vec![equation(
+                "recursive",
+                vec![variable("X")],
+                application("recursive", vec![variable("X")]),
+            )],
+            false,
+        ),
+    ];
+    let mut sentences = vec![
+        Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new("Int"),
+            attributes: Attributes::default(),
+        },
+        function("div", 2),
+        function("positive", 1),
+    ];
+    for (label, arity, rules, _) in &cases {
+        sentences.push(function(label, *arity));
+        sentences.extend(rules.iter().cloned());
+        // `#let Y = <Label> #in label(Y, ..)`: the argument variable names the lambda.
+        let hint = format!("{}{}", label[..1].to_uppercase(), &label[1..]);
+        sentences.push(rule(
+            application(
+                "#let",
+                vec![
+                    variable("Y"),
+                    variable(&hint),
+                    application(label, (0..*arity).map(|_| variable("Y")).collect()),
+                ],
+            ),
+            Attributes::default(),
+        ));
+    }
+    let extra = FlatModule {
+        name: "EXTRA".into(),
+        imports: vec![FlatImport {
+            name: "MAIN".into(),
+            public: true,
+        }],
+        local_sentences: vec![equation("hidden", vec![token("0")], token("0")).into()],
+        attributes: Attributes::default(),
+    };
+    let definition = Definition {
+        main_module: "EXTRA".into(),
+        modules: vec![module("MAIN", sentences), extra],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_fun(&definition).unwrap();
+    let declared_total = transformed
+        .modules
+        .iter()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name.starts_with("#lambda") => {
+                Some((label.name.clone(), attributes.get("total").is_some()))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let expected = cases
+        .iter()
+        .map(|(label, _, _, total)| {
+            (
+                format!("#lambda{}{}__", label[..1].to_uppercase(), &label[1..]),
+                *total,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(declared_total, expected);
+}
+
+/// A function whose equation also matches the configuration (`[[ .. ]] <c> V </c>`) is defined
+/// everywhere only when every configuration has exactly one `<c>`: not under a `*` cell, and not
+/// when `<c>` is optional.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_configuration_equation_defines_its_function_only_over_a_cell_every_configuration_has() {
+    let source = indoc! {r#"
+        module MAIN
+          imports INT
+          imports MAP
+          configuration <k> $PGM:K </k>
+                        <one> .Map </one>
+                        <many> <item multiplicity="*" type="Set"> 0 </item> </many>
+                        <maybe multiplicity="?"> 0 </maybe>
+          syntax Int ::= fromOne() [function] | fromItem() [function] | fromMaybe() [function]
+          rule [[ fromOne() => 0 ]] <one> _M </one>
+          rule [[ fromItem() => 0 ]] <item> _I </item>
+          rule [[ fromMaybe() => 0 ]] <maybe> _I </maybe>
+          syntax Int ::= useOne(Int) [function] | useItem(Int) [function] | useMaybe(Int) [function]
+          rule useOne(One) => #fun(_O => fromOne())(One)
+          rule useItem(Item) => #fun(_T => fromItem())(Item)
+          rule useMaybe(Maybe) => #fun(_Y => fromMaybe())(Maybe)
+        endmodule
+    "#};
+    let compiled = compile_fixture("config-equation.k", source, "MAIN");
+    let definition = parse_definition(&compiled.definition_kore).unwrap();
+    let functional = |hint: &str| {
+        let name = format!("Lbl'Hash'lambda{hint}'UndsUnds'");
+        definition
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .find_map(|sentence| match sentence {
+                KoreSentence::SymbolDeclaration {
+                    symbol, attributes, ..
+                } if symbol.name == name => Some(format!("{attributes:?}").contains("functional")),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no {name} in the emitted definition"))
+    };
+    assert!(
+        functional("One"),
+        "fromOne reads a cell every configuration has"
+    );
+    assert_eq!(
+        [functional("Item"), functional("Maybe")],
+        [false, false],
+        "fromItem and fromMaybe read cells some configurations lack"
+    );
+}
+
 #[test]
 fn gives_generated_lambdas_definition_wide_unique_labels() {
     let local_function = || {
