@@ -26,6 +26,17 @@ use crate::support::internal_term;
 /// `condition() = true` when `guarded`; `tag` has no equation. `SortSub` is a subsort of
 /// `SortAddress`; `SortNat` and `SortAddress` share no subsort.
 fn definition(guarded: bool) -> BackendDefinition {
+    definition_with(guarded, "")
+}
+
+/// [`definition`] with `attribute` (a KORE attribute such as `concrete{}()`, or empty) added to
+/// the `unwrap` equation, and an anywhere production `pick` of sort `SortNat` without equations.
+fn definition_with(guarded: bool, attribute: &str) -> BackendDefinition {
+    let attribute = if attribute.is_empty() {
+        String::new()
+    } else {
+        format!(", {attribute}")
+    };
     let requires = if guarded {
         r#"\equals{SortBool{}, R}(condition{}(), \dv{SortBool{}}("true"))"#
     } else {
@@ -72,6 +83,7 @@ fn definition(guarded: bool) -> BackendDefinition {
                 symbol wrap{{}}(SortNat{{}}) : SortAddress{{}}
                     [anywhere{{}}(), functional{{}}(), injective{{}}()]
                 symbol tag{{}}(SortNat{{}}) : SortAddress{{}} [anywhere{{}}(), functional{{}}()]
+                symbol pick{{}}(SortNat{{}}) : SortNat{{}} [anywhere{{}}(), functional{{}}()]
                 symbol addr{{}}(SortNat{{}}) : SortAddress{{}}
                     [constructor{{}}(), functional{{}}(), injective{{}}()]
                 symbol cell{{}}(SortAddress{{}}) : SortCell{{}}
@@ -94,7 +106,7 @@ fn definition(guarded: bool) -> BackendDefinition {
                         wrap{{}}(X0:SortNat{{}}),
                         \and{{SortAddress{{}}}}(wrap{{}}(X:SortNat{{}}), \top{{SortAddress{{}}}}())
                     )
-                ) [label{{}}("unwrap"), anywhere{{}}()]
+                ) [label{{}}("unwrap"), anywhere{{}}(){attribute}]
             endmodule []"#
     );
     let syntax = parse_definition(&source).expect("definition should parse");
@@ -358,4 +370,59 @@ fn a_constructor_application_is_not_an_injection_but_an_uncertified_anywhere_one
         !internal_term(&definition, NORMAL).structurally_distinct_after_normalization(&injected)
     );
     assert!(simplified(&definition, NORMAL).structurally_distinct_after_normalization(&injected));
+}
+
+/// `concrete` and `symbolic` choose when the evaluator uses an equation; the equation still
+/// holds. Under `wrap(s(X)) = wrap(X) [symbolic]` the ground `wrap(s(z))` equals `wrap(z)` although
+/// the evaluator does not rewrite it, and under `[concrete]` (which the evaluator reads as
+/// "bound to a constructor-like term") `wrap(s(pick(z)))` equals `wrap(pick(z))`. Neither
+/// subject may be certified as a normal form, so neither equality is refuted.
+#[test]
+fn an_equation_set_aside_by_concrete_or_symbolic_withholds_the_normal_form_certificate() {
+    for (attribute, subject, equal) in [
+        ("symbolic{}()", REDEX, NORMAL),
+        (
+            "concrete{}()",
+            "wrap{}(s{}(pick{}(z{}())))",
+            "wrap{}(pick{}(z{}()))",
+        ),
+    ] {
+        let definition = definition_with(false, attribute);
+        let left = simplified(&definition, subject);
+        let right = simplified(&definition, equal);
+        assert!(
+            !left.attributes().evaluated,
+            "{attribute}: {subject} must not be certified"
+        );
+        assert!(
+            !left.structurally_distinct_after_normalization(&right),
+            "{attribute}: {subject} and {equal} are equal under the equation"
+        );
+        let equality = simplify_equality(&definition, subject, equal, &NoSolver);
+        assert_ne!(
+            equality,
+            Predicate::False,
+            "{attribute}: {subject} = {equal} holds under the equation"
+        );
+    }
+}
+
+/// Without the attribute the evaluator applies the equation, and the normal forms it reaches
+/// are certified as before.
+#[test]
+fn the_same_equation_without_the_attribute_is_applied_and_certifies_its_result() {
+    let definition = definition_with(false, "");
+    let left = simplified(&definition, "wrap{}(s{}(pick{}(z{}())))");
+    let right = simplified(&definition, "wrap{}(pick{}(z{}()))");
+    assert_eq!(left, right);
+    assert!(left.attributes().evaluated);
+    assert_eq!(
+        simplify_equality(
+            &definition,
+            "wrap{}(s{}(pick{}(z{}())))",
+            "wrap{}(pick{}(z{}()))",
+            &NoSolver
+        ),
+        Predicate::True
+    );
 }

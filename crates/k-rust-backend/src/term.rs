@@ -715,10 +715,32 @@ impl Term {
 
     /// Return this term with the simplifier's fixed-point cache set.
     ///
-    /// Construction deliberately leaves equation-headed applications unevaluated. The
-    /// simplifier sets this bit only after scanning the compatible equations for a closed,
-    /// normalized application and finding every one inapplicable independently of the current
-    /// path condition.
+    /// Construction deliberately leaves equation-headed applications unevaluated. The only
+    /// caller is `simplify::simplify_root`, and the bit it sets on an application carries this
+    /// invariant: the application is ground, its arguments carry the bit, and no equation of the
+    /// definition applies to it, on any path. It is set only when the function and
+    /// simplification scans both end `NotApplicable`. Such a scan tried every equation that
+    /// equation selection offers the head, or a bare variable, and each attempt was one of:
+    ///
+    /// - a failed equation match (`MatchResult::Failed`); or
+    /// - a collection match that has no solution.
+    ///
+    /// Both are failed matches of the left-hand side against a ground term. They read no path
+    /// condition, and a ground term is its only instance, so the equation applies to no instance.
+    /// An attempt that would weaken this is not `NotApplicable`, and it withholds the bit:
+    ///
+    /// - an undecided `requires` blocks the scan;
+    /// - a `requires` refuted under the path condition is context dependent;
+    /// - an equation that matched but that the evaluator does not use is `Unused`. That covers a
+    ///   `concrete` or `symbolic` rejection, a binding outside the left-hand side, and a
+    ///   predicate right-hand side. The equation still holds, so the term may equal its
+    ///   right-hand side.
+    ///
+    /// Equations the selection does not offer have left-hand sides indexed by another symbol or
+    /// kind (`rule::term_index`), so they fail to match the application. The exception is a
+    /// conjunction of two non-variable patterns, which is indexed apart and so is never tried on
+    /// an application. A budget stop or an unsupported hook leaves a child or the root
+    /// unmarked. Structural distinctness reads the bit as "normal form".
     pub(crate) fn with_evaluated_cache(&self) -> Self {
         if self.attributes().evaluated {
             return self.clone();
