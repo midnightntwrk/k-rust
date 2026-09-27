@@ -89,6 +89,8 @@ algorithms! {
     BackendSearchPaths => "backend.search.paths",
     /// Pattern search over a rewrite result set.
     BackendSearchPatterns => "backend.search.patterns",
+    /// Filtering, ordering, and deduplication of reported match conditions.
+    BackendSearchOutput => "backend.search.output",
     /// Reachability-logic proof search.
     BackendProofSearch => "backend.proof.search",
     /// Subsumption by matching, witness elimination, and validity checking.

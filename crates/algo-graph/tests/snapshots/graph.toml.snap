@@ -1950,6 +1950,52 @@ bound = "one extra rewrite step in state_may_expand"
 
 [[node]]
 kind = "algorithm"
+id = "backend.search.output"
+provenance = "declared"
+area = "backend"
+name = "filtering, ordering, and deduplication of reported match conditions"
+variable = "q = conjuncts over all disjuncts; e = identities that decide the filter, per disjunct; h = pattern nodes on the paths from a disjunct's conjuncts to the first two occurrences of one identity, with their siblings; D = disjuncts; c = pattern nodes one comparison reads, up to the first difference, without reading equal backend terms"
+no_counter = "the output of a search or match has no dedicated counter"
+span = "none"
+table = "Algorithm::ALL"
+registry_name = "BackendSearchOutput"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/search.rs"
+symbol = "MatchOutput::with_source"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/search.rs"
+symbol = "MatchOutput::with_source"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/search.rs"
+symbol = "MatchOutput::kept_conjuncts"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/search.rs"
+symbol = "MatchOutput::generated_equality_variables"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/search.rs"
+symbol = "variable_identities"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/backend/search.rs"
+symbol = "occurrences"
+
+[[node.cost]]
+mode = "one output"
+bound = "O(q + sum e h + D log D c)"
+
+[[node]]
+kind = "algorithm"
 id = "backend.search.paths"
 provenance = "declared"
 area = "backend"

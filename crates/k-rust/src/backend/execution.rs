@@ -12,7 +12,7 @@ use k_rust_backend::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
     diagnostic::BackendDiagnostic,
-    externalize,
+    externalize::{self, External},
     rewrite::{
         ExecutionBranchMode, ExecutionLeaf, ExecutionMode, ExecutionOptions, ExecutionResult,
         HaltReason, Pattern,
@@ -38,6 +38,7 @@ use crate::{
     kore::{
         ast::{Pattern as KorePattern, Sort as KoreSort},
         codec as kore_codec,
+        node::{compare, materialize},
         printer::Printer as KorePrinter,
     },
     names::BuiltinSort,
@@ -45,7 +46,7 @@ use crate::{
 
 use super::{
     Backend, BackendError,
-    search::{BackendMatchTarget, order_disjuncts, pattern_matches_output, search_output},
+    search::{BackendMatchTarget, MatchOutput, pattern_matches_output, search_output},
 };
 
 #[derive(Debug)]
@@ -75,10 +76,78 @@ pub struct BackendRunOptions {
 }
 
 pub struct BackendRunOutput {
-    pub pattern: KorePattern,
+    pub pattern: RunPattern,
     pub exit_code: u8,
     pub captured_stdout: Option<Vec<u8>>,
     pub live_transcript: Option<Vec<DescriptorTranscriptEntry>>,
+}
+
+/// The result pattern of a run, kept as the backend data it is externalized from, so that
+/// printing it reads the shared backend terms instead of a KORE tree that writes out each shared
+/// subterm at every use.
+#[derive(Debug)]
+pub enum RunPattern {
+    /// The filtered, ordered, and deduplicated match conditions of a search or match target.
+    Matches(MatchOutput),
+    /// The final states of an execution.
+    States(StatesOutput),
+}
+
+impl RunPattern {
+    /// Call `consume` with the source of the result pattern.
+    pub fn with_source<R>(&self, consume: impl FnOnce(External<'_>) -> R) -> R {
+        match self {
+            Self::Matches(output) => output.with_source(consume),
+            Self::States(output) => output.with_source(consume),
+        }
+    }
+
+    /// The result pattern as a tree.
+    pub fn to_pattern(&self) -> KorePattern {
+        self.with_source(|source| materialize(source))
+    }
+}
+
+/// The final states of an execution: `\bottom` at `output_sort` for none, the constrained
+/// pattern for one, and otherwise the `\or` at `final_sort` of the constrained patterns in the
+/// structural order of their KORE. States are never deduplicated here.
+#[derive(Debug)]
+pub struct StatesOutput {
+    states: Vec<Pattern>,
+    output_sort: KoreSort,
+    final_sort: KoreSort,
+}
+
+impl StatesOutput {
+    pub const fn new(states: Vec<Pattern>, output_sort: KoreSort, final_sort: KoreSort) -> Self {
+        Self {
+            states,
+            output_sort,
+            final_sort,
+        }
+    }
+
+    /// Call `consume` with the source of the result pattern. The states are ordered by
+    /// comparing their sources, which reads each pair only up to its first difference.
+    pub fn with_source<R>(&self, consume: impl FnOnce(External<'_>) -> R) -> R {
+        let mut states = self
+            .states
+            .iter()
+            .map(External::Constrained)
+            .collect::<Vec<_>>();
+        states.sort_by(|left, right| compare(*left, *right));
+        let source = match states.as_slice() {
+            [] => External::Bottom(&self.output_sort),
+            [state] => *state,
+            states => External::Connective {
+                and: false,
+                shape: externalize::ConjunctionShape::Flat,
+                sort: &self.final_sort,
+                operands: states,
+            },
+        };
+        consume(source)
+    }
 }
 
 /// Execute one already-internalized pattern with the facade's cached solver.
@@ -383,12 +452,12 @@ fn run_backend_with_solver(
             );
         }
         return Ok(BackendRunOutput {
-            pattern: search_output(
+            pattern: RunPattern::Matches(search_output(
                 &result,
                 &output_sort,
                 &target.generated_anonymous_variables,
                 &options.function_symbols,
-            ),
+            )),
             exit_code: 0,
             captured_stdout: None,
             live_transcript: None,
@@ -468,17 +537,20 @@ fn run_backend_with_solver(
             .first()
             .map(|leaf| externalize::sort(&leaf.pattern.term.sort()))
             .unwrap_or_else(|| output_sort.clone());
-        let marker = KorePattern::Or {
-            sort,
-            arguments: depth_bounded
-                .into_iter()
-                .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
-                .collect(),
+        let leaves = depth_bounded
+            .into_iter()
+            .map(|leaf| External::Constrained(&leaf.pattern))
+            .collect::<Vec<_>>();
+        // The `\or` of the leaves (of any number), rendered into the file as it is produced from
+        // the leaves' terms, so that neither the text nor the KORE tree is held whole.
+        let marker = External::Connective {
+            and: false,
+            shape: externalize::ConjunctionShape::Flat,
+            sort: &sort,
+            operands: &leaves,
         };
-        // The file holds the text `print_pattern` returns, rendered into the file as it is
-        // produced so that the whole text is never held in memory.
         let mut file = io::BufWriter::with_capacity(1 << 20, fs::File::create(path)?);
-        KorePrinter::pretty(100).write_pattern(&marker, &mut file)?;
+        KorePrinter::pretty(100).write_source(marker, &mut file)?;
         file.into_inner().map_err(io::IntoInnerError::into_error)?;
     }
     let final_sort = execution
@@ -594,33 +666,21 @@ fn run_backend_with_solver(
         )
         .map_err(pattern_match_error)?;
         return Ok(BackendRunOutput {
-            pattern: pattern_matches_output(
+            pattern: RunPattern::Matches(pattern_matches_output(
                 &matches,
                 &output_sort,
                 &target.pattern.term.sort(),
                 &target.generated_anonymous_variables,
                 &options.function_symbols,
-            ),
+            )),
             exit_code,
             captured_stdout,
             live_transcript,
         });
     }
-    let states = finals
-        .iter()
-        .map(|leaf| externalize::constrained_pattern(&leaf.pattern))
-        .collect::<Vec<_>>();
-    let mut states = order_disjuncts(states);
-    let pattern = match states.len() {
-        0 => KorePattern::Bottom { sort: output_sort },
-        1 => states.pop().unwrap(),
-        _ => KorePattern::Or {
-            sort: final_sort,
-            arguments: states,
-        },
-    };
+    let states = finals.iter().map(|leaf| leaf.pattern.clone()).collect();
     Ok(BackendRunOutput {
-        pattern,
+        pattern: RunPattern::States(StatesOutput::new(states, output_sort, final_sort)),
         exit_code,
         captured_stdout,
         live_transcript,
