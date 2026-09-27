@@ -2,6 +2,7 @@
 
 mod alias;
 mod fresh;
+mod instance_normal;
 mod ite;
 mod verify;
 
