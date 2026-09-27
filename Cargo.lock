@@ -467,6 +467,7 @@ dependencies = [
  "krs-ir",
  "krs-macros",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

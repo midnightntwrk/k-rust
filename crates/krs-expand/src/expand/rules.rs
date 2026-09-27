@@ -1,5 +1,12 @@
 //! Function-form sentences: `#[k::rule]`, `#[k::equation]`, `#[k::simplification]`, `#[k::alias]`, `#[k::priority]`, and orphan rule helpers.
 
+use krs_ir::wire::{
+    WirePayload, WireRuleCondition, WireSortReference, WireStructuredRule, WireTypeReference,
+};
+use krs_ir::{
+    DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
+    DescriptorSimplificationPriority,
+};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{
     ProvenanceAnchor, ProvenanceRole, TokenRange, parse_alias_attribute, parse_equation_attribute,
@@ -13,13 +20,10 @@ use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
 use super::nonce::expansion_nonce;
 use super::state_rules::configuration_rule;
-use super::terms::{TermBuilder, TermSide};
-use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, host_sort_reference,
-    sort_type_tokens,
-};
+use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
+use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
-use crate::provenance::host_provenance;
+use crate::provenance::host_provenance_static;
 
 pub(super) fn rule_label_tokens(
     facade: &Path,
@@ -256,7 +260,7 @@ fn expand_ordinary_rule(
     }
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance_static(env, &facade, fallback, &anchors)?;
     let sentence_name = match sentence_kind {
         krs_ir::SentenceKind::Transition => "rule",
         krs_ir::SentenceKind::Equation => "equation",
@@ -288,7 +292,10 @@ fn expand_ordinary_rule(
     let parameter_type = rule.parameter().term_sort.ty();
     let result_type = rule.result_sort().ty();
     let name = name_ident.unraw().to_string();
-    let label = rule_label_tokens(&facade, attribute);
+    let label = attribute.label().map(|label| DescriptorRuleLabel {
+        key: wire_key(ProvenanceRole::RuleLabel, 0),
+        name: label.value().clone(),
+    });
     let parameter_sort_spelling = rule.parameter().term_sort.sort_spelling();
     let result_sort_spelling = rule.result_sort().sort_spelling();
     let bindings = rule
@@ -312,96 +319,82 @@ fn expand_ordinary_rule(
             let _: ::core::marker::PhantomData<#sort> = ::core::marker::PhantomData;
         });
     }
-    let parameter_reference = host_sort_reference(
-        &facade,
-        ProvenanceRole::RuleType,
-        0,
-        &parameter_key,
-        &parameter_sort_spelling,
-    );
-    let result_reference = host_sort_reference(
-        &facade,
-        ProvenanceRole::RuleResultType,
-        0,
-        &result_key,
-        &result_sort_spelling,
-    );
     let binding_idents = rule.parameter().pattern.bindings().to_vec();
     let mut term_builder =
         TermBuilder::new(&facade, nonce, &cfg, &binding_idents).with_enum_glob(enum_glob);
-    let subject = term_builder.expand(rule.subject_tree(), TermSide::Left)?;
+    let mut slots = WireSlots::new(&facade);
+    let subject_sort = WireSortReference {
+        key: wire_key(ProvenanceRole::RuleType, 0),
+        target: WireTypeReference {
+            slot: slots.type_slot(quote!(#facade::HostTypeKey(#parameter_key))),
+            authored_path: parameter_sort_spelling,
+        },
+    };
+    let result_sort = WireSortReference {
+        key: wire_key(ProvenanceRole::RuleResultType, 0),
+        target: WireTypeReference {
+            slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
+            authored_path: result_sort_spelling,
+        },
+    };
+    let subject = term_builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?;
     term_builder.reset_side();
-    let result = term_builder.expand(rule.result().tree(), TermSide::Right)?;
+    let result = term_builder.expand_wire(rule.result().tree(), TermSide::Right, &mut slots)?;
     term_builder.reset_side();
     let requires = if let Some(condition) = rule.requires() {
-        let term = term_builder.expand(condition.term().tree(), TermSide::Requires)?;
-        quote! {
-            ::core::option::Option::Some(#facade::HostRuleCondition {
-                key: #facade::ProvenanceKey::new(#rule_requires_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                term: #term,
-            })
-        }
+        let term =
+            term_builder.expand_wire(condition.term().tree(), TermSide::Requires, &mut slots)?;
+        Some(WireRuleCondition {
+            key: wire_key(rule_requires_role, 0),
+            term,
+        })
     } else {
-        quote!(::core::option::Option::None)
+        None
     };
     let term_key_functions = term_builder.key_functions;
     let priority = if attribute.is_owise() {
-        rule_owise_tokens(&facade, attribute)
+        Some(DescriptorRulePriority {
+            key: wire_key(ProvenanceRole::RuleOwise, 0),
+            value: 200,
+        })
     } else {
-        priority.map_or_else(
-            || quote!(::core::option::Option::None),
-            |priority| {
-                let value = priority.value();
-                quote!(::core::option::Option::Some(#facade::DescriptorRulePriority {
-                    key: #facade::ProvenanceKey::new(#equation_priority_role, 0)
-                        .expect("KRS parser roles are nonempty"),
-                    value: #value,
-                }))
-            },
-        )
+        priority.map(|priority| DescriptorRulePriority {
+            key: wire_key(equation_priority_role, 0),
+            value: priority.value(),
+        })
     };
-    let simplification = simplification.map_or_else(
-        || quote!(::core::option::Option::None),
-        |simplification| {
-            let priority = simplification.priority().map_or_else(
-                || quote!(::core::option::Option::None),
-                |value| {
-                    quote!(::core::option::Option::Some(
-                        #facade::DescriptorSimplificationPriority {
-                            key: #facade::ProvenanceKey::new(#simplification_priority_role, 0)
-                                .expect("KRS parser roles are nonempty"),
-                            value: #value,
-                        }
-                    ))
-                },
-            );
-            quote!(::core::option::Option::Some(#facade::DescriptorSimplification {
-                key: #facade::ProvenanceKey::new(#simplification_marker_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                priority: #priority,
-            }))
-        },
-    );
-    let (sentence_kind, item_kind) = match sentence_kind {
-        krs_ir::SentenceKind::Transition => (
-            quote!(#facade::SentenceKind::Transition),
-            quote!(#facade::ItemKind::Rule),
-        ),
-        krs_ir::SentenceKind::Equation => (
-            quote!(#facade::SentenceKind::Equation),
-            quote!(#facade::ItemKind::Equation),
-        ),
-        krs_ir::SentenceKind::Simplification => (
-            quote!(#facade::SentenceKind::Simplification),
-            quote!(#facade::ItemKind::Simplification),
-        ),
-        krs_ir::SentenceKind::Alias => (
-            quote!(#facade::SentenceKind::Alias),
-            quote!(#facade::ItemKind::Alias),
-        ),
+    let simplification = simplification.map(|simplification| DescriptorSimplification {
+        key: wire_key(simplification_marker_role, 0),
+        priority: simplification
+            .priority()
+            .map(|value| DescriptorSimplificationPriority {
+                key: wire_key(simplification_priority_role, 0),
+                value,
+            }),
+    });
+    let item_kind = match sentence_kind {
+        krs_ir::SentenceKind::Transition => quote!(#facade::ItemKind::Rule),
+        krs_ir::SentenceKind::Equation => quote!(#facade::ItemKind::Equation),
+        krs_ir::SentenceKind::Simplification => quote!(#facade::ItemKind::Simplification),
+        krs_ir::SentenceKind::Alias => quote!(#facade::ItemKind::Alias),
         krs_ir::SentenceKind::Claim => unreachable!("claims have a separate authoring form"),
     };
+    let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
+        sentence_kind,
+        label,
+        requires,
+        priority,
+        simplification,
+        pattern_key: wire_key(rule_pattern_role, 0),
+        result_key: wire_key(rule_result_role, 0),
+        subject_sort,
+        result_sort,
+        bindings,
+        subject,
+        result,
+    }));
+    let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
 
     Ok(quote! {
         #(#attrs)*
@@ -432,22 +425,6 @@ fn expand_ordinary_rule(
         #(#cfg)*
         #[doc(hidden)]
         fn #factory() -> #facade::HostDescriptor {
-            let rule = #facade::HostStructuredRuleDescriptor {
-                sentence_kind: #sentence_kind,
-                label: #label,
-                requires: #requires,
-                priority: #priority,
-                simplification: #simplification,
-                pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                result_key: #facade::ProvenanceKey::new(#rule_result_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                subject_sort: #parameter_reference,
-                result_sort: #result_reference,
-                bindings: ::std::vec![#(#bindings.to_owned()),*],
-                subject: #subject,
-                result: #result,
-            };
             #facade::HostDescriptor {
                 protocol_version: #facade::SchemaVersion::CURRENT,
                 id: #facade::HostItemId::from_macro_context(
@@ -461,7 +438,7 @@ fn expand_ordinary_rule(
                 )
                 .expect("Cargo and Rust macro context form a valid host identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::StructuredRule(::std::boxed::Box::new(rule)),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }

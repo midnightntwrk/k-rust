@@ -1769,3 +1769,8 @@ mod tests {
         assert_eq!(sort.parents[0].authored_path, "owned::ParentSort");
     }
 }
+
+mod wire;
+
+#[doc(hidden)]
+pub use wire::{__KrsSlot, __krs_host_payload};

@@ -1,5 +1,14 @@
 //! The symbolic term builder shared by rules, claims, and initializers.
 
+use std::collections::HashMap;
+
+use krs_ir::wire::{
+    WireApplicationReference, WireCellTermField, WireTerm, WireTermArgument, WireTypeReference,
+};
+use krs_ir::{
+    BuiltinSort, DescriptorApplicationHeadClass, DescriptorLiteral, ProductionFieldId,
+    ProvenanceKey,
+};
 use krs_syntax::{ProvenanceRole, TermArguments, TermLiteral, TermTree};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -10,6 +19,74 @@ use super::tokens::{
     bytes_token_value, call_site_path, enum_variant_parts, is_bound_ident_path, provenance_key,
     spelling, take_counter, variant_marker_function,
 };
+
+/// Resolved expressions retained by a factory's static host wire.
+pub(super) struct WireSlots {
+    facade: Path,
+    expressions: Vec<TokenStream>,
+    indices: HashMap<String, usize>,
+}
+
+impl WireSlots {
+    pub(super) fn new(facade: &Path) -> Self {
+        Self {
+            facade: facade.clone(),
+            expressions: Vec::new(),
+            indices: HashMap::new(),
+        }
+    }
+
+    #[allow(clippy::needless_pass_by_value)] // Factory call sites naturally build owned token streams.
+    pub(super) fn type_slot(&mut self, expression: TokenStream) -> usize {
+        let facade = &self.facade;
+        self.insert(
+            format!("type:{expression}"),
+            quote!(#facade::__KrsSlot::Type(#expression)),
+        )
+    }
+
+    fn variant_slot(&mut self, owner: &TokenStream, marker: &TokenStream) -> usize {
+        let facade = &self.facade;
+        self.insert(
+            format!("variant:{owner}:{marker}"),
+            quote!(#facade::__KrsSlot::Variant { owner: #owner, marker: #marker }),
+        )
+    }
+
+    fn target_slot_unique(&mut self, expression: &TokenStream) -> usize {
+        // A lexical witness must remain at every authored occurrence: equal
+        // printed tokens may infer different Rust types in different contexts.
+        let index = self.expressions.len();
+        let facade = &self.facade;
+        self.expressions
+            .push(quote!(#facade::__KrsSlot::Target(#expression)));
+        index
+    }
+
+    fn insert(&mut self, key: String, expression: TokenStream) -> usize {
+        if let Some(index) = self.indices.get(&key) {
+            return *index;
+        }
+        let index = self.expressions.len();
+        self.expressions.push(expression);
+        self.indices.insert(key, index);
+        index
+    }
+
+    pub(super) fn tokens(&self) -> TokenStream {
+        let values = &self.expressions;
+        let count = values.len();
+        quote!(&{
+            let mut slots = ::std::vec::Vec::with_capacity(#count);
+            #(slots.push(#values);)*
+            slots
+        })
+    }
+}
+
+pub(super) fn wire_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+    ProvenanceKey::new(role.as_str(), ordinal).expect("KRS parser roles are nonempty")
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum TermSide {
@@ -359,6 +436,213 @@ impl<'a> TermBuilder<'a> {
         }
     }
 
+    /// Builds the literal term tree while retaining Rust-resolved heads in slots.
+    #[allow(clippy::too_many_lines)]
+    pub(super) fn expand_wire(
+        &mut self,
+        tree: &TermTree,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> syn::Result<WireTerm> {
+        match tree {
+            TermTree::Application(application) => {
+                let path_ordinal = take_counter(&mut self.counters.path)?;
+                let application_ordinal = take_counter(&mut self.counters.application)?;
+                let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
+                let key = wire_key(side.role(TermRole::ApplicationHead), application_ordinal);
+                let lexical = self.take_lexical_rule_head(application.head());
+                let authored_path = if lexical {
+                    spelling(application.head())
+                } else {
+                    self.application_authored_path(application.head())
+                };
+                let target = if lexical {
+                    let expression = self.lexical_rule_application_target(
+                        application.head(),
+                        Some(application.arguments()),
+                    );
+                    slots.target_slot_unique(&expression)
+                } else {
+                    self.application_wire_slot(application.head(), slots)?
+                };
+                let mut arguments = Vec::new();
+                match application.arguments() {
+                    TermArguments::Positional(values) => {
+                        for value in values {
+                            arguments.push(WireTermArgument::Positional {
+                                value: Box::new(self.expand_wire(value, side, slots)?),
+                            });
+                        }
+                    }
+                    TermArguments::Named(values) => {
+                        for argument in values {
+                            let ordinal = take_counter(&mut self.counters.field)?;
+                            let field = ProductionFieldId::new(argument.name().to_string())
+                                .expect("Rust field identifiers are valid production fields");
+                            arguments.push(WireTermArgument::Named {
+                                key: wire_key(side.role(TermRole::RecordFieldName), ordinal),
+                                field,
+                                value: Box::new(self.expand_wire(argument.value(), side, slots)?),
+                            });
+                        }
+                    }
+                }
+                Ok(WireTerm::Application {
+                    head_class: DescriptorApplicationHeadClass::Applied,
+                    reference: WireApplicationReference {
+                        key,
+                        target,
+                        authored_path,
+                    },
+                    path_key,
+                    arguments,
+                })
+            }
+            TermTree::Reference(path) => {
+                let lexical = self.take_lexical_rule_head(path);
+                let path_ordinal = take_counter(&mut self.counters.path)?;
+                let reference_ordinal = take_counter(&mut self.counters.reference)?;
+                let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
+                let key = wire_key(side.role(TermRole::Reference), reference_ordinal);
+                if is_bound_ident_path(path, self.bindings) {
+                    self.tooling_binding_references.push(path.clone());
+                    Ok(WireTerm::Variable {
+                        key,
+                        path_key,
+                        name: spelling(path),
+                    })
+                } else {
+                    let authored_path = if lexical {
+                        spelling(path)
+                    } else {
+                        self.application_authored_path(path)
+                    };
+                    let target = if lexical {
+                        let expression = self.lexical_rule_application_target(path, None);
+                        slots.target_slot_unique(&expression)
+                    } else {
+                        self.application_wire_slot(path, slots)?
+                    };
+                    Ok(WireTerm::Application {
+                        head_class: DescriptorApplicationHeadClass::BareReference,
+                        reference: WireApplicationReference {
+                            key,
+                            target,
+                            authored_path,
+                        },
+                        path_key,
+                        arguments: Vec::new(),
+                    })
+                }
+            }
+            TermTree::Literal(literal) => {
+                let ordinal = take_counter(&mut self.counters.literal)?;
+                let literal = match literal {
+                    TermLiteral::Integer(value) => {
+                        DescriptorLiteral::Int(value.base10_digits().replace('_', ""))
+                    }
+                    TermLiteral::Boolean(value) => DescriptorLiteral::Bool(value.value),
+                };
+                Ok(WireTerm::Literal {
+                    key: wire_key(side.role(TermRole::Literal), ordinal),
+                    literal,
+                })
+            }
+            TermTree::Wildcard(_) => {
+                if !matches!(side, TermSide::Left) {
+                    return Err(syn::Error::new(
+                        Span::call_site(),
+                        "KRS rule results cannot contain wildcards",
+                    ));
+                }
+                let ordinal = take_counter(&mut self.counters.wildcard)?;
+                Ok(WireTerm::Wildcard {
+                    key: wire_key(side.role(TermRole::Wildcard), ordinal),
+                })
+            }
+            TermTree::IdToken { literal } => {
+                if !self.claim {
+                    return Err(syn::Error::new(
+                        literal.span(),
+                        "id! is currently claim-only",
+                    ));
+                }
+                let ordinal = self.id_token_ordinal;
+                self.id_token_ordinal += 1;
+                Ok(WireTerm::BuiltinToken {
+                    key: wire_key(ProvenanceRole::ClaimIdToken, ordinal),
+                    sort: BuiltinSort::Id,
+                    value: literal.value(),
+                })
+            }
+            TermTree::BytesToken { literal } => {
+                if !self.claim {
+                    return Err(syn::Error::new(
+                        literal.span(),
+                        "bytes! is currently claim-only",
+                    ));
+                }
+                let ordinal = self.bytes_token_ordinal;
+                self.bytes_token_ordinal += 1;
+                Ok(WireTerm::BuiltinToken {
+                    key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
+                    sort: BuiltinSort::Bytes,
+                    value: bytes_token_value(literal),
+                })
+            }
+            TermTree::Anonymous { spelling, .. } => Err(syn::Error::new(
+                spelling.span(),
+                "anonymous! is valid only in a claim subject",
+            )),
+            TermTree::OrBool { arguments, .. } => {
+                if !self.claim {
+                    return Err(syn::Error::new(
+                        Span::call_site(),
+                        "or_bool! is currently claim-only",
+                    ));
+                }
+                let ordinal = self.or_bool_ordinal;
+                self.or_bool_ordinal += 1;
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.expand_wire(argument, side, slots))
+                    .collect::<syn::Result<Vec<_>>>()?;
+                Ok(WireTerm::OrBool {
+                    key: wire_key(ProvenanceRole::ClaimOrBool, ordinal),
+                    arguments,
+                })
+            }
+            TermTree::Cell(cell) => {
+                let _path_ordinal = take_counter(&mut self.counters.path)?;
+                let application_ordinal = take_counter(&mut self.counters.application)?;
+                let key = wire_key(side.role(TermRole::ApplicationHead), application_ordinal);
+                let authored_path = spelling(cell.owner());
+                let target = self.cell_declaration_target(cell.owner())?;
+                let slot = slots.type_slot(quote!((#target).key));
+                let declaration = WireTypeReference {
+                    slot,
+                    authored_path,
+                };
+                let mut fields = Vec::new();
+                for field in cell.fields() {
+                    let ordinal = take_counter(&mut self.counters.field)?;
+                    let name = ProductionFieldId::new(field.name().to_string())
+                        .expect("Rust fields are valid cell-field identities");
+                    fields.push(WireCellTermField {
+                        key: wire_key(side.role(TermRole::RecordFieldName), ordinal),
+                        field: name,
+                        value: Box::new(self.expand_wire(field.value(), side, slots)?),
+                    });
+                }
+                Ok(WireTerm::Cell {
+                    key,
+                    declaration,
+                    fields,
+                })
+            }
+        }
+    }
+
     pub(super) fn cell_declaration_target(&mut self, authored: &Path) -> syn::Result<TokenStream> {
         let generated = call_site_path(authored)?;
         let authored_spelling = spelling(authored);
@@ -458,6 +742,75 @@ impl<'a> TermBuilder<'a> {
                 })
             })
         }
+    }
+
+    fn application_wire_slot(
+        &mut self,
+        authored: &Path,
+        slots: &mut WireSlots,
+    ) -> syn::Result<usize> {
+        let (owner, variant) = if authored.leading_colon.is_none()
+            && authored.segments.len() == 1
+            && let Some(imported_owner) = self.enum_glob
+            && let Some(imported_variant) = authored.segments.first()
+            && self
+                .enum_variant
+                .is_none_or(|variant| variant == &imported_variant.ident)
+        {
+            (
+                call_site_path(imported_owner)?,
+                Some(imported_variant.ident.clone()),
+            )
+        } else if let Some((owner, variant)) = enum_variant_parts(authored) {
+            (owner, Some(variant))
+        } else {
+            (authored.clone(), None)
+        };
+
+        // The same type-key helper and authored Rust path remain visible to
+        // rustc. Only its resolved key enters the runtime payload slot.
+        let key_fn = format_ident!(
+            "__krs_rule_application_{:016x}_{}",
+            self.nonce,
+            self.next_key
+        );
+        self.next_key += 1;
+        let cfg = self.cfg;
+        self.key_functions.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key_fn() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#owner>()
+            }
+        });
+        let key_reference = if self.associated_keys {
+            quote!(Self::#key_fn)
+        } else {
+            quote!(#key_fn)
+        };
+        let facade = self.facade;
+        let owner_key = quote!(#facade::HostTypeKey(#key_reference));
+        Ok(if let Some(variant) = variant {
+            let marker = variant_marker_function(&variant);
+            let marker_key = quote!(#facade::HostTypeKey(#owner::#marker));
+            slots.variant_slot(&owner_key, &marker_key)
+        } else {
+            slots.type_slot(owner_key)
+        })
+    }
+
+    fn application_authored_path(&self, path: &Path) -> String {
+        if path.leading_colon.is_none()
+            && path.segments.len() == 1
+            && let Some(owner) = self.enum_glob
+            && let Some(variant) = path.segments.first()
+            && self
+                .enum_variant
+                .is_none_or(|imported| imported == &variant.ident)
+        {
+            return format!("{}::{}", spelling(owner), variant.ident);
+        }
+        spelling(path)
     }
 
     fn take_lexical_rule_head(&mut self, path: &Path) -> bool {

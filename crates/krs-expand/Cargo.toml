@@ -11,11 +11,11 @@ krs-ir = { path = "../krs-ir" }
 krs-syntax = { path = "../krs-syntax" }
 proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 quote = "1.0.47"
+serde_json.workspace = true
 syn = { version = "2.0.119", features = ["full", "parsing", "printing", "visit"] }
 
 [dev-dependencies]
 prettyplease = "0.2.37"
-serde_json.workspace = true
 sha2 = "0.10.9"
 
 [lints]

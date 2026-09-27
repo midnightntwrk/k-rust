@@ -22,6 +22,27 @@ pub(crate) fn host_provenance(
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
 ) -> syn::Result<proc_macro2::TokenStream> {
+    host_provenance_impl(env, facade, fallback, anchors, false)
+}
+
+/// Place large rule anchor tables in static storage so Clippy does not treat
+/// them as local arrays in generated rule factories.
+pub(crate) fn host_provenance_static(
+    env: &dyn MacroEnvironment,
+    facade: &syn::Path,
+    fallback: TokenRange,
+    anchors: &[ProvenanceAnchor],
+) -> syn::Result<proc_macro2::TokenStream> {
+    host_provenance_impl(env, facade, fallback, anchors, true)
+}
+
+fn host_provenance_impl(
+    env: &dyn MacroEnvironment,
+    facade: &syn::Path,
+    fallback: TokenRange,
+    anchors: &[ProvenanceAnchor],
+    static_authored: bool,
+) -> syn::Result<proc_macro2::TokenStream> {
     let invocation = capture_call_site(env)
         .or_else(|| capture(env, fallback, false))
         .unwrap_or_else(|| unavailable_invocation(env, fallback));
@@ -55,12 +76,21 @@ pub(crate) fn host_provenance(
         quote!("")
     };
 
+    let authored_tokens = if static_authored {
+        quote!({
+            const __KRS_AUTHORED: &[(&str, u32, #facade::__KrsRawAnchor)] = &[#(#authored),*];
+            __KRS_AUTHORED
+        })
+    } else {
+        quote!(&[#(#authored),*])
+    };
+
     Ok(quote! {
         #facade::__krs_host_provenance(
             #manifest_dir,
             &[#(#files),*],
             #invocation_tokens,
-            &[#(#authored),*],
+            #authored_tokens,
         )
     })
 }

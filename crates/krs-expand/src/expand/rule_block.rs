@@ -7,13 +7,10 @@ use syn::ext::IdentExt;
 use syn::{Ident, Path};
 
 use super::nonce::expansion_nonce;
-use super::rules::{rule_label_tokens, rule_owise_tokens};
-use super::terms::{TermBuilder, TermSide};
-use super::tokens::{
-    call_site_cfg_attributes, call_site_path, host_sort_reference, sort_type_tokens, spelling,
-};
+use super::terms::{TermBuilder, TermSide, WireSlots};
+use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
-use crate::provenance::host_provenance;
+use crate::provenance::host_provenance_static;
 
 /// Expands a readable block into independent ordinary rule declarations.
 pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
@@ -76,7 +73,7 @@ fn expand_head_rule(
     );
     let fallback =
         TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors)?;
+    let provenance = host_provenance_static(env, &facade, fallback, &anchors)?;
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
@@ -84,139 +81,12 @@ fn expand_head_rule(
     let sort_path = call_site_path(rule.parameter().term_sort.sort())?;
     let sort_type = sort_type_tokens(&sort_path, rule.parameter().term_sort.is_dynamic());
     let sort_spelling = rule.parameter().term_sort.sort_spelling();
-    let head_sort = host_sort_reference(
-        &facade,
-        ProvenanceRole::RuleType,
-        0,
-        &sort_key,
-        &sort_spelling,
-    );
+    let mut slots = WireSlots::new(&facade);
+    let sort_slot = slots.type_slot(quote!(#facade::HostTypeKey(#sort_key)));
     let binding_idents = clause.bindings().to_vec();
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
         .with_enum_import(enum_owner, enum_variant)
         .with_lexical_rule_head(enum_owner.is_none());
-    let subject = builder.expand(rule.subject_tree(), TermSide::Left)?;
-
-    let mut have_ordinal = 0_u32;
-    let mut update_ordinal = 0_u32;
-    let mut have_extras = Vec::new();
-    let mut rewrite_befores = Vec::new();
-    for extra in clause.extras() {
-        match extra {
-            krs_syntax::RuleExtra::HaveMap { cell, key, value } => {
-                let cell_name = cell.unraw().to_string();
-                let value_binding = value.unraw().to_string();
-                let key = builder.expand(key.tree(), TermSide::Left)?;
-                let ordinal = have_ordinal;
-                have_ordinal = have_ordinal
-                    .checked_add(1)
-                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
-                have_extras.push(quote! {
-                    #facade::ProtocolHeadRuleExtra::HaveMap {
-                        cell: #facade::HostHeadRuleCellReference {
-                            key: #facade::ProvenanceKey::new(#rule_left_cells_field_role, #ordinal).unwrap(),
-                            name: #cell_name.to_owned(),
-                        },
-                        key: #key,
-                        value_binding: #value_binding.to_owned(),
-                    }
-                });
-            }
-            krs_syntax::RuleExtra::RewriteCell {
-                cell, before_tree, ..
-            } => {
-                let before = builder.expand(before_tree, TermSide::Left)?;
-                let ordinal = have_ordinal;
-                have_ordinal = have_ordinal
-                    .checked_add(1)
-                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
-                rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
-            }
-            krs_syntax::RuleExtra::UpdateMap { .. } => {}
-        }
-    }
-
-    builder.reset_side();
-    let result = match clause.head_result() {
-        krs_syntax::RuleHeadResult::Replace(term) => {
-            let term = builder.expand(term.tree(), TermSide::Right)?;
-            quote!(#facade::ProtocolHeadRuleResult::Replace(#term))
-        }
-        krs_syntax::RuleHeadResult::Splice { items, .. } => {
-            let items = items
-                .iter()
-                .map(|item| builder.expand(item.tree(), TermSide::Right))
-                .collect::<Result<Vec<_>, _>>()?;
-            quote!(#facade::ProtocolHeadRuleResult::Splice(::std::vec![#(#items),*]))
-        }
-        krs_syntax::RuleHeadResult::Erase(_) => {
-            quote!(#facade::ProtocolHeadRuleResult::Erase)
-        }
-    };
-    let mut update_extras = Vec::new();
-    let mut rewrite_index = 0_usize;
-    for extra in clause.extras() {
-        match extra {
-            krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
-                let cell_name = cell.unraw().to_string();
-                let base_binding = base.unraw().to_string();
-                let update = builder.expand(update.tree(), TermSide::Right)?;
-                let ordinal = update_ordinal;
-                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(cell.span(), "too many readable cell updates")
-                })?;
-                update_extras.push(quote! {
-                    #facade::ProtocolHeadRuleExtra::UpdateMap {
-                        cell: #facade::HostHeadRuleCellReference {
-                            key: #facade::ProvenanceKey::new(#rule_right_cells_field_role, #ordinal).unwrap(),
-                            name: #cell_name.to_owned(),
-                        },
-                        base_binding: #base_binding.to_owned(),
-                        update: #update,
-                    }
-                });
-            }
-            krs_syntax::RuleExtra::RewriteCell { cell, after, .. } => {
-                let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
-                rewrite_index += 1;
-                debug_assert_eq!(cell_name, &cell.unraw().to_string());
-                let after = builder.expand(after.tree(), TermSide::Right)?;
-                let right_ordinal = update_ordinal;
-                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    syn::Error::new(cell.span(), "too many readable cell updates")
-                })?;
-                update_extras.push(quote! {
-                    #facade::ProtocolHeadRuleExtra::RewriteCell {
-                        cell: #facade::HostHeadRuleCellReference {
-                            key: #facade::ProvenanceKey::new(#rule_left_cells_field_role, #left_ordinal).unwrap(),
-                            name: #cell_name.to_owned(),
-                        },
-                        result_key: #facade::ProvenanceKey::new(#rule_right_cells_field_role, #right_ordinal).unwrap(),
-                        before: #before,
-                        after: #after,
-                    }
-                });
-            }
-            krs_syntax::RuleExtra::HaveMap { .. } => {}
-        }
-    }
-    let mut extras = have_extras;
-    extras.extend(update_extras);
-    builder.reset_side();
-    let requires = if let Some(condition) = rule.requires() {
-        let term = builder.expand(condition.term().tree(), TermSide::Requires)?;
-        quote! {
-            ::core::option::Option::Some(#facade::HostRuleCondition {
-                key: #facade::ProvenanceKey::new(#rule_requires_role, 0).unwrap(),
-                term: #term,
-            })
-        }
-    } else {
-        quote!(::core::option::Option::None)
-    };
-    let key_functions = builder.key_functions;
-    let tooling_binding_references = builder.tooling_binding_references;
-
     let mut refinement_functions = Vec::new();
     let mut bindings = Vec::new();
     let mut binding_checks = Vec::new();
@@ -247,41 +117,149 @@ fn expand_head_rule(
                     ::core::any::TypeId::of::<#path>()
                 }
             });
-            let reference = host_sort_reference(
-                &facade,
-                ProvenanceRole::RuleBindingType,
-                ordinal,
-                &key_fn,
-                &authored,
-            );
-            quote!(::core::option::Option::Some(#reference))
+            let slot = slots.type_slot(quote!(#facade::HostTypeKey(#key_fn)));
+            Some(krs_ir::wire::WireSortReference {
+                key: ProvenanceRole::RuleBindingType.key(ordinal).unwrap(),
+                target: krs_ir::wire::WireTypeReference {
+                    slot,
+                    authored_path: authored,
+                },
+            })
         } else {
-            quote!(::core::option::Option::None)
+            None
         };
-        bindings.push(quote! {
-            #facade::ProtocolHeadRuleBinding {
-                name: #name.to_owned(),
-                refinement: #refinement,
-            }
-        });
+        bindings.push(krs_ir::wire::WireHeadRuleBinding { name, refinement });
     }
+
+    let subject = builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?;
+
+    let mut have_ordinal = 0_u32;
+    let mut update_ordinal = 0_u32;
+    let mut have_extras = Vec::new();
+    let mut rewrite_befores = Vec::new();
+    for extra in clause.extras() {
+        match extra {
+            krs_syntax::RuleExtra::HaveMap { cell, key, value } => {
+                let cell_name = cell.unraw().to_string();
+                let value_binding = value.unraw().to_string();
+                let key = builder.expand_wire(key.tree(), TermSide::Left, &mut slots)?;
+                let ordinal = have_ordinal;
+                have_ordinal = have_ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
+                have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
+                    cell: krs_ir::wire::WireHeadRuleCellReference {
+                        key: rule_left_cells_field_role.key(ordinal).unwrap(),
+                        name: cell_name,
+                    },
+                    key,
+                    value_binding,
+                });
+            }
+            krs_syntax::RuleExtra::RewriteCell {
+                cell, before_tree, ..
+            } => {
+                let before = builder.expand_wire(before_tree, TermSide::Left, &mut slots)?;
+                let ordinal = have_ordinal;
+                have_ordinal = have_ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| syn::Error::new(cell.span(), "too many readable cell reads"))?;
+                rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
+            }
+            krs_syntax::RuleExtra::UpdateMap { .. } => {}
+        }
+    }
+
+    builder.reset_side();
+    let result = match clause.head_result() {
+        krs_syntax::RuleHeadResult::Replace(term) => {
+            let term = builder.expand_wire(term.tree(), TermSide::Right, &mut slots)?;
+            krs_ir::wire::WireHeadRuleResult::Replace(term)
+        }
+        krs_syntax::RuleHeadResult::Splice { items, .. } => {
+            let items = items
+                .iter()
+                .map(|item| builder.expand_wire(item.tree(), TermSide::Right, &mut slots))
+                .collect::<Result<Vec<_>, _>>()?;
+            krs_ir::wire::WireHeadRuleResult::Splice(items)
+        }
+        krs_syntax::RuleHeadResult::Erase(_) => krs_ir::wire::WireHeadRuleResult::Erase,
+    };
+    let mut update_extras = Vec::new();
+    let mut rewrite_index = 0_usize;
+    for extra in clause.extras() {
+        match extra {
+            krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
+                let cell_name = cell.unraw().to_string();
+                let base_binding = base.unraw().to_string();
+                let update = builder.expand_wire(update.tree(), TermSide::Right, &mut slots)?;
+                let ordinal = update_ordinal;
+                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                    syn::Error::new(cell.span(), "too many readable cell updates")
+                })?;
+                update_extras.push(krs_ir::wire::WireHeadRuleExtra::UpdateMap {
+                    cell: krs_ir::wire::WireHeadRuleCellReference {
+                        key: rule_right_cells_field_role.key(ordinal).unwrap(),
+                        name: cell_name,
+                    },
+                    base_binding,
+                    update,
+                });
+            }
+            krs_syntax::RuleExtra::RewriteCell { cell, after, .. } => {
+                let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
+                rewrite_index += 1;
+                debug_assert_eq!(cell_name, &cell.unraw().to_string());
+                let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
+                let right_ordinal = update_ordinal;
+                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
+                    syn::Error::new(cell.span(), "too many readable cell updates")
+                })?;
+                update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
+                    cell: krs_ir::wire::WireHeadRuleCellReference {
+                        key: rule_left_cells_field_role.key(*left_ordinal).unwrap(),
+                        name: cell_name.clone(),
+                    },
+                    result_key: rule_right_cells_field_role.key(right_ordinal).unwrap(),
+                    before: before.clone(),
+                    after,
+                });
+            }
+            krs_syntax::RuleExtra::HaveMap { .. } => {}
+        }
+    }
+    let mut extras = have_extras;
+    extras.extend(update_extras);
+    builder.reset_side();
+    let requires = if let Some(condition) = rule.requires() {
+        let term = builder.expand_wire(condition.term().tree(), TermSide::Requires, &mut slots)?;
+        Some(krs_ir::wire::WireRuleCondition {
+            key: rule_requires_role.key(0).unwrap(),
+            term,
+        })
+    } else {
+        None
+    };
+    let key_functions = builder.key_functions;
+    let tooling_binding_references = builder.tooling_binding_references;
     binding_checks.push(quote! {
         #(let _ = &#tooling_binding_references;)*
     });
-    let label = clause.attribute().label().map_or_else(
-        || {
-            let name = rule.item().sig.ident.unraw().to_string().replace('_', "-");
-            quote! {
-                ::core::option::Option::Some(#facade::DescriptorRuleLabel {
-                    key: #facade::ProvenanceKey::new(#rule_label_role, 0)
-                        .expect("KRS parser roles are nonempty"),
-                    name: #name.to_owned(),
-                })
-            }
-        },
-        |_| rule_label_tokens(&facade, clause.attribute()),
-    );
-    let priority = rule_owise_tokens(&facade, clause.attribute());
+
+    let label = Some(krs_ir::DescriptorRuleLabel {
+        key: rule_label_role.key(0).unwrap(),
+        name: clause.attribute().label().map_or_else(
+            || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
+            syn::LitStr::value,
+        ),
+    });
+    let priority = clause
+        .attribute()
+        .is_owise()
+        .then(|| krs_ir::DescriptorRulePriority {
+            key: ProvenanceRole::RuleOwise.key(0).unwrap(),
+            value: 200,
+        });
     let original = rule.item();
     let attrs = &original.attrs;
     let visibility = &original.vis;
@@ -289,7 +267,7 @@ fn expand_head_rule(
     let name_ident = &original.sig.ident;
     let name = name_ident.unraw().to_string();
     let parameter_type = rule.parameter().term_sort.ty();
-    let header = if configuration_owned {
+    let (head_sort, configuration, computation_cell_name) = if configuration_owned {
         let computation_cell = clause.computation_cell().ok_or_else(|| {
             syn::Error::new(
                 rule.item().sig.ident.span(),
@@ -297,24 +275,48 @@ fn expand_head_rule(
             )
         })?;
         let computation_cell = computation_cell.unraw().to_string();
-        quote! {
-            head_sort: ::core::option::Option::None,
-            configuration: ::core::option::Option::Some(#facade::HostConfigurationReference {
-                key: #facade::ProvenanceKey::new(#rule_type_role, 0).unwrap(),
-                configuration: #facade::HostTypeReference {
-                    key: #facade::HostTypeKey(#sort_key),
-                    authored_path: #sort_spelling.to_owned(),
+        (
+            None,
+            Some(krs_ir::wire::WireConfigurationReference {
+                key: rule_type_role.key(0).unwrap(),
+                configuration: krs_ir::wire::WireTypeReference {
+                    slot: sort_slot,
+                    authored_path: sort_spelling,
                 },
             }),
-            computation_cell_name: ::core::option::Option::Some(#computation_cell.to_owned()),
-        }
+            Some(computation_cell),
+        )
     } else {
-        quote! {
-            head_sort: ::core::option::Option::Some(#head_sort),
-            configuration: ::core::option::Option::None,
-            computation_cell_name: ::core::option::Option::None,
-        }
+        (
+            Some(krs_ir::wire::WireSortReference {
+                key: rule_type_role.key(0).unwrap(),
+                target: krs_ir::wire::WireTypeReference {
+                    slot: sort_slot,
+                    authored_path: sort_spelling,
+                },
+            }),
+            None,
+            None,
+        )
     };
+
+    let wire = krs_ir::wire::WirePayload::HeadRule(Box::new(krs_ir::wire::WireHeadRule {
+        sentence_kind: krs_ir::SentenceKind::Transition,
+        label,
+        priority,
+        pattern_key: rule_pattern_role.key(0).unwrap(),
+        result_key: rule_result_role.key(0).unwrap(),
+        head_sort,
+        configuration,
+        computation_cell_name,
+        bindings,
+        subject,
+        result,
+        requires,
+        extras,
+    }));
+    let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
+    let slot_tokens = slots.tokens();
 
     Ok(quote! {
         #(#attrs)*
@@ -342,21 +344,7 @@ fn expand_head_rule(
                     module_path!(), #name, #facade::ItemKind::Rule, "",
                 ).expect("Cargo and Rust macro context form a valid host identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::HeadRule(::std::boxed::Box::new(
-                    #facade::HostHeadRule {
-                        sentence_kind: #facade::SentenceKind::Transition,
-                        label: #label,
-                        priority: #priority,
-                        pattern_key: #facade::ProvenanceKey::new(#rule_pattern_role, 0).unwrap(),
-                        result_key: #facade::ProvenanceKey::new(#rule_result_role, 0).unwrap(),
-                        #header
-                        bindings: ::std::vec![#(#bindings),*],
-                        subject: #subject,
-                        result: #result,
-                        requires: #requires,
-                        extras: ::std::vec![#(#extras),*],
-                    }
-                )),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }

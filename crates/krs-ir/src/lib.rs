@@ -24,6 +24,8 @@ pub mod provenance;
 pub mod semantic;
 pub mod state;
 pub mod transport;
+#[doc(hidden)]
+pub mod wire;
 
 pub use bundle::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,

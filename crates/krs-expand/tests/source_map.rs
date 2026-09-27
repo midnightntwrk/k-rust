@@ -227,10 +227,22 @@ fn provenance_anchors(surface: &str, output: &TokenStream) -> Vec<Anchor> {
                     .last()
                     .is_some_and(|segment| segment.ident == "__krs_host_provenance")
             {
-                let Expr::Reference(authored) = &call.args[3] else {
-                    panic!("authored slice")
+                let authored = match &call.args[3] {
+                    Expr::Reference(authored) => authored.expr.as_ref(),
+                    Expr::Block(block) => {
+                        let Some(syn::Stmt::Item(syn::Item::Const(item))) =
+                            block.block.stmts.first()
+                        else {
+                            panic!("authored const")
+                        };
+                        let Expr::Reference(authored) = item.expr.as_ref() else {
+                            panic!("authored const slice")
+                        };
+                        authored.expr.as_ref()
+                    }
+                    _ => panic!("authored slice"),
                 };
-                let Expr::Array(authored) = authored.expr.as_ref() else {
+                let Expr::Array(authored) = authored else {
                     panic!("authored array")
                 };
                 for entry in &authored.elems {

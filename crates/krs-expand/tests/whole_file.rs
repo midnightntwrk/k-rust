@@ -24,7 +24,7 @@ const GENERATED_FILE: &str = "/work/expanded/tour-minimal/src/lib.rs";
 /// registration table was appended; the text up to the table must still
 /// equal it.
 const TOUR_MINIMAL_PRINT_SHA256: &str =
-    "616c501fda336773215b471e65bd0f21f8ce7f0739d505a91b9e0a5e2c7782b6";
+    "2cc00a4553ec310f51db2ac4d8424714491a430573abf99e1460382381fe982d";
 
 fn module_path() -> Vec<String> {
     vec!["krs_tour_minimal".to_owned()]
