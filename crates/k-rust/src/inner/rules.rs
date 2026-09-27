@@ -656,7 +656,8 @@ fn rule_grammar(
         });
     }
     #[cfg(feature = "z3-inference")]
-    add_builtin_rule_sentences(&mut parsing_sentences);
+    add_rewrite_rule_sentences(&mut parsing_sentences);
+    add_k_rule_sentences(&mut parsing_sentences);
     let source_catalog = resolved.production_catalog(module);
     // The reference rule grammar imports DEFAULT-LAYOUT explicitly, independently
     // of the layout used to parse programs in the language being compiled.
@@ -1077,9 +1078,10 @@ fn rule_sort(sort: &Sort) -> Sort {
     sort.clone()
 }
 
-#[cfg(feature = "z3-inference")]
-fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
-    let labels = sentences
+/// Labels of the productions among `sentences`; a builtin rule production is added only when
+/// no visible production already carries its label.
+fn production_labels(sentences: &[Sentence]) -> BTreeSet<String> {
+    sentences
         .iter()
         .filter_map(|sentence| match sentence {
             Sentence::Production {
@@ -1087,51 +1089,73 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
             } => Some(label.name.clone()),
             _ => None,
         })
-        .collect::<BTreeSet<_>>();
-    let has_label = |name: &str| labels.contains(name);
-    let has_rewrite = has_label(InternalLabel::KRewrite.as_str());
-    let has_as = has_label(InternalLabel::KAs.as_str());
+        .collect()
+}
+
+fn generated_rule_attributes() -> Attributes {
+    let mut attributes = Attributes::default();
+    attributes.set(AttributeKey::GeneratedRuleSyntax, serde_json::Value::Null);
+    attributes
+}
+
+/// The parametric rewrite and `#as` productions of the rule grammar (`kast.md`, modules
+/// `KREWRITE` and `K`). The portable rule grammar derives rewrites and `#as` patterns from the
+/// `#Rule` scaffolding sorts instead (`add_rule_sort`), so these are the Z3 build's alone.
+#[cfg(feature = "z3-inference")]
+fn add_rewrite_rule_sentences(sentences: &mut Vec<Sentence>) {
+    let labels = production_labels(sentences);
     let parameter = Sort::new("Sort");
-    let mut generated_attributes = Attributes::default();
-    generated_attributes.set(AttributeKey::GeneratedRuleSyntax, serde_json::Value::Null);
-    if !has_rewrite {
-        sentences.push(Sentence::Production {
-            label: Some(Label::with_parameters("#KRewrite", vec![parameter.clone()])),
-            parameters: vec![parameter.clone()],
-            sort: parameter.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-                ProductionItem::Terminal("=>".into()),
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-            ],
-            attributes: generated_attributes.clone(),
+    let generated_attributes = generated_rule_attributes();
+    let binary = |label: &str, operator: &str| Sentence::Production {
+        label: Some(Label::with_parameters(label, vec![parameter.clone()])),
+        parameters: vec![parameter.clone()],
+        sort: parameter.clone(),
+        items: vec![
+            ProductionItem::NonTerminal {
+                sort: parameter.clone(),
+                name: None,
+            },
+            ProductionItem::Terminal(operator.into()),
+            ProductionItem::NonTerminal {
+                sort: parameter.clone(),
+                name: None,
+            },
+        ],
+        attributes: generated_attributes.clone(),
+    };
+    if !labels.contains(InternalLabel::KRewrite.as_str()) {
+        sentences.push(binary("#KRewrite", "=>"));
+    }
+    if !labels.contains(InternalLabel::KAs.as_str()) {
+        sentences.push(binary("#KAs", "#as"));
+    }
+    if !sentences.iter().any(|sentence| {
+        matches!(sentence, Sentence::SyntaxAssociativity { tags, .. } if tags.iter().any(|tag| tag == InternalLabel::KRewrite.as_str()))
+    }) {
+        sentences.push(Sentence::SyntaxAssociativity {
+            associativity: crate::definition::Associativity::NonAssoc,
+            tags: vec!["#KRewrite".into()],
+            attributes: Attributes::default(),
         });
     }
-    if !has_as {
-        sentences.push(Sentence::Production {
-            label: Some(Label::with_parameters("#KAs", vec![parameter.clone()])),
-            parameters: vec![parameter.clone()],
-            sort: parameter.clone(),
-            items: vec![
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-                ProductionItem::Terminal("#as".into()),
-                ProductionItem::NonTerminal {
-                    sort: parameter.clone(),
-                    name: None,
-                },
-            ],
-            attributes: generated_attributes.clone(),
-        });
-    }
+}
+
+/// The rule-only term syntax of module `K` (`kast.md`) other than rewrites and `#as`: the local
+/// functions `#fun2`, `#fun3` and `#let`, and the pattern tests `:=K` and `:/=K`.
+///
+/// Every rule grammar has them, whatever the inference engine: they are terms of the rule
+/// language, not a way of writing rewrites, so the portable scaffolding does not replace them.
+/// `#fun3` and `#let` are parametric in a result sort `Sort1` and an argument sort `Sort2` that
+/// occurs only in argument positions (the bound pattern and the bound value). Such a parameter
+/// only bounds those subterms from above, and `K` bounds every sort, so it never removes a
+/// typing: the maximal variable typing of a rule is the one at `Sort2 = K`, and the loaded term
+/// carries no label parameter (`erase_label_parameters`). The value either engine gives the
+/// parameter is therefore not observable in the rule it loads.
+fn add_k_rule_sentences(sentences: &mut Vec<Sentence>) {
+    let labels = production_labels(sentences);
+    let has_label = |name: &str| labels.contains(name);
+    let parameter = Sort::new("Sort");
+    let generated_attributes = generated_rule_attributes();
     if !has_label(InternalLabel::Fun2.as_str()) {
         let mut attributes = generated_attributes.clone();
         attributes.mark(AttributeKey::Prefer);
@@ -1245,15 +1269,6 @@ fn add_builtin_rule_sentences(sentences: &mut Vec<Sentence>) {
                 },
             ],
             attributes,
-        });
-    }
-    if !sentences.iter().any(|sentence| {
-        matches!(sentence, Sentence::SyntaxAssociativity { tags, .. } if tags.iter().any(|tag| tag == InternalLabel::KRewrite.as_str()))
-    }) {
-        sentences.push(Sentence::SyntaxAssociativity {
-            associativity: crate::definition::Associativity::NonAssoc,
-            tags: vec!["#KRewrite".into()],
-            attributes: Attributes::default(),
         });
     }
 }

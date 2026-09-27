@@ -1,0 +1,79 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "rule op(A) => val(#fun(X => X)(#fun(Z => Z)(A)))"
+---
+  symbol Lbl'Hash'lambda'UndsUnds'{}(SortK{}) : SortInt{} [function{}(), functional{}(), total{}()]
+  symbol Lbl'Hash'lambdaA'UndsUnds'{}(SortK{}) : SortK{} [function{}(), functional{}(), total{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortInt{},
+      \equals{SortInt{}, R}(Val:SortInt{}, Lbl'Hash'lambda'UndsUnds'{}(K0:SortK{}))
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortK{},
+      \equals{SortK{}, R}(Val:SortK{}, Lbl'Hash'lambdaA'UndsUnds'{}(K0:SortK{}))
+    )
+    [functional{}()]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(inj{SortOp{}, SortKItem{}}(Lblop{}(VarA:SortInt{})), Var'Unds'DotVar1:SortK{})
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortOp{}, SortKItem{}}(
+                Lblval{}(
+                  Lbl'Hash'lambda'UndsUnds'{}(
+                    Lbl'Hash'lambdaA'UndsUnds'{}(
+                      kseq{}(inj{SortInt{}, SortKItem{}}(VarA:SortInt{}), dotk{}())
+                    )
+                  )
+                )
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("af72858a47837aaf84c485e74d42f7aa021f00fa4a39ece17e55a0c312897a92"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,51)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(P.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(
+        \top{R}(),
+        \and{R}(
+          \in{SortK{}, R}(X0:SortK{}, kseq{}(inj{SortInt{}, SortKItem{}}(VarX:SortInt{}), dotk{}())),
+          \top{R}()
+        )
+      ),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortK{}),
+        \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("81c683c11b43969b6b95b63fcdb4bff7bc3a1bceddafe12d8bd4fbcc5861aa37")]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortK{}, R}(X0:SortK{}, VarZ:SortK{}), \top{R}())),
+      \equals{SortK{}, R}(
+        Lbl'Hash'lambdaA'UndsUnds'{}(X0:SortK{}),
+        \and{SortK{}}(VarZ:SortK{}, \top{SortK{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("c92abb44ff13230a72845ef356691017b358af9ef5637678a5810969d03dc6f8")]

@@ -1,0 +1,50 @@
+---
+source: crates/k-rust/tests/local_function_syntax.rs
+expression: "rule op(A) => val(#fun(op(X) => X)(op(A)))"
+---
+  symbol Lbl'Hash'lambda'UndsUnds'{}(SortOp{}) : SortInt{} [function{}()]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortOp{}, SortKItem{}}(
+                \and{SortOp{}}(Lblop{}(VarA:SortInt{}), Var'Unds'Gen3:SortOp{})
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortOp{}, SortKItem{}}(
+                Lblval{}(Lbl'Hash'lambda'UndsUnds'{}(Var'Unds'Gen3:SortOp{}))
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("32c595be10f4d3b0b81c13b85fc0f60e828b811a9b7297e20a82208ef4c04945"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(6,3,6,45)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}("Source(P.k)")
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortOp{}, R}(X0:SortOp{}, Lblop{}(VarX:SortInt{})), \top{R}())),
+      \equals{SortInt{}, R}(
+        Lbl'Hash'lambda'UndsUnds'{}(X0:SortOp{}),
+        \and{SortInt{}}(VarX:SortInt{}, \top{SortInt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("db6f51e000d82ccb2b6e9b60c6fc2dd9c94d881a1b66a5c9e8dcf989f6ca6e84")]
