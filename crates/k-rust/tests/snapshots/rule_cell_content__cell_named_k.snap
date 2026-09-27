@@ -1,0 +1,5 @@
+---
+source: crates/k-rust/tests/rule_cell_content.rs
+expression: digest
+---
+166468 bytes, 06c2c96f4ed81f45a888d93fe631387d8e972ef1148ed4aece5055f999b1e1d4
