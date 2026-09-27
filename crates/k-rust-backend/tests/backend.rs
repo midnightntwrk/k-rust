@@ -1,6 +1,8 @@
 //! Integration tests of the public API of `k_rust_backend`: one target, so that shared support
 //! is never dead code in another target. The modules live under `tests/backend/`.
 
+#[path = "backend/anywhere_matching.rs"]
+mod anywhere_matching;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/overloaded_list_owise.rs"]

@@ -64,10 +64,13 @@ use std::{
     sync::Arc,
 };
 
+use rustc_hash::FxHashMap;
+
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
     definition::BackendDefinition,
+    instance_normal::is_anywhere_application,
     substitution::{Substitution, substitute},
     term::{ListDefinition, MapDefinition, Name, Sort, SymbolType, Term, TermKind, Variable},
 };
@@ -178,7 +181,8 @@ impl SortGraph {
         self.known_overlap(left, right).unwrap_or(true)
     }
 
-    fn known_overlap(&self, left: &Sort, right: &Sort) -> Option<bool> {
+    /// Whether two sorts without sort arguments have a common subsort, when both are known.
+    pub(crate) fn known_overlap(&self, left: &Sort, right: &Sort) -> Option<bool> {
         let (
             Sort::Application {
                 name: left,
@@ -281,15 +285,41 @@ fn has_constructor_like_top(term: &Term) -> bool {
         )
 }
 
+/// Match `pattern` against `subject` without a definition. With no equations to consult, an
+/// `anywhere` application of the subject is never taken as a normal form (see
+/// [`match_terms_in_definition`]).
 pub fn match_terms(
     mode: MatchMode,
     sorts: &SortGraph,
     pattern: &Term,
     subject: &Term,
 ) -> MatchResult {
-    match_terms_with_context(mode, sorts, None, pattern, subject)
+    match_terms_with_context(
+        mode,
+        sorts,
+        None,
+        pattern,
+        subject,
+        mode == MatchMode::Evaluate,
+    )
 }
 
+/// Match `pattern` against `subject`: `Failed` means that no instance of `subject` is an
+/// instance of `pattern`, `Success` that `subject` is the given instance of `pattern`.
+///
+/// In `Evaluate` mode `pattern` is the left-hand side of an equation and `subject` the term the
+/// equation is tried on. The equation rewrites the application `subject` itself, so its root is
+/// compared by its head and arguments as it stands; only the subterms below it are compared as
+/// the values they denote.
+///
+/// An application of an `anywhere` production that is not a declared function denotes the
+/// value of its normal form under the equations, and distinct normal forms are distinct values.
+/// Such a subject application (other than the `Evaluate` root) is compared by its head and
+/// arguments, and refuted against a different head, only when it is instance-normal
+/// ([`BackendDefinition::instance_normal`]): an equation may rewrite some instance of any other
+/// one to a term with other arguments or another head (`wrap(s(z)) = wrap(z)` for `wrap(s(X))`
+/// at `X = z`). Such a pair is left in the remainder. The pattern side keeps its reading: the
+/// left-hand side of a rule or equation is matched as written.
 pub fn match_terms_in_definition(
     mode: MatchMode,
     definition: &BackendDefinition,
@@ -302,6 +332,7 @@ pub fn match_terms_in_definition(
         Some(definition),
         pattern,
         subject,
+        mode == MatchMode::Evaluate,
     )
 }
 
@@ -347,15 +378,7 @@ pub(crate) fn match_term_pairs_in_definition(
         };
     }
 
-    let mut matcher = Matcher {
-        mode,
-        sorts: &definition.sort_graph,
-        definition: Some(definition),
-        substitution: Substitution::new(),
-        queue: pairs.into(),
-        map_queue: VecDeque::new(),
-        indeterminate: Vec::new(),
-    };
+    let mut matcher = Matcher::new(mode, &definition.sort_graph, Some(definition), pairs.into());
     if let Err(reason) = matcher.run() {
         return MatchResult::Failed(reason);
     }
@@ -370,12 +393,15 @@ pub(crate) fn match_term_pairs_in_definition(
     }
 }
 
+/// `equation_root`: `subject` is the term an equation with left-hand side `pattern` is tried on,
+/// so its own head is taken as it stands (see [`match_terms_in_definition`]).
 fn match_terms_with_context(
     mode: MatchMode,
     sorts: &SortGraph,
     definition: Option<&BackendDefinition>,
     pattern: &Term,
     subject: &Term,
+    equation_root: bool,
 ) -> MatchResult {
     let _span = measure::algorithm_span(Algorithm::BackendMatchingSyntactic);
     measure::bump(Counter::MatchingProblems);
@@ -406,15 +432,15 @@ fn match_terms_with_context(
         };
     }
 
-    let mut matcher = Matcher {
+    let mut matcher = Matcher::new(
         mode,
         sorts,
         definition,
-        substitution: Substitution::new(),
-        queue: VecDeque::from([(pattern.clone(), subject.clone())]),
-        map_queue: VecDeque::new(),
-        indeterminate: Vec::new(),
-    };
+        VecDeque::from([(pattern.clone(), subject.clone())]),
+    );
+    if equation_root {
+        matcher.given_heads.push(subject.clone());
+    }
     if let Err(reason) = matcher.run() {
         return MatchResult::Failed(reason);
     }
@@ -437,9 +463,79 @@ struct Matcher<'a> {
     queue: VecDeque<(Term, Term)>,
     map_queue: VecDeque<(Term, Term)>,
     indeterminate: Vec<(Term, Term)>,
+    /// Subject applications (these handles, not equal terms) whose head is taken as it stands:
+    /// the root an equation is tried on, and a subject that overload resolution lifted from an
+    /// application whose head is fixed.
+    given_heads: Vec<Term>,
+    /// Instance normality of the subject terms asked about or implied so far: every argument of
+    /// an instance-normal constructor or `anywhere` application, and the operand of an
+    /// instance-normal injection, is instance-normal, so one scan covers the whole subterm.
+    instance_normal: FxHashMap<Term, bool>,
 }
 
-impl Matcher<'_> {
+impl<'a> Matcher<'a> {
+    fn new(
+        mode: MatchMode,
+        sorts: &'a SortGraph,
+        definition: Option<&'a BackendDefinition>,
+        queue: VecDeque<(Term, Term)>,
+    ) -> Self {
+        Self {
+            mode,
+            sorts,
+            definition,
+            substitution: Substitution::new(),
+            queue,
+            map_queue: VecDeque::new(),
+            indeterminate: Vec::new(),
+            given_heads: Vec::new(),
+            instance_normal: FxHashMap::default(),
+        }
+    }
+
+    /// Whether the head of the subject term `subject` is the head of every value it denotes.
+    /// That holds for every term but an `anywhere` application that is not a declared function;
+    /// such an application qualifies when its head is given ([`Self::given_heads`]) or when it is
+    /// instance-normal, so that no equation can rewrite any of its instances.
+    fn subject_head_is_fixed(&mut self, subject: &Term) -> bool {
+        if !is_anywhere_application(subject)
+            || self.given_heads.iter().any(|given| given.ptr_eq(subject))
+        {
+            return true;
+        }
+        if let Some(known) = self.instance_normal.get(subject) {
+            return *known;
+        }
+        let normal = self
+            .definition
+            .is_some_and(|definition| definition.instance_normal(subject));
+        self.instance_normal.insert(subject.clone(), normal);
+        normal
+    }
+
+    /// Record the immediate subterms of an instance-normal `subject` that the matcher is about
+    /// to compare as instance-normal too.
+    fn inherit_instance_normality(&mut self, subject: &Term) {
+        if self.instance_normal.get(subject) != Some(&true) {
+            return;
+        }
+        match subject.kind() {
+            TermKind::Application {
+                symbol, arguments, ..
+            } if symbol.attributes.symbol_type == SymbolType::Constructor
+                || is_anywhere_application(subject) =>
+            {
+                for argument in arguments {
+                    self.instance_normal.insert(argument.clone(), true);
+                }
+            }
+            TermKind::Injection { term, .. } => {
+                self.instance_normal.insert(term.clone(), true);
+            }
+            _ => {}
+        }
+    }
+
     fn run(&mut self) -> Result<(), FailReason> {
         // Map pairs wait until `queue` is empty so that map keys are bound before map problems are
         // solved; a pop enqueues only proper subterms or re-enqueues a deferred pair at most once,
@@ -489,6 +585,16 @@ impl Matcher<'_> {
         if matches!(subject.kind(), TermKind::Variable(_)) {
             return self.defer(pattern, subject);
         }
+        // Every arm below either compares the subject's head and arguments or refutes the pair
+        // by the subject's head. For an `anywhere` subject application whose head is not fixed,
+        // an equation may give some instance other arguments or another head, so neither is
+        // sound; the pair is left to the caller, unless it is syntactically solved.
+        if !self.subject_head_is_fixed(&subject) {
+            if pattern == subject {
+                return Ok(());
+            }
+            return self.defer(pattern, subject);
+        }
 
         match (pattern.kind(), subject.kind()) {
             (
@@ -525,6 +631,7 @@ impl Matcher<'_> {
                     return Err(FailReason::DifferentSorts(pattern, subject));
                 }
                 if pattern_source == subject_source {
+                    self.inherit_instance_normality(&subject);
                     self.enqueue(pattern_term.clone(), subject_term.clone());
                     return Ok(());
                 }
@@ -553,7 +660,8 @@ impl Matcher<'_> {
             {
                 if pattern_symbol.name != subject_symbol.name {
                     // An equation pattern headed by an overloaded production cannot denote a
-                    // different production once the subject is normalized and concrete.
+                    // different production once the subject is concrete and its head fixed
+                    // (checked before this match).
                     if self.mode == MatchMode::Rewrite
                         || (is_constructor(&pattern) && is_constructor(&subject))
                         || (self.mode == MatchMode::Evaluate
@@ -576,6 +684,7 @@ impl Matcher<'_> {
                 {
                     return self.defer(pattern, subject);
                 }
+                self.inherit_instance_normality(&subject);
                 for (pattern, subject) in pattern_arguments.iter().zip(subject_arguments) {
                     self.enqueue(pattern.clone(), subject.clone());
                 }
@@ -671,6 +780,9 @@ impl Matcher<'_> {
                     && is_rewrite_rigid(left)
                     && is_rewrite_rigid(right))
                     || (is_rigid(left) && is_rigid(right))
+                    // The subject is not rigid, so it is an `anywhere` application, whose head
+                    // is fixed (checked before this match), or a declared function, which is
+                    // never concrete after normalization.
                     || (self.mode == MatchMode::Evaluate
                         && is_rigid(left)
                         && subject.concrete_after_normalization()) =>
@@ -750,7 +862,10 @@ impl Matcher<'_> {
                 pattern_term.clone(),
             );
             debug_assert_eq!(pattern_term.sort(), subject_term.sort());
-            if self.mode == MatchMode::Rewrite && is_rewrite_rigid(subject_term.kind()) {
+            if self.mode == MatchMode::Rewrite
+                && is_rewrite_rigid(subject_term.kind())
+                && self.subject_head_is_fixed(subject_term)
+            {
                 self.enqueue(pattern_term, subject_term.clone());
                 return Ok(());
             }
@@ -789,7 +904,11 @@ impl Matcher<'_> {
     /// This is the inverse of [`OverloadView::lift`]. It is deliberately restricted to terms
     /// which are concrete after normalization: variables and ordinary functions keep the result
     /// indeterminate instead of being guessed into a lesser overload.
-    fn lower_normalized_overload_to_sort(&self, term: &Term, target: &Sort) -> OverloadLowering {
+    fn lower_normalized_overload_to_sort(
+        &mut self,
+        term: &Term,
+        target: &Sort,
+    ) -> OverloadLowering {
         let source = term.sort();
         if &source == target {
             return OverloadLowering::Lowered(term.clone());
@@ -826,6 +945,8 @@ impl Matcher<'_> {
             arguments,
         } = term.kind()
         else {
+            // A domain value or a collection: no equation changes the sort of its value, so a
+            // concrete one is not an injection from `target`.
             return if term.concrete_after_normalization() {
                 OverloadLowering::Impossible
             } else {
@@ -916,14 +1037,28 @@ impl Matcher<'_> {
         {
             return OverloadLowering::Lowered(first.clone());
         }
-        if minimal.is_empty() && indeterminate.is_empty() && term.concrete_after_normalization() {
+        // No production of the overload family represents `term` in `target`, which refutes
+        // only when `term` denotes a value with its own head: an equation may rewrite an
+        // `anywhere` application that is not instance-normal to one that lowers.
+        if minimal.is_empty()
+            && indeterminate.is_empty()
+            && term.concrete_after_normalization()
+            && self.subject_head_is_fixed(term)
+        {
             OverloadLowering::Impossible
         } else {
             OverloadLowering::Indeterminate
         }
     }
 
-    fn resolve_overloads(&self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
+    /// Lift a pair of distinct heads of one overload family to their least common production.
+    /// Lifting the subject to `common(inj(arguments))` asserts that the pair is equivalent to
+    /// comparing arguments under `common`. That holds when the subject's own head is fixed: then
+    /// the lifted term denotes the subject's value through the overload equation, and a value
+    /// with head `common` is an instance of the lifted pattern exactly when the arguments match.
+    /// A subject whose head is not fixed is not lifted, and its lifted form, which an overload
+    /// equation rewrites by construction, is given its head ([`Self::given_heads`]).
+    fn resolve_overloads(&mut self, pattern: &Term, subject: &Term) -> Option<(Term, Term)> {
         let definition = self.definition?;
         let pattern_name = &overload_head(pattern)?.name;
         let subject_name = &overload_head(subject)?.name;
@@ -976,10 +1111,16 @@ impl Matcher<'_> {
         } else {
             return None;
         };
-        Some((
-            pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?,
-            subject_view.lift(common, &sort_arguments, self.sorts)?,
-        ))
+        let subject_application = overload_application(subject)?;
+        if !self.subject_head_is_fixed(subject_application) {
+            return None;
+        }
+        let pattern = pattern_view.lift(common.clone(), &sort_arguments, self.sorts)?;
+        let subject = subject_view.lift(common, &sort_arguments, self.sorts)?;
+        if let Some(lifted) = overload_application(&subject) {
+            self.given_heads.push(lifted.clone());
+        }
+        Some((pattern, subject))
     }
 
     fn can_narrow_overload(&self, pattern: &Term, subject: &Term) -> bool {
@@ -1501,14 +1642,19 @@ fn instantiated_symbol_sort(symbol: &crate::term::Symbol, sort_arguments: &[Sort
 /// The symbol of the application `term` is, directly or under one injection: the head an
 /// [`OverloadView`] of `term` has.
 fn overload_head(term: &Term) -> Option<&Arc<crate::term::Symbol>> {
+    match overload_application(term)?.kind() {
+        TermKind::Application { symbol, .. } => Some(symbol),
+        _ => None,
+    }
+}
+
+/// The application `term` is, directly or under one injection.
+fn overload_application(term: &Term) -> Option<&Term> {
     let application = match term.kind() {
         TermKind::Injection { term, .. } => term,
         _ => term,
     };
-    match application.kind() {
-        TermKind::Application { symbol, .. } => Some(symbol),
-        _ => None,
-    }
+    matches!(application.kind(), TermKind::Application { .. }).then_some(application)
 }
 
 impl OverloadView {
@@ -1664,6 +1810,9 @@ fn is_rigid(kind: &TermKind) -> bool {
     )
 }
 
+/// Whether rewrite matching compares a term by its head: a rigid term or an `anywhere`
+/// application that is not a declared function. On the subject side the `anywhere` case also
+/// needs a fixed head ([`rewrite_rigid_subject`]).
 fn is_rewrite_rigid(kind: &TermKind) -> bool {
     is_rigid(kind)
         || matches!(
@@ -1671,6 +1820,15 @@ fn is_rewrite_rigid(kind: &TermKind) -> bool {
             TermKind::Application { symbol, .. }
                 if symbol.attributes.anywhere && !symbol.attributes.declared_function
         )
+}
+
+/// Whether the rewrite matcher compares the subject term `term` by its head, so that a rule
+/// whose pattern has another rigid head fails on it: `term` is rewrite-rigid and, when it is an
+/// `anywhere` application, instance-normal. The rule index keys a subject by its head exactly
+/// when this holds, since a key may drop only rules the matcher refutes.
+pub(crate) fn rewrite_rigid_subject(definition: &BackendDefinition, term: &Term) -> bool {
+    is_rewrite_rigid(term.kind())
+        && (!is_anywhere_application(term) || definition.instance_normal(term))
 }
 
 fn is_overload_head(definition: Option<&BackendDefinition>, kind: &TermKind) -> bool {

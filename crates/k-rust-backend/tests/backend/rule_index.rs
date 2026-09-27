@@ -451,9 +451,15 @@ fn overload_definition() -> BackendDefinition {
     BackendDefinition::internalize(&syntax, "MAIN").expect("overload definition should internalize")
 }
 
-const OVERLOAD_SUBJECT_HEADS: [&str; 4] = [
+/// Subject heads: a constructor outside every overload, an `app` redex of the overload equation,
+/// an `app` no equation rewrites (its first argument is not an injection), a symbolic `app`
+/// that the overload equation rewrites for some instances, the overloaded constructor `appv`,
+/// and a constant.
+const OVERLOAD_SUBJECT_HEADS: [&str; 6] = [
     "inj{SortExp{}, SortKItem{}}(plus{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())))",
     "inj{SortExp{}, SortKItem{}}(app{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())))",
+    "inj{SortExp{}, SortKItem{}}(app{}(plus{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())), inj{SortVal{}, SortExp{}}(v{}())))",
+    "inj{SortExp{}, SortKItem{}}(app{}(E:SortExp{}, inj{SortVal{}, SortExp{}}(v{}())))",
     "inj{SortVal{}, SortKItem{}}(appv{}(v{}(), v{}()))",
     "inj{SortVal{}, SortKItem{}}(v{}())",
 ];
@@ -461,12 +467,25 @@ const OVERLOAD_SUBJECT_HEADS: [&str; 4] = [
 #[test]
 fn rigid_overloaded_heads_are_keyed_apart_from_heads_outside_every_overload() {
     let definition = overload_definition();
-    let app = indexed(&definition, OVERLOAD_SUBJECT_HEADS[1]);
+    let app = indexed(&definition, OVERLOAD_SUBJECT_HEADS[2]);
     assert_eq!(
         subject_index(&definition, &app).cells(),
         &[CellIndex::Overloaded, CellIndex::Anything]
     );
     assert_eq!(candidate_ids(&definition, &app), ["app", "appv"]);
+    // An `app` application that an equation rewrites, for every instance or only for some, may
+    // denote a value with another head, so it keys nothing.
+    for head in [OVERLOAD_SUBJECT_HEADS[1], OVERLOAD_SUBJECT_HEADS[3]] {
+        let app = indexed(&definition, head);
+        assert_eq!(
+            subject_index(&definition, &app).cells(),
+            &[CellIndex::Anything, CellIndex::Anything]
+        );
+        assert_eq!(
+            candidate_ids(&definition, &app),
+            ["plus", "app", "appv", "v"]
+        );
+    }
     let plus = indexed(&definition, OVERLOAD_SUBJECT_HEADS[0]);
     assert_eq!(candidate_ids(&definition, &plus), ["plus"]);
     assert!(CellIndex::Overloaded.covers(&CellIndex::Anywhere(Name::from("h"))));
@@ -500,10 +519,11 @@ proptest! {
 /// `<k>` items of every shape the index keys: constructors of a sort, of its supersort and of
 /// an unrelated sort, a function, domain values, map and list units, variables (of `KItem` and
 /// under an injection), an overloaded constructor and an overloaded `anywhere` production, and
-/// `anywhere` productions of two sorts that are in no overload relation. The
-/// rule side adds conjunctions: an `#as` pattern, two conflicting constructors, and a
+/// `anywhere` productions of two sorts that are in no overload relation, a symbolic `app` that
+/// the overload equation rewrites for some instances, and applications of `w1`, whose equation
+/// is `w1(s(z)) = w1(z)`: normal and redex, ground and symbolic. The rule side adds conjunctions: an `#as` pattern, two conflicting constructors, and a
 /// constructor with a function.
-const SHAPE_ITEMS: [&str; 15] = [
+const SHAPE_ITEMS: [&str; 20] = [
     "inj{SortS1{}, SortKItem{}}(a1{}())",
     "inj{SortS1{}, SortKItem{}}(b1{}())",
     "inj{SortS2{}, SortKItem{}}(a2{}())",
@@ -519,6 +539,11 @@ const SHAPE_ITEMS: [&str; 15] = [
     "inj{SortExp{}, SortKItem{}}(app{}(inj{SortVal{}, SortExp{}}(v{}()), inj{SortVal{}, SortExp{}}(v{}())))",
     "inj{SortS1{}, SortKItem{}}(h1{}())",
     "inj{SortS3{}, SortKItem{}}(h3{}())",
+    "inj{SortExp{}, SortKItem{}}(app{}(VARE:SortExp{}, inj{SortVal{}, SortExp{}}(v{}())))",
+    "inj{SortS1{}, SortKItem{}}(w1{}(z{}()))",
+    "inj{SortS1{}, SortKItem{}}(w1{}(s{}(z{}())))",
+    "inj{SortS1{}, SortKItem{}}(w1{}(s{}(VARN:SortNat{})))",
+    "inj{SortS1{}, SortKItem{}}(w1{}(s{}(s{}(VARN:SortNat{}))))",
 ];
 
 const SHAPE_RULE_CONJUNCTIONS: [&str; 5] = [
@@ -594,6 +619,7 @@ fn shape_definition() -> BackendDefinition {
           sort SortS3{} []
           sort SortVal{} []
           sort SortExp{} []
+          sort SortNat{} []
           sort SortInt{} [hasDomainValues{}()]
           hooked-sort SortMap{}
             [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
@@ -611,6 +637,19 @@ fn shape_definition() -> BackendDefinition {
           symbol f1{}() : SortS1{} [function{}(), total{}()]
           symbol h1{}() : SortS1{} [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
           symbol h3{}() : SortS3{} [anywhere{}(), functional{}(), injective{}(), no-evaluators{}()]
+          symbol z{}() : SortNat{} [constructor{}(), total{}()]
+          symbol s{}(SortNat{}) : SortNat{} [constructor{}(), total{}()]
+          symbol w1{}(SortNat{}) : SortS1{} [anywhere{}(), functional{}(), injective{}()]
+          axiom{R} \implies{R}(
+              \and{R}(
+                  \top{R}(),
+                  \and{R}(\in{SortNat{}, R}(X0:SortNat{}, s{}(z{}())), \top{R}())
+              ),
+              \equals{SortS1{}, R}(
+                  w1{}(X0:SortNat{}),
+                  \and{SortS1{}}(w1{}(z{}()), \top{SortS1{}}())
+              )
+          ) [anywhere{}()]
           symbol v{}() : SortVal{} [constructor{}(), total{}()]
           symbol appv{}(SortVal{}, SortVal{}) : SortVal{} [constructor{}(), total{}()]
           symbol app{}(SortExp{}, SortExp{}) : SortExp{}

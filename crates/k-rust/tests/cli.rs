@@ -4883,20 +4883,22 @@ module OVL
   imports OVL-SYNTAX
   imports INT
   imports BOOL
-  configuration <k> $PGM:Exp </k>
+  configuration <k> $PGM:Exp </k> <n> 0 </n>
   rule app(X:Int, _:Int):Val => c(X) requires X >Int 0 [anywhere]
-  rule <k> $NEXT app(X:Int, _:Int):Val => done(0) ... </k> requires X <=Int 0 [priority(10)]
+  rule <k> $NEXT _:Val => done(0) ... </k> <n> X </n> requires X <=Int 0 [priority(10)]
   rule <k> $NEXT c(X) => done(X) ... </k>
 endmodule
 
 module OVL-SPEC
   imports OVL
-  claim <k> $NEXT app(_N:Int, 0):Val => done(?_M) </k>
+  claim <k> $NEXT app(N:Int, 0):Val => done(?_M) </k> <n> N </n>
 endmodule
 "#;
 
-/// A lower-priority rule is selected for the remainder as simplified, not for the step's
-/// subject: the `c` rule does not match `app(N, 0)` but matches the remainder's `c(N)`.
+/// A lower-priority rule is applied to the remainder as simplified, not to the step's subject:
+/// the `c` rule does not match `app(N, 0)` but matches the remainder's `c(N)`. The condition
+/// comes from another cell, since `app(N, 0)`, which the anywhere equation rewrites for `N > 0`,
+/// is not compared by its arguments.
 #[test]
 fn kprove_selects_lower_priority_rules_for_the_simplified_remainder() {
     for next in ["", "mark() ~>"] {
@@ -4929,6 +4931,99 @@ fn kprove_selects_lower_priority_rules_for_the_simplified_remainder() {
             "claim #1: proven (3 states, 0 unexplored)\n",
             "next item {next:?}"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// An anywhere rule identifies `wrap(s(z))` with `wrap(z)`; the rule for `wrap(z)` reaches
+/// `bad`, and the `owise` rule `done` (probe `aw.k`).
+const ANYWHERE_OWISE_RULE: &str = r#"
+module AW-SYNTAX
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+  syntax Address ::= wrap(Nat) [symbol(wrap)]
+  syntax KItem ::= go(Address) [symbol(go)] | "bad" [symbol(bad)] | "done" [symbol(done)]
+endmodule
+
+module AW
+  imports AW-SYNTAX
+  configuration <k> $PGM:KItem </k>
+  rule [collapse]: wrap(s(z)) => wrap(z) [anywhere]
+  rule [hit]: <k> go(wrap(z)) => bad </k>
+  rule [miss]: <k> go(_) => done </k> [owise]
+endmodule
+
+module AW-SPEC
+  imports AW
+  claim [symbolic]: <k> go(wrap(s(_X:Nat))) => done </k>
+  claim [ground]: <k> go(wrap(s(z))) => done </k>
+endmodule
+"#;
+
+/// The function counterpart of [`ANYWHERE_OWISE_RULE`]: `f(wrap(z)) = 1`, `f(_) = 2` [owise]
+/// (probe `awf.k`).
+const ANYWHERE_OWISE_EQUATION: &str = r#"
+module AWF-SYNTAX
+  imports INT-SYNTAX
+  syntax Nat ::= "z" [symbol(z)] | s(Nat) [symbol(s)]
+  syntax Address ::= wrap(Nat) [symbol(wrap)]
+  syntax KItem ::= val(Int) [symbol(val)]
+endmodule
+
+module AWF
+  imports AWF-SYNTAX
+  imports INT
+  configuration <k> $PGM:KItem </k>
+  syntax Int ::= f(Address) [function, total, symbol(f)]
+  rule [collapse]: wrap(s(z)) => wrap(z) [anywhere]
+  rule [fhit]: f(wrap(z)) => 1
+  rule [fmiss]: f(_) => 2 [owise]
+endmodule
+
+module AWF-SPEC
+  imports AWF
+  claim [symbolic]: <k> val(f(wrap(s(_X:Nat)))) => val(2) </k>
+  claim [ground]: <k> val(f(wrap(s(z)))) => val(2) </k>
+endmodule
+"#;
+
+/// `wrap(s(X))` equals `wrap(z)` at `X = z`, so neither the `owise` rule nor the `owise`
+/// equation may fire on it for every `X`: the symbolic claims, false at `X = z`, are not proven,
+/// and the ground claims stay disproved.
+#[test]
+fn kprove_does_not_prove_an_owise_fallback_on_a_symbolic_anywhere_redex() {
+    for (source, module) in [
+        (ANYWHERE_OWISE_RULE, "AW"),
+        (ANYWHERE_OWISE_EQUATION, "AWF"),
+    ] {
+        let (root, definition) = fixture();
+        fs::write(&definition, source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                &format!("{module}-SPEC"),
+                "--definition-module",
+                module,
+            ])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!output.status.success(), "{module}: {stdout}");
+        let verdict = |claim: &str| {
+            let prefix = format!("claim {module}-SPEC.{claim}: ");
+            stdout
+                .lines()
+                .find_map(|line| line.strip_prefix(&prefix))
+                .unwrap_or_else(|| panic!("{module}: no {claim} verdict in {stdout}"))
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .to_owned()
+        };
+        assert_ne!(verdict("symbolic"), "proven", "{module}: {stdout}");
+        assert_eq!(verdict("ground"), "disproved", "{module}: {stdout}");
         fs::remove_dir_all(root).unwrap();
     }
 }

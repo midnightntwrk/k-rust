@@ -17,11 +17,13 @@
 //! - a constructor application or a sort injection is instance-normal when its arguments are:
 //!   no equation is headed by a constructor or an injection, so it is normal when its parts are;
 //! - an application of an `anywhere` symbol that is not a declared function is instance-normal
-//!   when its arguments are and no equation the evaluator may apply to it (headed by that
-//!   symbol or by a bare variable, of any priority, `requires` ignored) syntactically unifies
-//!   with it. An equation applies to an instance only if the instance matches the equation's
-//!   left-hand side, and an instance matches only if the two terms unify; ignoring `requires`
-//!   only makes the test report more applications as possibly rewritten;
+//!   when its arguments are and every equation the evaluator may apply to it (headed by that
+//!   symbol or by a bare variable, of any priority, `requires` ignored) either does not
+//!   syntactically unify with it or is refuted on it by equation matching. An equation applies
+//!   to an instance only if the instance matches the equation's left-hand side, an instance
+//!   matches only if the two terms unify, and a refutation by equation matching holds for every
+//!   instance; ignoring `requires` only makes the test report more applications as possibly
+//!   rewritten;
 //! - a declared-function application, any other non-constructor application, a collection, and
 //!   a conjunction are not instance-normal: their value is whatever their equations or their
 //!   collection axioms make it, so their shape does not determine their value.
@@ -41,13 +43,26 @@
 //! collection head, differing injection sources, a sort mismatch it cannot interpret), so an
 //! answer of "does not unify" is always a proof that no instance matches.
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap};
+
+use rustc_hash::FxHashMap;
 
 use crate::{
     definition::BackendDefinition,
+    matching::{MatchMode, MatchResult, SortGraph, match_terms_in_definition},
     rule::{TermIndex, Theory},
     term::{Sort, SymbolType, Term, TermKind, Variable},
 };
+
+/// Whether `term` is an application of an `anywhere` production that is not a declared
+/// function: a head that denotes a value of its own only in an instance-normal application.
+pub(crate) fn is_anywhere_application(term: &Term) -> bool {
+    matches!(
+        term.kind(),
+        TermKind::Application { symbol, .. }
+            if symbol.attributes.anywhere && !symbol.attributes.declared_function
+    )
+}
 
 impl BackendDefinition {
     /// Whether every instance of `term` is a normal form of this definition's equations; see
@@ -55,6 +70,7 @@ impl BackendDefinition {
     /// refute an `anywhere` head only on applications for which this holds. Makes no
     /// assumption about how `term` was produced.
     pub(crate) fn instance_normal(&self, term: &Term) -> bool {
+        let _scope = ScanScope::enter();
         self.instance_normal_under(term, false)
     }
 
@@ -66,7 +82,7 @@ impl BackendDefinition {
         not(test),
         expect(
             dead_code,
-            reason = "the rewrite and equation matchers (KK-52) call it on normalized subjects"
+            reason = "no matcher site can cite a fixed point: simplification may keep a partial result"
         )
     )]
     pub(crate) fn instance_normal_of_normal_form(&self, term: &Term) -> bool {
@@ -77,6 +93,18 @@ impl BackendDefinition {
         if normalized && term.concrete_after_normalization() {
             return true;
         }
+        if normalized {
+            return self.instance_normal_uncached(term, normalized);
+        }
+        if let Some(known) = ScanScope::known(term) {
+            return known;
+        }
+        let normal = self.instance_normal_uncached(term, normalized);
+        ScanScope::record(term, normal);
+        normal
+    }
+
+    fn instance_normal_uncached(&self, term: &Term, normalized: bool) -> bool {
         let arguments_normal = |arguments: &[Term]| {
             arguments
                 .iter()
@@ -103,9 +131,14 @@ impl BackendDefinition {
         }
     }
 
-    /// Whether some equation the evaluator may try on an application headed like `subject`
-    /// syntactically unifies with it. The candidates are those equation selection offers such a
+    /// Whether some equation the evaluator may try on an application headed like `subject` may
+    /// apply to an instance of it. The candidates are those equation selection offers such a
     /// subject: the rules indexed by its head symbol and the rules indexed by a bare variable.
+    /// A candidate is excluded when its left-hand side does not syntactically unify with
+    /// `subject`, or when equation matching, which decides for the evaluator whether an equation
+    /// applies to a term, fails on `subject`: a failure holds for every instance of `subject`
+    /// (`matching::match_terms_in_definition`). The second test knows what the first does not:
+    /// the sorts of injections and the productions of an overload family.
     fn some_equation_may_apply(&self, subject: &Term) -> bool {
         let TermKind::Application { symbol, .. } = subject.kind() else {
             return true;
@@ -114,14 +147,68 @@ impl BackendDefinition {
         let theory_may_apply = |theory: &Theory| {
             indices.iter().any(|index| {
                 theory.get(index).is_some_and(|groups| {
-                    groups
-                        .values()
-                        .flatten()
-                        .any(|rule| may_unify(&rule.lhs, subject))
+                    groups.values().flatten().any(|rule| {
+                        may_unify(&self.sort_graph, &rule.lhs, subject)
+                            && !self.matching_refutes(&rule.lhs, subject)
+                    })
                 })
             })
         };
         theory_may_apply(&self.function_theory) || theory_may_apply(&self.simplification_theory)
+    }
+
+    /// Whether equation matching refutes the left-hand side `pattern` on `subject`. Matching
+    /// needs the two sides' variables apart; renaming the equation would take names from the
+    /// request's counter, so a pair that shares a name is not asked.
+    fn matching_refutes(&self, pattern: &Term, subject: &Term) -> bool {
+        pattern
+            .attributes()
+            .variables
+            .is_disjoint(&subject.attributes().variables)
+            && matches!(
+                match_terms_in_definition(MatchMode::Evaluate, self, pattern, subject),
+                MatchResult::Failed(_)
+            )
+    }
+}
+
+thread_local! {
+    /// The instance normality of the terms decided during the outermost
+    /// [`BackendDefinition::instance_normal`] call on this thread, if one is open. Equation
+    /// matching inside the scan asks about the subterms of the scanned term again; the answer
+    /// is a function of the term and the definition, so it is kept for the call.
+    static SCAN: RefCell<(usize, FxHashMap<Term, bool>)> = RefCell::new((0, FxHashMap::default()));
+}
+
+/// One outermost [`BackendDefinition::instance_normal`] call; nested calls share its memo.
+struct ScanScope(());
+
+impl ScanScope {
+    fn enter() -> Self {
+        SCAN.with(|scan| scan.borrow_mut().0 += 1);
+        Self(())
+    }
+
+    fn known(term: &Term) -> Option<bool> {
+        SCAN.with(|scan| scan.borrow().1.get(term).copied())
+    }
+
+    fn record(term: &Term, normal: bool) {
+        SCAN.with(|scan| {
+            scan.borrow_mut().1.insert(term.clone(), normal);
+        });
+    }
+}
+
+impl Drop for ScanScope {
+    fn drop(&mut self) {
+        SCAN.with(|scan| {
+            let mut scan = scan.borrow_mut();
+            scan.0 -= 1;
+            if scan.0 == 0 {
+                scan.1.clear();
+            }
+        });
     }
 }
 
@@ -142,17 +229,22 @@ type Sided<'a> = (Side, &'a Term);
 ///
 /// Precondition: the arguments of `subject` are instance-normal, so a subject subterm headed by
 /// an `anywhere` production denotes a value with that head and can be treated as rigid.
-fn may_unify(pattern: &Term, subject: &Term) -> bool {
+fn may_unify(sorts: &SortGraph, pattern: &Term, subject: &Term) -> bool {
     if let TermKind::Variable(variable) = pattern.kind()
         && sorts_differ(&variable.sort, &subject.sort())
     {
         return false;
     }
-    SyntacticUnifier::default().run((Side::Pattern, pattern), (Side::Subject, subject))
+    SyntacticUnifier {
+        sorts,
+        bindings: HashMap::new(),
+        pending: Vec::new(),
+    }
+    .run((Side::Pattern, pattern), (Side::Subject, subject))
 }
 
-#[derive(Default)]
 struct SyntacticUnifier<'a> {
+    sorts: &'a SortGraph,
     bindings: HashMap<(Side, &'a Variable), Sided<'a>>,
     pending: Vec<(Sided<'a>, Sided<'a>)>,
 }
@@ -269,6 +361,28 @@ impl<'a> SyntacticUnifier<'a> {
                     .push(((left.0, left_term), (right.0, right_term)));
                 true
             }
+            // Two injections into one sort from different sorts denote a common value only
+            // through a value of both source sorts, that is of a common subsort.
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    ..
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    ..
+                },
+            ) => {
+                left_target != right_target
+                    || self.sorts.known_overlap(left_source, right_source) != Some(false)
+            }
+            // An injection denotes a value of its source sort, which no application with a
+            // fixed head denotes: a constructor application is not an injection, and neither is
+            // an instance-normal `anywhere` application (the subject side).
+            (TermKind::Injection { .. }, TermKind::Application { .. }) => !rigid(right),
+            (TermKind::Application { .. }, TermKind::Injection { .. }) => !rigid(left),
             _ => !(rigid(left) && rigid(right)),
         }
     }
