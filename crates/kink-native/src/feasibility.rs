@@ -35,13 +35,22 @@
 //! unifier would decompose through a symbol other than a free constructor (an `anywhere` or
 //! overloaded production is `injective` without being free) are undecided unless identical.
 //!
-//! `feasible` answers `Sat` without a solver only for a real-prefix path whose predicate is
-//! `\top` and whose solved form maps variables to constructor terms over inhabited sorts. That
-//! argument needs every valuation of the initial-state variables to follow the path, which holds
-//! without a solver: k-rust turns every binding of a subject variable into a match condition and
-//! needs the solver to accept one (`rewrite/apply.rs`, phases P7 and P10), so a clean no-Z3 step
-//! only instantiates rules. With a solver present that is no longer true, and `feasible` answers
-//! only `Unsat` or `Unknown` until the Z3 profile establishes the stronger argument.
+//! `feasible` decides the *relation query* of a real-prefix path: its path predicate, the
+//! residual constraints of the assumptions' joint unification, and the unifier's substitution.
+//! A binding `x = t` whose value `t` is a constructor term over inhabited sorts and whose
+//! variable `x` occurs in neither the path predicate nor a residual constraint is *eliminated*:
+//! any valuation of the other variables extends to one satisfying it (define `x` as the value of
+//! `t`; the substitution is idempotent). The remaining conjuncts are the solver query. `Sat` needs
+//! either an empty query (no solver is asked, in both profiles), or a solver `Sat` for exactly
+//! that query with `smt::translates_exactly` holding for all of it and every variable of it an
+//! initial-state variable: the model then values the query's `Int`/`Bool` variables, every other
+//! variable takes any value of its inhabited sort, and the eliminated ones follow. A solver
+//! `Unsat` always counts, because the query is implied by the path predicate and the
+//! assumptions. Such an instance follows the path: without a solver every valuation does
+//! (k-rust turns every binding of a subject variable into a match condition and needs the
+//! solver to accept one, `rewrite/apply.rs` phases P7 and P10); with Z3, every rule condition
+//! k-rust relied on stays in the leaf predicate (the evidence behind [`LeafFeasibility::Solver`]),
+//! so every model of the path predicate does.
 
 use std::collections::BTreeSet;
 
@@ -50,11 +59,13 @@ use k_rust::kore::ast::{Pattern, Variable as KoreVariable};
 use k_rust::names::BuiltinSort;
 use k_rust_backend::definition::BackendDefinition;
 use k_rust_backend::externalize;
-use k_rust_backend::rule::RuleRhs;
+use k_rust_backend::rule::{Predicate, RuleRhs};
 use k_rust_backend::smt::{Satisfiability, SmtSolver, translates_exactly};
 use k_rust_backend::substitution::{Substitution, substitute};
 use k_rust_backend::term::{Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind};
-use k_rust_backend::unification::{UnificationFailure, UnificationResult, unify_term_pairs};
+use k_rust_backend::unification::{
+    Unification, UnificationFailure, UnificationResult, unify_term_pairs,
+};
 use kink_pattern::{Feasibility, PathInput, RelationDecider, RelationDecision, TermRelation};
 
 /// Whether a leaf state is shown to have an instance, or shown to have none.
@@ -416,8 +427,6 @@ pub struct BackendRelations<'a> {
     inhabitation: Inhabitation,
     /// The initial-state element variables, when they are stable and all inhabited.
     variables: Option<BTreeSet<Variable>>,
-    /// Whether `solver` answers at all; `NoSolver` never does.
-    solver_present: bool,
 }
 
 impl<'a> BackendRelations<'a> {
@@ -459,7 +468,6 @@ impl<'a> BackendRelations<'a> {
             solver,
             inhabitation,
             variables,
-            solver_present: solver_present(solver),
         }
     }
 
@@ -501,26 +509,66 @@ impl<'a> BackendRelations<'a> {
             .collect()
     }
 
-    /// Asks the solver about the path predicate, the residual `constraints` and
-    /// `substitution`. Only `Unsat` is used: a `Sat` needs the argument the Z3 profile owns.
-    fn solver_check(
-        &self,
-        path: &PathInput,
-        constraints: Vec<k_rust_backend::rule::Predicate>,
-        substitution: &Substitution,
-    ) -> Feasibility {
-        let mut predicates = constraints;
-        if !matches!(path.path_predicate, Pattern::Top { .. }) {
-            let Ok((predicate, _)) = self
-                .definition
-                .internalize_predicate(&path.path_predicate, &[])
-            else {
-                return Feasibility::Unknown;
-            };
-            predicates.push(predicate);
+    /// The solver query of the relation query of `path` under the solved form `solved` (see
+    /// the module documentation): the path predicate unless it is `\top`, the residual
+    /// constraints, and `x = t` for every binding that is not eliminated. `None` when the path
+    /// predicate does not internalize.
+    fn relation_query(&self, path: &PathInput, solved: Unification) -> Option<Vec<Predicate>> {
+        let mut query = match &path.path_predicate {
+            Pattern::Top { .. } => Vec::new(),
+            predicate => vec![
+                self.definition
+                    .internalize_predicate(predicate, &[])
+                    .ok()?
+                    .0,
+            ],
+        };
+        query.extend(solved.constraints);
+        let constrained = query
+            .iter()
+            .flat_map(Predicate::free_variables)
+            .collect::<BTreeSet<_>>();
+        for (variable, value) in solved.substitution {
+            let eliminated =
+                !constrained.contains(&variable) && constructor_term(&value, &self.inhabitation);
+            if !eliminated {
+                query.push(Predicate::Equals(Term::variable(variable), value));
+            }
         }
-        match self.solver.is_sat(&predicates, substitution) {
+        Some(query)
+    }
+
+    /// Decides the relation query of `path` under `solved` (see the module documentation).
+    fn decide(&self, path: &PathInput, solved: Unification) -> Feasibility {
+        // The eliminated bindings are defined from the other variables only if no bound
+        // variable occurs in a value; `unify_term_pairs` promises that, and it is checked.
+        let bound = solved.substitution.keys().cloned().collect::<BTreeSet<_>>();
+        let idempotent = solved
+            .substitution
+            .values()
+            .all(|value| value.attributes().variables.is_disjoint(&bound));
+        let Some(query) = self.relation_query(path, solved) else {
+            return Feasibility::Unknown;
+        };
+        if query.is_empty() {
+            return if idempotent {
+                Feasibility::Sat
+            } else {
+                Feasibility::Unknown
+            };
+        }
+        // Every variable of an exact `Sat` must be an initial-state variable, which names one
+        // value along the whole path (R9); a variable introduced during execution may not.
+        let stable = self.variables.as_ref().is_some_and(|stable| {
+            query
+                .iter()
+                .all(|predicate| predicate.free_variables().is_subset(stable))
+        });
+        match self.solver.is_sat(&query, &Substitution::new()) {
             Ok(Satisfiability::Unsat) => Feasibility::Unsat,
+            Ok(Satisfiability::Sat) if idempotent && stable && translates_exactly(&query) => {
+                Feasibility::Sat
+            }
             Ok(Satisfiability::Sat | Satisfiability::Unknown(_)) | Err(_) => Feasibility::Unknown,
         }
     }
@@ -593,9 +641,10 @@ impl RelationDecider for BackendRelations<'_> {
         }
     }
 
-    /// For assumptions that decompose freely: `Unsat` on a proved clash; without a solver, `Sat` on a real-prefix
-    /// path with predicate `\top` when their solved form maps variables to constructor terms
-    /// over inhabited sorts; otherwise the solver's `Unsat`, or `Unknown`.
+    /// On a real-prefix path, for assumptions that decompose freely: `Unsat` on a proved
+    /// clash; otherwise the decision of the relation query of the path under their solved form
+    /// (see the module documentation): `Sat` for an empty query or an exact solver `Sat`,
+    /// `Unsat` for a solver `Unsat`, else `Unknown`.
     fn feasible(&self, path: &PathInput, assumptions: &[TermRelation]) -> Feasibility {
         if !path.stop.has_real_prefix() {
             return Feasibility::Unknown;
@@ -611,20 +660,7 @@ impl RelationDecider for BackendRelations<'_> {
         }
         match unify_term_pairs(self.definition, Substitution::new(), pairs) {
             UnificationResult::Bottom(failure) if proves_clash(&failure) => Feasibility::Unsat,
-            UnificationResult::Unified(solved) => {
-                if !self.solver_present
-                    && solved.constraints.is_empty()
-                    && matches!(path.path_predicate, Pattern::Top { .. })
-                    && solved
-                        .substitution
-                        .values()
-                        .all(|value| constructor_term(value, &self.inhabitation))
-                {
-                    Feasibility::Sat
-                } else {
-                    self.solver_check(path, solved.constraints, &solved.substitution)
-                }
-            }
+            UnificationResult::Unified(solved) => self.decide(path, solved),
             UnificationResult::Bottom(_) | UnificationResult::Unsupported { .. } => {
                 Feasibility::Unknown
             }
@@ -654,7 +690,6 @@ mod tests {
     use k_rust::backend::BackendOptions;
     use k_rust::kompile::CompileOptions;
     use k_rust::kore::{codec, parser::parse_definition};
-    use k_rust_backend::rule::Predicate;
     use k_rust_backend::smt::{SmtError, Validity};
     use kink_pattern::{ExecutionStop, PathStop};
 
@@ -963,10 +998,8 @@ mod tests {
             left: Box::new(y.clone()),
             right: Box::new(z()),
         };
-        // A present solver withholds the solver-free `Sat` (README 4.2, R9): the Z3 column is
-        // what the current code produces and is provisional until SYM-3B-03 decides when a
-        // solver `Sat` counts.
-        let sat_without_solver = if cfg!(feature = "z3") { Unknown } else { Sat };
+        // On a `\top` path, bindings of variables to constructor terms are eliminated and the
+        // relation query is empty: `Sat` without asking a solver, in both profiles (SYM-3B-03).
         // (id, path, assumptions, expected)
         let rows = [
             (
@@ -979,13 +1012,13 @@ mod tests {
                 "variable-identification",
                 path(PathStop::DepthLimit, top()),
                 vec![relation(x.clone(), y.clone())],
-                sat_without_solver,
+                Sat,
             ),
             (
                 "constructor-instantiation",
                 path(PathStop::Terminal, top()),
                 vec![relation(x.clone(), s(y.clone()))],
-                sat_without_solver,
+                Sat,
             ),
             (
                 "joint-clash",
@@ -1073,40 +1106,329 @@ mod tests {
         }
     }
 
-    /// With a solver present, a solver-free `Sat` is withheld and a solver `Sat` is not
-    /// trusted; only `Unsat` is used. Relations do not depend on the solver.
+    /// A solver that answers every satisfiability query with one scripted result and records
+    /// each query it is asked.
+    struct Recording {
+        answer: Result<Satisfiability, SmtError>,
+        queries: std::cell::RefCell<Vec<Vec<Predicate>>>,
+    }
+
+    impl SmtSolver for Recording {
+        fn is_sat(
+            &self,
+            predicates: &[Predicate],
+            substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            assert!(substitution.is_empty(), "bindings are sent as predicates");
+            self.queries.borrow_mut().push(predicates.to_vec());
+            self.answer.clone()
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &Substitution,
+            _checked: &[Predicate],
+        ) -> Result<Validity, SmtError> {
+            Err(SmtError::Unavailable)
+        }
+    }
+
+    /// The scripted solver answers of [`solver_sat_counts_only_for_the_exact_relation_query`].
+    const ANSWERS: usize = 4;
+
+    fn scripted_answers() -> [Result<Satisfiability, SmtError>; ANSWERS] {
+        [
+            Ok(Satisfiability::Sat),
+            Ok(Satisfiability::Unsat),
+            Ok(Satisfiability::Unknown("scripted".into())),
+            Err(SmtError::Unavailable),
+        ]
+    }
+
+    /// One row: id, path, assumptions, the `feasible` answer under each scripted solver answer
+    /// (`Sat`, `Unsat`, `Unknown`, `Unavailable`), and the query the solver must be asked
+    /// (`None`: no solver call).
+    type QueryRow = (
+        &'static str,
+        PathInput,
+        Vec<TermRelation>,
+        [Feasibility; ANSWERS],
+        Option<Vec<Predicate>>,
+    );
+
+    fn check_query_rows(
+        definition: &BackendDefinition,
+        state: &Pattern,
+        rows: &[QueryRow],
+    ) -> Vec<String> {
+        let mut failures = Vec::new();
+        for (id, path, assumptions, expected, query) in rows {
+            for (answer, expected) in scripted_answers().into_iter().zip(expected) {
+                let solver = Recording {
+                    answer: answer.clone(),
+                    queries: std::cell::RefCell::default(),
+                };
+                let feasible =
+                    BackendRelations::new(definition, &solver, state).feasible(path, assumptions);
+                let asked = solver.queries.into_inner();
+                let expected_queries = query.iter().cloned().collect::<Vec<_>>();
+                if feasible != *expected || asked != expected_queries {
+                    failures.push(format!(
+                        "{id} under {answer:?}: expected {expected:?} asking {expected_queries:?}, \
+                         got {feasible:?} asking {asked:?}"
+                    ));
+                }
+            }
+        }
+        failures
+    }
+
+    /// SYM-3B-03: `feasible` sends exactly the relation query (path predicate, residual
+    /// constraints, bindings that are not eliminated) as predicates, counts a solver `Sat` only
+    /// when that whole query translates exactly and mentions initial-state variables only, and
+    /// counts every `Unsat`. Attacks: user-sort terms Z3 abstracts, `Int` payloads under
+    /// constructors and injections, assumptions whose variables do not occur in the predicate,
+    /// partial functions, foreign variables. Relations never depend on the solver.
     #[test]
-    fn a_present_solver_contributes_only_unsat() {
-        let mut symmem = backend("symmem.k", "SYMMEM");
-        let state = symmem_state();
-        let (x, y) = (nat("X"), nat("Y"));
-        let assumptions = [relation(x.clone(), y.clone())];
-        let real = path(PathStop::DepthLimit, top());
-        let answers = symmem
+    fn solver_sat_counts_only_for_the_exact_relation_query() {
+        use Feasibility::{Sat as S, Unknown as U, Unsat as N};
+        let exact = [S, N, U, U];
+        let inexact = [U, N, U, U];
+        let mut guarded = backend("guardedmem.k", "GUARDEDMEM");
+        let int = |name: &str| support::var(name, "SortInt");
+        let (x, y, v, w) = (int("X"), int("Y"), int("V"), int("W"));
+        let state = support::initial_state(
+            support::app(
+                "Lblseq",
+                vec![
+                    support::app("Lblwrite", vec![addr(x.clone()), v.clone()]),
+                    support::app(
+                        "Lblseq",
+                        vec![
+                            support::app("Lblload", vec![addr(y.clone()), w.clone()]),
+                            support::app("Lblhalt", vec![]),
+                        ],
+                    ),
+                ],
+            ),
+            "SortProg",
+        );
+        let failures = guarded
             .with_solver(None, |definition, _| {
-                let answer = |solver: Scripted| {
-                    let relations = BackendRelations::new(definition, &solver, &state);
-                    (
-                        relations.feasible(&real, &assumptions),
-                        relations.relate(&real, &[], &addr(x.clone()), &addr(y.clone())),
+                let term = |pattern: &Pattern| {
+                    definition
+                        .internalize_term(pattern, &[])
+                        .expect("term internalizes")
+                };
+                let predicate = |pattern: &Pattern| {
+                    definition
+                        .internalize_predicate(pattern, &[])
+                        .expect("predicate internalizes")
+                        .0
+                };
+                let binds =
+                    |left: &Pattern, right: &Pattern| Predicate::Equals(term(left), term(right));
+                let at_least_zero = |value: &Pattern| {
+                    equals(
+                        "SortBool",
+                        Pattern::DomainValue {
+                            sort: k_rust::kompile::initial_configuration::kore_sort("SortBool"),
+                            value: "true".into(),
+                        },
+                        support::app(
+                            &hooked(definition, "INT.ge"),
+                            vec![value.clone(), support::int(0)],
+                        ),
                     )
                 };
-                Ok::<_, BackendError>([
-                    answer(Scripted(Ok(Satisfiability::Sat))),
-                    answer(Scripted(Ok(Satisfiability::Unsat))),
-                    answer(Scripted(Ok(Satisfiability::Unknown("scripted".into())))),
-                ])
+                let plus_one = |value: &Pattern| {
+                    support::app(
+                        &hooked(definition, "INT.add"),
+                        vec![value.clone(), support::int(1)],
+                    )
+                };
+                let divided =
+                    support::app(&hooked(definition, "INT.tdiv"), vec![y.clone(), v.clone()]);
+                let inj = |value: &Pattern| {
+                    k_rust::kompile::initial_configuration::kore_application(
+                        "inj",
+                        vec![
+                            k_rust::kompile::initial_configuration::kore_sort("SortInt"),
+                            k_rust::kompile::initial_configuration::kore_sort("SortKItem"),
+                        ],
+                        vec![value.clone()],
+                    )
+                };
+                let x_ge = at_least_zero(&x);
+                let y_ge = at_least_zero(&y);
+                let foreign_ge = at_least_zero(&int("Q"));
+                // A predicate over `Address`, which Z3 abstracts.
+                let abstracted = equals("SortAddress", addr(x.clone()), addr(v.clone()));
+                let x_is_y = relation(x.clone(), y.clone());
+                let rows: Vec<QueryRow> = vec![
+                    (
+                        "int-identification-under-a-guard",
+                        path(PathStop::Terminal, x_ge.clone()),
+                        vec![x_is_y.clone()],
+                        exact,
+                        Some(vec![predicate(&x_ge), binds(&x, &y)]),
+                    ),
+                    (
+                        // `X` occurs only in the binding `X = Y`: eliminated.
+                        "binding-outside-the-predicate",
+                        path(PathStop::Terminal, y_ge.clone()),
+                        vec![x_is_y.clone()],
+                        exact,
+                        Some(vec![predicate(&y_ge)]),
+                    ),
+                    (
+                        "int-payload-under-a-constructor",
+                        path(PathStop::DepthLimit, x_ge.clone()),
+                        vec![relation(addr(x.clone()), addr(y.clone()))],
+                        exact,
+                        Some(vec![predicate(&x_ge), binds(&x, &y)]),
+                    ),
+                    (
+                        "int-payload-under-an-injection",
+                        path(PathStop::Terminal, x_ge.clone()),
+                        vec![relation(inj(&x), inj(&y))],
+                        exact,
+                        Some(vec![predicate(&x_ge), binds(&x, &y)]),
+                    ),
+                    (
+                        // Every binding eliminated, no predicate: no solver is asked.
+                        "empty-query",
+                        path(PathStop::Terminal, top()),
+                        vec![x_is_y.clone()],
+                        [S, S, S, S],
+                        None,
+                    ),
+                    (
+                        "total-function-value",
+                        path(PathStop::Terminal, top()),
+                        vec![relation(x.clone(), plus_one(&y))],
+                        exact,
+                        Some(vec![binds(&x, &plus_one(&y))]),
+                    ),
+                    (
+                        "residual-function-equation",
+                        path(PathStop::Terminal, top()),
+                        vec![relation(plus_one(&x), plus_one(&y))],
+                        exact,
+                        Some(vec![binds(&plus_one(&x), &plus_one(&y))]),
+                    ),
+                    (
+                        "partial-function-value",
+                        path(PathStop::Terminal, top()),
+                        vec![relation(x.clone(), divided.clone())],
+                        inexact,
+                        Some(vec![binds(&x, &divided)]),
+                    ),
+                    (
+                        "abstracted-user-sort-predicate",
+                        path(PathStop::Terminal, abstracted.clone()),
+                        vec![x_is_y.clone()],
+                        inexact,
+                        Some(vec![predicate(&abstracted), binds(&x, &y)]),
+                    ),
+                    (
+                        "foreign-predicate-variable",
+                        path(PathStop::Terminal, foreign_ge.clone()),
+                        vec![x_is_y.clone()],
+                        inexact,
+                        Some(vec![predicate(&foreign_ge)]),
+                    ),
+                    (
+                        "no-real-prefix",
+                        path(PathStop::SolverUnknown, x_ge.clone()),
+                        vec![x_is_y.clone()],
+                        [U, U, U, U],
+                        None,
+                    ),
+                    (
+                        "proved-clash",
+                        path(PathStop::Terminal, x_ge),
+                        vec![
+                            relation(x.clone(), support::int(1)),
+                            relation(x, support::int(2)),
+                        ],
+                        [N, N, N, N],
+                        None,
+                    ),
+                ];
+                Ok::<_, BackendError>(check_query_rows(definition, &state, &rows))
             })
-            .expect("relations");
-        let equal_if = EqualIf(assumptions.to_vec());
-        assert_eq!(
-            answers,
-            [
-                (Unknown, equal_if.clone()),
-                (Unsat, equal_if.clone()),
-                (Unknown, equal_if),
-            ]
-        );
+            .expect("definition");
+        assert!(failures.is_empty(), "{failures:#?}");
+
+        // `Nat` variables: the eliminated `X = Y` leaves no query on `\top`; a `Nat` predicate
+        // or a `Nat` binding the predicate constrains is abstracted by Z3.
+        let mut symmem = backend("symmem.k", "SYMMEM");
+        let (x, y) = (nat("X"), nat("Y"));
+        let failures = symmem
+            .with_solver(None, |definition, _| {
+                let term = |pattern: &Pattern| {
+                    definition
+                        .internalize_term(pattern, &[])
+                        .expect("term internalizes")
+                };
+                let predicate = |pattern: &Pattern| {
+                    definition
+                        .internalize_predicate(pattern, &[])
+                        .expect("predicate internalizes")
+                        .0
+                };
+                let y_is_z = equals("SortNat", y.clone(), z());
+                let x_is_z = equals("SortNat", x.clone(), z());
+                let rows: Vec<QueryRow> = vec![
+                    (
+                        "nat-identification",
+                        path(PathStop::Terminal, top()),
+                        vec![relation(addr(x.clone()), addr(y.clone()))],
+                        [S, S, S, S],
+                        None,
+                    ),
+                    (
+                        "nat-predicate",
+                        path(PathStop::Terminal, y_is_z.clone()),
+                        vec![relation(x.clone(), y.clone())],
+                        inexact,
+                        Some(vec![predicate(&y_is_z)]),
+                    ),
+                    (
+                        "constrained-nat-binding",
+                        path(PathStop::Terminal, x_is_z.clone()),
+                        vec![relation(x.clone(), s(y.clone()))],
+                        inexact,
+                        Some(vec![
+                            predicate(&x_is_z),
+                            Predicate::Equals(term(&x), term(&s(y.clone()))),
+                        ]),
+                    ),
+                ];
+                Ok::<_, BackendError>(check_query_rows(definition, &symmem_state(), &rows))
+            })
+            .expect("definition");
+        assert!(failures.is_empty(), "{failures:#?}");
+
+        // `relate` never asks the solver.
+        let relate = symmem
+            .with_solver(None, |definition, _| {
+                let solver = Recording {
+                    answer: Ok(Satisfiability::Unsat),
+                    queries: std::cell::RefCell::default(),
+                };
+                let answer = BackendRelations::new(definition, &solver, &symmem_state()).relate(
+                    &path(PathStop::Terminal, top()),
+                    &[],
+                    &addr(x.clone()),
+                    &addr(y.clone()),
+                );
+                Ok::<_, BackendError>((answer, solver.queries.into_inner().len()))
+            })
+            .expect("definition");
+        assert_eq!(relate, (EqualIf(vec![relation(x, y)]), 0));
     }
 
     fn top_sort() -> k_rust::kore::ast::Sort {

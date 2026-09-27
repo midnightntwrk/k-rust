@@ -9,11 +9,16 @@ use k_rust::backend::{Backend, BackendOptions};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::{ast::Pattern, codec, parser::parse_definition};
+use k_rust_backend::rule::Predicate;
+use k_rust_backend::smt::{
+    NoSolver, Satisfiability, SmtError, SmtSolver, Validity, translates_exactly,
+};
+use k_rust_backend::substitution::Substitution;
 use kink_native::bridge::{BridgeContext, BridgedPaths, paths_from_execution};
 use kink_native::execution::{
     AdaptedExecution, BaselineLeaf, ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile,
 };
-use kink_native::feasibility::{LeafFeasibility, with_backend_relations};
+use kink_native::feasibility::{BackendRelations, LeafFeasibility, with_backend_relations};
 use kink_native::observation::{DomainEventSpec, DomainPayload, NativeEvent, PayloadSource};
 use kink_native::report::{ReportInput, ReportResult, step3_report};
 use kink_native::{
@@ -1046,18 +1051,13 @@ fn distinct_symbolic_addresses_match_under_unifier_assumption() {
         (PatternOutcome::Unknown, Some(PathStop::SolverUnknown))
     );
     let evaluation = decided(&mut run, &plan);
-    // Z3 column provisional (SYM-3B-03): with a solver present `BackendRelations` withholds
-    // the solver-free `Sat` for `X = Y` and does not yet trust a solver `Sat` (README 4.2, R9).
-    let expected = by_profile(
-        (PatternOutcome::Match, None),
-        (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+    // Both profiles (SYM-3B-03): the binding `X = Y` is eliminated on the `\top` path, so the
+    // relation query is empty and `Sat` needs no solver.
+    assert_eq!(
+        (evaluation.outcome, evaluation.failure),
+        (PatternOutcome::Match, None)
     );
-    assert_eq!((evaluation.outcome, evaluation.failure), expected);
     assert_witness_paths(&run, &evaluation);
-    if PROFILE == SolverProfile::Z3 {
-        assert!(evaluation.witnesses.is_empty());
-        return;
-    }
     let path = only_witness_path(&run, &evaluation);
     let witness = &evaluation.witnesses[0];
     assert_eq!(witness.event_indices, [0, 1]);
@@ -1759,18 +1759,15 @@ fn ensures_condition_keeps_a_constrained_stuck_leaf_unknown() {
 /// `ensures`, so every leaf is complete; G2's `loadNeg` remainder (`Y >=Int 0`) is a symbolic
 /// `Stuck` leaf over `Int` variables, complete because its stuckness holds for every instance.
 /// G2's only candidate needs `X = Y` with `X >=Int 0 ∧ Y <Int 0`, which Z3 refutes: `no-match`.
-/// G1's candidate needs a trusted solver `Sat` (SYM-3B-03). Without Z3 both stay one
-/// `Indeterminate` leaf.
+/// G1's candidate `X = Y` with `X >=Int 0 ∧ Y >=Int 0` is an exact solver `Sat` (SYM-3B-03):
+/// `match`. Without Z3 both stay one `Indeterminate` leaf.
 #[test]
 fn constrained_and_remainder_stuck_leaves_complete_under_z3() {
     use HaltClass::{Indeterminate, Stuck};
     use LeafFeasibility::{Solver, Syntactic};
     let complete = (Stuck, Solver, true, PathStop::Terminal);
     for (program, decided) in [
-        (
-            g1(),
-            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
-        ),
+        (g1(), (PatternOutcome::Match, None)),
         (g2(), (PatternOutcome::NoMatch, None)),
     ] {
         let (mut run, vocabulary) = run(Fixture::Guard, program, BUDGET);
@@ -1864,9 +1861,8 @@ struct ProfileRow {
     decided: (Status, Status),
 }
 
-/// Every symbolic row in both profiles. Z3 stop semantics are decided (SYM-3B-02, README 3.1).
-/// A Z3 cell that still differs from its target is provisional: SYM-3B-03 decides when a solver
-/// `Sat` counts (P6, G1), and SYM-3B-04 fills G1/G2 from README 6.2 (target: G1 match).
+/// Every symbolic row in both profiles. Z3 stop semantics are decided (SYM-3B-02, README 3.1)
+/// and so is when a solver `Sat` counts (SYM-3B-03, README 4.2); no Z3 cell is provisional.
 #[test]
 fn profile_table_rows() {
     use PathStop::{BackendLimit, BranchLimit, DepthLimit, SolverUnknown, Terminal};
@@ -1961,8 +1957,8 @@ fn profile_table_rows() {
             budget: BUDGET,
             stops: (&[Terminal], &[Terminal]),
             structural: same((Unknown, Some(SolverUnknown))),
-            // Z3 provisional (SYM-3B-03): no `Sat` for `X = Y` while a solver is present.
-            decided: ((Match, None), (Unknown, Some(SolverUnknown))),
+            // SYM-3B-03: the eliminated binding `X = Y` leaves an empty relation query.
+            decided: matched,
         },
         ProfileRow {
             id: "P7-WL-after",
@@ -2007,8 +2003,8 @@ fn profile_table_rows() {
         // G1/G2 under Z3 (SYM-3B-02): Z3 decides the `requires`, giving three `Stuck` leaves
         // whose predicates translate exactly and are `Sat`; guardedmem has no `ensures`, so
         // they are complete (`constrained_and_remainder_stuck_leaves_complete_under_z3`). G1's
-        // candidate needs a trusted `Sat` for `X = Y`: unknown until SYM-3B-03. G2's only
-        // candidate is `Unsat` with its path predicate: no-match.
+        // candidate `X = Y` is an exact solver `Sat` with its path predicate (SYM-3B-03): match.
+        // G2's only candidate is `Unsat` with its path predicate: no-match.
         ProfileRow {
             id: "G1-GWL-after",
             fixture: Fixture::Guard,
@@ -2020,10 +2016,7 @@ fn profile_table_rows() {
                 (Unknown, Some(BackendLimit)),
                 (Unknown, Some(SolverUnknown)),
             ),
-            decided: (
-                (Unknown, Some(BackendLimit)),
-                (Unknown, Some(SolverUnknown)),
-            ),
+            decided: ((Unknown, Some(BackendLimit)), (Match, None)),
         },
         ProfileRow {
             id: "G2-GWL-after",
@@ -2139,4 +2132,330 @@ fn profile_table_rows() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// `evaluate_with` over `run`'s paths, once with [`BackendRelations`] over the build's solver
+/// (Z3 in the Z3 build) and once over `NoSolver` on the same definition: the unifier alone.
+fn decided_by_both(run: &mut Run, plan: &PatternPlan, paths: &[PathInput]) -> [Evaluation; 2] {
+    let evaluate = |relations: &BackendRelations<'_>| {
+        evaluate_with(
+            &run.context,
+            plan,
+            paths,
+            &run.bridged.collection,
+            None,
+            EvaluationOptions {
+                stable_path_keys: true,
+                search_policy: SearchPolicy::Exhaustive,
+                input_error: false,
+            },
+            relations,
+        )
+        .expect("evaluation")
+    };
+    let state = run.state.clone();
+    run.backend
+        .with_solver(None, |definition, solver| {
+            Ok::<_, k_rust::backend::BackendError>([
+                evaluate(&BackendRelations::new(definition, solver, &state)),
+                evaluate(&BackendRelations::new(definition, &NoSolver, &state)),
+            ])
+        })
+        .expect("backend definition")
+}
+
+/// SYM-3B-03 differential check (README 4.3): on the free-constructor fragment the Z3 build
+/// returns exactly the no-Z3 answers. Every symmem row of README 6.1 and `symwrap` has one
+/// expected column that both builds assert, and within each build the decider over the build's
+/// solver and the unifier-only decider (`NoSolver`) give identical evaluations over the same
+/// paths, witnesses and assumptions included.
+#[test]
+fn z3_agrees_with_unifier_on_constructor_fragment() {
+    use PathStop::{BranchLimit, DepthLimit, SolverUnknown};
+    use PatternOutcome::{Match, NoMatch, Unknown};
+    let depth = ExecutionBudget {
+        max_depth: Some(1),
+        ..BUDGET
+    };
+    let breadth = ExecutionBudget {
+        max_breadth: Some(NonZeroUsize::new(1).expect("nonzero")),
+        ..BUDGET
+    };
+    let x_is_y = || {
+        vec![TermRelation {
+            left: nat("X"),
+            right: nat("Y"),
+        }]
+    };
+    type Row = (
+        &'static str,
+        Fixture,
+        Pattern,
+        fn(&EventVocabulary) -> PatternPlan,
+        ExecutionBudget,
+        Status,
+        // The assumptions of each witness, in witness order.
+        Vec<Vec<TermRelation>>,
+    );
+    let rows: Vec<Row> = vec![
+        (
+            "P1-WL-next",
+            Fixture::Sym,
+            p1(),
+            wl_next,
+            BUDGET,
+            (Match, None),
+            vec![vec![]],
+        ),
+        (
+            "P1-WL-after",
+            Fixture::Sym,
+            p1(),
+            wl_after,
+            BUDGET,
+            (Match, None),
+            vec![vec![]],
+        ),
+        (
+            "P2-WL-next",
+            Fixture::Sym,
+            p2(),
+            wl_next,
+            BUDGET,
+            (NoMatch, None),
+            vec![],
+        ),
+        (
+            "P2-WL-after",
+            Fixture::Sym,
+            p2(),
+            wl_after,
+            BUDGET,
+            (Match, None),
+            vec![vec![]],
+        ),
+        (
+            "P3-WL-after",
+            Fixture::Sym,
+            p3(),
+            wl_after,
+            BUDGET,
+            (NoMatch, None),
+            vec![],
+        ),
+        (
+            "P4-WL-after",
+            Fixture::Sym,
+            p4(),
+            wl_after,
+            BUDGET,
+            (NoMatch, None),
+            vec![],
+        ),
+        (
+            "P5-WL-after",
+            Fixture::Sym,
+            p5(),
+            wl_after,
+            BUDGET,
+            (Match, None),
+            vec![vec![]],
+        ),
+        (
+            "P6-WL-after",
+            Fixture::Sym,
+            p6(),
+            wl_after,
+            BUDGET,
+            (Match, None),
+            vec![x_is_y()],
+        ),
+        (
+            "P7-WL-after",
+            Fixture::Sym,
+            p7(),
+            wl_after,
+            BUDGET,
+            (NoMatch, None),
+            vec![],
+        ),
+        (
+            "P8-WL-after",
+            Fixture::Sym,
+            p8(),
+            wl_after,
+            depth,
+            (Unknown, Some(DepthLimit)),
+            vec![],
+        ),
+        (
+            "P8-W-only",
+            Fixture::Sym,
+            p8(),
+            w_only,
+            depth,
+            (Match, None),
+            vec![vec![]],
+        ),
+        (
+            "P9-WL-after",
+            Fixture::Sym,
+            p9(),
+            wl_after,
+            breadth,
+            (Unknown, Some(BranchLimit)),
+            vec![],
+        ),
+        // README 13.4: a non-free injective symbol is undecided in both builds.
+        (
+            "symwrap-WL-after",
+            Fixture::Wrap,
+            wrap_program(),
+            wl_after,
+            BUDGET,
+            (Unknown, Some(SolverUnknown)),
+            vec![],
+        ),
+    ];
+    let mut failures = Vec::new();
+    for (id, fixture, program, plan, budget, status, assumptions) in rows {
+        let (mut run, vocabulary) = run(fixture, program, budget);
+        let plan = plan(&vocabulary);
+        let paths = run.bridged.paths.clone();
+        let [solver, unifier] = decided_by_both(&mut run, &plan, &paths);
+        assert_witness_paths(&run, &solver);
+        let actual = (
+            (solver.outcome, solver.failure),
+            solver
+                .witnesses
+                .iter()
+                .map(|witness| witness.assumptions.clone())
+                .collect::<Vec<_>>(),
+        );
+        if actual != (status, assumptions.clone()) {
+            failures.push(format!(
+                "{id} ({}): expected {:?}, got {actual:?}",
+                PROFILE.name(),
+                (status, assumptions)
+            ));
+        }
+        if solver != unifier {
+            failures.push(format!(
+                "{id} ({}): the solver decider gave {solver:?}, the unifier alone {unifier:?}",
+                PROFILE.name()
+            ));
+        }
+        if matches!(solver.outcome, NoMatch) && !solver.complete_coverage {
+            failures.push(format!("{id}: no-match without complete coverage"));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A solver that answers `Sat` to every query, as Z3 does for a query whose user-sort terms it
+/// abstracts into unrelated constants.
+struct AlwaysSat;
+
+impl SmtSolver for AlwaysSat {
+    fn is_sat(
+        &self,
+        _predicates: &[Predicate],
+        _substitution: &Substitution,
+    ) -> Result<Satisfiability, SmtError> {
+        Ok(Satisfiability::Sat)
+    }
+
+    fn check_predicates(
+        &self,
+        _known: &[Predicate],
+        _substitution: &Substitution,
+        _checked: &[Predicate],
+    ) -> Result<Validity, SmtError> {
+        Err(SmtError::Unavailable)
+    }
+}
+
+/// SYM-3B-03 (README 4.2): a solver `Sat` counts only for an exactly translated relation
+/// query. P6's one path is given the path predicate `X = s(Y)` over `Nat`; with the candidate's
+/// assumption `X = Y` the relation query `X = s(Y) ∧ X = Y` has no instance (occurs check), but
+/// Z3 abstracts `s(Y)` into an unrelated constant and may answer `Sat`. No decider (the build's
+/// solver, `NoSolver`, or a solver answering `Sat` to everything) turns that into a witness:
+/// the result is `unknown` with an indeterminate candidate.
+#[test]
+fn z3_sat_on_abstracted_query_is_not_a_witness() {
+    let (mut run, vocabulary) = run(Fixture::Sym, p6(), BUDGET);
+    let plan = wl_after(&vocabulary);
+    let mut paths = run.bridged.paths.clone();
+    let [path] = paths.as_mut_slice() else {
+        panic!("one path")
+    };
+    assert!(path.stop.has_real_prefix());
+    let abstracted = Pattern::Equals {
+        operand_sort: kore_sort("SortNat"),
+        result_sort: kore_sort("SortGeneratedTopCell"),
+        left: Box::new(nat("X")),
+        right: Box::new(s(nat("Y"))),
+    };
+    path.path_predicate = abstracted.clone();
+    let [solver, unifier] = decided_by_both(&mut run, &plan, &paths);
+    let state = run.state.clone();
+    let (always_sat, z3_answer) = run
+        .backend
+        .with_solver(None, |definition, solver| {
+            let relations = BackendRelations::new(definition, &AlwaysSat, &state);
+            let evaluation = evaluate_with(
+                &run.context,
+                &plan,
+                &paths,
+                &run.bridged.collection,
+                None,
+                EvaluationOptions {
+                    stable_path_keys: true,
+                    search_policy: SearchPolicy::Exhaustive,
+                    input_error: false,
+                },
+                &relations,
+            )
+            .expect("evaluation");
+            // The build's own solver on the relation query as `feasible` sends it.
+            let term = |pattern: &Pattern| definition.internalize_term(pattern, &[]).expect("term");
+            let query = [
+                definition
+                    .internalize_predicate(&abstracted, &[])
+                    .expect("predicate")
+                    .0,
+                Predicate::Equals(term(&nat("X")), term(&nat("Y"))),
+            ];
+            let answer = solver.is_sat(&query, &Substitution::new());
+            Ok::<_, k_rust::backend::BackendError>((
+                evaluation,
+                (answer, translates_exactly(&query)),
+            ))
+        })
+        .expect("backend definition");
+    // Z3 answers `Sat` for the abstracted query although it has no instance; `NoSolver` is
+    // unavailable.
+    assert!(!z3_answer.1, "the query abstracts a user-sort term");
+    assert_eq!(
+        z3_answer.0,
+        by_profile(Err(SmtError::Unavailable), Ok(Satisfiability::Sat))
+    );
+    for (decider, evaluation) in [
+        ("build", solver),
+        ("no-solver", unifier),
+        ("always-sat", always_sat),
+    ] {
+        assert_eq!(
+            (evaluation.outcome, evaluation.failure),
+            (PatternOutcome::Unknown, Some(PathStop::SolverUnknown)),
+            "{decider}: {evaluation:?}"
+        );
+        assert!(evaluation.witnesses.is_empty(), "{decider}");
+    }
+    // The unmodified path still matches under every decider: the rule refuses only the
+    // abstracted query.
+    let paths = run.bridged.paths.clone();
+    for evaluation in decided_by_both(&mut run, &plan, &paths) {
+        assert_eq!(evaluation.outcome, PatternOutcome::Match);
+    }
 }
