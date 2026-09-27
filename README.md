@@ -438,7 +438,11 @@ Each selected claim prints `claim <label>: <verdict>`, followed by its unproven 
 - `failed`: the proof stopped at a leaf outside the destination that it did not continue (an
   uncertified stuck leaf, such as a stuck-check stop or a leaf whose non-emptiness rests on an
   abstracted SMT query), or at an empty leaf that the vacuity policy rejects (`Trivial`, `Vacuous`).
-  It does not show the claim false.
+  It does not show the claim false. A `Trivial` leaf holds the instances whose step is undefined: a
+  rule applies to them, but its result is empty there (a refuted or undecided `ensures`, or an
+  undefined right-hand side) and no rule of the same priority gives them a defined result. Such a
+  leaf is dropped only when its constraint is shown unsatisfiable, so a symbolic claim fails
+  whenever one of its instances would, and `--allow-vacuous` accepts it.
 - `indeterminate`, `depth bound`, `breadth bound`: the search could not decide a leaf, or hit a
   bound.
 

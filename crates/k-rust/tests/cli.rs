@@ -6368,8 +6368,8 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
     );
     assert!(
         rejected_stdout.contains(
-            "the left-hand side of the claim has been simplified to bottom \
-             (--allow-vacuous accepts such branches)"
+            "undefined step: a rule applies to these configurations but its result is empty \
+             for them, so they have no successor (--allow-vacuous accepts such branches)"
         ),
         "{rejected_stdout}"
     );
@@ -6387,6 +6387,104 @@ fn kprove_rejects_claims_reached_only_through_bottom() {
             "{allowed_stdout}"
         );
     }
+}
+
+/// Rules whose result is undefined on part of the instances they apply to: a false `ensures`
+/// that the step cannot decide (`apart`, `cover`), one that always has a witness (`fresh`), and
+/// a refuted one beside a sibling with a disjoint `requires` (`pickpos`).
+const UNDEFINED_STEP: &str = r#"
+module UNDEF-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= "halt" [symbol(halt)]
+                | "done" [symbol(done)]
+                | "fresh" [symbol(fresh)]
+                | apart(Int, Int) [symbol(apart)]
+                | cover(Int, Int) [symbol(cover)]
+                | val(Int) [symbol(val)]
+                | pick(Int) [symbol(pick)]
+endmodule
+
+module UNDEF
+  imports UNDEF-SYNTAX
+  imports BASIC-K
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [apart]:   <k> apart(A, B) => halt </k> ensures A =/=Int B
+  rule [cover]:   <k> cover(A, B) => halt </k> ensures A =/=Int B
+  rule [coverok]: <k> cover(A, B) => halt </k> requires A ==Int B
+  rule [fresh]:   <k> fresh => val(?X:Int) </k> ensures ?X >Int 0
+  rule [pickpos]: <k> pick(I) => halt </k> requires I >Int 0 ensures false
+  rule [pickneg]: <k> pick(I) => done </k> requires I <=Int 0
+endmodule
+
+module UNDEF-SPEC
+  imports UNDEF
+  claim [sym]:       <k> apart(_X, _Y) => halt </k>
+  claim [gnd]:       <k> apart(0, 0) => halt </k>
+  claim [sym-one]:   <k> apart(X, Y) => halt </k> requires X >=Int Y [one-path]
+  claim [defined]:   <k> apart(X, Y) => halt </k> requires X =/=Int Y
+  claim [cover]:     <k> cover(_X, _Y) => halt </k>
+  claim [fresh]:     <k> fresh => val(?Y:Int) </k> ensures ?Y >Int 0
+  claim [fresh-one]: <k> fresh => val(?Y:Int) </k> ensures ?Y >=Int 1 [one-path]
+  claim [pick]:      <k> pick(_I) => done </k>
+endmodule
+"#;
+
+/// A claim holds for every instance of its left-hand side, so a symbolic claim is not proven
+/// while one of its instances ends in an undefined step. `apart(X, Y)` has the undefined step
+/// `apart(0, 0)` because the rule's `ensures` fails there: the symbolic claims, one-path and
+/// all-path, fail exactly like the ground one, and `--allow-vacuous` accepts all of them. An
+/// instance that a sibling takes to a defined result (`cover`) and an `ensures` that always has a
+/// witness (`fresh`) leave no undefined step.
+#[test]
+fn kprove_fails_a_claim_on_the_instances_a_rule_leaves_undefined() {
+    let (root, definition) = fixture();
+    fs::write(&definition, UNDEFINED_STEP).unwrap();
+    let prove = |extra: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "UNDEF-SPEC",
+                "--definition-module",
+                "UNDEF",
+            ])
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        (
+            output.status.success(),
+            String::from_utf8(output.stdout).unwrap(),
+        )
+    };
+    let verdict = |stdout: &str, claim: &str| {
+        let prefix = format!("claim UNDEF-SPEC.{claim}: ");
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("no {claim} verdict in {stdout}"))
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+
+    let (success, stdout) = prove(&[]);
+    assert!(!success, "{stdout}");
+    for claim in ["sym", "gnd", "sym-one", "pick"] {
+        assert_eq!(verdict(&stdout, claim), "failed", "{claim}: {stdout}");
+    }
+    for claim in ["defined", "cover", "fresh", "fresh-one"] {
+        assert_eq!(verdict(&stdout, claim), "proven", "{claim}: {stdout}");
+    }
+    assert!(stdout.contains("Trivial at depth 1"), "{stdout}");
+    assert!(stdout.contains("  undefined step: "), "{stdout}");
+
+    let (success, stdout) = prove(&["--allow-vacuous"]);
+    assert!(success, "{stdout}");
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(feature = "z3-inference")]
@@ -6681,7 +6779,7 @@ endmodule
                 .collect::<Vec<_>>();
             assert_eq!(leaves, [leaf], "{context}");
             assert!(stdout.contains(leaf_term), "{context}");
-            assert!(!stdout.contains("simplified to bottom"), "{context}");
+            assert!(!stdout.contains("--allow-vacuous accepts"), "{context}");
         }
     }
     fs::remove_dir_all(root).unwrap();

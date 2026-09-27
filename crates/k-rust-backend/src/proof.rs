@@ -56,7 +56,7 @@ use crate::{
     },
     rewrite::{
         IndeterminateReason, Pattern, RemainderBranch, RewriteResult, TraceEntry, TraceKind,
-        TrivialKind, Truth, UndecidedStep, collection_unification_definedness,
+        TrivialApplication, Truth, UndecidedStep, collection_unification_definedness,
         conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
         recover_indeterminate_match, rewrite_step_sequential_tracking_dropped,
         rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
@@ -690,24 +690,18 @@ pub fn prove_claim(
                         solver,
                     ));
                 }
-                // Only a refuted result makes proof leaves here: the prover still assumes a
-                // carried result condition, so a `Carried` entry's instances are not leaves.
-                for trivial in trivial
-                    .into_iter()
-                    .filter(|trivial| trivial.kind == TrivialKind::Refuted)
-                {
-                    let mut trivial_state = state.clone();
-                    trivial_state.depth += 1;
-                    trivial_state.trace.push(TraceEntry {
-                        depth: trivial_state.depth,
-                        kind: TraceKind::Rewrite,
-                        label: trivial.label,
-                        unique_id: trivial.rule_id,
-                    });
-                    extend_unique(
-                        &mut trivial_state.pattern.constraints,
-                        vec![trivial.applicability],
-                    );
+                // Every entry, refuted or carried, stands for the instances whose step is
+                // undefined: a rule applies to them, and neither it nor any applied sibling of
+                // its priority group gives them a defined successor. Such an instance reaches
+                // no configuration, so it fails the claim like any other empty result, unless
+                // the entry has no instance.
+                for trivial in trivial {
+                    let trivial_state =
+                        undefined_step_state(definition, &state, trivial, options, solver);
+                    finish_if_interrupted!();
+                    let Some(trivial_state) = trivial_state else {
+                        continue;
+                    };
                     let outcome =
                         vacuous_outcome(&trivial_state, options, ProofLeafOutcome::Trivial);
                     record_leaf!(trivial_state.leaf(outcome));
@@ -1645,6 +1639,74 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
     )
 }
 
+/// The proof state of the instances `trivial` leaves with an undefined step, one rewrite step
+/// below `state`, or `None` when that set is shown empty.
+///
+/// The state is `trivial.before` (the pattern the rule was applied to, which for a lower
+/// priority group is the remainder of the higher ones) constrained by `trivial.undefined`, so an
+/// instance that a higher group or an applied sibling takes is not in it. Unlike a successor,
+/// this set is not one the rewrite step found non-empty: it is the complement of the defined
+/// sub-cases, and it is empty whenever they cover the rule's applicability, for example when an
+/// `ensures ?X >Int 0` always has a witness. An empty set holds no instance of the claim, so it
+/// is dropped rather than reported as a vacuous path; a set not shown empty (satisfiable or
+/// undecided) is kept.
+fn undefined_step_state(
+    definition: &BackendDefinition,
+    state: &ProofState,
+    trivial: TrivialApplication,
+    options: ProofOptions,
+    solver: &dyn SmtSolver,
+) -> Option<ProofState> {
+    let mut pattern = trivial.before;
+    match trivial.undefined {
+        crate::rule::Predicate::And(conjuncts) => {
+            extend_unique(&mut pattern.constraints, conjuncts)
+        }
+        crate::rule::Predicate::True => {}
+        predicate => extend_unique(&mut pattern.constraints, vec![predicate]),
+    }
+    if predicates_truth(&pattern.constraints) == Truth::False {
+        return None;
+    }
+    // A failed simplification only loses precision: the unsimplified constraints are kept.
+    if let Ok(constraints) = simplify_predicates_with_solver(
+        definition,
+        &pattern.constraints,
+        &[],
+        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+        solver,
+    ) {
+        pattern.constraints = constraints;
+    }
+    let mut undefined = state.clone();
+    undefined.pattern = pattern;
+    if state_is_bottom(&undefined, solver) {
+        return None;
+    }
+    for simplification in &trivial.remainder_simplifications {
+        undefined.trace.extend(
+            simplification
+                .applied_rules
+                .iter()
+                .cloned()
+                .map(|unique_id| TraceEntry {
+                    depth: state.depth,
+                    kind: TraceKind::Simplification,
+                    label: None,
+                    unique_id,
+                }),
+        );
+    }
+    undefined.depth += 1;
+    undefined.trace.push(TraceEntry {
+        depth: undefined.depth,
+        kind: TraceKind::Rewrite,
+        label: trivial.label,
+        unique_id: trivial.rule_id,
+    });
+    Some(undefined)
+}
+
 fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> bool {
     predicates_truth(&state.pattern.constraints) == Truth::False
         || matches!(
@@ -2136,6 +2198,7 @@ mod tests {
     #[cfg(feature = "z3")]
     #[test]
     fn applies_a_subject_variable_binding_to_the_claim_successor() {
+        // The claim excludes `I in F`, where the `start` step's result set is undefined.
         let syntax = parse_definition(
             r#"[]
             module MAIN
@@ -2164,7 +2227,13 @@ mod tests {
                     cfg{}(mid{}(I:SortInt{}), setConcat{}(setItem{}(I:SortInt{}), F:SortSet{}))
                 ) [label{}("start")]
                 claim{} \implies{SortCfg{}}(
-                    \and{SortCfg{}}(cfg{}(start{}(I:SortInt{}), F:SortSet{}), \top{SortCfg{}}()),
+                    \and{SortCfg{}}(
+                        cfg{}(start{}(I:SortInt{}), F:SortSet{}),
+                        \equals{SortBool{}, SortCfg{}}(
+                            setIn{}(I:SortInt{}, F:SortSet{}),
+                            \dv{SortBool{}}("false")
+                        )
+                    ),
                     weakExistsFinally{SortCfg{}}(
                         \exists{SortCfg{}}(
                             G:SortSet{},
@@ -3233,10 +3302,31 @@ mod tests {
             BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
         let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
 
+        // The step's result `X |-> "new" Y |-> "old" REST` is undefined where `X` is a key of the
+        // antecedent's map: the claim fails there, and holds on every other instance.
         let result = prove_claim(
             &definition,
             &definition.reachability_claims[0],
             ProofOptions::default(),
+            &solver,
+        )
+        .expect("claim should execute");
+        assert_eq!(result.status, ProofStatus::Failed, "{result:#?}");
+        assert!(
+            result.leaves.iter().all(|leaf| matches!(
+                leaf.outcome,
+                ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Trivial
+            )),
+            "{result:#?}"
+        );
+
+        let result = prove_claim(
+            &definition,
+            &definition.reachability_claims[0],
+            ProofOptions {
+                allow_vacuous: true,
+                ..ProofOptions::default()
+            },
             &solver,
         )
         .expect("claim should execute");
@@ -3591,8 +3681,11 @@ mod tests {
         }
     }
 
+    /// `a-to-bottom` has no result for `a`, but its sibling of the same priority takes `a` to
+    /// `c`: every instance of `a` has a defined successor, so no instance ends in an undefined
+    /// step, and the all-path claim holds without accepting vacuous branches.
     #[test]
-    fn trivial_sub_cases_of_a_mixed_group_fail_the_claim() {
+    fn a_bottom_result_that_a_sibling_covers_is_not_a_leaf() {
         let rules = r#"
             axiom{} \rewrites{SortS{}}(
                 \and{SortS{}}(a{}(), \top{SortS{}}()),
@@ -3607,7 +3700,7 @@ mod tests {
         let definition = definition(rules, &claims);
         let claim = &definition.reachability_claims[0];
 
-        let rejected = prove_claim(
+        let proven = prove_claim(
             &definition,
             claim,
             ProofOptions {
@@ -3617,25 +3710,14 @@ mod tests {
             &NoSolver,
         )
         .unwrap();
-        assert_eq!(rejected.status, ProofStatus::Failed, "{rejected:#?}");
+        assert_eq!(proven.status, ProofStatus::Proven, "{proven:#?}");
         assert!(
-            rejected.leaves.iter().any(|leaf| {
-                leaf.depth == 1 && matches!(leaf.outcome, ProofLeafOutcome::Trivial)
-            })
+            !proven
+                .leaves
+                .iter()
+                .any(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Trivial)),
+            "{proven:#?}"
         );
-
-        let allowed = prove_claim(
-            &definition,
-            claim,
-            ProofOptions {
-                allow_vacuous: true,
-                max_counterexamples: 2,
-                ..ProofOptions::default()
-            },
-            &NoSolver,
-        )
-        .unwrap();
-        assert_eq!(allowed.status, ProofStatus::Proven, "{allowed:#?}");
     }
 
     #[test]
@@ -4925,14 +5007,25 @@ mod tests {
         );
         let claim = &definition.reachability_claims[0];
 
-        let result = prove_claim(&definition, claim, ProofOptions::default(), &NoSolver)
-            .expect("the claim should execute");
+        let result = prove_claim(
+            &definition,
+            claim,
+            ProofOptions {
+                max_counterexamples: 2,
+                ..ProofOptions::default()
+            },
+            &NoSolver,
+        )
+        .expect("the claim should execute");
 
-        // `partial(b())` is an unevaluated function application: the leaf may be empty.
+        // `partial(b())` is an unevaluated function application: the leaf may be empty. The
+        // step carries its definedness, so the instances where it is undefined are a `Trivial`
+        // leaf of their own.
         assert_eq!(result.status, ProofStatus::Failed, "{result:#?}");
-        let [leaf] = result.leaves.as_slice() else {
-            panic!("expected one leaf, found {:?}", result.leaves);
+        let [undefined, leaf] = result.leaves.as_slice() else {
+            panic!("expected two leaves, found {:?}", result.leaves);
         };
+        assert_eq!(undefined.outcome, ProofLeafOutcome::Trivial);
         assert_eq!(leaf.outcome, ProofLeafOutcome::Stuck);
         assert_eq!(
             leaf.pattern.term,

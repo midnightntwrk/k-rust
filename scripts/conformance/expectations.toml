@@ -69,6 +69,11 @@ id = "undriven-recipe"
 decided_by = "docs/compatibility.md#driver-scope"
 meaning = "The upstream recipe defines no case or individual step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, or an expected kompile failure that leaves no definition); there is no oracle, so the skip is not evidence of a Rust pass."
 
+[[category]]
+id = "reference-prunes-undefined-step"
+decided_by = "docs/compatibility.md#undefined-steps-in-proofs"
+meaning = "The reference proves a claim by treating a rule application with an empty result as a vacuous branch; the claim is false on those configurations, whose step is undefined, so the port reports failed (proven only with --allow-vacuous)."
+
 [[case]]
 name = "amb-rew"
 accepted_verdict = "match"
@@ -2312,12 +2317,15 @@ step_exclusions = [
 
 [[case]]
 name = "set_unification"
-accepted_verdict = "match"
+accepted_verdict = "mismatch"
 accepted_stage = "kprove"
 baseline_verdict = "mismatch"
 baseline_stage = "kprove"
 exclusion = ""
-reason = "The trusted claim preserves deferred collection pairs after shared-variable substitution, and apply_claim solves them with the rule-application solver. Implication cancels the shared set frame when solving destination `?G F` against `SetItem(I) (G2 F)`, following Kore AC unification. Claim #1 in a-spec.k proves; reduced variants without the existential frame are correctly refuted (revisions 6e9dc21 and b436a4a). Dropping the deferred pair loses the frame equality and produces a spurious refutation."
+reason = "Claim #1 in a-spec.k is false on the configurations whose set already contains I, where its step is undefined; k-rust reports it failed (step exclusion below) and proves it only with --allow-vacuous. That run still exercises the frame handling: the trusted claim preserves deferred collection pairs after shared-variable substitution, and apply_claim solves them with the rule-application solver. Implication cancels the shared set frame when solving destination `?G F` against `SetItem(I) (G2 F)`, following Kore AC unification. Under --allow-vacuous claim #1 proves; reduced variants without the existential frame are correctly refuted (revisions 6e9dc21 and b436a4a). Dropping the deferred pair loses the frame equality and produces a spurious refutation."
+step_exclusions = [
+  { test = "a-spec.k", exclusion = "reference-prunes-undefined-step", reason = "Claim #1, start(I) => end with the set cell S unconstrained: the only step rewrites S to S SetItem(I), and Set concatenation of sets that share an element is undefined, so every configuration whose S already contains I (for example start(1) with S = SetItem(1)) has an undefined step and never reaches end. The claim is false there; k-rust reports failed with a Trivial leaf under I in S and proves it with --allow-vacuous. The expected output proves it by dropping those configurations as vacuous; see docs/compatibility.md#undefined-steps-in-proofs." },
+]
 
 [[case]]
 name = "simp-haskell"

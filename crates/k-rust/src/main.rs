@@ -3490,15 +3490,25 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                     "  {:?}{certified} at depth {}",
                     leaf.outcome, leaf.depth
                 )?;
-                if matches!(
-                    leaf.outcome,
-                    ProofLeafOutcome::Vacuous | ProofLeafOutcome::Trivial
-                ) {
-                    writeln!(
+                // The two empty leaves the vacuity policy rejects differ in where the emptiness
+                // lies. A `Vacuous` leaf is a reached configuration whose constraints are
+                // `\bottom`: the branch denotes no configuration at all. A `Trivial` leaf denotes
+                // configurations that exist, but a rule applies to them and its result is empty
+                // there, and no rule of the same priority gives them a defined one: their step is
+                // undefined, so they reach no configuration.
+                match leaf.outcome {
+                    ProofLeafOutcome::Vacuous => writeln!(
                         output,
-                        "  the left-hand side of the claim has been simplified to bottom \
+                        "  the configuration reached on this branch simplifies to bottom \
                          (--allow-vacuous accepts such branches)"
-                    )?;
+                    )?,
+                    ProofLeafOutcome::Trivial => writeln!(
+                        output,
+                        "  undefined step: a rule applies to these configurations but its \
+                         result is empty for them, so they have no successor \
+                         (--allow-vacuous accepts such branches)"
+                    )?,
+                    _ => {}
                 }
                 let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "    ");
                 KorePrinter::pretty(100)
