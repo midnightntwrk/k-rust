@@ -169,11 +169,11 @@ pub struct ExecutionResult {
     pub discarded: Vec<ObservationEventOutput>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionLeaf {
     pub state: Value,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<BackendDiagnosticOutput>,
     /// Successors reported by a branch or cut-point halt, including each successor's diagnostics.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -183,19 +183,25 @@ pub struct ExecutionLeaf {
     pub remainder: Option<ExecutionRemainderOutput>,
     pub depth: u64,
     pub reason: HaltReasonOutput,
+    /// The stopped step's structured cause, present exactly for an indeterminate halt.
+    /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<SearchFailureOutput>,
     /// Legacy human-readable diagnostic context.
     ///
     /// This field is not a stable semantic encoding. Consumers must branch on `reason` and use
-    /// `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
+    /// `cause`, `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub trace: Vec<TraceEntry>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Committed transition identities, independent of the observation rule filter.
+    /// Unobserved execution leaves this empty; an empty allowlist retains every identity.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub branch: Vec<TransitionIdOutput>,
     /// Ordered effects committed on this branch, regardless of observation.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<EffectOutput>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<ObservationEventOutput>,
 }
 
@@ -577,10 +583,16 @@ impl Backend {
         self.session.add_module(source, module, name_as_id)
     }
 
+    /// Execute without observation; every leaf's `branch` and `observations` are empty.
+    /// `execute_observed` returns the same non-observation leaf fields in the same order.
     pub fn execute(&mut self, request: ExecuteRequest) -> Result<ExecutionResult, BackendError> {
         self.execute_using(request, None)
     }
 
+    /// Execute with observation without changing the leaves or their order.
+    /// For the same request, leaves match `execute` after clearing `branch` and `observations`.
+    /// Branch identities are independent of the rule filter; `rules: Some(vec![])` returns
+    /// every identity and no observation events.
     pub fn execute_observed(
         &mut self,
         request: ObservedRequest<ExecuteRequest>,
@@ -1349,12 +1361,125 @@ mod tests {
             ) [label{}("right")]
         endmodule []"#;
 
+    const OBSERVATION_ERASURE_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortString{} [hasDomainValues{}()]
+            sort SortK{} []
+            sort SortState{} []
+            symbol initial{}() : SortState{} [constructor{}()]
+            symbol left{}(SortK{}) : SortState{} [constructor{}()]
+            symbol right{}(SortK{}) : SortState{} [constructor{}()]
+            symbol merged{}() : SortState{} [constructor{}()]
+            symbol dotk{}() : SortK{} [constructor{}()]
+            hooked-symbol log{}(SortString{}) : SortK{}
+                [function{}(), hook{}("IO.logString")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                left{}(log{}(\dv{SortString{}}("same")))
+            ) [label{}("left")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(initial{}(), \top{SortState{}}()),
+                right{}(log{}(\dv{SortString{}}("same")))
+            ) [label{}("right")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(left{}(dotk{}()), \top{SortState{}}()), merged{}()
+            ) [label{}("left-merged")]
+            axiom{} \rewrites{SortState{}}(
+                \and{SortState{}}(right{}(dotk{}()), \top{SortState{}}()), merged{}()
+            ) [label{}("right-merged")]
+        endmodule []"#;
+
     const UNSUPPORTED_HOOK_DEFINITION: &str = r#"[]
         module MAIN
             sort SortState{} [hasDomainValues{}()]
             hooked-symbol missing{}(SortState{}) : SortState{}
                 [function{}(), hook{}("TEST.missing")]
         endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    const INDETERMINATE_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            symbol wrap{}(SortInt{}) : SortS{} [constructor{}()]
+            symbol done{}() : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortInt{}),
+                    \equals{SortInt{}, SortS{}}(X:SortInt{}, \dv{SortInt{}}("0"))
+                ), done{}()
+            ) [label{}("guarded")]
+        endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    const NARROWING_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+            symbol zero{}() : SortS{} [constructor{}()]
+            symbol done{}() : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(zero{}()), \top{SortS{}}()), done{}()
+            ) [label{}("narrow")]
+        endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    const SET_BINDING_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(I:SortS{}), \top{SortS{}}()),
+                pair{}(I:SortS{}, I:SortS{})
+            ) [label{}("duplicate")]
+        endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    #[test]
+    fn execution_indeterminate_leaves_publish_search_causes() {
+        let cases = [
+            (INDETERMINATE_DEFINITION, "wrap{}(Y:SortInt{})", "requires"),
+            (NARROWING_DEFINITION, "wrap{}(Y:SortS{})", "smt"),
+            (SET_BINDING_DEFINITION, "wrap{}(@Y:SortS{})", "match"),
+        ];
+        for (definition, state, kind) in cases {
+            let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+            let leaf = backend
+                .execute(ExecuteRequest {
+                    state: json(state),
+                    ..ExecuteRequest::default()
+                })
+                .unwrap()
+                .leaves
+                .remove(0);
+            assert_eq!(leaf.reason, HaltReasonOutput::Indeterminate, "{state}");
+            let encoded = serde_json::to_value(&leaf).unwrap();
+            assert_eq!(encoded["cause"]["kind"], kind, "{state}: {encoded}");
+            assert!(encoded["cause"]["rule"].is_string(), "{encoded}");
+            assert_eq!(
+                leaf.cause.as_ref().unwrap().solver_unavailable(),
+                kind != "match"
+            );
+            if kind == "smt" {
+                assert_eq!(encoded["cause"]["error"]["kind"], "unavailable");
+            }
+            let decoded: ExecutionLeaf = serde_json::from_value(encoded.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
+        }
+        let leaf = backend()
+            .execute(ExecuteRequest {
+                state: json("a{}()"),
+                ..ExecuteRequest::default()
+            })
+            .unwrap()
+            .leaves
+            .remove(0);
+        assert_ne!(leaf.reason, HaltReasonOutput::Indeterminate);
+        assert!(leaf.cause.is_none());
+        assert!(serde_json::to_value(leaf).unwrap().get("cause").is_none());
+    }
 
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()
@@ -2267,6 +2392,84 @@ mod tests {
             .unwrap();
         assert_eq!(branch_effects(&observed), branch_effects(&ordinary));
         assert!(observed.effects.is_empty());
+    }
+
+    #[test]
+    fn observation_preserves_facade_leaves_order_and_filter_independent_identities() {
+        let mut backend = Backend::new(
+            OBSERVATION_ERASURE_DEFINITION,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let erase = |mut result: ExecutionResult| {
+            for leaf in &mut result.leaves {
+                leaf.branch.clear();
+                leaf.observations.clear();
+            }
+            serde_json::to_value(result).unwrap()
+        };
+
+        for (modality, expected_leaves) in [
+            (ResultModalityOutput::StateSet, 1),
+            (ResultModalityOutput::PathSet, 2),
+        ] {
+            let request = ExecuteRequest {
+                state: json("initial{}()"),
+                result_modality: modality,
+                ..ExecuteRequest::default()
+            };
+            let plain = backend.execute(request.clone()).unwrap();
+            let all = backend
+                .execute_observed(ObservedRequest {
+                    request: request.clone(),
+                    rules: None,
+                })
+                .unwrap();
+            let selected = backend
+                .execute_observed(ObservedRequest {
+                    request: request.clone(),
+                    rules: Some(vec!["left".into()]),
+                })
+                .unwrap();
+            let none = backend
+                .execute_observed(ObservedRequest {
+                    request,
+                    rules: Some(vec![]),
+                })
+                .unwrap();
+
+            assert_eq!(plain.leaves.len(), expected_leaves, "{modality:?}");
+            assert!(plain.leaves.iter().all(|leaf| leaf.branch.is_empty()));
+            assert!(plain.leaves.iter().all(|leaf| leaf.observations.is_empty()));
+            assert!(plain.leaves.iter().all(|leaf| leaf.effects
+                == [EffectOutput::UserLog {
+                    message: "same".into(),
+                }]));
+            let expected = erase(plain);
+            for observed in [&all, &selected, &none] {
+                assert_eq!(erase(observed.clone()), expected, "{modality:?}");
+                assert_eq!(
+                    observed
+                        .leaves
+                        .iter()
+                        .map(|leaf| &leaf.branch)
+                        .collect::<Vec<_>>(),
+                    all.leaves
+                        .iter()
+                        .map(|leaf| &leaf.branch)
+                        .collect::<Vec<_>>(),
+                    "{modality:?}"
+                );
+            }
+            assert!(
+                all.leaves
+                    .iter()
+                    .all(|leaf| leaf.depth > 0 && !leaf.branch.is_empty())
+            );
+            assert!(all.leaves.iter().any(|leaf| !leaf.observations.is_empty()));
+            assert!(none.leaves.iter().all(|leaf| leaf.observations.is_empty()));
+        }
     }
 
     #[test]

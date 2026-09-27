@@ -164,12 +164,21 @@ The CLI and KORE RPC `execute` produce state-set results.
 A `stuck`, `trivial`, `vacuous`, or `terminal` halt ends a path; `branch`, `cut-point`, `depth-bound`, and `breadth-bound` mark a frontier; `indeterminate`, `unsupported-hook`, `simplification-error`, `timeout`, and `cancelled` mark a failure.
 Strategy `any` commits the first applicable rule of a step and makes no coverage claim, but it keeps that rule's right-hand-side alternatives and passes a symbolic remainder to later rules, so it can produce several leaves; `result_modality` applies to whatever leaves it produces, and the two readings coincide whenever no two of those leaves share a configuration.
 With `stop_at_branch`, execution stops at the first branch point and reports its successors inside the branch halt.
+For the same request, `Backend::execute` and `Backend::execute_observed` return leaves in the same order, equal in every field except `branch` and `observations`.
+Unobserved execution leaves `branch` empty.
+Observed branch identities do not depend on the rule filter: `ObservedRequest.rules = Some(vec![])` yields every identity and no observation events.
 
 Printed execution, search, and pattern-match disjunctions use the structural order of the externalized KORE pattern; the order of an `\or` is not part of the compatibility contract, and differential gates compare its disjuncts as a multiset.
 
 The backend facade exposes each execution leaf's halt reason as `HaltReasonOutput`, serialized with the same kebab-case reason in JSON.
 Consumers may match the Rust enum exhaustively.
 `detail` is human-readable context and must not be parsed as a halt class.
+An `indeterminate` execution leaf carries `cause`, the structured reason the step stopped, with the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
+Other leaves omit `cause`; `detail` remains legacy human-readable context.
+The reachable causes are `surviving-macro-or-alias` (preprocessing left an executable symbol), `match` (unsupported unification remainder), `instantiation` (unbound rule variable), `requires` (undecided rule condition with no solver), `smt` (an undecided rule query), and `remainder` (an undecided priority-group remainder).
+`SearchFailureOutput::solver_unavailable()` is true for `requires`, and for `smt`, `smt-predicate`, or a `remainder` satisfiability error whose SMT failure is `unavailable`.
+It says this step needed a solver absent from the build; it does not promise that a solver-enabled build decides the path, and a `match` cause may depend on an earlier equation left unevaluated without a solver.
+`UndecidedCondition` and `UndecidedPredicate` diagnostics report a solver that was asked and could not answer, never the absence of a solver.
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that

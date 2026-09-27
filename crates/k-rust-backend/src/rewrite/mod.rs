@@ -444,7 +444,8 @@ pub struct ExecutionLeaf {
     pub pattern: Pattern,
     pub depth: u64,
     pub trace: Vec<TraceEntry>,
-    /// Stable semantic path prefix for this leaf when observation was enabled.
+    /// Stable semantic path prefix when observation was enabled, independent of its rule filter.
+    /// Unobserved execution leaves this empty; an empty allowlist retains every identity.
     pub branch: Vec<TransitionId>,
     /// Ordered structured events retained for this branch: transition events name the elements
     /// of `branch` in order, and evaluation events are anchored between them.

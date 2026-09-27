@@ -36,6 +36,25 @@ module MAIN
   ) [label{}("reaches-c")]
 endmodule []`
 
+test('publishes an indeterminate execution cause through the native binding', () => {
+  const definitionKore = String.raw`[]
+module MAIN
+  sort SortS{} []
+  symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+  symbol pair{}(SortS{}, SortS{}) : SortS{}
+    [function{}(), total{}(), injective{}(), no-evaluators{}()]
+  axiom{} \rewrites{SortS{}}(
+    \and{SortS{}}(wrap{}(I:SortS{}), \top{SortS{}}()),
+    pair{}(I:SortS{}, I:SortS{})
+  ) [label{}("duplicate")]
+endmodule []`
+  const backend = createBackend({ definitionKore, moduleName: 'MAIN' })
+  const leaf = backend.execute({ state: parseKore('wrap{}(@Y:SortS{})').kore }).leaves[0]
+  assert.equal(leaf.reason, 'indeterminate')
+  assert.equal(leaf.cause.kind, 'match')
+  assert.equal(leaf.cause.rule, 'duplicate')
+})
+
 test('exposes a simplification budget diagnostic on its execution leaf', () => {
   const definitionKore = fs.readFileSync(
     path.join(__dirname, '../../k-rust/tests/fixtures/execution-budget.kore'),
