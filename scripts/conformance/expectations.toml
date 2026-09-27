@@ -76,6 +76,11 @@ decided_by = "docs/compatibility.md#driver-scope"
 meaning = "The upstream recipe defines no case or individual step the conformance driver can translate and compare (a kdep or sub-make Makefile, a disabled Makefile, discarded output, or an expected kompile failure that leaves no definition); there is no oracle, so the skip is not evidence of a Rust pass."
 
 [[category]]
+id = "reference-merges-overlapping-set"
+decided_by = "docs/compatibility.md#set-concatenation-is-nilpotent"
+meaning = "The reference's concrete execution merges a Set concatenation whose operands share an element (including a type=\"Set\" cell collection given two equal cells); the concatenation is nilpotent, so that step is undefined, and the port ends the run in an undefined step, as symbolic execution does."
+
+[[category]]
 id = "reference-prunes-undefined-step"
 decided_by = "docs/compatibility.md#undefined-steps-in-proofs"
 meaning = "The reference proves a claim by treating a rule application with an empty result as a vacuous branch; the claim is false on those configurations, whose step is undefined, so the port reports failed (proven only with --allow-vacuous)."
@@ -334,12 +339,15 @@ reason = ""
 
 [[case]]
 name = "configuration-formatting"
-accepted_verdict = "match"
+accepted_verdict = "mismatch"
 accepted_stage = "krun"
 baseline_verdict = "krust-error"
 baseline_stage = "kompile"
 exclusion = ""
-reason = "Configuration-variable casts and sort selection agree with the reference: when $PGM occurs at Int and KItem, the concrete sort supersedes the generic one. The emitted definition also agrees on associativity attributes."
+reason = "Configuration-variable casts and sort selection agree with the reference: when $PGM occurs at Int and KItem, the concrete sort supersedes the generic one. The emitted definition also agrees on associativity attributes. The krun step differs only where a rule writes two equal cells into a type=\"Set\" cell collection (step exclusion below)."
+step_exclusions = [
+  { test = "1.test", exclusion = "reference-merges-overlapping-set", reason = "The rule rewrites the empty <ss> collection to <x> 1 </x> <x> 1 </x>, a concatenation of two equal cells in a type=\"Set\" cell collection. Set concatenation is nilpotent, so the step is undefined and krust ends the run there (rule applied with an undefined result, refuted obligation not(<x>(1) = <x>(1))); the expected output shows one merged <x> 1 </x>. See docs/compatibility.md#set-concatenation-is-nilpotent." },
+]
 [[case]]
 name = "constant-folding"
 accepted_verdict = "match"
