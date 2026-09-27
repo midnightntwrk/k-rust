@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.simplify.term"
 //! name = "innermost equational simplification to a budgeted fixed point"
-//! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "apply_theory"]
+//! sites = ["simplify_with_optional_execution", "simplify", "simplify_with_solver", "simplify_with_budget", "simplify_children", "simplify_root", "hook_argument_definedness", "apply_theory"]
 //! variable = "r = rounds; t = term nodes; c = candidate equations per node"
 //! counters = ["SimplifyInvocations", "SimplifyRounds", "SimplifyEquationAttempts", "SimplifyBuiltinEvaluations", "SimplifyNodesSkippedEvaluated"]
 //! span = "per call"
@@ -2813,6 +2813,23 @@ enum RootStep {
     Other,
 }
 
+/// One root step: a builtin hook, else the function theory, else the simplification theory.
+///
+/// A hooked symbol is a function symbol, and a KORE application is strict: `f(t1, .., tn)` is
+/// `\bottom` wherever some `ti` is. When the hook evaluates the application to `v`, the exact
+/// result is therefore `\ceil(t1) /\ .. /\ \ceil(tn) /\ v`, not `v`: a hook that returns
+/// `v` without inspecting a symbolic argument (`t ==Int t`, `true orBool b`, `#if true #then a
+/// #else b #fi`, `M <=Map M`) would otherwise yield a value defined on instances where the
+/// application is not. A hook returns a value only where its own domain condition holds on the
+/// arguments it was given; what it cannot establish without inspecting an argument is that
+/// argument's definedness. That definedness is returned as constraints
+/// (`hook_argument_definedness`), which every caller conjoins as it conjoins the open definedness
+/// obligations of a function equation.
+///
+/// Every hook is strict in every argument, `BOOL.andThen`, `BOOL.orElse` and `KEQUAL.ite`
+/// included: ground simplification already is, since children are simplified before the root and
+/// an undefined argument makes the whole term `\bottom` before the hook sees it, so symbolic
+/// evaluation must agree with it on every instance.
 fn simplify_root(
     definition: &BackendDefinition,
     term: &Term,
@@ -2836,7 +2853,12 @@ fn simplify_root(
                 unreachable!("only applications have builtin hooks")
             };
             let (term, constraints, effects, undefined_term) = match builtin {
-                BuiltinResult::Value(result) => (result, Vec::new(), Vec::new(), None),
+                BuiltinResult::Value(result) => (
+                    result,
+                    hook_argument_definedness(definition, term, known_predicates),
+                    Vec::new(),
+                    None,
+                ),
                 BuiltinResult::Bottom => (
                     term.clone(),
                     vec![Predicate::False],
@@ -2845,7 +2867,7 @@ fn simplify_root(
                 ),
                 BuiltinResult::Effect(effect) => (
                     builtin_effect_result(definition, term, &effect)?,
-                    Vec::new(),
+                    hook_argument_definedness(definition, term, known_predicates),
                     vec![effect],
                     None,
                 ),
@@ -2971,6 +2993,36 @@ fn simplify_root(
         },
         RootStep::Other,
     ))
+}
+
+/// The definedness of the arguments of a hooked application the hook has evaluated: the
+/// `ceil_term` obligations of every argument, without duplicates and without those already among
+/// `known_predicates`, which the caller's result is taken under.
+///
+/// The obligations are open, not a refutation: the application is not `\bottom`, so no
+/// `undefined_term` is reported. A `ceil_free` argument contributes nothing, so evaluation over
+/// values and constructor terms is unchanged. An obligation whose term also occurs in the
+/// hook's value is kept: it is redundant there, and a redundant conjunct is sound.
+fn hook_argument_definedness(
+    definition: &BackendDefinition,
+    application: &Term,
+    known_predicates: &[Predicate],
+) -> Vec<Predicate> {
+    let TermKind::Application { arguments, .. } = application.kind() else {
+        unreachable!("only applications have builtin hooks")
+    };
+    let mut obligations = Vec::new();
+    for argument in arguments {
+        if argument.attributes().ceil_free() {
+            continue;
+        }
+        for obligation in ceil_term(definition, argument) {
+            if !known_predicates.contains(&obligation) && !obligations.contains(&obligation) {
+                obligations.push(obligation);
+            }
+        }
+    }
+    obligations
 }
 
 fn builtin_effect_result(
