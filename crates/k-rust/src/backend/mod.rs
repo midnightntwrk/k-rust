@@ -165,11 +165,11 @@ pub struct ExecutionResult {
     pub discarded: Vec<ObservationEventOutput>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionLeaf {
     pub state: Value,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<BackendDiagnosticOutput>,
     /// Successors reported by a branch or cut-point halt, including each successor's diagnostics.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,19 +179,23 @@ pub struct ExecutionLeaf {
     pub remainder: Option<ExecutionRemainderOutput>,
     pub depth: u64,
     pub reason: HaltReasonOutput,
+    /// The stopped step's structured cause, present exactly for an indeterminate halt.
+    /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<SearchFailureOutput>,
     /// Legacy human-readable diagnostic context.
     ///
     /// This field is not a stable semantic encoding. Consumers must branch on `reason` and use
-    /// `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
+    /// `cause`, `candidates`, `remainder`, `branch`, and `observations` for structured evidence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     pub trace: Vec<TraceEntry>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub branch: Vec<TransitionIdOutput>,
     /// Ordered effects committed on this branch, regardless of observation.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<EffectOutput>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub observations: Vec<ObservationEventOutput>,
 }
 
@@ -1351,6 +1355,88 @@ mod tests {
             hooked-symbol missing{}(SortState{}) : SortState{}
                 [function{}(), hook{}("TEST.missing")]
         endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    const INDETERMINATE_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+            symbol zero{}() : SortS{} [constructor{}()]
+            symbol done{}() : SortS{} [constructor{}()]
+            symbol pair{}(SortS{}, SortS{}) : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    wrap{}(X:SortS{}),
+                    \equals{SortS{}, SortS{}}(X:SortS{}, zero{}())
+                ), done{}()
+            ) [label{}("guarded")]
+        endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    const NARROWING_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+            symbol zero{}() : SortS{} [constructor{}()]
+            symbol done{}() : SortS{} [constructor{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(zero{}()), \top{SortS{}}()), done{}()
+            ) [label{}("narrow")]
+        endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    const SET_BINDING_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol wrap{}(SortS{}) : SortS{} [constructor{}()]
+            symbol pair{}(SortS{}, SortS{}) : SortS{}
+                [function{}(), total{}(), injective{}(), no-evaluators{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(wrap{}(I:SortS{}), \top{SortS{}}()),
+                pair{}(I:SortS{}, I:SortS{})
+            ) [label{}("duplicate")]
+        endmodule []"#;
+
+    #[cfg(not(feature = "z3-inference"))]
+    #[test]
+    fn execution_indeterminate_leaves_publish_search_causes() {
+        let cases = [
+            (INDETERMINATE_DEFINITION, "wrap{}(Y:SortS{})", "requires"),
+            (NARROWING_DEFINITION, "wrap{}(Y:SortS{})", "smt"),
+            (SET_BINDING_DEFINITION, "wrap{}(@Y:SortS{})", "match"),
+        ];
+        for (definition, state, kind) in cases {
+            let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+            let leaf = backend
+                .execute(ExecuteRequest {
+                    state: json(state),
+                    ..ExecuteRequest::default()
+                })
+                .unwrap()
+                .leaves
+                .remove(0);
+            assert_eq!(leaf.reason, HaltReasonOutput::Indeterminate, "{state}");
+            let encoded = serde_json::to_value(&leaf).unwrap();
+            assert_eq!(encoded["cause"]["kind"], kind, "{state}: {encoded}");
+            assert!(encoded["cause"]["rule"].is_string(), "{encoded}");
+            if kind == "smt" {
+                assert_eq!(encoded["cause"]["error"]["kind"], "unavailable");
+            }
+            let decoded: ExecutionLeaf = serde_json::from_value(encoded.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
+        }
+        let leaf = backend()
+            .execute(ExecuteRequest {
+                state: json("a{}()"),
+                ..ExecuteRequest::default()
+            })
+            .unwrap()
+            .leaves
+            .remove(0);
+        assert_ne!(leaf.reason, HaltReasonOutput::Indeterminate);
+        assert!(leaf.cause.is_none());
+        assert!(serde_json::to_value(leaf).unwrap().get("cause").is_none());
+    }
 
     fn backend() -> Backend {
         Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap()

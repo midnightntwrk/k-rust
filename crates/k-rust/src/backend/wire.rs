@@ -1287,6 +1287,12 @@ pub(super) fn execution_response(
             .map(|leaf| {
                 let (reason, detail) = halt_reason(&leaf.halt_reason);
                 let result_sort = leaf.pattern.term.sort();
+                let cause = match &leaf.halt_reason {
+                    HaltReason::Indeterminate(reason) => {
+                        Some(indeterminate_failure_output(reason.clone(), &result_sort)?)
+                    }
+                    _ => None,
+                };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
                     state: encode_pattern(&externalize::constrained_pattern(&leaf.pattern))?,
@@ -1295,6 +1301,7 @@ pub(super) fn execution_response(
                     remainder,
                     depth: leaf.depth,
                     reason,
+                    cause,
                     detail,
                     trace: leaf.trace.into_iter().map(trace_entry).collect(),
                     branch: leaf.branch.into_iter().map(transition_id_output).collect(),

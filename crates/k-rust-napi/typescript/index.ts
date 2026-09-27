@@ -238,7 +238,9 @@ export interface ExecutionLeaf {
     | 'unsupported-hook'
     | 'simplification-error'
     | 'timeout'
-  /** Legacy human-readable context only; use candidates and remainder for halt evidence. */
+  /** The stopped step's cause, present exactly for an indeterminate halt; same encoding as search's indeterminate reason. */
+  cause?: SearchFailure
+  /** Legacy human-readable context only; use cause, candidates and remainder for halt evidence. */
   detail?: string
   trace: BackendTraceEntry[]
   branch?: TransitionId[]

@@ -163,6 +163,8 @@ Printed execution, search, and pattern-match disjunctions use the structural ord
 The backend facade exposes each execution leaf's halt reason as `HaltReasonOutput`, serialized with the same kebab-case reason in JSON.
 Consumers may match the Rust enum exhaustively.
 `detail` is human-readable context and must not be parsed as a halt class.
+An `indeterminate` execution leaf carries `cause`, the structured reason the step stopped, with the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
+Other leaves omit `cause`; `detail` remains legacy human-readable context.
 
 A rule whose left-hand side matches and whose `requires` holds has applied even when its result is
 empty (an `ensures false` or bottom right-hand side). Lower priorities and `owise` do not see that
