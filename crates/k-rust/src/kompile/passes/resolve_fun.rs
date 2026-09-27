@@ -19,7 +19,7 @@
 use crate::provenance::extend_unique_sentences as extend_unique;
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
-use crate::definition::AttributeKey;
+use crate::definition::{AttributeKey, LabelHead, ProductionCatalog};
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, ProductionItem, Sentence},
@@ -50,7 +50,8 @@ impl std::error::Error for ResolveFunError {}
 ///
 /// Each occurrence gets a definition-wide-unused `#lambda...` label, a generated function
 /// production, and one or more defining rules. Variables used only on the pattern RHS become
-/// explicit closure arguments. Generated sentences remain local to the module containing the
+/// explicit closure arguments. A generated production is declared `total` only when its pattern
+/// is a variable and its body is defined for every value of its variables. Generated sentences remain local to the module containing the
 /// expression, exactly as in Java's `ResolveFun` module transformer.
 pub fn resolve_fun(definition: &Definition) -> Result<Definition, ResolveFunError> {
     super::super::pipeline::run_standalone(
@@ -97,6 +98,8 @@ pub(crate) fn resolve_fun_pass(
         };
         let mut resolver = Resolver {
             injector,
+            catalog: views.production_catalog(module_id),
+            total_lambdas: BTreeSet::new(),
             labels: &mut labels,
             productions: Vec::new(),
             rules: Vec::new(),
@@ -134,6 +137,10 @@ pub(crate) fn resolve_fun_pass(
 
 struct Resolver<'a, 'view, 'definition> {
     injector: SortInjector<'view, 'definition>,
+    /// The productions visible in the module being transformed, as written.
+    catalog: &'view ProductionCatalog<'definition>,
+    /// The lambdas generated in this module so far whose production is declared `total`.
+    total_lambdas: BTreeSet<String>,
     labels: &'a mut BTreeSet<String>,
     productions: Vec<Sentence>,
     rules: Vec<Sentence>,
@@ -281,7 +288,10 @@ impl Resolver<'_, '_, '_> {
             .iter()
             .any(|internal| source_label.is(*internal));
 
-        let total = [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
+        // A lambda has no value on an argument its pattern does not match, so only a `#fun` or
+        // `#let` whose pattern is a variable can be total; whether the value it binds to every
+        // argument is defined is decided from the generated equation's right-hand side below.
+        let covering = [InternalLabel::Fun2, InternalLabel::Fun3, InternalLabel::Let]
             .iter()
             .any(|internal| source_label.is(*internal))
             && variable_pattern;
@@ -291,12 +301,14 @@ impl Resolver<'_, '_, '_> {
             self.term_sort(&right, &attributes)
                 .unwrap_or_else(|| Sort::builtin(BuiltinSort::K))
         };
+        // The production keeps its place before the lambdas nested in its body; it is declared
+        // total once the body is known to be defined.
+        let production = self.productions.len();
         self.productions.push(lambda_production(
             &lambda,
             &closure,
             parameter_sort.clone(),
             result_sort,
-            total,
         ));
 
         if predicate {
@@ -330,6 +342,12 @@ impl Resolver<'_, '_, '_> {
                 attributes,
                 LambdaResult::PatternRight,
             );
+            if covering && self.equation_right_is_defined(&rule) {
+                self.productions[production]
+                    .attributes_mut()
+                    .mark(AttributeKey::Total);
+                self.total_lambdas.insert(lambda.name.clone());
+            }
             self.rules.push(rule);
         }
 
@@ -376,6 +394,71 @@ impl Resolver<'_, '_, '_> {
             ensures: bool_token(true),
             attributes,
         }
+    }
+
+    /// Whether the right-hand side of the generated equation `rule` is defined for every value of
+    /// its variables.
+    ///
+    /// `total` on a function symbol states that each of its applications denotes exactly one
+    /// value. The lambda's only equation equates its application with the body, so the claim is
+    /// consistent exactly when the body denotes one value wherever the equation applies; a body
+    /// that is undefined for some argument (`10 /Int Y` at `Y = 0`) would make the claim say that
+    /// the application both is and is not defined there. This is a sufficient syntactic test: the
+    /// body is built from variables, tokens, K sequences and applications of symbols that denote
+    /// one value on defined arguments.
+    fn equation_right_is_defined(&self, rule: &Sentence) -> bool {
+        let Sentence::Rule { body, .. } = rule else {
+            return false;
+        };
+        let Term::Rewrite { right, .. } = body.unannotated() else {
+            return false;
+        };
+        self.is_defined(right)
+    }
+
+    fn is_defined(&self, term: &Term) -> bool {
+        match term.unannotated() {
+            Term::Variable { .. } | Term::Token { .. } | Term::InjectedLabel(_) => true,
+            Term::Sequence(items) => items.iter().all(|item| self.is_defined(item)),
+            Term::Apply { label, arguments } => {
+                self.label_is_defined(label) && arguments.iter().all(|a| self.is_defined(a))
+            }
+            Term::Rewrite { .. } | Term::As { .. } => false,
+            Term::Annotated { .. } => unreachable!("unannotated strips metadata"),
+        }
+    }
+
+    /// Whether every application of `label` to defined arguments denotes one value in the
+    /// compiled definition.
+    ///
+    /// - A semantic cast is not a symbol: it is erased to its argument, and the sort check it
+    ///   implies becomes a condition of the equation, which only restricts where it applies.
+    /// - A lambda generated earlier in this module is defined when it was declared `total`.
+    /// - Any other compiler-internal label (the matching-logic connectives, `#Bottom` among
+    ///   them) is not known to be defined.
+    /// - A written label is defined when every production that declares it is a constructor or
+    ///   a `total` function, which is the claim the compiled symbol carries; a macro-like
+    ///   production is excluded because its application is replaced by the macro's right-hand
+    ///   side after this pass, and a label with no visible production yet (a sort projection or
+    ///   predicate generated later) is not known to be defined.
+    fn label_is_defined(&self, label: &Label) -> bool {
+        match label.generated() {
+            Some(GeneratedLabel::SemanticCast { .. }) => return true,
+            Some(GeneratedLabel::Lambda { .. }) => return self.total_lambdas.contains(&label.name),
+            Some(_) => return false,
+            None => {}
+        }
+        if InternalLabel::of(&label.name).is_some() {
+            return false;
+        }
+        let productions = self.catalog.productions_for(&LabelHead::from(label));
+        !productions.is_empty()
+            && productions.iter().all(|id| {
+                let attributes = self.catalog.production(*id).attributes();
+                (!attributes.has(AttributeKey::Function) || attributes.has(AttributeKey::Total))
+                    && !attributes.has_any(&AttributeKey::MACRO_LIKE)
+                    && !attributes.has(AttributeKey::MlOp)
+            })
     }
 
     fn term_sort(&mut self, term: &Term, attributes: &Attributes) -> Option<Sort> {
@@ -653,7 +736,6 @@ fn lambda_production(
     closure: &[ClosureVariable],
     argument: Sort,
     result: Sort,
-    total: bool,
 ) -> Sentence {
     let mut items = vec![
         ProductionItem::Terminal(lambda.name.clone()),
@@ -676,9 +758,6 @@ fn lambda_production(
     items.push(ProductionItem::Terminal(")".into()));
     let mut attributes = Attributes::default();
     attributes.mark(AttributeKey::Function);
-    if total {
-        attributes.mark(AttributeKey::Total);
-    }
     Sentence::Production {
         label: Some(lambda.clone()),
         parameters: Vec::new(),

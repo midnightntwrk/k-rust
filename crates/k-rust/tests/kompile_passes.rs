@@ -1493,6 +1493,122 @@ fn local_function_singleton_user_list_arguments_keep_the_k_parameter_sort() {
     assert!(lambda_attributes.get("total").is_some());
 }
 
+/// `total` on a generated lambda claims that every application denotes one value, and its only
+/// equation equates the application with the body; so the claim holds only when the body is
+/// defined for every value of its variables. `div(Y, Y)` of a partial `div` is not, so a lambda
+/// over it is a partial function, and so is every lambda whose body applies such a lambda.
+#[test]
+fn declares_a_generated_lambda_total_only_when_its_body_is_defined() {
+    let int = || Some(Sort::new("Int"));
+    let y = || Term::Variable {
+        name: "Y".into(),
+        sort: int(),
+    };
+    // `#let Y = <hint> #in <body>`: the argument variable names the lambda `#lambda<hint>__`.
+    let binder = |hint: &str, body: Term| {
+        application(
+            "#let",
+            vec![
+                y(),
+                Term::Variable {
+                    name: hint.into(),
+                    sort: int(),
+                },
+                body,
+            ],
+        )
+    };
+    let int_production = |label: &str, attributes: Attributes| Sentence::Production {
+        label: Some(Label::new(label)),
+        parameters: Vec::new(),
+        sort: Sort::new("Int"),
+        items: vec![
+            ProductionItem::NonTerminal {
+                sort: Sort::new("Int"),
+                name: None,
+            },
+            ProductionItem::NonTerminal {
+                sort: Sort::new("Int"),
+                name: None,
+            },
+        ],
+        attributes,
+    };
+    let div = |term: Term| application("div", vec![term.clone(), term]);
+    let cases = [
+        ("Add", application("add", vec![y(), y()]), true),
+        ("Pair", application("pair", vec![y(), y()]), true),
+        ("Div", div(y()), false),
+        ("Nested", application("pair", vec![y(), div(y())]), false),
+        ("Macro", application("twice", vec![y(), y()]), false),
+        (
+            "Unknown",
+            application("pair", vec![y(), application("undeclared", vec![y()])]),
+            false,
+        ),
+        (
+            "Bottom",
+            application("pair", vec![y(), application("#Bottom", Vec::new())]),
+            false,
+        ),
+        (
+            "OuterTotal",
+            binder("InnerTotal", application("add", vec![y(), y()])),
+            true,
+        ),
+        ("OuterPartial", binder("InnerPartial", div(y())), false),
+    ];
+    let mut sentences = vec![
+        Sentence::SyntaxSort {
+            parameters: Vec::new(),
+            sort: Sort::new("Int"),
+            attributes: Attributes::default(),
+        },
+        int_production(
+            "add",
+            attributes(&[("function", json!("")), ("total", json!(""))]),
+        ),
+        int_production("div", attributes(&[("function", json!(""))])),
+        int_production("pair", Attributes::default()),
+        int_production("twice", attributes(&[("macro", json!(""))])),
+    ];
+    for (hint, body, _) in &cases {
+        sentences.push(rule(binder(hint, body.clone()), Attributes::default()));
+    }
+    let definition = Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module("MAIN", sentences)],
+        attributes: Attributes::default(),
+    };
+
+    let transformed = resolve_fun(&definition).unwrap();
+    let declared_total = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Production {
+                label: Some(label),
+                attributes,
+                ..
+            } if label.name.starts_with("#lambda") => {
+                Some((label.name.clone(), attributes.get("total").is_some()))
+            }
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+    let expected = cases
+        .iter()
+        .map(|(hint, _, total)| (format!("#lambda{hint}__"), *total))
+        .chain([
+            ("#lambdaInnerTotal__".to_owned(), true),
+            ("#lambdaInnerPartial__".to_owned(), false),
+        ])
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(declared_total, expected);
+}
+
 #[test]
 fn gives_generated_lambdas_definition_wide_unique_labels() {
     let local_function = || {
