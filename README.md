@@ -414,6 +414,8 @@ leaves (`st(X)` against `st(0)`), hold on part of a state and fail on a non-empt
 part is closed and the rest continues rewriting in either mode; if it cannot move, it is a stuck
 leaf that carries the failing condition. When the solver cannot decide them, the state
 continues rewriting and, if it cannot move, ends indeterminate.
+`--save-proofs` reuses a proven all-path claim for the same one-path body, but does not reuse a one-path proof for an all-path claim.
+Saved proof files written before modality-aware proof identities are rejected; remove the old file and rerun `kprove` to regenerate it.
 
 Each selected claim prints `claim <label>: <verdict>`, followed by its unproven leaves:
 

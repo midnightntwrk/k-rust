@@ -3407,7 +3407,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
     let mut all_proven = true;
     let proof_phase =
         tracing::info_span!("phase", name = tracing::field::display("proof")).entered();
-    // Invariant: proven_ids contains every uniquely identified claim proven before this index.
+    // Invariant: proven_ids contains each proof's claim ID and modality.
     for (index, claim) in kept.iter().enumerate() {
         let name = claim
             .attributes
@@ -3423,7 +3423,9 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             });
             continue;
         }
-        if proven_ids.contains(&claim.attributes.unique_id) {
+        if proven_ids.iter().any(|proven| {
+            proven.supports(&k_rust::backend::proving::ProvenClaim::from_claim(claim))
+        }) {
             writeln!(output, "claim {name}: proven (saved)")?;
             timings.claims.push(ClaimTiming {
                 label: name,
@@ -3472,7 +3474,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
             result.unexplored_states,
         )?;
         if result.status == ProofStatus::Proven {
-            proven_ids.insert(claim.attributes.unique_id.clone());
+            proven_ids.insert(k_rust::backend::proving::ProvenClaim::from_claim(claim));
         } else {
             all_proven = false;
             for leaf in result.leaves.iter().filter(|leaf| {
@@ -3624,7 +3626,8 @@ mod tests {
         backend::{
             execution::{RunPattern, StatesOutput, default_search_pattern, term_exit_code},
             proving::{
-                SAVED_PROOFS_MODULE, claim_unique_id, resolve_claim_labels, saved_proof_definition,
+                ProvenClaim, SAVED_PROOFS_MODULE, claim_unique_id, resolve_claim_labels,
+                saved_proof_definition,
             },
         },
         kompile::initial_configuration::kore_sort,
@@ -3634,6 +3637,7 @@ mod tests {
         },
     };
     use k_rust_backend::{
+        claim::ReachabilityMode,
         definition::{BackendDefinition, PatternOrPredicate},
         implication::ImplicationCondition,
         rule::Predicate,
@@ -5524,13 +5528,18 @@ mod tests {
               sort SortS{} []
               symbol a{}() : SortS{} []
               axiom{} \top{SortS{}}() [UNIQUE'Unds'ID{}("axiom")]
-              claim{} \top{SortS{}}() [UNIQUE'Unds'ID{}("first")]
-              claim{} \bottom{SortS{}}() [UNIQUE'Unds'ID{}("second")]
+              claim{} \implies{SortS{}}(\top{SortS{}}(), weakAlwaysFinally{SortS{}}(\top{SortS{}}())) [UNIQUE'Unds'ID{}("first")]
+              claim{} \implies{SortS{}}(\top{SortS{}}(), weakAlwaysFinally{SortS{}}(\bottom{SortS{}}())) [UNIQUE'Unds'ID{}("second")]
             endmodule []"#,
         )
         .unwrap();
-        let saved =
-            saved_proof_definition(&definition.modules[0], &BTreeSet::from(["second".into()]));
+        let saved = saved_proof_definition(
+            &definition.modules[0],
+            &BTreeSet::from([ProvenClaim {
+                id: "second".into(),
+                mode: ReachabilityMode::AllPath,
+            }]),
+        );
         let module = &saved.modules[0];
 
         assert_eq!(module.name, SAVED_PROOFS_MODULE);

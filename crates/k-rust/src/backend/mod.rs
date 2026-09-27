@@ -947,7 +947,7 @@ impl Backend {
                 let mut circularities = Vec::new();
                 for selector in selectors {
                     let (_, candidate) = proving::select_claim(definition, Some(selector))?;
-                    if seen.insert(candidate.attributes.unique_id.clone()) {
+                    if seen.insert(proving::ProvenClaim::from_claim(candidate)) {
                         circularities.push(candidate);
                     }
                 }
@@ -958,7 +958,7 @@ impl Backend {
                     .iter()
                     .filter(|candidate| {
                         (std::ptr::eq(*candidate, claim) || candidate.attributes.trusted)
-                            && seen.insert(candidate.attributes.unique_id.clone())
+                            && seen.insert(proving::ProvenClaim::from_claim(candidate))
                     })
                     .collect()
             };
@@ -1727,6 +1727,38 @@ mod tests {
             })
             .unwrap();
         assert_eq!(isolated.status, "disproved");
+    }
+
+    #[test]
+    fn persistent_proof_keeps_both_modalities_under_one_emitted_id() {
+        let definition = r#"[]
+            module MAIN
+                sort SortS{} []
+                symbol a{}() : SortS{} [constructor{}()]
+                symbol b{}() : SortS{} [constructor{}()]
+                symbol c{}() : SortS{} [constructor{}()]
+                alias weakExistsFinally{S}(S) : S
+                    where weakExistsFinally{S}(@X:S) := @X:S []
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(a{}(), \top{SortS{}}()), b{}()
+                ) []
+                claim{} \implies{SortS{}}(a{}(), weakAlwaysFinally{SortS{}}(c{}()))
+                    [label{}("goal")]
+                claim{} \implies{SortS{}}(b{}(), weakExistsFinally{SortS{}}(c{}()))
+                    [label{}("one"), trusted{}(), UNIQUE'Unds'ID{}("shared")]
+                claim{} \implies{SortS{}}(b{}(), weakAlwaysFinally{SortS{}}(c{}()))
+                    [label{}("all"), trusted{}(), UNIQUE'Unds'ID{}("shared")]
+            endmodule []"#;
+        let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+        let result = backend
+            .prove(ProveRequest {
+                claim: Some("goal".into()),
+                ..ProveRequest::default()
+            })
+            .unwrap();
+        assert_eq!(result.status, "proven");
     }
 
     #[test]
