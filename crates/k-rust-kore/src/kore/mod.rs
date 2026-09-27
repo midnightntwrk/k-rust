@@ -6,6 +6,7 @@ pub mod codec;
 pub mod json;
 pub mod lexer;
 pub mod lexical;
+pub mod node;
 pub mod normalize;
 pub mod parser;
 pub mod printer;

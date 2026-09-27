@@ -5225,7 +5225,7 @@ mod tests {
             arguments: vec![],
         };
         encode_kore(&KorePattern::Equals {
-            operand_sort: sort.clone(),
+            operand_sort: Box::new(sort.clone()),
             result_sort: sort,
             left: Box::new(state()),
             right: Box::new(state()),

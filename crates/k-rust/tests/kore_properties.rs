@@ -113,62 +113,62 @@ fn pattern_with_strings(strings: BoxedStrategy<String>) -> BoxedStrategy<Pattern
             (sort(), "[A-Z][A-Za-z0-9]{0,5}", sort(), inner.clone()).prop_map(
                 |(sort, name, variable_sort, body)| Pattern::Exists {
                     sort,
-                    variable: Variable {
+                    variable: Box::new(Variable {
                         kind: VariableKind::Element,
                         name,
                         sort: variable_sort
-                    },
+                    }),
                     body: Box::new(body),
                 }
             ),
             (sort(), "[A-Z][A-Za-z0-9]{0,5}", sort(), inner.clone()).prop_map(
                 |(sort, name, variable_sort, body)| Pattern::Forall {
                     sort,
-                    variable: Variable {
+                    variable: Box::new(Variable {
                         kind: VariableKind::Element,
                         name,
                         sort: variable_sort
-                    },
+                    }),
                     body: Box::new(body),
                 }
             ),
             ("@[A-Z][A-Za-z0-9]{0,5}", sort(), inner.clone()).prop_map(|(name, sort, body)| {
                 Pattern::Mu {
-                    variable: Variable {
+                    variable: Box::new(Variable {
                         kind: VariableKind::Set,
                         name,
                         sort,
-                    },
+                    }),
                     body: Box::new(body),
                 }
             }),
             ("@[A-Z][A-Za-z0-9]{0,5}", sort(), inner.clone()).prop_map(|(name, sort, body)| {
                 Pattern::Nu {
-                    variable: Variable {
+                    variable: Box::new(Variable {
                         kind: VariableKind::Set,
                         name,
                         sort,
-                    },
+                    }),
                     body: Box::new(body),
                 }
             }),
             (sort(), sort(), inner.clone()).prop_map(|(operand_sort, result_sort, argument)| {
                 Pattern::Ceil {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     argument: Box::new(argument),
                 }
             }),
             (sort(), sort(), inner.clone()).prop_map(|(operand_sort, result_sort, argument)| {
                 Pattern::Floor {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     argument: Box::new(argument),
                 }
             }),
             (sort(), sort(), inner.clone(), inner.clone()).prop_map(
                 |(operand_sort, result_sort, left, right)| Pattern::Equals {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     left: Box::new(left),
                     right: Box::new(right),
@@ -176,7 +176,7 @@ fn pattern_with_strings(strings: BoxedStrategy<String>) -> BoxedStrategy<Pattern
             ),
             (sort(), sort(), inner.clone(), inner.clone()).prop_map(
                 |(operand_sort, result_sort, left, right)| Pattern::In {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     left: Box::new(left),
                     right: Box::new(right),

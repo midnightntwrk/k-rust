@@ -216,40 +216,40 @@ pub enum Pattern {
     },
     Exists {
         sort: Sort,
-        variable: Variable,
+        variable: Box<Variable>,
         body: Box<Pattern>,
     },
     Forall {
         sort: Sort,
-        variable: Variable,
+        variable: Box<Variable>,
         body: Box<Pattern>,
     },
     Mu {
-        variable: Variable,
+        variable: Box<Variable>,
         body: Box<Pattern>,
     },
     Nu {
-        variable: Variable,
+        variable: Box<Variable>,
         body: Box<Pattern>,
     },
     Ceil {
-        operand_sort: Sort,
+        operand_sort: Box<Sort>,
         result_sort: Sort,
         argument: Box<Pattern>,
     },
     Floor {
-        operand_sort: Sort,
+        operand_sort: Box<Sort>,
         result_sort: Sort,
         argument: Box<Pattern>,
     },
     Equals {
-        operand_sort: Sort,
+        operand_sort: Box<Sort>,
         result_sort: Sort,
         left: Box<Pattern>,
         right: Box<Pattern>,
     },
     In {
-        operand_sort: Sort,
+        operand_sort: Box<Sort>,
         result_sort: Sort,
         left: Box<Pattern>,
         right: Box<Pattern>,
@@ -264,6 +264,10 @@ pub enum Pattern {
         arguments: Vec<Pattern>,
     },
 }
+
+// Invariant: infrequent quantified and two-sort payloads are boxed; the inline
+// Variable and AssociativeApplication variants bound the size of a pattern node.
+const _: () = assert!(std::mem::size_of::<Pattern>() <= 88);
 
 impl Clone for Pattern {
     fn clone(&self) -> Self {

@@ -89,6 +89,8 @@ algorithms! {
     BackendSearchPaths => "backend.search.paths",
     /// Pattern search over a rewrite result set.
     BackendSearchPatterns => "backend.search.patterns",
+    /// Filtering, ordering, and deduplication of reported match conditions.
+    BackendSearchOutput => "backend.search.output",
     /// Reachability-logic proof search.
     BackendProofSearch => "backend.proof.search",
     /// Subsumption by matching, witness elimination, and validity checking.
@@ -277,6 +279,8 @@ algorithms! {
     KorePrinterRender => "kore.printer.render",
     /// Explicit-stack traversal and rebuilding of KORE patterns.
     KorePatternWalk => "kore.pattern.walk",
+    /// Node-at-a-time reading of KORE patterns: order, flattening, and materialization.
+    KorePatternSource => "kore.pattern.source",
 }
 
 /// An entered tracing span for one algorithm invocation.

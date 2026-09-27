@@ -416,12 +416,12 @@ impl Head {
                 match kind {
                     TokenKind::MlExists => Pattern::Exists {
                         sort,
-                        variable,
+                        variable: Box::new(variable),
                         body,
                     },
                     TokenKind::MlForall => Pattern::Forall {
                         sort,
-                        variable,
+                        variable: Box::new(variable),
                         body,
                     },
                     _ => unreachable!("quantifier head has a quantifier token"),
@@ -430,8 +430,14 @@ impl Head {
             Self::Fixpoint(kind, variable) => {
                 let body = boxed();
                 match kind {
-                    TokenKind::MlMu => Pattern::Mu { variable, body },
-                    TokenKind::MlNu => Pattern::Nu { variable, body },
+                    TokenKind::MlMu => Pattern::Mu {
+                        variable: Box::new(variable),
+                        body,
+                    },
+                    TokenKind::MlNu => Pattern::Nu {
+                        variable: Box::new(variable),
+                        body,
+                    },
                     _ => unreachable!("fixpoint head has a fixpoint token"),
                 }
             }
@@ -439,12 +445,12 @@ impl Head {
                 let argument = boxed();
                 match kind {
                     TokenKind::MlCeil => Pattern::Ceil {
-                        operand_sort,
+                        operand_sort: Box::new(operand_sort),
                         result_sort,
                         argument,
                     },
                     TokenKind::MlFloor => Pattern::Floor {
-                        operand_sort,
+                        operand_sort: Box::new(operand_sort),
                         result_sort,
                         argument,
                     },
@@ -455,13 +461,13 @@ impl Head {
                 let (left, right) = (boxed(), boxed());
                 match kind {
                     TokenKind::MlEquals => Pattern::Equals {
-                        operand_sort,
+                        operand_sort: Box::new(operand_sort),
                         result_sort,
                         left,
                         right,
                     },
                     TokenKind::MlIn => Pattern::In {
-                        operand_sort,
+                        operand_sort: Box::new(operand_sort),
                         result_sort,
                         left,
                         right,

@@ -244,7 +244,7 @@ pub fn condition_substitution(
             )
         };
         KorePattern::Equals {
-            operand_sort: externalize::sort(&variable.sort),
+            operand_sort: Box::new(externalize::sort(&variable.sort)),
             result_sort: externalize::sort(result_sort),
             left: Box::new(left),
             right: Box::new(right),

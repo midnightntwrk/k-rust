@@ -203,7 +203,7 @@ pub fn compile_search_pattern(
     let bool_kore = converter.convert_sort(&bool_sort);
     let condition = if let Some(requires) = requires {
         Pattern::Equals {
-            operand_sort: bool_kore.clone(),
+            operand_sort: Box::new(bool_kore.clone()),
             result_sort: top_kore.clone(),
             left: Box::new(converter.convert(&requires)?),
             right: Box::new(Pattern::DomainValue {

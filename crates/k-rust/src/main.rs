@@ -66,6 +66,7 @@ use k_rust::{
     kore::{
         ast::{Definition as KoreDefinition, Pattern as KorePattern},
         codec as kore_codec, json as kore_json,
+        node::PatternSource,
         parser::{
             parse_definition as parse_kore_definition, parse_module as parse_kore_module,
             parse_pattern as parse_kore_pattern,
@@ -84,7 +85,7 @@ use k_rust::{
     timings::{PhaseTiming, PhaseTimings, TIMINGS_SCHEMA_VERSION},
 };
 use k_rust_backend::{
-    externalize,
+    externalize::{self, External},
     proof::{ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{ExecutionMode, Pattern},
     search::SearchType,
@@ -2599,7 +2600,9 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
         deliver_console_transcript(transcript)?;
     }
     match options.output {
-        KrunOutputArg::Kore => write_kore_result(&output.pattern, None)?,
+        KrunOutputArg::Kore => output
+            .pattern
+            .with_source(|source| write_kore_result(source, None))?,
         KrunOutputArg::Captured => {
             io::stdout().lock().write_all(
                 output
@@ -2728,7 +2731,9 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
             execution_input: None,
         },
     )?;
-    write_kore_result(&output.pattern, options.output.as_deref())?;
+    output
+        .pattern
+        .with_source(|source| write_kore_result(source, options.output.as_deref()))?;
     Ok(ExitCode::from(output.exit_code))
 }
 
@@ -2935,24 +2940,27 @@ fn kore_match_disjunction_command(options: KoreMatchDisjunctionArgs) -> Result<(
         &BTreeSet::new(),
         &function_symbols,
     );
-    write_kore_result(&output, options.output.as_deref())
+    output.with_source(|source| write_kore_result(source, options.output.as_deref()))
 }
 
-/// Write `pattern` as `KorePrinter::pretty(100).print_pattern` prints it, rendering as it goes
-/// so that the text is never held whole: to the file `path` as the text alone, or to standard
-/// output followed by a newline.
-fn write_kore_result(pattern: &KorePattern, path: Option<&Path>) -> Result<(), Box<dyn Error>> {
+/// Write the pattern `source` denotes as `KorePrinter::pretty(100).print_pattern` prints it,
+/// rendering as it goes so that neither the text nor the pattern is held whole: to the file
+/// `path` as the text alone, or to standard output followed by a newline.
+fn write_kore_result<'a>(
+    source: impl PatternSource<'a>,
+    path: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
     const BUFFER_BYTES: usize = 1 << 20;
     let printer = KorePrinter::pretty(100);
     match path {
         Some(path) => {
             let mut file = io::BufWriter::with_capacity(BUFFER_BYTES, fs::File::create(path)?);
-            printer.write_pattern(pattern, &mut file)?;
+            printer.write_source(source, &mut file)?;
             file.into_inner().map_err(io::IntoInnerError::into_error)?;
         }
         None => {
             let mut stdout = io::BufWriter::with_capacity(BUFFER_BYTES, io::stdout().lock());
-            printer.write_pattern(pattern, &mut stdout)?;
+            printer.write_source(source, &mut stdout)?;
             stdout.write_all(b"\n")?;
             stdout.flush()?;
         }
@@ -3490,9 +3498,9 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
                          (--allow-vacuous accepts such branches)"
                     )?;
                 }
-                let pattern = externalize::constrained_pattern(&leaf.pattern);
                 let mut lines = PrefixedLines::new(io::BufWriter::new(&mut output), "    ");
-                KorePrinter::pretty(100).write_pattern(&pattern, &mut lines)?;
+                KorePrinter::pretty(100)
+                    .write_source(External::Constrained(&leaf.pattern), &mut lines)?;
                 lines
                     .finish()?
                     .into_inner()
@@ -3614,12 +3622,12 @@ mod tests {
     use super::*;
     use k_rust::{
         backend::{
-            execution::{default_search_pattern, term_exit_code},
+            execution::{RunPattern, StatesOutput, default_search_pattern, term_exit_code},
             proving::{
                 SAVED_PROOFS_MODULE, claim_unique_id, resolve_claim_labels, saved_proof_definition,
             },
         },
-        kompile::initial_configuration::{kore_application, kore_sort},
+        kompile::initial_configuration::kore_sort,
         kore::{
             ast::{Sentence as KoreSentence, Sort as KoreSort, Symbol as KoreSymbol},
             binary as kore_binary,
@@ -3752,34 +3760,77 @@ mod tests {
 
     #[test]
     fn disjuncts_are_printed_in_structural_order() {
-        let sort = kore_sort("SortGeneratedTopCell");
-        let application = |name: &str| kore_application(name, Vec::new(), Vec::new());
-        let solution = |name: &str| KorePattern::Equals {
-            operand_sort: sort.clone(),
-            result_sort: sort.clone(),
-            left: Box::new(KorePattern::Variable(k_rust::kore::ast::Variable {
-                kind: k_rust::kore::ast::VariableKind::Element,
-                name: "VarResult".into(),
-                sort: sort.clone(),
-            })),
-            right: Box::new(application(name)),
+        let sort = BackendSort::simple("SortGeneratedTopCell");
+        let state = |value: &str, constraints| Pattern {
+            term: Term::domain_value(sort.clone(), value),
+            constraints,
+        };
+        let output = |states| {
+            RunPattern::States(StatesOutput::new(
+                states,
+                kore_sort("SortGeneratedTopCell"),
+                kore_sort("SortGeneratedTopCell"),
+            ))
+            .to_pattern()
+        };
+        // The states' trees, sorted by `Pattern`'s order.
+        let sorted = |states: Vec<Pattern>| {
+            let mut trees = states
+                .iter()
+                .map(externalize::constrained_pattern)
+                .collect::<Vec<_>>();
+            trees.sort();
+            KorePattern::Or {
+                sort: kore_sort("SortGeneratedTopCell"),
+                arguments: trees,
+            }
         };
 
-        assert_eq!(
-            order_disjuncts(vec![solution("c"), solution("a"), solution("b")]),
-            vec![solution("a"), solution("b"), solution("c")]
-        );
-
-        let application = application("a");
-        let top = KorePattern::Top { sort: sort.clone() };
-        let conjunction = KorePattern::And {
-            sort,
-            arguments: vec![top.clone(), top.clone()],
+        let letters = || {
+            vec![
+                state("c", Vec::new()),
+                state("a", Vec::new()),
+                state("b", Vec::new()),
+            ]
+        };
+        let KorePattern::Or { arguments, .. } = &output(letters()) else {
+            panic!("three states print as a disjunction")
         };
         assert_eq!(
-            order_disjuncts(vec![conjunction.clone(), top.clone(), application.clone()]),
-            vec![application, top, conjunction]
+            arguments
+                .iter()
+                .map(|argument| match argument {
+                    KorePattern::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
+                    other => panic!("unexpected state {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            ["a", "b", "c"]
         );
+        assert_eq!(output(letters()), sorted(letters()));
+
+        // `\bottom`, then `\and`, then a domain value: the variants' rank decides first.
+        let mixed = || {
+            vec![
+                state("z", Vec::new()),
+                state(
+                    "a",
+                    vec![Predicate::Ceil(Term::domain_value(sort.clone(), "x"))],
+                ),
+                state("a", vec![Predicate::False]),
+            ]
+        };
+        let KorePattern::Or { arguments, .. } = &output(mixed()) else {
+            panic!("three states print as a disjunction")
+        };
+        assert!(matches!(
+            arguments.as_slice(),
+            [
+                KorePattern::Bottom { .. },
+                KorePattern::And { .. },
+                KorePattern::DomainValue { .. }
+            ]
+        ));
+        assert_eq!(output(mixed()), sorted(mixed()));
     }
 
     #[test]
@@ -4472,11 +4523,17 @@ mod tests {
         generated: BTreeSet<Variable>,
         function_symbols: BTreeSet<String>,
     ) -> KorePattern {
-        let result_sort = kore_sort("SortGeneratedTopCell");
-        let predicate_sort = BackendSort::simple("SortGeneratedTopCell");
-        let condition =
-            raw_match_condition_output(&substitution, &constraints, &result_sort, &predicate_sort);
-        filter_match_condition(condition, &result_sort, &generated, &function_symbols)
+        MatchOutput::new(
+            vec![MatchCondition {
+                substitution,
+                constraints,
+                predicate_sort: BackendSort::simple("SortGeneratedTopCell"),
+            }],
+            &kore_sort("SortGeneratedTopCell"),
+            &generated,
+            &function_symbols,
+        )
+        .to_pattern()
     }
 
     fn test_function(arguments: Vec<Term>) -> Term {
@@ -4714,13 +4771,21 @@ mod tests {
 
     #[test]
     fn hidden_bindings_deduplicate_filtered_disjuncts() {
-        let sort = kore_sort("SortGeneratedTopCell");
-        let duplicate = KorePattern::Top { sort: sort.clone() };
+        let sort = BackendSort::simple("SortGeneratedTopCell");
+        let unconditional = || PatternMatch {
+            substitution: Substitution::new(),
+            constraints: Vec::new(),
+        };
+        let output = pattern_matches_output(
+            &[unconditional(), unconditional()],
+            &kore_sort("SortGeneratedTopCell"),
+            &sort,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+        )
+        .to_pattern();
 
-        assert_eq!(
-            order_distinct_match_outputs(vec![duplicate.clone(), duplicate.clone()]),
-            vec![duplicate]
-        );
+        assert!(matches!(output, KorePattern::Top { .. }), "{output:?}");
     }
 
     #[test]
@@ -4745,7 +4810,8 @@ mod tests {
             &sort,
             &BTreeSet::from([first, second]),
             &BTreeSet::new(),
-        );
+        )
+        .to_pattern();
 
         assert!(matches!(output, KorePattern::Top { .. }), "{output:?}");
     }
@@ -4783,7 +4849,8 @@ mod tests {
             &sort,
             &BTreeSet::from([generated]),
             &BTreeSet::new(),
-        );
+        )
+        .to_pattern();
 
         let disjuncts = output.disjuncts_at(&result_sort);
         assert_eq!(disjuncts.len(), 2, "{disjuncts:?}");

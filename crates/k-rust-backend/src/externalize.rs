@@ -1,11 +1,13 @@
 //! Conversion of internal backend terms and constrained patterns back to KORE: one structural
 //! pass per pattern; a responsibility, not an algorithm; no counter, no worklist. Conjunction,
 //! disjunction, and substitution builders take the caller's binding order and shape because
-//! printed KORE and RPC JSON are contracts.
+//! printed KORE and RPC JSON are contracts. The same conversion is also available one node at a
+//! time, as an [`External`] pattern source, for readers that must not hold the whole tree.
 
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering, collections::BTreeSet};
 
 use k_rust_kore::kore::ast as kore;
+use k_rust_kore::kore::node::{PatternNode, PatternSource};
 use k_rust_kore::names::{BuiltinSort, WellKnownSymbol};
 
 use crate::{
@@ -136,12 +138,12 @@ fn connective(
     }
 }
 
-pub fn substitution_pattern(
+/// The bindings of `substitution` in the order `order` names; the sorts are stable, so bindings
+/// that compare equal keep their container order.
+pub fn ordered_bindings(
     substitution: &Substitution,
-    result_sort: &Sort,
     order: BindingOrder,
-    shape: ConjunctionShape,
-) -> Option<kore::Pattern> {
+) -> Vec<(&Variable, &Term)> {
     let mut bindings = substitution.iter().collect::<Vec<_>>();
     match order {
         BindingOrder::Container => {}
@@ -154,7 +156,16 @@ pub fn substitution_pattern(
             natural_name_order(&left.name, &right.name).then_with(|| left.sort.cmp(&right.sort))
         }),
     }
-    let patterns = bindings
+    bindings
+}
+
+pub fn substitution_pattern(
+    substitution: &Substitution,
+    result_sort: &Sort,
+    order: BindingOrder,
+    shape: ConjunctionShape,
+) -> Option<kore::Pattern> {
+    let patterns = ordered_bindings(substitution, order)
         .into_iter()
         .map(|(variable, value)| {
             predicate_pattern(
@@ -586,7 +597,7 @@ fn predicate_pattern_with_terms(
         },
         Predicate::Term(value) if preserve_terms => term(value),
         Predicate::Term(value) => kore::Pattern::Equals {
-            operand_sort: sort(&value.sort()),
+            operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             left: Box::new(kore::Pattern::DomainValue {
                 sort: sort(&value.sort()),
@@ -602,24 +613,24 @@ fn predicate_pattern_with_terms(
                 (left, right)
             };
             kore::Pattern::Equals {
-                operand_sort: sort(&left.sort()),
+                operand_sort: Box::new(sort(&left.sort())),
                 result_sort: sort(result_sort),
                 left: Box::new(term(left)),
                 right: Box::new(term(right)),
             }
         }
         Predicate::Ceil(value) => kore::Pattern::Ceil {
-            operand_sort: sort(&value.sort()),
+            operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             argument: Box::new(term(value)),
         },
         Predicate::Floor(value) => kore::Pattern::Floor {
-            operand_sort: sort(&value.sort()),
+            operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             argument: Box::new(term(value)),
         },
         Predicate::In(left, right) => kore::Pattern::In {
-            operand_sort: sort(&left.sort()),
+            operand_sort: Box::new(sort(&left.sort())),
             result_sort: sort(result_sort),
             left: Box::new(term(left)),
             right: Box::new(term(right)),
@@ -678,7 +689,7 @@ fn predicate_pattern_with_terms(
         },
         Predicate::Exists(variable, inner) => kore::Pattern::Exists {
             sort: sort(result_sort),
-            variable: variable_pattern(variable),
+            variable: Box::new(variable_pattern(variable)),
             body: Box::new(predicate_pattern_with_terms(
                 inner,
                 result_sort,
@@ -687,7 +698,7 @@ fn predicate_pattern_with_terms(
         },
         Predicate::Forall(variable, inner) => kore::Pattern::Forall {
             sort: sort(result_sort),
-            variable: variable_pattern(variable),
+            variable: Box::new(variable_pattern(variable)),
             body: Box::new(predicate_pattern_with_terms(
                 inner,
                 result_sort,
@@ -807,6 +818,490 @@ fn collection(symbols: &CollectionSymbols, mut components: Vec<kore::Pattern>) -
         result = application(&symbols.concat, Vec::new(), vec![component, result]);
     }
     result
+}
+
+/// The sort a predicate's connectives and equalities are written at: given, or the sort of a
+/// constrained pattern's term.
+#[derive(Clone, Copy, Debug)]
+pub enum ResultSort<'t> {
+    Given(&'t Sort),
+    OfTerm(&'t Term),
+}
+
+impl ResultSort<'_> {
+    fn external(self) -> kore::Sort {
+        match self {
+            Self::Given(result_sort) => sort(result_sort),
+            Self::OfTerm(term) => sort(&term.sort()),
+        }
+    }
+}
+
+/// A KORE pattern given by backend data, externalized one node at a time
+/// ([`PatternSource::node`]) as a reader reaches it.
+///
+/// A backend term is a DAG that shares subterms, and its KORE text writes every shared subterm
+/// out at each of its uses, so the externalized tree can be far larger than the term. A source
+/// holds only references into the backend data, and its node is a function of the node it
+/// denotes: printing it with `Printer::write_source`, comparing it with
+/// [`k_rust_kore::kore::node::compare`], or flattening it never holds more than the path being
+/// read.
+///
+/// Each source materializes (`k_rust_kore::kore::node::materialize`) to the tree the builder of
+/// the same name returns: [`term`], [`predicate_pattern`], [`ml_pattern`],
+/// [`constrained_pattern`], [`conjunction`], and [`disjunction`]. The builders stay the direct
+/// recursive construction because building a whole tree through nodes costs about half again
+/// as many instructions; `tests::externalize` checks that both agree node for node.
+#[derive(Clone, Copy, Debug)]
+pub enum External<'t> {
+    /// The term.
+    Term(&'t Term),
+    /// The variable, as the term `Term::variable` of it.
+    Variable(&'t Variable),
+    /// `\dv{S}("true")`, where `S` is the sort of the term: the left side of the equality that
+    /// states a Boolean term.
+    TrueValue(&'t Term),
+    /// The right-nested `concat` of the components of the map, list, or set term from the
+    /// component with the given index on, which is less than the number of components; the
+    /// collection's `unit` when it has none.
+    Components(&'t Term, usize),
+    /// The `element` application of a map entry.
+    MapElement(&'t str, &'t Term, &'t Term),
+    /// The `element` application of a list or set item.
+    Element(&'t str, &'t Term),
+    /// The predicate as [`predicate_pattern`] (or, preserving bare terms, [`ml_pattern`])
+    /// writes it at `sort`.
+    Predicate {
+        predicate: &'t Predicate,
+        sort: ResultSort<'t>,
+        preserve_terms: bool,
+    },
+    /// The equality `predicate_pattern` writes for the binding of `variable` to `value`, that is
+    /// for `Predicate::Equals(Term::variable(variable), value)`.
+    Binding {
+        variable: &'t Variable,
+        value: &'t Term,
+        sort: &'t Sort,
+    },
+    /// The constrained pattern, as [`constrained_pattern`] writes it.
+    Constrained(&'t Pattern),
+    /// The `\and` of the (at least two) constraints of the pattern, at the sort of its term.
+    Constraints(&'t Pattern),
+    /// The operands joined in the given shape by `\and` (`and`) or `\or` at `sort`, as
+    /// [`conjunction`] and [`disjunction`] join two or more. A `Flat` connective is one node
+    /// over its operands, of any number; a nested shape has at least two.
+    Connective {
+        and: bool,
+        shape: ConjunctionShape,
+        sort: &'t kore::Sort,
+        operands: &'t [External<'t>],
+    },
+    /// `\top` at the sort.
+    Top(&'t kore::Sort),
+    /// `\bottom` at the sort.
+    Bottom(&'t kore::Sort),
+}
+
+/// The source of [`conjunction`] (`and`) or [`disjunction`] of `operands`: `None` for none, the
+/// operand itself for one.
+pub fn connective_source<'t>(
+    sort: &'t kore::Sort,
+    operands: &'t [External<'t>],
+    shape: ConjunctionShape,
+    and: bool,
+) -> Option<External<'t>> {
+    match operands {
+        [] => None,
+        [operand] => Some(*operand),
+        operands => Some(External::Connective {
+            and,
+            shape,
+            sort,
+            operands,
+        }),
+    }
+}
+
+/// The number of components `term` has as a collection (map entries, list items, and set
+/// elements, each rest counting as one), and the collection's symbols.
+fn components(term: &Term) -> (usize, &CollectionSymbols) {
+    match term.kind() {
+        TermKind::Map {
+            definition,
+            entries,
+            rest,
+        } => (
+            entries.len() + usize::from(rest.is_some()),
+            &definition.symbols,
+        ),
+        TermKind::List {
+            definition,
+            heads,
+            rest,
+        } => (
+            heads.len() + rest.as_ref().map_or(0, |(_, tails)| 1 + tails.len()),
+            &definition.symbols,
+        ),
+        TermKind::Set {
+            definition,
+            elements,
+            rest,
+        } => (
+            elements.len() + usize::from(rest.is_some()),
+            &definition.symbols,
+        ),
+        _ => unreachable!("only a collection has components"),
+    }
+}
+
+/// The component of the collection `term` at `index`.
+fn component(term: &Term, index: usize) -> External<'_> {
+    match term.kind() {
+        TermKind::Map {
+            definition,
+            entries,
+            rest,
+        } => {
+            let element = &definition.symbols.element;
+            match entries.get(index) {
+                Some((key, value)) => External::MapElement(element, key, value),
+                None => External::Term(rest.as_ref().expect("the index is below the count")),
+            }
+        }
+        TermKind::List {
+            definition,
+            heads,
+            rest,
+        } => {
+            let element = &definition.symbols.element;
+            if let Some(item) = heads.get(index) {
+                External::Element(element, item)
+            } else {
+                let (middle, tails) = rest.as_ref().expect("the index is below the count");
+                match index - heads.len() {
+                    0 => External::Term(middle),
+                    tail => External::Element(element, &tails[tail - 1]),
+                }
+            }
+        }
+        TermKind::Set {
+            definition,
+            elements,
+            rest,
+        } => {
+            let element = &definition.symbols.element;
+            match elements.get(index) {
+                Some(item) => External::Element(element, item),
+                None => External::Term(rest.as_ref().expect("the index is below the count")),
+            }
+        }
+        _ => unreachable!("only a collection has components"),
+    }
+}
+
+fn application_node<'t>(
+    name: &str,
+    sort_parameters: Vec<kore::Sort>,
+    arguments: Vec<External<'t>>,
+) -> PatternNode<'t, External<'t>> {
+    PatternNode::Application {
+        symbol: Cow::Owned(kore::Symbol {
+            name: name.to_owned(),
+            sort_parameters,
+        }),
+        arguments,
+    }
+}
+
+fn term_node(term: &Term) -> PatternNode<'_, External<'_>> {
+    match term.kind() {
+        TermKind::And(left, right) => PatternNode::And {
+            sort: Cow::Owned(sort(&term.sort())),
+            arguments: vec![External::Term(left), External::Term(right)],
+        },
+        TermKind::Application {
+            symbol,
+            sort_arguments,
+            arguments,
+        } => application_node(
+            &symbol.name,
+            sort_arguments.iter().map(sort).collect(),
+            arguments.iter().map(External::Term).collect(),
+        ),
+        TermKind::DomainValue {
+            sort: value_sort,
+            value,
+        } => PatternNode::DomainValue {
+            sort: Cow::Owned(sort(value_sort)),
+            value: Cow::Borrowed(value),
+        },
+        TermKind::Variable(variable) => {
+            PatternNode::Variable(Cow::Owned(variable_pattern(variable)))
+        }
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } => application_node(
+            WellKnownSymbol::Inj.as_str(),
+            vec![sort(source), sort(target)],
+            vec![External::Term(term)],
+        ),
+        TermKind::Map { .. } | TermKind::List { .. } | TermKind::Set { .. } => {
+            External::Components(term, 0).node()
+        }
+    }
+}
+
+/// The node of `predicate` at `result_sort`: `\top`/`\bottom` for the constants, the ML
+/// connective of the same name otherwise, and an equality for a bare Boolean term unless
+/// `preserve_terms`. An equality puts a Boolean domain value on the left when only its right
+/// side is one.
+fn predicate_node<'t>(
+    predicate: &'t Predicate,
+    result_sort: ResultSort<'t>,
+    preserve_terms: bool,
+) -> PatternNode<'t, External<'t>> {
+    let recurse = |predicate| External::Predicate {
+        predicate,
+        sort: result_sort,
+        preserve_terms,
+    };
+    let sort_of = |term: &Term| Cow::Owned(sort(&term.sort()));
+    let result = || Cow::Owned(result_sort.external());
+    match predicate {
+        Predicate::True => PatternNode::Top { sort: result() },
+        Predicate::False => PatternNode::Bottom { sort: result() },
+        Predicate::Term(value) if preserve_terms => term_node(value),
+        Predicate::Term(value) => PatternNode::Equals {
+            operand_sort: sort_of(value),
+            result_sort: result(),
+            left: External::TrueValue(value),
+            right: External::Term(value),
+        },
+        Predicate::Equals(left, right) => {
+            let (left, right) = if is_boolean_domain_value(right) && !is_boolean_domain_value(left)
+            {
+                (right, left)
+            } else {
+                (left, right)
+            };
+            PatternNode::Equals {
+                operand_sort: sort_of(left),
+                result_sort: result(),
+                left: External::Term(left),
+                right: External::Term(right),
+            }
+        }
+        Predicate::Ceil(value) => PatternNode::Ceil {
+            operand_sort: sort_of(value),
+            result_sort: result(),
+            argument: External::Term(value),
+        },
+        Predicate::Floor(value) => PatternNode::Floor {
+            operand_sort: sort_of(value),
+            result_sort: result(),
+            argument: External::Term(value),
+        },
+        Predicate::In(left, right) => PatternNode::In {
+            operand_sort: sort_of(left),
+            result_sort: result(),
+            left: External::Term(left),
+            right: External::Term(right),
+        },
+        Predicate::Not(inner) => PatternNode::Not {
+            sort: result(),
+            argument: recurse(inner),
+        },
+        Predicate::And(inner) => PatternNode::And {
+            sort: result(),
+            arguments: inner.iter().map(recurse).collect(),
+        },
+        Predicate::Or(inner) => PatternNode::Or {
+            sort: result(),
+            arguments: inner.iter().map(recurse).collect(),
+        },
+        Predicate::Implies(left, right) => PatternNode::Implies {
+            sort: result(),
+            left: recurse(left),
+            right: recurse(right),
+        },
+        Predicate::Iff(left, right) => PatternNode::Iff {
+            sort: result(),
+            left: recurse(left),
+            right: recurse(right),
+        },
+        Predicate::Exists(variable, inner) => PatternNode::Exists {
+            sort: result(),
+            variable: Cow::Owned(variable_pattern(variable)),
+            body: recurse(inner),
+        },
+        Predicate::Forall(variable, inner) => PatternNode::Forall {
+            sort: result(),
+            variable: Cow::Owned(variable_pattern(variable)),
+            body: recurse(inner),
+        },
+    }
+}
+
+impl<'t> PatternSource<'t> for External<'t> {
+    fn node(self) -> PatternNode<'t, Self> {
+        match self {
+            Self::Term(term) => term_node(term),
+            Self::Variable(variable) => {
+                PatternNode::Variable(Cow::Owned(variable_pattern(variable)))
+            }
+            Self::TrueValue(term) => PatternNode::DomainValue {
+                sort: Cow::Owned(sort(&term.sort())),
+                value: Cow::Owned("true".into()),
+            },
+            Self::Components(term, index) => {
+                let (count, symbols) = components(term);
+                if count == 0 {
+                    return application_node(&symbols.unit, Vec::new(), Vec::new());
+                }
+                let first = component(term, index);
+                if index + 1 == count {
+                    return first.node();
+                }
+                application_node(
+                    &symbols.concat,
+                    Vec::new(),
+                    vec![first, Self::Components(term, index + 1)],
+                )
+            }
+            Self::MapElement(element, key, value) => application_node(
+                element,
+                Vec::new(),
+                vec![Self::Term(key), Self::Term(value)],
+            ),
+            Self::Element(element, item) => {
+                application_node(element, Vec::new(), vec![Self::Term(item)])
+            }
+            Self::Predicate {
+                predicate,
+                sort,
+                preserve_terms,
+            } => predicate_node(predicate, sort, preserve_terms),
+            Self::Binding {
+                variable,
+                value,
+                sort: result_sort,
+            } => {
+                // `Term::variable(variable)` is not a domain value, so the value goes on the
+                // left exactly when it is a Boolean domain value.
+                let (operand_sort, left, right) = if is_boolean_domain_value(value) {
+                    (value.sort(), Self::Term(value), Self::Variable(variable))
+                } else {
+                    (
+                        variable.sort.clone(),
+                        Self::Variable(variable),
+                        Self::Term(value),
+                    )
+                };
+                PatternNode::Equals {
+                    operand_sort: Cow::Owned(sort(&operand_sort)),
+                    result_sort: Cow::Owned(sort(result_sort)),
+                    left,
+                    right,
+                }
+            }
+            Self::Constrained(pattern) => {
+                let result_sort = || Cow::Owned(sort(&pattern.term.sort()));
+                if predicates_truth(&pattern.constraints) == Truth::False {
+                    return PatternNode::Bottom {
+                        sort: result_sort(),
+                    };
+                }
+                let predicate = match pattern.constraints.as_slice() {
+                    [] => return term_node(&pattern.term),
+                    [predicate] => Self::Predicate {
+                        predicate,
+                        sort: ResultSort::OfTerm(&pattern.term),
+                        preserve_terms: false,
+                    },
+                    _ => Self::Constraints(pattern),
+                };
+                PatternNode::And {
+                    sort: result_sort(),
+                    arguments: vec![Self::Term(&pattern.term), predicate],
+                }
+            }
+            Self::Constraints(pattern) => PatternNode::And {
+                sort: Cow::Owned(sort(&pattern.term.sort())),
+                arguments: pattern
+                    .constraints
+                    .iter()
+                    .map(|predicate| Self::Predicate {
+                        predicate,
+                        sort: ResultSort::OfTerm(&pattern.term),
+                        preserve_terms: false,
+                    })
+                    .collect(),
+            },
+            Self::Connective {
+                and,
+                shape,
+                sort,
+                operands,
+            } => {
+                let part = |operands| {
+                    connective_source(sort, operands, shape, and).expect(
+                        "a nested connective splits two or more operands into non-empty parts",
+                    )
+                };
+                let arguments = match shape {
+                    ConjunctionShape::Flat => operands.to_vec(),
+                    ConjunctionShape::LeftNested => {
+                        let (last, init) = operands
+                            .split_last()
+                            .expect("a connective has at least two operands");
+                        vec![part(init), *last]
+                    }
+                    ConjunctionShape::Balanced => {
+                        let (left, right) = operands.split_at(operands.len() / 2);
+                        vec![part(left), part(right)]
+                    }
+                };
+                let sort = Cow::Borrowed(sort);
+                if and {
+                    PatternNode::And { sort, arguments }
+                } else {
+                    PatternNode::Or { sort, arguments }
+                }
+            }
+            Self::Top(sort) => PatternNode::Top {
+                sort: Cow::Borrowed(sort),
+            },
+            Self::Bottom(sort) => PatternNode::Bottom {
+                sort: Cow::Borrowed(sort),
+            },
+        }
+    }
+
+    /// Equal backend terms (and equal collection suffixes of equal terms) externalize to equal
+    /// patterns, because externalization reads only the term's structure; `Term`'s `Eq` is
+    /// structural equality and answers a shared or differently hashed pair in O(1).
+    fn same_pattern(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Term(left), Self::Term(right)) => left == right,
+            (Self::Components(left, i), Self::Components(right, j)) => i == j && left == right,
+            _ => false,
+        }
+    }
+}
+
+impl External<'_> {
+    /// A superset of the backend variables whose externalized forms occur in this pattern, when
+    /// it is a term, a suffix of a collection term, or a collection item; `None` otherwise.
+    pub fn term_variables(&self) -> Option<&BTreeSet<Variable>> {
+        match self {
+            Self::Term(term) | Self::Components(term, _) | Self::Element(_, term) => {
+                Some(&term.attributes().variables)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -984,7 +1479,7 @@ mod tests {
         assert_eq!(
             predicate_pattern(&Predicate::Term(value.clone()), &boolean_sort),
             kore::Pattern::Equals {
-                operand_sort: sort(&boolean_sort),
+                operand_sort: Box::new(sort(&boolean_sort)),
                 result_sort: sort(&boolean_sort),
                 left: Box::new(kore::Pattern::DomainValue {
                     sort: sort(&boolean_sort),
@@ -1045,7 +1540,7 @@ mod tests {
                 left,
                 right,
                 ..
-            } if *operand_sort == sort(&Sort::simple("SortBool"))
+            } if **operand_sort == sort(&Sort::simple("SortBool"))
                 && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
                 && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "intEq")
         ));
@@ -1118,7 +1613,7 @@ mod tests {
         assert!(matches!(
             &renamed,
             kore::Pattern::Equals { operand_sort, left, right, .. }
-                if *operand_sort == sort(&Sort::simple("SortInt"))
+                if **operand_sort == sort(&Sort::simple("SortInt"))
                     && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                     && matches!(right.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "1")
         ));
@@ -1139,7 +1634,7 @@ mod tests {
         assert!(matches!(
             &lookalike,
             kore::Pattern::Equals { operand_sort, left, right, .. }
-                if *operand_sort == sort(&Sort::simple("SortBool"))
+                if **operand_sort == sort(&Sort::simple("SortBool"))
                     && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
                     && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
                         if symbol.name == "opaqueEqLookalike")
@@ -1179,7 +1674,7 @@ mod tests {
         assert!(matches!(
             &rule_predicate,
             kore::Pattern::Equals { operand_sort, right, .. }
-                if *operand_sort == sort(&Sort::simple("SortBool"))
+                if **operand_sort == sort(&Sort::simple("SortBool"))
                     && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
                         if symbol.name == "floatEq")
         ));
@@ -1192,7 +1687,7 @@ mod tests {
         assert!(matches!(
             &matching_equality,
             kore::Pattern::Equals { operand_sort, left, right, .. }
-                if *operand_sort == sort(&float_sort)
+                if **operand_sort == sort(&float_sort)
                     && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                     && matches!(right.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
         ));

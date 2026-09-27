@@ -322,7 +322,7 @@ fn expand_with(
             result_sort,
             argument,
         } => Ok(Pattern::Ceil {
-            operand_sort: substitute_sort(operand_sort, sorts),
+            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
             result_sort: substitute_sort(result_sort, sorts),
             argument: Box::new(recurse(argument, stack)?),
         }),
@@ -331,7 +331,7 @@ fn expand_with(
             result_sort,
             argument,
         } => Ok(Pattern::Floor {
-            operand_sort: substitute_sort(operand_sort, sorts),
+            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
             result_sort: substitute_sort(result_sort, sorts),
             argument: Box::new(recurse(argument, stack)?),
         }),
@@ -341,7 +341,7 @@ fn expand_with(
             left,
             right,
         } => Ok(Pattern::Equals {
-            operand_sort: substitute_sort(operand_sort, sorts),
+            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
             result_sort: substitute_sort(result_sort, sorts),
             left: Box::new(recurse(left, stack)?),
             right: Box::new(recurse(right, stack)?),
@@ -352,7 +352,7 @@ fn expand_with(
             left,
             right,
         } => Ok(Pattern::In {
-            operand_sort: substitute_sort(operand_sort, sorts),
+            operand_sort: Box::new(substitute_sort(operand_sort, sorts)),
             result_sort: substitute_sort(result_sort, sorts),
             left: Box::new(recurse(left, stack)?),
             right: Box::new(recurse(right, stack)?),
@@ -458,16 +458,22 @@ fn expand_binder(
     Ok(match kind {
         BinderKind::Exists => kore::Pattern::Exists {
             sort: substitute_sort(sort.expect("exists has a result sort"), sorts),
-            variable,
+            variable: Box::new(variable),
             body,
         },
         BinderKind::Forall => kore::Pattern::Forall {
             sort: substitute_sort(sort.expect("forall has a result sort"), sorts),
-            variable,
+            variable: Box::new(variable),
             body,
         },
-        BinderKind::Mu => kore::Pattern::Mu { variable, body },
-        BinderKind::Nu => kore::Pattern::Nu { variable, body },
+        BinderKind::Mu => kore::Pattern::Mu {
+            variable: Box::new(variable),
+            body,
+        },
+        BinderKind::Nu => kore::Pattern::Nu {
+            variable: Box::new(variable),
+            body,
+        },
     })
 }
 
@@ -601,7 +607,7 @@ fn rename_bound_occurrences(
         } => Pattern::Exists {
             sort: sort.clone(),
             variable: variable.clone(),
-            body: if variable == old {
+            body: if variable.as_ref() == old {
                 body.clone()
             } else {
                 Box::new(recurse(body))
@@ -614,7 +620,7 @@ fn rename_bound_occurrences(
         } => Pattern::Forall {
             sort: sort.clone(),
             variable: variable.clone(),
-            body: if variable == old {
+            body: if variable.as_ref() == old {
                 body.clone()
             } else {
                 Box::new(recurse(body))
@@ -622,7 +628,7 @@ fn rename_bound_occurrences(
         },
         Pattern::Mu { variable, body } => Pattern::Mu {
             variable: variable.clone(),
-            body: if variable == old {
+            body: if variable.as_ref() == old {
                 body.clone()
             } else {
                 Box::new(recurse(body))
@@ -630,7 +636,7 @@ fn rename_bound_occurrences(
         },
         Pattern::Nu { variable, body } => Pattern::Nu {
             variable: variable.clone(),
-            body: if variable == old {
+            body: if variable.as_ref() == old {
                 body.clone()
             } else {
                 Box::new(recurse(body))
