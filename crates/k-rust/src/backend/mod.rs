@@ -183,6 +183,12 @@ pub struct ExecutionLeaf {
     pub remainder: Option<ExecutionRemainderOutput>,
     pub depth: u64,
     pub reason: HaltReasonOutput,
+    /// The rule responsible for an undefined step, when the `Trivial` halt names one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_id: Option<String>,
+    /// The rule's optional label, using the same label as observations and the rule catalog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_label: Option<String>,
     /// The stopped step's structured cause, present exactly for an indeterminate halt.
     /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason`.
     #[serde(skip_serializing_if = "Option::is_none")]

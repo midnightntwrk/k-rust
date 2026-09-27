@@ -112,6 +112,7 @@ Ordinary calls do not collect observation events.
 A `transition` event names a committed transition of the leaf's `branch` that the rule filter admits, in branch order; an `evaluation` event records an equation, simplification, or builtin application that normalized a branch state, with `anchor` the number of `branch` entries preceding it.
 Evaluation events are diagnostics: which ones occur, and in which order, depends on the simplifier's strategy.
 The legacy execution-leaf `detail` string remains human-readable diagnostic context for compatibility and must not be parsed as semantic data; use the closed `reason`, `branch`, and `observations` fields instead.
+An undefined-step (`trivial`) execution leaf includes `ruleId` and, when labeled, `ruleLabel` for the rule responsible for the halt; the id matches `ruleCatalog` and the step commits no transition.
 `execute` exposes depth/breadth bounds, all/any strategy, branch stopping, cut-point and terminal rules, step timeouts, and rewrite traces.
 
 The native addon is synchronous. Call it from a worker thread when parsing untrusted or especially

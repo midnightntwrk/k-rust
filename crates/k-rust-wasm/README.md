@@ -105,6 +105,7 @@ Observed calls accept an atomically validated allowlist of executable rewrite, f
 A `transition` event names a committed transition of the leaf's `branch` that the rule filter admits, in branch order; an `evaluation` event records an equation, simplification, or builtin application that normalized a branch state, with `anchor` the number of `branch` entries preceding it.
 Evaluation events are diagnostics: which ones occur, and in which order, depends on the simplifier's strategy.
 The legacy execution-leaf `detail` string is diagnostic-only; use `reason`, `branch`, and `observations` for semantic decisions.
+An undefined-step (`trivial`) execution leaf includes `ruleId` and, when labeled, `ruleLabel` for the rule responsible for the halt; the id matches `ruleCatalog` and the step commits no transition.
 Search responses are synchronous and fully materialized, so callers should set depth, breadth, result, and simplification bounds; streaming/backpressure and cancellation are not exposed at this boundary.
 Reachability claims present in portable input KORE can therefore be proved without leaving WASM.
 `getModel` always throws an actionable SMT capability error, and operations that actually require

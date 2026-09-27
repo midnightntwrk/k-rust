@@ -252,6 +252,10 @@ export interface ExecutionLeaf {
     | 'unsupported-hook'
     | 'simplification-error'
     | 'timeout'
+  /** Rule responsible for a 'trivial' leaf, when its halt names one. */
+  ruleId?: string
+  /** Optional label of that rule, as in rule catalog and observations. */
+  ruleLabel?: string
   /** The stopped step's cause, present exactly for an indeterminate halt; same encoding as search's indeterminate reason. */
   cause?: SearchFailure
   /** Legacy human-readable context only; use cause, candidates and remainder for halt evidence. */

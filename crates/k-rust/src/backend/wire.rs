@@ -1340,6 +1340,10 @@ pub(super) fn execution_response(
             .into_iter()
             .map(|leaf| {
                 let (reason, detail) = halt_reason(&leaf.halt_reason);
+                let (rule_id, rule_label) = match &leaf.halt_reason {
+                    HaltReason::Trivial { rule_id, label, .. } => (rule_id.clone(), label.clone()),
+                    _ => (None, None),
+                };
                 let result_sort = leaf.pattern.term.sort();
                 let cause = match &leaf.halt_reason {
                     HaltReason::Indeterminate(reason) => {
@@ -1355,6 +1359,8 @@ pub(super) fn execution_response(
                     remainder,
                     depth: leaf.depth,
                     reason,
+                    rule_id,
+                    rule_label,
                     cause,
                     detail,
                     trace: leaf.trace.into_iter().map(trace_entry).collect(),
