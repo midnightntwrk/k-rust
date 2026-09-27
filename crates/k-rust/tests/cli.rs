@@ -4915,6 +4915,155 @@ fn kprove_proves_a_modal_claim_in_process() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn kprove_reuses_proofs_only_toward_weaker_claim_modality() {
+    let source = include_str!("fixtures/claim-modality/dup.k");
+    let (root, definition) = fixture();
+    for (case, spec, expected) in [
+        (
+            "one-first",
+            source.to_owned(),
+            [("one", "proven ("), ("all", "disproved (")],
+        ),
+        (
+            "all-first",
+            source.replace(
+                "  claim [one]: <k> a => b </k> [one-path]\n  claim [all]: <k> a => b </k>",
+                "  claim [all]: <k> a => b </k>\n  claim [one]: <k> a => b </k> [one-path]",
+            ),
+            [("all", "disproved ("), ("one", "proven (")],
+        ),
+    ] {
+        fs::write(&definition, spec).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "DUP-SPEC",
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!output.status.success(), "{case}: {stdout}");
+        let claims = stdout
+            .lines()
+            .filter(|line| line.starts_with("claim "))
+            .collect::<Vec<_>>();
+        assert_eq!(claims.len(), 2, "{case}: {stdout}");
+        for ((label, verdict), line) in expected.into_iter().zip(claims) {
+            assert!(
+                line.starts_with(&format!("claim DUP-SPEC.{label}: {verdict}")),
+                "{case}: {stdout}"
+            );
+        }
+    }
+
+    // On a deterministic definition the all-path proof can discharge the same one-path body.
+    fs::write(&definition, source.replace("  rule <k> a => c </k>\n", "")).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "DUP-SPEC",
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("claim DUP-SPEC.one: proven ("), "{stdout}");
+    assert!(stdout.contains("claim DUP-SPEC.all: proven ("), "{stdout}");
+
+    let all_first = source.replace("  rule <k> a => c </k>\n", "").replace(
+        "  claim [one]: <k> a => b </k> [one-path]\n  claim [all]: <k> a => b </k>",
+        "  claim [all]: <k> a => b </k>\n  claim [one]: <k> a => b </k> [one-path]",
+    );
+    fs::write(&definition, all_first).unwrap();
+    let saved = root.join("proofs.kore");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "DUP-SPEC",
+            "--save-proofs",
+            saved.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("claim DUP-SPEC.all: proven ("), "{stdout}");
+    assert!(
+        stdout.contains("claim DUP-SPEC.one: proven (saved)"),
+        "{stdout}"
+    );
+
+    fs::remove_file(&saved).unwrap();
+    fs::write(&definition, source).unwrap();
+    let selected = |label: &str| {
+        Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                definition.to_str().unwrap(),
+                "--main-module",
+                "DUP-SPEC",
+                "--claim",
+                label,
+                "--save-proofs",
+                saved.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap()
+    };
+    let one = selected("one");
+    assert!(one.status.success(), "{one:?}");
+    let all = selected("all");
+    let stdout = String::from_utf8(all.stdout).unwrap();
+    assert!(!all.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("claim DUP-SPEC.all: disproved ("),
+        "{stdout}"
+    );
+
+    fs::remove_file(&saved).unwrap();
+    fs::write(&definition, source.replace("  rule <k> a => c </k>\n", "")).unwrap();
+    let all = selected("all");
+    assert!(all.status.success(), "{all:?}");
+    let one = selected("one");
+    let stdout = String::from_utf8(one.stdout).unwrap();
+    assert!(one.status.success(), "{stdout}");
+    assert!(
+        stdout.contains("claim DUP-SPEC.one: proven (saved)"),
+        "{stdout}"
+    );
+
+    let mut legacy = parse_definition(&fs::read_to_string(&saved).unwrap()).unwrap();
+    legacy.modules[0].attributes = Default::default();
+    fs::write(
+        &saved,
+        k_rust::kore::printer::Printer::pretty(100).print_definition(&legacy),
+    )
+    .unwrap();
+    let old_file = selected("one");
+    assert!(!old_file.status.success(), "{old_file:?}");
+    assert!(
+        String::from_utf8_lossy(&old_file.stderr).contains("predates modality-aware"),
+        "{old_file:?}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// `app` on values is an `anywhere` overload of `app` on expressions, rewritten to the constructor
 /// `c` only for a positive first argument. The claim's symbolic step on `app(N, 0)` applies the
 /// priority-10 rule where `N <=Int 0`, and its remainder `N >Int 0` simplifies `app(N, 0)` to

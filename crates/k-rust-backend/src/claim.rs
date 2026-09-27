@@ -15,7 +15,7 @@ use crate::{
 const ONE_PATH_MODALITY: &str = "weakExistsFinally";
 const ALL_PATH_MODALITY: &str = "weakAlwaysFinally";
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ReachabilityMode {
     OnePath,
     AllPath,

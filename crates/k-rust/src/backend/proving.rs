@@ -8,14 +8,14 @@ use std::{
 };
 
 use k_rust_backend::{
-    claim::ReachabilityClaim,
+    claim::{ReachabilityClaim, ReachabilityMode},
     definition::BackendDefinition,
     proof::{ProofError, ProofOptions, ProofResult, prove_claim},
     smt::SmtSolver,
 };
 use k_rust_kore::{
     kore::{
-        ast::{Attributes, Definition, Module, Sentence},
+        ast::{Attributes, Definition, Module, Pattern, Sentence, Sort, Symbol},
         parser::parse_definition,
         printer::Printer,
     },
@@ -27,6 +27,38 @@ use super::BackendError;
 #[doc(hidden)]
 pub const SAVED_PROOFS_MODULE: &str =
     "haskell-backend-saved-claims-43943e50-f723-47cd-99fd-07104d664c6d";
+const MODALITY_SAFE_PROOFS: &str = "kRustModalitySafeProofsV1";
+
+fn modality_safe_proofs_attribute() -> Pattern {
+    Pattern::Application {
+        symbol: Symbol {
+            name: MODALITY_SAFE_PROOFS.into(),
+            sort_parameters: Vec::new(),
+        },
+        arguments: Vec::new(),
+    }
+}
+
+/// A proof identity is the emitted claim ID together with its reachability modality.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct ProvenClaim {
+    pub id: String,
+    pub mode: ReachabilityMode,
+}
+
+impl ProvenClaim {
+    pub fn from_claim(claim: &ReachabilityClaim) -> Self {
+        Self {
+            id: claim.attributes.unique_id.clone(),
+            mode: claim.mode,
+        }
+    }
+
+    pub fn supports(&self, claim: &Self) -> bool {
+        self.id == claim.id
+            && (self.mode == ReachabilityMode::AllPath || claim.mode == ReachabilityMode::OnePath)
+    }
+}
 
 /// K's proof-module filter, with the CLI's exact-or-unique-suffix label resolution.
 #[derive(Debug, Default)]
@@ -139,6 +171,17 @@ impl SavedProofs {
                     format!("saved proof file has no `{SAVED_PROOFS_MODULE}` module"),
                 )
             })?;
+        if !module
+            .attributes
+            .0
+            .contains(&modality_safe_proofs_attribute())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "saved proof file predates modality-aware proof identities; remove it and rerun kprove",
+            )
+            .into());
+        }
         Ok(Self {
             path: Some(path.to_owned()),
             claims: module
@@ -150,15 +193,15 @@ impl SavedProofs {
         })
     }
 
-    pub fn proven_ids(&self, spec_module: &Module) -> BTreeSet<String> {
+    pub fn proven_ids(&self, spec_module: &Module) -> BTreeSet<ProvenClaim> {
         spec_module
             .sentences
             .iter()
             .filter_map(|sentence| {
-                let id = claim_unique_id(sentence)?;
+                let id = claim_proof_key(sentence)?;
                 self.claims
                     .iter()
-                    .any(|saved| same_claim(sentence, saved))
+                    .any(|saved| saved_claim_supports(saved, sentence))
                     .then_some(id)
             })
             .collect()
@@ -167,7 +210,7 @@ impl SavedProofs {
     pub fn save(
         &self,
         spec_module: &Module,
-        proven_ids: &BTreeSet<String>,
+        proven_ids: &BTreeSet<ProvenClaim>,
     ) -> Result<(), Box<dyn Error>> {
         let Some(path) = &self.path else {
             return Ok(());
@@ -179,7 +222,10 @@ impl SavedProofs {
 }
 
 #[doc(hidden)]
-pub fn saved_proof_definition(spec_module: &Module, proven_ids: &BTreeSet<String>) -> Definition {
+pub fn saved_proof_definition(
+    spec_module: &Module,
+    proven_ids: &BTreeSet<ProvenClaim>,
+) -> Definition {
     let declarations = spec_module
         .sentences
         .iter()
@@ -188,14 +234,14 @@ pub fn saved_proof_definition(spec_module: &Module, proven_ids: &BTreeSet<String
     let claims = spec_module
         .sentences
         .iter()
-        .filter(|sentence| claim_unique_id(sentence).is_some_and(|id| proven_ids.contains(&id)))
+        .filter(|sentence| claim_proof_key(sentence).is_some_and(|id| proven_ids.contains(&id)))
         .cloned();
     Definition {
         attributes: Attributes::default(),
         modules: vec![Module {
             name: SAVED_PROOFS_MODULE.into(),
             sentences: declarations.chain(claims).collect(),
-            attributes: Attributes::default(),
+            attributes: Attributes(vec![modality_safe_proofs_attribute()]),
         }],
     }
 }
@@ -213,23 +259,70 @@ pub fn claim_unique_id(sentence: &Sentence) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn same_claim(left: &Sentence, right: &Sentence) -> bool {
+fn claim_proof_key(sentence: &Sentence) -> Option<ProvenClaim> {
+    let (_, _, mode, _, _, _) = claim_body(sentence)?;
+    Some(ProvenClaim {
+        id: claim_unique_id(sentence)?,
+        mode,
+    })
+}
+
+type ClaimBody<'a> = (
+    &'a [String],
+    &'a Sort,
+    ReachabilityMode,
+    &'a [Sort],
+    &'a Pattern,
+    &'a Pattern,
+);
+
+fn claim_body(sentence: &Sentence) -> Option<ClaimBody<'_>> {
+    let Sentence::Claim {
+        parameters,
+        pattern,
+        ..
+    } = sentence
+    else {
+        return None;
+    };
+    let Pattern::Implies { sort, left, right } = pattern.as_ref() else {
+        return None;
+    };
+    let Pattern::Application { symbol, arguments } = right.as_ref() else {
+        return None;
+    };
+    let mode = match symbol.name.as_str() {
+        "weakExistsFinally" => ReachabilityMode::OnePath,
+        "weakAlwaysFinally" => ReachabilityMode::AllPath,
+        _ => return None,
+    };
+    let [right] = arguments.as_slice() else {
+        return None;
+    };
+    Some((parameters, sort, mode, &symbol.sort_parameters, left, right))
+}
+
+fn saved_claim_supports(saved: &Sentence, target: &Sentence) -> bool {
     let (
-        Sentence::Claim {
-            parameters: left_parameters,
-            pattern: left_pattern,
-            ..
-        },
-        Sentence::Claim {
-            parameters: right_parameters,
-            pattern: right_pattern,
-            ..
-        },
-    ) = (left, right)
+        Some((saved_parameters, saved_sort, saved_mode, saved_mode_sorts, saved_left, saved_right)),
+        Some((
+            target_parameters,
+            target_sort,
+            target_mode,
+            target_mode_sorts,
+            target_left,
+            target_right,
+        )),
+    ) = (claim_body(saved), claim_body(target))
     else {
         return false;
     };
-    left_parameters == right_parameters && left_pattern == right_pattern
+    saved_parameters == target_parameters
+        && saved_sort == target_sort
+        && saved_mode_sorts == target_mode_sorts
+        && saved_left == target_left
+        && saved_right == target_right
+        && (saved_mode == ReachabilityMode::AllPath || target_mode == ReachabilityMode::OnePath)
 }
 
 pub(super) fn select_claim<'a>(

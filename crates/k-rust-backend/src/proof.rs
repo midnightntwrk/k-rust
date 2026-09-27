@@ -523,7 +523,9 @@ pub fn prove_claim(
         if state.depth > 0 {
             let mut claim_transition = None;
             for candidate in circularities {
-                if candidate.mode != claim.mode {
+                if claim.mode == ReachabilityMode::AllPath
+                    && candidate.mode == ReachabilityMode::OnePath
+                {
                     continue;
                 }
                 let transition = apply_claim(
@@ -4158,6 +4160,54 @@ mod tests {
         assert_eq!(all_path.status, ProofStatus::Disproved);
         assert_eq!(all_path.leaves.len(), 2);
         assert_eq!(all_path.unexplored_states, 0);
+    }
+
+    #[test]
+    fn circularities_use_only_claims_at_least_as_strong_as_the_goal() {
+        for (goal_mode, lemma_mode, expected) in [
+            (
+                ReachabilityMode::OnePath,
+                ReachabilityMode::AllPath,
+                ProofStatus::Proven,
+            ),
+            (
+                ReachabilityMode::AllPath,
+                ReachabilityMode::OnePath,
+                ProofStatus::Disproved,
+            ),
+        ] {
+            let claims = [
+                modal_claim(goal_mode, "a", "c", false),
+                modal_claim(lemma_mode, "b", "c", true),
+            ]
+            .join("\n");
+            let definition = definition(A_TO_B, &claims);
+            let goal = &definition.reachability_claims[0];
+            let result = prove_claim(&definition, goal, ProofOptions::default(), &NoSolver)
+                .expect("claim should execute");
+            let lemma_label = format!(
+                "{}-b-c",
+                if lemma_mode == ReachabilityMode::AllPath {
+                    "all"
+                } else {
+                    "one"
+                }
+            );
+            assert_eq!(
+                result.status, expected,
+                "{goal_mode:?} with {lemma_mode:?}: {result:#?}"
+            );
+            assert_eq!(
+                result
+                    .leaves
+                    .iter()
+                    .any(|leaf| leaf.trace.iter().any(|entry| {
+                        entry.kind == TraceKind::Claim
+                            && entry.label.as_deref() == Some(lemma_label.as_str())
+                    })),
+                expected == ProofStatus::Proven,
+            );
+        }
     }
 
     #[test]
