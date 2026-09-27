@@ -35,6 +35,8 @@ from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
 from support.pins import load_toml  # noqa: E402
 from perf import compare, measure, receipts  # noqa: E402
+from perf import sample  # noqa: E402
+from perf import rustc_profile  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -97,9 +99,18 @@ class Profile:
     name: str
     stages: tuple[str, ...]
     environment: Callable[["Context"], dict[str, str]]
+    wrap: Callable[["Context", list[str], str], list[str]] | None = None
+    """Rewrites a measured command (given the receipt name), e.g. to run it under a sampler."""
+    collect: Callable[["Context", str], dict[str, Any]] | None = None
+    """Called after a measured run; its value is the receipt's `receipt_field`."""
+    receipt_field: str = "sampled_profile"
 
 
 PROFILES: dict[str, Profile] = {}
+PROFILES[sample.NAME] = Profile(sample.NAME, sample.STAGES, sample.environment, sample.wrap, sample.collect)
+for _name, _keep_trace in (("rustc", False), ("rustc-trace", True)):
+    PROFILES[_name] = Profile(_name, rustc_profile.STAGES, rustc_profile.environment_for, rustc_profile.wrap,
+                              rustc_profile.make_collect(_keep_trace), "rustc_profile")
 
 
 @dataclass
@@ -370,6 +381,8 @@ def run_cell(context: Context, port: Port, stage: Stage, scenarios: Sequence[str
         timings = context.receipts_dir / "timings" / f"{name}.krs-timings.json"
         timings.parent.mkdir(parents=True, exist_ok=True)
         argv, cwd = stage_command(context, port, stage, output=output, timings=timings)
+        if profile is not None and profile.wrap is not None:
+            argv = profile.wrap(context, argv, name)
         shutil.rmtree(target / "cargo-timings", ignore_errors=True)
         load_before = receipts.load_average()
         started = receipts.utc_now()
@@ -414,6 +427,8 @@ def run_cell(context: Context, port: Port, stage: Stage, scenarios: Sequence[str
             "cargo_timings": cargo,
             "log": f"logs/{name}.log",
         }
+        if profile is not None and profile.collect is not None:
+            receipt[profile.receipt_field] = profile.collect(context, name)
         receipts.write(receipt, context.receipts_dir / f"{name}.json")
         context.written += 1
         peak = "n/a" if result.peak_memory_bytes is None else f"{result.peak_memory_bytes / 2**30:.2f}GiB"
