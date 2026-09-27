@@ -30,7 +30,7 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationError, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        special_case, validate_request,
+        grade_special_case, special_case, validate_request,
     },
     matching::SortGraph,
     rewrite::{
@@ -919,6 +919,7 @@ impl RpcService {
             return implication_result(&antecedent, &consequent, &result_sort, result);
         }
         if let Some(result) = special_result {
+            let result = grade_special_case(definition, &antecedent_pattern, result, solver);
             let antecedent = simplified_implication_response_syntax(
                 definition,
                 &antecedent,
@@ -2833,7 +2834,9 @@ mod tests {
         let response = implication_response("X:SortK{}", "value{}()");
         let substitution = &response["result"]["condition"]["substitution"]["term"];
 
-        assert_eq!(response["result"]["status"], "invalid");
+        // A counterexample `X =/= value()` ranges over `SortK`, which the solver sees as an
+        // uninterpreted sort, so its `Sat` shows no instance and the answer stays undecided.
+        assert_eq!(response["result"]["status"], "indeterminate");
         assert_eq!(substitution["tag"], "Equals");
         assert_eq!(substitution["first"]["tag"], "EVar");
         assert_eq!(substitution["first"]["name"], "X");
@@ -3297,7 +3300,9 @@ mod tests {
     /// definition, and the match binds it to `u()`. With one nullary constructor and the no-junk
     /// axiom, `u()` is the only value, so the obligation `Y = u()` holds for every `Y` and the
     /// implication is valid even though the solver, which treats `SortU` as uninterpreted, has a
-    /// counterexample. Without the axiom, or with a second constructor, a violating value exists.
+    /// counterexample. Without the axiom, or with a second constructor, a violating value exists,
+    /// but the solver's counterexample `Y =/= u()` is over the uninterpreted sort, so it does not
+    /// show one and the answer is indeterminate rather than invalid.
     #[test]
     fn implication_decides_a_free_consequent_variable_by_the_no_junk_axiom() {
         let only_u = wrapped_constructor_implication(
@@ -3307,14 +3312,14 @@ mod tests {
         assert_eq!(only_u["result"]["status"], "valid", "{only_u:#}");
 
         let junk = wrapped_constructor_implication("symbol u{}() : SortU{} [constructor{}()]", "");
-        assert_eq!(junk["result"]["status"], "invalid", "{junk:#}");
+        assert_eq!(junk["result"]["status"], "indeterminate", "{junk:#}");
 
         let two = wrapped_constructor_implication(
             "symbol u{}() : SortU{} [constructor{}()]
                   symbol v{}() : SortU{} [constructor{}()]",
             r#"axiom{} \or{SortU{}}(u{}(), v{}(), \bottom{SortU{}}()) [constructor{}()]"#,
         );
-        assert_eq!(two["result"]["status"], "invalid", "{two:#}");
+        assert_eq!(two["result"]["status"], "indeterminate", "{two:#}");
     }
 
     #[test]

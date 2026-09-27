@@ -567,6 +567,10 @@ export interface ImplicationCondition {
 
 export interface ImplicationResult {
   schemaVersion: 2
+  /**
+   * `invalid` only when an instance of the antecedent outside the consequent was shown; a
+   * refutation whose antecedent may be empty is `unknown`, with its condition and failure kept.
+   */
   status: 'valid' | 'invalid' | 'unknown'
   condition?: ImplicationCondition
   failure?: string

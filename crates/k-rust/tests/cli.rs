@@ -6068,6 +6068,71 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `stay(X)` under `X &Int 1 ==Int 2` is empty, so it implies anything; `andInt` is an
+/// uninterpreted `smtlib` function, so the solver's `Sat` for it is no instance and the answer is
+/// `unknown`, never `invalid`. Under `X +Int 1 ==Int 2` the antecedent has the instance `X = 1`,
+/// so the refutations stay `invalid`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
+    let (root, _) = fixture();
+    let source = root.join("andint.k");
+    fs::write(&source, include_str!("fixtures/kink/andint/andint.k")).unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", source.to_str().unwrap(), "-m", "ANDINT", "-o"])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let patterns = [
+        ("ant", include_str!("fixtures/kink/andint/ant.kore")),
+        ("con", include_str!("fixtures/kink/andint/con.kore")),
+        ("ant0", include_str!("fixtures/kink/andint/ant0.kore")),
+        ("con0", include_str!("fixtures/kink/andint/con0.kore")),
+        ("bottom", r#"\bottom{SortKItem{}}()"#),
+    ];
+    for (name, pattern) in patterns {
+        fs::write(root.join(format!("{name}.kore")), pattern).unwrap();
+    }
+
+    for (antecedent, consequent, status) in [
+        ("ant", "con", "unknown"),
+        ("ant0", "con0", "invalid"),
+        ("ant", "bottom", "unknown"),
+        ("ant0", "bottom", "invalid"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kore-implies"])
+            .arg(compiled.join("definition.kore"))
+            .args(["--module", "ANDINT", "--antecedent"])
+            .arg(root.join(format!("{antecedent}.kore")))
+            .arg("--consequent")
+            .arg(root.join(format!("{consequent}.kore")))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{antecedent} => {consequent}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            output["status"], status,
+            "{antecedent} => {consequent}: {output:#}"
+        );
+        assert_eq!(
+            output["condition"]["predicate"]["term"]["tag"], "Bottom",
+            "{antecedent} => {consequent}: {output:#}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A destination whose condition is false on the reached state covers none of it, so the whole
 /// state is a stuck leaf. It is never reported as a vacuous branch, so `--allow-vacuous` cannot
 /// turn these false claims into proofs, and the leaf is the same with or without the stuck check

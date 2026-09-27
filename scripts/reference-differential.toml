@@ -1565,7 +1565,7 @@ oracle = "kore-rpc-booster"
 response = "implies-consequent-universal"
 expected = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-implies-consequent-universal.json"
 reference = "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/bounded-search-implies-consequent-universal.reference.json"
-reason = "The consequent's X:SortState is free and absent from the antecedent. k-rust reads it as universally quantified over the implication (docs/compatibility.md#rpc-behavior), so the match binding X := start is an obligation the ground antecedent does not entail, and the answer is invalid with that binding. The proxy rejects the request with error code 4, The RHS must not have free variables not present in the LHS."
+reason = "The consequent's X:SortState is free and absent from the antecedent. k-rust reads it as universally quantified over the implication (docs/compatibility.md#rpc-behavior), so the match binding X := start is an obligation the ground antecedent does not entail. A counterexample X =/= start ranges over SortState, which the solver sees as an uninterpreted sort, so its Sat shows no instance and the answer is indeterminate with that binding as its condition. The proxy rejects the request with error code 4, The RHS must not have free variables not present in the LHS."
 
 # execute-trivial sends krun's depth-0 state, whose initializer functions Booster cannot match, so
 # the proxy answers it through its Kore fallback. execute-trivial-configuration sends the evaluated

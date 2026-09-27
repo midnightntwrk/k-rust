@@ -7,7 +7,8 @@ use k_rust_backend::{
     externalize,
     implication::{
         ImplicationCondition, ImplicationRequestError, ImplicationResult, ImplicationStatus, Side,
-        check_implication_with_existentials_complete, special_case, validate_request,
+        check_implication_with_existentials_complete, grade_special_case, special_case,
+        validate_request,
     },
     substitution::Substitution,
     term::{Name, Sort, Term, TermKind},
@@ -103,7 +104,10 @@ impl Backend {
                 }
             };
             let result = if let Some(result) = special_result {
-                result
+                match &antecedent_pattern {
+                    Some((pattern, _)) => grade_special_case(definition, pattern, result, solver),
+                    None => result,
+                }
             } else {
                 let (antecedent_pattern, antecedent_existentials) =
                     antecedent_pattern.expect("only bottom bypasses implication internalization");
