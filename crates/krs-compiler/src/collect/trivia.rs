@@ -8,12 +8,13 @@ use krs_syntax::{
 use syn::visit::Visit;
 
 use super::invocation::source_syntax_at;
-use super::provenance::{coordinate_overflow, position_to_byte};
+use super::provenance::{SourceLineIndex, coordinate_overflow, position_to_byte};
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
 
 struct DslTriviaVisitor<'source, 'file> {
     source: &'source str,
+    line_index: &'source SourceLineIndex,
     resolver: AttributeResolver<'file>,
     error: Option<CollectionError>,
 }
@@ -39,18 +40,18 @@ impl<'ast> Visit<'ast> for DslTriviaVisitor<'_, '_> {
         }
         let result = match self.resolver.resolve_macro(&invocation.path) {
             Some(FunctionMacro::Rules) => {
-                macro_body_source(self.source, invocation).and_then(|body| {
+                macro_body_source(self.source, self.line_index, invocation).and_then(|body| {
                     parse_rule_block_source_with_trivia(body.source)
                         .map(|_| ())
                         .map_err(|error| source_syntax_at(error, body.byte_offset))
                 })
             }
             Some(FunctionMacro::Cells) => {
-                macro_body_source(self.source, invocation).and_then(validate_cells_trivia)
+                macro_body_source(self.source, self.line_index, invocation)
+                    .and_then(validate_cells_trivia)
             }
-            Some(FunctionMacro::Map) => {
-                macro_body_source(self.source, invocation).and_then(validate_map_trivia)
-            }
+            Some(FunctionMacro::Map) => macro_body_source(self.source, self.line_index, invocation)
+                .and_then(validate_map_trivia),
             _ => Ok(()),
         };
         if let Err(error) = result {
@@ -64,10 +65,12 @@ impl<'ast> Visit<'ast> for DslTriviaVisitor<'_, '_> {
 pub(super) fn validate_dsl_trivia(
     syntax: &syn::File,
     source: &str,
+    line_index: &SourceLineIndex,
     resolver: &AttributeResolver<'_>,
 ) -> Result<(), CollectionError> {
     let mut visitor = DslTriviaVisitor {
         source,
+        line_index,
         resolver: resolver.clone(),
         error: None,
     };
@@ -133,12 +136,14 @@ fn validate_map_trivia(body: MacroBody<'_>) -> Result<(), CollectionError> {
 
 fn macro_body_source<'source>(
     source: &'source str,
+    line_index: &SourceLineIndex,
     invocation: &syn::Macro,
 ) -> Result<MacroBody<'source>, CollectionError> {
     let start = invocation.delimiter.span().open().end();
     let end = invocation.delimiter.span().close().start();
     let start = position_to_byte(
         source,
+        line_index,
         u32::try_from(start.line).map_err(|_| coordinate_overflow())?,
         u32::try_from(
             start
@@ -150,6 +155,7 @@ fn macro_body_source<'source>(
     )?;
     let end = position_to_byte(
         source,
+        line_index,
         u32::try_from(end.line).map_err(|_| coordinate_overflow())?,
         u32::try_from(end.column.checked_add(1).ok_or_else(coordinate_overflow)?)
             .map_err(|_| coordinate_overflow())?,

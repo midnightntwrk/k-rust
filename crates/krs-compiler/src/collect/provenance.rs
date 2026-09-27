@@ -23,6 +23,20 @@ pub(super) struct Coordinates {
     end_column: u32,
 }
 
+#[derive(Debug)]
+pub(super) struct SourceLineIndex {
+    starts: Vec<usize>,
+}
+
+impl SourceLineIndex {
+    pub(super) fn new(text: &str) -> Self {
+        let mut starts = Vec::new();
+        starts.push(0);
+        starts.extend(text.match_indices('\n').map(|(offset, _)| offset + 1));
+        Self { starts }
+    }
+}
+
 pub(super) fn materialize_descriptor_provenance(
     host: &HostDescriptor,
     payload: &HostDescriptorPayload,
@@ -389,11 +403,13 @@ pub(super) fn source_range(
 ) -> Result<SourceRange, CollectionError> {
     let start = position_to_byte(
         &document.text,
+        &document.line_index,
         anchor.start().line(),
         anchor.start().scalar_column(),
     )?;
     let end = position_to_byte(
         &document.text,
+        &document.line_index,
         anchor.end().line(),
         anchor.end().scalar_column(),
     )?;
@@ -418,27 +434,26 @@ pub(super) fn source_range(
 
 pub(super) fn position_to_byte(
     text: &str,
+    line_index: &SourceLineIndex,
     line: u32,
     scalar_column: u32,
 ) -> Result<usize, CollectionError> {
     let requested_line = usize::try_from(line).map_err(|_| coordinate_overflow())?;
     let requested_column = usize::try_from(scalar_column).map_err(|_| coordinate_overflow())?;
-    let line_start = if requested_line == 1 {
-        0
-    } else {
-        text.match_indices('\n')
-            .nth(requested_line - 2)
-            .map(|(offset, _)| offset + 1)
-            .ok_or_else(|| {
-                CollectionError::new(
-                    CollectionErrorKind::SourcePositionOutOfBounds,
-                    format!("source line {line} is outside the exact file revision"),
-                )
-            })?
-    };
-    let line_end = text[line_start..]
-        .find('\n')
-        .map_or(text.len(), |offset| line_start + offset);
+    let line_index_position = requested_line.checked_sub(1);
+    let line_start = line_index_position
+        .and_then(|position| line_index.starts.get(position))
+        .copied()
+        .ok_or_else(|| {
+            CollectionError::new(
+                CollectionErrorKind::SourcePositionOutOfBounds,
+                format!("source line {line} is outside the exact file revision"),
+            )
+        })?;
+    let line_end = line_index
+        .starts
+        .get(requested_line)
+        .map_or(text.len(), |next_start| next_start - 1);
     let line_text = &text[line_start..line_end];
     if requested_column == 0 {
         return Err(CollectionError::new(
@@ -533,6 +548,65 @@ fn descriptor_label(kind: ItemKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn byte_at(text: &str, line: u32, column: u32) -> Result<usize, CollectionError> {
+        position_to_byte(text, &SourceLineIndex::new(text), line, column)
+    }
+
+    #[test]
+    fn first_and_last_lines_and_empty_lines() {
+        let text = "first\n\nlast";
+        assert_eq!(byte_at(text, 1, 1).unwrap(), 0);
+        assert_eq!(byte_at(text, 1, 6).unwrap(), 5);
+        assert_eq!(byte_at(text, 2, 1).unwrap(), 6);
+        assert_eq!(byte_at(text, 3, 1).unwrap(), 7);
+        assert_eq!(byte_at(text, 3, 5).unwrap(), text.len());
+        assert_eq!(byte_at("", 1, 1).unwrap(), 0);
+        assert_eq!(byte_at("x\n", 2, 1).unwrap(), 2);
+    }
+
+    #[test]
+    fn crlf_counts_carriage_return_as_a_scalar() {
+        let text = "a\r\nb\r\n";
+        assert_eq!(byte_at(text, 1, 2).unwrap(), 1);
+        assert_eq!(byte_at(text, 1, 3).unwrap(), 2);
+        assert_eq!(byte_at(text, 2, 1).unwrap(), 3);
+        assert_eq!(byte_at(text, 2, 3).unwrap(), 5);
+        assert_eq!(byte_at(text, 3, 1).unwrap(), 6);
+    }
+
+    #[test]
+    fn multibyte_scalars_use_byte_offsets() {
+        let text = "é🦀\n界z";
+        assert_eq!(byte_at(text, 1, 2).unwrap(), 2);
+        assert_eq!(byte_at(text, 1, 3).unwrap(), 6);
+        assert_eq!(byte_at(text, 2, 2).unwrap(), 10);
+        assert_eq!(byte_at(text, 2, 3).unwrap(), 11);
+    }
+
+    #[test]
+    fn out_of_range_positions_keep_their_diagnostics() {
+        let text = "x\n";
+        for (line, column, detail) in [
+            (0, 1, "source line 0 is outside the exact file revision"),
+            (3, 1, "source line 3 is outside the exact file revision"),
+            (1, 0, "source scalar columns are one-based"),
+            (
+                1,
+                3,
+                "source scalar column 3 is outside line 1 of the exact file revision",
+            ),
+            (
+                2,
+                2,
+                "source scalar column 2 is outside line 2 of the exact file revision",
+            ),
+        ] {
+            let error = byte_at(text, line, column).unwrap_err();
+            assert_eq!(error.kind(), CollectionErrorKind::SourcePositionOutOfBounds);
+            assert_eq!(error.detail(), detail);
+        }
+    }
 
     #[test]
     fn configuration_cell_items_use_the_configuration_declaration_lane() {
