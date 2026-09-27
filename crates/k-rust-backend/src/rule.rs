@@ -536,7 +536,7 @@ pub fn classify_axiom(
         }
         kore::Pattern::Exists { variable, body, .. }
             if matches!(body.as_ref(), kore::Pattern::Equals { left, .. }
-                if matches!(left.as_ref(), kore::Pattern::Variable(found) if found == variable))
+                if matches!(left.as_ref(), kore::Pattern::Variable(found) if found == variable.as_ref()))
                 && (syntax_attributes.has(KoreAttribute::Functional)
                     || syntax_attributes.has(KoreAttribute::Total)) =>
         {
@@ -2774,7 +2774,7 @@ fn binder_term_alternatives(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
 fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore::Variable>) {
     let mut variables = Vec::new();
     while let kore::Pattern::Exists { variable, body, .. } = &mut pattern {
-        variables.push(variable.clone());
+        variables.push(variable.as_ref().clone());
         pattern = std::mem::replace(body.as_mut(), kore::Pattern::String(String::new().into()));
     }
     (pattern, variables)

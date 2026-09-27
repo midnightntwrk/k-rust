@@ -127,7 +127,7 @@ pub(crate) fn internalize_reachability_claim(
 fn extract_existentials(mut pattern: &kore::Pattern) -> (&kore::Pattern, Vec<&kore::Variable>) {
     let mut variables = Vec::new();
     while let kore::Pattern::Exists { variable, body, .. } = pattern {
-        variables.push(variable);
+        variables.push(variable.as_ref());
         pattern = body;
     }
     (pattern, variables)

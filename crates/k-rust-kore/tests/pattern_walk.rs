@@ -31,7 +31,7 @@ fn variables_include_binders_and_occurrences_count_them() {
     let x = variable("X");
     let pattern = Pattern::Exists {
         sort: Sort::Variable("S".into()),
-        variable: x.clone(),
+        variable: Box::new(x.clone()),
         body: Box::new(Pattern::Variable(x.clone())),
     };
     assert_eq!(pattern.variables().into_iter().collect::<Vec<_>>(), [x]);
@@ -44,7 +44,7 @@ fn free_variables_respect_nested_shadowing() {
     let y = variable("Y");
     let pattern = Pattern::Exists {
         sort: Sort::Variable("S".into()),
-        variable: x.clone(),
+        variable: Box::new(x.clone()),
         body: Box::new(Pattern::And {
             sort: Sort::Variable("S".into()),
             arguments: vec![Pattern::Variable(x), Pattern::Variable(y.clone())],

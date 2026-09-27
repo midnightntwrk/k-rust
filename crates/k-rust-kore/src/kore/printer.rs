@@ -1026,40 +1026,40 @@ pub(crate) mod tests {
             },
             Pattern::Exists {
                 sort: sort(),
-                variable: element(),
+                variable: Box::new(element()),
                 body: Box::new(atom()),
             },
             Pattern::Forall {
                 sort: sort(),
-                variable: element(),
+                variable: Box::new(element()),
                 body: Box::new(atom()),
             },
             Pattern::Mu {
-                variable: set(),
+                variable: Box::new(set()),
                 body: Box::new(atom()),
             },
             Pattern::Nu {
-                variable: set(),
+                variable: Box::new(set()),
                 body: Box::new(atom()),
             },
             Pattern::Ceil {
-                operand_sort: sort(),
+                operand_sort: Box::new(sort()),
                 result_sort: sort(),
                 argument: Box::new(atom()),
             },
             Pattern::Floor {
-                operand_sort: sort(),
+                operand_sort: Box::new(sort()),
                 result_sort: sort(),
                 argument: Box::new(atom()),
             },
             Pattern::Equals {
-                operand_sort: sort(),
+                operand_sort: Box::new(sort()),
                 result_sort: sort(),
                 left: Box::new(atom()),
                 right: Box::new(atom()),
             },
             Pattern::In {
-                operand_sort: sort(),
+                operand_sort: Box::new(sort()),
                 result_sort: sort(),
                 left: Box::new(atom()),
                 right: Box::new(atom()),
@@ -1224,29 +1224,29 @@ pub(crate) mod tests {
                     1 => (sort(), boxed(), boxed())
                         .prop_map(|(sort, left, right)| Pattern::Rewrites { sort, left, right }),
                     1 => (sort(), variable(VariableKind::Element), boxed()).prop_map(
-                        |(sort, variable, body)| Pattern::Exists { sort, variable, body }
+                        |(sort, variable, body)| Pattern::Exists { sort, variable: Box::new(variable), body }
                     ),
                     1 => (sort(), variable(VariableKind::Element), boxed()).prop_map(
-                        |(sort, variable, body)| Pattern::Forall { sort, variable, body }
+                        |(sort, variable, body)| Pattern::Forall { sort, variable: Box::new(variable), body }
                     ),
                     1 => (variable(VariableKind::Set), boxed())
-                        .prop_map(|(variable, body)| Pattern::Mu { variable, body }),
+                        .prop_map(|(variable, body)| Pattern::Mu { variable: Box::new(variable), body }),
                     1 => (variable(VariableKind::Set), boxed())
-                        .prop_map(|(variable, body)| Pattern::Nu { variable, body }),
+                        .prop_map(|(variable, body)| Pattern::Nu { variable: Box::new(variable), body }),
                     1 => (sort(), sort(), boxed()).prop_map(|(operand_sort, result_sort, argument)| {
-                        Pattern::Ceil { operand_sort, result_sort, argument }
+                        Pattern::Ceil { operand_sort: Box::new(operand_sort), result_sort, argument }
                     }),
                     1 => (sort(), sort(), boxed()).prop_map(|(operand_sort, result_sort, argument)| {
-                        Pattern::Floor { operand_sort, result_sort, argument }
+                        Pattern::Floor { operand_sort: Box::new(operand_sort), result_sort, argument }
                     }),
                     1 => (sort(), sort(), boxed(), boxed()).prop_map(
                         |(operand_sort, result_sort, left, right)| Pattern::Equals {
-                            operand_sort, result_sort, left, right,
+                            operand_sort: Box::new(operand_sort), result_sort, left, right,
                         }
                     ),
                     1 => (sort(), sort(), boxed(), boxed()).prop_map(
                         |(operand_sort, result_sort, left, right)| Pattern::In {
-                            operand_sort, result_sort, left, right,
+                            operand_sort: Box::new(operand_sort), result_sort, left, right,
                         }
                     ),
                     1 => (

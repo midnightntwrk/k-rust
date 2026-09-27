@@ -660,40 +660,40 @@ fn build_pattern(root: Node) -> Result<Pattern, Error> {
                 },
                 PatternHead::Exists(sort, variable) => Pattern::Exists {
                     sort,
-                    variable,
+                    variable: Box::new(variable),
                     body: child(),
                 },
                 PatternHead::Forall(sort, variable) => Pattern::Forall {
                     sort,
-                    variable,
+                    variable: Box::new(variable),
                     body: child(),
                 },
                 PatternHead::Mu(variable) => Pattern::Mu {
-                    variable,
+                    variable: Box::new(variable),
                     body: child(),
                 },
                 PatternHead::Nu(variable) => Pattern::Nu {
-                    variable,
+                    variable: Box::new(variable),
                     body: child(),
                 },
                 PatternHead::Ceil(operand_sort, result_sort) => Pattern::Ceil {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     argument: child(),
                 },
                 PatternHead::Floor(operand_sort, result_sort) => Pattern::Floor {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     argument: child(),
                 },
                 PatternHead::Equals(operand_sort, result_sort) => Pattern::Equals {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     left: child(),
                     right: child(),
                 },
                 PatternHead::In(operand_sort, result_sort) => Pattern::In {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     left: child(),
                     right: child(),

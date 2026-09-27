@@ -161,7 +161,7 @@ impl From<&Pattern> for Derived {
                 body,
             } => Derived::Exists {
                 sort: sort.clone(),
-                variable: variable.clone(),
+                variable: variable.as_ref().clone(),
                 body: boxed(body),
             },
             Pattern::Forall {
@@ -170,15 +170,15 @@ impl From<&Pattern> for Derived {
                 body,
             } => Derived::Forall {
                 sort: sort.clone(),
-                variable: variable.clone(),
+                variable: variable.as_ref().clone(),
                 body: boxed(body),
             },
             Pattern::Mu { variable, body } => Derived::Mu {
-                variable: variable.clone(),
+                variable: variable.as_ref().clone(),
                 body: boxed(body),
             },
             Pattern::Nu { variable, body } => Derived::Nu {
-                variable: variable.clone(),
+                variable: variable.as_ref().clone(),
                 body: boxed(body),
             },
             Pattern::Ceil {
@@ -186,7 +186,7 @@ impl From<&Pattern> for Derived {
                 result_sort,
                 argument,
             } => Derived::Ceil {
-                operand_sort: operand_sort.clone(),
+                operand_sort: operand_sort.as_ref().clone(),
                 result_sort: result_sort.clone(),
                 argument: boxed(argument),
             },
@@ -195,7 +195,7 @@ impl From<&Pattern> for Derived {
                 result_sort,
                 argument,
             } => Derived::Floor {
-                operand_sort: operand_sort.clone(),
+                operand_sort: operand_sort.as_ref().clone(),
                 result_sort: result_sort.clone(),
                 argument: boxed(argument),
             },
@@ -205,7 +205,7 @@ impl From<&Pattern> for Derived {
                 left,
                 right,
             } => Derived::Equals {
-                operand_sort: operand_sort.clone(),
+                operand_sort: operand_sort.as_ref().clone(),
                 result_sort: result_sort.clone(),
                 left: boxed(left),
                 right: boxed(right),
@@ -216,7 +216,7 @@ impl From<&Pattern> for Derived {
                 left,
                 right,
             } => Derived::In {
-                operand_sort: operand_sort.clone(),
+                operand_sort: operand_sort.as_ref().clone(),
                 result_sort: result_sort.clone(),
                 left: boxed(left),
                 right: boxed(right),
@@ -330,38 +330,42 @@ fn pattern() -> impl Strategy<Value = Pattern> {
             (sort(), variable(VariableKind::Element), boxed()).prop_map(
                 |(sort, variable, body)| Pattern::Exists {
                     sort,
-                    variable,
+                    variable: Box::new(variable),
                     body
                 }
             ),
             (sort(), variable(VariableKind::Element), boxed()).prop_map(
                 |(sort, variable, body)| Pattern::Forall {
                     sort,
-                    variable,
+                    variable: Box::new(variable),
                     body
                 }
             ),
-            (variable(VariableKind::Set), boxed())
-                .prop_map(|(variable, body)| Pattern::Mu { variable, body }),
-            (variable(VariableKind::Set), boxed())
-                .prop_map(|(variable, body)| Pattern::Nu { variable, body }),
+            (variable(VariableKind::Set), boxed()).prop_map(|(variable, body)| Pattern::Mu {
+                variable: Box::new(variable),
+                body
+            }),
+            (variable(VariableKind::Set), boxed()).prop_map(|(variable, body)| Pattern::Nu {
+                variable: Box::new(variable),
+                body
+            }),
             (sort(), sort(), boxed()).prop_map(|(operand_sort, result_sort, argument)| {
                 Pattern::Ceil {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     argument,
                 }
             }),
             (sort(), sort(), boxed()).prop_map(|(operand_sort, result_sort, argument)| {
                 Pattern::Floor {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     argument,
                 }
             }),
             (sort(), sort(), boxed(), boxed()).prop_map(
                 |(operand_sort, result_sort, left, right)| Pattern::Equals {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     left,
                     right,
@@ -369,7 +373,7 @@ fn pattern() -> impl Strategy<Value = Pattern> {
             ),
             (sort(), sort(), boxed(), boxed()).prop_map(
                 |(operand_sort, result_sort, left, right)| Pattern::In {
-                    operand_sort,
+                    operand_sort: Box::new(operand_sort),
                     result_sort,
                     left,
                     right,

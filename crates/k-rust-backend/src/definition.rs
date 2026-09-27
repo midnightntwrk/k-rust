@@ -1975,7 +1975,7 @@ fn subsort_attribute(
             "subsort equality must contain an injection".into(),
         ));
     };
-    if left_variable != variable
+    if left_variable != variable.as_ref()
         || !injection.is(WellKnownSymbol::Inj)
         || injection.sort_parameters.as_slice()
             != [

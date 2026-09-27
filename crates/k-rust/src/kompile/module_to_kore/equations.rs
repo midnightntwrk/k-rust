@@ -143,7 +143,7 @@ pub(super) fn emit_rule_or_claim(
     for variable in existentials.into_iter().rev() {
         right = Pattern::Exists {
             sort: result_sort.clone(),
-            variable,
+            variable: Box::new(variable),
             body: Box::new(right),
         };
     }
@@ -207,7 +207,7 @@ fn emit_macro_axiom(
     let converter = converter.with_sort_variables(parameters.iter().skip(1).cloned());
     let result_sort = converter.convert_sort(&injector.term_sort(left, None)?);
     let pattern = Pattern::Equals {
-        operand_sort: result_sort,
+        operand_sort: Box::new(result_sort),
         result_sort: KoreSort::Variable("R".into()),
         left: Box::new(converter.convert(left)?),
         right: Box::new(converter.convert(right)?),
@@ -417,7 +417,7 @@ fn emit_equation(
     }
     let equals = if equation.direct || claim {
         Pattern::Equals {
-            operand_sort: result_sort,
+            operand_sort: Box::new(result_sort),
             result_sort: predicate_sort.clone(),
             left: Box::new(converter.convert(left)?),
             right: Box::new(right),
@@ -451,7 +451,7 @@ fn emit_equation(
                 sort: predicate_sort.clone(),
                 arguments: vec![
                     Pattern::In {
-                        operand_sort: converter.convert_sort(sort),
+                        operand_sort: Box::new(converter.convert_sort(sort)),
                         result_sort: predicate_sort.clone(),
                         left: Box::new(Pattern::Variable(variable.clone())),
                         right: Box::new(converter.convert(child)?),
@@ -469,7 +469,7 @@ fn emit_equation(
                     arguments: vec![requires, matches],
                 }),
                 right: Box::new(Pattern::Equals {
-                    operand_sort: result_sort,
+                    operand_sort: Box::new(result_sort),
                     result_sort: predicate_sort,
                     left: Box::new(application),
                     right: Box::new(right),
@@ -587,7 +587,7 @@ fn emit_owise_equation(
             };
             candidate = Pattern::Exists {
                 sort: predicate_sort.clone(),
-                variable,
+                variable: Box::new(variable),
                 body: Box::new(candidate),
             };
         }
@@ -637,7 +637,7 @@ fn emit_owise_equation(
                 ],
             }),
             right: Box::new(Pattern::Equals {
-                operand_sort: result_sort,
+                operand_sort: Box::new(result_sort),
                 result_sort: predicate_sort,
                 left: Box::new(application),
                 right: Box::new(right),
@@ -773,7 +773,7 @@ fn equation_matches(
             sort: predicate_sort.clone(),
             arguments: vec![
                 Pattern::In {
-                    operand_sort: converter.convert_sort(sort),
+                    operand_sort: Box::new(converter.convert_sort(sort)),
                     result_sort: predicate_sort.clone(),
                     left: Box::new(Pattern::Variable(variable.clone())),
                     right: Box::new(converter.convert(child)?),
@@ -1025,7 +1025,7 @@ fn side_condition(
     }
     let bool_sort = encode_kore_sort(&Sort::builtin(BuiltinSort::Bool));
     Ok(Pattern::Equals {
-        operand_sort: bool_sort.clone(),
+        operand_sort: Box::new(bool_sort.clone()),
         result_sort: result_sort.clone(),
         left: Box::new(converter.convert(condition)?),
         right: Box::new(Pattern::DomainValue {
@@ -1259,7 +1259,7 @@ mod tests {
                     Pattern::Variable(variable(int)),
                     Pattern::Exists {
                         sort: k_cell.clone(),
-                        variable: variable(k_cell.clone()),
+                        variable: Box::new(variable(k_cell.clone())),
                         body: Box::new(Pattern::Top { sort: k_cell }),
                     },
                 ],

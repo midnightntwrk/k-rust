@@ -623,13 +623,13 @@ fn application(
             if name == "\\exists" {
                 Ok(Pattern::Exists {
                     sort,
-                    variable: variable.clone(),
+                    variable: Box::new(variable.clone()),
                     body: Box::new(body),
                 })
             } else {
                 Ok(Pattern::Forall {
                     sort,
-                    variable: variable.clone(),
+                    variable: Box::new(variable.clone()),
                     body: Box::new(body),
                 })
             }
@@ -648,12 +648,12 @@ fn application(
             }
             if name == "\\mu" {
                 Ok(Pattern::Mu {
-                    variable: variable.clone(),
+                    variable: Box::new(variable.clone()),
                     body: Box::new(body),
                 })
             } else {
                 Ok(Pattern::Nu {
-                    variable: variable.clone(),
+                    variable: Box::new(variable.clone()),
                     body: Box::new(body),
                 })
             }
@@ -669,13 +669,13 @@ fn application(
                 .expect("one term argument was checked");
             if name == "\\ceil" {
                 Ok(Pattern::Ceil {
-                    operand_sort: operand_sort.clone(),
+                    operand_sort: Box::new(operand_sort.clone()),
                     result_sort: result_sort.clone(),
                     argument: Box::new(argument),
                 })
             } else {
                 Ok(Pattern::Floor {
-                    operand_sort: operand_sort.clone(),
+                    operand_sort: Box::new(operand_sort.clone()),
                     result_sort: result_sort.clone(),
                     argument: Box::new(argument),
                 })
@@ -695,14 +695,14 @@ fn application(
             );
             if name == "\\equals" {
                 Ok(Pattern::Equals {
-                    operand_sort: fields.0,
+                    operand_sort: Box::new(fields.0),
                     result_sort: fields.1,
                     left: fields.2,
                     right: fields.3,
                 })
             } else {
                 Ok(Pattern::In {
-                    operand_sort: fields.0,
+                    operand_sort: Box::new(fields.0),
                     result_sort: fields.1,
                     left: fields.2,
                     right: fields.3,
@@ -910,7 +910,7 @@ impl Encoder<'_> {
                     } => {
                         self.finish_application(
                             "\\ceil",
-                            &[operand_sort.clone(), result_sort.clone()],
+                            &[operand_sort.as_ref().clone(), result_sort.clone()],
                             1,
                         )?;
                     }
@@ -921,7 +921,7 @@ impl Encoder<'_> {
                     } => {
                         self.finish_application(
                             "\\floor",
-                            &[operand_sort.clone(), result_sort.clone()],
+                            &[operand_sort.as_ref().clone(), result_sort.clone()],
                             1,
                         )?;
                     }
@@ -932,7 +932,7 @@ impl Encoder<'_> {
                     } => {
                         self.finish_application(
                             "\\equals",
-                            &[operand_sort.clone(), result_sort.clone()],
+                            &[operand_sort.as_ref().clone(), result_sort.clone()],
                             2,
                         )?;
                     }
@@ -943,7 +943,7 @@ impl Encoder<'_> {
                     } => {
                         self.finish_application(
                             "\\in",
-                            &[operand_sort.clone(), result_sort.clone()],
+                            &[operand_sort.as_ref().clone(), result_sort.clone()],
                             2,
                         )?;
                     }

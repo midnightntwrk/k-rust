@@ -259,12 +259,14 @@ impl Pattern {
     pub fn variables(&self) -> BTreeSet<Variable> {
         let mut result = BTreeSet::new();
         for_each_post_order(self, |pattern| match pattern {
-            Pattern::Variable(variable)
-            | Pattern::Exists { variable, .. }
+            Pattern::Variable(variable) => {
+                result.insert(variable.clone());
+            }
+            Pattern::Exists { variable, .. }
             | Pattern::Forall { variable, .. }
             | Pattern::Mu { variable, .. }
             | Pattern::Nu { variable, .. } => {
-                result.insert(variable.clone());
+                result.insert((**variable).clone());
             }
             _ => {}
         });
@@ -274,8 +276,12 @@ impl Pattern {
     pub fn variable_occurrences(&self) -> BTreeMap<(VariableKind, String), usize> {
         let mut result = BTreeMap::new();
         for_each_post_order(self, |pattern| match pattern {
-            Pattern::Variable(variable)
-            | Pattern::Exists { variable, .. }
+            Pattern::Variable(variable) => {
+                *result
+                    .entry((variable.kind, variable.name.clone()))
+                    .or_default() += 1;
+            }
+            Pattern::Exists { variable, .. }
             | Pattern::Forall { variable, .. }
             | Pattern::Mu { variable, .. }
             | Pattern::Nu { variable, .. } => {
@@ -440,7 +446,7 @@ impl Pattern {
         let mut pattern = self;
         let mut variables = Vec::new();
         while let Pattern::Exists { variable, body, .. } = pattern {
-            variables.push(variable);
+            variables.push(variable.as_ref());
             pattern = body;
         }
         (pattern, variables)

@@ -356,13 +356,13 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
                 let argument = Box::new(self.pattern(&arguments[0])?);
                 if label.is(InternalLabel::Ceil) {
                     Ok(Pattern::Ceil {
-                        operand_sort,
+                        operand_sort: Box::new(operand_sort),
                         result_sort,
                         argument,
                     })
                 } else {
                     Ok(Pattern::Floor {
-                        operand_sort,
+                        operand_sort: Box::new(operand_sort),
                         result_sort,
                         argument,
                     })
@@ -371,7 +371,7 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
             Some(InternalLabel::Equals) => {
                 self.require_arity(label, arguments, 2)?;
                 Ok(Pattern::Equals {
-                    operand_sort: self.parameter(label, 0)?,
+                    operand_sort: Box::new(self.parameter(label, 0)?),
                     result_sort: self.parameter(label, 1)?,
                     left: Box::new(self.pattern(&arguments[0])?),
                     right: Box::new(self.pattern(&arguments[1])?),
@@ -458,13 +458,13 @@ impl<'view, 'definition> TermConverter<'view, 'definition> {
         if label.is(InternalLabel::Exists) {
             Pattern::Exists {
                 sort,
-                variable,
+                variable: Box::new(variable),
                 body: Box::new(body),
             }
         } else {
             Pattern::Forall {
                 sort,
-                variable,
+                variable: Box::new(variable),
                 body: Box::new(body),
             }
         }

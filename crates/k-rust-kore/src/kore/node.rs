@@ -787,7 +787,7 @@ impl PatternNode<'_, Pattern> {
                 body,
             } => Pattern::Exists {
                 sort: sort.into_owned(),
-                variable: variable.into_owned(),
+                variable: Box::new(variable.into_owned()),
                 body: Box::new(body),
             },
             N::Forall {
@@ -796,15 +796,15 @@ impl PatternNode<'_, Pattern> {
                 body,
             } => Pattern::Forall {
                 sort: sort.into_owned(),
-                variable: variable.into_owned(),
+                variable: Box::new(variable.into_owned()),
                 body: Box::new(body),
             },
             N::Mu { variable, body } => Pattern::Mu {
-                variable: variable.into_owned(),
+                variable: Box::new(variable.into_owned()),
                 body: Box::new(body),
             },
             N::Nu { variable, body } => Pattern::Nu {
-                variable: variable.into_owned(),
+                variable: Box::new(variable.into_owned()),
                 body: Box::new(body),
             },
             N::Ceil {
@@ -812,7 +812,7 @@ impl PatternNode<'_, Pattern> {
                 result_sort,
                 argument,
             } => Pattern::Ceil {
-                operand_sort: operand_sort.into_owned(),
+                operand_sort: Box::new(operand_sort.into_owned()),
                 result_sort: result_sort.into_owned(),
                 argument: Box::new(argument),
             },
@@ -821,7 +821,7 @@ impl PatternNode<'_, Pattern> {
                 result_sort,
                 argument,
             } => Pattern::Floor {
-                operand_sort: operand_sort.into_owned(),
+                operand_sort: Box::new(operand_sort.into_owned()),
                 result_sort: result_sort.into_owned(),
                 argument: Box::new(argument),
             },
@@ -831,7 +831,7 @@ impl PatternNode<'_, Pattern> {
                 left,
                 right,
             } => Pattern::Equals {
-                operand_sort: operand_sort.into_owned(),
+                operand_sort: Box::new(operand_sort.into_owned()),
                 result_sort: result_sort.into_owned(),
                 left: Box::new(left),
                 right: Box::new(right),
@@ -842,7 +842,7 @@ impl PatternNode<'_, Pattern> {
                 left,
                 right,
             } => Pattern::In {
-                operand_sort: operand_sort.into_owned(),
+                operand_sort: Box::new(operand_sort.into_owned()),
                 result_sort: result_sort.into_owned(),
                 left: Box::new(left),
                 right: Box::new(right),

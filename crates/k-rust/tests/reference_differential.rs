@@ -612,7 +612,7 @@ fn sort_predicate_equation<'a>(
     else {
         return None;
     };
-    if *operand_sort != kore_sort("SortBool") || *result_sort != Sort::Variable("R".into()) {
+    if **operand_sort != kore_sort("SortBool") || *result_sort != Sort::Variable("R".into()) {
         return None;
     }
     let Pattern::Application { symbol, arguments } = result_left.as_ref() else {
@@ -666,7 +666,7 @@ fn single_predicate_match<'a>(pattern: &'a Pattern, argument: &Variable) -> Opti
             result_sort,
             left,
             right,
-        } if *operand_sort == kore_sort("SortK")
+        } if **operand_sort == kore_sort("SortK")
             && *result_sort == Sort::Variable("R".into())
             && matches!(left.as_ref(), Pattern::Variable(variable) if variable == argument) =>
         {
@@ -777,7 +777,7 @@ fn owise_unsupported_disjunct(sentence: &Sentence) -> Option<(String, Sort, Sort
     };
     let (source, target, injected) =
         injected_predicate_argument(single_predicate_match(body, argument)?)?;
-    (variable == injected).then(|| (predicate.to_owned(), source, target))
+    (**variable == *injected).then(|| (predicate.to_owned(), source, target))
 }
 
 #[test]
@@ -3026,7 +3026,7 @@ fn normalize_execution_equalities(pattern: &mut Pattern) {
         return;
     };
     let boolean_sort = matches!(
-        operand_sort,
+        &**operand_sort,
         k_rust::kore::ast::Sort::Application { name, arguments }
             if name == "SortBool" && arguments.is_empty()
     );
@@ -3034,7 +3034,7 @@ fn normalize_execution_equalities(pattern: &mut Pattern) {
         matches!(
             candidate,
             Pattern::DomainValue { sort, value: actual }
-                if sort == operand_sort && actual == value
+                if *sort == **operand_sort && actual == value
         )
     };
     let false_complement = if literal(left, "false") {
@@ -3058,7 +3058,7 @@ fn normalize_execution_equalities(pattern: &mut Pattern) {
                 operand_sort: operand_sort.clone(),
                 result_sort: result_sort.clone(),
                 left: Box::new(Pattern::DomainValue {
-                    sort: operand_sort.clone(),
+                    sort: operand_sort.as_ref().clone(),
                     value: "true".into(),
                 }),
                 right: Box::new(term),
@@ -3150,7 +3150,7 @@ fn canonicalize_remainder_existentials(pattern: &mut Pattern, names: &GeneratedN
             .rev()
             .fold(body, |body, variable| Pattern::Exists {
                 sort: sort.clone(),
-                variable: variable.clone(),
+                variable: Box::new(variable.clone()),
                 body: Box::new(body),
             });
     }
@@ -3809,7 +3809,7 @@ fn constraint_variable_renamings(
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
                 if is_canonical_free_name(&variable.name) {
-                    output.insert(variable.clone());
+                    output.insert(variable.as_ref().clone());
                 }
                 collect(body, output);
             }
@@ -4993,7 +4993,7 @@ fn alpha_normalize_bound_variables(pattern: &mut Pattern) {
             | Pattern::Forall { variable, body, .. }
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
-                let original = variable.clone();
+                let original = variable.as_ref().clone();
                 let canonical = format!("{CANONICAL_NAME}Bound{}", scopes.len());
                 variable.name.clone_from(&canonical);
                 scopes.push((original, canonical));
@@ -5041,12 +5041,12 @@ fn canonicalize_commuting_quantifier_chains(pattern: &mut Pattern) {
             .fold(body, |body, (sort, variable)| match quantifier {
                 Quantifier::Exists => Pattern::Exists {
                     sort,
-                    variable,
+                    variable: Box::new(variable),
                     body: Box::new(body),
                 },
                 Quantifier::Forall => Pattern::Forall {
                     sort,
-                    variable,
+                    variable: Box::new(variable),
                     body: Box::new(body),
                 },
             })
@@ -5103,7 +5103,7 @@ fn canonicalize_commuting_quantifier_chains(pattern: &mut Pattern) {
                         },
                     ) => Some((
                         sort.clone(),
-                        variable.clone(),
+                        variable.as_ref().clone(),
                         std::mem::replace(body.as_mut(), Pattern::String(String::new().into())),
                     )),
                     _ => None,
@@ -5244,7 +5244,7 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
     }
     let chain_variables = binders
         .iter()
-        .map(|(_, variable)| variable.clone())
+        .map(|(_, variable)| variable.as_ref().clone())
         .collect::<BTreeSet<_>>();
     let mut first_occurrences = BTreeMap::new();
     fn record_first_occurrences(
@@ -5285,9 +5285,9 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
             | Pattern::Forall { variable, body, .. }
             | Pattern::Mu { variable, body }
             | Pattern::Nu { variable, body } => {
-                let shadows_chain = chain_variables.contains(variable);
+                let shadows_chain = chain_variables.contains(variable.as_ref());
                 if shadows_chain {
-                    shadowed.push(variable.clone());
+                    shadowed.push(variable.as_ref().clone());
                 }
                 record_first_occurrences(body, chain_variables, shadowed, first_occurrences);
                 if shadows_chain {
@@ -5314,10 +5314,10 @@ fn canonicalize_existentials(pattern: &mut Pattern) {
         &mut first_occurrences,
     );
     binders.sort_by(|left, right| {
-        let key = |(_, variable): &(_, k_rust::kore::ast::Variable)| {
+        let key = |(_, variable): &(_, Box<k_rust::kore::ast::Variable>)| {
             (
                 first_occurrences
-                    .get(variable)
+                    .get(variable.as_ref())
                     .copied()
                     .unwrap_or(usize::MAX),
                 variable.sort.clone(),

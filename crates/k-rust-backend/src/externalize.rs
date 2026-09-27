@@ -597,7 +597,7 @@ fn predicate_pattern_with_terms(
         },
         Predicate::Term(value) if preserve_terms => term(value),
         Predicate::Term(value) => kore::Pattern::Equals {
-            operand_sort: sort(&value.sort()),
+            operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             left: Box::new(kore::Pattern::DomainValue {
                 sort: sort(&value.sort()),
@@ -613,24 +613,24 @@ fn predicate_pattern_with_terms(
                 (left, right)
             };
             kore::Pattern::Equals {
-                operand_sort: sort(&left.sort()),
+                operand_sort: Box::new(sort(&left.sort())),
                 result_sort: sort(result_sort),
                 left: Box::new(term(left)),
                 right: Box::new(term(right)),
             }
         }
         Predicate::Ceil(value) => kore::Pattern::Ceil {
-            operand_sort: sort(&value.sort()),
+            operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             argument: Box::new(term(value)),
         },
         Predicate::Floor(value) => kore::Pattern::Floor {
-            operand_sort: sort(&value.sort()),
+            operand_sort: Box::new(sort(&value.sort())),
             result_sort: sort(result_sort),
             argument: Box::new(term(value)),
         },
         Predicate::In(left, right) => kore::Pattern::In {
-            operand_sort: sort(&left.sort()),
+            operand_sort: Box::new(sort(&left.sort())),
             result_sort: sort(result_sort),
             left: Box::new(term(left)),
             right: Box::new(term(right)),
@@ -689,7 +689,7 @@ fn predicate_pattern_with_terms(
         },
         Predicate::Exists(variable, inner) => kore::Pattern::Exists {
             sort: sort(result_sort),
-            variable: variable_pattern(variable),
+            variable: Box::new(variable_pattern(variable)),
             body: Box::new(predicate_pattern_with_terms(
                 inner,
                 result_sort,
@@ -698,7 +698,7 @@ fn predicate_pattern_with_terms(
         },
         Predicate::Forall(variable, inner) => kore::Pattern::Forall {
             sort: sort(result_sort),
-            variable: variable_pattern(variable),
+            variable: Box::new(variable_pattern(variable)),
             body: Box::new(predicate_pattern_with_terms(
                 inner,
                 result_sort,
@@ -1479,7 +1479,7 @@ mod tests {
         assert_eq!(
             predicate_pattern(&Predicate::Term(value.clone()), &boolean_sort),
             kore::Pattern::Equals {
-                operand_sort: sort(&boolean_sort),
+                operand_sort: Box::new(sort(&boolean_sort)),
                 result_sort: sort(&boolean_sort),
                 left: Box::new(kore::Pattern::DomainValue {
                     sort: sort(&boolean_sort),
@@ -1540,7 +1540,7 @@ mod tests {
                 left,
                 right,
                 ..
-            } if *operand_sort == sort(&Sort::simple("SortBool"))
+            } if **operand_sort == sort(&Sort::simple("SortBool"))
                 && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
                 && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. } if symbol.name == "intEq")
         ));
@@ -1613,7 +1613,7 @@ mod tests {
         assert!(matches!(
             &renamed,
             kore::Pattern::Equals { operand_sort, left, right, .. }
-                if *operand_sort == sort(&Sort::simple("SortInt"))
+                if **operand_sort == sort(&Sort::simple("SortInt"))
                     && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                     && matches!(right.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "1")
         ));
@@ -1634,7 +1634,7 @@ mod tests {
         assert!(matches!(
             &lookalike,
             kore::Pattern::Equals { operand_sort, left, right, .. }
-                if *operand_sort == sort(&Sort::simple("SortBool"))
+                if **operand_sort == sort(&Sort::simple("SortBool"))
                     && matches!(left.as_ref(), kore::Pattern::DomainValue { value, .. } if value == "true")
                     && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
                         if symbol.name == "opaqueEqLookalike")
@@ -1674,7 +1674,7 @@ mod tests {
         assert!(matches!(
             &rule_predicate,
             kore::Pattern::Equals { operand_sort, right, .. }
-                if *operand_sort == sort(&Sort::simple("SortBool"))
+                if **operand_sort == sort(&Sort::simple("SortBool"))
                     && matches!(right.as_ref(), kore::Pattern::Application { symbol, .. }
                         if symbol.name == "floatEq")
         ));
@@ -1687,7 +1687,7 @@ mod tests {
         assert!(matches!(
             &matching_equality,
             kore::Pattern::Equals { operand_sort, left, right, .. }
-                if *operand_sort == sort(&float_sort)
+                if **operand_sort == sort(&float_sort)
                     && matches!(left.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
                     && matches!(right.as_ref(), kore::Pattern::Variable(variable) if variable.name == "X")
         ));

@@ -319,7 +319,7 @@ fn no_junk_axioms(
                 for variable in variables.into_iter().rev() {
                     alternative = Pattern::Exists {
                         sort: result_sort.clone(),
-                        variable,
+                        variable: Box::new(variable),
                         body: Box::new(alternative),
                     };
                 }
@@ -342,7 +342,7 @@ fn no_junk_axioms(
                 );
                 alternatives.push(Pattern::Exists {
                     sort: result_sort.clone(),
-                    variable: variable.clone(),
+                    variable: Box::new(variable.clone()),
                     body: Box::new(Pattern::Application {
                         symbol: Symbol {
                             name: WellKnownSymbol::Inj.as_str().into(),
@@ -532,9 +532,9 @@ fn functional_axiom(production: &Sentence) -> Option<KoreSentence> {
         parameters: generated_axiom_parameters(parameters),
         pattern: Box::new(Pattern::Exists {
             sort: KoreSort::Variable("R".into()),
-            variable: value.clone(),
+            variable: Box::new(value.clone()),
             body: Box::new(Pattern::Equals {
-                operand_sort: result_sort,
+                operand_sort: Box::new(result_sort),
                 result_sort: KoreSort::Variable("R".into()),
                 left: Box::new(Pattern::Variable(value)),
                 right: Box::new(Pattern::Application {
@@ -632,7 +632,7 @@ fn algebraic_axioms(
         axioms.push(KoreSentence::Axiom {
             parameters: axiom_parameters.clone(),
             pattern: Box::new(Pattern::Equals {
-                operand_sort: result_sort.clone(),
+                operand_sort: Box::new(result_sort.clone()),
                 result_sort: KoreSort::Variable("R".into()),
                 left: Box::new(apply(vec![
                     apply(vec![
@@ -676,7 +676,7 @@ fn algebraic_axioms(
         axioms.push(KoreSentence::Axiom {
             parameters: axiom_parameters.clone(),
             pattern: Box::new(Pattern::Equals {
-                operand_sort: result_sort.clone(),
+                operand_sort: Box::new(result_sort.clone()),
                 result_sort: KoreSort::Variable("R".into()),
                 left: Box::new(Pattern::Application {
                     symbol: symbol.clone(),
@@ -722,7 +722,7 @@ fn algebraic_axioms(
             axioms.push(KoreSentence::Axiom {
                 parameters: axiom_parameters.clone(),
                 pattern: Box::new(Pattern::Equals {
-                    operand_sort: result_sort.clone(),
+                    operand_sort: Box::new(result_sort.clone()),
                     result_sort: KoreSort::Variable("R".into()),
                     left: Box::new(Pattern::Application {
                         symbol: symbol.clone(),
@@ -820,9 +820,9 @@ fn subsort_axiom(production: &Sentence) -> Option<KoreSentence> {
         parameters: vec!["R".into()],
         pattern: Box::new(Pattern::Exists {
             sort: KoreSort::Variable("R".into()),
-            variable: value.clone(),
+            variable: Box::new(value.clone()),
             body: Box::new(Pattern::Equals {
-                operand_sort: sort.clone(),
+                operand_sort: Box::new(sort.clone()),
                 result_sort: KoreSort::Variable("R".into()),
                 left: Box::new(Pattern::Variable(value)),
                 right: Box::new(injection),
@@ -887,7 +887,7 @@ fn overload_axiom(
     Ok(KoreSentence::Axiom {
         parameters: vec!["R".into()],
         pattern: Box::new(Pattern::Equals {
-            operand_sort: greater.result,
+            operand_sort: Box::new(greater.result),
             result_sort: KoreSort::Variable("R".into()),
             left: Box::new(Pattern::Application {
                 symbol: greater.symbol.clone(),
