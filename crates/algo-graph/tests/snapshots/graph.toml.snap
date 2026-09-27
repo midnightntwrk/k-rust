@@ -4318,7 +4318,7 @@ id = "kompile.functions.lift"
 provenance = "declared"
 area = "kompile"
 name = "lifting of local functions into generated productions and rules"
-variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module"
+variable = "N = traversed term nodes; G = generated sentences; L = local sentences per module; S = visible sentences of a module; P = visible productions; R = sentences of the definition"
 no_counter = "local-function lifting has no dedicated counter; the shared pass scaffolding bumps KompileResolveCalls, KompileSentenceCopies and KompilePartialOrdersBuilt, and KompileSentencesTransformed is added once per compile"
 table = "Algorithm::ALL"
 registry_name = "KompileFunctionsLift"
@@ -4345,7 +4345,7 @@ symbol = "closure_variables"
 
 [[node.cost]]
 mode = "one definition"
-bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module"
+bound = "O(N + (L + G) x G) plus one SortInjector::with_views per module, and, in a module where a lambda body applies a partial function, one O(S) pass over its visible rules with O(P) per configuration-context cell level, and one O(R) count of the rule heads of the whole definition per pass"
 
 [[node]]
 kind = "algorithm"
