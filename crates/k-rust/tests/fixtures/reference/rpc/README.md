@@ -5,7 +5,7 @@ These cases pin JSON-RPC responses produced by the shipped `kore-rpc-booster` pr
 Each entry under `rpc.oracle-exception` in `scripts/reference-differential.toml` has two files here: `<case>-<response>.json`, the k-rust response, and `<case>-<response>.reference.json`, the pinned `kore-rpc-booster` response to the same request.
 
 - `imp-implies`: the `imp` case's `implies` request (identical antecedent and consequent).
-- `bounded-search-implies-consequent-universal`: an `implies` request whose consequent has a free variable the antecedent does not mention; k-rust answers `invalid`, the reference answers error code 4 ([RPC behavior](../../../../../../docs/compatibility.md#rpc-behavior)).
+- `bounded-search-implies-consequent-universal`: an `implies` request whose consequent has a free variable the antecedent does not mention; k-rust answers `indeterminate` with the binding as its condition, the reference answers error code 4 ([RPC behavior](../../../../../../docs/compatibility.md#rpc-behavior)).
 - `trivial-result-rpc` `execute-trivial-configuration`: named `trivial-result-execute-configuration.json` and `trivial-result-execute-configuration.reference.json` instead, described below.
 
 The RPC gate (normalisation N19) compares each side against its own file and requires the two files to differ, so a change on either side fails the gate.

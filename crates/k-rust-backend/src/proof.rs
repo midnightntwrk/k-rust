@@ -49,7 +49,7 @@ use crate::{
     fresh::fresh_name,
     implication::{
         ImplicationCondition, ImplicationError, ImplicationFailure, ImplicationStatus,
-        check_disjunctive_implication_with_existentials,
+        check_disjunctive_implication_with_existentials, shown_nonempty,
     },
     matching::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
@@ -885,9 +885,11 @@ enum StuckEvidence {
 /// - (c) No circularity or trusted claim on the trace (`TraceKind::Claim`): a claim step
 ///   summarises paths without following them.
 /// - (d) The leaf is non-empty outside the destination: its term contains no function
-///   application, and its constraints, which carry the complement of every destination coverage
-///   condition on the trace, together with the definedness of its term are satisfiable by a
-///   query that approximates nothing (`smt::translates_exactly`), or are true syntactically.
+///   application or conjunction of terms, and its constraints, which carry the complement of
+///   every destination coverage condition on the trace, together with the definedness of its
+///   term are satisfiable by a query that approximates nothing (`smt::translates_exactly`), or
+///   are true syntactically, and every free variable has an inhabited sort
+///   (`implication::shown_nonempty`, shared with the complete implication policy).
 ///   Those complements say "outside the destination" only if every state on the trace had its
 ///   implication check run and decided (`ProofState::destination_undecided`): a skipped or
 ///   undecided check leaves no complement, and the configurations that continued past it may
@@ -970,23 +972,13 @@ fn leaf_is_nonempty(
     pattern: &Pattern,
     solver: &dyn SmtSolver,
 ) -> bool {
-    // An unevaluated function application may denote no value, or a value that the destination
-    // match would have accepted; a conjunction of terms may denote no value.
-    let mut constructors_only = !matches!(pattern.term.kind(), TermKind::And(..));
+    // An unevaluated function application may denote a value that the destination match would
+    // have accepted, so the leaf's configurations are known only for a constructor term.
+    let mut constructors_only = true;
     pattern.term.visit_symbols(&mut |symbol| {
         constructors_only &= symbol.attributes.symbol_type == SymbolType::Constructor;
     });
-    if !constructors_only {
-        return false;
-    }
-    let mut query = pattern.constraints.clone();
-    extend_unique(&mut query, ceil_term(definition, &pattern.term));
-    predicates_truth(&query) == Truth::True
-        || (crate::smt::translates_exactly(&query)
-            && matches!(
-                solver.is_sat(&query, &Substitution::new()),
-                Ok(Satisfiability::Sat)
-            ))
+    constructors_only && shown_nonempty(definition, pattern, &[], solver)
 }
 
 /// Condition (a) of [`stuck_leaf`] for a state the search stopped without rewriting it. The

@@ -371,8 +371,11 @@ krust kore-get-model definition.kore --module MAIN --pattern predicate.kore --ou
 ```
 
 Check whether one constrained KORE pattern implies another. The JSON result includes the original
-implication, its `valid`, `invalid`, or `unknown` status, and any matching condition. Conditions
-keep the residual `predicate`, term-match `substitution`, and existential `witnesses` separate:
+implication, its `valid`, `invalid`, or `unknown` status, and any matching condition. `invalid`
+means an instance of the antecedent outside the consequent was shown to exist, syntactically or by
+a solver `Sat` on a query that approximates nothing; a refutation whose antecedent may be empty is
+`unknown`, keeping its condition. Conditions keep the residual `predicate`, term-match
+`substitution`, and existential `witnesses` separate:
 
 ```console
 krust kore-implies definition.kore --module MAIN \

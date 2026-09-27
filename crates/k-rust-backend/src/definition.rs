@@ -221,6 +221,8 @@ pub struct BackendDefinition {
     finite_sort_constructors: BTreeMap<Sort, BTreeSet<ConstructorHead>>,
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
+    /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
+    inhabited_sorts: OnceLock<BTreeSet<Name>>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -754,6 +756,7 @@ impl BackendDefinition {
             ceil_theory: Theory::new(),
             finite_sort_constructors: BTreeMap::new(),
             kvar_sorts: OnceLock::new(),
+            inhabited_sorts: OnceLock::new(),
         };
         let rules = result
             .classified_axioms
@@ -808,6 +811,27 @@ impl BackendDefinition {
     /// The may-contain-`KVar` sort fact, a least fixpoint computed at most once per definition.
     pub(crate) fn kvar_sorts(&self) -> &KVarSorts {
         self.kvar_sorts.get_or_init(|| KVarSorts::of(self))
+    }
+
+    /// Whether `sort` is known to have at least one value.
+    ///
+    /// The known-inhabited sorts are the least fixed point of: a hooked sort, a sort with domain
+    /// values, and a collection sort (it has its empty collection) are inhabited; the result sort
+    /// of a constructor or total function without sort parameters is inhabited when every
+    /// argument sort is, since applying it to values of those sorts denotes a value; and a
+    /// supersort of an inhabited sort is inhabited through the injection. A sort outside the
+    /// fixed point, a parametric sort, and a sort variable answer false: a sort without such a
+    /// value-building production, or whose productions all need a value of an uninhabited sort,
+    /// has no value, and the others are not analyzed.
+    pub(crate) fn sort_is_inhabited(&self, sort: &Sort) -> bool {
+        let Sort::Application { name, arguments } = sort else {
+            return false;
+        };
+        arguments.is_empty()
+            && self
+                .inhabited_sorts
+                .get_or_init(|| inhabited_sorts(self))
+                .contains(name)
     }
 
     pub(crate) fn finite_constructor_heads(
@@ -1398,6 +1422,72 @@ impl BackendDefinition {
 fn is_decimal_integer(value: &str) -> bool {
     let digits = value.strip_prefix(['+', '-']).unwrap_or(value).as_bytes();
     !digits.is_empty() && digits.iter().all(u8::is_ascii_digit)
+}
+
+/// The least fixed point described at [`BackendDefinition::sort_is_inhabited`]; each round
+/// scans the symbols and subsort sets once, and a round that adds no sort ends the iteration.
+fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<Name> {
+    let simple = |sort: &Sort| match sort {
+        Sort::Application { name, arguments } if arguments.is_empty() => Some(name.clone()),
+        _ => None,
+    };
+    let mut inhabited = definition
+        .sorts
+        .iter()
+        .filter(|(_, info)| {
+            info.parameters.is_empty()
+                && (info.hook.is_some() || info.has_domain_values || info.collection.is_some())
+        })
+        .map(|(name, _)| name.clone())
+        .collect::<BTreeSet<_>>();
+    let builders = definition
+        .symbols
+        .values()
+        .filter(|symbol| {
+            symbol.sort_variables.is_empty()
+                && matches!(
+                    symbol.attributes.symbol_type,
+                    SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+                )
+        })
+        .filter_map(|symbol| {
+            let result = simple(&symbol.result_sort)?;
+            let arguments = symbol
+                .argument_sorts
+                .iter()
+                .map(simple)
+                .collect::<Option<Vec<_>>>()?;
+            Some((result, arguments))
+        })
+        .collect::<Vec<_>>();
+    // Invariant: `inhabited` holds only sorts shown to have a value; a round that adds none ends.
+    loop {
+        let before = inhabited.len();
+        for (result, arguments) in &builders {
+            if !inhabited.contains(result)
+                && arguments
+                    .iter()
+                    .all(|argument| inhabited.contains(argument))
+            {
+                inhabited.insert(result.clone());
+            }
+        }
+        for supersort in definition.sorts.keys() {
+            if inhabited.contains(supersort) {
+                continue;
+            }
+            if definition
+                .sort_graph
+                .subsorts_of(&Sort::simple(supersort.clone()))
+                .is_some_and(|subsorts| subsorts.iter().any(|sort| inhabited.contains(sort)))
+            {
+                inhabited.insert(supersort.clone());
+            }
+        }
+        if inhabited.len() == before {
+            return inhabited;
+        }
+    }
 }
 
 fn collect_finite_sort_constructors(

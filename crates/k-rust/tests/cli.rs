@@ -6210,6 +6210,134 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// `stay(X)` under `X &Int 1 ==Int 2` is empty, so it implies anything; `andInt` is an
+/// uninterpreted `smtlib` function, so the solver's `Sat` for it is no instance and the answer is
+/// `unknown`, never `invalid`. Under `X +Int 1 ==Int 2` the antecedent has the instance `X = 1`,
+/// so the refutations stay `invalid`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
+    let (root, _) = fixture();
+    let source = root.join("andint.k");
+    fs::write(&source, include_str!("fixtures/kink/andint/andint.k")).unwrap();
+    let compiled = root.join("compiled");
+    let compile = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["kcompile", source.to_str().unwrap(), "-m", "ANDINT", "-o"])
+        .arg(&compiled)
+        .output()
+        .unwrap();
+    assert!(
+        compile.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compile.stderr)
+    );
+    let patterns = [
+        ("ant", include_str!("fixtures/kink/andint/ant.kore")),
+        ("con", include_str!("fixtures/kink/andint/con.kore")),
+        ("ant0", include_str!("fixtures/kink/andint/ant0.kore")),
+        ("con0", include_str!("fixtures/kink/andint/con0.kore")),
+        ("bottom", r#"\bottom{SortKItem{}}()"#),
+    ];
+    for (name, pattern) in patterns {
+        fs::write(root.join(format!("{name}.kore")), pattern).unwrap();
+        fs::write(
+            root.join(format!("not-{name}.kore")),
+            format!(r#"\not{{SortKItem{{}}}}({})"#, pattern.trim()),
+        )
+        .unwrap();
+    }
+
+    for (antecedent, consequent, status, predicate) in [
+        ("ant", "con", "unknown", Some("Bottom")),
+        ("ant0", "con0", "invalid", Some("Bottom")),
+        ("ant", "bottom", "unknown", Some("Bottom")),
+        ("ant0", "bottom", "invalid", Some("Bottom")),
+        // `A -> \not C` is invalid exactly when `A /\ C` is nonempty: `stay(1)` is common to
+        // `ant0` and itself, `X +Int 1` is 2 and 3 on no shared `X`, and the solver's `Sat` for
+        // the uninterpreted `X &Int 1 ==Int 2` shows no common value.
+        ("ant0", "not-ant0", "invalid", None),
+        ("ant0", "not-con0", "valid", Some("Top")),
+        ("ant", "not-ant", "unknown", None),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["kore-implies"])
+            .arg(compiled.join("definition.kore"))
+            .args(["--module", "ANDINT", "--antecedent"])
+            .arg(root.join(format!("{antecedent}.kore")))
+            .arg("--consequent")
+            .arg(root.join(format!("{consequent}.kore")))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{antecedent} => {consequent}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let output: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            output["status"], status,
+            "{antecedent} => {consequent}: {output:#}"
+        );
+        match predicate {
+            Some(predicate) => assert_eq!(
+                output["condition"]["predicate"]["term"]["tag"], predicate,
+                "{antecedent} => {consequent}: {output:#}"
+            ),
+            None => assert!(
+                output.get("condition").is_none(),
+                "{antecedent} => {consequent}: {output:#}"
+            ),
+        }
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A pattern with a free variable of an empty sort denotes nothing: `hold(V:Void)`, with no
+/// production building a `Void`, is a vacuous left-hand side, so its claim is never disproved.
+/// The same claim over `Int` has a stuck instance and is.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn kprove_does_not_certify_a_stuck_leaf_over_an_empty_sort() {
+    let (root, _) = fixture();
+    fs::write(
+        root.join("void.k"),
+        include_str!("fixtures/kink/void/void.k"),
+    )
+    .unwrap();
+    let specification = root.join("void-spec.k");
+    fs::write(
+        &specification,
+        include_str!("fixtures/kink/void/void-spec.k"),
+    )
+    .unwrap();
+
+    for (claim, verdict, certified) in
+        [("vacuous", "failed", false), ("control", "disproved", true)]
+    {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args([
+                "kprove",
+                specification.to_str().unwrap(),
+                "--main-module",
+                "VOID-SPEC",
+                "--definition-module",
+                "VOID",
+                "--claim",
+                claim,
+            ])
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!output.status.success(), "{stdout}");
+        assert!(
+            stdout.contains(&format!("claim VOID-SPEC.{claim}: {verdict}")),
+            "{stdout}"
+        );
+        assert_eq!(stdout.contains("Stuck (certified)"), certified, "{stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A destination whose condition is false on the reached state covers none of it, so the whole
 /// state is a stuck leaf. It is never reported as a vacuous branch, so `--allow-vacuous` cannot
 /// turn these false claims into proofs, and the leaf is the same with or without the stuck check
