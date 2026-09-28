@@ -90,7 +90,7 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
             let Some(members) = constructors_by_sort.get_mut(sort) else {
                 return Err(AnalysisError::new(
                     AnalysisErrorKind::UnresolvedReference,
-                    format!("member sort `{}` has no declaration", display_item(sort)),
+                    format!("member sort `{sort}` has no declaration"),
                 ));
             };
             members.push(constructor.clone());
@@ -122,7 +122,7 @@ fn descriptor_kinds(
         {
             return Err(AnalysisError::new(
                 AnalysisErrorKind::DuplicateItemId,
-                format!("duplicate stable item `{}`", display_item(&descriptor.id)),
+                format!("duplicate stable item `{}`", descriptor.id),
             ));
         }
     }
@@ -214,9 +214,9 @@ fn visit_parents(
     if let Some(position) = visiting.iter().position(|item| item == current) {
         let mut cycle = visiting[position..]
             .iter()
-            .map(display_item)
+            .map(ToString::to_string)
             .collect::<Vec<_>>();
-        cycle.push(display_item(current));
+        cycle.push(current.to_string());
         return Err(AnalysisError::new(
             AnalysisErrorKind::SortCycle,
             format!("open-sort relation contains cycle: {}", cycle.join(" -> ")),
@@ -228,8 +228,8 @@ fn visit_parents(
         .expect("resolved sort has a direct-parent entry")
     {
         if parent == root {
-            let mut cycle = visiting.iter().map(display_item).collect::<Vec<_>>();
-            cycle.push(display_item(root));
+            let mut cycle = visiting.iter().map(ToString::to_string).collect::<Vec<_>>();
+            cycle.push(root.to_string());
             return Err(AnalysisError::new(
                 AnalysisErrorKind::SortCycle,
                 format!("open-sort relation contains cycle: {}", cycle.join(" -> ")),
@@ -250,21 +250,14 @@ fn require_kind(
     let Some(actual) = kinds.get(id) else {
         return Err(AnalysisError::new(
             AnalysisErrorKind::UnresolvedReference,
-            format!("stable reference `{}` has no declaration", display_item(id)),
+            format!("stable reference `{id}` has no declaration"),
         ));
     };
     if *actual != expected {
         return Err(AnalysisError::new(
             AnalysisErrorKind::ReferenceKindMismatch,
-            format!(
-                "stable reference `{}` has kind {actual}, but {expected} is required",
-                display_item(id)
-            ),
+            format!("stable reference `{id}` has kind {actual}, but {expected} is required"),
         ));
     }
     Ok(())
-}
-
-fn display_item(id: &StableItemId) -> String {
-    id.to_string()
 }

@@ -10,9 +10,9 @@ use krs_ir::{
 };
 use krs_syntax::{ProvenanceRole, TokenRange};
 
+use super::PreparedContext;
 use super::invocation::{ParsedInvocation, validate_reparsed_payload};
 use super::source::{SourceDocument, load_source_document, normalize_display_file};
-use super::{PreparedContext, display_item};
 use crate::{CollectionError, CollectionErrorKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -68,10 +68,7 @@ pub(super) fn materialize_descriptor_provenance(
     let provenance = DescriptorProvenance::new(primary, origins).map_err(|error| {
         CollectionError::new(
             CollectionErrorKind::ProvenanceMismatch,
-            format!(
-                "invalid materialized provenance for `{}`: {error}",
-                display_item(id)
-            ),
+            format!("invalid materialized provenance for `{id}`: {error}"),
         )
     })?;
     Ok((provenance, parsed.visibility, parsed.explicit_symbol))
@@ -184,7 +181,7 @@ impl MaterializationContext<'_> {
                     CollectionErrorKind::ProvenanceMismatch,
                     format!(
                         "descriptor `{}` lacks primary provenance key `{}`#{}",
-                        display_item(self.id),
+                        self.id,
                         self.primary_key.role(),
                         self.primary_key.ordinal()
                     ),
@@ -219,8 +216,7 @@ impl MaterializationContext<'_> {
                     CollectionErrorKind::StaleAnchor,
                     format!(
                         "primary anchor for `{}` does not match the reparsed `{}` source",
-                        display_item(self.id),
-                        loaded.relative
+                        self.id, loaded.relative
                     ),
                 ));
             }
@@ -230,7 +226,7 @@ impl MaterializationContext<'_> {
                     CollectionErrorKind::AmbiguousAnchor,
                     format!(
                         "primary anchor for `{}` matches multiple shared-parser invocations",
-                        display_item(self.id)
+                        self.id
                     ),
                 ));
             }
@@ -272,7 +268,7 @@ impl MaterializationContext<'_> {
                         "authored provenance `{}`#{} for `{}` is not leaf-exact",
                         authored.key().role(),
                         authored.key().ordinal(),
-                        display_item(self.id)
+                        self.id
                     ),
                 ));
             }
@@ -309,7 +305,7 @@ impl MaterializationContext<'_> {
                             "anchor `{}`#{} for `{}` no longer matches reparsed source",
                             authored.key().role(),
                             authored.key().ordinal(),
-                            display_item(self.id)
+                            self.id
                         ),
                     ));
                 }
@@ -321,7 +317,7 @@ impl MaterializationContext<'_> {
                             "anchor `{}`#{} for `{}` matches multiple shared-parser invocations",
                             authored.key().role(),
                             authored.key().ordinal(),
-                            display_item(self.id)
+                            self.id
                         ),
                     ));
                 }
@@ -335,7 +331,7 @@ impl MaterializationContext<'_> {
                 CollectionErrorKind::ProvenanceMismatch,
                 format!(
                     "macro and shared parser disagree about provenance keys for `{}`",
-                    display_item(self.id)
+                    self.id
                 ),
             ));
         }

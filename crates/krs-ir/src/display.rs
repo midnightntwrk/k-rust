@@ -29,15 +29,15 @@ impl fmt::Display for ItemKind {
 
 impl fmt::Display for StableItemId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}", self.package().cargo_name())?;
+        formatter.write_str(self.package().k_namespace())?;
         for segment in self.module_path() {
             write!(formatter, "::{segment}")?;
         }
-        write!(formatter, "::{}", self.item_name())?;
+        write!(formatter, "::{} ({}", self.item_name(), self.item_kind())?;
         if !self.disambiguator().is_empty() {
-            write!(formatter, " [{}]", self.disambiguator())?;
+            write!(formatter, " {}", self.disambiguator())?;
         }
-        Ok(())
+        formatter.write_str(")")
     }
 }
 
@@ -204,10 +204,10 @@ mod tests {
         let package = PackageId::new("EXAMPLE", "example", "1.0.0", "workspace").unwrap();
         let item =
             StableItemId::new(package, ["math", "integer"], "Number", ItemKind::Sort, "").unwrap();
-        assert_eq!(item.to_string(), "example::math::integer::Number");
+        assert_eq!(item.to_string(), "EXAMPLE::math::integer::Number (sort)");
         assert_eq!(
             SemanticSortRef::Declared(item.clone()).to_string(),
-            "example::math::integer::Number"
+            "EXAMPLE::math::integer::Number (sort)"
         );
         assert_eq!(
             SemanticSortRef::Builtin(BuiltinSort::Int).to_string(),
@@ -229,7 +229,10 @@ mod tests {
             "variant-0",
         )
         .unwrap();
-        assert_eq!(generated.to_string(), "example::math::Number [variant-0]");
+        assert_eq!(
+            generated.to_string(),
+            "EXAMPLE::math::Number (constructor variant-0)"
+        );
         assert_eq!(ItemKind::ContextAlias.to_string(), "context alias");
         assert_eq!(
             SourceMapKey::new("source.key").unwrap().to_string(),

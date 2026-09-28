@@ -19,8 +19,8 @@ use krs_syntax::{
 use proc_macro2::TokenStream;
 use syn::{Attribute, ImplItem, Item, Meta};
 
+use super::path_spelling;
 use super::provenance::{Coordinates, token_coordinates};
-use super::{display_item, path_spelling};
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
 
@@ -1022,10 +1022,7 @@ pub(super) fn validate_reparsed_payload(
         }
         _ => Err(CollectionError::new(
             CollectionErrorKind::ProvenanceMismatch,
-            format!(
-                "reparsed source for `{}` has a different KRS declaration kind",
-                display_item(id)
-            ),
+            format!("reparsed source for `{id}` has a different KRS declaration kind"),
         )),
     }
 }
@@ -1033,10 +1030,7 @@ pub(super) fn validate_reparsed_payload(
 fn provenance_mismatch(id: &StableItemId, field: &str) -> CollectionError {
     CollectionError::new(
         CollectionErrorKind::ProvenanceMismatch,
-        format!(
-            "macro and shared parser disagree about {field} for `{}`",
-            display_item(id)
-        ),
+        format!("macro and shared parser disagree about {field} for `{id}`"),
     )
 }
 

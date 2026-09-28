@@ -282,7 +282,7 @@ fn collect_pending_descriptors(
         if !ids.insert(id.clone()) {
             return Err(CollectionError::new(
                 CollectionErrorKind::DuplicateItemId,
-                format!("duplicate final item identity `{}`", display_item(&id)),
+                format!("duplicate final item identity `{id}`"),
             ));
         }
         pending.push(PendingDescriptor {
@@ -556,10 +556,6 @@ fn is_rust_identifier(value: &str) -> bool {
         .next()
         .is_some_and(|first| first == '_' || first.is_alphabetic())
         && characters.all(|character| character == '_' || character.is_alphanumeric())
-}
-
-fn display_item(id: &StableItemId) -> String {
-    id.to_string()
 }
 
 fn path_spelling(path: &syn::Path) -> String {

@@ -17,7 +17,7 @@ use krs_ir::{
     StructuredRuleDescriptor,
 };
 
-use super::{PendingDescriptor, display_item};
+use super::PendingDescriptor;
 use crate::{CollectionError, CollectionErrorKind};
 
 pub(super) fn declared_type_table(
@@ -36,7 +36,7 @@ pub(super) fn declared_type_table(
                     CollectionErrorKind::MissingTypeDeclaration,
                     format!(
                         "type declaration `{}` exposes no build-local Rust type",
-                        display_item(&descriptor.id)
+                        descriptor.id
                     ),
                 ));
             }
@@ -50,7 +50,7 @@ pub(super) fn declared_type_table(
                 CollectionErrorKind::ItemKindMismatch,
                 format!(
                     "non-type item `{}` exposes a declared Rust type key",
-                    display_item(&descriptor.id)
+                    descriptor.id
                 ),
             ));
         }
@@ -61,7 +61,7 @@ pub(super) fn declared_type_table(
                 CollectionErrorKind::ItemKindMismatch,
                 format!(
                     "non-constructor `{}` exposes an enum-variant declaration identity",
-                    display_item(&descriptor.id)
+                    descriptor.id
                 ),
             ));
         }
@@ -77,7 +77,7 @@ pub(super) fn declared_type_table(
                 CollectionErrorKind::DeclarationBuiltinCollision,
                 format!(
                     "authored declaration `{}` reuses a compiler builtin marker type",
-                    display_item(&descriptor.id)
+                    descriptor.id
                 ),
             ));
         }
@@ -86,8 +86,7 @@ pub(super) fn declared_type_table(
                 CollectionErrorKind::DuplicateTypeDeclaration,
                 format!(
                     "items `{}` and `{}` expose the same build-local Rust type",
-                    display_item(&previous),
-                    display_item(&descriptor.id)
+                    previous, descriptor.id
                 ),
             ));
         }
@@ -124,8 +123,7 @@ pub(super) fn declared_cell_field_table(
                     CollectionErrorKind::DuplicateTypeDeclaration,
                     format!(
                         "fixed cell field `{}` on `{}` reuses an owner/field marker identity",
-                        field.rust_field,
-                        display_item(&descriptor.id)
+                        field.rust_field, descriptor.id
                     ),
                 ));
             }
@@ -1132,9 +1130,8 @@ fn resolve_constructor_field_sort(
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to {kind} `{}`, but a sort is required",
-                    reference.authored_path,
-                    display_item(id)
+                    "Rust path `{}` resolves to `{}`, but a sort is required",
+                    reference.authored_path, id
                 ),
             ));
         }
@@ -1169,13 +1166,7 @@ fn resolve_declared_identity(
     if *kind != expected {
         return Err(CollectionError::new(
             CollectionErrorKind::ReferenceKindMismatch,
-            format!(
-                "Rust path `{}` resolves to {} `{}`, but {} is required",
-                authored_path,
-                kind,
-                display_item(id),
-                expected
-            ),
+            format!("Rust path `{authored_path}` resolves to `{id}`, but a {expected} is required"),
         ));
     }
     Ok(id.clone())
@@ -1194,9 +1185,8 @@ fn resolve_sort_reference(
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to {kind} `{}`, but a sort is required",
-                    reference.target.authored_path,
-                    display_item(id)
+                    "Rust path `{}` resolves to `{}`, but a sort is required",
+                    reference.target.authored_path, id
                 ),
             ));
         }
@@ -1230,9 +1220,9 @@ fn resolve_application_reference(
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to {kind} `{}`, but a constructor is required",
+                    "Rust path `{}` resolves to `{}`, but a constructor is required",
                     reference.target.authored_path(),
-                    display_item(id)
+                    id
                 ),
             ));
         }

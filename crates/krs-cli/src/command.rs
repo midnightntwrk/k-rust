@@ -466,8 +466,8 @@ fn lower_semantic(bundle: &DescriptorBundle) -> Result<krs_ir::SemanticTheory, C
                 range,
             );
             diagnostic.notes = vec![
-                format!("first rule: {first:?}"),
-                format!("second rule: {second:?}"),
+                format!("first rule: {first}"),
+                format!("second rule: {second}"),
             ];
             return CommandError::Diagnostics(vec![diagnostic]);
         }
