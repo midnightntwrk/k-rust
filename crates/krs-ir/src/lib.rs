@@ -148,6 +148,7 @@ use serde::{Deserialize, Serialize};
 /// `[schemas] krs_ir` in the repository's `Krs.lock`, which the gates read and a
 /// `krs-ir` test checks against this constant.
 /// Traceable serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.yaml`.
+/// Other serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.samples.json`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SchemaVersion(pub u32);

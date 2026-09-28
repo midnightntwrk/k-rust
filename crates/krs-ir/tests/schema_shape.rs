@@ -1,19 +1,38 @@
 //! Pin the serde-reflection registry for the supported KRS IR shapes.
-//! Types that reflection cannot trace are asserted below; their wire shapes are pinned only by
-//! `tests/golden/*.json` and the port gates.
-//! After bumping `SchemaVersion::CURRENT` and `Krs.lock`, set `KRS_IR_SCHEMA_RECORD=1` to record
-//! the new registry file.
+//! The registry, unsupported samples, and collector encoding are pinned in `tests/schema`.
+//! A change to a pinned schema file must advance `SchemaVersion::CURRENT` and `Krs.lock`
+//! `[schemas] krs_ir`; a collector file change must advance `collector::VERSION` and its
+//! `Krs.lock` entry. A released version's file must never be overwritten.
+//! After advancing a version, use `UPDATE_EXPECT=1` to record the new versioned file.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
 use krs_ir::measure::*;
+use krs_ir::transport::collector;
 use krs_ir::wire::*;
 use krs_ir::*;
 use serde_reflection::{Error, Registry, Samples, Tracer, TracerConfig};
 
-const RECORD: &str = "KRS_IR_SCHEMA_RECORD";
+mod schema_samples;
+
+fn recording() -> bool {
+    std::env::var("UPDATE_EXPECT").as_deref() == Ok("1")
+}
+
+fn assert_versioned_pin(file: String, bump: &str, actual: &str) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join(&file);
+    assert!(
+        path.exists() || recording(),
+        "{} is missing; advance {bump}, then record the new versioned file with UPDATE_EXPECT=1; never overwrite a released version's file",
+        path.display()
+    );
+    expect_test::expect_file![file].assert_eq(actual);
+}
 
 // Internally and adjacently tagged enums must remain outside reflection.
 const UNSUPPORTED_TAGGED: &[&str] = &[
@@ -236,29 +255,37 @@ fn samples() -> Samples {
 }
 
 fn census() -> BTreeSet<String> {
-    let sources = [
-        include_str!("../src/bundle.rs"),
-        include_str!("../src/definition.rs"),
-        include_str!("../src/generated.rs"),
-        include_str!("../src/grammar.rs"),
-        include_str!("../src/host.rs"),
-        include_str!("../src/identity.rs"),
-        include_str!("../src/ir.rs"),
-        include_str!("../src/json.rs"),
-        include_str!("../src/lib.rs"),
-        include_str!("../src/measure.rs"),
-        include_str!("../src/provenance.rs"),
-        include_str!("../src/semantic.rs"),
-        include_str!("../src/state.rs"),
-        include_str!("../src/transport/configuration.rs"),
-        include_str!("../src/transport/grammar.rs"),
-        include_str!("../src/transport/head_rule.rs"),
-        include_str!("../src/transport/rule.rs"),
-        include_str!("../src/transport.rs"),
-        include_str!("../src/wire.rs"),
-    ];
+    fn rust_sources(directory: &std::path::Path, sources: &mut Vec<String>) {
+        for entry in fs::read_dir(directory).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                rust_sources(&path, sources);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                sources.push(fs::read_to_string(path).unwrap());
+            }
+        }
+    }
+    let mut sources = Vec::new();
+    rust_sources(
+        &PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src")),
+        &mut sources,
+    );
+    let public: BTreeSet<String> = sources
+        .iter()
+        .flat_map(|source| source.lines())
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix("pub struct ")
+                .or_else(|| line.trim().strip_prefix("pub enum "))
+                .and_then(|rest| {
+                    rest.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                        .next()
+                })
+                .map(str::to_owned)
+        })
+        .collect();
     let mut names = BTreeSet::new();
-    for source in sources {
+    for source in &sources {
         let mut derives_deserialize = false;
         for line in source.lines().map(str::trim) {
             if line.starts_with("#[derive(") {
@@ -287,7 +314,9 @@ fn census() -> BTreeSet<String> {
                     .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
                     .next()
                     .unwrap();
-                names.insert(name.to_owned());
+                if public.contains(name) {
+                    names.insert(name.to_owned());
+                }
             }
         }
     }
@@ -560,21 +589,151 @@ fn registry() -> Registry {
 fn krs_ir_schema_shape_is_pinned() {
     // serde_yaml cannot directly emit nested enum values in ContainerFormat.
     let actual = serde_yaml::to_string(&serde_json::to_value(registry()).unwrap()).unwrap();
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/schema")
-        .join(format!("krs_ir-{}.yaml", SchemaVersion::CURRENT.0));
-    if std::env::var(RECORD).as_deref() == Ok("1") {
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, actual).unwrap();
-    } else {
-        let expected = fs::read_to_string(&path).unwrap_or_else(|error| {
-            panic!("{}: {error}; bump SchemaVersion::CURRENT and Krs.lock, then set {RECORD}=1 to add the new registry", path.display())
+    assert_versioned_pin(
+        format!("schema/krs_ir-{}.yaml", SchemaVersion::CURRENT.0),
+        "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
+        &actual,
+    );
+}
+
+#[test]
+fn unsupported_samples_are_pinned() {
+    let corpus = schema_samples::corpus();
+    let listed: BTreeSet<_> = UNTRACEABLE
+        .iter()
+        .flat_map(|group| group.iter().copied())
+        .collect();
+    assert_eq!(corpus.keys().copied().collect::<BTreeSet<_>>(), listed);
+    let actual = format!("{}\n", serde_json::to_string_pretty(&corpus).unwrap());
+    assert_versioned_pin(
+        format!("schema/krs_ir-{}.samples.json", SchemaVersion::CURRENT.0),
+        "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
+        &actual,
+    );
+}
+
+fn collector_origin(id: &StableItemId, populated: bool) -> OriginStack {
+    let authored = krs_ir::testing::authored(0, 3);
+    let range = match &authored.frames()[0] {
+        OriginFrame::Ranged { range, .. } => range.clone(),
+        OriginFrame::Transformation { .. } => unreachable!(),
+    };
+    let item = populated.then(|| id.clone());
+    let label = populated.then(|| "collector schema sample".to_owned());
+    let mut frames = vec![OriginFrame::Ranged {
+        kind: RangedOriginKind::Authored,
+        range: range.clone(),
+        item: item.clone(),
+        label: label.clone(),
+    }];
+    for kind in [
+        RangedOriginKind::MacroInvocation,
+        RangedOriginKind::GeneratedArtifact,
+        RangedOriginKind::FrontendDiagnostic,
+    ] {
+        frames.push(OriginFrame::Ranged {
+            kind,
+            range: range.clone(),
+            item: item.clone(),
+            label: label.clone(),
         });
-        assert_eq!(
-            actual,
-            expected,
-            "{} changed; bump SchemaVersion::CURRENT and Krs.lock and add the new registry with {RECORD}=1, or revert",
-            path.display()
-        );
     }
+    for kind in [
+        TransformationOriginKind::GeneratedDescriptor,
+        TransformationOriginKind::SemanticIr,
+        TransformationOriginKind::DefinitionIr,
+    ] {
+        frames.push(OriginFrame::Transformation {
+            kind,
+            item: item.clone(),
+            label: label.clone(),
+        });
+    }
+    OriginStack::try_from_frames(frames).unwrap()
+}
+
+fn collector_descriptor(
+    id: StableItemId,
+    payload: DescriptorPayload,
+    populated: bool,
+) -> Descriptor {
+    let role = match id.item_kind() {
+        ItemKind::Sort => "sort_declaration",
+        ItemKind::Constructor => "constructor_declaration",
+        _ => unreachable!(),
+    };
+    let key = ProvenanceKey::new(role, 0).unwrap();
+    let mut origins = vec![DescriptorNodeOrigin::new(
+        key.clone(),
+        collector_origin(&id, populated),
+    )];
+    if populated {
+        origins.push(DescriptorNodeOrigin::new(
+            ProvenanceKey::new("stable_symbol", 0).unwrap(),
+            krs_ir::testing::authored(0, 3),
+        ));
+    }
+    Descriptor {
+        provenance: DescriptorProvenance::new(key, origins).unwrap(),
+        id,
+        cfg: BTreeMap::from([("feature".to_owned(), Some("enabled".to_owned()))]),
+        payload,
+    }
+}
+
+#[test]
+fn collector_encoding_is_pinned() {
+    let sort_id = krs_ir::testing::item("syntax", "Value", ItemKind::Sort);
+    let constructor_id = krs_ir::testing::item("syntax", "Foo", ItemKind::Constructor);
+    let sort = collector_descriptor(
+        sort_id.clone(),
+        DescriptorPayload::Sort(SortDescriptor {
+            parents: Vec::new(),
+        }),
+        true,
+    );
+    let constructor = collector_descriptor(
+        constructor_id.clone(),
+        DescriptorPayload::Constructor(ConstructorDescriptor {
+            sort: DescriptorSortRef::Declared(sort_id.clone()),
+            syntax: Some("foo({value})".to_owned()),
+            fields: vec![ConstructorFieldDescriptor {
+                name: "value".to_owned(),
+                sort: Some(DescriptorSortRef::Declared(sort_id)),
+            }],
+        }),
+        false,
+    );
+    let mut bundle = DescriptorBundle::with_declarations(
+        vec![sort, constructor],
+        vec![
+            DescriptorDeclaration::new(
+                krs_ir::testing::item("syntax", "Value", ItemKind::Sort),
+                RustVisibility::Public,
+                Some(ExplicitSymbol::new("Schema::Value").unwrap()),
+            ),
+            DescriptorDeclaration::new(constructor_id, RustVisibility::Inherited, None),
+        ],
+    )
+    .unwrap();
+    let bytes = bundle.to_collector_protocol_measured_in_place().unwrap().0;
+    let decoded = DescriptorBundle::from_collector_protocol(&bytes).unwrap();
+    assert_eq!(decoded, bundle);
+    let encoded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let frame_codes: BTreeSet<_> = encoded["descriptors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|descriptor| descriptor["provenance"]["origins"].as_array().unwrap())
+        .flat_map(|origin| origin["origin"].as_array().unwrap())
+        .map(|frame| frame[0].as_u64().unwrap())
+        .collect();
+    assert_eq!(frame_codes, (0..=6).collect());
+
+    let actual = format!("{}\n", serde_json::to_string_pretty(&encoded).unwrap());
+    assert_versioned_pin(
+        format!("schema/collector-{}.json", collector::VERSION),
+        "collector::VERSION and Krs.lock [schemas] collector",
+        &actual,
+    );
 }

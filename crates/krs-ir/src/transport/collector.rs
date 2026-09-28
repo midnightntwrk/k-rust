@@ -15,6 +15,7 @@ use crate::{
 
 /// The collector wire version.
 /// Its wire bytes are pinned by `crates/krs-ir/tests/golden/collector_*.json`.
+/// The schema sample is pinned by `crates/krs-ir/tests/schema/collector-<version>.json`.
 /// A shape change must advance this version independently of the canonical descriptor schema.
 pub const VERSION: u32 = 40;
 

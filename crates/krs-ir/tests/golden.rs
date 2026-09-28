@@ -8,8 +8,8 @@ use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorSortRef, ExplicitSymbol, ItemKind, OriginFrame, OriginStack,
-    ProvenanceKey, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor,
-    StableItemId, TransformationOriginKind,
+    ProvenanceKey, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor, StableItemId,
+    TransformationOriginKind,
 };
 use serde::Serialize;
 use static_assertions::assert_not_impl_any;
