@@ -10,7 +10,7 @@ import tempfile
 from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, semantics  # noqa: E402
+from support import ROOT, GateError, semantics, entry  # noqa: E402
 from support.kdefinition import parse_kore_pattern  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
@@ -116,8 +116,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (GateError, OSError) as error:
-        print(f"FAIL readable KWasm integer slice: {error}", file=sys.stderr)
-        raise SystemExit(1)
+    entry("readable KWasm integer slice", main)

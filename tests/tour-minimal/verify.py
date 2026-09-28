@@ -14,12 +14,13 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.kdefinition import EMITTED_ARTIFACTS  # noqa: E402
 from support.lock import krs_ir_schema, msrv  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, rustfmt_dir, workspace_debug_binary, z3_environment  # noqa: E402
+from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -42,37 +43,11 @@ def production_binary(override: Path | None, environment: dict[str, str]) -> Pat
             raise GateError(f"requested KRS binary does not exist: {binary}")
         return binary
 
-    run(
-        [
-            executable("cargo"),
-            "+stable",
-            "build",
-            "--locked",
-            "-p",
-            "krs-cli",
-            "--bin",
-            "krs",
-        ],
-        environment=environment,
-    )
-    binary = workspace_debug_binary("krs")
-    if not binary.is_file():
-        raise GateError(f"Cargo did not produce the KRS binary at {binary}")
-    return binary
+    return build(environment)
 
 
 def cli_command(binary: Path, operation: str, *extra: Path | str) -> list[Path | str]:
-    return [
-        binary,
-        operation,
-        "--manifest-path",
-        MANIFEST,
-        "--package",
-        PACKAGE,
-        "--definition",
-        DEFINITION,
-        *extra,
-    ]
+    return Invocation(binary, MANIFEST, PACKAGE, DEFINITION).argv(operation, *extra)
 
 
 def verify_source_region() -> None:
@@ -303,8 +278,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (GateError, OSError) as error:
-        print(f"FAIL tour-minimal: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    entry("tour-minimal", main)

@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
+from support.diagnostics import envelopes  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.process import compact, render, run  # noqa: E402
-from support.tools import executable, workspace_debug_binary, z3_environment  # noqa: E402
+from support.tools import executable, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -29,11 +29,7 @@ def run_failing(command: list[str | Path]) -> subprocess.CompletedProcess[str]:
 
 
 def primary_error(output: str) -> dict[str, object]:
-    for line in output.splitlines():
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for message in envelopes(output):
         if message.get("reason") == "compiler-message":
             diagnostic = message["message"]
             if diagnostic.get("level") == "error":
@@ -69,27 +65,14 @@ def check_rust_negative(binary: str, message: str, token: str) -> None:
 
 
 def check_overlap() -> None:
-    run(
-        [executable("cargo"), "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"],
-        environment=z3_environment(),
-    )
-    binary = workspace_debug_binary("krs")
+    binary = build()
     result = run_failing(
-        [
-            binary,
-            "check",
-            "--manifest-path",
-            HERE / "Cargo.toml",
-            "--package",
-            "krs-tour-negatives",
-            "--definition",
-            "main",
-        ],
+        Invocation(binary, HERE / "Cargo.toml", "krs-tour-negatives", "main").argv("check"),
     )
-    lines = [line for line in result.stderr.splitlines() if line.startswith("{")]
-    if len(lines) != 1:
-        raise GateError(f"overlap: expected one JSON diagnostic line, got {len(lines)}")
-    diagnostic = json.loads(lines[0])
+    diagnostics = envelopes(result.stderr)
+    if len(diagnostics) != 1:
+        raise GateError(f"overlap: expected one JSON diagnostic line, got {len(diagnostics)}")
+    diagnostic = diagnostics[0]
     expected = {
         "schema_version": 1,
         "stage": "analysis",
@@ -139,9 +122,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (GateError, OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        print(f"FAIL tour-negatives: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
-    print("PASS tour-negatives")
+    entry("tour-negatives", main, errors=(KeyError, TypeError))

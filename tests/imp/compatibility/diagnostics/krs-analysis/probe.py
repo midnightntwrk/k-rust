@@ -11,7 +11,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 from support import GateError  # noqa: E402
+from support.diagnostics import envelopes as diagnostic_envelopes  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
+from support.krs import Invocation  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import checkout_scratch  # noqa: E402
 
@@ -52,11 +54,9 @@ def main() -> int:
     parser.add_argument("--krs", type=Path, required=True)
     arguments = parser.parse_args()
     process = run(
-        [
-            arguments.krs, "check", "--manifest-path", HERE / "Cargo.toml",
-            "--package", "krs-imp-diagnostic-analysis", "--definition", "main",
-            "--backend", "llvm",
-        ],
+        Invocation(arguments.krs, HERE / "Cargo.toml", "krs-imp-diagnostic-analysis", "main").argv(
+            "check", "--backend", "llvm"
+        ),
         environment={
             "CARGO_TARGET_DIR": os.fspath(
                 Path(os.environ.get("KRS_IMP_PROBE_TARGET_ROOT", checkout_scratch()))
@@ -71,14 +71,10 @@ def main() -> int:
         raise GateError(f"fixture did not reach the intended collision: {output[:1200]}")
     if "/collectors/" in output or "target/krs/collectors" in output:
         raise GateError("diagnostic leaked a generated collector path")
-    envelopes = []
-    for line in output.splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict) and value.get("stage") == "analysis":
-            envelopes.append(value)
+    envelopes = [
+        value for value in diagnostic_envelopes(output)
+        if value.get("stage") == "analysis"
+    ]
     start, end, line, column, length = expected_anchor()
     matching = [
         envelope for envelope in envelopes

@@ -25,7 +25,7 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT  # noqa: E402
+from support import ROOT, entry  # noqa: E402
 from support.process import run  # noqa: E402
 
 
@@ -120,4 +120,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    entry("repository hygiene", main)

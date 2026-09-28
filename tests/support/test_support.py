@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -220,6 +221,17 @@ class ToolTests(unittest.TestCase):
                 self.assertIsNone(tools.find_k_tool("kast"))
                 with self.assertRaisesRegex(GateError, "required K tool 'kast' is unavailable"):
                     tools.k_executable("kast")
+
+    def test_k_version_match_requires_success_and_the_pinned_version(self) -> None:
+        self.assertTrue(tools.k_version_matches(
+            subprocess.CompletedProcess([], 0, "K version: v7.1.337", ""), "7.1.337"
+        ))
+        self.assertFalse(tools.k_version_matches(
+            subprocess.CompletedProcess([], 1, "K version: v7.1.337", ""), "7.1.337"
+        ))
+        self.assertFalse(tools.k_version_matches(
+            subprocess.CompletedProcess([], 0, "K version: v7.0.0", ""), "7.1.337"
+        ))
 
     def test_rustfmt_override(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

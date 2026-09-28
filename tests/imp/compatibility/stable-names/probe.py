@@ -13,6 +13,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from support import ROOT, GateError  # noqa: E402
+from support.krs import Invocation  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import checkout_scratch  # noqa: E402
 
@@ -86,11 +87,9 @@ def descriptor_bundle_fixture(krs: Path, name: str) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix=f"krs-imp-stable-{name}-") as temporary:
         output = Path(temporary) / "emit"
         process = run(
-            [
-                krs, "emit-k", "--manifest-path", HERE / name / "Cargo.toml",
-                "--package", FIXTURE_PACKAGES[name], "--definition", "main",
-                "--backend", "llvm", "--output", output,
-            ],
+            Invocation(krs, HERE / name / "Cargo.toml", FIXTURE_PACKAGES[name], "main").argv(
+                "emit-k", "--backend", "llvm", "--output", output
+            ),
             environment=PROBE_TARGET,
             timeout=180,
             check=False,
@@ -114,11 +113,9 @@ def descriptor_bundle_fixture(krs: Path, name: str) -> dict[str, object]:
 
 def emit_fixture(krs: Path, name: str, backend: str, output: Path) -> dict[str, object]:
     process = run(
-        [
-            krs, "emit-k", "--manifest-path", HERE / name / "Cargo.toml",
-            "--package", FIXTURE_PACKAGES[name], "--definition", "main",
-            "--backend", backend, "--output", output,
-        ],
+        Invocation(krs, HERE / name / "Cargo.toml", FIXTURE_PACKAGES[name], "main").argv(
+            "emit-k", "--backend", backend, "--output", output
+        ),
         environment=PROBE_TARGET,
         timeout=180,
         check=False,

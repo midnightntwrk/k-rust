@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT  # noqa: E402
+from support import ROOT, entry  # noqa: E402
 from support.checkouts import git, git_revision  # noqa: E402
 from support.hashing import sha256_bytes, sha256_file, sha256_text  # noqa: E402
 from support.process import run  # noqa: E402
@@ -416,4 +416,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    entry("browser-pack", main)

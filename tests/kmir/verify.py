@@ -11,7 +11,7 @@ import tempfile
 from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError, semantics  # noqa: E402
+from support import ROOT, GateError, semantics, entry  # noqa: E402
 from support.kdefinition import parse_kore_pattern  # noqa: E402
 from support.lock import k_version, krs_ir_schema  # noqa: E402
 from support.pins import Ledger, load_toml  # noqa: E402
@@ -390,4 +390,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    entry("readable KMIR operational slice", main)

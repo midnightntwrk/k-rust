@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -15,12 +14,15 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
+from support.diagnostics import envelopes  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
 from support.lock import k_version  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import executable, find_k_tool, k_tool, workspace_debug_binary  # noqa: E402
+from support.report import Results  # noqa: E402
+from support.tools import executable, find_k_tool, k_tool  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -39,45 +41,19 @@ EXPECTED_K_FILES = {
 }
 
 
-class Results:
-    def __init__(self) -> None:
-        self.failed = False
-
-    def add(self, name: str, status: str, detail: str, *, required: bool = True) -> None:
-        print(f"{status:11} {name}: {detail}")
-        if required and status not in {"PASS", "MATCH"}:
-            self.failed = True
-
-
 def build_cli(results: Results) -> Path | None:
     try:
-        cargo = executable("cargo")
+        executable("cargo")
     except GateError as error:
         results.add("tool_cargo", "FAIL", str(error))
         return None
-    process = run(
-        [
-            cargo,
-            "build",
-            "--locked",
-            "--manifest-path",
-            str(ROOT / "Cargo.toml"),
-            "-p",
-            "krs-cli",
-            "--bin",
-            "krs",
-        ],
-        check=False,
-        text=False,
-    )
-    binary = workspace_debug_binary("krs")
-    ok = process.returncode == 0 and binary.is_file()
-    results.add(
-        "cli_binary",
-        "PASS" if ok else "FAIL",
-        f"built real CLI executable {binary}" if ok else compact(process),
-    )
-    return binary if ok else None
+    try:
+        binary = build()
+    except (GateError, OSError) as error:
+        results.add("cli_binary", "FAIL", str(error))
+        return None
+    results.add("cli_binary", "PASS", f"built real CLI executable {binary}")
+    return binary
 
 
 def materialize(destination: Path) -> Path:
@@ -102,18 +78,8 @@ def cli_command(
     definition: str | None = "main",
     output: Path | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    arguments = [
-        str(binary),
-        command,
-        "--manifest-path",
-        str(manifest),
-        "--package",
-        package,
-    ]
-    if definition is not None:
-        arguments.extend(["--definition", definition])
-    if output is not None:
-        arguments.extend(["--output", str(output)])
+    extras = ["--output", str(output)] if output is not None else []
+    arguments = Invocation(binary, manifest, package, definition).argv(command, *extras)
     environment = {
         "CARGO_TARGET_DIR": str(target),
         "CARGO_NET_OFFLINE": "true",
@@ -347,12 +313,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
             workspace / "broken-target",
             output=workspace / "broken-output" if command == "build" else None,
         )
-        diagnostics = []
-        for line in broken.stderr.splitlines():
-            try:
-                diagnostics.append(json.loads(line))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                pass
+        diagnostics = envelopes(broken.stderr)
         source_bytes = broken_source.read_bytes()
         error_start = source_bytes.index(b"compile_error!")
         broken_ok = broken.returncode != 0 and any(
@@ -455,7 +416,7 @@ def main() -> int:
     )
     arguments = parser.parse_args()
     pins = Ledger(PINS, record=arguments.record)
-    results = Results()
+    results = Results(width=11)
     binary = build_cli(results)
     if binary is None:
         return 1
@@ -479,4 +440,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    entry("CLI acceptance oracle", main)

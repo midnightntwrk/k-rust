@@ -29,6 +29,7 @@ from support import ROOT, GateError
 from support.checkouts import verify_checkout
 from support.hashing import exact_directory, json_sha256, sha256_file, sha256_text
 from support.kdefinition import EMITTED_ARTIFACTS_WITH_SPEC, emitted_claims, normalized_kore_sha256
+from support.krs import Invocation, build
 from support.lock import msrv
 from support.pins import Ledger
 from support.process import run
@@ -154,7 +155,7 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path, P
 
     root_target = port.target("root")
     root_env = {**environment, "CARGO_TARGET_DIR": os.fspath(root_target)}
-    run(["cargo", "build", "--locked", "--offline", "-p", "krs-cli", "--bin", "krs"], environment=root_env)
+    krs = build(root_env, target=root_target)
     run(
         ["cargo", "build", "--locked", "--offline", "--release", "-p", "krs-k-rust", "--bins"],
         environment=root_env,
@@ -172,7 +173,7 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path, P
     )
     run(["cargo", "fmt", "--all", "--", "--check"])
     run(
-        [root_target / "debug/krs", "fmt", "--check", "--manifest-path", port.manifest, port.source],
+        [krs, "fmt", "--check", "--manifest-path", port.manifest, port.source],
         environment=environment,
     )
     run(["cargo", f"+{msrv()}", "check", *common, "--all-targets"], environment=fixture_env, timeout=900)
@@ -180,7 +181,7 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path, P
     lsp_env = {**environment, "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]])}
     run([sys.executable, port.here / "lsp_probe.py"], environment=lsp_env, timeout=900)
     return (
-        root_target / "debug/krs",
+        krs,
         root_target / "release/krs-native-compile",
         root_target / "release/krs-native-runner",
     )
@@ -200,13 +201,11 @@ def artifact_gate(
     sentence identities, and returns the first emission directory.
     """
 
-    base: Sequence[str | Path] = [
-        "--manifest-path", port.manifest, "--package", port.package, "--definition", "main",
-    ]
-    check = run([krs, "check", *base], environment=environment)
+    invocation = Invocation(krs, port.manifest, port.package, "main")
+    check = invocation.run("check", environment=environment)
     if f"{port.descriptors} descriptors" not in check.stdout:
         raise GateError(f"unexpected descriptor count: {check.stdout.strip()}")
-    expansions = [run([krs, "expand", *base], environment=environment).stdout for _ in range(2)]
+    expansions = [invocation.run("expand", environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
         raise GateError("readable expansion is nondeterministic")
     pins.expect("expansion_sha256", sha256_text(expansions[0]))
@@ -228,16 +227,15 @@ def artifact_gate(
 
     outputs = [workspace / "emit-a", workspace / "emit-b"]
     for output in outputs:
-        run([krs, "emit-k", *base, "--output", output], environment=environment)
+        invocation.run("emit-k", "--output", output, environment=environment)
     for name, digest in exact_directory(outputs[0], outputs[1], EMITTED_ARTIFACTS_WITH_SPEC).items():
         pins.expect(("artifact_sha256", name), digest)
 
     expanded_output = workspace / "expanded-emit"
     run(
-        [
-            krs, "emit-k", "--manifest-path", expanded / "Cargo.toml", "--package", port.package,
-            "--definition", "main", "--output", expanded_output,
-        ],
+        Invocation(krs, expanded / "Cargo.toml", port.package, "main").argv(
+            "emit-k", "--output", expanded_output
+        ),
         environment=expanded_env,
         timeout=900,
     )

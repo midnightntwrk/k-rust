@@ -20,6 +20,7 @@ from support import ROOT, GateError  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import load_json  # noqa: E402
 from support.process import run  # noqa: E402
@@ -365,12 +366,9 @@ def build_support(workspace: Path) -> Path:
 
 def build_native(workspace: Path, support: Path, labels: Sequence[str]) -> tuple[Path, Path]:
     native = workspace / "native-build"
-    run(
-        [
-            "cargo", "run", "--locked", "--quiet", "-p", "krs-cli", "--bin", "krs", "--",
-            "build", "--manifest-path", RUST_MANIFEST, "--package", "krs-imp-definition",
-            "--definition", "main", "--backend", "haskell", "--output", native,
-        ],
+    binary = build(timeout=WATCHDOG_SECONDS)
+    Invocation(binary, RUST_MANIFEST, "krs-imp-definition", "main").run(
+        "build", "--backend", "haskell", "--output", native,
         timeout=WATCHDOG_SECONDS,
     )
     native_kore = native / "definition.kore"

@@ -12,10 +12,11 @@ import tempfile
 import sync
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import executable, rustfmt_dir, workspace_debug_binary, z3_environment  # noqa: E402
+from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -35,17 +36,7 @@ def cli_environment() -> dict[str, str]:
 
 
 def cli(binary: Path, operation: str, *extra: os.PathLike[str] | str) -> list[os.PathLike[str] | str]:
-    return [
-        binary,
-        operation,
-        "--manifest-path",
-        MANIFEST,
-        "--package",
-        PACKAGE,
-        "--definition",
-        DEFINITION,
-        *extra,
-    ]
+    return Invocation(binary, MANIFEST, PACKAGE, DEFINITION).argv(operation, *extra)
 
 
 def artifact_bytes(directory: Path) -> dict[str, bytes]:
@@ -140,10 +131,7 @@ def main() -> None:
     print("PASS authored: locked/offline Cargo check")
 
     env = cli_environment()
-    run([cargo, "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], environment=env)
-    binary = workspace_debug_binary("krs")
-    if not binary.is_file():
-        raise GateError("krs binary was not produced")
+    binary = build(env)
 
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
     run(cli(binary, "check"), environment=env)
@@ -183,9 +171,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (GateError, OSError, ValueError, KeyError, json.JSONDecodeError) as error:
-        print(f"FAIL tour-imp: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
-    print("PASS tour-imp")
+    entry("tour-imp", main, errors=(KeyError,))

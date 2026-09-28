@@ -8,8 +8,9 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import GateError  # noqa: E402
+from support import GateError, entry  # noqa: E402
 from support.lock import k_version  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.process import run  # noqa: E402
 from support.tools import k_tool  # noqa: E402
 
@@ -26,22 +27,11 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="krs-precedence-associativity-") as temporary:
         workspace = Path(temporary)
-        target = workspace / "target"
-        environment = {"CARGO_TARGET_DIR": str(target)}
-        run(["cargo", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], environment=environment)
-        binary = target / "debug" / "krs"
-
+        binary = build()
         emitted = workspace / "emitted"
-        selection: list[str | Path] = [
-            "--manifest-path",
-            MANIFEST,
-            "--package",
-            PACKAGE,
-            "--definition",
-            "main",
-        ]
-        run([binary, "check", *selection], environment=environment)
-        run([binary, "emit-k", *selection, "--output", emitted], environment=environment)
+        invocation = Invocation(binary, MANIFEST, PACKAGE, "main")
+        invocation.run("check")
+        invocation.run("emit-k", "--output", emitted)
 
         source = (emitted / "definition.k").read_text(encoding="utf-8")
         if source.count("syntax non-assoc") != 1:
@@ -91,8 +81,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (OSError, GateError) as error:
-        print(f"FAIL precedence/associativity: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    entry("precedence/associativity", main)

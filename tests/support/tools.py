@@ -6,6 +6,7 @@ from hashlib import sha256
 import os
 from pathlib import Path
 import shutil
+import subprocess
 
 from support import ROOT, GateError
 from support.process import compact, run
@@ -114,9 +115,18 @@ def k_tool(name: str, version: str) -> str:
 
     found = k_executable(name)
     reported = run([found, "--version"], timeout=30, check=False)
-    if reported.returncode != 0 or f"v{version}" not in reported.stdout + reported.stderr:
+    if not k_version_matches(reported, version):
         raise GateError(f"{name} is not pinned to K v{version}: {compact(reported)}")
     return found
+
+
+def k_version_matches(reported: subprocess.CompletedProcess[str], version: str) -> bool:
+    """Return whether a K version command succeeded and reported the pinned version."""
+
+    return (
+        reported.returncode == 0
+        and f"v{version}" in reported.stdout + reported.stderr
+    )
 
 
 def rustfmt_dir() -> Path:

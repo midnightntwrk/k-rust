@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass, field, replace
-import json
 import os
 from pathlib import Path
 import re
@@ -22,7 +21,7 @@ import tempfile
 from typing import Any, Callable, Mapping, TypeVar, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support import lock  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import (  # noqa: E402
@@ -33,10 +32,11 @@ from support.hashing import (  # noqa: E402
     sha256_text,
 )
 from support.kdefinition import emitted_claims  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.parallel import settle_all, worker_count  # noqa: E402
 from support.pins import Ledger, load_json, load_toml, table  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import checkout_scratch, executable, z3_environment  # noqa: E402
+from support.tools import checkout_scratch, executable, k_version_matches, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -442,7 +442,7 @@ def phase_preflight(context: Context) -> str:
     )
     context.tools = {name: executable(name) for name in tools}
     version = run([context.tools["kompile"], "--version"], timeout=30)
-    if f"v{lock.k_version()}" not in version.stdout + version.stderr:
+    if not k_version_matches(version, lock.k_version()):
         raise GateError(f"K tool version differs from Krs.lock: {compact(version)}")
     pyk_python = checkouts["k"] / "pyk/.venv/bin/python"
     if not pyk_python.is_file():
@@ -578,14 +578,7 @@ def phase_rust(context: Context) -> RustBuild:
     ):
         run([context.tools["python"], suite], timeout=300, environment=env)
 
-    run(
-        ["cargo", "build", "--workspace", "--locked", "-p", "krs-cli", "--bin", "krs"],
-        timeout=600,
-        environment=env,
-    )
-    krs = context.target / "debug/krs"
-    if not krs.is_file():
-        raise GateError("workspace build did not produce the KRS CLI")
+    krs = build(env, target=context.target, timeout=600)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
     run(
@@ -620,13 +613,8 @@ ARTIFACT_NAMES = (
 NATIVE_ARTIFACTS = (".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore")
 
 
-def krs_base(krs: Path) -> list[str]:
-    return [
-        os.fspath(krs),
-        "--manifest-path", os.fspath(RUST_MANIFEST),
-        "--package", PACKAGE,
-        "--definition", DEFINITION,
-    ]
+def krs_invocation(krs: Path) -> Invocation:
+    return Invocation(krs, RUST_MANIFEST, PACKAGE, DEFINITION)
 
 
 def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Path:
@@ -639,7 +627,7 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
     for name in ("llvm-a", "llvm-b"):
         output = context.workspace / name
         process = run(
-            [krs, "build", *krs_base(krs)[1:], "--backend", "llvm", "--output", output],
+            krs_invocation(krs).argv("build", "--backend", "llvm", "--output", output),
             timeout=900,
             environment=env,
         )
@@ -654,7 +642,7 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
     for name in ("native-a", "native-b"):
         output = context.workspace / name
         run(
-            [krs, "build", *krs_base(krs)[1:], "--backend", "haskell", "--output", output],
+            krs_invocation(krs).argv("build", "--backend", "haskell", "--output", output),
             timeout=900,
             environment=env,
         )
@@ -670,12 +658,12 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
 def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
     krs = rust_build.krs
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
-    check = run([krs, "check", *krs_base(krs)[1:]], timeout=300, environment=env)
+    check = run(krs_invocation(krs).argv("check"), timeout=300, environment=env)
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
         raise GateError(f"KRS check summary differs: {compact(check)}")
 
     expands = [
-        run([krs, "expand", *krs_base(krs)[1:]], timeout=300, environment=env).stdout
+        run(krs_invocation(krs).argv("expand"), timeout=300, environment=env).stdout
         for _ in range(2)
     ]
     if expands[0] != expands[1]:
@@ -690,44 +678,18 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
     emit_b = context.workspace / "emit-b"
     for output in (emit_a, emit_b):
         run(
-            [krs, "emit-k", *krs_base(krs)[1:], "--backend", "haskell", "--output", output],
+            krs_invocation(krs).argv("emit-k", "--backend", "haskell", "--output", output),
             timeout=300,
             environment=env,
         )
-    replacement_check = run(
-        [
-            krs,
-            "check",
-            "--manifest-path",
-            EXPANDED_MANIFEST,
-            "--package",
-            EXPANDED_PACKAGE,
-            "--definition",
-            DEFINITION,
-        ],
-        timeout=300,
-        environment=env,
-    )
+    replacement_invocation = Invocation(krs, EXPANDED_MANIFEST, EXPANDED_PACKAGE, DEFINITION)
+    replacement_check = replacement_invocation.run("check", timeout=300, environment=env)
     if "KRS check passed: 83 descriptors, 2 semantic modules" not in replacement_check.stdout:
         raise GateError(f"replacement KRS check summary differs: {compact(replacement_check)}")
     replacement = context.workspace / "expanded-replacement"
-    run(
-        [
-            krs,
-            "emit-k",
-            "--manifest-path",
-            EXPANDED_MANIFEST,
-            "--package",
-            EXPANDED_PACKAGE,
-            "--definition",
-            DEFINITION,
-            "--backend",
-            "haskell",
-            "--output",
-            replacement,
-        ],
-        timeout=300,
-        environment=env,
+    replacement_invocation.run(
+        "emit-k", "--backend", "haskell", "--output", replacement,
+        timeout=300, environment=env,
     )
     _verify_replacement_parity(emit_a, replacement)
     emitted_names = (
@@ -1234,8 +1196,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except GateError as error:
-        print(f"FAIL IMP setup: {error}", file=sys.stderr)
-        raise SystemExit(1)
+    entry("IMP setup", main)

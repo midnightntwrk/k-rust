@@ -10,9 +10,10 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import GateError, entry  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import executable, rustfmt_dir, workspace_debug_binary, z3_environment  # noqa: E402
+from support.tools import executable, rustfmt_dir, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -32,19 +33,9 @@ def command(
     operation: str,
     *extra: os.PathLike[str] | str,
 ) -> list[os.PathLike[str] | str]:
-    return [
-        binary,
-        operation,
-        "--manifest-path",
-        MANIFEST,
-        "--package",
-        "root-semantics",
-        "--definition",
-        "main",
-        "--dependency",
-        "base-semantics:base",
-        *extra,
-    ]
+    return Invocation(binary, MANIFEST, "root-semantics", "main").argv(
+        operation, "--dependency", "base-semantics:base", *extra
+    )
 
 
 def artifacts(directory: Path) -> dict[str, bytes]:
@@ -74,8 +65,7 @@ def main() -> None:
     print("PASS authored: both renamed-dependency packages compile locked/offline")
 
     env = environment()
-    run([cargo, "+stable", "build", "--locked", "-p", "krs-cli", "--bin", "krs"], environment=env)
-    binary = workspace_debug_binary("krs")
+    binary = build(env)
     run([binary, "fmt", "--check", "--manifest-path", MANIFEST], environment=env)
     run(command(binary, "check"), environment=env)
     first_expansion = run(command(binary, "expand"), environment=env).stdout
@@ -168,9 +158,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except (GateError, OSError, ValueError, KeyError, json.JSONDecodeError) as error:
-        print(f"FAIL tour-composition: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
-    print("PASS tour-composition")
+    entry("tour-composition", main, errors=(KeyError,))

@@ -13,7 +13,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from imp_static_semantics.normalize import envelope, normalize_claim_spec, normalize_proof  # noqa: E402
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.lock import k_commit, k_version  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
@@ -380,8 +380,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (OSError, GateError, ValueError) as error:
-        print(f"FAIL IMP static semantics: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    entry("IMP static semantics", main)

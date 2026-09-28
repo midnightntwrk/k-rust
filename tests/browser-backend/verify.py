@@ -44,7 +44,7 @@ import tomllib
 from typing import Any, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT  # noqa: E402
+from support import ROOT, entry  # noqa: E402
 from support.checkouts import git_revision  # noqa: E402
 from support.hashing import json_sha256  # noqa: E402
 from support.process import run  # noqa: E402
@@ -589,4 +589,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    entry("browser-backend", main)

@@ -25,8 +25,9 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support.hashing import sha256_bytes  # noqa: E402
+from support.krs import Invocation, build  # noqa: E402
 from support.process import compact, run  # noqa: E402
 from support.tools import executable, z3_environment  # noqa: E402
 
@@ -71,31 +72,7 @@ def production_binary(override: Path | None, environment: dict[str, str]) -> Pat
         if not binary.is_file():
             raise GateError(f"requested KRS binary does not exist: {binary}")
         return binary
-    built = run(
-        [
-            executable("cargo"),
-            "+stable",
-            "build",
-            "--locked",
-            "--offline",
-            "-p",
-            "krs-cli",
-            "--bin",
-            "krs",
-            "--message-format=json-render-diagnostics",
-        ],
-        environment=environment,
-        timeout=1200,
-    )
-    for line in built.stdout.splitlines():
-        message = json.loads(line)
-        if (
-            message.get("reason") == "compiler-artifact"
-            and message.get("target", {}).get("name") == "krs"
-            and message.get("executable")
-        ):
-            return Path(message["executable"])
-    raise GateError("Cargo did not report the KRS binary")
+    return build(environment, timeout=1200)
 
 
 def facade_dependency(*, inventory: bool) -> str:
@@ -283,20 +260,9 @@ def emit_bundle(
     check: bool = True,
 ) -> bytes | None:
     process = run(
-        [
-            binary,
-            "emit-k",
-            "--manifest-path",
-            copy / "Cargo.toml",
-            "--package",
-            PACKAGE,
-            "--definition",
-            DEFINITION,
-            "--registration",
-            registration,
-            "--output",
-            output,
-        ],
+        Invocation(binary, copy / "Cargo.toml", PACKAGE, DEFINITION).argv(
+            "emit-k", "--registration", registration, "--output", output
+        ),
         environment=environment,
         timeout=1200,
         check=check,
@@ -375,20 +341,9 @@ def verify_rejects_inventory(
 ) -> None:
     copy = copy_fixture(workspace / "rejected", extra_source="")
     process = run(
-        [
-            binary,
-            "emit-k",
-            "--manifest-path",
-            copy / "Cargo.toml",
-            "--package",
-            PACKAGE,
-            "--definition",
-            DEFINITION,
-            "--registration",
-            "explicit",
-            "--output",
-            workspace / "rejected-out",
-        ],
+        Invocation(binary, copy / "Cargo.toml", PACKAGE, DEFINITION).argv(
+            "emit-k", "--registration", "explicit", "--output", workspace / "rejected-out"
+        ),
         environment=environment,
         timeout=1200,
         check=False,
@@ -438,18 +393,9 @@ def verify_fixture_difference(
     """Requires the copy to differ from the unmodified fixture only in its source hash."""
 
     run(
-        [
-            binary,
-            "emit-k",
-            "--manifest-path",
-            FIXTURE / "Cargo.toml",
-            "--package",
-            PACKAGE,
-            "--definition",
-            DEFINITION,
-            "--output",
-            workspace / "fixture-out",
-        ],
+        Invocation(binary, FIXTURE / "Cargo.toml", PACKAGE, DEFINITION).argv(
+            "emit-k", "--output", workspace / "fixture-out"
+        ),
         environment=environment,
         timeout=1200,
     )
@@ -549,8 +495,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (GateError, OSError, json.JSONDecodeError) as error:
-        print(f"FAIL explicit-registration: {error}", file=sys.stderr)
-        raise SystemExit(1) from error
+    entry("explicit-registration", main)

@@ -10,8 +10,7 @@ import sys
 import tomllib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
-from support.process import run  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 
 
 def text(relative: str) -> str:
@@ -202,8 +201,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (GateError, OSError, json.JSONDecodeError, tomllib.TOMLDecodeError) as error:
-        print(f"FAIL tour proof evidence: {error}", file=sys.stderr)
-        raise SystemExit(1)
+    entry("tour proof evidence", main)

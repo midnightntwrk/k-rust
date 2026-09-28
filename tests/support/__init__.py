@@ -18,6 +18,9 @@ The modules are:
 - `support.lock`: the `Krs.lock` toolchain and schema pins;
 - `support.tools`: executable, Z3 library, K tool, rustfmt, and rust-analyzer
   discovery, plus the scratch root and checkout-specific Cargo target directory;
+- `support.krs`: the CLI build and invocation policy;
+- `support.report`: gate result lines and failure accounting;
+- `support.diagnostics`: JSON diagnostic envelope extraction;
 - `support.checkouts`: pinned external checkout verification;
 - `support.kdefinition`: helpers over emitted K definitions and KORE;
 - `support.semantics`: the gate flow the KWasm, KMIR, and KEVM ports share;
@@ -35,7 +38,9 @@ Its unit tests run with
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -44,3 +49,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class GateError(RuntimeError):
     """A required gate step failed, or observed evidence differs from its pin."""
+
+
+def entry(
+    label: str,
+    main: Callable[[], int | None],
+    *,
+    errors: tuple[type[Exception], ...] = (),
+) -> None:
+    """Run a gate entry point and report expected setup failures consistently."""
+    try:
+        result = main()
+    except (GateError, OSError, ValueError, *errors) as error:
+        print(f"FAIL {label}: {error}", file=sys.stderr)
+        raise SystemExit(1) from error
+    if result is None:
+        print(f"PASS {label}")
+        raise SystemExit(0)
+    raise SystemExit(result)

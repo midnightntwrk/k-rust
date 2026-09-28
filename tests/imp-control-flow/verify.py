@@ -16,13 +16,14 @@ import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_file, sha256_text  # noqa: E402
 from support.lock import k_version  # noqa: E402
 from support.pins import table  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import find_k_tool  # noqa: E402
+from support.report import Results  # noqa: E402
+from support.tools import find_k_tool, k_version_matches  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -164,16 +165,6 @@ METADATA_ATTRIBUTES = {
 }
 
 
-class Results:
-    def __init__(self) -> None:
-        self.failed = False
-
-    def add(self, name: str, status: str, detail: str) -> None:
-        print(f"{status:12} {name}: {detail}")
-        if status not in {"PASS", "MATCH"}:
-            self.failed = True
-
-
 def aggregate(values: dict[str, Any]) -> str:
     material = "".join(
         f"{name}\0{canonical_json(value)}\n" for name, value in sorted(values.items())
@@ -247,7 +238,7 @@ def verify_tools(results: Results) -> dict[str, str]:
         output = "\n".join((version.stdout, version.stderr))
         results.add(
             f"tool_{name}",
-            "PASS" if version.returncode == 0 and f"v{k_version()}" in output else "FAIL",
+            "PASS" if k_version_matches(version, k_version()) else "FAIL",
             output.strip().splitlines()[0] if output.strip() else "empty version output",
         )
         tools[name] = executable
@@ -831,4 +822,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    entry("IMP control flow strict oracle", main)
