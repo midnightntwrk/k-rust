@@ -5,6 +5,7 @@ mod support;
 
 use std::time::Duration;
 
+use k_rust::definition::AttributeKey;
 use k_rust::kast::{Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
@@ -18,8 +19,8 @@ use kink_native::execution::ExecutionBudget;
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
-    Baseline, CandidateDisposition, CandidateGeneration, Edit, Patch, SelectionPolicy,
-    SiteSelector, TermRef, derive_sites, select,
+    Baseline, CandidateDisposition, CandidateGeneration, Edit, InsertPosition, Patch,
+    SelectionPolicy, SiteSelector, TermRef, derive_sites, select,
 };
 use kink_pattern::{
     Atom, Constructor, EventVocabulary, ExecutionTerminalKind, MatchMode, PatternArm, PatternPlan,
@@ -937,11 +938,10 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
 
 // ---------------------------------------------------------------- CPL-09 audit attacks
 //
-// README section 12, attacks A1-A6. A1 is an execution-identical mutant that the declared
-// observation still kills; it is pinned as an accepted residual until KS-06 (ticket CPL-T02).
-// With pre-state payloads A2 and A6 are no longer execution-identical kills or unknowns:
-// their execution-identical mutants survive. Every other attack must end in a refusal,
-// `Unknown` or survival, never in a kill of an execution-identical mutant.
+// README section 12, attacks A1-A6. With pre-state payloads (KS-04) A2 and A6, and with
+// content anchoring (KS-06) A1, are no longer execution-identical kills or unknowns: their
+// execution-identical mutants survive. Every other attack must end in a refusal, `Unknown`
+// or survival, never in a kill of an execution-identical mutant.
 
 /// A one-candidate generation whose patch is `patch`, selected as one tuple of the exact
 /// `sites` (rule label and path each; an unconstrained join when there are several), so that
@@ -1056,14 +1056,14 @@ fn binds(
     .expect("oracle")
 }
 
-/// Audit A1 (accepted residual, ticket CPL-T02, open). Exchanging the operations of
+/// Audit A1 (ticket KS-T02, resolved by content anchoring). Exchanging the operations of
 /// `SYMMEM.write` and `SYMMEM.load` leaves the rewrite system unchanged and moves only the
-/// source positions that observation is attached to. `equivalent_compilation` compares rule
-/// order, so it does not call the mutant `Equivalent`, and the trace kills an
-/// execution-identical mutant. This pins today's status until CPL-T02's order-insensitive
-/// equivalence check lands; that change must turn this row into `Equivalent`.
+/// source positions that observation is attached to. Each moved content is anchored to the
+/// baseline observation of the same content, so every event matches the baseline's and the
+/// mutant survives. It is not `Equivalent`: `equivalent_compilation` compares rule order, and
+/// kink tries same-priority rules in declaration order (decision KS-D4; ticket KS-T05).
 #[test]
-fn audit_a1_relabel_swap_is_killed_until_ticket_t02() {
+fn audit_a1_relabel_swap_is_not_killed() {
     with_stack(|| {
         let fixture = Symmem::new();
         let baseline = fixture.validator.baseline();
@@ -1100,20 +1100,58 @@ fn audit_a1_relabel_swap_is_killed_until_ticket_t02() {
         )
         .expect("campaign");
         assert_baseline(&run);
-        assert_eq!(
-            outcomes(&run),
-            vec![
-                vec![A, D, D, A],
-                vec![A, D, D, A],
-                vec![A, D, D, A],
-                vec![A, A, A, A]
-            ]
-        );
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
-        assert_eq!(
-            run.mutants[0].report.killing_test_ids,
-            ["ground-shared", "sym-shared", "sym-distinct"]
-        );
+        assert_eq!(outcomes(&run), vec![vec![A, A, A, A]; 4]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+    });
+}
+
+/// Deleting the observed `SYMMEM.write` and inserting an unlabelled copy of it at the end of
+/// the module moves the content to a new source position. The copy is anchored to the
+/// baseline observation of `SYMMEM.write` (before anchoring, the deleted position was left out
+/// of the mutant manifest and the trace killed the mutant), so the mutant survives.
+#[test]
+fn reinserted_observed_rule_is_not_killed() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let write = support::rule(baseline, "SYMMEM.write");
+        let mut copy = baseline.sentence(&write).expect("rule").clone();
+        for key in [
+            AttributeKey::Label,
+            AttributeKey::UniqueId,
+            AttributeKey::Origin,
+            AttributeKey::Location,
+            AttributeKey::Source,
+            AttributeKey::SourceId,
+            AttributeKey::SentenceStartOffset,
+            AttributeKey::SentenceEndOffset,
+            AttributeKey::ContentStartLine,
+            AttributeKey::ContentStartColumn,
+            AttributeKey::ContentStartOffset,
+        ] {
+            copy.attributes_mut().remove(key.as_str());
+        }
+        let patch = Patch::new(vec![
+            Edit::DeleteSentence { at: write.clone() },
+            Edit::InsertSentence {
+                position: InsertPosition::ModuleEnd(write.module.clone()),
+                ordinal: 0,
+                sentence: copy,
+            },
+        ])
+        .expect("patch");
+        let generation = fixed(baseline, &[("SYMMEM.write", &[0])], "reinsert", &patch);
+        let run = run_campaign(
+            &fixture.campaign(&fixture.tests),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_baseline(&run);
+        assert_eq!(outcomes(&run), vec![vec![A, A, A, A]; 4]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
     });
 }
 

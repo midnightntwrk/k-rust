@@ -347,7 +347,7 @@ pub fn run_campaign(
     let Ok(baseline) = campaign.validator.compile_baseline() else {
         return Err(admission_failure(BaselineAdmission::Invalid));
     };
-    let mut runtime = match Runtime::prepare(campaign, &baseline) {
+    let mut runtime = match Runtime::prepare(campaign, &baseline, None) {
         Ok(runtime) => runtime,
         Err(Preparation::UnknownRule(rule)) => {
             return Err(CampaignFailure::new(
@@ -499,8 +499,8 @@ fn prepare_mutant(
         Err(_) => return Err(MutantScopeFailure::Infrastructure),
     }
     // The baseline resolved every position, so a failure here is the mutant side's.
-    let patched =
-        Runtime::prepare(campaign, &side).map_err(|_| MutantScopeFailure::Infrastructure)?;
+    let patched = Runtime::prepare(campaign, &side, Some(compiled_baseline))
+        .map_err(|_| MutantScopeFailure::Infrastructure)?;
     let Some(support) = support else {
         return Ok((
             MutantSides {
@@ -519,7 +519,7 @@ fn prepare_mutant(
     } else if let Some(withdrawing) = claims.patch() {
         match campaign.validator.validate(withdrawing) {
             Ok(side) => SymbolicSide::Withdrawn(Box::new(
-                Runtime::prepare(campaign, &side)
+                Runtime::prepare(campaign, &side, Some(compiled_baseline))
                     .map_err(|_| MutantScopeFailure::Infrastructure)?,
             )),
             Err(_) => SymbolicSide::Unsupported,
@@ -625,17 +625,30 @@ struct Runtime {
 
 impl Runtime {
     /// Parses the side's KORE once, for both its symbol sorts and its backend, and
-    /// installs the observed rules under the side's own rule identities.
-    fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
-        let manifest = campaign
-            .validator
-            .observation_manifest(side, campaign.observed_rules)
-            .map_err(|failure| match failure {
-                ManifestFailure::UnknownRule(rule) => Preparation::UnknownRule(rule),
-                ManifestFailure::Identity { .. } | ManifestFailure::Installation(_) => {
-                    Preparation::Infrastructure
-                }
-            })?;
+    /// installs the observed rules under the side's own rule identities. A mutant side
+    /// (`anchor` is the compiled baseline) observes the rules its patch did not change by their
+    /// content ([`kink_native::NativeValidator::observation_manifest_anchored`]).
+    fn prepare(
+        campaign: &Campaign<'_>,
+        side: &ValidatedDefinition,
+        anchor: Option<&ValidatedDefinition>,
+    ) -> Result<Self, Preparation> {
+        let manifest = match anchor {
+            None => campaign
+                .validator
+                .observation_manifest(side, campaign.observed_rules),
+            Some(baseline) => campaign.validator.observation_manifest_anchored(
+                baseline,
+                side,
+                campaign.observed_rules,
+            ),
+        }
+        .map_err(|failure| match failure {
+            ManifestFailure::UnknownRule(rule) => Preparation::UnknownRule(rule),
+            ManifestFailure::Identity { .. } | ManifestFailure::Installation(_) => {
+                Preparation::Infrastructure
+            }
+        })?;
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
         let symbol_sorts = SymbolSorts::from_definition(&parsed);

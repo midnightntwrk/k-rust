@@ -152,6 +152,7 @@ impl InstalledObservationManifest {
                         "compiled identity has no authored rule".into(),
                     ));
                 }
+                let fired_label = selected[0].label.clone();
                 let first = authors[0].spec.as_ref().map(observation_signature);
                 let unanimous = authors
                     .iter()
@@ -170,6 +171,7 @@ impl InstalledObservationManifest {
                     identity,
                     attribution,
                     author_count: authors.len(),
+                    fired_label,
                 })
             })
             .collect::<Result<Vec<_>, ObservationFailure>>()?;
@@ -194,9 +196,38 @@ impl InstalledObservationManifest {
             .collect()
     }
 
+    /// This manifest, where a certain, single-author identity in `fired_labels` must fire
+    /// with the label given there instead of its attributed spec's label.
+    ///
+    /// Content anchoring uses this: an anchored identity carries the baseline spec of its
+    /// content (whose label is the event content) while the backend reports the label of the
+    /// side's own author sentence. Events keep the spec's label.
+    pub(crate) fn with_fired_labels(
+        mut self,
+        fired_labels: &BTreeMap<String, Option<String>>,
+    ) -> Self {
+        for rule in &mut self.rules {
+            if let Some(label) = fired_labels.get(&rule.identity) {
+                rule.fired_label.clone_from(label);
+            }
+        }
+        self
+    }
+
     /// Written baseline rules in manifest order.
     pub fn rules(&self) -> impl Iterator<Item = &SentenceRef> {
         self.selected_rules.iter()
+    }
+
+    /// The specification whose events a committed transition of the backend rule `identity`
+    /// emits, or `None` when the identity is not selected or its attribution is unknown.
+    #[must_use]
+    pub fn attribution(&self, identity: &str) -> Option<&RuleObservationSpec> {
+        let rule = self.rules.get(*self.by_identity.get(identity)?)?;
+        match &rule.attribution {
+            InstalledAttribution::Certain(spec) => Some(spec),
+            InstalledAttribution::Unknown { .. } => None,
+        }
     }
 }
 
@@ -205,6 +236,9 @@ struct InstalledRule {
     identity: String,
     attribution: InstalledAttribution,
     author_count: usize,
+    /// The label the backend must report for a certain, single-author transition: the
+    /// attributed spec's label, or the side's author label for an anchored identity.
+    fired_label: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -217,7 +251,7 @@ enum InstalledAttribution {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct ObservationSignature {
+pub(crate) struct ObservationSignature {
     rule_applied: Option<String>,
     domain_events: Vec<DomainEventSpec>,
 }
@@ -229,7 +263,7 @@ fn rule_applied_constructor(spec: &RuleObservationSpec) -> String {
     )
 }
 
-fn observation_signature(spec: &RuleObservationSpec) -> ObservationSignature {
+pub(crate) fn observation_signature(spec: &RuleObservationSpec) -> ObservationSignature {
     ObservationSignature {
         rule_applied: spec
             .emit_rule_applied
@@ -391,11 +425,12 @@ pub(crate) fn adapt_branch(
                 match &selected.attribution {
                     InstalledAttribution::Certain(spec) => {
                         // A merged axiom may expose any one of its authors' labels.
-                        if selected.author_count == 1 && rule_label.as_ref() != spec.label.as_ref()
+                        if selected.author_count == 1
+                            && rule_label.as_ref() != selected.fired_label.as_ref()
                         {
                             return Err(ObservationFailure::RuleLabelMismatch {
                                 identity: id.rule,
-                                expected: spec.label.clone(),
+                                expected: selected.fired_label.clone(),
                                 actual: rule_label,
                             });
                         }
