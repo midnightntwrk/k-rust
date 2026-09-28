@@ -12,6 +12,8 @@ import tomllib
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
 from support.pins import Ledger  # noqa: E402
+from support.process import run  # noqa: E402
+from support.tools import z3_environment  # noqa: E402
 
 
 def text(relative: str) -> str:
@@ -24,6 +26,34 @@ def require_fragments(relative: str, *fragments: str) -> str:
     if missing:
         raise GateError(f"{relative} is missing evidence: {missing!r}")
     return value
+
+
+def require_named_tests(package: str, target: tuple[str, ...], *expected: str) -> None:
+    """Require one Rust test binary to list every `expected` test name.
+
+    Cargo builds the binary, so the qualified Z3 library must be available.
+    """
+
+    listed = run(
+        ["cargo", "+stable", "test", "--locked", "-p", package, *target, "--", "--list"],
+        cwd=ROOT,
+        environment=z3_environment(),
+        timeout=1800,
+    )
+    names = {
+        line.removesuffix(": test")
+        for line in listed.stdout.splitlines()
+        if line.endswith(": test")
+    }
+    missing = sorted(set(expected) - names)
+    if missing:
+        raise GateError(f"{package} {' '.join(target)} is missing named tests: {missing!r}")
+
+
+def require_sha256_pin(pins: Ledger, key: str) -> None:
+    digest = pins.get(key)
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise GateError(f"{pins.path.name} {key} output pin is absent")
 
 
 def verify_undefined_partial() -> None:
@@ -52,15 +82,6 @@ def verify_undefined_partial() -> None:
 def verify_stuck_state() -> None:
     if text("tests/imp-state/corpus/rejected/semantic/undefined-variable.calc") != "y = x + 1;\n":
         raise GateError("IMP state's documented stuck program changed")
-    require_fragments(
-        "tests/imp-state/verify.py",
-        'stuck_steps={"undefined-variable.calc": 2, "type-error.calc": 1}',
-    )
-    require_fragments(
-        "tests/support/imp_oracle.py",
-        "if kast.final_environment_if_complete(term) is not None:",
-        'raise RuntimeError(f"semantic rejection unexpectedly completed for {name}")',
-    )
     pins = Ledger(ROOT / "tests/imp-state/pins.json")
     aggregate = pins.table("rejection_sha256").get("stuck_state_aggregate")
     if not isinstance(aggregate, str) or not re.fullmatch(r"[0-9a-f]{64}", aggregate):
@@ -94,11 +115,7 @@ def verify_authored_trap() -> None:
     }
     if traps != expected:
         raise GateError(f"KWasm trap corpus differs: {traps!r}")
-    require_fragments(
-        "tests/kwasm/native.py",
-        'return {"id": str(case["id"]), "outcome": "trap"}',
-        'raise GateError(f"{case[\'id\']} trapped with an unexpected stack")',
-    )
+    require_sha256_pin(Ledger(ROOT / "tests/kwasm/pins.toml"), "behavior_sha256")
     require_fragments(
         "docs-site/src/pages/semantics/applicability-and-failure.mdx",
         "`i32.const 7 ; i32.const 0 ; i32.div_u ; .Instrs` from KWasm",
@@ -119,13 +136,11 @@ def verify_llvm_claim_omission() -> None:
     ):
         raise GateError("IMP's claim-free LLVM artifacts are not pinned")
 
-    require_fragments(
-        "crates/krs-k-rust/src/lib.rs",
-        "pub const fn proves_claims(self) -> bool {\n        matches!(self, Self::Haskell)",
-    )
-    require_fragments(
-        "tests/imp/verify.py",
-        'omitted = f"omitted {CLAIM_COUNT} claims: the llvm backend executes but does not prove\\n"',
+    require_named_tests(
+        "krs-k-rust",
+        ("--lib",),
+        "tests::only_the_haskell_backend_proves_claims",
+        "tests::llvm_compilation_omits_claims_and_keeps_provenance_consistent",
     )
     require_fragments(
         "docs-site/src/pages/verification/reachability-claims.mdx",
@@ -158,30 +173,21 @@ def verify_capability_matrix() -> None:
         if outcome.get("bounds") != {"branching_allowed": 64, "depth": 100}:
             raise GateError(f"IMP proof bounds differ for {label}")
 
-    require_fragments(
-        "tests/kwasm/verify.py",
-        "claim_count=1,",
-        "observed=native.observed,",
-        "checked=native.checked,",
-        "semantics.run_port(PORT, HOOKS)",
+    if text("semantics/kwasm/src/lib.rs").count("#[k::claim(all_paths") != 1:
+        raise GateError("KWasm no longer has exactly one authored all-path claim")
+    require_sha256_pin(Ledger(ROOT / "tests/kwasm/pins.toml"), "definition_kore_sha256")
+    help_output = run([sys.executable, "tests/kwasm/verify.py", "--help"], cwd=ROOT)
+    if "--java-reference" not in help_output.stdout:
+        raise GateError("KWasm gate help does not name --java-reference")
+    require_named_tests(
+        "krs-syntax",
+        ("--test", "claims"),
+        "claim_metadata_rejects_missing_duplicate_and_incompatible_modalities",
     )
-    require_fragments(
-        "tests/support/semantics.py",
-        '"1 reference proof deferred to --java-reference"',
-        "definition, spec = reference_definition(",
-        'reference_proof(port, definition, spec, k["kprove"])',
-        "if arguments.java_reference:",
-        '"--backend", "haskell"',
-        'if proof.stdout.strip() != "#Top":',
-    )
-    require_fragments(
-        "crates/krs-syntax/tests/claims.rs",
-        'r#"one_path, label = "circular", circularity"#',
-    )
-    require_fragments(
-        "crates/krs-compiler/tests/control_flow_lowering.rs",
-        "ClaimModality::OnePath",
-        'assert!(spec.contains("[one-path]"), "{spec}")',
+    require_named_tests(
+        "krs-compiler",
+        ("--test", "control_flow_lowering"),
+        "context_alias_and_claim_adjuncts_lower_emit_and_map_every_distinct_role",
     )
     require_fragments(
         "docs-site/src/pages/verification/reachability-claims.mdx",

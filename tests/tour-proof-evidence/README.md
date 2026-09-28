@@ -1,22 +1,18 @@
 # Tour proof and outcome evidence
 
-This focused gate keeps the documentation's proof-capability matrix and three
-outcome examples attached to existing executable authorities.
+This gate keeps the tour's proof-capability matrix and outcome examples attached to checked evidence.
 It checks:
 
-- IMP's partial declaration, sole guarded equation, and pinned proved positive
-  claim before documenting the negative application as bottom;
-- IMP state's hash-pinned two-step unresolved-variable stuck case;
-- KWasm's authored trap constructor, division-by-zero corpus cases, and native
-  result check;
-- the LLVM claim-omission policy and IMP's pinned claim-free LLVM artifacts;
-  and
-- the exact IMP/KWasm/one-path evidence used to qualify each matrix cell.
+- `verify_undefined_partial` checks the authored IMP partial declaration and sole guarded equation in semantics source, the proved positive claim through an IMP `Ledger` pin, and the negative application's docs-site page fragments.
+- `verify_stuck_state` checks the IMP state corpus program text, the stuck-state aggregate through an IMP state `Ledger` pin, and the docs-site page fragments.
+- `verify_authored_trap` checks KWasm's authored trap semantics source, the division-by-zero corpus cases, the native behavior digest through a KWasm `Ledger` pin, and the docs-site page fragments.
+- `verify_llvm_claim_omission` checks the `Krs.lock` policy, claim-free LLVM artifacts through IMP `Ledger` pins, two named Rust tests via `cargo test --list`, and the docs-site page fragment.
+- `verify_capability_matrix` checks authored IMP and KWasm claim counts in semantics source, proof outcomes through IMP `Ledger` pins, the reference KORE digest through a KWasm `Ledger` pin, two named Rust integration tests via `cargo test --list`, the KWasm gate's `--java-reference` option via `--help`, and the docs-site page fragments.
 
-The gate does not pretend to replace the owning native suites.
-In particular, the undefined partial example is a checked consequence of the
-declaration and its complete equation set, not a captured `krun` trace, while
-the IMP state, KWasm, and IMP proof suites own their dynamic observations.
+The IMP state, KWasm, and IMP gates assert their dynamic observations.
+This gate reads their pins, never their code.
+The undefined partial example is a checked consequence of the declaration and its complete equation set, not a captured `krun` trace.
+The named-test checks build the listed Rust test binaries and require the Z3 library, which `tests/support` locates as it does for the other tour gates.
 
 Run it from the repository root:
 
