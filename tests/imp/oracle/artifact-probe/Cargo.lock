@@ -486,7 +486,27 @@ dependencies = [
  "krs-syntax",
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "krs-imp-artifact-probe"
+version = "0.0.0"
+dependencies = [
+ "k-rust",
+ "krs",
+ "krs-compiler",
+ "krs-imp-definition",
+ "krs-ir",
+ "krs-k-rust",
+]
+
+[[package]]
+name = "krs-imp-definition"
+version = "0.0.0"
+dependencies = [
+ "krs",
 ]
 
 [[package]]
@@ -505,25 +525,6 @@ dependencies = [
  "krs-ir",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "krs-imp-artifact-probe"
-version = "0.0.0"
-dependencies = [
- "k-rust",
- "krs",
- "krs-compiler",
- "krs-ir",
- "krs-k-rust",
- "krs-imp-definition",
-]
-
-[[package]]
-name = "krs-imp-definition"
-version = "0.0.0"
-dependencies = [
- "krs",
 ]
 
 [[package]]

@@ -56,7 +56,15 @@ dependencies = [
  "krs-syntax",
  "proc-macro2",
  "quote",
+ "serde_json",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "krs-imp-control-flow-rust-definition"
+version = "0.0.0"
+dependencies = [
+ "krs",
 ]
 
 [[package]]
@@ -65,13 +73,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "krs-imp-control-flow-rust-definition"
-version = "0.0.0"
-dependencies = [
- "krs",
 ]
 
 [[package]]
