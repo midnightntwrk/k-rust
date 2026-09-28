@@ -298,11 +298,11 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
 /// plan lists each remaining test as `SkippedAfterKill`; its report and status are the
 /// ones the same schedule derives from running every test.
 ///
-/// Campaigns admit only payload sources whose values are functions of execution.
-/// Positional rule-variable payloads depend on a rule's binding positions; rule
-/// predicates depend on the solver profile and rule phrasing; effects cannot be
-/// bridged into patterns; whole constrained states carry path conditions whose
-/// syntax depends on the solver profile and `requires` phrasing.
+/// Campaigns admit only `BeforeTerm` payloads, whose values are projections of
+/// the pre-step execution state. Rule-variable payloads depend on each side's
+/// rule; rule predicates depend on the solver profile and rule phrasing; effects
+/// cannot be bridged into patterns; whole constrained states carry path conditions
+/// whose syntax depends on the solver profile and `requires` phrasing.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
     generation: &CandidateGeneration<'_>,
@@ -411,7 +411,9 @@ fn campaign_payload_refusal(source: &PayloadSource) -> Option<&'static str> {
         PayloadSource::BeforeState | PayloadSource::AfterState => Some(
             "whole constrained states carry path conditions whose syntax depends on the solver profile and on requires phrasing",
         ),
-        PayloadSource::BindingValueNamed(_) => None,
+        PayloadSource::BindingValueNamed(_) => Some(
+            "rule-variable payloads are resolved against each side's rule (CPL-T01); declare a BeforeTerm path",
+        ),
         PayloadSource::BeforeTerm(_) => None,
     }
 }
