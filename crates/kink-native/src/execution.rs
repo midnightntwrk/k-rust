@@ -6,6 +6,7 @@
 //! bridge needs to use them ([`crate::feasibility`]).
 
 use std::{
+    collections::BTreeSet,
     num::NonZeroUsize,
     sync::{
         Arc,
@@ -18,13 +19,15 @@ use std::{
 
 use k_rust::backend::{
     Backend, BackendDiagnosticOutput, BackendError, EffectOutput, ExecuteRequest, ExecutionResult,
-    ExecutionStrategy, HaltReasonOutput, ObservedRequest, ResultModalityOutput,
-    SearchFailureOutput, TraceEntry, TransitionIdOutput,
+    ExecutionStrategy, HaltReasonOutput, ObservationEventOutput, ObservedRequest,
+    ResultModalityOutput, SearchFailureOutput, TraceEntry, TransitionClassOutput,
+    TransitionIdOutput,
 };
 use k_rust::kore::{ast::Pattern, codec};
 use k_rust_backend::cancellation::CancellationToken;
 use kink_pattern::ExecutionBounds;
 
+use crate::execution_difference::{NotProvedReason, StateSequence, StateSequences};
 use crate::feasibility::{Inhabitation, LeafFeasibility, leaf_feasibility, uninhabited_variable};
 use crate::observation::{
     AdaptedBranch, InstalledObservationManifest, ObservationFailure, adapt_branch,
@@ -419,6 +422,112 @@ impl ExecutionAdapter {
             })?
         };
         self.adapt(result, timed_out, &budget, feasibility)
+    }
+
+    /// Runs the same PathSet request with every rewrite rule observed, yielding Rewrite positions.
+    /// The facade contract (`k-rust` `backend/mod.rs:630-640`) guarantees that an observation
+    /// filter changes neither leaves nor their order. An explicit rewrite allow-list avoids
+    /// observe-all: it emits one Evaluation event per equation, simplification, and builtin,
+    /// each cloning the whole state. Filtered Remainder entries are not reported and add no
+    /// position. Every failure is a NotProvedReason, never a kill.
+    pub fn state_sequences(
+        &self,
+        backend: &mut Backend,
+        state: &Pattern,
+        budget: ExecutionBudget,
+        expected: &[Vec<TransitionIdOutput>],
+    ) -> Result<StateSequences, NotProvedReason> {
+        self.check_profile(backend)
+            .map_err(|_| NotProvedReason::Backend)?;
+        let ids = with_definition(backend, |definition| {
+            Ok(definition
+                .rewrite_theory
+                .values()
+                .flat_map(|priorities| priorities.values())
+                .flatten()
+                .map(|rule| rule.rule.attributes.unique_id.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>())
+        })
+        .map_err(|_| NotProvedReason::Backend)?;
+        let encoded = codec::to_value(state).map_err(|_| NotProvedReason::Backend)?;
+        let (result, timed_out) =
+            execute_with_watchdog(backend, encoded, budget, |backend, request| {
+                backend.execute_observed(ObservedRequest {
+                    request,
+                    rules: Some(ids.clone()),
+                })
+            })
+            .map_err(|_| NotProvedReason::Backend)?;
+        if timed_out {
+            return Err(NotProvedReason::Timeout);
+        }
+        if result.leaves.len() != expected.len() {
+            return Err(NotProvedReason::BranchMismatch);
+        }
+        let feasibility = backend
+            .with_solver(None, |definition, solver| {
+                let inhabitation = Inhabitation::of(definition);
+                Ok::<_, ExecutionAdapterFailure>(
+                    result
+                        .leaves
+                        .iter()
+                        .map(|leaf| {
+                            leaf_feasibility(definition, solver, &inhabitation, &leaf.state)
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .map_err(|_| NotProvedReason::Backend)?;
+        let mut leaves = Vec::with_capacity(result.leaves.len());
+        for (index, (leaf, feasibility)) in result.leaves.into_iter().zip(feasibility).enumerate() {
+            let halt = HaltClass::from_output(leaf.reason);
+            if !halt.adapter_admits(&budget) {
+                return Err(NotProvedReason::Backend);
+            }
+            if leaf.branch != expected[index] {
+                return Err(NotProvedReason::BranchMismatch);
+            }
+            let mut reported = Vec::new();
+            let mut states = Vec::new();
+            for event in leaf.observations {
+                match event {
+                    ObservationEventOutput::Transition {
+                        id, class, before, ..
+                    } => match class {
+                        TransitionClassOutput::Rewrite => {
+                            reported.push(id);
+                            states.push(
+                                codec::from_value(&before).map_err(|_| NotProvedReason::Backend)?,
+                            );
+                        }
+                        TransitionClassOutput::Remainder | TransitionClassOutput::Claim => {
+                            return Err(NotProvedReason::Unobservable);
+                        }
+                    },
+                    ObservationEventOutput::Evaluation { .. }
+                    | ObservationEventOutput::Uncommitted { .. } => {}
+                }
+            }
+            if leaf
+                .branch
+                .iter()
+                .filter(|id| !id.rule.starts_with("remainder:"))
+                .cloned()
+                .collect::<Vec<_>>()
+                != reported
+            {
+                return Err(NotProvedReason::Unobservable);
+            }
+            states.push(codec::from_value(&leaf.state).map_err(|_| NotProvedReason::Backend)?);
+            leaves.push(StateSequence {
+                halt,
+                states,
+                feasibility,
+            });
+        }
+        Ok(StateSequences { leaves })
     }
 
     /// The branch identity of every leaf of the observed PathSet run of `state`, in leaf order,
