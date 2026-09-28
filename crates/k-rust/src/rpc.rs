@@ -1,4 +1,32 @@
 //! The KORE JSON-RPC 2.0 server: JSON framing, the FIFO of in-flight requests, fault and log vocabularies, and Booster-compatible response shaping. Every backend operation goes through `Backend`.
+//!
+//! ```toml algorithm
+//! id = "rpc.json.decode"
+//! name = "JSON-RPC request decoding"
+//! sites = ["parse_json_value", "decode_params"]
+//! variable = "B = request bytes; N = KORE pattern nodes"
+//! no_counter = "request decoding has no dedicated input counter"
+//! span = "per call"
+//! invariant = "parameter decoding preserves the KORE JSON v1 pattern and rejects malformed input"
+//!
+//! [[cost]]
+//! mode = "request decode"
+//! bound = "O(B + N) to parse the JSON envelope and decode its KORE parameters"
+//! ```
+//!
+//! ```toml algorithm
+//! id = "rpc.json.encode"
+//! name = "JSON-RPC response encoding"
+//! sites = ["encode_kore_source", "RpcService::handle_line"]
+//! variable = "N = expanded KORE pattern nodes; B = response bytes"
+//! counters = ["RpcJsonNodesWritten", "RpcJsonDistinctNodes", "RpcJsonBytesWritten"]
+//! span = "per call"
+//! invariant = "the response serializes the same KORE JSON v1 values counted at the pattern source"
+//!
+//! [[cost]]
+//! mode = "response encode"
+//! bound = "O(N + B) to materialize KORE JSON values and serialize the response"
+//! ```
 
 use std::{
     collections::{BTreeSet, VecDeque},
@@ -45,7 +73,7 @@ use k_rust_backend::{
     term::{Name as BackendName, Sort as BackendSort, Term, Variable},
 };
 #[cfg(feature = "measure")]
-use k_rust_kore::measure::{self, Counter};
+use k_rust_kore::measure::{self, Algorithm, Counter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json, value::RawValue};
 
@@ -480,6 +508,8 @@ impl RpcService {
             request => self.handle_request(request),
         };
         response.map(|response| {
+            #[cfg(feature = "measure")]
+            let _span = measure::algorithm_span(Algorithm::RpcJsonEncode);
             serde_json::to_string(&response).expect("JSON-RPC responses are serializable")
         })
     }
@@ -1523,11 +1553,15 @@ fn legacy_log_selected(requested: &[String], contexts: &[&str]) -> bool {
 }
 
 fn decode_params<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RpcFault> {
+    #[cfg(feature = "measure")]
+    let _span = measure::algorithm_span(Algorithm::RpcJsonDecode);
     let data = (!params.is_null()).then_some(params.clone());
     serde_json::from_value(params).map_err(|_| RpcFault::invalid_params(data))
 }
 
 fn parse_json_value(source: &str) -> serde_json::Result<Value> {
+    #[cfg(feature = "measure")]
+    let _span = measure::algorithm_span(Algorithm::RpcJsonDecode);
     let mut deserializer = serde_json::Deserializer::from_str(source);
     deserializer.disable_recursion_limit();
     let value = Value::deserialize(&mut deserializer)?;
@@ -1539,6 +1573,8 @@ fn encode_kore_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
     pattern: &KorePattern,
     source: S,
 ) -> Result<Value, RpcFault> {
+    #[cfg(feature = "measure")]
+    let _span = measure::algorithm_span(Algorithm::RpcJsonEncode);
     #[cfg(feature = "measure")]
     if measure::output_counting_enabled() {
         let (nodes, distinct) = k_rust_kore::kore::node::measure_nodes(source);

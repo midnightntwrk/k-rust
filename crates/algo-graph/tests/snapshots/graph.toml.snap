@@ -7481,6 +7481,69 @@ file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "EMISSION_PHASES"
 
 [[node]]
+kind = "algorithm"
+id = "rpc.json.decode"
+provenance = "declared"
+area = "rpc"
+name = "JSON-RPC request decoding"
+variable = "B = request bytes; N = KORE pattern nodes"
+invariant = "parameter decoding preserves the KORE JSON v1 pattern and rejects malformed input"
+no_counter = "request decoding has no dedicated input counter"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "RpcJsonDecode"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "parse_json_value"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "parse_json_value"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "decode_params"
+
+[[node.cost]]
+mode = "request decode"
+bound = "O(B + N) to parse the JSON envelope and decode its KORE parameters"
+
+[[node]]
+kind = "algorithm"
+id = "rpc.json.encode"
+provenance = "declared"
+area = "rpc"
+name = "JSON-RPC response encoding"
+variable = "N = expanded KORE pattern nodes; B = response bytes"
+invariant = "the response serializes the same KORE JSON v1 values counted at the pattern source"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "RpcJsonEncode"
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "encode_kore_source"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "encode_kore_source"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "RpcService::handle_line"
+
+[[node.cost]]
+mode = "response encode"
+bound = "O(N + B) to materialize KORE JSON values and serialize the response"
+
+[[node]]
 kind = "phase"
 id = "seed sort predicate syntax"
 provenance = "table"
@@ -9081,6 +9144,24 @@ from = "resolve structured configurations"
 to = "definition checks"
 provenance = "table"
 order = 15
+
+[[edge]]
+kind = "measured-by"
+from = "rpc.json.encode"
+to = "RpcJsonBytesWritten"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "rpc.json.encode"
+to = "RpcJsonDistinctNodes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "rpc.json.encode"
+to = "RpcJsonNodesWritten"
+provenance = "declared"
 
 [[edge]]
 kind = "contains"

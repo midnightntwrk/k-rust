@@ -50,6 +50,10 @@ macro_rules! algorithms {
 }
 
 algorithms! {
+    /// JSON-RPC envelope and KORE parameter decoding.
+    RpcJsonDecode => "rpc.json.decode",
+    /// KORE pattern and JSON-RPC response encoding.
+    RpcJsonEncode => "rpc.json.encode",
     /// Single-symbol rule selection.
     BackendRuleSelect => "backend.rule.select",
     /// Search for a macro or alias symbol that survived into an executable term.
