@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 use std::fs::{self, File, FileTimes};
 use std::path::{Path, PathBuf};
-use std::process::Output;
+use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -40,7 +40,7 @@ impl Fixture {
         )
         .unwrap();
         let executable = root.path().join("krs");
-        fs::copy(env!("CARGO_BIN_EXE_krs"), &executable).unwrap();
+        copy_executable(Path::new(env!("CARGO_BIN_EXE_krs")), &executable);
         Self {
             target: fixture_target(&manifest, Some(root.path())),
             root,
@@ -161,6 +161,21 @@ impl Run {
             assert!(has("collector.run"), "{}", self.timings);
         }
     }
+}
+
+/// Copy an executable without opening it for writing in this process.
+///
+/// Tests in this binary spawn processes concurrently.
+/// A child forked by one test inherits every descriptor open in the process until it execs,
+/// and executing a file while any process holds it open for writing fails with `ETXTBSY`.
+fn copy_executable(from: &Path, to: &Path) {
+    let status = Command::new("cp").arg(from).arg(to).status().unwrap();
+    assert!(
+        status.success(),
+        "cp {} {}: {status}",
+        from.display(),
+        to.display()
+    );
 }
 
 fn read_json(path: &Path) -> serde_json::Value {
@@ -309,9 +324,10 @@ fn source_request_and_executable_changes_miss_and_escape_hatches_recompute() {
         .run("check", "llvm", None, &[], false)
         .assert_reused(1);
 
-    File::options()
-        .write(true)
-        .open(&fixture.executable)
+    // Explicit times need no write access.
+    // A writable descriptor could leak into a child that another test is forking,
+    // and the next run of this executable would then fail (see `copy_executable`).
+    File::open(&fixture.executable)
         .unwrap()
         .set_times(FileTimes::new().set_modified(UNIX_EPOCH + Duration::from_secs(12_345)))
         .unwrap();
