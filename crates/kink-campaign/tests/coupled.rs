@@ -1,4 +1,4 @@
-//! End-to-end symmem campaigns for exact-site and coupled operators.
+//! End-to-end symmem and guardedmem campaigns for exact-site and coupled operators.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -10,9 +10,9 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kompile::initial_configuration::kore_sort;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
-    Campaign, CrashPolicy, FinalResult, MutantStatus, OracleDeclaration, OracleOutcome, OracleSide,
-    OracleValue, PatternValue, Projection, Rational, ScheduleMode, SideRun, StateProjection,
-    TestCase, TestRun, derive_mutant_report, run_campaign, tally,
+    Campaign, CampaignFailureKind, CrashPolicy, FinalResult, MutantStatus, OracleDeclaration,
+    OracleOutcome, OracleSide, OracleValue, PatternValue, Projection, Rational, ScheduleMode,
+    SideRun, StateProjection, TestCase, TestRun, derive_mutant_report, run_campaign, tally,
 };
 use kink_native::execution::ExecutionBudget;
 use kink_native::observation::{DomainEventSpec, PayloadSource};
@@ -104,9 +104,19 @@ fn pattern(
     second: &str,
     relation: Relation,
 ) -> OracleDeclaration {
+    pattern_with_sort(vocabulary, first, second, relation, "SortAddress")
+}
+
+fn pattern_with_sort(
+    vocabulary: &EventVocabulary,
+    first: &str,
+    second: &str,
+    relation: Relation,
+    sort: &str,
+) -> OracleDeclaration {
     let plan = PatternPlan::new(
         vocabulary,
-        vec![("A".into(), kore_sort("SortAddress"))],
+        vec![("A".into(), kore_sort(sort))],
         vec![PatternArm {
             atoms: vec![first, second]
                 .into_iter()
@@ -227,6 +237,94 @@ impl Symmem {
         Campaign {
             validator: &self.validator,
             module: "SYMMEM",
+            observed_rules: &self.observed,
+            vocabulary: &self.vocabulary,
+            classify: &normal,
+            tests,
+            budget: BUDGET,
+        }
+    }
+}
+
+struct Guarded {
+    validator: NativeValidator,
+    vocabulary: EventVocabulary,
+    observed: Vec<ObservedRule>,
+    tests: Vec<TestCase>,
+}
+
+impl Guarded {
+    fn new() -> Self {
+        let validator =
+            NativeValidator::bind(support::load("guardedmem.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let vocabulary = EventVocabulary::new(vec![
+            Constructor {
+                name: "memoryWrite".into(),
+                payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
+            },
+            Constructor {
+                name: "memoryLoad".into(),
+                payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
+            },
+        ])
+        .expect("vocabulary");
+        let observed = vec![
+            observed(baseline, "GUARDEDMEM.write", "memoryWrite", &["A", "V"]),
+            observed(baseline, "GUARDEDMEM.load", "memoryLoad", &["A", "V"]),
+            observed(baseline, "GUARDEDMEM.loadNeg", "memoryLoad", &["A", "V"]),
+        ];
+        let oracles = vec![
+            OracleDeclaration::new(
+                CrashPolicy::CompareIdentity,
+                Projection::State(StateProjection::WholeTerm),
+            )
+            .expect("final"),
+            pattern_with_sort(
+                &vocabulary,
+                "memoryWrite",
+                "memoryLoad",
+                Relation::EventuallyAfter,
+                "SortInt",
+            ),
+        ];
+        let guarded_state = |write_address: Pattern, load_address: Pattern| {
+            state(
+                addr(write_address),
+                support::var("V", "SortInt"),
+                addr(load_address),
+                support::var("W", "SortInt"),
+            )
+        };
+        let tests = [
+            (
+                "sym-guarded",
+                guarded_state(support::var("X", "SortInt"), support::var("Y", "SortInt")),
+            ),
+            (
+                "ground-guarded",
+                guarded_state(support::int(1), support::int(1)),
+            ),
+        ]
+        .into_iter()
+        .map(|(id, initial_state)| TestCase {
+            id: id.into(),
+            initial_state,
+            oracles: oracles.clone(),
+        })
+        .collect();
+        Self {
+            validator,
+            vocabulary,
+            observed,
+            tests,
+        }
+    }
+
+    fn campaign<'a>(&'a self, tests: &'a [TestCase]) -> Campaign<'a> {
+        Campaign {
+            validator: &self.validator,
+            module: "GUARDEDMEM",
             observed_rules: &self.observed,
             vocabulary: &self.vocabulary,
             classify: &normal,
@@ -370,6 +468,55 @@ fn coupled_with_stale_load(
         assert!(generation.scored());
         assert_eq!(generation.candidates().len(), 1);
     }
+    generation
+}
+
+fn inverted_load_sign(baseline: &Baseline) -> CandidateGeneration<'_> {
+    let derive = |role: &str, rule: &str| {
+        derive_sites(
+            baseline,
+            role,
+            &[
+                SiteSelector::RuleLabel(rule.into()),
+                SiteSelector::Path(vec![0, 0, 0, 0, 0]),
+                SiteSelector::Sort(Sort::new("Int")),
+                SiteSelector::Bind("A".into()),
+            ],
+        )
+        .expect("site")
+    };
+    let discovery = derive("load", "GUARDEDMEM.load")
+        .join(&derive("load-fault", "GUARDEDMEM.loadFault"), false)
+        .expect("join");
+    assert!(discovery.exhaustive());
+    let generation = select(&discovery, exact(1, 2), 1)
+        .expect("selection")
+        .fold("inverted-load-sign", |origin| {
+            Patch::new(
+                origin.discovery_tuples[0]
+                    .sites
+                    .iter()
+                    .map(|site| {
+                        let other =
+                            if site.at.sentence == support::rule(baseline, "GUARDEDMEM.load") {
+                                "GUARDEDMEM.loadFault"
+                            } else {
+                                "GUARDEDMEM.load"
+                            };
+                        let at = TermRef::new(site.at.sentence.clone(), [1]);
+                        Edit::ReplaceTerm {
+                            expected: baseline.term(&at).expect("requires").clone(),
+                            replacement: term(baseline, other, &[1]),
+                            at,
+                        }
+                    })
+                    .collect(),
+            )
+            .expect("patch")
+        })
+        .expect("generation");
+    assert!(generation.scored());
+    assert_eq!(generation.candidates().len(), 1);
     generation
 }
 
@@ -688,5 +835,66 @@ fn repeated_coupled_campaigns_are_identical() {
         assert_eq!(outcomes(&first), outcomes(&fresh));
         assert_eq!(first.baseline, fresh.baseline);
         assert_eq!(first.mutants[0].evidence, fresh.mutants[0].evidence);
+    });
+}
+
+#[test]
+fn inverted_load_sign_is_killed_by_a_solver_unsat() {
+    with_stack(|| {
+        let fixture = Guarded::new();
+        let generation = inverted_load_sign(fixture.validator.baseline());
+        assert_eq!(generation.candidates()[0].patch.edits().len(), 2);
+        let campaign = fixture.campaign(&fixture.tests);
+        let full = run_campaign(&campaign, &generation, ScheduleMode::Full);
+        if cfg!(feature = "z3") {
+            let full = full.expect("Z3 admits the symbolic baseline");
+            let SideRun::Sides { sides } = &full.baseline[0].run else {
+                panic!("symbolic baseline failed: {:?}", full.baseline[0]);
+            };
+            let terminal = |symbol| support::initial_state(app(symbol, vec![]), "SortProg");
+            assert_eq!(
+                sides,
+                &vec![
+                    OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+                        [terminal("halt"), terminal("fault")].into()
+                    ))),
+                    OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                        bindings: None
+                    })),
+                ]
+            );
+            assert_eq!(outcomes(&full), vec![vec![A, D], vec![D, D]]);
+            assert_eq!(full.mutants[0].report.status, MutantStatus::Killed);
+            assert_eq!(
+                full.mutants[0].report.killing_test_ids,
+                ["sym-guarded", "ground-guarded"]
+            );
+
+            let stopped =
+                run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("first kill");
+            let mutant = &stopped.mutants[0];
+            assert_eq!(mutant.report.status, MutantStatus::Killed);
+            assert_eq!(mutant.report.executed_test_ids, ["sym-guarded"]);
+            assert_eq!(mutant.report.killing_test_ids, ["sym-guarded"]);
+            assert_eq!(mutant.plan.tests[1].run, TestRun::SkippedAfterKill);
+        } else {
+            assert_eq!(
+                full.expect_err("symbolic baseline remains undecided")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+            let ground = run_campaign(
+                &fixture.campaign(&fixture.tests[1..]),
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect("ground baseline admitted");
+            assert_eq!(outcomes(&ground), vec![vec![D, D]]);
+            assert_eq!(ground.mutants[0].report.status, MutantStatus::Killed);
+            assert_eq!(
+                ground.mutants[0].report.killing_test_ids,
+                ["ground-guarded"]
+            );
+        }
     });
 }
