@@ -33,6 +33,7 @@ from typing import Any, Callable, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError  # noqa: E402
 from support.hashing import sha256_file  # noqa: E402
+from support.krs import Invocation  # noqa: E402
 from support.pins import load_toml  # noqa: E402
 from perf import compare, measure, receipts  # noqa: E402
 from perf import sample  # noqa: E402
@@ -263,8 +264,7 @@ def generate_collector(context: Context, port: Port) -> Path:
         "PATH": os.pathsep.join([os.fspath(shim), context.environment.get("PATH", "")]),
     }
     completed = subprocess.run(
-        [context.krs, "expand", "--manifest-path", context.manifest(), "--package", port.package,
-         "--definition", "main"],
+        Invocation(context.krs, context.manifest(), port.package, "main").argv("expand"),
         cwd=ROOT, env=environment, capture_output=True, text=True, check=False, timeout=600,
     )
     generated = sorted((target / "krs/collectors").glob("*/Cargo.toml"))
@@ -285,8 +285,7 @@ def stage_command(
 ) -> tuple[list[str], Path]:
     if stage.krs_command is not None:
         assert context.krs is not None
-        argv = [os.fspath(context.krs), stage.krs_command, "--manifest-path", os.fspath(context.manifest()),
-                "--package", port.package, "--definition", "main"]
+        argv = Invocation(context.krs, context.manifest(), port.package, "main").argv(stage.krs_command)
         if stage.output:
             assert output is not None
             argv += ["--output", os.fspath(output)]
