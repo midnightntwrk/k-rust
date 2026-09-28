@@ -516,6 +516,24 @@ input = "dup(${n})\n"
 stdout = ['"result"']
 files = ["${run}/response.json", "${run}/rpc-metrics.json"]
 
+# The standalone driver calls Backend::execute_observed on the initial state.
+# Its depth is n: every duplication transition is observed, including the last
+# one whose before/after patterns contain the large shared tree.
+[[workload]]
+name = "shared-observed-execute"
+command = "observed-execute"
+weight = "light"
+prepare = ["shared-branch", "shared-rpc-execute"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch/definition.kore", "--module", "SHARED-BRANCH", "--request", "${prepared}/shared-rpc-execute-initial-${n}/request.json", "--depth", "${n}"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.check]
+stdout = ['"observations"', '"transition"']
+
 [[workload]]
 name = "shared-rpc-simplify"
 command = "kore-rpc"

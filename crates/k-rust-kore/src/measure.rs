@@ -685,6 +685,63 @@ pub fn bump(counter: Counter) {
 
 pub use imp::{add, merge_current_thread, process_snapshot, reset, snapshot};
 
+/// The executable-wide allocator used by binaries that report allocation counters.
+/// Each binary installs it with `#[global_allocator]`; the counters remain process-local.
+#[cfg(feature = "measure")]
+pub struct CountingAllocator;
+
+#[cfg(feature = "measure")]
+static ALLOCATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "measure")]
+static ALLOCATED_BYTES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[cfg(feature = "measure")]
+unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let pointer = unsafe { std::alloc::System.alloc(layout) };
+        if !pointer.is_null() {
+            ALLOCATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ALLOCATED_BYTES.fetch_add(layout.size() as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: std::alloc::Layout) -> *mut u8 {
+        let pointer = unsafe { std::alloc::System.alloc_zeroed(layout) };
+        if !pointer.is_null() {
+            ALLOCATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ALLOCATED_BYTES.fetch_add(layout.size() as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        pointer
+    }
+
+    unsafe fn realloc(
+        &self,
+        pointer: *mut u8,
+        layout: std::alloc::Layout,
+        new_size: usize,
+    ) -> *mut u8 {
+        let replacement = unsafe { std::alloc::System.realloc(pointer, layout, new_size) };
+        if !replacement.is_null() {
+            ALLOCATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ALLOCATED_BYTES.fetch_add(new_size as u64, std::sync::atomic::Ordering::Relaxed);
+        }
+        replacement
+    }
+
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: std::alloc::Layout) {
+        unsafe { std::alloc::System.dealloc(pointer, layout) }
+    }
+}
+
+/// Overlay the allocation counters on a process snapshot after measuring the work.
+#[cfg(feature = "measure")]
+pub fn set_allocation_counters(snapshot: &mut Snapshot) {
+    use std::sync::atomic::Ordering;
+    snapshot.0[Counter::Allocations as usize] = ALLOCATIONS.load(Ordering::Relaxed);
+    snapshot.0[Counter::AllocatedBytes as usize] = ALLOCATED_BYTES.load(Ordering::Relaxed);
+}
+
 /// Whether output counting is requested by the executable. Library users keep the default
 /// enabled state so counter tests can measure writers without process environment setup.
 #[cfg(feature = "measure")]

@@ -10,6 +10,7 @@ pins_manifest="$workspace/scripts/reference-differential.toml"
 original_args=("$@")
 
 KRUST_BIN=${KRUST_BIN:-"$workspace/target/profiling/krust"}
+KRUST_OBSERVED_BIN=${KRUST_OBSERVED_BIN:-"$workspace/target/profiling/examples/observed-execute"}
 KRUST_FEATURES=${KRUST_FEATURES:-cli,measure}
 ALGO_RECEIPT_WORK=${ALGO_RECEIPT_WORK:-"$workspace/target/algo-receipts/work"}
 ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB=${ALGO_RECEIPT_HEAVY_MIN_AVAILABLE_GIB:-24}
@@ -93,6 +94,10 @@ Environment:
                     (default: target/profiling/krust):
                       with-z3-static-4.16.0 cargo build --profile profiling -p k-rust \
                         --no-default-features --features cli,measure --bin krust --locked
+  KRUST_OBSERVED_BIN  Observed backend example for observed-execute workloads
+                      (default: target/profiling/examples/observed-execute):
+                      with-z3-static-4.16.0 cargo build --profile profiling -p k-rust \
+                        --no-default-features --features cli,measure --example observed-execute --locked
   KRUST_FEATURES    The features KRUST_BIN was built with, recorded in the metadata
                     (default: cli,measure)
   ALGO_GRAPH        algo-graph binary (default: cargo run --release -p algo-graph)
@@ -268,7 +273,7 @@ def resolve(name, param, prepared, run, input_path, shape=False):
         "ladder_values": ladder["values"] if ladder else [],
         "stop_seconds": ladder.get("stop_seconds") if ladder else None,
     }
-    if result["command"] not in ("kcompile", "kprove", "krun", "kore-rpc"):
+    if result["command"] not in ("kcompile", "kprove", "krun", "kore-rpc", "observed-execute"):
         raise SystemExit(f"error: {name} has unknown command {result['command']}")
     if result["weight"] not in ("light", "heavy"):
         raise SystemExit(f"error: {name} has unknown weight {result['weight']}")
@@ -497,6 +502,8 @@ if [[ "$dry_run" == 1 ]]; then
       local_command=("$KRUST_BIN" "$command_kind" "${args[@]}")
       if [[ "$command_kind" == kore-rpc ]]; then
         local_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}")
+      elif [[ "$command_kind" == observed-execute ]]; then
+        local_command=("$KRUST_OBSERVED_BIN" "${args[@]}")
       fi
       printf 'measured: KRUST_COUNTERS=%q %s < /dev/null\n' "RECEIPT/counters.json" \
         "$(shell_command "${local_command[@]}" --timings RECEIPT/timings.json)"
@@ -507,6 +514,8 @@ if [[ "$dry_run" == 1 ]]; then
       profile_command=("$KRUST_BIN" "$command_kind" "${args[@]}")
       if [[ "$command_kind" == kore-rpc ]]; then
         profile_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}")
+      elif [[ "$command_kind" == observed-execute ]]; then
+        profile_command=("$KRUST_OBSERVED_BIN" "${args[@]}")
       fi
       printf 'profiled (rep-1): %s < /dev/null\n' \
         "$(shell_command taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate" -o RECEIPT/profile.json.gz -- "${profile_command[@]}")"
@@ -549,8 +558,12 @@ fi
 if command -v readelf >/dev/null 2>&1; then
   readelf -S "$KRUST_BIN" | grep -q '\.debug_line' || fail "KRUST_BIN has no line tables; build with --profile profiling"
 fi
-"$KRUST_BIN" "$command_kind" --help | grep -q -- --trace-aggregate \
-  || fail "KRUST_BIN has no --trace-aggregate option; rebuild it from this checkout"
+if [[ "$command_kind" == observed-execute ]]; then
+  [[ -x "$KRUST_OBSERVED_BIN" ]] || fail "observed driver is missing: $KRUST_OBSERVED_BIN"
+else
+  "$KRUST_BIN" "$command_kind" --help | grep -q -- --trace-aggregate \
+    || fail "KRUST_BIN has no --trace-aggregate option; rebuild it from this checkout"
+fi
 if [[ "$dirty" == true && "$allow_dirty" != 1 ]]; then
   fail "the checkout has tracked modifications; commit them or pass --allow-dirty"
 fi
@@ -656,6 +669,9 @@ record_receipt() {
   if [[ "$command_kind" == kore-rpc ]]; then
     measured_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}" --timings "$receipt/timings.json")
     traced_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json")
+  elif [[ "$command_kind" == observed-execute ]]; then
+    measured_command=("$KRUST_OBSERVED_BIN" "${args[@]}" --timings "$receipt/timings.json")
+    traced_command=("$KRUST_OBSERVED_BIN" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json")
   else
     measured_command=("$KRUST_BIN" "$command_kind" "${args[@]}" --timings "$receipt/timings.json")
     traced_command=("$KRUST_BIN" "$command_kind" "${args[@]}" --trace-aggregate "$receipt/trace-aggregate.json")
@@ -864,7 +880,11 @@ profile_receipt() {
   local -a profile_command=("$KRUST_BIN" "$command_kind" "${args[@]}")
   if [[ "$command_kind" == kore-rpc ]]; then
     profile_command=(python3 "$workspace/scripts/algo-rpc-request.py" --krust "$KRUST_BIN" "${args[@]}")
+  elif [[ "$command_kind" == observed-execute ]]; then
+    profile_command=("$KRUST_OBSERVED_BIN" "${args[@]}")
   fi
+  local profile_binary=$KRUST_BIN
+  [[ "$command_kind" != observed-execute ]] || profile_binary=$KRUST_OBSERVED_BIN
   local -a record=(taskset -c "$ALGO_RECEIPT_TASKSET" "$SAMPLY" record --save-only --rate "$profile_rate"
     -o "$receipt/profile.json.gz" -- "${profile_command[@]}")
   log_command profiled "$(shell_command python3 "$workspace/scripts/conformance/measure.py" --log "$receipt/profiled" "${timeout[@]}" --stdout-keep-bytes "$ALGO_RECEIPT_STDOUT_KEEP_BYTES" -- "${record[@]}") < /dev/null"
@@ -885,9 +905,9 @@ profile_receipt() {
     fi
     return 1
   fi
-  log_command attribution "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json.gz" -o "$receipt/profile.toml")"
+  log_command attribution "$(shell_command "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" --binary "$profile_binary" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json.gz" -o "$receipt/profile.toml")"
   "${algo_graph[@]}" --root "$workspace" profile --samply "$receipt/profile.json.gz" \
-    --binary "$KRUST_BIN" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json.gz" \
+    --binary "$profile_binary" --graph "$receipt/graph.toml" --stacks "$receipt/stacks.json.gz" \
     -o "$receipt/profile.toml" 2>/dev/null \
     || { echo "error: algo-graph profile failed for $receipt" >&2; return 1; }
   samply_version=$("$SAMPLY" --version)

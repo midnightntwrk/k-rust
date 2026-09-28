@@ -15,6 +15,10 @@ name = "krust"
 path = "src/main.rs"
 required-features = ["cli"]
 
+[[example]]
+name = "observed-execute"
+required-features = ["cli", "measure"]
+
 [dependencies]
 clap = { workspace = true, optional = true }
 gmp-mpfr-sys = { workspace = true, optional = true }
