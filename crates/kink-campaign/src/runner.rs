@@ -19,7 +19,9 @@
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
-//! - A pattern oracle is `kink_pattern::evaluate` over the paths. `Unknown` and `Error`
+//! - A pattern oracle is `kink_pattern::evaluate_with` over the paths with
+//!   `BackendRelations` on the backend that ran the test. Relations use k-rust's unifier
+//!   and, in a Z3 build, exact solver queries; undecided relations are `Unknown`. `Unknown` and `Error`
 //!   evaluations and pattern failures are never values, and declared bindings need
 //!   complete exhaustive coverage. Binding sets containing symbolic terms or witnesses
 //!   with assumptions are `Unknown`: a set of symbolic terms is not a value of any instance.
@@ -56,6 +58,7 @@ use kink_native::bridge::{BridgeContext, BridgeFailure, BridgedPaths, paths_from
 use kink_native::execution::{
     ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, SolverProfile,
 };
+use kink_native::feasibility::with_backend_relations;
 use kink_native::observation::{ObservationFailure, PayloadSource};
 use kink_native::{
     ManifestFailure, MutantRejection, NativeValidator, ObservedRule, ValidatedDefinition,
@@ -66,7 +69,7 @@ use kink_patch::{
 use kink_pattern::{
     CollectionStop, Evaluation, EvaluationContext, EvaluationOptions, EventVocabulary,
     ExecutionTerminal, ExecutionTerminalKind, PathStop, PatternFailure, PatternOutcome,
-    PatternPlan, SearchPolicy, SymbolSorts, evaluate,
+    PatternPlan, SearchPolicy, SymbolSorts, evaluate_with,
 };
 
 use crate::campaign::check_manifest;
@@ -623,7 +626,8 @@ impl Runtime {
             selected_rules: manifest.rules().cloned().collect(),
             symbol_sorts,
         };
-        let profile = SolverProfile::of(&backend);
+        // Pin the build's profile so the adapter can detect an unexpected backend profile.
+        let profile = SolverProfile::BUILD;
         Ok(Self {
             backend,
             adapter: ExecutionAdapter::with_profile(manifest, profile),
@@ -658,7 +662,7 @@ impl Runtime {
                             sides: test
                                 .oracles
                                 .iter()
-                                .map(|declaration| self.side(declaration, &bridged))
+                                .map(|declaration| self.side(declaration, test, &bridged))
                                 .collect(),
                         },
                     }
@@ -670,14 +674,19 @@ impl Runtime {
         }
     }
 
-    fn side(&self, declaration: &OracleDeclaration, bridged: &BridgedPaths) -> OracleSide {
+    fn side(
+        &mut self,
+        declaration: &OracleDeclaration,
+        test: &TestCase,
+        bridged: &BridgedPaths,
+    ) -> OracleSide {
         match declaration.projection() {
             Projection::State(projection) => state_side(projection, bridged),
             Projection::Pattern {
                 plan,
                 with_bindings,
-            } => pattern_side(
-                &evaluate(
+            } => match with_backend_relations(&mut self.backend, &test.initial_state, |relations| {
+                evaluate_with(
                     &self.context,
                     plan,
                     &bridged.paths,
@@ -688,9 +697,12 @@ impl Runtime {
                         search_policy: SearchPolicy::Exhaustive,
                         input_error: false,
                     },
-                ),
-                *with_bindings,
-            ),
+                    relations,
+                )
+            }) {
+                Ok(evaluation) => pattern_side(&evaluation, *with_bindings),
+                Err(_) => OracleSide::Error,
+            },
         }
     }
 }
