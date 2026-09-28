@@ -482,8 +482,13 @@ if [[ "$dry_run" == 1 ]]; then
     echo "[$workload${value:+ $(jq -r .param_name <<<"$resolved")=$value}] $weight"
     while IFS= read -r step; do
       mapfile -t step_args < <(jq -r '.args[]' <<<"$step")
+      if [[ "$(jq -r .command <<<"$step")" == rpc-request-fixture ]]; then
+        prepare_command=(python3 "$workspace/scripts/algo-rpc-fixture.py" --krust "$KRUST_BIN" "${step_args[@]}")
+      else
+        prepare_command=("$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}")
+      fi
       printf 'prepare (unless %s exists): %s\n' "$(jq -r .creates <<<"$step")" \
-        "$(shell_command "$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}")"
+        "$(shell_command "${prepare_command[@]}")"
     done < <(jq -c '.prepare[]' <<<"$resolved")
     [[ "$(jq -r .input <<<"$resolved")" == null ]] \
       || printf 'input: %s (the ladder template at %s)\n' "$run-input/$workload.$(input_extension)" "$(jq -r .param_name <<<"$resolved")=$value"
@@ -605,20 +610,6 @@ prepare_workload() {
   local log=${3:-1}
   local step creates
   local -a step_args
-  while IFS= read -r step; do
-    creates=$(jq -r .creates <<<"$step")
-    mapfile -t step_args < <(jq -r '.args[]' <<<"$step")
-    if [[ "$log" == 1 ]]; then
-      log_command prepare "$(shell_command "$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}")${creates:+ (skipped when $creates exists)}"
-    fi
-    if [[ ! -e "$creates" ]]; then
-      echo "[$workload] preparing $(jq -r .name <<<"$step")"
-      "$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}" </dev/null >"$receipt/prepare.log" 2>&1 \
-        || { tail -n 5 "$receipt/prepare.log" >&2; fail "prepare step $(jq -r .name <<<"$step") failed"; }
-      [[ -e "$creates" ]] || fail "prepare step $(jq -r .name <<<"$step") did not create $creates"
-    fi
-  done < <(jq -c '.prepare[]' <<<"$resolved")
-  rm -f "$receipt/prepare.log"
   if [[ "$(jq -r .input <<<"$resolved")" != null ]]; then
     jq -j .input <<<"$resolved" >"$run-input/$workload.$(input_extension)"
     cmp -s "$run-input/$workload.$(input_extension)" "$receipt/input.$(input_extension)" \
@@ -628,6 +619,26 @@ prepare_workload() {
         "$run-input/$workload.$(input_extension)" "$(jq -r .param_name <<<"$resolved")" "$value" "$(input_extension)" >>"$receipt/command.txt"
     fi
   fi
+  while IFS= read -r step; do
+    creates=$(jq -r .creates <<<"$step")
+    mapfile -t step_args < <(jq -r '.args[]' <<<"$step")
+    local -a prepare_command
+    if [[ "$(jq -r .command <<<"$step")" == rpc-request-fixture ]]; then
+      prepare_command=(python3 "$workspace/scripts/algo-rpc-fixture.py" --krust "$KRUST_BIN" "${step_args[@]}")
+    else
+      prepare_command=("$KRUST_BIN" "$(jq -r .command <<<"$step")" "${step_args[@]}")
+    fi
+    if [[ "$log" == 1 ]]; then
+      log_command prepare "$(shell_command "${prepare_command[@]}")${creates:+ (skipped when $creates exists)}"
+    fi
+    if [[ ! -e "$creates" ]]; then
+      echo "[$workload] preparing $(jq -r .name <<<"$step")"
+      "${prepare_command[@]}" </dev/null >"$receipt/prepare.log" 2>&1 \
+        || { tail -n 5 "$receipt/prepare.log" >&2; fail "prepare step $(jq -r .name <<<"$step") failed"; }
+      [[ -e "$creates" ]] || fail "prepare step $(jq -r .name <<<"$step") did not create $creates"
+    fi
+  done < <(jq -c '.prepare[]' <<<"$resolved")
+  rm -f "$receipt/prepare.log"
 }
 
 # Record one receipt into $receipt; returns 3 when a ladder run exceeds its stop time.
