@@ -120,6 +120,7 @@ export interface CompileDefinitionOptions {
 
 export interface Diagnostic {
   severity: 'error' | 'warning'
+  /** Stable diagnostic identifier, for example `UndefinedKLabel` (`DiagnosticCode::as_str`). */
   code: string
   message: string
   source?: string

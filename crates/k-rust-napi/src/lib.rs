@@ -70,6 +70,7 @@ pub struct NativeInputAddress {
 #[napi(object)]
 pub struct NativeDiagnostic {
     pub severity: String,
+    /// Stable diagnostic identifier from `DiagnosticCode::as_str`.
     pub code: String,
     pub message: String,
     pub source: Option<String>,
@@ -477,7 +478,7 @@ fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
                 (Some(source), None) => format!("{source}: "),
                 _ => String::new(),
             };
-            format!("{location}{:?}: {}", diagnostic.code, diagnostic.message)
+            format!("{location}{}: {}", diagnostic.code, diagnostic.message)
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -497,8 +498,8 @@ impl From<Diagnostic> for NativeDiagnostic {
             })
             .unwrap_or((None, None, None, None));
         Self {
-            severity: format!("{:?}", diagnostic.severity).to_lowercase(),
-            code: format!("{:?}", diagnostic.code),
+            severity: diagnostic.severity.as_str().to_owned(),
+            code: diagnostic.code.as_str().to_owned(),
             message: diagnostic.message,
             source: diagnostic.source,
             start_line,

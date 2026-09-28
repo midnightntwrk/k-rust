@@ -2,11 +2,26 @@
 
 use crate::definition::{Attributes, Location, Sentence};
 use crate::provenance::InputAddress;
+use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Severity {
     Error,
     Warning,
+}
+
+impl Severity {
+    /// The severity's stable public identifier: `"error"` or `"warning"`.
+    ///
+    /// There is intentionally no `Display` implementation: `Debug` prints the
+    /// capitalised variant name, and a second, differently cased textual form
+    /// behind `{}` would let a formatting change silently alter output.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+        }
+    }
 }
 
 /// Warning categories in the order used by K's `ExceptionType`.
@@ -91,69 +106,106 @@ impl DiagnosticPolicy {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticCode {
-    CellCollectionVarWithoutInitial,
-    ClaimInDefinition,
-    DeprecatedAttribute,
-    DeprecatedProduction,
-    DuplicateOverload,
-    DuplicateSentenceLabel,
-    DuplicateConfigurationCell,
-    DuplicateKLabel,
-    DuplicateUserList,
-    FutureError,
-    InvalidAnonymousVariable,
-    InvalidAttribute,
-    InvalidAsPattern,
-    InvalidBracketProduction,
-    InvalidAssociativity,
-    InvalidCommutativeSimplification,
-    InvalidConstantFolding,
-    InvalidCellConcretization,
-    InvalidContext,
-    InvalidExistentialVariable,
-    InvalidFunctionPattern,
-    InvalidFreshConstant,
-    InvalidFunctionConfiguration,
-    InvalidLocalFunction,
-    InvalidHole,
-    InvalidHeatCool,
-    InvalidListDeclaration,
-    InvalidMainCell,
-    InvalidMacroExpansion,
-    InvalidOrPattern,
-    InvalidRegex,
-    InvalidRewrite,
-    InvalidIoStream,
-    IsSortPredicateConflict,
-    InvalidSmtLemma,
-    InvalidSemanticCast,
-    InvalidSimplification,
-    InvalidStreamCell,
-    InvalidStrictness,
-    InvalidUnitAttribute,
-    IllegalFunctionOnLhs,
-    InconsistentFunctionRuleAttributes,
-    MultipleTopSorts,
-    InvalidTokenProduction,
-    InvalidDomainValue,
-    MarkdownWarning,
-    MissingSyntaxModule,
-    ProofModuleRule,
-    ProofModuleSyntax,
-    SingletonOverload,
-    UnusedVariable,
-    UnboundVariable,
-    UnadmittedHookNamespace,
-    UnsupportedExistentialVariable,
-    UnsupportedCellBag,
-    UndefinedKLabel,
-    UndeclaredTag,
-    UndefinedSort,
-    UnrecognizedAttribute,
-    UnsupportedParametricSort,
-    UnusedSymbol,
+macro_rules! diagnostic_codes {
+    ($($variant:ident => $spelling:literal,)*) => {
+        /// The kind of a frontend diagnostic.
+        ///
+        /// Each code has a stable spelling, [`DiagnosticCode::as_str`], that is
+        /// written out explicitly beside its variant so that renaming the
+        /// variant cannot change it.
+        #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+        pub enum DiagnosticCode {
+            $($variant,)*
+        }
+
+        impl DiagnosticCode {
+            /// Every diagnostic code, in declaration order.
+            pub const ALL: &'static [DiagnosticCode] = &[$(Self::$variant,)*];
+
+            /// The code's stable public identifier.
+            ///
+            /// Renderers, bindings, and downstream tools publish this spelling,
+            /// and users search for it and tests assert on it. A variant rename
+            /// keeps its spelling, and a retired spelling is never reused for a
+            /// different code. It is deliberately independent of the `Debug`
+            /// output, which follows the variant name.
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $spelling,)*
+                }
+            }
+        }
+    };
+}
+
+diagnostic_codes! {
+    CellCollectionVarWithoutInitial => "CellCollectionVarWithoutInitial",
+    ClaimInDefinition => "ClaimInDefinition",
+    DeprecatedAttribute => "DeprecatedAttribute",
+    DeprecatedProduction => "DeprecatedProduction",
+    DuplicateOverload => "DuplicateOverload",
+    DuplicateSentenceLabel => "DuplicateSentenceLabel",
+    DuplicateConfigurationCell => "DuplicateConfigurationCell",
+    DuplicateKLabel => "DuplicateKLabel",
+    DuplicateUserList => "DuplicateUserList",
+    FutureError => "FutureError",
+    InvalidAnonymousVariable => "InvalidAnonymousVariable",
+    InvalidAttribute => "InvalidAttribute",
+    InvalidAsPattern => "InvalidAsPattern",
+    InvalidBracketProduction => "InvalidBracketProduction",
+    InvalidAssociativity => "InvalidAssociativity",
+    InvalidCommutativeSimplification => "InvalidCommutativeSimplification",
+    InvalidConstantFolding => "InvalidConstantFolding",
+    InvalidCellConcretization => "InvalidCellConcretization",
+    InvalidContext => "InvalidContext",
+    InvalidExistentialVariable => "InvalidExistentialVariable",
+    InvalidFunctionPattern => "InvalidFunctionPattern",
+    InvalidFreshConstant => "InvalidFreshConstant",
+    InvalidFunctionConfiguration => "InvalidFunctionConfiguration",
+    InvalidLocalFunction => "InvalidLocalFunction",
+    InvalidHole => "InvalidHole",
+    InvalidHeatCool => "InvalidHeatCool",
+    InvalidListDeclaration => "InvalidListDeclaration",
+    InvalidMainCell => "InvalidMainCell",
+    InvalidMacroExpansion => "InvalidMacroExpansion",
+    InvalidOrPattern => "InvalidOrPattern",
+    InvalidRegex => "InvalidRegex",
+    InvalidRewrite => "InvalidRewrite",
+    InvalidIoStream => "InvalidIoStream",
+    IsSortPredicateConflict => "IsSortPredicateConflict",
+    InvalidSmtLemma => "InvalidSmtLemma",
+    InvalidSemanticCast => "InvalidSemanticCast",
+    InvalidSimplification => "InvalidSimplification",
+    InvalidStreamCell => "InvalidStreamCell",
+    InvalidStrictness => "InvalidStrictness",
+    InvalidUnitAttribute => "InvalidUnitAttribute",
+    IllegalFunctionOnLhs => "IllegalFunctionOnLhs",
+    InconsistentFunctionRuleAttributes => "InconsistentFunctionRuleAttributes",
+    MultipleTopSorts => "MultipleTopSorts",
+    InvalidTokenProduction => "InvalidTokenProduction",
+    InvalidDomainValue => "InvalidDomainValue",
+    MarkdownWarning => "MarkdownWarning",
+    MissingSyntaxModule => "MissingSyntaxModule",
+    ProofModuleRule => "ProofModuleRule",
+    ProofModuleSyntax => "ProofModuleSyntax",
+    SingletonOverload => "SingletonOverload",
+    UnusedVariable => "UnusedVariable",
+    UnboundVariable => "UnboundVariable",
+    UnadmittedHookNamespace => "UnadmittedHookNamespace",
+    UnsupportedExistentialVariable => "UnsupportedExistentialVariable",
+    UnsupportedCellBag => "UnsupportedCellBag",
+    UndefinedKLabel => "UndefinedKLabel",
+    UndeclaredTag => "UndeclaredTag",
+    UndefinedSort => "UndefinedSort",
+    UnrecognizedAttribute => "UnrecognizedAttribute",
+    UnsupportedParametricSort => "UnsupportedParametricSort",
+    UnusedSymbol => "UnusedSymbol",
+}
+
+impl fmt::Display for DiagnosticCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 impl DiagnosticCode {
@@ -275,6 +327,28 @@ impl Diagnostic {
 mod tests {
     use super::*;
     use crate::provenance::InputSpace;
+
+    #[test]
+    fn diagnostic_code_spellings_are_distinct_and_ordered() {
+        let mut spellings = std::collections::BTreeSet::new();
+        for code in DiagnosticCode::ALL {
+            assert!(
+                spellings.insert(code.as_str()),
+                "{code:?} reuses the spelling {:?}",
+                code.as_str()
+            );
+        }
+        // ALL follows declaration order, which is also the derived `Ord`.
+        assert!(DiagnosticCode::ALL.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn diagnostic_code_spellings_are_pinned() {
+        assert_eq!(DiagnosticCode::UndefinedKLabel.as_str(), "UndefinedKLabel");
+        assert_eq!(DiagnosticCode::UnusedVariable.to_string(), "UnusedVariable");
+        assert_eq!(Severity::Error.as_str(), "error");
+        assert_eq!(Severity::Warning.as_str(), "warning");
+    }
 
     #[test]
     fn attribute_diagnostics_copy_input_addresses() {

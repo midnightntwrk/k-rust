@@ -3710,7 +3710,7 @@ fn emit_diagnostics(diagnostics: &[Diagnostic]) {
             _ => String::new(),
         };
         eprintln!(
-            "{location}{:?}[{:?}]: {}",
+            "{location}{:?}[{}]: {}",
             diagnostic.severity, diagnostic.code, diagnostic.message
         );
     }

@@ -523,6 +523,11 @@ pipeline as `krust kcompile` without filesystem output. It returns `definitionKo
 functions remain available from `native.js` for hosts that want the lowest possible wrapper
 overhead.
 
+Every diagnostic carries a `severity` (`error` or `warning`) and a `code` such as
+`UndefinedKLabel`. The code is a stable public identifier, the same one `krust` prints and the
+Rust crate returns from `DiagnosticCode::as_str` (`DiagnosticCode::ALL` lists every code): a
+refactor that renames the Rust variant keeps the spelling, and a retired spelling is never reused.
+
 `compileBackend(options)` compiles and immediately creates a persistent native backend;
 `createBackend({ definitionKore, moduleName })` starts from existing KORE. The backend exposes
 execution, simplification, implication checking, model generation, reachability proving, and
