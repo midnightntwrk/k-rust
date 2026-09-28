@@ -1394,6 +1394,38 @@ fn positional_binding_payloads_are_refused() {
 }
 
 #[test]
+fn unstable_payload_sources_are_refused() {
+    with_stack(|| {
+        for source in [
+            PayloadSource::IntroducedPredicate(0),
+            PayloadSource::Effect(0),
+            PayloadSource::BeforeState,
+            PayloadSource::AfterState,
+        ] {
+            let mut fixture = ClaimCampaign::load("symbolic-claim-mutation.k");
+            fixture.observed_rules[0].domain_events[0].payload[0] = source;
+            let tests = [fixture.tests()[1].clone()];
+            let generation = generation(fixture.baseline(), &[]);
+            let failure = run_campaign(
+                &Campaign {
+                    validator: &fixture.validator,
+                    module: "SYMPARTIAL",
+                    observed_rules: &fixture.observed_rules,
+                    vocabulary: &fixture.vocabulary,
+                    classify: &normal,
+                    tests: &tests,
+                    budget: BUDGET,
+                },
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect_err("unstable payload source is invalid");
+            assert_eq!(failure.kind(), CampaignFailureKind::InvalidDeclaration);
+        }
+    });
+}
+
+#[test]
 fn missing_named_binding_on_a_mutant_is_unknown() {
     with_stack(|| {
         let validator = NativeValidator::bind(support::load("symmem.k"), CompileOptions::default());

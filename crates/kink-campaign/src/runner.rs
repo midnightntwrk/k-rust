@@ -297,6 +297,12 @@ pub fn tally(generation: &CandidateGeneration<'_>, run: &CampaignRun) -> Option<
 /// every mutant. Under `FirstKill` a mutant stops after its first killing test, and its
 /// plan lists each remaining test as `SkippedAfterKill`; its report and status are the
 /// ones the same schedule derives from running every test.
+///
+/// Campaigns admit only payload sources whose values are functions of execution.
+/// Positional rule-variable payloads depend on a rule's binding positions; rule
+/// predicates depend on the solver profile and rule phrasing; effects cannot be
+/// bridged into patterns; whole constrained states carry path conditions whose
+/// syntax depends on the solver profile and `requires` phrasing.
 pub fn run_campaign(
     campaign: &Campaign<'_>,
     generation: &CandidateGeneration<'_>,
@@ -313,16 +319,13 @@ pub fn run_campaign(
     check_manifest(&manifest)?;
     for observed in campaign.observed_rules {
         for event in &observed.domain_events {
-            if event.payload.iter().any(|source| {
-                matches!(
-                    source,
-                    PayloadSource::BindingValue(_) | PayloadSource::BindingVariable(_)
-                )
-            }) {
-                return Err(CampaignFailure::new(
-                    CampaignFailureKind::InvalidDeclaration,
-                    format!("{:?} uses a positional binding payload", observed.rule),
-                ));
+            for source in &event.payload {
+                if let Some(reason) = campaign_payload_refusal(source) {
+                    return Err(CampaignFailure::new(
+                        CampaignFailureKind::InvalidDeclaration,
+                        format!("{:?}: {reason}", observed.rule),
+                    ));
+                }
             }
         }
     }
@@ -394,6 +397,22 @@ pub fn run_campaign(
         mutants: runs,
         score: generation.scored().then(|| score(&statuses)),
     })
+}
+
+fn campaign_payload_refusal(source: &PayloadSource) -> Option<&'static str> {
+    match source {
+        PayloadSource::BindingValue(_) | PayloadSource::BindingVariable(_) => {
+            Some("positional rule-variable payload")
+        }
+        PayloadSource::IntroducedPredicate(_) => {
+            Some("rule predicates depend on the solver profile and the rule's phrasing (F6)")
+        }
+        PayloadSource::Effect(_) => Some("effect payloads cannot be bridged into patterns"),
+        PayloadSource::BeforeState | PayloadSource::AfterState => Some(
+            "whole constrained states carry path conditions whose syntax depends on the solver profile and on requires phrasing",
+        ),
+        PayloadSource::BindingValueNamed(_) => None,
+    }
 }
 
 fn admission_failure(admission: BaselineAdmission) -> CampaignFailure {
