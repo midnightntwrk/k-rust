@@ -12,6 +12,7 @@ use crate::{
     definition::BackendDefinition,
     rewrite::substitute_predicates,
     rule::{Predicate, RewriteRule, RuleRhs, Theory},
+    stop::PreludeSignal,
     substitution::Substitution,
     term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable},
 };
@@ -882,6 +883,12 @@ pub trait SmtSolver {
         _substitution: &Substitution,
     ) -> Result<ModelResult, SmtError> {
         Err(SmtError::Unavailable)
+    }
+
+    /// The prelude-failure signal an operation using this solver installs
+    /// (`stop::operation`); `None` for a solver without a prelude that can fail.
+    fn prelude_signal(&self) -> Option<&PreludeSignal> {
+        None
     }
 }
 

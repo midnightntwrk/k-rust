@@ -66,8 +66,9 @@ use super::{
     translates_exactly,
 };
 use crate::{
-    cancellation::{CancellationToken, cancellation_requested},
+    cancellation::cancellation_requested,
     rule::Predicate,
+    stop::{self, PreludeFailure, PreludeSignal},
     substitution::Substitution,
     term::{Term, Variable},
 };
@@ -116,7 +117,7 @@ pub struct Z3Solver {
     options: Z3Options,
     result_cache: Arc<Mutex<SolverResultCache>>,
     prelude_state: Arc<Mutex<PreludeState>>,
-    failure_token: CancellationToken,
+    prelude_signal: PreludeSignal,
     #[cfg(test)]
     uncached_solve_count: Arc<AtomicUsize>,
 }
@@ -220,7 +221,7 @@ impl Z3Solver {
                 RESULT_CACHE_KEY_BYTE_LIMIT,
             ))),
             prelude_state: Arc::new(Mutex::new(PreludeState::Unchecked)),
-            failure_token: CancellationToken::new(),
+            prelude_signal: PreludeSignal::default(),
             #[cfg(test)]
             uncached_solve_count: Arc::new(AtomicUsize::new(0)),
         };
@@ -240,7 +241,17 @@ impl Z3Solver {
 
     /// Scope an operation under the solver's shared prelude-failure signal.
     pub fn scope_operation<T>(&self, action: impl FnOnce() -> T) -> T {
-        self.failure_token.scope_operation(action)
+        stop::with_prelude_signal(&self.prelude_signal, action)
+    }
+
+    /// Raise the shared prelude-failure signal with a failure the prelude check recorded.
+    fn raise_prelude_failure(&self, error: &SmtError) {
+        let failure = match error {
+            SmtError::InconsistentPrelude => PreludeFailure::Inconsistent,
+            SmtError::UnknownPrelude(reason) => PreludeFailure::Unknown(reason.as_str().into()),
+            other => unreachable!("a failed prelude records a prelude failure, not {other:?}"),
+        };
+        self.prelude_signal.raise(failure);
     }
 
     pub fn check_prelude(&self) -> Result<(), SmtError> {
@@ -251,7 +262,7 @@ impl Z3Solver {
         match &*state {
             PreludeState::Consistent => return Ok(()),
             PreludeState::Failed(error) => {
-                self.failure_token.cancel();
+                self.raise_prelude_failure(error);
                 return Err(error.clone());
             }
             PreludeState::Unchecked => {}
@@ -276,8 +287,8 @@ impl Z3Solver {
                 PreludeState::Failed(SmtError::UnknownPrelude(reason))
             }
         };
-        if matches!(&*state, PreludeState::Failed(_)) {
-            self.failure_token.cancel();
+        if let PreludeState::Failed(error) = &*state {
+            self.raise_prelude_failure(error);
         }
         match &*state {
             PreludeState::Consistent => Ok(()),
@@ -586,6 +597,10 @@ impl SmtSolver for Z3Solver {
         let exact = translates_exactly(&exact_predicates);
         let query = self.prelude.query(predicates, substitution, &[], false)?;
         self.solve_model(&query, &variables, exact)
+    }
+
+    fn prelude_signal(&self) -> Option<&PreludeSignal> {
+        Some(&self.prelude_signal)
     }
 }
 
@@ -1002,13 +1017,16 @@ mod tests {
         let consistent = Z3Solver::with_prelude(&definition, consistent).unwrap();
         assert_eq!(consistent.check_prelude(), Ok(()));
         let inconsistent = Z3Solver::with_prelude(&definition, inconsistent).unwrap();
-        let concurrent_operation = inconsistent.failure_token.clone();
-        assert!(!concurrent_operation.is_cancelled());
+        let concurrent_operation = inconsistent.prelude_signal.clone();
+        assert_eq!(concurrent_operation.failure(), None);
         assert_eq!(
             inconsistent.check_prelude(),
             Err(SmtError::InconsistentPrelude)
         );
-        assert!(concurrent_operation.is_cancelled());
+        assert_eq!(
+            concurrent_operation.failure(),
+            Some(&PreludeFailure::Inconsistent)
+        );
         let first_validity = Z3Solver::with_prelude(
             &definition,
             "(declare-const a Int)\n(assert (> a 0))\n(assert (< a 0))",

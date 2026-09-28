@@ -5,44 +5,26 @@ use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 use std::{cell::Cell, time::Instant};
 
-use crate::cancellation::cancellation_requested;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::stop::{DeadlineGuard, arm_deadline};
 
 #[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_MOVING_AVERAGE: Duration = Duration::from_secs(3);
 #[cfg(not(target_arch = "wasm32"))]
 const PREVIOUS_WEIGHT: f64 = 0.95;
 
-#[cfg(not(target_arch = "wasm32"))]
-thread_local! {
-    static ACTIVE_DEADLINE: Cell<Option<Instant>> = const { Cell::new(None) };
-}
-
-/// Return whether the request was cancelled or the active rewrite/proof step has exhausted its
-/// deadline.
+/// Return whether the request was cancelled, a solver prelude failed, or the active rewrite/proof
+/// step has exhausted its deadline: whether any signal of the `stop` registry is raised.
 ///
 /// Native hooks and the simplifier's fixed-point loops call this at cooperative interruption
-/// points. A thread-local deadline keeps the hot hook API small and mirrors the fact that backend
-/// simplification is synchronous and thread-confined; nested timers restore the previous deadline
-/// when they leave scope.
+/// points until they poll `stop::check` (CBC-04-T11). The deadline is armed by
+/// `StepTimeoutController::begin_step` in the thread-local registry, and nested timers restore
+/// the previous deadline when they leave scope.
 pub(crate) fn interruption_requested() -> bool {
-    if cancellation_requested() {
-        return true;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        ACTIVE_DEADLINE.with(|deadline| {
-            deadline
-                .get()
-                .is_some_and(|deadline| Instant::now() >= deadline)
-        })
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        false
-    }
+    crate::stop::legacy_interruption_requested()
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StepTimeoutMode {
     Manual(Duration),
     MovingAverage(Duration),
@@ -94,21 +76,15 @@ impl StepTimeoutController {
         {
             let started = Instant::now();
             let mode = self.timeout_mode();
-            let deadline = mode.and_then(|mode| started.checked_add(mode.timeout()));
-            let previous_deadline = ACTIVE_DEADLINE.with(|active| {
-                let previous = active.get();
-                active.set(match (previous, deadline) {
-                    (Some(previous), Some(deadline)) => Some(previous.min(deadline)),
-                    (Some(previous), None) => Some(previous),
-                    (None, deadline) => deadline,
-                });
-                previous
+            let deadline = mode.and_then(|mode| {
+                let deadline = started.checked_add(mode.timeout())?;
+                Some(arm_deadline(deadline, mode))
             });
             StepTimer {
                 controller: self,
                 started,
                 mode,
-                previous_deadline,
+                _deadline: deadline,
                 record_elapsed: true,
             }
         }
@@ -152,8 +128,9 @@ pub(crate) struct StepTimer<'a> {
     started: Instant,
     #[cfg(not(target_arch = "wasm32"))]
     mode: Option<StepTimeoutMode>,
+    /// Restores the enclosing step's deadline when the timer is dropped.
     #[cfg(not(target_arch = "wasm32"))]
-    previous_deadline: Option<Instant>,
+    _deadline: Option<DeadlineGuard>,
     record_elapsed: bool,
 }
 
@@ -179,7 +156,6 @@ impl Drop for StepTimer<'_> {
     fn drop(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            ACTIVE_DEADLINE.with(|active| active.set(self.previous_deadline));
             if self.record_elapsed {
                 self.controller.record(self.started.elapsed());
             }

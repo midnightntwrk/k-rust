@@ -70,6 +70,7 @@ use crate::{
         applicable_groups, rename_apart, rename_predicate_rule_apart, term_index,
     },
     smt::{NoSolver, SmtError, SmtSolver, TranslationError, Validity},
+    stop::stack_exhausted,
     substitution::{Substitution, compose, substitute, substitution_binding},
     term::{FunctionType, Sort, SymbolType, Term, TermKind, Variable, VariableKind},
     timeout::interruption_requested,
@@ -2410,41 +2411,6 @@ fn interruption_error() -> SimplificationError {
         SimplificationError::Cancelled
     } else {
         SimplificationError::Interrupted
-    }
-}
-
-/// Bytes of native stack that must remain when the simplifier enters a round of
-/// `simplify_with_budget` or a call of `simplify_predicate_with_budget`, the points at which it
-/// checks the stack.
-///
-/// The zone must hold the deepest stretch of the same thread between two checks: the frames of
-/// one level of simplifier recursion (about 2.5 KiB in release builds and 16 KiB in debug builds,
-/// measured on ground function recursion), plus the matching, builtin hooks, and SMT solver call
-/// that run on the thread between two checks. In a debug build a whole simplification of a
-/// conditional equation whose condition Z3 decides takes 62 KiB of stack from its entry, and the
-/// Z3 call on such a condition alone takes 23 KiB (both measured by stack painting); the zone is
-/// twice the whole simplification.
-/// The zone is also a floor below which a thread simplifies nothing, so it stays well under the
-/// smallest thread stacks embedders commonly run (512 KiB, the macOS default for secondary
-/// threads).
-#[cfg(not(target_family = "wasm"))]
-const STACK_RED_ZONE: usize = 128 * 1024;
-
-/// Whether the current thread has less than `STACK_RED_ZONE` bytes of stack left.
-///
-/// The resource is bytes of this thread's stack, and only the OS knows its bounds, which
-/// `stacker` reads for every native thread whoever created it. A thread whose bounds cannot be
-/// read, and every wasm32 build, where the engine's call-stack limit is invisible to the module,
-/// is unguarded: an unknown remaining stack never counts as exhausted.
-#[inline]
-fn stack_exhausted() -> bool {
-    #[cfg(not(target_family = "wasm"))]
-    {
-        stacker::remaining_stack().is_some_and(|remaining| remaining < STACK_RED_ZONE)
-    }
-    #[cfg(target_family = "wasm")]
-    {
-        false
     }
 }
 

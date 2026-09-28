@@ -23,6 +23,7 @@ pub mod search;
 pub mod session;
 pub mod simplify;
 pub mod smt;
+pub mod stop;
 pub mod substitution;
 pub mod term;
 pub mod timeout;
