@@ -46,27 +46,31 @@ fn __krs_constructor_descriptor_4ea6542dee396e65() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_constructor_type_4ea6542dee396e65),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
-            sort: ::k::HostSortReference {
-                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                    .expect("KRS parser roles are nonempty"),
-                target: ::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_constructor_sort_4ea6542dee396e65),
-                    authored_path: "Expr".to_owned(),
-                },
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"{second} pair {first}\",\"fields\":[{\"name\":\"first\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}},{\"name\":\"second\",\"sort\":{\"slot\":2,\"authored_path\":\"Expr\"}}]}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(3usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_sort_4ea6542dee396e65),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_1),
+                        ),
+                    );
+                slots
             },
-            syntax: ::core::option::Option::Some("{second} pair {first}".to_owned()),
-            fields: ::std::vec![
-                ::k::HostConstructorFieldDescriptor { name : "first".to_owned(), sort :
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_0),
-                authored_path : "Expr".to_owned(), }, },
-                ::k::HostConstructorFieldDescriptor { name : "second".to_owned(), sort :
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_1),
-                authored_path : "Expr".to_owned(), }, }
-            ],
-        }),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -158,127 +162,42 @@ fn __krs_constructor_grammar_4ea6542dee396e65() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(
-                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
-                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
-                        .expect("KRS parser roles are nonempty"),
-                    template_key: ::core::option::Option::Some(
-                        ::k::ProvenanceKey::new("constructor_syntax", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    owner: ::k::HostProductionOwner::Constructor {
-                        constructor: ::k::HostApplicationReference {
-                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
-                                key: ::k::HostTypeKey(
-                                    __krs_constructor_type_4ea6542dee396e65,
-                                ),
-                                authored_path: "Pair".to_owned(),
-                            }),
-                        },
-                    },
-                    result_sort: ::k::HostSortReference {
-                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                        target: ::k::HostTypeReference {
-                            key: ::k::HostTypeKey(
-                                __krs_constructor_sort_4ea6542dee396e65,
-                            ),
-                            authored_path: "Expr".to_owned(),
-                        },
-                    },
-                    items: ::std::vec![
-                        ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        0u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        1u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("second")
-                        .expect("Rust field identifiers are valid production fields"),
-                        sort : ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 1u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_1),
-                        authored_path : "Expr".to_owned(), }, }), },
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
-                        .expect("KRS parser roles are nonempty"), text : "pair"
-                        .to_owned(), }, ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 2u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        1u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        0u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("first")
-                        .expect("Rust field identifiers are valid production fields"),
-                        sort : ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_0),
-                        authored_path : "Expr".to_owned(), }, }), }
-                    ],
-                    attributes: ::std::vec![
-                        ::k::HostProductionAttribute::Group { reference :
-                        ::k::DescriptorGroupReference { key :
-                        ::k::ProvenanceKey::new("constructor_group", 0)
-                        .expect("KRS parser roles are nonempty"), group :
-                        ::k::ProductionGroupId::new("pair")
-                        .expect("checked production groups are valid identities"), }, },
-                        ::k::HostProductionAttribute::Avoid { key :
-                        ::k::ProvenanceKey::new("constructor_avoid", 0)
-                        .expect("KRS parser roles are nonempty"), },
-                        ::k::HostProductionAttribute::Format { key :
-                        ::k::ProvenanceKey::new("constructor_format", 0)
-                        .expect("KRS parser roles are nonempty"), fragments :
-                        ::std::vec![::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(1u16), }, ::k::DescriptorFormatFragment
-                        { key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        1u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal(" ".to_owned()), },
-                        ::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 2u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(2u16), }, ::k::DescriptorFormatFragment
-                        { key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        3u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal(" ".to_owned()), },
-                        ::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 4u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(3u16), }], },
-                        ::k::HostProductionAttribute::Strictness { key :
-                        ::k::ProvenanceKey::new("strictness_declaration", 0)
-                        .expect("KRS parser roles are nonempty"), kind :
-                        ::k::StrictnessKind::SeqStrict, using :
-                        ::core::option::Option::None, fields :
-                        ::std::vec![::k::DescriptorFieldReference { key :
-                        ::k::ProvenanceKey::new("strictness_field_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), field :
-                        ::k::ProductionFieldId::new("first")
-                        .expect("Rust field identifiers are valid production fields"), },
-                        ::k::DescriptorFieldReference { key :
-                        ::k::ProvenanceKey::new("strictness_field_reference", 1u32)
-                        .expect("KRS parser roles are nonempty"), field :
-                        ::k::ProductionFieldId::new("second")
-                        .expect("Rust field identifiers are valid production fields"),
-                        }], result_sort : ::std::boxed::Box::new(::k::HostSortReference {
-                        key : ::k::ProvenanceKey::new("strictness_result_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_strictness_result_4ea6542dee396e65),
-                        authored_path : "KResult".to_owned(), }, }), }
-                    ],
-                }),
-            ),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":4,\"authored_path\":\"Pair\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":1},\"field\":\"second\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"pair\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":1},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"first\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"Expr\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"pair\"}},{\"attribute_kind\":\"avoid\",\"key\":{\"role\":\"constructor_avoid\",\"ordinal\":0}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"literal\",\"value\":\" \"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"item\",\"value\":2}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":3},\"fragment\":{\"format_kind\":\"literal\",\"value\":\" \"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":4},\"fragment\":{\"format_kind\":\"item\",\"value\":3}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"seq_strict\",\"using\":null,\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"first\"},{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":1},\"field\":\"second\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"KResult\"}}}]}}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(5usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_sort_4ea6542dee396e65),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_1),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_field_4ea6542dee396e65_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_strictness_result_4ea6542dee396e65),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_type_4ea6542dee396e65),
+                        ),
+                    );
+                slots
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

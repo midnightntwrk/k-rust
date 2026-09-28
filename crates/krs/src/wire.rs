@@ -1,16 +1,20 @@
-//! Runtime substitution of indexed, static rule payloads.
+//! Runtime substitution of indexed, static host payloads.
 
 use krs_ir::wire::{
-    WireApplicationReference, WireCellTermField, WireConfigurationReference, WireHeadRule,
-    WireHeadRuleExtra, WireHeadRuleResult, WirePayload, WireRuleCondition, WireSortReference,
+    WireApplicationReference, WireCellTermField, WireConfigurationReference,
+    WireConstructorDescriptor, WireContextAliasReference, WireGrammarDescriptor, WireHeadRule,
+    WireHeadRuleExtra, WireHeadRuleResult, WirePayload, WireProduction, WireProductionAttribute,
+    WireProductionItem, WireProductionOwner, WireRuleCondition, WireSortReference,
     WireStructuredRule, WireTerm, WireTermArgument, WireTypeReference,
 };
 use krs_ir::{
     HostApplicationReference, HostApplicationTarget, HostCellTermField, HostConfigurationReference,
-    HostDescriptorPayload, HostEnumVariantReference, HostHeadRule, HostHeadRuleCellReference,
-    HostHeadRuleExtra, HostHeadRuleResult, HostRuleCondition, HostSortReference,
-    HostStructuredRuleDescriptor, HostTerm, HostTermArgument, HostTypeKey, HostTypeReference,
-    ProtocolHeadRuleBinding,
+    HostConstructorDescriptor, HostConstructorFieldDescriptor, HostContextAliasReference,
+    HostDescriptorPayload, HostEnumVariantReference, HostGrammarDescriptor, HostHeadRule,
+    HostHeadRuleCellReference, HostHeadRuleExtra, HostHeadRuleResult, HostItemId, HostProduction,
+    HostProductionAttribute, HostProductionItem, HostProductionOwner, HostRuleCondition,
+    HostSortReference, HostStructuredRuleDescriptor, HostTerm, HostTermArgument, HostTypeKey,
+    HostTypeReference, ProtocolHeadRuleBinding,
 };
 
 /// Rust-resolved value inserted into an indexed descriptor payload.
@@ -26,6 +30,8 @@ pub enum __KrsSlot {
     },
     /// Application identity, including an inferred readable-rule head.
     Target(HostApplicationTarget),
+    /// Macro-context identity for a referenced context alias.
+    Item(HostItemId),
 }
 
 /// Decode one static rule payload and insert the factory's Rust-resolved slots.
@@ -43,6 +49,12 @@ pub fn __krs_host_payload(wire: &str, slots: &[__KrsSlot]) -> HostDescriptorPayl
         }
         WirePayload::HeadRule(rule) => {
             HostDescriptorPayload::HeadRule(Box::new(decoder.head(*rule)))
+        }
+        WirePayload::Constructor(constructor) => {
+            HostDescriptorPayload::Constructor(decoder.constructor(constructor))
+        }
+        WirePayload::Grammar(grammar) => {
+            HostDescriptorPayload::Grammar(Box::new(decoder.grammar(*grammar)))
         }
     }
 }
@@ -112,6 +124,160 @@ impl Decoder<'_> {
         HostSortReference {
             key: wire.key,
             target: self.type_reference(wire.target),
+        }
+    }
+
+    fn constructor(&self, wire: WireConstructorDescriptor) -> HostConstructorDescriptor {
+        HostConstructorDescriptor {
+            sort: self.sort(wire.sort),
+            syntax: wire.syntax,
+            fields: wire
+                .fields
+                .into_iter()
+                .map(|field| HostConstructorFieldDescriptor {
+                    name: field.name,
+                    sort: self.type_reference(field.sort),
+                })
+                .collect(),
+        }
+    }
+
+    fn grammar(&self, wire: WireGrammarDescriptor) -> HostGrammarDescriptor {
+        match wire {
+            WireGrammarDescriptor::Production(production) => {
+                HostGrammarDescriptor::Production(self.production(production))
+            }
+            WireGrammarDescriptor::Subsort {
+                key,
+                subsort,
+                supersort,
+            } => HostGrammarDescriptor::Subsort {
+                key,
+                subsort: self.sort(subsort),
+                supersort: self.sort(supersort),
+            },
+            WireGrammarDescriptor::Precedence { key, chains } => {
+                HostGrammarDescriptor::Precedence { key, chains }
+            }
+            WireGrammarDescriptor::Associativity { key, sentences } => {
+                HostGrammarDescriptor::Associativity { key, sentences }
+            }
+        }
+    }
+
+    fn production(&self, wire: WireProduction) -> HostProduction {
+        HostProduction {
+            key: wire.key,
+            template_key: wire.template_key,
+            owner: match wire.owner {
+                WireProductionOwner::Constructor { constructor } => {
+                    HostProductionOwner::Constructor {
+                        constructor: self.target(constructor),
+                    }
+                }
+                WireProductionOwner::TokenSort { sort } => HostProductionOwner::TokenSort {
+                    sort: self.sort(sort),
+                },
+                WireProductionOwner::BracketSort { sort } => HostProductionOwner::BracketSort {
+                    sort: self.sort(sort),
+                },
+            },
+            result_sort: self.sort(wire.result_sort),
+            items: wire
+                .items
+                .into_iter()
+                .map(|item| self.production_item(item))
+                .collect(),
+            attributes: wire
+                .attributes
+                .into_iter()
+                .map(|attribute| self.production_attribute(attribute))
+                .collect(),
+        }
+    }
+
+    fn production_item(&self, wire: WireProductionItem) -> HostProductionItem {
+        match wire {
+            WireProductionItem::Terminal { key, text } => {
+                HostProductionItem::Terminal { key, text }
+            }
+            WireProductionItem::NonTerminal {
+                key,
+                field_key,
+                declaration_key,
+                field,
+                sort,
+            } => HostProductionItem::NonTerminal {
+                key,
+                field_key,
+                declaration_key,
+                field,
+                sort: Box::new(self.sort(*sort)),
+            },
+            WireProductionItem::RegexTerminal {
+                key,
+                precede_regex,
+                regex,
+                follow_regex,
+            } => HostProductionItem::RegexTerminal {
+                key,
+                precede_regex,
+                regex,
+                follow_regex,
+            },
+        }
+    }
+
+    fn production_attribute(&self, wire: WireProductionAttribute) -> HostProductionAttribute {
+        match wire {
+            WireProductionAttribute::Documentation { key, text } => {
+                HostProductionAttribute::Documentation { key, text }
+            }
+            WireProductionAttribute::Function { key } => HostProductionAttribute::Function { key },
+            WireProductionAttribute::Total { key } => HostProductionAttribute::Total { key },
+            WireProductionAttribute::Hook { key, operation } => {
+                HostProductionAttribute::Hook { key, operation }
+            }
+            WireProductionAttribute::Alias { key } => HostProductionAttribute::Alias { key },
+            WireProductionAttribute::Token {
+                key,
+                lexical_precedence,
+            } => HostProductionAttribute::Token {
+                key,
+                lexical_precedence,
+            },
+            WireProductionAttribute::Group { reference } => {
+                HostProductionAttribute::Group { reference }
+            }
+            WireProductionAttribute::Bracket { key } => HostProductionAttribute::Bracket { key },
+            WireProductionAttribute::Avoid { key } => HostProductionAttribute::Avoid { key },
+            WireProductionAttribute::Format { key, fragments } => {
+                HostProductionAttribute::Format { key, fragments }
+            }
+            WireProductionAttribute::Strictness {
+                key,
+                kind,
+                using,
+                fields,
+                result_sort,
+            } => HostProductionAttribute::Strictness {
+                key,
+                kind,
+                using: using.map(|reference| self.context_alias(reference)),
+                fields,
+                result_sort: Box::new(self.sort(*result_sort)),
+            },
+        }
+    }
+
+    fn context_alias(&self, wire: WireContextAliasReference) -> HostContextAliasReference {
+        let alias = match self.slots.get(wire.slot) {
+            Some(__KrsSlot::Item(item)) => item.clone(),
+            _ => panic!("KRS generated wire has an invalid item slot {}", wire.slot),
+        };
+        HostContextAliasReference {
+            key: wire.key,
+            alias,
         }
     }
 
@@ -306,13 +472,19 @@ impl Decoder<'_> {
 mod tests {
     use super::{__KrsSlot, __krs_host_payload, Decoder};
     use krs_ir::wire::{
-        WireApplicationReference, WireHeadRule, WirePayload, WireSortReference, WireStructuredRule,
-        WireTerm, WireTypeReference,
+        WireApplicationReference, WireConstructorDescriptor, WireConstructorFieldDescriptor,
+        WireContextAliasReference, WireGrammarDescriptor, WireHeadRule, WirePayload,
+        WireProduction, WireProductionAttribute, WireProductionItem, WireProductionOwner,
+        WireSortReference, WireStructuredRule, WireTerm, WireTypeReference,
     };
     use krs_ir::{
-        DescriptorLiteral, HostDescriptorPayload, HostHeadRule, HostSortReference,
-        HostStructuredRuleDescriptor, HostTerm, HostTypeKey, HostTypeReference,
-        ProtocolHeadRuleResult, ProvenanceKey, SentenceKind,
+        DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorLiteral,
+        DescriptorPrecedenceChain, GroupAssociativity, HostConstructorDescriptor,
+        HostConstructorFieldDescriptor, HostContextAliasReference, HostDescriptorPayload,
+        HostGrammarDescriptor, HostHeadRule, HostItemId, HostPackageKey, HostProduction,
+        HostProductionAttribute, HostProductionItem, HostProductionOwner, HostSortReference,
+        HostStructuredRuleDescriptor, HostTerm, HostTypeKey, HostTypeReference, ItemKind,
+        ProductionGroupId, ProtocolHeadRuleResult, ProvenanceKey, SentenceKind, StrictnessKind,
     };
     use std::any::TypeId;
 
@@ -385,6 +557,195 @@ mod tests {
             key: key("literal"),
             literal: DescriptorLiteral::Int("42".to_owned()),
         }
+    }
+
+    fn decode(wire: &WirePayload, slots: &[__KrsSlot]) -> HostDescriptorPayload {
+        let encoded = serde_json::to_string(&wire).unwrap();
+        let parsed: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
+        assert_eq!(serde_json::to_string(&parsed).unwrap(), encoded);
+        __krs_host_payload(&encoded, slots)
+    }
+
+    #[test]
+    fn constructor_wire_matches_code_built_payload() {
+        let wire = WirePayload::Constructor(WireConstructorDescriptor {
+            sort: wire_sort(),
+            syntax: Some("{value}".to_owned()),
+            fields: vec![WireConstructorFieldDescriptor {
+                name: "value".to_owned(),
+                sort: WireTypeReference {
+                    slot: 0,
+                    authored_path: "u64".to_owned(),
+                },
+            }],
+        });
+        let actual = decode(&wire, &[__KrsSlot::Type(HostTypeKey(type_id))]);
+        let expected = HostDescriptorPayload::Constructor(HostConstructorDescriptor {
+            sort: host_sort(),
+            syntax: Some("{value}".to_owned()),
+            fields: vec![HostConstructorFieldDescriptor {
+                name: "value".to_owned(),
+                sort: HostTypeReference {
+                    key: HostTypeKey(type_id),
+                    authored_path: "u64".to_owned(),
+                },
+            }],
+        });
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+    }
+
+    #[test]
+    fn grammar_associativity_wire_matches_code_built_payload() {
+        let sentence = DescriptorAssociativitySentence {
+            key: key("sentence"),
+            associativity: GroupAssociativity::Left,
+            groups: vec![DescriptorGroupReference {
+                key: key("group"),
+                group: ProductionGroupId::new("arith").unwrap(),
+            }],
+        };
+        let actual = decode(
+            &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Associativity {
+                key: key("associativity"),
+                sentences: vec![sentence.clone()],
+            })),
+            &[],
+        );
+        let expected =
+            HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Associativity {
+                key: key("associativity"),
+                sentences: vec![sentence],
+            }));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+    }
+
+    #[test]
+    fn grammar_production_wire_matches_code_built_payload() {
+        let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
+            WireProduction {
+                key: key("production"),
+                template_key: None,
+                owner: WireProductionOwner::TokenSort { sort: wire_sort() },
+                result_sort: wire_sort(),
+                items: vec![WireProductionItem::Terminal {
+                    key: key("terminal"),
+                    text: "+".to_owned(),
+                }],
+                attributes: vec![WireProductionAttribute::Function {
+                    key: key("function"),
+                }],
+            },
+        )));
+        let actual = decode(&wire, &[__KrsSlot::Type(HostTypeKey(type_id))]);
+        let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
+            HostProduction {
+                key: key("production"),
+                template_key: None,
+                owner: HostProductionOwner::TokenSort { sort: host_sort() },
+                result_sort: host_sort(),
+                items: vec![HostProductionItem::Terminal {
+                    key: key("terminal"),
+                    text: "+".to_owned(),
+                }],
+                attributes: vec![HostProductionAttribute::Function {
+                    key: key("function"),
+                }],
+            },
+        )));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+    }
+
+    #[test]
+    fn grammar_ordering_and_subsort_wire_match_code_built_payloads() {
+        let chain = DescriptorPrecedenceChain {
+            key: key("chain"),
+            groups: vec![DescriptorGroupReference {
+                key: key("group"),
+                group: ProductionGroupId::new("arith").unwrap(),
+            }],
+        };
+        let actual = decode(
+            &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Precedence {
+                key: key("precedence"),
+                chains: vec![chain.clone()],
+            })),
+            &[],
+        );
+        let expected =
+            HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Precedence {
+                key: key("precedence"),
+                chains: vec![chain],
+            }));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+
+        let actual = decode(
+            &WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
+                key: key("subsort"),
+                subsort: wire_sort(),
+                supersort: wire_sort(),
+            })),
+            &[__KrsSlot::Type(HostTypeKey(type_id))],
+        );
+        let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Subsort {
+            key: key("subsort"),
+            subsort: host_sort(),
+            supersort: host_sort(),
+        }));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
+    }
+
+    #[test]
+    fn grammar_strictness_item_slot_matches_code_built_payload() {
+        let package =
+            HostPackageKey::new("semantics", "0.1.0", std::env::current_dir().unwrap()).unwrap();
+        let alias =
+            HostItemId::new(package, ["semantics"], "eval", ItemKind::ContextAlias, "").unwrap();
+        let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
+            WireProduction {
+                key: key("production"),
+                template_key: None,
+                owner: WireProductionOwner::TokenSort { sort: wire_sort() },
+                result_sort: wire_sort(),
+                items: vec![],
+                attributes: vec![WireProductionAttribute::Strictness {
+                    key: key("strictness"),
+                    kind: StrictnessKind::Strict,
+                    using: Some(WireContextAliasReference {
+                        key: key("alias"),
+                        slot: 1,
+                    }),
+                    fields: vec![],
+                    result_sort: Box::new(wire_sort()),
+                }],
+            },
+        )));
+        let actual = decode(
+            &wire,
+            &[
+                __KrsSlot::Type(HostTypeKey(type_id)),
+                __KrsSlot::Item(alias.clone()),
+            ],
+        );
+        let expected = HostDescriptorPayload::Grammar(Box::new(HostGrammarDescriptor::Production(
+            HostProduction {
+                key: key("production"),
+                template_key: None,
+                owner: HostProductionOwner::TokenSort { sort: host_sort() },
+                result_sort: host_sort(),
+                items: vec![],
+                attributes: vec![HostProductionAttribute::Strictness {
+                    key: key("strictness"),
+                    kind: StrictnessKind::Strict,
+                    using: Some(HostContextAliasReference {
+                        key: key("alias"),
+                        alias,
+                    }),
+                    fields: vec![],
+                    result_sort: Box::new(host_sort()),
+                }],
+            },
+        )));
+        assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
 
     #[test]

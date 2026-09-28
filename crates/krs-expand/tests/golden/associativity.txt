@@ -13,31 +13,9 @@ fn __krs_associativity_descriptor_4ce24fdd34b29dcf() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(::k::HostGrammarDescriptor::Associativity {
-                key: ::k::ProvenanceKey::new("associativity_declaration", 0)
-                    .expect("KRS parser roles are nonempty"),
-                sentences: ::std::vec![
-                    ::k::DescriptorAssociativitySentence { key :
-                    ::k::ProvenanceKey::new("associativity_sentence", 0u32)
-                    .expect("KRS parser roles are nonempty"), associativity :
-                    ::k::GroupAssociativity::Left, groups :
-                    ::std::vec![::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("associativity_group_reference", 0u32)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("pair")
-                    .expect("Rust identifiers are valid production groups"), }], },
-                    ::k::DescriptorAssociativitySentence { key :
-                    ::k::ProvenanceKey::new("associativity_sentence", 1u32)
-                    .expect("KRS parser roles are nonempty"), associativity :
-                    ::k::GroupAssociativity::NonAssociative, groups :
-                    ::std::vec![::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("associativity_group_reference", 1u32)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("atoms")
-                    .expect("Rust identifiers are valid production groups"), }], }
-                ],
-            }),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"associativity\",\"grammar\":{\"key\":{\"role\":\"associativity_declaration\",\"ordinal\":0},\"sentences\":[{\"key\":{\"role\":\"associativity_sentence\",\"ordinal\":0},\"associativity\":\"left\",\"groups\":[{\"key\":{\"role\":\"associativity_group_reference\",\"ordinal\":0},\"group\":\"pair\"}]},{\"key\":{\"role\":\"associativity_sentence\",\"ordinal\":1},\"associativity\":\"non_associative\",\"groups\":[{\"key\":{\"role\":\"associativity_group_reference\",\"ordinal\":1},\"group\":\"atoms\"}]}]}}}",
+            &[],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

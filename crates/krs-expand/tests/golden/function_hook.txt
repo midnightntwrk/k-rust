@@ -42,23 +42,25 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
                 ::k::HostTypeKey(__krs_constructor_type_5c8a8ac291b809e7),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
-            sort: ::k::HostSortReference {
-                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                    .expect("KRS parser roles are nonempty"),
-                target: ::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
-                    authored_path: "k :: builtin :: Bytes".to_owned(),
-                },
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Bytes\"}},\"syntax\":\"Keccak256raw({value})\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Bytes\"}}]}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(2usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
+                        ),
+                    );
+                slots
             },
-            syntax: ::core::option::Option::Some("Keccak256raw({value})".to_owned()),
-            fields: ::std::vec![
-                ::k::HostConstructorFieldDescriptor { name : "value".to_owned(), sort :
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
-                authored_path : "k :: builtin :: Bytes".to_owned(), }, }
-            ],
-        }),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -135,78 +137,30 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(
-                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
-                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
-                        .expect("KRS parser roles are nonempty"),
-                    template_key: ::core::option::Option::Some(
-                        ::k::ProvenanceKey::new("constructor_syntax", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    owner: ::k::HostProductionOwner::Constructor {
-                        constructor: ::k::HostApplicationReference {
-                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: ::k::HostApplicationTarget::Nominal(::k::HostTypeReference {
-                                key: ::k::HostTypeKey(
-                                    __krs_constructor_type_5c8a8ac291b809e7,
-                                ),
-                                authored_path: "Keccak256Raw".to_owned(),
-                            }),
-                        },
-                    },
-                    result_sort: ::k::HostSortReference {
-                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                        target: ::k::HostTypeReference {
-                            key: ::k::HostTypeKey(
-                                __krs_constructor_sort_5c8a8ac291b809e7,
-                            ),
-                            authored_path: "k :: builtin :: Bytes".to_owned(),
-                        },
-                    },
-                    items: ::std::vec![
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), text : "Keccak256raw"
-                        .to_owned(), }, ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
-                        .expect("KRS parser roles are nonempty"), text : "(".to_owned(),
-                        }, ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 2u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        0u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        0u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("value")
-                        .expect("Rust field identifiers are valid production fields"),
-                        sort : ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
-                        authored_path : "k :: builtin :: Bytes".to_owned(), }, }), },
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 3u32)
-                        .expect("KRS parser roles are nonempty"), text : ")".to_owned(),
-                        }
-                    ],
-                    attributes: ::std::vec![
-                        ::k::HostProductionAttribute::Function { key :
-                        ::k::ProvenanceKey::new("function_declaration", 0)
-                        .expect("KRS parser roles are nonempty"), },
-                        ::k::HostProductionAttribute::Total { key :
-                        ::k::ProvenanceKey::new("function_total", 0)
-                        .expect("KRS parser roles are nonempty"), },
-                        ::k::HostProductionAttribute::Hook { key :
-                        ::k::ProvenanceKey::new("function_hook", 0)
-                        .expect("KRS parser roles are nonempty"), operation :
-                        ::k::HookOperation::KryptoKeccak256Raw, }
-                    ],
-                }),
-            ),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":2,\"authored_path\":\"Keccak256Raw\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Bytes\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"Keccak256raw\"},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Bytes\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":3},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"function\",\"key\":{\"role\":\"function_declaration\",\"ordinal\":0}},{\"attribute_kind\":\"total\",\"key\":{\"role\":\"function_total\",\"ordinal\":0}},{\"attribute_kind\":\"hook\",\"key\":{\"role\":\"function_hook\",\"ordinal\":0},\"operation\":\"krypto_keccak256_raw\"}]}}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(3usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_constructor_type_5c8a8ac291b809e7),
+                        ),
+                    );
+                slots
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

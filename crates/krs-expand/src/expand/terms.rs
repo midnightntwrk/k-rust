@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use krs_ir::wire::{
-    WireApplicationReference, WireCellTermField, WireTerm, WireTermArgument, WireTypeReference,
+    WireApplicationReference, WireCellTermField, WireSortReference, WireTerm, WireTermArgument,
+    WireTypeReference,
 };
 use krs_ir::{
     BuiltinSort, DescriptorApplicationHeadClass, DescriptorLiteral, ProductionFieldId,
@@ -45,12 +46,28 @@ impl WireSlots {
         )
     }
 
+    pub(super) fn item_slot(&mut self, expression: &TokenStream) -> usize {
+        let facade = &self.facade;
+        self.insert(
+            format!("item:{expression}"),
+            quote!(#facade::__KrsSlot::Item(#expression)),
+        )
+    }
+
     fn variant_slot(&mut self, owner: &TokenStream, marker: &TokenStream) -> usize {
         let facade = &self.facade;
         self.insert(
             format!("variant:{owner}:{marker}"),
             quote!(#facade::__KrsSlot::Variant { owner: #owner, marker: #marker }),
         )
+    }
+
+    pub(super) fn variant_slot_for_grammar(
+        &mut self,
+        owner: &TokenStream,
+        marker: &TokenStream,
+    ) -> usize {
+        self.variant_slot(owner, marker)
     }
 
     fn target_slot_unique(&mut self, expression: &TokenStream) -> usize {
@@ -86,6 +103,23 @@ impl WireSlots {
 
 pub(super) fn wire_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     ProvenanceKey::new(role.as_str(), ordinal).expect("KRS parser roles are nonempty")
+}
+
+pub(super) fn wire_sort_reference(
+    slots: &mut WireSlots,
+    facade: &Path,
+    role: ProvenanceRole,
+    ordinal: u32,
+    key: &Ident,
+    authored_path: &str,
+) -> WireSortReference {
+    WireSortReference {
+        key: wire_key(role, ordinal),
+        target: WireTypeReference {
+            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+            authored_path: authored_path.to_owned(),
+        },
+    }
 }
 
 #[derive(Clone, Copy)]

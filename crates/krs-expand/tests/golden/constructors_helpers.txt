@@ -140,18 +140,19 @@ fn __krs_enum_constructor_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                 ),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
-            sort: ::k::HostSortReference {
-                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                    .expect("KRS parser roles are nonempty"),
-                target: ::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
-                    authored_path: "Expr".to_owned(),
-                },
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"zeroAlias\",\"fields\":[]}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(1usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
             },
-            syntax: ::core::option::Option::Some("zeroAlias".to_owned()),
-            fields: ::std::vec![],
-        }),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -274,68 +275,23 @@ fn __krs_enum_grammar_9a3492b649a1c632_0() -> ::k::HostDescriptor {
                 "Cargo and Rust macro context form a valid variant-grammar identity",
             ),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(
-                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
-                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
-                        .expect("KRS parser roles are nonempty"),
-                    template_key: ::core::option::Option::Some(
-                        ::k::ProvenanceKey::new("constructor_syntax", 0)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    owner: ::k::HostProductionOwner::Constructor {
-                        constructor: ::k::HostApplicationReference {
-                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: ::k::HostApplicationTarget::EnumVariant(
-                                ::k::HostEnumVariantReference::new(
-                                        ::k::HostTypeReference {
-                                            key: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
-                                            authored_path: "StaticExpr".to_owned(),
-                                        },
-                                        ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_0),
-                                        "StaticExpr::ZeroAlias",
-                                    )
-                                    .expect("generated variant paths retain their enum owner"),
-                            ),
-                        },
-                    },
-                    result_sort: ::k::HostSortReference {
-                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                        target: ::k::HostTypeReference {
-                            key: ::k::HostTypeKey(
-                                __krs_enum_family_sort_9a3492b649a1c632,
-                            ),
-                            authored_path: "Expr".to_owned(),
-                        },
-                    },
-                    items: ::std::vec![
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), text : "zeroAlias"
-                        .to_owned() }
-                    ],
-                    attributes: ::std::vec![
-                        ::k::HostProductionAttribute::Alias { key :
-                        ::k::ProvenanceKey::new("alias_production", 0)
-                        .expect("KRS parser roles are nonempty"), },
-                        ::k::HostProductionAttribute::Group { reference :
-                        ::k::DescriptorGroupReference { key :
-                        ::k::ProvenanceKey::new("constructor_group", 0)
-                        .expect("KRS parser roles are nonempty"), group :
-                        ::k::ProductionGroupId::new("staticexpr_tier0")
-                        .expect("checked production groups are valid identities"), }, },
-                        ::k::HostProductionAttribute::Format { key :
-                        ::k::ProvenanceKey::new("constructor_format", 0)
-                        .expect("KRS parser roles are nonempty"), fragments :
-                        ::std::vec![::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal("zeroAlias".to_owned()), }], }
-                    ],
-                }),
-            ),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":1,\"authored_path\":\"StaticExpr::ZeroAlias\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"zeroAlias\"}],\"attributes\":[{\"attribute_kind\":\"alias\",\"key\":{\"role\":\"alias_production\",\"ordinal\":0}},{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"zeroAlias\"}}]}]}}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(2usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(::k::__KrsSlot::Variant {
+                        owner: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
+                        marker: ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_0),
+                    });
+                slots
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -472,23 +428,25 @@ fn __krs_enum_constructor_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                 ),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
-            sort: ::k::HostSortReference {
-                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                    .expect("KRS parser roles are nonempty"),
-                target: ::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
-                    authored_path: "Expr".to_owned(),
-                },
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"double({value})\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(2usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_1_0),
+                        ),
+                    );
+                slots
             },
-            syntax: ::core::option::Option::Some("double({value})".to_owned()),
-            fields: ::std::vec![
-                ::k::HostConstructorFieldDescriptor { name : "value".to_owned(), sort :
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_1_0), authored_path :
-                "Expr".to_owned(), }, }
-            ],
-        }),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -732,114 +690,52 @@ fn __krs_enum_grammar_9a3492b649a1c632_1() -> ::k::HostDescriptor {
                 "Cargo and Rust macro context form a valid variant-grammar identity",
             ),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(
-                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
-                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
-                        .expect("KRS parser roles are nonempty"),
-                    template_key: ::core::option::Option::Some(
-                        ::k::ProvenanceKey::new("constructor_syntax", 0)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    owner: ::k::HostProductionOwner::Constructor {
-                        constructor: ::k::HostApplicationReference {
-                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: ::k::HostApplicationTarget::EnumVariant(
-                                ::k::HostEnumVariantReference::new(
-                                        ::k::HostTypeReference {
-                                            key: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
-                                            authored_path: "StaticExpr".to_owned(),
-                                        },
-                                        ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_1),
-                                        "StaticExpr::Double",
-                                    )
-                                    .expect("generated variant paths retain their enum owner"),
-                            ),
-                        },
-                    },
-                    result_sort: ::k::HostSortReference {
-                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                        target: ::k::HostTypeReference {
-                            key: ::k::HostTypeKey(
-                                __krs_enum_family_sort_9a3492b649a1c632,
-                            ),
-                            authored_path: "Expr".to_owned(),
-                        },
-                    },
-                    items: ::std::vec![
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), text : "double"
-                        .to_owned() }, ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
-                        .expect("KRS parser roles are nonempty"), text : "(".to_owned()
-                        }, ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 2u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        0u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        0u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("value")
-                        .expect("Rust fields are valid production fields"), sort :
-                        ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_1_0),
-                        authored_path : "Expr".to_owned(), }, }), },
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 3u32)
-                        .expect("KRS parser roles are nonempty"), text : ")".to_owned() }
-                    ],
-                    attributes: ::std::vec![
-                        ::k::HostProductionAttribute::Group { reference :
-                        ::k::DescriptorGroupReference { key :
-                        ::k::ProvenanceKey::new("constructor_group", 0)
-                        .expect("KRS parser roles are nonempty"), group :
-                        ::k::ProductionGroupId::new("staticexpr_tier0")
-                        .expect("checked production groups are valid identities"), }, },
-                        ::k::HostProductionAttribute::Format { key :
-                        ::k::ProvenanceKey::new("constructor_format", 0)
-                        .expect("KRS parser roles are nonempty"), fragments :
-                        ::std::vec![::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal("double(".to_owned()), },
-                        ::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 1u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(3u16), }, ::k::DescriptorFormatFragment
-                        { key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        2u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal(")".to_owned()), }], },
-                        ::k::HostProductionAttribute::Strictness { key :
-                        ::k::ProvenanceKey::new("strictness_declaration", 0)
-                        .expect("KRS parser roles are nonempty"), kind :
-                        ::k::StrictnessKind::SeqStrict, using :
-                        ::core::option::Option::Some(::k::HostContextAliasReference { key
-                        : ::k::ProvenanceKey::new("strictness_context_alias_reference",
-                        0).expect("KRS parser roles are nonempty"), alias :
-                        ::k::HostItemId::from_macro_context(env!("CARGO_PKG_NAME"),
-                        env!("CARGO_PKG_VERSION"), env!("CARGO_MANIFEST_DIR"),
-                        module_path!(), "operand_eval", ::k::ItemKind::ContextAlias, "",)
-                        .expect("a strictness context alias forms a valid host identity"),
-                        }), fields : ::std::vec![::k::DescriptorFieldReference { key :
-                        ::k::ProvenanceKey::new("strictness_field_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), field :
-                        ::k::ProductionFieldId::new("value")
-                        .expect("Rust field identifiers are valid production fields"),
-                        }], result_sort : ::std::boxed::Box::new(::k::HostSortReference {
-                        key : ::k::ProvenanceKey::new("strictness_result_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_strictness_result_3420ee8a79c55f0c),
-                        authored_path : "k :: KResult".to_owned(), }, }), }
-                    ],
-                }),
-            ),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":4,\"authored_path\":\"StaticExpr::Double\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"double\"},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":3},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"double(\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"item\",\"value\":3}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"literal\",\"value\":\")\"}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"seq_strict\",\"using\":{\"key\":{\"role\":\"strictness_context_alias_reference\",\"ordinal\":0},\"slot\":1},\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"value\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"k :: KResult\"}}}]}}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(5usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_1_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Item(
+                            ::k::HostItemId::from_macro_context(
+                                    env!("CARGO_PKG_NAME"),
+                                    env!("CARGO_PKG_VERSION"),
+                                    env!("CARGO_MANIFEST_DIR"),
+                                    module_path!(),
+                                    "operand_eval",
+                                    ::k::ItemKind::ContextAlias,
+                                    "",
+                                )
+                                .expect(
+                                    "a strictness context alias forms a valid host identity",
+                                ),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_strictness_result_3420ee8a79c55f0c),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(::k::__KrsSlot::Variant {
+                        owner: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
+                        marker: ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_1),
+                    });
+                slots
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -1101,26 +997,31 @@ fn __krs_enum_constructor_9a3492b649a1c632_2() -> ::k::HostDescriptor {
                 ),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
-            sort: ::k::HostSortReference {
-                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                    .expect("KRS parser roles are nonempty"),
-                target: ::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
-                    authored_path: "Expr".to_owned(),
-                },
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"{lhs} && {rhs}\",\"fields\":[{\"name\":\"lhs\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}},{\"name\":\"rhs\",\"sort\":{\"slot\":2,\"authored_path\":\"Expr\"}}]}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(3usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_1),
+                        ),
+                    );
+                slots
             },
-            syntax: ::core::option::Option::Some("{lhs} && {rhs}".to_owned()),
-            fields: ::std::vec![
-                ::k::HostConstructorFieldDescriptor { name : "lhs".to_owned(), sort :
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_0), authored_path :
-                "Expr".to_owned(), }, }, ::k::HostConstructorFieldDescriptor { name :
-                "rhs".to_owned(), sort : ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_1), authored_path :
-                "Expr".to_owned(), }, }
-            ],
-        }),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -1375,117 +1276,41 @@ fn __krs_enum_grammar_9a3492b649a1c632_2() -> ::k::HostDescriptor {
                 "Cargo and Rust macro context form a valid variant-grammar identity",
             ),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(
-                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
-                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
-                        .expect("KRS parser roles are nonempty"),
-                    template_key: ::core::option::Option::Some(
-                        ::k::ProvenanceKey::new("constructor_syntax", 0)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    owner: ::k::HostProductionOwner::Constructor {
-                        constructor: ::k::HostApplicationReference {
-                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: ::k::HostApplicationTarget::EnumVariant(
-                                ::k::HostEnumVariantReference::new(
-                                        ::k::HostTypeReference {
-                                            key: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
-                                            authored_path: "StaticExpr".to_owned(),
-                                        },
-                                        ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_2),
-                                        "StaticExpr::And",
-                                    )
-                                    .expect("generated variant paths retain their enum owner"),
-                            ),
-                        },
-                    },
-                    result_sort: ::k::HostSortReference {
-                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                        target: ::k::HostTypeReference {
-                            key: ::k::HostTypeKey(
-                                __krs_enum_family_sort_9a3492b649a1c632,
-                            ),
-                            authored_path: "Expr".to_owned(),
-                        },
-                    },
-                    items: ::std::vec![
-                        ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        0u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        0u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("lhs")
-                        .expect("Rust fields are valid production fields"), sort :
-                        ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_0),
-                        authored_path : "Expr".to_owned(), }, }), },
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
-                        .expect("KRS parser roles are nonempty"), text : "&&".to_owned()
-                        }, ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 2u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        1u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        1u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("rhs")
-                        .expect("Rust fields are valid production fields"), sort :
-                        ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 1u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_1),
-                        authored_path : "Expr".to_owned(), }, }), }
-                    ],
-                    attributes: ::std::vec![
-                        ::k::HostProductionAttribute::Group { reference :
-                        ::k::DescriptorGroupReference { key :
-                        ::k::ProvenanceKey::new("constructor_group", 0)
-                        .expect("KRS parser roles are nonempty"), group :
-                        ::k::ProductionGroupId::new("staticexpr_tier1")
-                        .expect("checked production groups are valid identities"), }, },
-                        ::k::HostProductionAttribute::Format { key :
-                        ::k::ProvenanceKey::new("constructor_format", 0)
-                        .expect("KRS parser roles are nonempty"), fragments :
-                        ::std::vec![::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(1u16), }, ::k::DescriptorFormatFragment
-                        { key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        1u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal(" && ".to_owned()), },
-                        ::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 2u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(3u16), }], },
-                        ::k::HostProductionAttribute::Strictness { key :
-                        ::k::ProvenanceKey::new("strictness_declaration", 0)
-                        .expect("KRS parser roles are nonempty"), kind :
-                        ::k::StrictnessKind::Strict, using :
-                        ::core::option::Option::None, fields :
-                        ::std::vec![::k::DescriptorFieldReference { key :
-                        ::k::ProvenanceKey::new("strictness_field_reference", 0u32)
-                        .expect("KRS parser roles are nonempty"), field :
-                        ::k::ProductionFieldId::new("lhs")
-                        .expect("Rust field identifiers are valid production fields"),
-                        }], result_sort : ::std::boxed::Box::new(::k::HostSortReference {
-                        key : ::k::ProvenanceKey::new("strictness_result_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_strictness_result_b80f07fa4737c6b2),
-                        authored_path : "k :: KResult".to_owned(), }, }), }
-                    ],
-                }),
-            ),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":4,\"authored_path\":\"StaticExpr::And\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"lhs\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"&&\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":1},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":1},\"field\":\"rhs\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}}}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier1\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"item\",\"value\":1}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"literal\",\"value\":\" && \"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"item\",\"value\":3}}]},{\"attribute_kind\":\"strictness\",\"key\":{\"role\":\"strictness_declaration\",\"ordinal\":0},\"kind\":\"strict\",\"using\":null,\"fields\":[{\"key\":{\"role\":\"strictness_field_reference\",\"ordinal\":0},\"field\":\"lhs\"}],\"result_sort\":{\"key\":{\"role\":\"strictness_result_sort\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"k :: KResult\"}}}]}}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(5usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_2_1),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_strictness_result_b80f07fa4737c6b2),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(::k::__KrsSlot::Variant {
+                        owner: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
+                        marker: ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_2),
+                    });
+                slots
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -1750,23 +1575,25 @@ fn __krs_enum_constructor_9a3492b649a1c632_3() -> ::k::HostDescriptor {
                 ),
             ),
         ),
-        payload: ::k::HostDescriptorPayload::Constructor(::k::HostConstructorDescriptor {
-            sort: ::k::HostSortReference {
-                key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                    .expect("KRS parser roles are nonempty"),
-                target: ::k::HostTypeReference {
-                    key: ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
-                    authored_path: "Expr".to_owned(),
-                },
+        payload: ::k::__krs_host_payload(
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"syntax\":\"{{{body}}}\",\"fields\":[{\"name\":\"body\",\"sort\":{\"slot\":1,\"authored_path\":\"Expr\"}}]}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(2usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_3_0),
+                        ),
+                    );
+                slots
             },
-            syntax: ::core::option::Option::Some("{{{body}}}".to_owned()),
-            fields: ::std::vec![
-                ::k::HostConstructorFieldDescriptor { name : "body".to_owned(), sort :
-                ::k::HostTypeReference { key :
-                ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_3_0), authored_path :
-                "Expr".to_owned(), }, }
-            ],
-        }),
+        ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
             "",
@@ -1999,101 +1826,29 @@ fn __krs_enum_grammar_9a3492b649a1c632_3() -> ::k::HostDescriptor {
                 "Cargo and Rust macro context form a valid variant-grammar identity",
             ),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(
-                ::k::HostGrammarDescriptor::Production(::k::HostProduction {
-                    key: ::k::ProvenanceKey::new("constructor_declaration", 0u32)
-                        .expect("KRS parser roles are nonempty"),
-                    template_key: ::core::option::Option::Some(
-                        ::k::ProvenanceKey::new("constructor_syntax", 0)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    owner: ::k::HostProductionOwner::Constructor {
-                        constructor: ::k::HostApplicationReference {
-                            key: ::k::ProvenanceKey::new("constructor_declaration", 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: ::k::HostApplicationTarget::EnumVariant(
-                                ::k::HostEnumVariantReference::new(
-                                        ::k::HostTypeReference {
-                                            key: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
-                                            authored_path: "StaticExpr".to_owned(),
-                                        },
-                                        ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_3),
-                                        "StaticExpr::Block",
-                                    )
-                                    .expect("generated variant paths retain their enum owner"),
-                            ),
-                        },
-                    },
-                    result_sort: ::k::HostSortReference {
-                        key: ::k::ProvenanceKey::new("constructor_sort", 0u32)
-                            .expect("KRS parser roles are nonempty"),
-                        target: ::k::HostTypeReference {
-                            key: ::k::HostTypeKey(
-                                __krs_enum_family_sort_9a3492b649a1c632,
-                            ),
-                            authored_path: "Expr".to_owned(),
-                        },
-                    },
-                    items: ::std::vec![
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 0u32)
-                        .expect("KRS parser roles are nonempty"), text : "{".to_owned()
-                        }, ::k::HostProductionItem::NonTerminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 1u32)
-                        .expect("KRS parser roles are nonempty"), field_key :
-                        ::k::ProvenanceKey::new("constructor_syntax_field_reference",
-                        0u32).expect("KRS parser roles are nonempty"), declaration_key :
-                        ::core::option::Option::Some(::k::ProvenanceKey::new("constructor_field_declaration",
-                        0u32).expect("KRS parser roles are nonempty")), field :
-                        ::k::ProductionFieldId::new("body")
-                        .expect("Rust fields are valid production fields"), sort :
-                        ::std::boxed::Box::new(::k::HostSortReference { key :
-                        ::k::ProvenanceKey::new("constructor_field_sort", 0u32)
-                        .expect("KRS parser roles are nonempty"), target :
-                        ::k::HostTypeReference { key :
-                        ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_3_0),
-                        authored_path : "Expr".to_owned(), }, }), },
-                        ::k::HostProductionItem::Terminal { key :
-                        ::k::ProvenanceKey::new("constructor_syntax_item", 2u32)
-                        .expect("KRS parser roles are nonempty"), text : "}".to_owned() }
-                    ],
-                    attributes: ::std::vec![
-                        ::k::HostProductionAttribute::Group { reference :
-                        ::k::DescriptorGroupReference { key :
-                        ::k::ProvenanceKey::new("constructor_group", 0)
-                        .expect("KRS parser roles are nonempty"), group :
-                        ::k::ProductionGroupId::new("staticexpr_tier0")
-                        .expect("checked production groups are valid identities"), }, },
-                        ::k::HostProductionAttribute::Format { key :
-                        ::k::ProvenanceKey::new("constructor_format", 0)
-                        .expect("KRS parser roles are nonempty"), fragments :
-                        ::std::vec![::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 0u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal("{".to_owned()), },
-                        ::k::DescriptorFormatFragment { key :
-                        ::k::ProvenanceKey::new("constructor_format_fragment", 1u32,)
-                        .expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Indent, }, ::k::DescriptorFormatFragment {
-                        key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        2u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Newline, }, ::k::DescriptorFormatFragment {
-                        key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        3u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Item(2u16), }, ::k::DescriptorFormatFragment
-                        { key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        4u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Dedent, }, ::k::DescriptorFormatFragment {
-                        key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        5u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Newline, }, ::k::DescriptorFormatFragment {
-                        key : ::k::ProvenanceKey::new("constructor_format_fragment",
-                        6u32,).expect("KRS parser roles are nonempty"), fragment :
-                        ::k::FormatFragment::Literal("}".to_owned()), }], }
-                    ],
-                }),
-            ),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":2,\"authored_path\":\"StaticExpr::Block\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"{\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"body\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"text\":\"}\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"{\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":1},\"fragment\":{\"format_kind\":\"indent\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":2},\"fragment\":{\"format_kind\":\"newline\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":3},\"fragment\":{\"format_kind\":\"item\",\"value\":2}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":4},\"fragment\":{\"format_kind\":\"dedent\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":5},\"fragment\":{\"format_kind\":\"newline\"}},{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":6},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"}\"}}]}]}}}",
+            &{
+                let mut slots = ::std::vec::Vec::with_capacity(3usize);
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_field_9a3492b649a1c632_3_0),
+                        ),
+                    );
+                slots
+                    .push(
+                        ::k::__KrsSlot::Type(
+                            ::k::HostTypeKey(__krs_enum_family_sort_9a3492b649a1c632),
+                        ),
+                    );
+                slots
+                    .push(::k::__KrsSlot::Variant {
+                        owner: ::k::HostTypeKey(__krs_enum_type_9a3492b649a1c632),
+                        marker: ::k::HostTypeKey(__krs_enum_variant_9a3492b649a1c632_3),
+                    });
+                slots
+            },
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -2325,26 +2080,9 @@ fn __krs_enum_precedence_9a3492b649a1c632() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(::k::HostGrammarDescriptor::Precedence {
-                key: ::k::ProvenanceKey::new("precedence_declaration", 0)
-                    .expect("KRS parser roles are nonempty"),
-                chains: ::std::vec![
-                    ::k::DescriptorPrecedenceChain { key :
-                    ::k::ProvenanceKey::new("precedence_chain", 0)
-                    .expect("KRS parser roles are nonempty"), groups :
-                    ::std::vec![::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("precedence_group_reference", 0u32)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("staticexpr_tier0")
-                    .expect("generated enum groups are valid identities"), },
-                    ::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("precedence_group_reference", 1u32)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("staticexpr_tier1")
-                    .expect("generated enum groups are valid identities"), }], }
-                ],
-            }),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"precedence\",\"grammar\":{\"key\":{\"role\":\"precedence_declaration\",\"ordinal\":0},\"chains\":[{\"key\":{\"role\":\"precedence_chain\",\"ordinal\":0},\"groups\":[{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":0},\"group\":\"staticexpr_tier0\"},{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":1},\"group\":\"staticexpr_tier1\"}]}]}}}",
+            &[],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -2422,22 +2160,9 @@ fn __krs_enum_associativity_9a3492b649a1c632() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(::k::HostGrammarDescriptor::Associativity {
-                key: ::k::ProvenanceKey::new("associativity_declaration", 0)
-                    .expect("KRS parser roles are nonempty"),
-                sentences: ::std::vec![
-                    ::k::DescriptorAssociativitySentence { key :
-                    ::k::ProvenanceKey::new("associativity_sentence", 0u32)
-                    .expect("KRS parser roles are nonempty"), associativity :
-                    ::k::GroupAssociativity::Left, groups :
-                    ::std::vec![::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("associativity_group_reference", 0u32,)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("staticexpr_tier1")
-                    .expect("generated enum groups are valid identities"), }], }
-                ],
-            }),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"associativity\",\"grammar\":{\"key\":{\"role\":\"associativity_declaration\",\"ordinal\":0},\"sentences\":[{\"key\":{\"role\":\"associativity_sentence\",\"ordinal\":0},\"associativity\":\"left\",\"groups\":[{\"key\":{\"role\":\"associativity_group_reference\",\"ordinal\":0},\"group\":\"staticexpr_tier1\"}]}]}}}",
+            &[],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

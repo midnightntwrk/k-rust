@@ -13,26 +13,9 @@ fn __krs_precedence_descriptor_e2bc532c95be9144() -> ::k::HostDescriptor {
             )
             .expect("Cargo and Rust macro context form a valid grammar identity"),
         declared_type: ::core::option::Option::None,
-        payload: ::k::HostDescriptorPayload::Grammar(
-            ::std::boxed::Box::new(::k::HostGrammarDescriptor::Precedence {
-                key: ::k::ProvenanceKey::new("precedence_declaration", 0)
-                    .expect("KRS parser roles are nonempty"),
-                chains: ::std::vec![
-                    ::k::DescriptorPrecedenceChain { key :
-                    ::k::ProvenanceKey::new("precedence_chain", 0u32)
-                    .expect("KRS parser roles are nonempty"), groups :
-                    ::std::vec![::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("precedence_group_reference", 0u32)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("pair")
-                    .expect("Rust identifiers are valid production groups"), },
-                    ::k::DescriptorGroupReference { key :
-                    ::k::ProvenanceKey::new("precedence_group_reference", 1u32)
-                    .expect("KRS parser roles are nonempty"), group :
-                    ::k::ProductionGroupId::new("atoms")
-                    .expect("Rust identifiers are valid production groups"), }], }
-                ],
-            }),
+        payload: ::k::__krs_host_payload(
+            "{\"grammar\":{\"grammar_kind\":\"precedence\",\"grammar\":{\"key\":{\"role\":\"precedence_declaration\",\"ordinal\":0},\"chains\":[{\"key\":{\"role\":\"precedence_chain\",\"ordinal\":0},\"groups\":[{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":0},\"group\":\"pair\"},{\"key\":{\"role\":\"precedence_group_reference\",\"ordinal\":1},\"group\":\"atoms\"}]}]}}}",
+            &[],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

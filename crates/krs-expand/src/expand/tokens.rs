@@ -159,14 +159,6 @@ pub(super) fn type_reference(
     }
 }
 
-pub(super) fn option_owned_string(value: Option<String>) -> TokenStream {
-    if let Some(value) = value {
-        quote!(::core::option::Option::Some(#value.to_owned()))
-    } else {
-        quote!(::core::option::Option::None)
-    }
-}
-
 pub(super) fn spelling(tokens: &impl ToTokens) -> String {
     tokens.to_token_stream().to_string()
 }

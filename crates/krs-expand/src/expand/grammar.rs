@@ -1,5 +1,10 @@
 //! Grammar ordering declarations: `precedence!` and `associativity!`.
 
+use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
+use krs_ir::{
+    DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
+    GroupAssociativity, ProductionGroupId,
+};
 use krs_syntax::{
     GroupAssociativity as SyntaxGroupAssociativity, ProvenanceAnchor, ProvenanceRole,
     parse_associativity_declaration, parse_precedence_declaration,
@@ -9,6 +14,7 @@ use quote::{format_ident, quote};
 use syn::{Ident, Path};
 
 use super::nonce::expansion_nonce;
+use super::terms::wire_key;
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -57,29 +63,20 @@ pub(crate) fn precedence(
             group_ordinal = group_ordinal
                 .checked_add(1)
                 .ok_or_else(|| syn::Error::new(group.span(), "too many precedence groups"))?;
-            groups.push(quote! {
-                #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new(#precedence_group_reference_role, #ordinal)
-                        .expect("KRS parser roles are nonempty"),
-                    group: #facade::ProductionGroupId::new(#name)
-                        .expect("Rust identifiers are valid production groups"),
-                }
+            groups.push(DescriptorGroupReference {
+                key: wire_key(precedence_group_reference_role, ordinal),
+                group: ProductionGroupId::new(name)
+                    .expect("Rust identifiers are valid production groups"),
             });
         }
-        chains.push(quote! {
-            #facade::DescriptorPrecedenceChain {
-                key: #facade::ProvenanceKey::new(#precedence_chain_role, #chain_ordinal)
-                    .expect("KRS parser roles are nonempty"),
-                groups: ::std::vec![#(#groups),*],
-            }
+        chains.push(DescriptorPrecedenceChain {
+            key: wire_key(precedence_chain_role, chain_ordinal),
+            groups,
         });
     }
-    let grammar = quote! {
-        #facade::HostGrammarDescriptor::Precedence {
-            key: #facade::ProvenanceKey::new(#precedence_declaration_role, 0)
-                .expect("KRS parser roles are nonempty"),
-            chains: ::std::vec![#(#chains),*],
-        }
+    let grammar = WireGrammarDescriptor::Precedence {
+        key: wire_key(precedence_declaration_role, 0),
+        chains,
     };
     Ok(grammar_macro_descriptor(
         &facade,
@@ -131,11 +128,9 @@ pub(crate) fn associativity(
         let sentence_ordinal = u32::try_from(sentence_index)
             .map_err(|_| syn::Error::new(Span::call_site(), "too many associativity sentences"))?;
         let associativity = match sentence.associativity() {
-            SyntaxGroupAssociativity::Left => quote!(#facade::GroupAssociativity::Left),
-            SyntaxGroupAssociativity::Right => quote!(#facade::GroupAssociativity::Right),
-            SyntaxGroupAssociativity::NonAssociative => {
-                quote!(#facade::GroupAssociativity::NonAssociative)
-            }
+            SyntaxGroupAssociativity::Left => GroupAssociativity::Left,
+            SyntaxGroupAssociativity::Right => GroupAssociativity::Right,
+            SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
         };
         let mut groups = Vec::new();
         for group in sentence.groups() {
@@ -144,30 +139,21 @@ pub(crate) fn associativity(
             group_ordinal = group_ordinal
                 .checked_add(1)
                 .ok_or_else(|| syn::Error::new(group.span(), "too many associativity groups"))?;
-            groups.push(quote! {
-                #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new(#associativity_group_reference_role, #ordinal)
-                        .expect("KRS parser roles are nonempty"),
-                    group: #facade::ProductionGroupId::new(#name)
-                        .expect("Rust identifiers are valid production groups"),
-                }
+            groups.push(DescriptorGroupReference {
+                key: wire_key(associativity_group_reference_role, ordinal),
+                group: ProductionGroupId::new(name)
+                    .expect("Rust identifiers are valid production groups"),
             });
         }
-        sentences.push(quote! {
-            #facade::DescriptorAssociativitySentence {
-                key: #facade::ProvenanceKey::new(#associativity_sentence_role, #sentence_ordinal)
-                    .expect("KRS parser roles are nonempty"),
-                associativity: #associativity,
-                groups: ::std::vec![#(#groups),*],
-            }
+        sentences.push(DescriptorAssociativitySentence {
+            key: wire_key(associativity_sentence_role, sentence_ordinal),
+            associativity,
+            groups,
         });
     }
-    let grammar = quote! {
-        #facade::HostGrammarDescriptor::Associativity {
-            key: #facade::ProvenanceKey::new(#associativity_declaration_role, 0)
-                .expect("KRS parser roles are nonempty"),
-            sentences: ::std::vec![#(#sentences),*],
-        }
+    let grammar = WireGrammarDescriptor::Associativity {
+        key: wire_key(associativity_declaration_role, 0),
+        sentences,
     };
     Ok(grammar_macro_descriptor(
         &facade,
@@ -185,10 +171,12 @@ pub(super) fn grammar_macro_descriptor(
     factory: &Ident,
     name: &str,
     disambiguator: &str,
-    grammar: &TokenStream,
+    grammar: &WireGrammarDescriptor,
     provenance: &TokenStream,
     owner: Option<&Ident>,
 ) -> TokenStream {
+    let wire = serde_json::to_string(&WirePayload::Grammar(Box::new(grammar.clone())))
+        .expect("KRS wire values serialize");
     let owner_check = owner.map(|owner| {
         quote! {
             let _ = ::core::any::TypeId::of::<#owner>();
@@ -206,9 +194,7 @@ pub(super) fn grammar_macro_descriptor(
                     #facade::ItemKind::Grammar, #disambiguator,
                 ).expect("Cargo and Rust macro context form a valid grammar identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(
-                    ::std::boxed::Box::new(#grammar),
-                ),
+                payload: #facade::__krs_host_payload(#wire, &[]),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }

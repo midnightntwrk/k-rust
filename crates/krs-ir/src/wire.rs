@@ -1,13 +1,16 @@
-//! Indexed, unresolved host rule payloads emitted as static macro data.
+//! Indexed, unresolved host payloads emitted as static macro data.
 
 #![allow(missing_docs)]
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    BuiltinSort, DescriptorApplicationHeadClass, DescriptorLiteral, DescriptorRuleLabel,
-    DescriptorRulePriority, DescriptorSimplification, ProductionFieldId, ProtocolHeadRuleBinding,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceKey, SentenceKind,
+    BuiltinSort, DescriptorApplicationHeadClass, DescriptorAssociativitySentence,
+    DescriptorFieldReference, DescriptorFormatFragment, DescriptorGroupReference,
+    DescriptorLexicalPrecedence, DescriptorLiteral, DescriptorPrecedenceChain, DescriptorRuleLabel,
+    DescriptorRulePriority, DescriptorSimplification, HookOperation, ProductionFieldId,
+    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceKey,
+    SentenceKind, StrictnessKind,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -126,6 +129,149 @@ pub struct WireStructuredRule {
     pub result: WireTerm,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireConstructorFieldDescriptor {
+    pub name: String,
+    pub sort: WireTypeReference,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireConstructorDescriptor {
+    pub sort: WireSortReference,
+    pub syntax: Option<String>,
+    pub fields: Vec<WireConstructorFieldDescriptor>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireContextAliasReference {
+    pub key: ProvenanceKey,
+    pub slot: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "item_kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WireProductionItem {
+    Terminal {
+        key: ProvenanceKey,
+        text: String,
+    },
+    NonTerminal {
+        key: ProvenanceKey,
+        field_key: ProvenanceKey,
+        declaration_key: Option<ProvenanceKey>,
+        field: ProductionFieldId,
+        sort: Box<WireSortReference>,
+    },
+    RegexTerminal {
+        key: ProvenanceKey,
+        precede_regex: Option<String>,
+        regex: String,
+        follow_regex: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "attribute_kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum WireProductionAttribute {
+    Documentation {
+        key: ProvenanceKey,
+        text: String,
+    },
+    Function {
+        key: ProvenanceKey,
+    },
+    Total {
+        key: ProvenanceKey,
+    },
+    Hook {
+        key: ProvenanceKey,
+        operation: HookOperation,
+    },
+    Alias {
+        key: ProvenanceKey,
+    },
+    Token {
+        key: ProvenanceKey,
+        lexical_precedence: Option<DescriptorLexicalPrecedence>,
+    },
+    Group {
+        reference: DescriptorGroupReference,
+    },
+    Bracket {
+        key: ProvenanceKey,
+    },
+    Avoid {
+        key: ProvenanceKey,
+    },
+    Format {
+        key: ProvenanceKey,
+        fragments: Vec<DescriptorFormatFragment>,
+    },
+    Strictness {
+        key: ProvenanceKey,
+        kind: StrictnessKind,
+        using: Option<WireContextAliasReference>,
+        fields: Vec<DescriptorFieldReference>,
+        result_sort: Box<WireSortReference>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(
+    tag = "production_owner",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum WireProductionOwner {
+    Constructor {
+        constructor: WireApplicationReference,
+    },
+    TokenSort {
+        sort: WireSortReference,
+    },
+    BracketSort {
+        sort: WireSortReference,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WireProduction {
+    pub key: ProvenanceKey,
+    pub template_key: Option<ProvenanceKey>,
+    pub owner: WireProductionOwner,
+    pub result_sort: WireSortReference,
+    pub items: Vec<WireProductionItem>,
+    pub attributes: Vec<WireProductionAttribute>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(
+    tag = "grammar_kind",
+    content = "grammar",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum WireGrammarDescriptor {
+    Production(WireProduction),
+    Subsort {
+        key: ProvenanceKey,
+        subsort: WireSortReference,
+        supersort: WireSortReference,
+    },
+    Precedence {
+        key: ProvenanceKey,
+        chains: Vec<DescriptorPrecedenceChain>,
+    },
+    Associativity {
+        key: ProvenanceKey,
+        sentences: Vec<DescriptorAssociativitySentence>,
+    },
+}
+
 pub type WireHeadRuleBinding = ProtocolHeadRuleBinding<WireSortReference>;
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
 pub type WireHeadRuleExtra = ProtocolHeadRuleExtra<WireHeadRuleCellReference, WireTerm>;
@@ -158,6 +304,8 @@ pub struct WireHeadRule {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum WirePayload {
+    Constructor(WireConstructorDescriptor),
+    Grammar(Box<WireGrammarDescriptor>),
     StructuredRule(Box<WireStructuredRule>),
     HeadRule(Box<WireHeadRule>),
 }

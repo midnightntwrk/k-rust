@@ -2,6 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::terms::{WireSlots, wire_key, wire_sort_reference};
+use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{
     ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange, parse_bracket_attribute,
@@ -16,8 +18,8 @@ use syn::{Attribute, Ident, ItemTrait, Path, parse_quote};
 use super::constructors::{reject_unexpanded_symbol, take_explicit_symbol_helper};
 use super::nonce::expansion_nonce;
 use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, host_sort_reference,
-    provenance_key, spelling, type_reference,
+    call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, spelling,
+    type_reference,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -496,21 +498,30 @@ fn expand_readable_membership(
     let member_path = member;
     let super_spelling = spelling(declaration.supersort());
     let sub_spelling = spelling(member);
-    let supersort = host_sort_reference(
+    let mut slots = WireSlots::new(facade);
+    let supersort = wire_sort_reference(
+        &mut slots,
         facade,
         ProvenanceRole::SubsortSuperSort,
         0,
         &super_key,
         &super_spelling,
     );
-    let subsort = host_sort_reference(
+    let subsort = wire_sort_reference(
+        &mut slots,
         facade,
         ProvenanceRole::SubsortSubSort,
         0,
         &sub_key,
         &sub_spelling,
     );
-
+    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
+        key: wire_key(subsort_declaration_role, 0),
+        subsort,
+        supersort,
+    }));
+    let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
     Ok(quote! {
         #[doc(hidden)]
         fn #super_key() -> ::core::any::TypeId {
@@ -532,14 +543,7 @@ fn expand_readable_membership(
                     #facade::ItemKind::Grammar, "subsort",
                 ).expect("Cargo and Rust macro context form a valid subsort identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                    #facade::HostGrammarDescriptor::Subsort {
-                        key: #facade::ProvenanceKey::new(#subsort_declaration_role, 0)
-                            .expect("KRS parser roles are nonempty"),
-                        subsort: #subsort,
-                        supersort: #supersort,
-                    },
-                )),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }
@@ -706,21 +710,30 @@ pub(crate) fn subsort(
     let sub_spelling = spelling(declaration.sub_sort());
     let item = declaration.item();
     let cfg = call_site_cfg_attributes(&item.attrs)?;
-    let supersort = host_sort_reference(
+    let mut slots = WireSlots::new(&facade);
+    let supersort = wire_sort_reference(
+        &mut slots,
         &facade,
         ProvenanceRole::SubsortSuperSort,
         0,
         &super_key,
         &super_spelling,
     );
-    let subsort = host_sort_reference(
+    let subsort = wire_sort_reference(
+        &mut slots,
         &facade,
         ProvenanceRole::SubsortSubSort,
         0,
         &sub_key,
         &sub_spelling,
     );
-
+    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
+        key: wire_key(subsort_declaration_role, 0),
+        subsort,
+        supersort,
+    }));
+    let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
     let super_type = if reference.is_some() {
         quote!(#super_path)
     } else {
@@ -759,14 +772,7 @@ pub(crate) fn subsort(
                     #facade::ItemKind::Grammar, "subsort",
                 ).expect("Cargo and Rust macro context form a valid subsort identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                    #facade::HostGrammarDescriptor::Subsort {
-                        key: #facade::ProvenanceKey::new(#subsort_declaration_role, 0)
-                            .expect("KRS parser roles are nonempty"),
-                        subsort: #subsort,
-                        supersort: #supersort,
-                    },
-                )),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }
@@ -830,8 +836,15 @@ fn expand_bracket_grammar_parts(
     let provenance = host_provenance(env, facade, fallback, anchors)?;
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
-    let sort_reference =
-        |role: ProvenanceRole| host_sort_reference(facade, role, 0, sort_key, sort_name);
+    let mut slots = WireSlots::new(facade);
+    let sort_reference = wire_sort_reference(
+        &mut slots,
+        facade,
+        ProvenanceRole::SortDeclaration,
+        0,
+        sort_key,
+        sort_name,
+    );
     let mut items = Vec::new();
     let mut value_ordinal = 0_u32;
     for (item_index, item) in bracket.template().items().iter().enumerate() {
@@ -841,40 +854,50 @@ fn expand_bracket_grammar_parts(
                 "too many bracket items",
             )
         })?;
-        let key = provenance_key(facade, ProvenanceRole::BracketSyntaxItem, ordinal);
+        let key = wire_key(ProvenanceRole::BracketSyntaxItem, ordinal);
         match item {
-            SyntaxTemplateItem::Terminal(text) => items.push(quote! {
-                #facade::HostProductionItem::Terminal {
-                    key: #key,
-                    text: #text.to_owned(),
-                }
-            }),
+            SyntaxTemplateItem::Terminal(text) => {
+                items.push(krs_ir::wire::WireProductionItem::Terminal {
+                    key,
+                    text: text.to_owned(),
+                });
+            }
             SyntaxTemplateItem::Field(_) => {
-                let field_key =
-                    provenance_key(facade, ProvenanceRole::BracketValueReference, value_ordinal);
+                let field_key = wire_key(ProvenanceRole::BracketValueReference, value_ordinal);
                 value_ordinal = value_ordinal.checked_add(1).ok_or_else(|| {
                     syn::Error::new(
                         bracket.template().literal().span(),
                         "too many bracket values",
                     )
                 })?;
-                let value_sort = sort_reference(ProvenanceRole::SortDeclaration);
-                items.push(quote! {
-                    #facade::HostProductionItem::NonTerminal {
-                        key: #key,
-                        field_key: #field_key,
-                        declaration_key: ::core::option::Option::None,
-                        field: #facade::ProductionFieldId::new("value")
-                            .expect("the bracket value field is valid"),
-                        sort: ::std::boxed::Box::new(#value_sort),
-                    }
+                items.push(krs_ir::wire::WireProductionItem::NonTerminal {
+                    key,
+                    field_key,
+                    declaration_key: None,
+                    field: krs_ir::ProductionFieldId::new("value")
+                        .expect("the bracket value field is valid"),
+                    sort: Box::new(sort_reference.clone()),
                 });
             }
         }
     }
-    let owner_sort = sort_reference(ProvenanceRole::SortDeclaration);
-    let result_sort = sort_reference(ProvenanceRole::SortDeclaration);
     let disambiguator = format!("bracket:{index}");
+    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
+        krs_ir::wire::WireProduction {
+            key: wire_key(bracket_declaration_role, 0),
+            template_key: None,
+            owner: krs_ir::wire::WireProductionOwner::BracketSort {
+                sort: sort_reference.clone(),
+            },
+            result_sort: sort_reference,
+            items,
+            attributes: vec![krs_ir::wire::WireProductionAttribute::Bracket {
+                key: wire_key(bracket_declaration_role, 0),
+            }],
+        },
+    )));
+    let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
     Ok(quote! {
         #(#cfg)*
         #[doc(hidden)]
@@ -887,20 +910,7 @@ fn expand_bracket_grammar_parts(
                     #facade::ItemKind::Grammar, #disambiguator,
                 ).expect("Cargo and Rust macro context form a valid bracket identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                    #facade::HostGrammarDescriptor::Production(#facade::HostProduction {
-                        key: #facade::ProvenanceKey::new(#bracket_declaration_role, 0)
-                            .expect("KRS parser roles are nonempty"),
-                        template_key: ::core::option::Option::None,
-                        owner: #facade::HostProductionOwner::BracketSort { sort: #owner_sort },
-                        result_sort: #result_sort,
-                        items: ::std::vec![#(#items),*],
-                        attributes: ::std::vec![#facade::HostProductionAttribute::Bracket {
-                            key: #facade::ProvenanceKey::new(#bracket_declaration_role, 0)
-                                .expect("KRS parser roles are nonempty"),
-                        }],
-                    }),
-                )),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }

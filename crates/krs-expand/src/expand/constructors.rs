@@ -1,5 +1,10 @@
 //! Single productions: `#[k::symbol]`, `#[k::constructor]`, `#[k::function]`, `#[k::token]`, and the orphan strictness helpers.
 
+use krs_ir::wire::{
+    WireConstructorDescriptor, WireConstructorFieldDescriptor, WireGrammarDescriptor, WirePayload,
+    WireProduction, WireProductionAttribute, WireProductionItem, WireProductionOwner,
+    WireSortReference, WireTypeReference,
+};
 use krs_syntax::surface::{AttributeMacro, helper_entry, last_segment_entry};
 use krs_syntax::{
     ProvenanceAnchor, ProvenanceRole, StrictnessAttribute, SyntaxTemplateItem, TokenRange,
@@ -13,12 +18,11 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 
 use super::nonce::expansion_nonce;
-use super::productions::{
-    constructor_metadata_tokens, production_documentation_tokens, strictness_tokens,
-};
+use super::productions::strictness_tokens;
+use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, host_sort_reference,
-    option_owned_string, provenance_key, sort_type_tokens, spelling, type_reference,
+    call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
+    spelling,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -99,7 +103,7 @@ pub(crate) fn function(
         .expect("a parsed function retains its totality marker");
     let hook = function
         .hook()
-        .map(|path| -> syn::Result<(ProvenanceAnchor, TokenStream)> {
+        .map(|path| -> syn::Result<(ProvenanceAnchor, krs_ir::HookOperation)> {
             let segments = path
                 .segments
                 .iter()
@@ -107,40 +111,31 @@ pub(crate) fn function(
                 .collect::<Vec<_>>();
             let operation = match segments.as_slice() {
                 [module, name] if module == "krypto" && name == "keccak256_raw" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoKeccak256Raw)
+                    krs_ir::HookOperation::KryptoKeccak256Raw
                 }
                 [module, name] if module == "krypto" && name == "sha256_raw" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoSha256Raw)
+                    krs_ir::HookOperation::KryptoSha256Raw
                 }
                 [module, name] if module == "krypto" && name == "ripemd160_raw" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoRipemd160Raw)
+                    krs_ir::HookOperation::KryptoRipemd160Raw
                 }
                 [module, name] if module == "krypto" && name == "ecdsa_recover" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoEcdsaRecover)
+                    krs_ir::HookOperation::KryptoEcdsaRecover
                 }
                 [module, name] if module == "krypto" && name == "bn128_valid" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoBn128Valid)
+                    krs_ir::HookOperation::KryptoBn128Valid
                 }
                 [module, name] if module == "krypto" && name == "bn128_add" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoBn128Add)
+                    krs_ir::HookOperation::KryptoBn128Add
                 }
                 [module, name] if module == "krypto" && name == "bn128_mul" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoBn128Mul)
+                    krs_ir::HookOperation::KryptoBn128Mul
                 }
                 [module, name] if module == "krypto" && name == "bn128_g2_valid" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoBn128G2Valid)
+                    krs_ir::HookOperation::KryptoBn128G2Valid
                 }
                 [module, name] if module == "krypto" && name == "bn128_ate" => {
-                    let facade = env.facade_path()?;
-                    quote!(#facade::HookOperation::KryptoBn128Ate)
+                    krs_ir::HookOperation::KryptoBn128Ate
                 }
                 _ => {
                     return Err(syn::Error::new(
@@ -175,7 +170,7 @@ fn constructor_like(
     attribute: krs_syntax::ConstructorAttribute,
     item: TokenStream,
     totality: Option<(ProvenanceAnchor, bool)>,
-    hook: Option<(ProvenanceAnchor, TokenStream)>,
+    hook: Option<(ProvenanceAnchor, krs_ir::HookOperation)>,
 ) -> syn::Result<TokenStream> {
     let functional = totality.is_some();
     let total = totality.as_ref().is_some_and(|(_, total)| *total);
@@ -310,14 +305,15 @@ fn constructor_like(
         quote!(dyn #generated_sort)
     };
     let sort_spelling = spelling(&attribute.sort);
-    let sort_reference = host_sort_reference(
-        &facade,
-        ProvenanceRole::ConstructorSort,
-        0,
-        &sort_key,
-        &sort_spelling,
-    );
-    let syntax = option_owned_string(attribute.syntax.as_ref().map(syn::LitStr::value));
+    let mut slots = WireSlots::new(&facade);
+    let sort_reference = WireSortReference {
+        key: wire_key(ProvenanceRole::ConstructorSort, 0),
+        target: WireTypeReference {
+            slot: slots.type_slot(quote!(#facade::HostTypeKey(#sort_key))),
+            authored_path: sort_spelling,
+        },
+    };
+    let syntax = attribute.syntax.as_ref().map(syn::LitStr::value);
 
     let mut field_key_functions = Vec::new();
     let mut fields = Vec::new();
@@ -337,19 +333,22 @@ fn constructor_like(
                 ::core::any::TypeId::of::<#generated>()
             }
         });
-        let reference = type_reference(&facade, &key, &spelling);
-        fields.push(quote! {
-            #facade::HostConstructorFieldDescriptor {
-                name: #field_name.to_owned(),
-                sort: #reference,
-            }
+        fields.push(WireConstructorFieldDescriptor {
+            name: field_name,
+            sort: WireTypeReference {
+                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                authored_path: spelling,
+            },
         });
     }
+    let wire = WirePayload::Constructor(WireConstructorDescriptor {
+        sort: sort_reference,
+        syntax,
+        fields,
+    });
+    let wire = serde_json::to_string(&wire).expect("constructor wire is serializable");
+    let slot_tokens = slots.tokens();
 
-    let owner_target = quote!(#facade::HostApplicationTarget::Nominal(#facade::HostTypeReference {
-        key: #facade::HostTypeKey(#declared_key),
-        authored_path: #name.to_owned(),
-    }));
     let rule_application = quote! {
         #(#cfg)*
         impl<const __KRS_SELECTOR: u64> #facade::__KrsRuleApplication<__KRS_SELECTOR>
@@ -373,7 +372,6 @@ fn constructor_like(
         nonce,
         &cfg,
         &grammar_provenance,
-        &owner_target,
         "",
         functional,
         total,
@@ -424,13 +422,7 @@ fn constructor_like(
                         #facade::HostTypeKey(#declared_key),
                     ),
                 ),
-                payload: #facade::HostDescriptorPayload::Constructor(
-                    #facade::HostConstructorDescriptor {
-                        sort: #sort_reference,
-                        syntax: #syntax,
-                        fields: ::std::vec![#(#fields),*],
-                    },
-                ),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }
@@ -618,18 +610,45 @@ pub(crate) fn token(
     );
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors)?;
     let regex = attribute.regex().value();
-    let lexical_precedence = if let Some(value) = attribute.lexical_precedence() {
-        quote!(::core::option::Option::Some(#facade::DescriptorLexicalPrecedence {
-            key: #facade::ProvenanceKey::new(#token_lexical_precedence_role, 0)
-                .expect("KRS parser roles are nonempty"),
-            value: #value,
-        }))
-    } else {
-        quote!(::core::option::Option::None)
-    };
+    let lexical_precedence =
+        attribute
+            .lexical_precedence()
+            .map(|value| krs_ir::DescriptorLexicalPrecedence {
+                key: wire_key(token_lexical_precedence_role, 0),
+                value,
+            });
     let grammar_name = format!("__krs_grammar_token_{name}");
-    let token_reference =
-        host_sort_reference(&facade, ProvenanceRole::TokenDeclaration, 0, &key_fn, &name);
+    let mut slots = WireSlots::new(&facade);
+    let token_reference = wire_sort_reference(
+        &mut slots,
+        &facade,
+        ProvenanceRole::TokenDeclaration,
+        0,
+        &key_fn,
+        &name,
+    );
+    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
+        WireProduction {
+            key: wire_key(token_declaration_role, 0),
+            template_key: None,
+            owner: WireProductionOwner::TokenSort {
+                sort: token_reference.clone(),
+            },
+            result_sort: token_reference,
+            items: vec![WireProductionItem::RegexTerminal {
+                key: wire_key(token_regex_role, 0),
+                precede_regex: None,
+                regex: regex.clone(),
+                follow_regex: None,
+            }],
+            attributes: vec![WireProductionAttribute::Token {
+                key: wire_key(token_regex_role, 0),
+                lexical_precedence,
+            }],
+        },
+    )));
+    let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
 
     Ok(quote! {
         #item
@@ -675,36 +694,7 @@ pub(crate) fn token(
                     #facade::ItemKind::Grammar, "token",
                 ).expect("Cargo and Rust macro context form a valid token-grammar identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                    #facade::HostGrammarDescriptor::Production(#facade::HostProduction {
-                        key: #facade::ProvenanceKey::new(#token_declaration_role, 0)
-                            .expect("KRS parser roles are nonempty"),
-                        template_key: ::core::option::Option::None,
-                        owner: #facade::HostProductionOwner::TokenSort {
-                            sort: #token_reference,
-                        },
-                        result_sort: #facade::HostSortReference {
-                            key: #facade::ProvenanceKey::new(#token_declaration_role, 0)
-                                .expect("KRS parser roles are nonempty"),
-                            target: #facade::HostTypeReference {
-                                key: #facade::HostTypeKey(#key_fn),
-                                authored_path: #name.to_owned(),
-                            },
-                        },
-                        items: ::std::vec![#facade::HostProductionItem::RegexTerminal {
-                            key: #facade::ProvenanceKey::new(#token_regex_role, 0)
-                                .expect("KRS parser roles are nonempty"),
-                            precede_regex: ::core::option::Option::None,
-                            regex: #regex.to_owned(),
-                            follow_regex: ::core::option::Option::None,
-                        }],
-                        attributes: ::std::vec![#facade::HostProductionAttribute::Token {
-                            key: #facade::ProvenanceKey::new(#token_regex_role, 0)
-                                .expect("KRS parser roles are nonempty"),
-                            lexical_precedence: #lexical_precedence,
-                        }],
-                    }),
-                )),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #grammar_provenance,
             }
@@ -721,16 +711,15 @@ fn constructor_grammar(
     attribute: &krs_syntax::ConstructorAttribute,
     declaration: &krs_syntax::ConstructorDeclaration,
     strictness: Option<&StrictnessAttribute>,
-    _declared_key: &Ident,
+    declared_key: &Ident,
     sort_key: &Ident,
     nonce: u64,
     cfg: &[Attribute],
     provenance: &TokenStream,
-    owner_target: &TokenStream,
     disambiguator: &str,
     functional: bool,
     total: bool,
-    hook: Option<&TokenStream>,
+    hook: Option<&krs_ir::HookOperation>,
     alias: bool,
 ) -> syn::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
@@ -741,7 +730,9 @@ fn constructor_grammar(
     let grammar_name = format!("__krs_grammar_{name}");
     let factory = format_ident!("__krs_constructor_grammar_{nonce:016x}");
     let result_sort_spelling = spelling(&attribute.sort);
-    let result_sort = host_sort_reference(
+    let mut slots = WireSlots::new(facade);
+    let result_sort = wire_sort_reference(
+        &mut slots,
         facade,
         ProvenanceRole::ConstructorSort,
         0,
@@ -750,20 +741,16 @@ fn constructor_grammar(
     );
     let template_key = attribute
         .syntax_template()
-        .map(|_| provenance_key(facade, ProvenanceRole::ConstructorSyntax, 0));
-    let template_key = if let Some(key) = template_key {
-        quote!(::core::option::Option::Some(#key))
-    } else {
-        quote!(::core::option::Option::None)
-    };
-    let items = constructor_production_items(
+        .map(|_| wire_key(ProvenanceRole::ConstructorSyntax, 0));
+    let items = constructor_production_wire_items(
         facade,
         attribute.syntax_template(),
         declaration.name(),
         declaration.fields(),
         nonce,
+        &mut slots,
     )?;
-    let (strict_key_function, strict_attribute) = strictness_tokens(
+    let (strict_key_function, _) = strictness_tokens(
         facade,
         strictness,
         declaration
@@ -773,15 +760,14 @@ fn constructor_grammar(
         nonce,
         cfg,
     )?;
-    let mut attributes = constructor_metadata_tokens(
-        facade,
+    let mut attributes = super::productions::constructor_metadata_wire(
         attribute.group.as_ref().map(syn::LitStr::value),
         attribute.avoid,
         attribute.structured_format(),
     )?;
     attributes.splice(
         0..0,
-        production_documentation_tokens(facade, declaration.documentation())?,
+        super::productions::production_documentation_wire(declaration.documentation())?,
     );
     if functional {
         let function_key = if total {
@@ -791,53 +777,60 @@ fn constructor_grammar(
         };
         attributes.insert(
             0,
-            quote! {
-                #facade::HostProductionAttribute::Function {
-                    key: #facade::ProvenanceKey::new(#function_key, 0)
-                        .expect("KRS parser roles are nonempty"),
-                }
+            WireProductionAttribute::Function {
+                key: wire_key(function_key, 0),
             },
         );
         if total {
             attributes.insert(
                 1,
-                quote! {
-                    #facade::HostProductionAttribute::Total {
-                        key: #facade::ProvenanceKey::new(#function_total_role, 0)
-                            .expect("KRS parser roles are nonempty"),
-                    }
+                WireProductionAttribute::Total {
+                    key: wire_key(function_total_role, 0),
                 },
             );
         }
     }
     if let Some(operation) = hook {
-        let position = if total { 2 } else { 1 };
         attributes.insert(
-            position,
-            quote! {
-                #facade::HostProductionAttribute::Hook {
-                    key: #facade::ProvenanceKey::new(#function_hook_role, 0)
-                        .expect("KRS parser roles are nonempty"),
-                    operation: #operation,
-                }
+            if total { 2 } else { 1 },
+            WireProductionAttribute::Hook {
+                key: wire_key(function_hook_role, 0),
+                operation: *operation,
             },
         );
     }
     if alias {
         attributes.insert(
             0,
-            quote! {
-                #facade::HostProductionAttribute::Alias {
-                    key: #facade::ProvenanceKey::new(#alias_production_role, 0)
-                        .expect("KRS parser roles are nonempty"),
-                }
+            WireProductionAttribute::Alias {
+                key: wire_key(alias_production_role, 0),
             },
         );
     }
-    if let Some(strict_attribute) = strict_attribute {
+    if let Some(strict_attribute) =
+        super::productions::strictness_wire(facade, strictness, nonce, &mut slots)
+    {
         attributes.push(strict_attribute);
     }
-    let primary = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
+    let owner_slot = slots.type_slot(quote!(#facade::HostTypeKey(#declared_key)));
+    let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
+        WireProduction {
+            key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+            template_key,
+            owner: WireProductionOwner::Constructor {
+                constructor: krs_ir::wire::WireApplicationReference {
+                    key: wire_key(constructor_declaration_role, 0),
+                    target: owner_slot,
+                    authored_path: name,
+                },
+            },
+            result_sort,
+            items,
+            attributes,
+        },
+    )));
+    let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
+    let slot_tokens = slots.tokens();
 
     Ok(quote! {
         #strict_key_function
@@ -858,22 +851,7 @@ fn constructor_grammar(
                 )
                 .expect("Cargo and Rust macro context form a valid grammar identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                    #facade::HostGrammarDescriptor::Production(#facade::HostProduction {
-                        key: #primary,
-                        template_key: #template_key,
-                        owner: #facade::HostProductionOwner::Constructor {
-                            constructor: #facade::HostApplicationReference {
-                                key: #facade::ProvenanceKey::new(#constructor_declaration_role, 0)
-                                    .expect("KRS parser roles are nonempty"),
-                                target: #owner_target,
-                            },
-                        },
-                        result_sort: #result_sort,
-                        items: ::std::vec![#(#items),*],
-                        attributes: ::std::vec![#(#attributes),*],
-                    }),
-                )),
+                payload: #facade::__krs_host_payload(#wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }
@@ -884,27 +862,25 @@ fn constructor_grammar(
     })
 }
 
-fn constructor_production_items(
+fn constructor_production_wire_items(
     facade: &Path,
     template: Option<&krs_syntax::SyntaxTemplate>,
     name: &Ident,
     fields: &[krs_syntax::ConstructorField],
     nonce: u64,
-) -> syn::Result<Vec<TokenStream>> {
+    slots: &mut WireSlots,
+) -> syn::Result<Vec<WireProductionItem>> {
     let mut items = Vec::new();
     if let Some(template) = template {
         let mut field_ordinal = 0_u32;
         for (item_index, item) in template.items().iter().enumerate() {
             let item_ordinal = u32::try_from(item_index)
                 .map_err(|_| syn::Error::new(name.span(), "too many production items"))?;
-            let item_key =
-                provenance_key(facade, ProvenanceRole::ConstructorSyntaxItem, item_ordinal);
+            let key = wire_key(ProvenanceRole::ConstructorSyntaxItem, item_ordinal);
             match item {
-                SyntaxTemplateItem::Terminal(text) => items.push(quote! {
-                    #facade::HostProductionItem::Terminal {
-                        key: #item_key,
-                        text: #text.to_owned(),
-                    }
+                SyntaxTemplateItem::Terminal(text) => items.push(WireProductionItem::Terminal {
+                    key,
+                    text: text.to_owned(),
                 }),
                 SyntaxTemplateItem::Field(field_name) => {
                     let declaration_index = fields
@@ -917,34 +893,28 @@ fn constructor_production_items(
                         .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
                     let sort_key =
                         format_ident!("__krs_constructor_field_{nonce:016x}_{declaration_index}");
-                    let field = &fields[declaration_index];
-                    let sort_spelling = field.term_sort().sort_spelling();
-                    let sort = host_sort_reference(
+                    let sort_spelling = fields[declaration_index].term_sort().sort_spelling();
+                    let sort = wire_sort_reference(
+                        slots,
                         facade,
                         ProvenanceRole::ConstructorFieldSort,
                         declaration_ordinal,
                         &sort_key,
                         &sort_spelling,
                     );
-                    let field_key = provenance_key(
-                        facade,
-                        ProvenanceRole::ConstructorSyntaxFieldReference,
-                        field_ordinal,
-                    );
-                    let declaration_key = provenance_key(
-                        facade,
-                        ProvenanceRole::ConstructorFieldDeclaration,
-                        declaration_ordinal,
-                    );
-                    items.push(quote! {
-                        #facade::HostProductionItem::NonTerminal {
-                            key: #item_key,
-                            field_key: #field_key,
-                            declaration_key: ::core::option::Option::Some(#declaration_key),
-                            field: #facade::ProductionFieldId::new(#field_name)
-                                .expect("Rust field identifiers are valid production fields"),
-                            sort: ::std::boxed::Box::new(#sort),
-                        }
+                    items.push(WireProductionItem::NonTerminal {
+                        key,
+                        field_key: wire_key(
+                            ProvenanceRole::ConstructorSyntaxFieldReference,
+                            field_ordinal,
+                        ),
+                        declaration_key: Some(wire_key(
+                            ProvenanceRole::ConstructorFieldDeclaration,
+                            declaration_ordinal,
+                        )),
+                        field: krs_ir::ProductionFieldId::new(field_name.clone())
+                            .expect("Rust field identifiers are valid production fields"),
+                        sort: Box::new(sort),
                     });
                     field_ordinal = field_ordinal
                         .checked_add(1)
@@ -953,37 +923,31 @@ fn constructor_production_items(
             }
         }
     } else {
-        let declaration_key = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
-        let terminal = name.to_string();
-        items.push(quote! {
-            #facade::HostProductionItem::Terminal {
-                key: #declaration_key,
-                text: #terminal.to_owned(),
-            }
+        let key = wire_key(ProvenanceRole::ConstructorDeclaration, 0);
+        items.push(WireProductionItem::Terminal {
+            key,
+            text: name.to_string(),
         });
         for (index, field) in fields.iter().enumerate() {
             let ordinal = u32::try_from(index)
                 .map_err(|_| syn::Error::new(name.span(), "too many constructor fields"))?;
-            let key = provenance_key(facade, ProvenanceRole::ConstructorFieldDeclaration, ordinal);
+            let key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key = format_ident!("__krs_constructor_field_{nonce:016x}_{index}");
             let sort_spelling = field.term_sort().sort_spelling();
-            let sort = host_sort_reference(
-                facade,
-                ProvenanceRole::ConstructorFieldSort,
-                ordinal,
-                &sort_key,
-                &sort_spelling,
-            );
-            let field_name = field.name().to_string();
-            items.push(quote! {
-                #facade::HostProductionItem::NonTerminal {
-                    key: #key,
-                    field_key: #key,
-                    declaration_key: ::core::option::Option::Some(#key),
-                    field: #facade::ProductionFieldId::new(#field_name)
-                        .expect("Rust field identifiers are valid production fields"),
-                    sort: ::std::boxed::Box::new(#sort),
-                }
+            items.push(WireProductionItem::NonTerminal {
+                key: key.clone(),
+                field_key: key.clone(),
+                declaration_key: Some(key),
+                field: krs_ir::ProductionFieldId::new(field.name().to_string())
+                    .expect("Rust field identifiers are valid production fields"),
+                sort: Box::new(wire_sort_reference(
+                    slots,
+                    facade,
+                    ProvenanceRole::ConstructorFieldSort,
+                    ordinal,
+                    &sort_key,
+                    &sort_spelling,
+                )),
             });
         }
     }

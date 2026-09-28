@@ -2,6 +2,15 @@
 
 use std::collections::BTreeMap;
 
+use krs_ir::wire::{
+    WireApplicationReference, WireConstructorDescriptor, WireConstructorFieldDescriptor,
+    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionAttribute,
+    WireProductionOwner, WireSortReference, WireTypeReference,
+};
+use krs_ir::{
+    DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
+    GroupAssociativity, ProductionGroupId,
+};
 use krs_syntax::{
     GroupAssociativity as SyntaxGroupAssociativity, ProvenanceRole, SyntaxTemplateItem, TokenRange,
     parse_constructors_attribute,
@@ -12,12 +21,10 @@ use syn::{Attribute, Ident, ItemEnum, Path};
 
 use super::grammar::grammar_macro_descriptor;
 use super::nonce::{expansion_nonce, rule_application_selector};
-use super::productions::{
-    constructor_metadata_tokens, production_documentation_tokens, strictness_tokens,
-};
+use super::productions::strictness_tokens;
+use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_ident, call_site_path, host_sort_reference,
-    option_owned_string, provenance_key, sort_type_tokens, spelling, type_reference,
+    call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
     variant_marker_function,
 };
 use crate::environment::MacroEnvironment;
@@ -133,20 +140,31 @@ pub(crate) fn constructors(
     }
 
     let membership_name = format!("__krs_grammar_membership_{enum_name}");
-    let membership_subsort = host_sort_reference(
+    let mut membership_slots = WireSlots::new(&facade);
+    let membership_subsort = wire_sort_reference(
+        &mut membership_slots,
         &facade,
         ProvenanceRole::SubsortSubSort,
         0,
         &enum_key,
         &enum_name,
     );
-    let membership_supersort = host_sort_reference(
+    let membership_supersort = wire_sort_reference(
+        &mut membership_slots,
         &facade,
         ProvenanceRole::SubsortSuperSort,
         0,
         &membership_key,
         &outer_spelling,
     );
+    let membership_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
+        key: wire_key(subsort_declaration_role, 0),
+        subsort: membership_subsort,
+        supersort: membership_supersort,
+    }));
+    let membership_wire =
+        serde_json::to_string(&membership_wire).expect("KRS wire values serialize");
+    let membership_slot_tokens = membership_slots.tokens();
 
     let closed_sort = if declaration.is_open_family() {
         TokenStream::new()
@@ -201,14 +219,7 @@ pub(crate) fn constructors(
                         #facade::ItemKind::Grammar, "enum-membership",
                     ).expect("Cargo and Rust macro context form a valid enum-membership identity"),
                     declared_type: ::core::option::Option::None,
-                    payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                        #facade::HostGrammarDescriptor::Subsort {
-                            key: #facade::ProvenanceKey::new(#subsort_declaration_role, 0)
-                                .expect("KRS parser roles are nonempty"),
-                            subsort: #membership_subsort,
-                            supersort: #membership_supersort,
-                        },
-                    )),
+                    payload: #facade::__krs_host_payload(#membership_wire, #membership_slot_tokens),
                     cfg: ::core::default::Default::default(),
                     provenance: #membership_provenance,
                 }
@@ -303,25 +314,18 @@ fn expand_enum_family_grammar(
             let group = enum_precedence_group_name(declaration, ordinal);
             let ordinal = u32::try_from(ordinal)
                 .map_err(|_| syn::Error::new(declaration.sort_name().span(), "too many groups"))?;
-            groups.push(quote! {
-                #facade::DescriptorGroupReference {
-                    key: #facade::ProvenanceKey::new(#precedence_group_reference_role, #ordinal)
-                        .expect("KRS parser roles are nonempty"),
-                    group: #facade::ProductionGroupId::new(#group)
-                        .expect("generated enum groups are valid identities"),
-                }
+            groups.push(DescriptorGroupReference {
+                key: wire_key(precedence_group_reference_role, ordinal),
+                group: ProductionGroupId::new(group)
+                    .expect("generated enum groups are valid identities"),
             });
         }
-        let grammar = quote! {
-            #facade::HostGrammarDescriptor::Precedence {
-                key: #facade::ProvenanceKey::new(#precedence_declaration_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                chains: ::std::vec![#facade::DescriptorPrecedenceChain {
-                    key: #facade::ProvenanceKey::new(#precedence_chain_role, 0)
-                        .expect("KRS parser roles are nonempty"),
-                    groups: ::std::vec![#(#groups),*],
-                }],
-            }
+        let grammar = WireGrammarDescriptor::Precedence {
+            key: wire_key(precedence_declaration_role, 0),
+            chains: vec![DescriptorPrecedenceChain {
+                key: wire_key(precedence_chain_role, 0),
+                groups,
+            }],
         };
         let descriptor = grammar_macro_descriptor(
             facade,
@@ -354,36 +358,25 @@ fn expand_enum_family_grammar(
                 .associativity()
                 .expect("filtered enum groups have explicit associativity")
             {
-                SyntaxGroupAssociativity::Left => quote!(#facade::GroupAssociativity::Left),
-                SyntaxGroupAssociativity::Right => quote!(#facade::GroupAssociativity::Right),
-                SyntaxGroupAssociativity::NonAssociative => {
-                    quote!(#facade::GroupAssociativity::NonAssociative)
-                }
+                SyntaxGroupAssociativity::Left => GroupAssociativity::Left,
+                SyntaxGroupAssociativity::Right => GroupAssociativity::Right,
+                SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
             };
             let ordinal = u32::try_from(sentence_ordinal)
                 .map_err(|_| syn::Error::new(group.range().first(), "too many groups"))?;
-            sentences.push(quote! {
-                #facade::DescriptorAssociativitySentence {
-                    key: #facade::ProvenanceKey::new(#associativity_sentence_role, #ordinal)
-                        .expect("KRS parser roles are nonempty"),
-                    associativity: #associativity,
-                    groups: ::std::vec![#facade::DescriptorGroupReference {
-                        key: #facade::ProvenanceKey::new(
-                            #associativity_group_reference_role,
-                            #ordinal,
-                        ).expect("KRS parser roles are nonempty"),
-                        group: #facade::ProductionGroupId::new(#group_name)
-                            .expect("generated enum groups are valid identities"),
-                    }],
-                }
+            sentences.push(DescriptorAssociativitySentence {
+                key: wire_key(associativity_sentence_role, ordinal),
+                associativity,
+                groups: vec![DescriptorGroupReference {
+                    key: wire_key(associativity_group_reference_role, ordinal),
+                    group: ProductionGroupId::new(group_name)
+                        .expect("generated enum groups are valid identities"),
+                }],
             });
         }
-        let grammar = quote! {
-            #facade::HostGrammarDescriptor::Associativity {
-                key: #facade::ProvenanceKey::new(#associativity_declaration_role, 0)
-                    .expect("KRS parser roles are nonempty"),
-                sentences: ::std::vec![#(#sentences),*],
-            }
+        let grammar = WireGrammarDescriptor::Associativity {
+            key: wire_key(associativity_declaration_role, 0),
+            sentences,
         };
         let descriptor = grammar_macro_descriptor(
             facade,
@@ -438,8 +431,10 @@ fn expand_enum_variant(
         .map_err(krs_syntax::SyntaxError::into_syn_error)?;
     let provenance = host_provenance(env, facade, fallback, &anchors)?;
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors)?;
-    let syntax = option_owned_string(variant.syntax().map(|syntax| syntax.syntax().value()));
+    let syntax = variant.syntax().map(|syntax| syntax.syntax().value());
 
+    let mut slots = WireSlots::new(facade);
+    let result_slot = slots.type_slot(quote!(#facade::HostTypeKey(#result_key)));
     let mut field_key_functions = Vec::new();
     let mut fields = Vec::new();
     for (field_index, field) in variant.fields().iter().enumerate() {
@@ -459,22 +454,34 @@ fn expand_enum_variant(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
-        let reference = type_reference(facade, &key, &spelling);
-        fields.push(quote! {
-            #facade::HostConstructorFieldDescriptor {
-                name: #field_name.to_owned(),
-                sort: #reference,
-            }
+        fields.push(WireConstructorFieldDescriptor {
+            name: field_name,
+            sort: WireTypeReference {
+                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                authored_path: spelling,
+            },
         });
     }
 
-    let items = enum_variant_production_items(facade, variant, nonce, index)?;
+    let grammar_nonce = expansion_nonce(env, "enum_strictness", variant.name(), fallback);
+    let (strictness_key, _) = strictness_tokens(
+        facade,
+        variant.strictness(),
+        variant
+            .fields()
+            .iter()
+            .map(krs_syntax::ConstructorField::name),
+        grammar_nonce,
+        cfg,
+    )?;
+    let mut grammar_slots = WireSlots::new(facade);
+    let items =
+        enum_variant_production_wire_items(facade, variant, nonce, index, &mut grammar_slots)?;
     let group = variant
         .precedence_group()
         .map(|ordinal| enum_precedence_group_name(declaration, ordinal));
     let mut attributes = if let Some(syntax) = variant.syntax() {
-        constructor_metadata_tokens(
-            facade,
+        super::productions::constructor_metadata_wire(
             group.or_else(|| syntax.group().map(syn::LitStr::value)),
             syntax.avoid(),
             syntax.structured_format(),
@@ -484,51 +491,73 @@ fn expand_enum_variant(
     };
     attributes.splice(
         0..0,
-        production_documentation_tokens(facade, variant.documentation())?,
+        super::productions::production_documentation_wire(variant.documentation())?,
     );
     if variant.is_alias() {
         attributes.insert(
             0,
-            quote! {
-                #facade::HostProductionAttribute::Alias {
-                    key: #facade::ProvenanceKey::new(#alias_production_role, 0)
-                        .expect("KRS parser roles are nonempty"),
-                }
+            WireProductionAttribute::Alias {
+                key: wire_key(alias_production_role, 0),
             },
         );
     }
-    let (strictness_key, strictness) = strictness_tokens(
+    if let Some(strictness) = super::productions::strictness_wire(
         facade,
         variant.strictness(),
-        variant
-            .fields()
-            .iter()
-            .map(krs_syntax::ConstructorField::name),
-        expansion_nonce(env, "enum_strictness", variant.name(), fallback),
-        cfg,
-    )?;
-    if let Some(strictness) = strictness {
+        grammar_nonce,
+        &mut grammar_slots,
+    ) {
         attributes.push(strictness);
     }
-    let template_key = if variant.syntax().is_some() {
-        quote!(::core::option::Option::Some(
-            #facade::ProvenanceKey::new(#constructor_syntax_role, 0)
-                .expect("KRS parser roles are nonempty")
-        ))
-    } else {
-        quote!(::core::option::Option::None)
-    };
-    let owner_path = enum_name.clone();
+    let template_key = variant
+        .syntax()
+        .map(|_| wire_key(constructor_syntax_role, 0));
     let application_path = format!("{enum_name}::{variant_name}");
     let result_spelling = spelling(variant.constructor_sort());
-    let result_sort = host_sort_reference(
+    let result_sort = wire_sort_reference(
+        &mut grammar_slots,
         facade,
         ProvenanceRole::ConstructorSort,
         0,
         result_key,
         &result_spelling,
     );
-    let primary = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
+    let variant_slot = grammar_slots.variant_slot_for_grammar(
+        &quote!(#facade::HostTypeKey(#enum_key)),
+        &quote!(#facade::HostTypeKey(#variant_key)),
+    );
+    let grammar_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
+        WireProduction {
+            key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+            template_key,
+            owner: WireProductionOwner::Constructor {
+                constructor: WireApplicationReference {
+                    key: wire_key(constructor_declaration_role, 0),
+                    target: variant_slot,
+                    authored_path: application_path,
+                },
+            },
+            result_sort,
+            items,
+            attributes,
+        },
+    )));
+    let grammar_wire = serde_json::to_string(&grammar_wire).expect("KRS wire values serialize");
+    let grammar_slot_tokens = grammar_slots.tokens();
+    let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
+        sort: WireSortReference {
+            key: wire_key(ProvenanceRole::ConstructorSort, 0),
+            target: WireTypeReference {
+                slot: result_slot,
+                authored_path: result_spelling,
+            },
+        },
+        syntax,
+        fields,
+    });
+    let constructor_wire =
+        serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");
+    let slot_tokens = slots.tokens();
 
     Ok(quote! {
         #(#field_key_functions)*
@@ -552,13 +581,7 @@ fn expand_enum_variant(
                         ),
                     ),
                 ),
-                payload: #facade::HostDescriptorPayload::Constructor(
-                    #facade::HostConstructorDescriptor {
-                        sort: #result_sort,
-                        syntax: #syntax,
-                        fields: ::std::vec![#(#fields),*],
-                    },
-                ),
+                payload: #facade::__krs_host_payload(#constructor_wire, #slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #provenance,
             }
@@ -578,31 +601,7 @@ fn expand_enum_variant(
                     #facade::ItemKind::Grammar, #disambiguator,
                 ).expect("Cargo and Rust macro context form a valid variant-grammar identity"),
                 declared_type: ::core::option::Option::None,
-                payload: #facade::HostDescriptorPayload::Grammar(::std::boxed::Box::new(
-                    #facade::HostGrammarDescriptor::Production(#facade::HostProduction {
-                        key: #primary,
-                        template_key: #template_key,
-                        owner: #facade::HostProductionOwner::Constructor {
-                            constructor: #facade::HostApplicationReference {
-                                key: #facade::ProvenanceKey::new(#constructor_declaration_role, 0)
-                                    .expect("KRS parser roles are nonempty"),
-                                target: #facade::HostApplicationTarget::EnumVariant(
-                                    #facade::HostEnumVariantReference::new(
-                                        #facade::HostTypeReference {
-                                            key: #facade::HostTypeKey(#enum_key),
-                                            authored_path: #owner_path.to_owned(),
-                                        },
-                                        #facade::HostTypeKey(#variant_key),
-                                        #application_path,
-                                    ).expect("generated variant paths retain their enum owner"),
-                                ),
-                            },
-                        },
-                        result_sort: #result_sort,
-                        items: ::std::vec![#(#items),*],
-                        attributes: ::std::vec![#(#attributes),*],
-                    }),
-                )),
+                payload: #facade::__krs_host_payload(#grammar_wire, #grammar_slot_tokens),
                 cfg: ::core::default::Default::default(),
                 provenance: #grammar_provenance,
             }
@@ -613,24 +612,25 @@ fn expand_enum_variant(
     })
 }
 
-fn enum_variant_production_items(
+fn enum_variant_production_wire_items(
     facade: &Path,
     variant: &krs_syntax::EnumConstructorVariant,
     nonce: u64,
     variant_index: usize,
-) -> syn::Result<Vec<TokenStream>> {
-    let constructor_field_declaration_role = ProvenanceRole::ConstructorFieldDeclaration;
+    slots: &mut WireSlots,
+) -> syn::Result<Vec<krs_ir::wire::WireProductionItem>> {
+    use krs_ir::wire::WireProductionItem as Item;
     let mut items = Vec::new();
     if let Some(syntax) = variant.syntax() {
         let mut field_ordinal = 0_u32;
         for (item_index, item) in syntax.syntax_template().items().iter().enumerate() {
-            let item_ordinal = u32::try_from(item_index)
+            let ordinal = u32::try_from(item_index)
                 .map_err(|_| syn::Error::new(variant.name().span(), "too many production items"))?;
-            let item_key =
-                provenance_key(facade, ProvenanceRole::ConstructorSyntaxItem, item_ordinal);
+            let key = wire_key(ProvenanceRole::ConstructorSyntaxItem, ordinal);
             match item {
-                SyntaxTemplateItem::Terminal(text) => items.push(quote! {
-                    #facade::HostProductionItem::Terminal { key: #item_key, text: #text.to_owned() }
+                SyntaxTemplateItem::Terminal(text) => items.push(Item::Terminal {
+                    key,
+                    text: text.to_owned(),
                 }),
                 SyntaxTemplateItem::Field(name) => {
                     let declaration_index = variant
@@ -646,32 +646,26 @@ fn enum_variant_production_items(
                         "__krs_enum_field_{nonce:016x}_{variant_index}_{declaration_index}"
                     );
                     let field = &variant.fields()[declaration_index];
-                    let sort = host_sort_reference(
-                        facade,
-                        ProvenanceRole::ConstructorFieldSort,
-                        declaration_ordinal,
-                        &sort_key,
-                        &field.term_sort().sort_spelling(),
-                    );
-                    let field_key = provenance_key(
-                        facade,
-                        ProvenanceRole::ConstructorSyntaxFieldReference,
-                        field_ordinal,
-                    );
-                    let declaration_key = provenance_key(
-                        facade,
-                        ProvenanceRole::ConstructorFieldDeclaration,
-                        declaration_ordinal,
-                    );
-                    items.push(quote! {
-                        #facade::HostProductionItem::NonTerminal {
-                            key: #item_key,
-                            field_key: #field_key,
-                            declaration_key: ::core::option::Option::Some(#declaration_key),
-                            field: #facade::ProductionFieldId::new(#name)
-                                .expect("Rust fields are valid production fields"),
-                            sort: ::std::boxed::Box::new(#sort),
-                        }
+                    items.push(Item::NonTerminal {
+                        key,
+                        field_key: wire_key(
+                            ProvenanceRole::ConstructorSyntaxFieldReference,
+                            field_ordinal,
+                        ),
+                        declaration_key: Some(wire_key(
+                            ProvenanceRole::ConstructorFieldDeclaration,
+                            declaration_ordinal,
+                        )),
+                        field: krs_ir::ProductionFieldId::new(name.clone())
+                            .expect("Rust fields are valid production fields"),
+                        sort: Box::new(wire_sort_reference(
+                            slots,
+                            facade,
+                            ProvenanceRole::ConstructorFieldSort,
+                            declaration_ordinal,
+                            &sort_key,
+                            &field.term_sort().sort_spelling(),
+                        )),
                     });
                     field_ordinal = field_ordinal
                         .checked_add(1)
@@ -680,40 +674,30 @@ fn enum_variant_production_items(
             }
         }
     } else {
-        let key = provenance_key(facade, ProvenanceRole::ConstructorDeclaration, 0);
-        let terminal = variant.name().to_string();
-        items.push(quote! {
-            #facade::HostProductionItem::Terminal { key: #key, text: #terminal.to_owned() }
+        items.push(Item::Terminal {
+            key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+            text: variant.name().to_string(),
         });
         for (field_index, field) in variant.fields().iter().enumerate() {
             let ordinal = u32::try_from(field_index)
                 .map_err(|_| syn::Error::new(variant.name().span(), "too many fields"))?;
-            let field_key =
-                provenance_key(facade, ProvenanceRole::ConstructorFieldDeclaration, ordinal);
+            let key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
             let sort_key =
                 format_ident!("__krs_enum_field_{nonce:016x}_{variant_index}_{field_index}");
-            let sort = host_sort_reference(
-                facade,
-                ProvenanceRole::ConstructorFieldSort,
-                ordinal,
-                &sort_key,
-                &field.term_sort().sort_spelling(),
-            );
-            let name = field.name().to_string();
-            items.push(quote! {
-                #facade::HostProductionItem::NonTerminal {
-                    key: #field_key,
-                    field_key: #facade::ProvenanceKey::new(
-                        #constructor_field_declaration_role, #ordinal,
-                    ).expect("KRS parser roles are nonempty"),
-                    declaration_key: ::core::option::Option::Some(
-                        #facade::ProvenanceKey::new(#constructor_field_declaration_role, #ordinal)
-                            .expect("KRS parser roles are nonempty"),
-                    ),
-                    field: #facade::ProductionFieldId::new(#name)
-                        .expect("Rust fields are valid production fields"),
-                    sort: ::std::boxed::Box::new(#sort),
-                }
+            items.push(Item::NonTerminal {
+                key: key.clone(),
+                field_key: key.clone(),
+                declaration_key: Some(key),
+                field: krs_ir::ProductionFieldId::new(field.name().to_string())
+                    .expect("Rust fields are valid production fields"),
+                sort: Box::new(wire_sort_reference(
+                    slots,
+                    facade,
+                    ProvenanceRole::ConstructorFieldSort,
+                    ordinal,
+                    &sort_key,
+                    &field.term_sort().sort_spelling(),
+                )),
             });
         }
     }
