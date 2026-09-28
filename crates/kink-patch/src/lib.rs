@@ -391,6 +391,28 @@ impl Patch {
     pub fn edits(&self) -> &[Edit] {
         &self.edits
     }
+
+    /// Distinct existing baseline sentences written by this patch, in sentence order.
+    /// Insertions are not listed.
+    #[must_use]
+    pub fn written_sentences(&self) -> Vec<SentenceRef> {
+        let mut sentences = self
+            .edits
+            .iter()
+            .filter_map(|edit| match edit {
+                Edit::ReplaceTerm { at, .. } => Some(at.sentence.clone()),
+                Edit::ReplaceSentence { at, .. }
+                | Edit::DeleteSentence { at }
+                | Edit::AddAttribute { at, .. }
+                | Edit::RemoveAttribute { at, .. }
+                | Edit::ReplaceAttribute { at, .. } => Some(at.clone()),
+                Edit::InsertSentence { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        sentences.sort();
+        sentences.dedup();
+        sentences
+    }
 }
 
 /// A patch that cannot be constructed.

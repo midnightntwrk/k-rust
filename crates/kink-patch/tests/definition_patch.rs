@@ -575,6 +575,40 @@ fn patch_rows_apply_or_fail_atomically() {
 }
 
 #[test]
+fn written_sentences_are_the_distinct_existing_targets() {
+    let memory = support::load("memory.k");
+    let f = Fixture {
+        baseline: &memory,
+        expected: None,
+    };
+    let write = f.rule("MEMORY.write");
+    let load = f.rule("MEMORY.load");
+    let edits = vec![
+        f.replace("MEMORY.write", &[0, 1, 0], addr(z())),
+        f.replace("MEMORY.write", &[0, 1, 1], z()),
+        Edit::AddAttribute {
+            at: write.clone(),
+            key: "probe".to_owned(),
+            value: Value::Bool(true),
+        },
+        f.replace("MEMORY.load", &[0, 1, 1], z()),
+    ];
+    let patch = Patch::new(edits.clone()).expect("patch");
+    let permuted = Patch::new(edits.into_iter().rev().collect()).expect("patch");
+    assert!(write < load);
+    assert_eq!(patch.written_sentences(), vec![write, load.clone()]);
+    assert_eq!(permuted.written_sentences(), patch.written_sentences());
+
+    let insertion = Patch::new(vec![f.insert(
+        InsertPosition::After(load),
+        0,
+        "MEMORY.write",
+    )])
+    .expect("patch");
+    assert!(insertion.written_sentences().is_empty());
+}
+
+#[test]
 fn permuted_edits_build_equal_patches_and_equal_mutants() {
     assert_eq!(Patch::new(Vec::new()), Err(PatchModelError::Empty));
     let memory = support::load("memory.k");

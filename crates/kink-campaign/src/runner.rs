@@ -192,11 +192,14 @@ pub struct TestEvidence {
     pub run: SideRun,
 }
 
-/// One mutant's plan, its report under the campaign's schedule, and its runs: one per
-/// executed test in manifest order, so none for a test planned as `SkippedAfterKill` and
-/// none at all when a mutant-scope failure stopped it before execution.
+/// One mutant's operator, written baseline sentences, plan, report and runs. A coupled
+/// mutant is one `MutantRun` regardless of its edit count. Runs are in manifest order:
+/// none for a test planned as `SkippedAfterKill`, and none at all when a mutant-scope
+/// failure stopped it before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MutantRun {
+    pub operator: String,
+    pub written_sentences: Vec<SentenceRef>,
     pub plan: MutantPlan,
     pub report: MutantReport,
     pub evidence: Vec<TestEvidence>,
@@ -357,6 +360,8 @@ pub fn run_campaign(
         };
         let report = derive_mutant_report(&plan, &manifest, schedule)?;
         runs.push(MutantRun {
+            operator: candidate.operator.clone(),
+            written_sentences: candidate.patch.written_sentences(),
             plan,
             report,
             evidence,
