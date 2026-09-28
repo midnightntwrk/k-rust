@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
 
+mod compile_fixtures;
+pub use compile_fixtures::{Expectation, check_compile_fixtures};
+
 /// A temporary directory removed when its guard is dropped.
 pub use tempfile::TempDir;
 
