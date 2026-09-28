@@ -1,5 +1,7 @@
 //! Pin the serde-reflection registry for the supported KRS IR shapes.
 //! The registry, unsupported samples, and collector encoding are pinned in `tests/schema`.
+//! The samples file also lists every `ProvenanceRole` spelling, a closed catalog the registry
+//! sees only as a string.
 //! A change to a pinned schema file must advance `SchemaVersion::CURRENT` and `Krs.lock`
 //! `[schemas] krs_ir`; a collector file change must advance `collector::VERSION` and its
 //! `Krs.lock` entry. A released version's file must never be overwritten.
@@ -741,12 +743,20 @@ fn krs_ir_schema_shape_is_pinned() {
 
 #[test]
 fn unsupported_samples_are_pinned() {
-    let corpus = schema_samples::corpus();
+    let mut corpus = schema_samples::corpus();
     let listed: BTreeSet<_> = UNTRACEABLE
         .iter()
         .flat_map(|group| group.iter().copied())
         .collect();
     assert_eq!(corpus.keys().copied().collect::<BTreeSet<_>>(), listed);
+    // The registry sees `ProvenanceRole` only as a string, so its closed catalog is pinned here.
+    corpus.insert(
+        "ProvenanceRole",
+        ProvenanceRole::ALL
+            .iter()
+            .map(|role| serde_json::to_value(role).unwrap())
+            .collect(),
+    );
     let actual = format!("{}\n", serde_json::to_string_pretty(&corpus).unwrap());
     assert_versioned_pin(
         &format!("schema/krs_ir-{}.samples.json", SchemaVersion::CURRENT.0),

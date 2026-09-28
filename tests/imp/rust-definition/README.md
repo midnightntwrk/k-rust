@@ -20,7 +20,7 @@ surface an alternate authored semantics route.
 
 ## Readable-surface method gates
 
-The final readable design's four F3 gates are fail-closed production evidence:
+The final readable design's four readable-surface gates are fail-closed production evidence:
 
 - `tools/lsp_probe.py` opens this exact `imp.rs` in rust-analyzer and checks
   zero diagnostics, 24 definition/hover classes, completion, and five authored
@@ -29,13 +29,13 @@ The final readable design's four F3 gates are fail-closed production evidence:
   splice/erase forms, and `map::update`. Checked string contents, helper tokens
   owned by the outer macro, and anonymous machine-rule cell records are listed
   explicitly instead of being mistaken for ordinary Rust name-resolution
-  positions; the latter remain the accepted E7 LSP limitation.
+  positions; the latter remain an accepted rust-analyzer limitation.
 - `parity::readable_imp_has_exact_reparsed_provenance_and_frozen_identities`
   checks every materialized IMP parser node against the exact content-addressed
   bytes of `src/imp.rs`, and freezes all 81 stable IMP descriptor identities in
   `../goldens/imp.identities.txt`.
-- `krs-syntax`'s `provenance_roles` integration test freezes all 151 parser role
-  spellings in one reviewed protocol snapshot.
+- `krs-ir`'s `provenance_roles` integration test freezes all 156 provenance role
+  spellings and their variant identifiers in one reviewed protocol snapshot.
 - `identity_adversary` compiles equivalent readable specimens with different
   layout and declaration order, freezes their complete 19-ID catalog, and
   checks exact old/new identities for semantic renames. The IMP stable-name move
