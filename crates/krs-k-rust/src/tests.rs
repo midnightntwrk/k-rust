@@ -25,12 +25,11 @@ use krs_ir::{
     FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, HookOperation, ItemKind, LabelId, LabelIdentity, ListOperation,
-    MapOperation, ModuleId, NodeOrigin, OriginStack, PackageId, PrecedenceRelation,
-    ProductionFieldId, ProductionFieldReference, ProductionGroupId,
-    ProductionItem as IrProductionItem, ProductionResultSort, ProductionSentence, RuleSentence,
-    SemanticId, SentenceKind, SetOperation, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
-    StableItemId, StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity, SymbolKind,
-    SyntaxSortSentence,
+    MapOperation, ModuleId, NodeOrigin, PrecedenceRelation, ProductionFieldId,
+    ProductionFieldReference, ProductionGroupId, ProductionItem as IrProductionItem,
+    ProductionResultSort, ProductionSentence, RuleSentence, SemanticId, SentenceKind, SetOperation,
+    SourceMapKey, StableItemId, StrictnessKind, SubsortSentence, SymbolId, SymbolIdentity,
+    SymbolKind, SyntaxSortSentence,
 };
 
 use super::{
@@ -586,21 +585,7 @@ fn native_claim_counter_is_a_fresh_rhs_internal() {
 }
 
 fn node(key: &str) -> NodeOrigin {
-    let package = test_package();
-    let file = SourceFileId::new(
-        package,
-        "src/lib.rs",
-        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 3).unwrap()),
-    )
-}
-
-fn test_package() -> PackageId {
-    PackageId::new("ORG-EXAMPLE-SMOKE", "smoke-semantics", "0.1.0", "workspace").unwrap()
+    krs_ir::testing::origin(key)
 }
 
 fn semantic_id(value: &str) -> SemanticId {
@@ -608,14 +593,7 @@ fn semantic_id(value: &str) -> SemanticId {
 }
 
 fn context_alias_id() -> StableItemId {
-    StableItemId::new(
-        test_package(),
-        ["contexts"],
-        "eval",
-        ItemKind::ContextAlias,
-        "",
-    )
-    .unwrap()
+    krs_ir::testing::item("contexts", "eval", ItemKind::ContextAlias)
 }
 
 fn truth() -> Term {

@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
+use krs_ir::testing;
 use krs_ir::{
     BuiltinSort, CellWrapper, Descriptor, DescriptorBundle, DescriptorCellField,
     DescriptorCellIdentity, DescriptorCellReference, DescriptorConfigurationDeclaration,
@@ -10,32 +11,30 @@ use krs_ir::{
     DescriptorConfigurationRoot, DescriptorConfigurationRule, DescriptorConfigurationVariable,
     DescriptorFixedConfiguration, DescriptorInitializerCell, DescriptorNodeOrigin,
     DescriptorPayload, DescriptorProvenance, DescriptorRuleBinding, DescriptorRuleCells,
-    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, ItemKind, OriginStack, PackageId,
+    DescriptorSortRef, DescriptorSortReference, DescriptorTerm, ItemKind, PackageId,
     ProtocolCellContent, ProtocolConfigurationVariable, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
     ProtocolKSequenceItem, ProtocolRuleBinding, ProtocolRuleBindingKind, ProtocolRuleCell,
     ProtocolRuleFrame, ProtocolRuleKSequence, ProtocolRuleKSequenceItem, ProtocolRuleMap,
     ProtocolRuleMapBody, ProtocolRuleMapItem, ProtocolRuleStateTerm, ProvenanceKey, SentenceKind,
-    Sha256Digest, SortDescriptor, SourceFileId, SourceRange, StableItemId,
+    SortDescriptor, StableItemId,
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-STATE", "state", "0.1.0", "workspace").unwrap()
+    testing::package("KRS-STATE", "state")
 }
 
 fn id(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["calc"], name, kind, "").unwrap()
+    testing::item_in(package(), "calc", name, kind)
 }
 
 fn framework_kitem() -> StableItemId {
-    StableItemId::new(
-        PackageId::new("KRS-FRAMEWORK", "krs", "0.1.0", "framework").unwrap(),
-        ["framework"],
+    testing::item_in(
+        testing::package_with("KRS-FRAMEWORK", "krs", "0.1.0", "framework"),
+        "framework",
         "KItem",
         ItemKind::Sort,
-        "",
     )
-    .unwrap()
 }
 
 fn key(role: &str, ordinal: u32) -> ProvenanceKey {
@@ -46,12 +45,6 @@ fn provenance(
     primary: ProvenanceKey,
     keys: impl IntoIterator<Item = ProvenanceKey>,
 ) -> DescriptorProvenance {
-    let file = SourceFileId::new(
-        package(),
-        "src/calc.rs",
-        Sha256Digest::new("7".repeat(64)).unwrap(),
-    )
-    .unwrap();
     let mut keys = std::iter::once(primary.clone())
         .chain(keys)
         .collect::<Vec<_>>();
@@ -65,8 +58,12 @@ fn provenance(
                 let start = u32::try_from(index).unwrap();
                 DescriptorNodeOrigin::new(
                     key,
-                    OriginStack::authored(
-                        SourceRange::new(file.clone(), start, start + 1).unwrap(),
+                    testing::authored_in(
+                        package(),
+                        "src/calc.rs",
+                        testing::digest_with("7".repeat(64)),
+                        start,
+                        start + 1,
                     ),
                 )
             })

@@ -6,12 +6,16 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
 expect-test = "1.5.1"
+krs-ir = { path = ".", features = ["test-support"] }
 static_assertions = "1.1.0"
 toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
 

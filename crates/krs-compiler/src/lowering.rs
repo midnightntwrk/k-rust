@@ -1519,19 +1519,17 @@ fn _term_kind_is_exhaustive(kind: &DefinitionTermKind) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use krs_ir::{ExplicitSymbol, ItemKind, PackageId, StableItemId};
+    use krs_ir::{ExplicitSymbol, ItemKind, StableItemId};
 
     use super::stable_symbol_text;
 
     fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
-        StableItemId::new(
-            PackageId::new("KRS-STABLE-NAMES", "fixture", "0.1.0", "workspace").unwrap(),
-            [module],
+        krs_ir::testing::item_in(
+            krs_ir::testing::package("KRS-STABLE-NAMES", "fixture"),
+            module,
             name,
             kind,
-            "",
         )
-        .unwrap()
     }
 
     #[test]

@@ -3,6 +3,7 @@
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
+use krs_ir::testing;
 use krs_ir::{
     BuiltinOperation, BuiltinSort, CellWrapper, Descriptor, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle,
@@ -23,16 +24,16 @@ use krs_ir::{
     ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolRuleBinding,
     ProtocolRuleBindingKind, ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleKSequence,
     ProtocolRuleKSequenceItem, ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleMapItem,
-    ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation, Sha256Digest, SourceFileId,
-    SourceRange, StableItemId, StateTransportError,
+    ProtocolRuleStateTerm, ProvenanceKey, SentenceKind, SetOperation, StableItemId,
+    StateTransportError,
 };
 
 fn package() -> PackageId {
-    PackageId::new("IMP", "imp-semantics", "0.1.0", "workspace").unwrap()
+    testing::package("IMP", "imp-semantics")
 }
 
 fn item(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["calc"], name, kind, "").unwrap()
+    testing::item_in(package(), "calc", name, kind)
 }
 
 fn key(role: &str, ordinal: u32) -> ProvenanceKey {
@@ -656,14 +657,14 @@ fn var_configuration_rule() -> (StableItemId, DescriptorConfigurationRule) {
 }
 
 fn rule_origin(index: usize) -> OriginStack {
-    let file = SourceFileId::new(
+    let start = u32::try_from(index).unwrap();
+    testing::authored_in(
         package(),
         "src/calc.rs",
-        Sha256Digest::new("1234567890abcdef".repeat(4)).unwrap(),
+        testing::digest_with("1234567890abcdef".repeat(4)),
+        start,
+        start + 1,
     )
-    .unwrap();
-    let start = u32::try_from(index).unwrap();
-    OriginStack::authored(SourceRange::new(file, start, start + 1).unwrap())
 }
 
 #[test]

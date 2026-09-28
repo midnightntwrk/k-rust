@@ -1,36 +1,15 @@
 //! Target-neutral semantic and Definition IR contracts over the foo-bar theory.
 
+use krs_ir::testing::{item, origin as node};
 use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence,
     DefinitionSortRef, DefinitionTerm, FixedCell, FixedConfiguration, FixedInitializerCell,
-    ItemKind, LabelId, LabelIdentity, ModuleId, NodeOrigin, OriginStack, PackageId, ProductionItem,
-    ProductionSentence, RuleSentence, SchemaVersion, SemanticId, SemanticModule,
-    SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, Sha256Digest, SourceFileId,
-    SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
+    ItemKind, LabelId, LabelIdentity, ModuleId, ProductionItem, ProductionSentence, RuleSentence,
+    SchemaVersion, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
+    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
+    SentenceKind, SourceMapKey, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
     SyntaxSortSentence,
 };
-
-fn package() -> PackageId {
-    PackageId::new("ORG-EXAMPLE-SMOKE", "smoke-semantics", "0.1.0", "workspace").unwrap()
-}
-
-fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), [module], name, kind, "").unwrap()
-}
-
-fn node(key: &str) -> NodeOrigin {
-    let file = SourceFileId::new(
-        package(),
-        "src/lib.rs",
-        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 3).unwrap()),
-    )
-}
 
 #[allow(clippy::too_many_lines, clippy::disallowed_names)] // Stable golden fixture vocabulary.
 fn semantic_theory(reverse_sets: bool, bar_reference: Option<StableItemId>) -> SemanticTheory {

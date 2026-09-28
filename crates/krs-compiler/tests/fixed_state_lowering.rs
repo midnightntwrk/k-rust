@@ -5,37 +5,35 @@ use std::collections::BTreeMap;
 use krs_compiler::{
     EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k, lower_semantic_theory,
 };
+use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ConfigurationRoot,
     DefinitionRuleBody, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
-    OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
     SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
     SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable,
-    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
-    StrictnessKind, TransformationOriginKind,
+    SentenceKind, StableItemId, StrictnessKind, TransformationOriginKind,
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-CALC", "calc", "0.1.0", "workspace").unwrap()
+    testing::package("KRS-CALC", "calc")
 }
 
 fn item(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["calc"], name, kind, "").unwrap()
+    testing::item_in(package(), "calc", name, kind)
 }
 
 fn origin(key: &str) -> NodeOrigin {
-    let file = SourceFileId::new(
+    testing::origin_in(
+        key,
         package(),
         "src/calc.rs",
-        Sha256Digest::new("abcdef0123456789".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 1).unwrap()),
+        testing::digest_with("abcdef0123456789".repeat(4)),
+        0,
+        1,
     )
 }
 

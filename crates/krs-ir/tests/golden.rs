@@ -2,32 +2,19 @@
 
 use std::collections::BTreeMap;
 
+use krs_ir::testing::{authored, item};
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorSortRef, ExplicitSymbol, ItemKind, OriginFrame, OriginStack,
-    PackageId, ProvenanceKey, RangedOriginKind, RustVisibility, Sha256Digest, SortDescriptor,
-    SourceFileId, SourceRange, StableItemId, TransformationOriginKind,
+    ProvenanceKey, RangedOriginKind, RustVisibility, SortDescriptor, StableItemId,
+    TransformationOriginKind,
 };
 use serde::Serialize;
 use static_assertions::assert_not_impl_any;
 
-fn package() -> PackageId {
-    PackageId::new("ORG-EXAMPLE-SMOKE", "smoke-semantics", "0.1.0", "workspace").unwrap()
-}
-
-fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), [module], name, kind, "").unwrap()
-}
-
 fn origin() -> OriginStack {
-    let file = SourceFileId::new(
-        package(),
-        "src/lib.rs",
-        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    OriginStack::authored(SourceRange::new(file, 0, 3).unwrap())
+    authored(0, 3)
 }
 
 fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {

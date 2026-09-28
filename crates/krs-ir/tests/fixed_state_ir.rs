@@ -1,27 +1,23 @@
 //! Hand-built fixed-state Definition IR contract.
 
+use krs_ir::testing;
 use krs_ir::{
     CellAttribute, CellContentFrame, CellPost, ConfigurationRoot, DefinitionIr, DefinitionModule,
     DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
     DefinitionVariable, FixedCell, FixedCellClause, FixedConfiguration, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, LabelId, LabelIdentity, MapOperation,
-    ModuleId, NodeOrigin, OriginStack, RuleSentence, SemanticId, SentenceKind, Sha256Digest,
-    SourceFileId, SourceMapKey, SourceRange, StateShapeError, SubsortSentence, SymbolId,
-    SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ModuleId, NodeOrigin, RuleSentence, SemanticId, SentenceKind, StateShapeError, SubsortSentence,
+    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
-    let package =
-        krs_ir::PackageId::new("ORG-EXAMPLE-CALC", "calc-semantics", "0.1.0", "workspace").unwrap();
-    let file = SourceFileId::new(
-        package,
+    testing::origin_in(
+        key,
+        testing::package("ORG-EXAMPLE-CALC", "calc-semantics"),
         "src/calc.rs",
-        Sha256Digest::new("abcdef0123456789".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 7).unwrap()),
+        testing::digest_with("abcdef0123456789".repeat(4)),
+        0,
+        7,
     )
 }
 

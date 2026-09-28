@@ -1,21 +1,21 @@
 //! One-cell fixed configuration lowering on the current classified IR.
 
 use krs_compiler::{LoweringError, emit_k, lower_semantic_theory};
+use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, ConfigurationRoot, DefinitionSentence, FixedCell, FixedConfiguration,
-    FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, OriginStack, PackageId,
-    RangedOriginKind, SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem,
-    SemanticRule, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory,
-    SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange, StableItemId,
-    TransformationOriginKind,
+    FixedInitializerCell, ItemKind, ModuleId, NodeOrigin, OriginFrame, PackageId, RangedOriginKind,
+    SemanticId, SemanticModule, SemanticProduction, SemanticProductionItem, SemanticRule,
+    SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind,
+    StableItemId, TransformationOriginKind,
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-FOO-BAR", "foo-bar-semantics", "0.1.0", "workspace").unwrap()
+    testing::package("KRS-FOO-BAR", "foo-bar-semantics")
 }
 
 fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), [module], name, kind, "").unwrap()
+    testing::item_in(package(), module, name, kind)
 }
 
 fn origin(key: &str) -> NodeOrigin {
@@ -23,19 +23,13 @@ fn origin(key: &str) -> NodeOrigin {
 }
 
 fn origin_with_label(key: &str, label: Option<&str>) -> NodeOrigin {
-    let file = SourceFileId::new(
-        package(),
-        "src/lib.rs",
-        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    let mut stack = OriginStack::authored(SourceRange::new(file, 0, 3).unwrap());
+    let mut stack = testing::authored_in(package(), "src/lib.rs", testing::digest(), 0, 3);
     stack.push(OriginFrame::Transformation {
         kind: TransformationOriginKind::SemanticIr,
         item: None,
         label: label.map(str::to_owned).or_else(|| Some(key.to_owned())),
     });
-    NodeOrigin::new(SourceMapKey::new(key).unwrap(), stack)
+    NodeOrigin::new(krs_ir::SourceMapKey::new(key).unwrap(), stack)
 }
 
 #[allow(clippy::too_many_lines)]

@@ -564,6 +564,7 @@ name = "krs-ir"
 version = "0.1.0"
 dependencies = [
  "expect-test",
+ "krs-ir",
  "serde",
  "serde_json",
  "static_assertions",

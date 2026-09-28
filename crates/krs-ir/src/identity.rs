@@ -570,7 +570,7 @@ mod tests {
     use super::*;
 
     fn package(namespace: &str, name: &str) -> PackageId {
-        PackageId::new(namespace, name, "1.0.0", "workspace").unwrap()
+        crate::testing::package_with(namespace, name, "1.0.0", "workspace")
     }
 
     #[test]
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn source_paths_are_normalized_and_cannot_escape_package() {
-        let digest = Sha256Digest::new("a".repeat(64)).unwrap();
+        let digest = crate::testing::digest_with("a".repeat(64));
         let source =
             SourceFileId::new(package("ORG-A", "a"), "src\\nested\\mod.rs", digest.clone())
                 .unwrap();

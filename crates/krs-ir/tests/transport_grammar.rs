@@ -3,6 +3,7 @@
 use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
+use krs_ir::testing;
 use krs_ir::{
     BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
@@ -18,9 +19,8 @@ use krs_ir::{
     HostEnumVariantReference, HostEnumVariantReferenceError, HostListOperationRegistration,
     HostMapOperationRegistration, HostSetOperationRegistration, HostTypeKey, HostTypeReference,
     ItemKind, ListOperation, MapOperation, OriginStack, PackageId, ProductionFieldId,
-    ProductionGroupId, ProvenanceKey, SentenceKind, SetOperation, Sha256Digest, SourceFileId,
-    SourceRange, StableItemId, StrictnessKind, StructuredRuleDescriptor,
-    enum_variant_disambiguator,
+    ProductionGroupId, ProvenanceKey, SentenceKind, SetOperation, StableItemId, StrictnessKind,
+    StructuredRuleDescriptor, enum_variant_disambiguator,
 };
 
 type IntAlias = u16;
@@ -77,11 +77,11 @@ impl OtherBoolean {
 }
 
 fn package() -> PackageId {
-    PackageId::new("IMP", "imp-semantics", "0.1.0", "workspace").unwrap()
+    testing::package("IMP", "imp-semantics")
 }
 
 fn item(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["expr"], name, kind, "").unwrap()
+    testing::item_in(package(), "expr", name, kind)
 }
 
 fn key(role: &str, ordinal: u32) -> ProvenanceKey {
@@ -89,13 +89,13 @@ fn key(role: &str, ordinal: u32) -> ProvenanceKey {
 }
 
 fn origin(start: u32) -> OriginStack {
-    let file = SourceFileId::new(
+    testing::authored_in(
         package(),
         "src/expr.rs",
-        Sha256Digest::new("1234567890abcdef".repeat(4)).unwrap(),
+        testing::digest_with("1234567890abcdef".repeat(4)),
+        start,
+        start + 1,
     )
-    .unwrap();
-    OriginStack::authored(SourceRange::new(file, start, start + 1).unwrap())
 }
 
 fn provenance(primary: ProvenanceKey, keys: &[ProvenanceKey]) -> DescriptorProvenance {

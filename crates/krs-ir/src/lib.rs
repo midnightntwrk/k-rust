@@ -23,6 +23,8 @@ pub mod measure;
 pub mod provenance;
 pub mod semantic;
 pub mod state;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 pub mod transport;
 #[doc(hidden)]
 pub mod wire;

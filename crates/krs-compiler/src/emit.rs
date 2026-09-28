@@ -2306,23 +2306,19 @@ mod tests {
 
     use krs_ir::{
         BuiltinOperation, DefinitionApplicationRef, DefinitionSortRef, DefinitionTerm,
-        ListOperation, MapOperation, NodeOrigin, OriginStack, PackageId, SetOperation,
-        Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
+        ListOperation, MapOperation, NodeOrigin, SetOperation,
     };
 
     use super::{EmitContext, render_term};
 
     fn node(key: &str) -> NodeOrigin {
-        let package = PackageId::new("KRS-EMIT-TEST", "emit-test", "0.1.0", "workspace").unwrap();
-        let file = SourceFileId::new(
-            package,
+        krs_ir::testing::origin_in(
+            key,
+            krs_ir::testing::package("KRS-EMIT-TEST", "emit-test"),
             "src/lib.rs",
-            Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-        )
-        .unwrap();
-        NodeOrigin::new(
-            SourceMapKey::new(key).unwrap(),
-            OriginStack::authored(SourceRange::new(file, 0, 1).unwrap()),
+            krs_ir::testing::digest(),
+            0,
+            1,
         )
     }
 

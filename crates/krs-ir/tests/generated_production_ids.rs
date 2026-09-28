@@ -2,13 +2,14 @@
 
 use std::collections::BTreeSet;
 
+use krs_ir::testing;
 use krs_ir::{
     GeneratedProductionIdError, GeneratedProductionKind, ItemKind, PackageId, StableItemId,
     generated_production_id,
 };
 
 fn package(namespace: &str, name: &str) -> PackageId {
-    PackageId::new(namespace, name, "1.2.3", "workspace").unwrap()
+    testing::package_with(namespace, name, "1.2.3", "workspace")
 }
 
 fn grammar(package: PackageId, modules: &[&str], name: &str, disambiguator: &str) -> StableItemId {

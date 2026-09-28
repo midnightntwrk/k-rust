@@ -1,35 +1,34 @@
 //! Structured grammar reaches Definition IR and canonical K source.
 
 use krs_compiler::{emit_k, lower_semantic_theory};
+use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, ConfigurationRoot, FixedCell,
     FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell, FormatFragment,
     GroupAssociativity, GroupAssociativitySentence, HookOperation, ItemKind, ModuleId, NodeOrigin,
-    OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProductionFieldReference, ProductionGroupId, ProductionResultSort, SemanticId, SemanticModule,
     SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, Sha256Digest,
-    SourceFileId, SourceMapKey, SourceRange, StableItemId, StrictnessKind,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SemanticVariable, SentenceKind, StableItemId,
+    StrictnessKind,
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-GRAMMAR", "grammar", "0.1.0", "workspace").unwrap()
+    testing::package("KRS-GRAMMAR", "grammar")
 }
 
 fn item(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["expr"], name, kind, "").unwrap()
+    testing::item_in(package(), "expr", name, kind)
 }
 
 fn origin(key: &str) -> NodeOrigin {
-    let file = SourceFileId::new(
+    testing::origin_in(
+        key,
         package(),
         "src/expr.rs",
-        Sha256Digest::new("1".repeat(64)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 1).unwrap()),
+        testing::digest_with("1".repeat(64)),
+        0,
+        1,
     )
 }
 

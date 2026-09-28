@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 
 use krs_compiler::{AnalysisErrorKind, analyze_open_sorts};
+use krs_ir::testing;
 use krs_ir::{
     ConstructorDescriptor, Descriptor, DescriptorBundle, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, ItemKind, OriginStack, PackageId, ProvenanceKey, Sha256Digest,
-    SortDescriptor, SourceFileId, SourceRange, StableItemId,
+    DescriptorProvenance, ItemKind, OriginStack, PackageId, ProvenanceKey, SortDescriptor,
+    StableItemId,
 };
 
 #[test]
@@ -102,21 +103,21 @@ fn duplicate_serialized_ids_are_rejected_before_analysis() {
 }
 
 fn package() -> PackageId {
-    PackageId::new("ORG-SEMANTIC", "semantic", "0.1.0", "workspace").unwrap()
+    testing::package("ORG-SEMANTIC", "semantic")
 }
 
 fn id(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["model"], name, kind, "").unwrap()
+    testing::item_in(package(), "model", name, kind)
 }
 
 fn origin() -> OriginStack {
-    let file = SourceFileId::new(
+    testing::authored_in(
         package(),
         "src/lib.rs",
-        Sha256Digest::new("a".repeat(64)).unwrap(),
+        testing::digest_with("a".repeat(64)),
+        0,
+        1,
     )
-    .unwrap();
-    OriginStack::authored(SourceRange::new(file, 0, 1).unwrap())
 }
 
 fn sort(id: StableItemId, parents: Vec<StableItemId>) -> Descriptor {

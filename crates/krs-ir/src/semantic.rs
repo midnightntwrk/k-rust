@@ -3116,20 +3116,16 @@ fn validate_precedence_order(modules: &[SemanticModule]) -> Result<(), SemanticV
 #[allow(clippy::items_after_test_module)] // Subsort helpers remain adjacent to their validation pass.
 mod tests {
     use super::*;
-    use crate::{ClaimModality, OriginStack, PackageId, Sha256Digest, SourceFileId, SourceRange};
+    use crate::ClaimModality;
 
     fn node(key: &str) -> NodeOrigin {
-        let package = PackageId::new("ORG-EXAMPLE-CLAIM", "claim", "0.1.0", "workspace")
-            .expect("valid package");
-        let file = SourceFileId::new(
-            package,
+        crate::testing::origin_in(
+            key,
+            crate::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
             "src/lib.rs",
-            Sha256Digest::new("a".repeat(64)).expect("valid digest"),
-        )
-        .expect("valid source file");
-        NodeOrigin::new(
-            SourceMapKey::new(key).expect("valid source key"),
-            OriginStack::authored(SourceRange::new(file, 0, 1).expect("valid range")),
+            crate::testing::digest_with("a".repeat(64)),
+            0,
+            1,
         )
     }
 
@@ -3139,8 +3135,7 @@ mod tests {
 
     fn claim_id() -> StableItemId {
         StableItemId::new(
-            PackageId::new("ORG-EXAMPLE-CLAIM", "claim", "0.1.0", "workspace")
-                .expect("valid package"),
+            crate::testing::package("ORG-EXAMPLE-CLAIM", "claim"),
             ["claim"],
             "reachability",
             ItemKind::Claim,

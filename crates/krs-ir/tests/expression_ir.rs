@@ -1,31 +1,27 @@
 //! Hand-built expression-grammar Definition IR contract.
 
+use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, BuiltinOperation, ConfigurationRoot, DefinitionIr, DefinitionModule,
     DefinitionSentence, DefinitionSortRef, DefinitionTerm, DefinitionValidationError,
     DefinitionVariable, FixedCell, FixedConfiguration, FixedConfigurationVariable,
     FixedInitializerCell, FormatFragment, GroupAssociativity, GroupAssociativitySentence, LabelId,
-    LabelIdentity, ModuleId, NodeOrigin, OriginStack, PrecedenceRelation, ProductionAttribute,
+    LabelIdentity, ModuleId, NodeOrigin, PrecedenceRelation, ProductionAttribute,
     ProductionFieldId, ProductionFieldReference, ProductionGroupId, ProductionGroupIdentity,
     ProductionItem, ProductionResultSort, ProductionSentence, SemanticId, SemanticModule,
     SemanticProduction, SemanticProductionItem, SemanticRule, SemanticSort, SemanticSortRef,
-    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, Sha256Digest, SourceFileId,
-    SourceMapKey, SourceRange, StableItemId, StrictnessKind, SubsortSentence, SymbolId,
-    SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    SemanticSubsort, SemanticTerm, SemanticTheory, SentenceKind, StableItemId, StrictnessKind,
+    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 
 fn node(key: &str) -> NodeOrigin {
-    let package =
-        krs_ir::PackageId::new("ORG-EXAMPLE-EXPR", "expr-semantics", "0.1.0", "workspace").unwrap();
-    let file = SourceFileId::new(
-        package,
+    testing::origin_in(
+        key,
+        testing::package("ORG-EXAMPLE-EXPR", "expr-semantics"),
         "src/expr.rs",
-        Sha256Digest::new("abcdef0123456789".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 7).unwrap()),
+        testing::digest_with("abcdef0123456789".repeat(4)),
+        0,
+        7,
     )
 }
 
@@ -54,14 +50,12 @@ fn group(name: &str) -> ProductionGroupId {
 }
 
 fn stable_item(module: &str, name: &str, kind: krs_ir::ItemKind) -> StableItemId {
-    StableItemId::new(
-        krs_ir::PackageId::new("ORG-EXAMPLE-EXPR", "expr-semantics", "0.1.0", "workspace").unwrap(),
-        [module],
+    testing::item_in(
+        testing::package("ORG-EXAMPLE-EXPR", "expr-semantics"),
+        module,
         name,
         kind,
-        "",
     )
-    .unwrap()
 }
 
 fn terminal(key: &str, text: &str) -> ProductionItem {

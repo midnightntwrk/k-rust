@@ -6,6 +6,7 @@ use krs_compiler::{
     LoweringError, MappedIdentity, SourceMapNodeKind, emit_k, lower_descriptor_bundle,
     lower_semantic_theory,
 };
+use krs_ir::testing;
 use krs_ir::{
     BuiltinOperation, BuiltinSort, CellWrapper, ConstructorDescriptor, ConstructorFieldDescriptor,
     Descriptor, DescriptorApplicationHeadClass, DescriptorApplicationRef,
@@ -14,18 +15,17 @@ use krs_ir::{
     DescriptorProductionAttribute, DescriptorProductionItem, DescriptorProductionOwner,
     DescriptorProvenance, DescriptorRuleCondition, DescriptorRuleLabel, DescriptorSortRef,
     DescriptorSortReference, DescriptorTerm, DescriptorTermArgument, GeneratedProductionKind,
-    GrammarDescriptor, GroupAssociativity, ItemKind, MapOperation, OriginStack, PackageId,
-    ProductionFieldId, ProductionGroupId, ProvenanceKey, SemanticSortRef, SemanticTerm,
-    SemanticTermKind, SentenceKind, Sha256Digest, SortDescriptor, SourceFileId, SourceRange,
-    StableItemId, StructuredRuleDescriptor, generated_production_id,
+    GrammarDescriptor, GroupAssociativity, ItemKind, MapOperation, PackageId, ProductionFieldId,
+    ProductionGroupId, ProvenanceKey, SemanticSortRef, SemanticTerm, SemanticTermKind,
+    SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor, generated_production_id,
 };
 
 fn package() -> PackageId {
-    PackageId::new("KRS-GRAMMAR", "grammar", "0.1.0", "workspace").unwrap()
+    testing::package("KRS-GRAMMAR", "grammar")
 }
 
 fn id(name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), ["expr"], name, kind, "").unwrap()
+    testing::item_in(package(), "expr", name, kind)
 }
 
 fn key(role: &str, ordinal: u32) -> ProvenanceKey {
@@ -36,12 +36,6 @@ fn provenance(
     primary: ProvenanceKey,
     keys: impl IntoIterator<Item = ProvenanceKey>,
 ) -> DescriptorProvenance {
-    let file = SourceFileId::new(
-        package(),
-        "src/expr.rs",
-        Sha256Digest::new("2".repeat(64)).unwrap(),
-    )
-    .unwrap();
     let mut keys = std::iter::once(primary.clone())
         .chain(keys)
         .collect::<Vec<_>>();
@@ -55,8 +49,12 @@ fn provenance(
                 let index = u32::try_from(index).unwrap();
                 DescriptorNodeOrigin::new(
                     key,
-                    OriginStack::authored(
-                        SourceRange::new(file.clone(), index, index + 1).unwrap(),
+                    testing::authored_in(
+                        package(),
+                        "src/expr.rs",
+                        testing::digest_with("2".repeat(64)),
+                        index,
+                        index + 1,
                     ),
                 )
             })
@@ -685,16 +683,16 @@ fn add_bool_not_binding_condition(bundle: &mut DescriptorBundle) {
             .cloned()
             .enumerate()
             .map(|(index, key)| {
-                let file = SourceFileId::new(
-                    package(),
-                    "src/expr.rs",
-                    Sha256Digest::new("2".repeat(64)).unwrap(),
-                )
-                .unwrap();
                 let start = 200 + u32::try_from(index).unwrap();
                 DescriptorNodeOrigin::new(
                     key,
-                    OriginStack::authored(SourceRange::new(file, start, start + 1).unwrap()),
+                    testing::authored_in(
+                        package(),
+                        "src/expr.rs",
+                        testing::digest_with("2".repeat(64)),
+                        start,
+                        start + 1,
+                    ),
                 )
             }),
     );
@@ -1057,18 +1055,12 @@ fn explicit_rule_label_controls_emission_sidecars_provenance_and_collisions() {
         .find(|descriptor| matches!(descriptor.payload, DescriptorPayload::StructuredRule(_)))
         .unwrap();
     let label_key = key("rule_label", 0);
-    let label_origin = OriginStack::authored(
-        SourceRange::new(
-            SourceFileId::new(
-                package(),
-                "src/expr.rs",
-                Sha256Digest::new("2".repeat(64)).unwrap(),
-            )
-            .unwrap(),
-            77,
-            84,
-        )
-        .unwrap(),
+    let label_origin = testing::authored_in(
+        package(),
+        "src/expr.rs",
+        testing::digest_with("2".repeat(64)),
+        77,
+        84,
     );
     let primary = descriptor.provenance.primary_key().clone();
     let mut origins = descriptor.provenance.origins().to_vec();
@@ -1414,16 +1406,16 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
             .cloned()
             .enumerate()
             .map(|(index, key)| {
-                let file = SourceFileId::new(
-                    package(),
-                    "src/expr.rs",
-                    Sha256Digest::new("2".repeat(64)).unwrap(),
-                )
-                .unwrap();
                 let start = 100 + u32::try_from(index).unwrap();
                 DescriptorNodeOrigin::new(
                     key,
-                    OriginStack::authored(SourceRange::new(file, start, start + 1).unwrap()),
+                    testing::authored_in(
+                        package(),
+                        "src/expr.rs",
+                        testing::digest_with("2".repeat(64)),
+                        start,
+                        start + 1,
+                    ),
                 )
             }),
     );

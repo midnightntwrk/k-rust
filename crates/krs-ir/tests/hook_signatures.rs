@@ -1,35 +1,13 @@
 //! Typed hook signatures in semantic and Definition IR.
 
+use krs_ir::testing::{item, origin as node};
 use krs_ir::{
     ConfigurationRoot, DefinitionIr, DefinitionModule, DefinitionSentence, DefinitionSortRef,
     DefinitionTerm, DefinitionValidationError, FixedCell, FixedConfiguration, FixedInitializerCell,
-    HookOperation, ItemKind, ModuleId, NodeOrigin, OriginStack, PackageId, ProductionAttribute,
-    ProductionFieldId, ProductionItem, ProductionSentence, SemanticId, SemanticProduction,
-    SemanticProductionItem, SemanticSortRef, SemanticValidationError, Sha256Digest, SourceFileId,
-    SourceMapKey, SourceRange, StableItemId, SymbolId, SymbolIdentity, SymbolKind,
-    SyntaxSortSentence,
+    HookOperation, ItemKind, ModuleId, ProductionAttribute, ProductionFieldId, ProductionItem,
+    ProductionSentence, SemanticId, SemanticProduction, SemanticProductionItem, SemanticSortRef,
+    SemanticValidationError, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
-
-fn package() -> PackageId {
-    PackageId::new("ORG-EXAMPLE-SMOKE", "smoke-semantics", "0.1.0", "workspace").unwrap()
-}
-
-fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), [module], name, kind, "").unwrap()
-}
-
-fn node(key: &str) -> NodeOrigin {
-    let file = SourceFileId::new(
-        package(),
-        "src/lib.rs",
-        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 3).unwrap()),
-    )
-}
 
 fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {
     SymbolIdentity::new(SymbolId::new(id).unwrap(), name, kind).unwrap()

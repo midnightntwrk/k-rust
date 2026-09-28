@@ -5,20 +5,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use krs_compiler::{
     EmittedK, LoweredDefinition, LoweringError, SourceMapNodeKind, emit_k, lower_semantic_theory,
 };
+use krs_ir::testing;
 use krs_ir::{
     ApplicationRef, CellAttribute, CellContentFrame, CellPost, ClaimModality, ConfigurationRoot,
     DefinitionRuleBody, DefinitionSentence, DefinitionTermKind, FixedCell, FixedCellClause,
     FixedCellPattern, FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
     FixedConfigurationVariable, FixedInitializerCell, FormatFragment, GroupAssociativity,
     GroupAssociativitySentence, ItemKind, MapOperation, ModuleId, NodeOrigin, OriginFrame,
-    OriginStack, PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
+    PackageId, PrecedenceRelation, ProductionAttribute, ProductionFieldId,
     ProductionFieldReference, ProductionGroupId, ProductionResultSort, RangedOriginKind,
     SemanticClaim, SemanticClaimBinder, SemanticContextAlias, SemanticId, SemanticModule,
     SemanticProduction, SemanticProductionItem, SemanticRule, SemanticRuleCondition,
     SemanticRuleLabel, SemanticSimplification, SemanticSimplificationPriority, SemanticSort,
     SemanticSortRef, SemanticSubsort, SemanticTerm, SemanticTheory, SemanticValidationError,
-    SemanticVariable, SentenceKind, Sha256Digest, SourceFileId, SourceMapKey, SourceRange,
-    StableItemId, StrictnessKind, TransformationOriginKind,
+    SemanticVariable, SentenceKind, StableItemId, StrictnessKind, TransformationOriginKind,
 };
 
 const CALC_SYNTAX: &str = "KRS-CALC-SYNTAX";
@@ -27,24 +27,15 @@ const IMP_SYNTAX: &str = "KRS-IMP-SYNTAX";
 const IMP: &str = "KRS-IMP";
 
 fn package() -> PackageId {
-    PackageId::new("KRS-IMP", "imp", "0.1.0", "workspace").unwrap()
+    testing::package("KRS-IMP", "imp")
 }
 
 fn item(module: &str, name: &str, kind: ItemKind) -> StableItemId {
-    StableItemId::new(package(), [module], name, kind, "").unwrap()
+    testing::item_in(package(), module, name, kind)
 }
 
 fn origin(key: &str) -> NodeOrigin {
-    let file = SourceFileId::new(
-        package(),
-        "src/imp.rs",
-        Sha256Digest::new("0123456789abcdef".repeat(4)).unwrap(),
-    )
-    .unwrap();
-    NodeOrigin::new(
-        SourceMapKey::new(key).unwrap(),
-        OriginStack::authored(SourceRange::new(file, 0, 1).unwrap()),
-    )
+    testing::origin_in(key, package(), "src/imp.rs", testing::digest(), 0, 1)
 }
 
 fn sid(value: &str) -> SemanticId {
