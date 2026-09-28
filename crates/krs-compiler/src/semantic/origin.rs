@@ -1,6 +1,6 @@
 use krs_ir::{
     Descriptor, DescriptorCellIdentity, NodeOrigin, OriginFrame, ProvenanceKey, SemanticId,
-    SourceMapKey, StableItemId, TransformationOriginKind,
+    SourceMapKey, StableItemId, StableText, TransformationOriginKind,
 };
 use krs_syntax::ProvenanceRole;
 use sha2::{Digest, Sha256};
@@ -109,7 +109,7 @@ fn stable_item_text(id: &StableItemId) -> String {
         push_component(&mut text, component);
     }
     push_component(&mut text, id.item_name());
-    push_component(&mut text, &format!("{:?}", id.item_kind()));
+    push_component(&mut text, &id.item_kind().stable_text());
     push_component(&mut text, id.disambiguator());
     text
 }
