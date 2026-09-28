@@ -1576,3 +1576,801 @@ fn before_term_missing_on_the_baseline_is_refused() {
         assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
     });
 }
+
+// ---------------------------------------------------------------- KS-07 audit attacks
+//
+// Kill-soundness README section 12, attacks AS1-AS7, plus the constructions the KS-07 audit
+// added (section 15). Each test pins the measured status in both profiles. A test whose name
+// ends in `_until_ticket_ks_tNN` pins a kill of an execution-identical run that the ticket
+// tracks; no other test here asserts such a kill.
+
+fn int_token(value: i64) -> Term {
+    Term::Token {
+        token: value.to_string(),
+        sort: Sort::new("Int"),
+    }
+}
+
+/// The edit that replaces the term at `path` of `rule` by `replacement`.
+fn replaced(baseline: &Baseline, rule: &str, path: &[u32], replacement: Term) -> Edit {
+    let at = TermRef::new(support::rule(baseline, rule), path);
+    Edit::ReplaceTerm {
+        expected: baseline.term(&at).expect("term").clone(),
+        replacement,
+        at,
+    }
+}
+
+/// An insertable copy of the rule `label`: no label, identity or source-position attributes.
+fn unlabelled_copy(baseline: &Baseline, label: &str) -> k_rust::definition::Sentence {
+    let mut copy = baseline
+        .sentence(&support::rule(baseline, label))
+        .expect("rule")
+        .clone();
+    for key in [
+        AttributeKey::Label,
+        AttributeKey::UniqueId,
+        AttributeKey::Origin,
+        AttributeKey::Location,
+        AttributeKey::Source,
+        AttributeKey::SourceId,
+        AttributeKey::SentenceStartOffset,
+        AttributeKey::SentenceEndOffset,
+        AttributeKey::ContentStartLine,
+        AttributeKey::ContentStartColumn,
+        AttributeKey::ContentStartOffset,
+    ] {
+        copy.attributes_mut().remove(key.as_str());
+    }
+    copy
+}
+
+/// `write(addr(write_address), write_value); load(addr(load_address), load_value); halt`.
+fn int_program(
+    write_address: i64,
+    write_value: i64,
+    load_address: Pattern,
+    load_value: i64,
+) -> Pattern {
+    state(
+        addr(support::int(write_address)),
+        support::int(write_value),
+        addr(load_address),
+        support::int(load_value),
+    )
+}
+
+fn whole_term() -> OracleDeclaration {
+    OracleDeclaration::new(
+        CrashPolicy::CompareIdentity,
+        Projection::State(StateProjection::WholeTerm),
+    )
+    .expect("final")
+}
+
+fn case(id: &str, initial_state: Pattern, oracles: &[OracleDeclaration]) -> TestCase {
+    TestCase {
+        id: id.into(),
+        initial_state,
+        oracles: oracles.to_vec(),
+    }
+}
+
+/// `guardedeq.k` observed like guardedmem: `write` and `load` with address and value payloads.
+struct GuardedEq {
+    validator: NativeValidator,
+    vocabulary: EventVocabulary,
+    observed: Vec<ObservedRule>,
+}
+
+impl GuardedEq {
+    fn new() -> Self {
+        let validator =
+            NativeValidator::bind(support::load("guardedeq.k"), CompileOptions::default());
+        let baseline = validator.baseline();
+        let vocabulary = EventVocabulary::new(
+            ["memoryWrite", "memoryLoad"]
+                .map(|name| Constructor {
+                    name: name.into(),
+                    payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
+                })
+                .to_vec(),
+        )
+        .expect("vocabulary");
+        let observed = [
+            ("GUARDEDEQ.write", "memoryWrite"),
+            ("GUARDEDEQ.load", "memoryLoad"),
+        ]
+        .map(|(label, constructor)| {
+            observed(
+                baseline,
+                label,
+                constructor,
+                &[support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])],
+            )
+        })
+        .to_vec();
+        Self {
+            validator,
+            vocabulary,
+            observed,
+        }
+    }
+
+    fn campaign<'a>(&'a self, tests: &'a [TestCase]) -> Campaign<'a> {
+        Campaign {
+            validator: &self.validator,
+            module: "GUARDEDEQ",
+            observed_rules: &self.observed,
+            vocabulary: &self.vocabulary,
+            classify: &normal,
+            tests,
+            budget: BUDGET,
+        }
+    }
+
+    /// Final state, `GWL-after`, the write's value, the load's value (both `with_bindings`),
+    /// and whether a load was observed.
+    fn oracles(&self) -> Vec<OracleDeclaration> {
+        vec![
+            whole_term(),
+            pattern_with_sort(
+                &self.vocabulary,
+                "memoryWrite",
+                "memoryLoad",
+                Relation::EventuallyAfter,
+                "SortInt",
+            ),
+            binds(&self.vocabulary, "memoryWrite", 1, "V", "SortInt", true),
+            binds(&self.vocabulary, "memoryLoad", 1, "V", "SortInt", true),
+            binds(&self.vocabulary, "memoryLoad", 0, "A", "SortInt", false),
+        ]
+    }
+}
+
+fn assert_survived(run: &kink_campaign::CampaignRun, expected: &[Vec<OracleOutcome>]) {
+    assert_eq!(outcomes(run), expected);
+    assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+    assert!(run.mutants[0].report.killing_test_ids.is_empty());
+}
+
+/// AS1. Swapping the names `A` and `V` throughout `GUARDEDMEM.load` (body and `requires`) is
+/// an alpha-renaming: every pre-state is the baseline's, so no slot distinguishes. The ground
+/// row runs in both profiles; the symbolic guardedmem tests need Z3 to admit the baseline.
+#[test]
+fn audit_ks_as1_load_side_alpha_swap_is_not_killed() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let patch = Patch::new(vec![
+            renamed(baseline, "GUARDEDMEM.load", &[0], "A", "V"),
+            renamed(baseline, "GUARDEDMEM.load", &[1], "A", "V"),
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.load", &[0])],
+            "swap-load-names",
+            &patch,
+        );
+        let ground = [case(
+            "ground-distinct-values",
+            int_program(1, 5, support::int(1), 7),
+            &guarded.tests[1].oracles,
+        )];
+        let run = run_campaign(&guarded.campaign(&ground), &generation, ScheduleMode::Full)
+            .expect("ground campaign");
+        assert_survived(&run, &[vec![A, A]]);
+        let run = run_campaign(
+            &guarded.campaign(&guarded.tests),
+            &generation,
+            ScheduleMode::Full,
+        );
+        if cfg!(feature = "z3") {
+            assert_survived(
+                &run.expect("Z3 admits the symbolic baseline"),
+                &vec![vec![A, A]; 2],
+            );
+        } else {
+            assert_eq!(
+                run.expect_err("no-Z3 leaves the guarded baseline undecided")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+        }
+    });
+}
+
+/// AS2 (KS-R2, ticket KS-T08). `guardedeq.k` states `write`'s guard as the range
+/// `A >=Int 1 andBool A <=Int 1`; the mutant states it as `A ==Int 1`. On the symbolic test
+/// (Z3) every slot agrees, value bindings included: no syntactic difference of the pre-states
+/// reaches a payload. A `with_bindings` plan over the symbolic load address is refused on the
+/// baseline in both profiles. Without Z3 the symbolic baseline is undecided and only the
+/// ground test runs.
+#[test]
+fn audit_ks_as2_requires_rephrasing_is_not_killed() {
+    with_stack(|| {
+        let fixture = GuardedEq::new();
+        let baseline = fixture.validator.baseline();
+        let a = term(baseline, "GUARDEDEQ.write", &[0, 0, 0, 0, 0]);
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "GUARDEDEQ.write",
+            &[1],
+            Term::apply("_==Int_", vec![a, int_token(1)]),
+        )])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDEQ.write", &[1])],
+            "equality-guard",
+            &patch,
+        );
+        let x = || support::var("X", "SortInt");
+        let symbolic = state(addr(x()), support::int(5), addr(x()), support::int(7));
+        let oracles = fixture.oracles();
+        let tests = [
+            case("sym-eq", symbolic.clone(), &oracles),
+            case("ground-eq", int_program(1, 5, support::int(1), 7), &oracles),
+        ];
+        let run = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full);
+        if cfg!(feature = "z3") {
+            assert_survived(
+                &run.expect("Z3 admits the symbolic baseline"),
+                &[vec![A; 5], vec![A; 5]],
+            );
+        } else {
+            assert_eq!(
+                run.expect_err("no-Z3 leaves the symbolic guard undecided")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+            let run = run_campaign(
+                &fixture.campaign(&tests[1..]),
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect("ground campaign");
+            assert_survived(&run, &[vec![A; 5]]);
+        }
+        let bound = [case(
+            "sym-eq-address",
+            symbolic,
+            &[binds(
+                &fixture.vocabulary,
+                "memoryLoad",
+                0,
+                "A",
+                "SortInt",
+                true,
+            )],
+        )];
+        let failure = run_campaign(&fixture.campaign(&bound), &generation, ScheduleMode::Full)
+            .expect_err("a symbolic address is not a baseline value");
+        assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
+    });
+}
+
+/// AS3 (KS-R3). A patch cannot write the configuration layout that `BeforeTerm` paths
+/// depend on. Loading expands `configuration` into generated sentences (the `generatedTop`
+/// production and the init rules carry no location and are not authored); the only authored
+/// non-rule sentence of symmem is the `<k>` cell production. Sites are rule term positions
+/// only, and a generation refuses an edit of a sentence that holds no site
+/// (`UnauthorizedEdit`), so no mutant of a campaign can shift a declared path.
+#[test]
+fn audit_ks_as3_configuration_layout_is_not_writable() {
+    with_stack(|| {
+        use k_rust::definition::Sentence;
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let authored = baseline
+            .authored_sentences()
+            .filter(|(at, _)| at.module == "SYMMEM")
+            .collect::<Vec<_>>();
+        assert!(
+            authored
+                .iter()
+                .all(|(_, sentence)| !matches!(sentence, Sentence::Configuration { .. }))
+        );
+        let productions = authored
+            .iter()
+            .filter(|(_, sentence)| !matches!(sentence, Sentence::Rule { .. }))
+            .collect::<Vec<_>>();
+        let [(cell, Sentence::Production { label, .. })] = productions.as_slice() else {
+            panic!("one authored non-rule sentence, the <k> cell: {productions:?}")
+        };
+        assert_eq!(label.as_ref().map(|label| label.name.as_str()), Some("<k>"));
+        let discovery = derive_sites(
+            baseline,
+            "configuration",
+            &[
+                SiteSelector::RuleLabel("SYMMEM.write".into()),
+                SiteSelector::Path(vec![0]),
+            ],
+        )
+        .expect("site");
+        let failure = select(&discovery, exact(1, 1), 1)
+            .expect("selection")
+            .fold("configuration", |_| {
+                Patch::new(vec![Edit::AddAttribute {
+                    at: cell.clone(),
+                    key: "audit".into(),
+                    value: serde_json::Value::String(String::new()),
+                }])
+                .expect("patch")
+            })
+            .expect_err("an edit outside the origin's sentences");
+        assert_eq!(
+            failure.kind(),
+            kink_patch::CandidateFailureKind::UnauthorizedEdit
+        );
+    });
+}
+
+/// AS4. A `with_bindings` plan over a `BeforeTerm` payload is admitted only where the baseline
+/// value is ground: the write address and value of `ground-shared` and the ground address
+/// `addr(z)` of `sym-clash` survive S1 (whose write is unchanged); every symbolic value
+/// (`sym-shared`, `sym-distinct`, and `sym-clash`'s value `V`) is refused on the baseline, as
+/// A3 row 1. Same in both profiles.
+#[test]
+fn audit_ks_as4_symbolic_before_terms_are_not_binding_values() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = release_after_write(fixture.validator.baseline());
+        for (test, position, admitted) in [
+            (0, 0, true),
+            (0, 1, true),
+            (1, 0, false),
+            (1, 1, false),
+            (2, 0, false),
+            (2, 1, false),
+            (3, 0, true),
+            (3, 1, false),
+        ] {
+            let (variable, sort) = [("A", "SortAddress"), ("V", "SortNat")][position];
+            let bound = [case(
+                &fixture.tests[test].id,
+                fixture.tests[test].initial_state.clone(),
+                &[binds(
+                    &fixture.vocabulary,
+                    "memoryWrite",
+                    position,
+                    variable,
+                    sort,
+                    true,
+                )],
+            )];
+            let run = run_campaign(&fixture.campaign(&bound), &generation, ScheduleMode::Full);
+            if admitted {
+                assert_survived(&run.expect("ground binding admitted"), &[vec![A]]);
+            } else {
+                assert_eq!(
+                    run.expect_err("symbolic binding refused").kind(),
+                    CampaignFailureKind::BaselineOracleFailed,
+                    "{} {position}",
+                    fixture.tests[test].id
+                );
+            }
+        }
+    });
+}
+
+/// AS5 (KS-R4, ticket KS-T04). Guard split: `GUARDEDMEM.write`'s guard narrowed to `A >Int 0`
+/// and an unobserved copy with `A ==Int 0` inserted. The rewrite relation is the baseline's,
+/// but on address 0 the unobserved copy fires where the observed `write` did, so `GWL-after`
+/// distinguishes an execution-identical run. Pinned Killed until KS-T04; both profiles.
+#[test]
+fn audit_ks_as5_guard_split_is_killed_until_ticket_ks_t04() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let write = support::rule(baseline, "GUARDEDMEM.write");
+        let a = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
+        let mut zero = unlabelled_copy(baseline, "GUARDEDMEM.write");
+        if let k_rust::definition::Sentence::Rule { requires, .. } = &mut zero {
+            *requires = Term::apply("_==Int_", vec![a.clone(), int_token(0)]);
+        }
+        let patch = Patch::new(vec![
+            replaced(
+                baseline,
+                "GUARDEDMEM.write",
+                &[1],
+                Term::apply("_>Int_", vec![a, int_token(0)]),
+            ),
+            Edit::InsertSentence {
+                position: InsertPosition::After(write),
+                ordinal: 0,
+                sentence: zero,
+            },
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[1])],
+            "guard-split",
+            &patch,
+        );
+        let oracles = &guarded.tests[1].oracles;
+        let tests = [
+            case(
+                "ground-zero",
+                int_program(0, 5, support::int(0), 7),
+                oracles,
+            ),
+            case("ground-one", int_program(1, 5, support::int(1), 7), oracles),
+        ];
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![A, D], vec![A, A]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(run.mutants[0].report.killing_test_ids, ["ground-zero"]);
+    });
+}
+
+/// New in KS-07 (ticket KS-T04, widened). Priority shadowing edits no observed rule: an
+/// unobserved copy of `GUARDEDMEM.write` with `priority(40)` is inserted. `write` is unchanged
+/// and anchored, but it never fires again, so `GWL-after` distinguishes on every address while
+/// the rewrite relation is the baseline's. Pinned Killed until KS-T04. The same copy at the
+/// default priority, with its guard written `0 <=Int A`, survives (row 2).
+#[test]
+fn audit_ks_priority_shadowing_is_killed_until_ticket_ks_t04() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let write = support::rule(baseline, "GUARDEDMEM.write");
+        let oracles = &guarded.tests[1].oracles;
+        let tests = [
+            case(
+                "ground-zero",
+                int_program(0, 5, support::int(0), 7),
+                oracles,
+            ),
+            case("ground-one", int_program(1, 5, support::int(1), 7), oracles),
+        ];
+        let insert = |sentence| {
+            Patch::new(vec![Edit::InsertSentence {
+                position: InsertPosition::After(write.clone()),
+                ordinal: 0,
+                sentence,
+            }])
+            .expect("patch")
+        };
+
+        let mut shadow = unlabelled_copy(baseline, "GUARDEDMEM.write");
+        shadow.attributes_mut().set(
+            AttributeKey::Priority,
+            serde_json::Value::String("40".into()),
+        );
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[0])],
+            "shadow",
+            &insert(shadow),
+        );
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![A, D]; 2]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(
+            run.mutants[0].report.killing_test_ids,
+            ["ground-zero", "ground-one"]
+        );
+
+        let a = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
+        let mut twin = unlabelled_copy(baseline, "GUARDEDMEM.write");
+        if let k_rust::definition::Sentence::Rule { requires, .. } = &mut twin {
+            *requires = Term::apply("_<=Int_", vec![int_token(0), a]);
+        }
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[0])],
+            "twin",
+            &insert(twin),
+        );
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_survived(&run, &vec![vec![A, A]; 2]);
+    });
+}
+
+/// New in KS-07 (ticket KS-T04). Exchanging the bodies and guards of the observed
+/// `GUARDEDMEM.write` and the unobserved `writeFault` survives: `write`'s content is anchored
+/// and consumes its source position, so the moved `writeFault` content stays unobserved
+/// (row 1). If the moved `write` content is also rephrased (`0 <=Int A`), nothing is anchored:
+/// the `write` position now holds `writeFault`'s content and positionally carries
+/// `memoryWrite`, while the rephrased `write` content is unobserved. The rewrite relation is
+/// the baseline's; both tests distinguish (row 2). Pinned Killed until KS-T04.
+#[test]
+fn audit_ks_moved_unobserved_content_is_killed_until_ticket_ks_t04() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let field = |rule: &str, path: &[u32]| term(baseline, rule, path);
+        let oracles = [
+            guarded.tests[1].oracles[0].clone(),
+            guarded.tests[1].oracles[1].clone(),
+            binds(&guarded.vocabulary, "memoryWrite", 0, "A", "SortInt", false),
+        ];
+        let tests = [
+            case(
+                "ground-negative",
+                int_program(-1, 5, support::int(1), 7),
+                &oracles,
+            ),
+            case(
+                "ground-one",
+                int_program(1, 5, support::int(1), 7),
+                &oracles,
+            ),
+        ];
+        let a = field("GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
+        for (rephrased, expected, killed) in [
+            (false, vec![vec![A, A, A]; 2], false),
+            (true, vec![vec![A, A, D], vec![A, D, D]], true),
+        ] {
+            let write_guard = if rephrased {
+                Term::apply("_<=Int_", vec![int_token(0), a.clone()])
+            } else {
+                field("GUARDEDMEM.write", &[1])
+            };
+            let patch = Patch::new(vec![
+                replaced(
+                    baseline,
+                    "GUARDEDMEM.write",
+                    &[0],
+                    field("GUARDEDMEM.writeFault", &[0]),
+                ),
+                replaced(
+                    baseline,
+                    "GUARDEDMEM.write",
+                    &[1],
+                    field("GUARDEDMEM.writeFault", &[1]),
+                ),
+                replaced(
+                    baseline,
+                    "GUARDEDMEM.writeFault",
+                    &[0],
+                    field("GUARDEDMEM.write", &[0]),
+                ),
+                replaced(baseline, "GUARDEDMEM.writeFault", &[1], write_guard),
+            ])
+            .expect("patch");
+            let generation = fixed(
+                baseline,
+                &[("GUARDEDMEM.write", &[0]), ("GUARDEDMEM.writeFault", &[0])],
+                "swap-with-unobserved",
+                &patch,
+            );
+            let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+                .expect("campaign");
+            if killed {
+                assert_eq!(outcomes(&run), expected);
+                assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+                assert_eq!(
+                    run.mutants[0].report.killing_test_ids,
+                    ["ground-negative", "ground-one"]
+                );
+            } else {
+                assert_survived(&run, &expected);
+            }
+        }
+    });
+}
+
+/// AS6 (KS-R2, ticket KS-T08). `guardedeq.k`'s observed `load` runs on the remainder of the
+/// higher-priority `loadZero` guard; the mutant writes that guard `0 ==Int A` instead of
+/// `A ==Int 0`, which changes only the syntax of the remainder's path condition. With Z3 the
+/// symbolic test's value binding and load presence agree on every branch: Survived. Without
+/// Z3 the symbolic guard is undecided and the baseline is refused.
+#[test]
+fn audit_ks_as6_remainder_restriction_is_not_killed() {
+    with_stack(|| {
+        let fixture = GuardedEq::new();
+        let baseline = fixture.validator.baseline();
+        let a = term(baseline, "GUARDEDEQ.loadZero", &[0, 0, 0, 0, 0]);
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "GUARDEDEQ.loadZero",
+            &[1],
+            Term::apply("_==Int_", vec![int_token(0), a]),
+        )])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDEQ.loadZero", &[1])],
+            "flip-equality",
+            &patch,
+        );
+        let oracles = fixture.oracles();
+        let tests = [case(
+            "sym-remainder",
+            int_program(1, 5, support::var("Y", "SortInt"), 7),
+            &[oracles[0].clone(), oracles[3].clone(), oracles[4].clone()],
+        )];
+        let run = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full);
+        if cfg!(feature = "z3") {
+            assert_survived(
+                &run.expect("Z3 admits the symbolic baseline"),
+                &[vec![A, A, A]],
+            );
+        } else {
+            assert_eq!(
+                run.expect_err("no-Z3 leaves the remainder undecided")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+        }
+    });
+}
+
+/// AS7 (KS-R5), anchoring internals. (a) Replacing `SYMMEM.load`'s operation by `write` makes
+/// two observed positions compile to one identity: the manifest refuses it as `Ambiguous` and
+/// the mutant is `Error`, not a kill. (b) Rewriting `norm(X) => X` as `X +Int 0` in
+/// `guardedeq.k` withdraws `total` from `norm` and `preserves-definedness` from the observed
+/// `load` on the symbolic side; there `load`'s axiom differs from the baseline's, so it is
+/// resolved by position, and the withdrawn side's anchored manifest equals its positional one.
+/// Ground (patched side) and symbolic (withdrawn side) tests agree on every slot (Z3; without
+/// Z3 only the ground test is admitted). (c) `FirstKill` equals `Full` on A1, and on A1 with
+/// `V` renamed to `U` in the moved `write` content (anchored modulo alpha): both survive.
+#[test]
+fn audit_ks_as7_anchoring_fails_closed() {
+    with_stack(|| {
+        // (a)
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "SYMMEM.load",
+            &[0, 0, 0],
+            term(baseline, "SYMMEM.write", &[0, 0, 0]),
+        )])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("SYMMEM.load", &[0, 0, 0])],
+            "load-as-write",
+            &patch,
+        );
+        let run = run_campaign(
+            &fixture.campaign(&fixture.tests),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        let mutant = &run.mutants[0];
+        assert_eq!(
+            mutant.plan.mutant_failure,
+            Some(kink_campaign::MutantScopeFailure::Infrastructure)
+        );
+        assert_eq!(mutant.report.status, MutantStatus::Error);
+        let compiled = fixture.validator.compile_baseline().expect("baseline");
+        let side = fixture.validator.validate(&patch).expect("mutant");
+        assert!(matches!(
+            fixture
+                .validator
+                .observation_manifest_anchored(&compiled, &side, &fixture.observed),
+            Err(kink_native::ManifestFailure::Identity {
+                error: kink_native::IdentityError::Ambiguous,
+                ..
+            })
+        ));
+
+        // (b)
+        let eq = GuardedEq::new();
+        let baseline = eq.validator.baseline();
+        let x = term(baseline, "GUARDEDEQ.norm", &[0, 1]);
+        let patch = Patch::new(vec![replaced(
+            baseline,
+            "GUARDEDEQ.norm",
+            &[0, 1],
+            Term::apply("_+Int_", vec![x, int_token(0)]),
+        )])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDEQ.norm", &[0, 1])],
+            "norm-plus-zero",
+            &patch,
+        );
+        let oracles = eq.oracles();
+        let oracles = [oracles[0].clone(), oracles[1].clone(), oracles[3].clone()];
+        let tests = [
+            case(
+                "ground-norm",
+                int_program(1, 5, support::int(1), 7),
+                &oracles,
+            ),
+            case(
+                "sym-norm",
+                int_program(1, 5, support::var("Y", "SortInt"), 7),
+                &oracles,
+            ),
+        ];
+        let run = run_campaign(&eq.campaign(&tests), &generation, ScheduleMode::Full);
+        if cfg!(feature = "z3") {
+            let run = run.expect("Z3 admits the symbolic baseline");
+            assert_survived(&run, &vec![vec![A, A, A]; 2]);
+            let claims = &run.mutants[0].report.claims;
+            let load = support::rule(baseline, "GUARDEDEQ.load");
+            assert!(claims.withdrawn.iter().any(|claim| {
+                claim.key == "preserves-definedness"
+                    && claim.origin == kink_patch::SentenceOrigin::Baseline(load.clone())
+            }));
+            let withdrawn = eq
+                .validator
+                .validate(claims.patch().expect("withdrawing patch"))
+                .expect("withdrawn side");
+            let compiled = eq.validator.compile_baseline().expect("baseline");
+            assert_eq!(
+                eq.validator
+                    .observation_manifest_anchored(&compiled, &withdrawn, &eq.observed)
+                    .expect("anchored"),
+                eq.validator
+                    .observation_manifest(&withdrawn, &eq.observed)
+                    .expect("positional")
+            );
+        } else {
+            assert_eq!(
+                run.expect_err("no-Z3 leaves the symbolic guard undecided")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+            let run = run_campaign(&eq.campaign(&tests[..1]), &generation, ScheduleMode::Full)
+                .expect("ground campaign");
+            assert_survived(&run, &[vec![A, A, A]]);
+        }
+
+        // (c)
+        let baseline = fixture.validator.baseline();
+        let body = |rule| {
+            let at = TermRef::new(support::rule(baseline, rule), [0]);
+            let body = baseline.term(&at).expect("body").clone();
+            (at, body)
+        };
+        let (write_at, write_body) = body("SYMMEM.write");
+        let (load_at, load_body) = body("SYMMEM.load");
+        let mut renamed_write = write_body.clone();
+        assert!(swap_names(&mut renamed_write, "V", "U") > 0);
+        for moved_write in [write_body.clone(), renamed_write] {
+            let patch = Patch::new(vec![
+                Edit::ReplaceTerm {
+                    at: write_at.clone(),
+                    expected: write_body.clone(),
+                    replacement: load_body.clone(),
+                },
+                Edit::ReplaceTerm {
+                    at: load_at.clone(),
+                    expected: load_body.clone(),
+                    replacement: moved_write,
+                },
+            ])
+            .expect("patch");
+            let generation = fixed(
+                baseline,
+                &[("SYMMEM.write", &[0]), ("SYMMEM.load", &[0])],
+                "swap-bodies",
+                &patch,
+            );
+            let campaign = fixture.campaign(&fixture.tests);
+            let full = run_campaign(&campaign, &generation, ScheduleMode::Full).expect("full");
+            let stopped =
+                run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("first kill");
+            assert_survived(&full, &vec![vec![A, A, A, A]; 4]);
+            assert_eq!(stopped.mutants[0].plan, full.mutants[0].plan);
+            let manifest = fixture
+                .tests
+                .iter()
+                .map(|test| kink_campaign::ManifestTest {
+                    test_id: test.id.clone(),
+                    slot_count: test.oracles.len(),
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                stopped.mutants[0].report,
+                derive_mutant_report(&full.mutants[0].plan, &manifest, ScheduleMode::FirstKill)
+                    .expect("derived report")
+            );
+            assert_eq!(stopped.mutants[0].report.status, MutantStatus::Survived);
+        }
+    });
+}
