@@ -14,7 +14,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
 from support.hashing import canonical_json  # noqa: E402
-from support.imp_oracle import KAST, Spec, main as run_oracle  # noqa: E402
+from support.imp_oracle import KAST, DivisionCase, RejectionPin, Spec, main as run_oracle  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -316,7 +316,13 @@ SPEC = Spec(
     rejection_detail="syntax locations, two stuck states and LLVM division error are exact",
     induced_detail="authored @ selected exactly at induced-definition-error.k:2:19-2:20",
     induced_location=(2, 19, 2, 20), compiled_dir="calc-kompiled",
+    rejection_pin=RejectionPin(stuck_key="stuck_state_aggregate", stuck_label="stuck aggregate"),
     workers=min(8, os.cpu_count() or 1),
+    division=DivisionCase(
+        program="division-by-zero.calc",
+        stderr="[hook_INT_tdiv]: Division by zero: 1 / 0",
+        pin_key="division_error",
+    ),
 )
 
 KAST_HOOKS = KAST(

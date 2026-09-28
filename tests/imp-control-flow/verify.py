@@ -17,7 +17,15 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, entry  # noqa: E402
 from support.hashing import canonical_json  # noqa: E402
-from support.imp_oracle import KAST, Spec, execute_case as oracle_execute_case, main as run_oracle  # noqa: E402
+from support.imp_oracle import (  # noqa: E402
+    KAST,
+    BoundedSearch,
+    InheritedLayer,
+    RejectionPin,
+    Spec,
+    execute_case as oracle_execute_case,
+    main as run_oracle,
+)
 from support.process import compact  # noqa: E402
 
 
@@ -499,9 +507,19 @@ SPEC = Spec(
     rejection_detail="four exact syntax diagnostics and three exact stuck states",
     induced_detail="authored @ selected exactly at induced-definition-error.k:2:27-2:28",
     induced_location=(2, 27, 2, 28), compiled_dir="imp-kompiled",
-    workers=ORACLE_WORKERS, inherited_fixtures=IMP_STATE,
-    nonterminating=NONTERMINATING, search_depths=SEARCH_DEPTHS,
-    nonterminating_depths=NONTERMINATING_DEPTHS, search_enabled=True,
+    rejection_pin=RejectionPin(
+        stuck_key="stuck_states", stuck_label="stuck", diagnostics_key="syntax_diagnostics",
+    ),
+    workers=ORACLE_WORKERS,
+    inherited_layer=InheritedLayer(
+        directory=IMP_STATE, files=("expr.k", "calc.k"), pin_key="imp_state_sha256",
+        check="imp_state_layer", detail="the inherited expression/state oracle is exact",
+    ),
+    search=BoundedSearch(
+        depths=SEARCH_DEPTHS, nonterminating=NONTERMINATING,
+        nonterminating_program="infinite-loop.imp", nonterminating_depths=NONTERMINATING_DEPTHS,
+    ),
+    pin_induced_diagnostic=True,
 )
 
 KAST_HOOKS = KAST(
