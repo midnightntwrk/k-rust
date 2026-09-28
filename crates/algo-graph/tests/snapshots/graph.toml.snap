@@ -5261,16 +5261,20 @@ symbol = "to_value_source"
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/json.rs"
-symbol = "pattern_node"
+symbol = "source_to_string"
 
 [[node.sites]]
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/kore/json.rs"
-symbol = "pattern_node_from_parts"
+symbol = "pattern_fields"
 
 [[node.cost]]
 mode = "one JSON value"
 bound = "O(p) source reads and JSON nodes; the returned JSON value has O(p) space"
+
+[[node.cost]]
+mode = "one compact JSON string"
+bound = "O(p) source reads and output bytes; the stack follows source depth and the returned string holds output bytes"
 
 [[node]]
 kind = "algorithm"

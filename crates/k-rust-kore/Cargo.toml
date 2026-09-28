@@ -12,6 +12,7 @@ categories = ["compilers", "parser-implementations"]
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+smallvec = "1.15"
 tracing.workspace = true
 
 [dev-dependencies]

@@ -7,7 +7,7 @@
 //! ```toml algorithm
 //! id = "kore.json.encode_source"
 //! name = "encode KORE JSON from a pattern source"
-//! sites = ["to_value_source", "pattern_node", "pattern_node_from_parts"]
+//! sites = ["to_value_source", "source_to_string", "pattern_fields"]
 //! variable = "p = expanded KORE pattern nodes"
 //! counters = []
 //! no_counter = "observation JSON counts are recorded by its backend caller"
@@ -15,9 +15,14 @@
 //! [[cost]]
 //! mode = "one JSON value"
 //! bound = "O(p) source reads and JSON nodes; the returned JSON value has O(p) space"
+//!
+//! [[cost]]
+//! mode = "one compact JSON string"
+//! bound = "O(p) source reads and output bytes; the stack follows source depth and the returned string holds output bytes"
 //! ```
 
 use crate::json_tree::{self, Node};
+use smallvec::{SmallVec, smallvec};
 
 use super::{
     ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind},
@@ -214,11 +219,11 @@ pub fn from_str_unbounded(input: &str) -> Result<Pattern, Error> {
 }
 
 pub fn to_string(pattern: &Pattern) -> Result<String, Error> {
-    Ok(json_tree::to_string(&envelope_node(pattern), false))
+    Ok(json_tree::to_string(&source_to_node(pattern), false))
 }
 
 pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
-    Ok(json_tree::to_string(&envelope_node(pattern), true))
+    Ok(json_tree::to_string(&source_to_node(pattern), true))
 }
 
 pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
@@ -227,262 +232,381 @@ pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
 
 /// Encode a pattern one node at a time, without materializing its KORE tree.
 pub fn to_value_source<'a, S: PatternSource<'a>>(source: S) -> Result<serde_json::Value, Error> {
-    Ok(envelope_node(source).into_value())
+    Ok(source_to_node(source).into_value())
+}
+
+enum EncodeTask<'a, S> {
+    Text(&'static str),
+    Number(String),
+    String(String),
+    Pattern(S),
+    PatternArray(Vec<S>),
+    Sort(std::borrow::Cow<'a, Sort>),
+    Array(Vec<EncodeTask<'a, S>>),
+}
+
+type EncodeFields<'a, S> = SmallVec<[(&'static str, EncodeTask<'a, S>); 5]>;
+
+fn string_task<'a, S>(value: impl Into<String>) -> EncodeTask<'a, S> {
+    EncodeTask::String(value.into())
+}
+
+fn sort_array<'a, S>(sorts: Vec<Sort>) -> EncodeTask<'a, S> {
+    EncodeTask::Array(
+        sorts
+            .into_iter()
+            .map(|sort| EncodeTask::Sort(std::borrow::Cow::Owned(sort)))
+            .collect(),
+    )
+}
+
+fn pattern_array<'a, S>(patterns: Vec<S>) -> EncodeTask<'a, S> {
+    EncodeTask::PatternArray(patterns)
+}
+
+fn envelope_fields<'a, S>(source: S) -> EncodeFields<'a, S> {
+    smallvec![
+        ("format", string_task(FORMAT)),
+        ("version", EncodeTask::Number(VERSION.to_string())),
+        ("term", EncodeTask::Pattern(source)),
+    ]
 }
 
 /// Serialize the KORE JSON envelope directly from a pattern source. The task stack follows the
 /// expanded tree, while the output buffer holds only its final JSON bytes.
 pub fn source_to_string<'a, S: PatternSource<'a>>(source: S) -> String {
-    enum Task<S> {
-        Text(&'static str),
-        String(String),
-        Pattern(S),
-        Sort(Sort),
-        Array(Vec<Task<S>>),
-        Object(Vec<(&'static str, Task<S>)>),
-    }
-
-    fn string<S>(value: impl Into<String>) -> Task<S> {
-        Task::String(value.into())
-    }
-
-    fn sort_array<S>(sorts: Vec<Sort>) -> Task<S> {
-        Task::Array(sorts.into_iter().map(Task::Sort).collect())
-    }
-
-    fn pattern_array<S>(patterns: Vec<S>) -> Task<S> {
-        Task::Array(patterns.into_iter().map(Task::Pattern).collect())
-    }
-
     let mut output = Vec::new();
-    let mut stack = vec![Task::Object(vec![
-        ("format", string(FORMAT)),
-        ("term", Task::Pattern(source)),
-        ("version", Task::Text("1")),
-    ])];
+    let mut stack = Vec::new();
+    push_string_object(envelope_fields(source), &mut stack);
     while let Some(task) = stack.pop() {
         match task {
-            Task::Text(value) => output.extend_from_slice(value.as_bytes()),
-            Task::String(value) => {
+            EncodeTask::Text(value) => output.extend_from_slice(value.as_bytes()),
+            EncodeTask::Number(value) => output.extend_from_slice(value.as_bytes()),
+            EncodeTask::String(value) => {
                 serde_json::to_writer(&mut output, &value).expect("writing to a Vec cannot fail");
             }
-            Task::Array(elements) => {
-                stack.push(Task::Text("]"));
+            EncodeTask::Array(elements) => {
+                stack.push(EncodeTask::Text("]"));
                 for (index, element) in elements.into_iter().enumerate().rev() {
                     stack.push(element);
                     if index != 0 {
-                        stack.push(Task::Text(","));
+                        stack.push(EncodeTask::Text(","));
                     }
                 }
-                stack.push(Task::Text("["));
+                stack.push(EncodeTask::Text("["));
             }
-            Task::Object(fields) => {
-                stack.push(Task::Text("}"));
-                for (index, (key, value)) in fields.into_iter().enumerate().rev() {
-                    stack.push(value);
-                    stack.push(Task::Text(":"));
-                    stack.push(string(key));
+            EncodeTask::PatternArray(patterns) => {
+                stack.push(EncodeTask::Text("]"));
+                for (index, pattern) in patterns.into_iter().enumerate().rev() {
+                    stack.push(EncodeTask::Pattern(pattern));
                     if index != 0 {
-                        stack.push(Task::Text(","));
+                        stack.push(EncodeTask::Text(","));
                     }
                 }
-                stack.push(Task::Text("{"));
+                stack.push(EncodeTask::Text("["));
             }
-            Task::Sort(sort) => match sort {
-                Sort::Variable(name) => stack.push(Task::Object(vec![
-                    ("name", string(name)),
-                    ("tag", string("SortVar")),
-                ])),
-                Sort::Application { name, arguments } => stack.push(Task::Object(vec![
-                    ("args", sort_array(arguments)),
-                    ("name", string(name)),
-                    ("tag", string("SortApp")),
-                ])),
-            },
-            Task::Pattern(pattern) => {
-                let fields = match pattern.node() {
-                    PatternNode::String(value) => vec![
-                        ("tag", string("String")),
-                        ("value", string(json_string_value(&value))),
-                    ],
-                    PatternNode::Variable(variable) => vec![
-                        ("name", string(variable.name.clone())),
-                        ("sort", Task::Sort(variable.sort.clone())),
-                        (
-                            "tag",
-                            string(if variable.kind == VariableKind::Element {
-                                "EVar"
-                            } else {
-                                "SVar"
-                            }),
-                        ),
-                    ],
-                    PatternNode::Application { symbol, arguments } => vec![
-                        ("args", pattern_array(arguments)),
-                        ("name", string(symbol.name.clone())),
-                        ("sorts", sort_array(symbol.sort_parameters.clone())),
-                        ("tag", string("App")),
-                    ],
-                    PatternNode::Top { sort } => vec![
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Top")),
-                    ],
-                    PatternNode::Bottom { sort } => vec![
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Bottom")),
-                    ],
-                    PatternNode::And { sort, arguments } => vec![
-                        ("patterns", pattern_array(arguments)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("And")),
-                    ],
-                    PatternNode::Or { sort, arguments } => vec![
-                        ("patterns", pattern_array(arguments)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Or")),
-                    ],
-                    PatternNode::Not { sort, argument } => vec![
-                        ("arg", Task::Pattern(argument)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Not")),
-                    ],
-                    PatternNode::Next { sort, argument } => vec![
-                        ("dest", Task::Pattern(argument)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Next")),
-                    ],
-                    PatternNode::Implies { sort, left, right } => vec![
-                        ("first", Task::Pattern(left)),
-                        ("second", Task::Pattern(right)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Implies")),
-                    ],
-                    PatternNode::Iff { sort, left, right } => vec![
-                        ("first", Task::Pattern(left)),
-                        ("second", Task::Pattern(right)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Iff")),
-                    ],
-                    PatternNode::Rewrites { sort, left, right } => vec![
-                        ("dest", Task::Pattern(right)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("source", Task::Pattern(left)),
-                        ("tag", string("Rewrites")),
-                    ],
-                    PatternNode::Exists {
-                        sort,
-                        variable,
-                        body,
-                    } => vec![
-                        ("arg", Task::Pattern(body)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Exists")),
-                        ("var", string(variable.name.clone())),
-                        ("varSort", Task::Sort(variable.sort.clone())),
-                    ],
-                    PatternNode::Forall {
-                        sort,
-                        variable,
-                        body,
-                    } => vec![
-                        ("arg", Task::Pattern(body)),
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("Forall")),
-                        ("var", string(variable.name.clone())),
-                        ("varSort", Task::Sort(variable.sort.clone())),
-                    ],
-                    PatternNode::Mu { variable, body } => vec![
-                        ("arg", Task::Pattern(body)),
-                        ("tag", string("Mu")),
-                        ("var", string(variable.name.clone())),
-                        ("varSort", Task::Sort(variable.sort.clone())),
-                    ],
-                    PatternNode::Nu { variable, body } => vec![
-                        ("arg", Task::Pattern(body)),
-                        ("tag", string("Nu")),
-                        ("var", string(variable.name.clone())),
-                        ("varSort", Task::Sort(variable.sort.clone())),
-                    ],
-                    PatternNode::Ceil {
-                        operand_sort,
-                        result_sort,
-                        argument,
-                    } => vec![
-                        ("arg", Task::Pattern(argument)),
-                        ("argSort", Task::Sort(operand_sort.into_owned())),
-                        ("sort", Task::Sort(result_sort.into_owned())),
-                        ("tag", string("Ceil")),
-                    ],
-                    PatternNode::Floor {
-                        operand_sort,
-                        result_sort,
-                        argument,
-                    } => vec![
-                        ("arg", Task::Pattern(argument)),
-                        ("argSort", Task::Sort(operand_sort.into_owned())),
-                        ("sort", Task::Sort(result_sort.into_owned())),
-                        ("tag", string("Floor")),
-                    ],
-                    PatternNode::Equals {
-                        operand_sort,
-                        result_sort,
-                        left,
-                        right,
-                    } => vec![
-                        ("argSort", Task::Sort(operand_sort.into_owned())),
-                        ("first", Task::Pattern(left)),
-                        ("second", Task::Pattern(right)),
-                        ("sort", Task::Sort(result_sort.into_owned())),
-                        ("tag", string("Equals")),
-                    ],
-                    PatternNode::In {
-                        operand_sort,
-                        result_sort,
-                        left,
-                        right,
-                    } => vec![
-                        ("argSort", Task::Sort(operand_sort.into_owned())),
-                        ("first", Task::Pattern(left)),
-                        ("second", Task::Pattern(right)),
-                        ("sort", Task::Sort(result_sort.into_owned())),
-                        ("tag", string("In")),
-                    ],
-                    PatternNode::DomainValue { sort, value } => vec![
-                        ("sort", Task::Sort(sort.into_owned())),
-                        ("tag", string("DV")),
-                        ("value", string(json_string_value(&value))),
-                    ],
-                    PatternNode::AssociativeApplication {
-                        associativity,
-                        symbol,
-                        arguments,
-                    } => vec![
-                        ("argss", pattern_array(arguments)),
-                        ("sorts", sort_array(symbol.sort_parameters.clone())),
-                        ("symbol", string(symbol.name.clone())),
-                        (
-                            "tag",
-                            string(if associativity == Associativity::Left {
-                                "LeftAssoc"
-                            } else {
-                                "RightAssoc"
-                            }),
-                        ),
-                    ],
-                };
-                stack.push(Task::Object(fields));
+            EncodeTask::Sort(sort) => push_string_object(sort_fields(sort), &mut stack),
+            EncodeTask::Pattern(pattern) => {
+                push_string_object(pattern_fields(pattern.node()), &mut stack);
             }
         }
     }
     String::from_utf8(output).expect("JSON serialization emits UTF-8")
 }
 
-fn envelope_node<'a, S: PatternSource<'a>>(source: S) -> Node {
-    Node::Object(vec![
-        ("format".into(), Node::String(FORMAT.into())),
-        ("version".into(), Node::Number(VERSION.to_string())),
-        ("term".into(), pattern_node(source)),
-    ])
+fn push_string_object<'a, S>(mut fields: EncodeFields<'a, S>, stack: &mut Vec<EncodeTask<'a, S>>) {
+    fields.sort_by(|left, right| left.0.cmp(right.0));
+    stack.push(EncodeTask::Text("}"));
+    for (index, (key, value)) in fields.into_iter().enumerate().rev() {
+        stack.push(value);
+        stack.push(EncodeTask::Text(":"));
+        stack.push(string_task(key));
+        if index != 0 {
+            stack.push(EncodeTask::Text(","));
+        }
+    }
+    stack.push(EncodeTask::Text("{"));
+}
+
+fn sort_fields<'a, S>(sort: std::borrow::Cow<'a, Sort>) -> EncodeFields<'a, S> {
+    enum Parts<'a> {
+        Variable(String),
+        Application(String, Vec<std::borrow::Cow<'a, Sort>>),
+    }
+    let parts = match sort {
+        std::borrow::Cow::Borrowed(Sort::Variable(name)) => Parts::Variable(name.clone()),
+        std::borrow::Cow::Owned(Sort::Variable(name)) => Parts::Variable(name),
+        std::borrow::Cow::Borrowed(Sort::Application { name, arguments }) => Parts::Application(
+            name.clone(),
+            arguments.iter().map(std::borrow::Cow::Borrowed).collect(),
+        ),
+        std::borrow::Cow::Owned(Sort::Application { name, arguments }) => Parts::Application(
+            name,
+            arguments.into_iter().map(std::borrow::Cow::Owned).collect(),
+        ),
+    };
+    match parts {
+        Parts::Variable(name) => {
+            smallvec![("tag", string_task("SortVar")), ("name", string_task(name)),]
+        }
+        Parts::Application(name, arguments) => smallvec![
+            ("tag", string_task("SortApp")),
+            ("name", string_task(name)),
+            (
+                "args",
+                EncodeTask::Array(arguments.into_iter().map(EncodeTask::Sort).collect()),
+            ),
+        ],
+    }
+}
+
+fn pattern_fields<'a, S: PatternSource<'a>>(node: PatternNode<'a, S>) -> EncodeFields<'a, S> {
+    match node {
+        PatternNode::String(value) => smallvec![
+            ("tag", string_task("String")),
+            ("value", string_task(json_string_value(&value))),
+        ],
+        PatternNode::Variable(variable) => smallvec![
+            (
+                "tag",
+                string_task(if variable.kind == VariableKind::Element {
+                    "EVar"
+                } else {
+                    "SVar"
+                }),
+            ),
+            ("name", string_task(variable.name.clone())),
+            (
+                "sort",
+                EncodeTask::Sort(std::borrow::Cow::Owned(variable.sort.clone()))
+            ),
+        ],
+        PatternNode::Application { symbol, arguments } => smallvec![
+            ("tag", string_task("App")),
+            ("name", string_task(symbol.name.clone())),
+            ("sorts", sort_array(symbol.sort_parameters.clone())),
+            ("args", pattern_array(arguments)),
+        ],
+        PatternNode::Top { sort } => smallvec![
+            ("tag", string_task("Top")),
+            ("sort", EncodeTask::Sort(sort)),
+        ],
+        PatternNode::Bottom { sort } => smallvec![
+            ("tag", string_task("Bottom")),
+            ("sort", EncodeTask::Sort(sort)),
+        ],
+        PatternNode::And { sort, arguments } => smallvec![
+            ("tag", string_task("And")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("patterns", pattern_array(arguments)),
+        ],
+        PatternNode::Or { sort, arguments } => smallvec![
+            ("tag", string_task("Or")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("patterns", pattern_array(arguments)),
+        ],
+        PatternNode::Not { sort, argument } => smallvec![
+            ("tag", string_task("Not")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("arg", EncodeTask::Pattern(argument)),
+        ],
+        PatternNode::Next { sort, argument } => smallvec![
+            ("tag", string_task("Next")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("dest", EncodeTask::Pattern(argument)),
+        ],
+        PatternNode::Implies { sort, left, right } => smallvec![
+            ("tag", string_task("Implies")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("first", EncodeTask::Pattern(left)),
+            ("second", EncodeTask::Pattern(right)),
+        ],
+        PatternNode::Iff { sort, left, right } => smallvec![
+            ("tag", string_task("Iff")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("first", EncodeTask::Pattern(left)),
+            ("second", EncodeTask::Pattern(right)),
+        ],
+        PatternNode::Rewrites { sort, left, right } => smallvec![
+            ("tag", string_task("Rewrites")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("source", EncodeTask::Pattern(left)),
+            ("dest", EncodeTask::Pattern(right)),
+        ],
+        PatternNode::Exists {
+            sort,
+            variable,
+            body,
+        } => smallvec![
+            ("tag", string_task("Exists")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("var", string_task(variable.name.clone())),
+            (
+                "varSort",
+                EncodeTask::Sort(std::borrow::Cow::Owned(variable.sort.clone()))
+            ),
+            ("arg", EncodeTask::Pattern(body)),
+        ],
+        PatternNode::Forall {
+            sort,
+            variable,
+            body,
+        } => smallvec![
+            ("tag", string_task("Forall")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("var", string_task(variable.name.clone())),
+            (
+                "varSort",
+                EncodeTask::Sort(std::borrow::Cow::Owned(variable.sort.clone()))
+            ),
+            ("arg", EncodeTask::Pattern(body)),
+        ],
+        PatternNode::Mu { variable, body } => smallvec![
+            ("tag", string_task("Mu")),
+            ("var", string_task(variable.name.clone())),
+            (
+                "varSort",
+                EncodeTask::Sort(std::borrow::Cow::Owned(variable.sort.clone()))
+            ),
+            ("arg", EncodeTask::Pattern(body)),
+        ],
+        PatternNode::Nu { variable, body } => smallvec![
+            ("tag", string_task("Nu")),
+            ("var", string_task(variable.name.clone())),
+            (
+                "varSort",
+                EncodeTask::Sort(std::borrow::Cow::Owned(variable.sort.clone()))
+            ),
+            ("arg", EncodeTask::Pattern(body)),
+        ],
+        PatternNode::Ceil {
+            operand_sort,
+            result_sort,
+            argument,
+        } => smallvec![
+            ("tag", string_task("Ceil")),
+            ("argSort", EncodeTask::Sort(operand_sort)),
+            ("sort", EncodeTask::Sort(result_sort)),
+            ("arg", EncodeTask::Pattern(argument)),
+        ],
+        PatternNode::Floor {
+            operand_sort,
+            result_sort,
+            argument,
+        } => smallvec![
+            ("tag", string_task("Floor")),
+            ("argSort", EncodeTask::Sort(operand_sort)),
+            ("sort", EncodeTask::Sort(result_sort)),
+            ("arg", EncodeTask::Pattern(argument)),
+        ],
+        PatternNode::Equals {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => smallvec![
+            ("tag", string_task("Equals")),
+            ("argSort", EncodeTask::Sort(operand_sort)),
+            ("sort", EncodeTask::Sort(result_sort)),
+            ("first", EncodeTask::Pattern(left)),
+            ("second", EncodeTask::Pattern(right)),
+        ],
+        PatternNode::In {
+            operand_sort,
+            result_sort,
+            left,
+            right,
+        } => smallvec![
+            ("tag", string_task("In")),
+            ("argSort", EncodeTask::Sort(operand_sort)),
+            ("sort", EncodeTask::Sort(result_sort)),
+            ("first", EncodeTask::Pattern(left)),
+            ("second", EncodeTask::Pattern(right)),
+        ],
+        PatternNode::DomainValue { sort, value } => smallvec![
+            ("tag", string_task("DV")),
+            ("sort", EncodeTask::Sort(sort)),
+            ("value", string_task(json_string_value(&value))),
+        ],
+        PatternNode::AssociativeApplication {
+            associativity,
+            symbol,
+            arguments,
+        } => smallvec![
+            (
+                "tag",
+                string_task(if associativity == Associativity::Left {
+                    "LeftAssoc"
+                } else {
+                    "RightAssoc"
+                }),
+            ),
+            ("symbol", string_task(symbol.name.clone())),
+            ("sorts", sort_array(symbol.sort_parameters.clone())),
+            ("argss", pattern_array(arguments)),
+        ],
+    }
+}
+
+fn source_to_node<'a, S: PatternSource<'a>>(source: S) -> Node {
+    enum Build<'a, S> {
+        Enter(EncodeTask<'a, S>),
+        Array(usize),
+        Object(SmallVec<[&'static str; 5]>),
+    }
+
+    fn push_node_object<'a, S>(fields: EncodeFields<'a, S>, tasks: &mut Vec<Build<'a, S>>) {
+        let (keys, children): (SmallVec<[_; 5]>, SmallVec<[_; 5]>) = fields.into_iter().unzip();
+        tasks.push(Build::Object(keys));
+        tasks.extend(children.into_iter().rev().map(Build::Enter));
+    }
+
+    let mut tasks = Vec::new();
+    push_node_object(envelope_fields(source), &mut tasks);
+    let mut values = Vec::new();
+    // Invariant: each finish task follows its children, which are appended to values in field order.
+    while let Some(task) = tasks.pop() {
+        match task {
+            Build::Enter(EncodeTask::Text(_)) => {
+                unreachable!("JSON punctuation is not a node field")
+            }
+            Build::Enter(EncodeTask::Number(value)) => values.push(Node::Number(value)),
+            Build::Enter(EncodeTask::String(value)) => values.push(Node::String(value)),
+            Build::Enter(EncodeTask::Pattern(source)) => {
+                push_node_object(pattern_fields(source.node()), &mut tasks);
+            }
+            Build::Enter(EncodeTask::Sort(sort)) => {
+                push_node_object(sort_fields(sort), &mut tasks);
+            }
+            Build::Enter(EncodeTask::Array(elements)) => {
+                tasks.push(Build::Array(elements.len()));
+                tasks.extend(elements.into_iter().rev().map(Build::Enter));
+            }
+            Build::Enter(EncodeTask::PatternArray(patterns)) => {
+                tasks.push(Build::Array(patterns.len()));
+                tasks.extend(
+                    patterns
+                        .into_iter()
+                        .rev()
+                        .map(|pattern| Build::Enter(EncodeTask::Pattern(pattern))),
+                );
+            }
+            Build::Array(count) => {
+                let children = values.split_off(values.len() - count);
+                values.push(Node::Array(children));
+            }
+            Build::Object(keys) => {
+                let start = values.len() - keys.len();
+                let fields = keys
+                    .into_iter()
+                    .map(str::to_owned)
+                    .zip(values.drain(start..))
+                    .collect();
+                values.push(Node::Object(fields));
+            }
+        }
+    }
+    values.pop().expect("the source has a root node")
 }
 
 enum SortHead {
@@ -548,56 +672,6 @@ fn build_sort(root: Node) -> Result<Sort, Error> {
             parent.built.push(sort);
         } else {
             return Ok(sort);
-        }
-    }
-}
-
-fn sort_node(root: &Sort) -> Node {
-    struct Frame<'a> {
-        sort: &'a Sort,
-        next: usize,
-        built: Vec<Node>,
-    }
-
-    fn children(sort: &Sort) -> &[Sort] {
-        match sort {
-            Sort::Variable(_) => &[],
-            Sort::Application { arguments, .. } => arguments,
-        }
-    }
-
-    let mut stack = vec![Frame {
-        sort: root,
-        next: 0,
-        built: Vec::new(),
-    }];
-    loop {
-        let frame = stack.last_mut().expect("the root sort frame remains");
-        if let Some(child) = children(frame.sort).get(frame.next) {
-            frame.next += 1;
-            stack.push(Frame {
-                sort: child,
-                next: 0,
-                built: Vec::new(),
-            });
-            continue;
-        }
-        let frame = stack.pop().expect("the completed sort frame is present");
-        let node = match frame.sort {
-            Sort::Variable(name) => Node::Object(vec![
-                ("tag".into(), Node::String("SortVar".into())),
-                ("name".into(), Node::String(name.clone())),
-            ]),
-            Sort::Application { name, .. } => Node::Object(vec![
-                ("tag".into(), Node::String("SortApp".into())),
-                ("name".into(), Node::String(name.clone())),
-                ("args".into(), Node::Array(frame.built)),
-            ]),
-        };
-        if let Some(parent) = stack.last_mut() {
-            parent.built.push(node);
-        } else {
-            return node;
         }
     }
 }
@@ -1016,200 +1090,6 @@ fn build_pattern(root: Node) -> Result<Pattern, Error> {
         } else {
             return Ok(pattern);
         }
-    }
-}
-
-fn array_nodes<'a>(values: impl IntoIterator<Item = &'a Sort>) -> Node {
-    Node::Array(values.into_iter().map(sort_node).collect())
-}
-
-fn pattern_node<'a, S: PatternSource<'a>>(root: S) -> Node {
-    enum Task<'a, S> {
-        Enter(S),
-        Finish(PatternNode<'a, ()>, usize),
-    }
-    let mut tasks = vec![Task::Enter(root)];
-    let mut values = Vec::new();
-    // Invariant: each Finish task follows its children in the work stack, and values holds their completed JSON nodes in source order.
-    while let Some(task) = tasks.pop() {
-        match task {
-            Task::Enter(source) => {
-                let (node, children) = source.node().split();
-                let count = children.len();
-                tasks.push(Task::Finish(node, count));
-                tasks.extend(children.into_iter().rev().map(Task::Enter));
-            }
-            Task::Finish(node, count) => {
-                let children = values.split_off(values.len() - count);
-                values.push(pattern_node_from_parts(node, children));
-            }
-        }
-    }
-    values.pop().expect("the source has a root node")
-}
-
-fn pattern_node_from_parts(node: PatternNode<'_, ()>, children: Vec<Node>) -> Node {
-    let is_top = matches!(node, PatternNode::Top { .. });
-    let is_and = matches!(node, PatternNode::And { .. });
-    let is_not = matches!(node, PatternNode::Not { .. });
-    let is_implies = matches!(node, PatternNode::Implies { .. });
-    let is_exists = matches!(node, PatternNode::Exists { .. });
-    let is_mu = matches!(node, PatternNode::Mu { .. });
-    let is_ceil = matches!(node, PatternNode::Ceil { .. });
-    let is_equals = matches!(node, PatternNode::Equals { .. });
-    let mut children = children.into_iter();
-    let mut child = || {
-        children
-            .next()
-            .expect("the traversal supplies every pattern child")
-    };
-    match node {
-        PatternNode::String(value) => Node::Object(vec![
-            ("tag".into(), Node::String("String".into())),
-            ("value".into(), Node::String(json_string_value(&value))),
-        ]),
-        PatternNode::Variable(variable) => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(
-                    if variable.kind == VariableKind::Element {
-                        "EVar"
-                    } else {
-                        "SVar"
-                    }
-                    .into(),
-                ),
-            ),
-            ("name".into(), Node::String(variable.name.clone())),
-            ("sort".into(), sort_node(&variable.sort)),
-        ]),
-        PatternNode::Application { symbol, .. } => Node::Object(vec![
-            ("tag".into(), Node::String("App".into())),
-            ("name".into(), Node::String(symbol.name.clone())),
-            ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
-            ("args".into(), Node::Array(children.collect())),
-        ]),
-        PatternNode::Top { sort } | PatternNode::Bottom { sort } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_top { "Top" } else { "Bottom" }.into()),
-            ),
-            ("sort".into(), sort_node(&sort)),
-        ]),
-        PatternNode::And { sort, .. } | PatternNode::Or { sort, .. } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_and { "And" } else { "Or" }.into()),
-            ),
-            ("sort".into(), sort_node(&sort)),
-            ("patterns".into(), Node::Array(children.collect())),
-        ]),
-        PatternNode::Not { sort, .. } | PatternNode::Next { sort, .. } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_not { "Not" } else { "Next" }.into()),
-            ),
-            ("sort".into(), sort_node(&sort)),
-            (if is_not { "arg" } else { "dest" }.into(), child()),
-        ]),
-        PatternNode::Implies { sort, .. } | PatternNode::Iff { sort, .. } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_implies { "Implies" } else { "Iff" }.into()),
-            ),
-            ("sort".into(), sort_node(&sort)),
-            ("first".into(), child()),
-            ("second".into(), child()),
-        ]),
-        PatternNode::Rewrites { sort, .. } => Node::Object(vec![
-            ("tag".into(), Node::String("Rewrites".into())),
-            ("sort".into(), sort_node(&sort)),
-            ("source".into(), child()),
-            ("dest".into(), child()),
-        ]),
-        PatternNode::Exists { sort, variable, .. } | PatternNode::Forall { sort, variable, .. } => {
-            Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(if is_exists { "Exists" } else { "Forall" }.into()),
-                ),
-                ("sort".into(), sort_node(&sort)),
-                ("var".into(), Node::String(variable.name.clone())),
-                ("varSort".into(), sort_node(&variable.sort)),
-                ("arg".into(), child()),
-            ])
-        }
-        PatternNode::Mu { variable, .. } | PatternNode::Nu { variable, .. } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_mu { "Mu" } else { "Nu" }.into()),
-            ),
-            ("var".into(), Node::String(variable.name.clone())),
-            ("varSort".into(), sort_node(&variable.sort)),
-            ("arg".into(), child()),
-        ]),
-        PatternNode::Ceil {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | PatternNode::Floor {
-            operand_sort,
-            result_sort,
-            ..
-        } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_ceil { "Ceil" } else { "Floor" }.into()),
-            ),
-            ("argSort".into(), sort_node(&operand_sort)),
-            ("sort".into(), sort_node(&result_sort)),
-            ("arg".into(), child()),
-        ]),
-        PatternNode::Equals {
-            operand_sort,
-            result_sort,
-            ..
-        }
-        | PatternNode::In {
-            operand_sort,
-            result_sort,
-            ..
-        } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(if is_equals { "Equals" } else { "In" }.into()),
-            ),
-            ("argSort".into(), sort_node(&operand_sort)),
-            ("sort".into(), sort_node(&result_sort)),
-            ("first".into(), child()),
-            ("second".into(), child()),
-        ]),
-        PatternNode::DomainValue { sort, value } => Node::Object(vec![
-            ("tag".into(), Node::String("DV".into())),
-            ("sort".into(), sort_node(&sort)),
-            ("value".into(), Node::String(json_string_value(&value))),
-        ]),
-        PatternNode::AssociativeApplication {
-            associativity,
-            symbol,
-            ..
-        } => Node::Object(vec![
-            (
-                "tag".into(),
-                Node::String(
-                    if associativity == Associativity::Left {
-                        "LeftAssoc"
-                    } else {
-                        "RightAssoc"
-                    }
-                    .into(),
-                ),
-            ),
-            ("symbol".into(), Node::String(symbol.name.clone())),
-            ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
-            ("argss".into(), Node::Array(children.collect())),
-        ]),
     }
 }
 

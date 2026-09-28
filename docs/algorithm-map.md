@@ -167,7 +167,7 @@ No phase contains these algorithms and no representation connects them to a comm
 - kompile.labels.backward_closure — O((R + N_f) log V + E) +1 mode — at k-rust/kompile/label_graph.rs `LabelDependencyGraph::build`
 - kompile.metadata.retarget — O(N log R) — at k-rust/kompile/retarget.rs `retarget_production_identities`
 - kompile.modules.rewrite_order — O((M + E) x (d + log M) + R log R + u x s) — at k-rust/kompile/compile.rs `collect_execution_rewrite_order`
-- kore.json.encode_source — O(p) source reads and JSON nodes; the returned… — at kore/kore/json.rs `to_value_source`
+- kore.json.encode_source — O(p) source reads and JSON nodes; the returned… +1 mode — at kore/kore/json.rs `to_value_source`
 - kore.pattern.source — O(p) — at kore/kore/node.rs `PatternNode::split`
 - kore.pattern.walk — O(|p|) — at kore/kore/walk.rs `children`
 - kore.printer.build — O(N) — at kore/kore/printer.rs `definition_ops`
