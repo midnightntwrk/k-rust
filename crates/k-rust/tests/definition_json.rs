@@ -946,6 +946,7 @@ fn module_list_reader_decodes_specification_modules() {
         Err(json::Error::UnsupportedSentence("badsentence"))
     ));
 }
+
 #[test]
 fn module_list_reader_rejects_bad_main_modules_and_other_nodes() {
     let missing = module_list_document("SPEC", vec![wire_module("OTHER", &[], Vec::new())]);
@@ -1001,6 +1002,19 @@ fn module_list_reader_rejects_bad_main_modules_and_other_nodes() {
     );
     assert!(matches!(
         json::module_list_from_str(&alias),
+        Err(json::Error::UnsupportedSentence("KContextAlias"))
+    ));
+    // The lossy definition reader skips only `badsentence`; other foreign nodes stay errors.
+    let mut alias_definition: Value = serde_json::from_str(&alias).unwrap();
+    let modules = alias_definition["term"]["term"].take();
+    alias_definition["term"] = value!({
+        "node": "KDefinition",
+        "mainModule": "SPEC",
+        "modules": modules,
+        "att": {"node": "KAtt", "att": {}},
+    });
+    assert!(matches!(
+        json::from_str_omitting_unrepresentable(&alias_definition.to_string()),
         Err(json::Error::UnsupportedSentence("KContextAlias"))
     ));
 }
