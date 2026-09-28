@@ -1992,7 +1992,7 @@ fn smoke_definition_with_claim() -> (DefinitionIr, NodeOrigin) {
     let main = DefinitionModule::new(
         main.origin().clone(),
         main.id().clone(),
-        main.imports().to_vec(),
+        main.imports().iter().cloned().collect(),
         main.production_groups().to_vec(),
         sentences,
     );
@@ -2119,7 +2119,7 @@ fn equal_content_rules_share_identity_and_keep_both_authors() {
     let main = DefinitionModule::new(
         main.origin().clone(),
         main.id().clone(),
-        main.imports().to_vec(),
+        main.imports().iter().cloned().collect(),
         main.production_groups().to_vec(),
         main_sentences,
     );
@@ -2191,7 +2191,7 @@ fn strict_production_has_multiple_emitted_ids() {
     let syntax = DefinitionModule::new(
         syntax.origin().clone(),
         syntax.id().clone(),
-        syntax.imports().to_vec(),
+        syntax.imports().iter().cloned().collect(),
         syntax.production_groups().to_vec(),
         syntax_sentences,
     );
@@ -2289,7 +2289,7 @@ fn two_cell_configuration_has_multiple_emitted_ids() {
     let main = DefinitionModule::new(
         main.origin().clone(),
         main.id().clone(),
-        main.imports().to_vec(),
+        main.imports().iter().cloned().collect(),
         main.production_groups().to_vec(),
         sentences,
     );
@@ -2424,7 +2424,7 @@ fn provenance_join_uses_mapping_key_for_ir_sentence_kind() {
     let reordered_main = DefinitionModule::new(
         main.origin().clone(),
         main.id().clone(),
-        main.imports().to_vec(),
+        main.imports().iter().cloned().collect(),
         main.production_groups().to_vec(),
         reordered_sentences,
     );

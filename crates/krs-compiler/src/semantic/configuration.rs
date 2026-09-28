@@ -20,7 +20,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
     descriptor: &Descriptor,
     configuration: &DescriptorFixedConfiguration,
     declarations: &BTreeMap<StableItemId, &Descriptor>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticConfiguration, DescriptorLoweringError> {
     let configuration_id = generated_semantic_id("configuration", &descriptor.id, None)?;
@@ -172,7 +172,7 @@ fn lower_initializer_cell(
     descriptor: &Descriptor,
     cell: &DescriptorInitializerCell,
     declarations: &BTreeMap<StableItemId, &Descriptor>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<FixedInitializerCell<SemanticId, SemanticTerm>, DescriptorLoweringError> {
@@ -228,7 +228,7 @@ fn lower_initializer_state(
     state: &DescriptorInitializerStateTerm,
     declared_sort: &SemanticSortRef,
     fallback_key: &ProvenanceKey,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
@@ -310,7 +310,7 @@ fn lower_initializer_term(
     descriptor: &Descriptor,
     term: &DescriptorTerm,
     expected_sort: Option<&SemanticSortRef>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {

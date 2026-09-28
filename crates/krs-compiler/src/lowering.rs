@@ -615,17 +615,15 @@ fn lower_module(
         )?));
     }
 
-    let mut imports = module
+    let imports = module
         .imports()
         .iter()
         .map(|import| names.module(import))
-        .collect::<Result<Vec<_>, _>>()?;
-    imports.sort();
-    imports.dedup();
+        .collect::<Result<BTreeSet<_>, _>>()?;
     Ok(DefinitionModule::new(
         origins.lower(module.origin(), "module", None, Some(module.id().as_str()))?,
         names.module(module.id())?,
-        imports,
+        imports.into_iter().collect(),
         production_groups,
         sentences,
     ))

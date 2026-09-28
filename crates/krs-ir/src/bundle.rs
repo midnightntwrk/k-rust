@@ -122,8 +122,8 @@ impl DescriptorBundle {
 
     /// Returns canonical, inspectable JSON with one trailing newline.
     ///
-    /// Descriptor order and parent-sort order are normalized on a clone, so
-    /// this method never gives insertion order serialized meaning.
+    /// Descriptor and declaration order are normalized on a clone.
+    /// Parent-sort order is fixed by its set type.
     ///
     /// # Errors
     ///
@@ -447,20 +447,6 @@ impl Descriptor {
 
     fn canonicalize(&mut self) {
         self.provenance.canonicalize();
-        match &mut self.payload {
-            DescriptorPayload::Sort(sort) => {
-                sort.parents.sort();
-                sort.parents.dedup();
-            }
-            DescriptorPayload::Constructor(_)
-            | DescriptorPayload::Grammar(_)
-            | DescriptorPayload::StructuredRule(_)
-            | DescriptorPayload::FixedConfiguration(_)
-            | DescriptorPayload::Cell(_)
-            | DescriptorPayload::ConfigurationRule(_)
-            | DescriptorPayload::HeadRule(_)
-            | DescriptorPayload::ContextAlias(_) => {}
-        }
     }
 }
 
@@ -667,8 +653,8 @@ pub enum DescriptorPayload {
 /// Resolved open-sort payload.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct SortDescriptor {
-    /// Direct super-sorts. This is a set in canonical output.
-    pub parents: Vec<StableItemId>,
+    /// Direct super-sorts in canonical order.
+    pub parents: BTreeSet<StableItemId>,
 }
 
 /// Resolved constructor payload.

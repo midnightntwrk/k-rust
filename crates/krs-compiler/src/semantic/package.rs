@@ -43,7 +43,7 @@ pub(super) fn lower_package_module(
     descriptors: &[&Descriptor],
     module_ids: &BTreeMap<PackageId, ModuleId>,
     declarations: &DeclarationCatalog<'_>,
-    semantic_sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     let module_id = module_ids.get(package).cloned().ok_or_else(|| {
@@ -61,7 +61,7 @@ pub(super) fn lower_package_module(
                 detail: format!("package {package} has no semantic descriptors"),
             })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
-    let mut imports = referenced_packages(descriptors)
+    let imports = referenced_packages(descriptors)
         .into_iter()
         .filter(|referenced| referenced != package)
         .map(|referenced| {
@@ -72,9 +72,7 @@ pub(super) fn lower_package_module(
                 }
             })
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    imports.sort();
-    imports.dedup();
+        .collect::<Result<BTreeSet<_>, _>>()?;
 
     let mut sentences = ModuleSentences::default();
     for descriptor in descriptors {
@@ -106,7 +104,7 @@ pub(super) fn lower_package_module(
     Ok(SemanticModule::new_with_context_aliases(
         module_origin,
         module_id,
-        imports,
+        imports.into_iter().collect(),
         sorts,
         subsorts,
         productions,
@@ -122,7 +120,7 @@ pub(super) fn lower_package_module(
 fn lower_module_descriptor(
     descriptor: &Descriptor,
     declarations: &DeclarationCatalog<'_>,
-    semantic_sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    semantic_sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
     sentences: &mut ModuleSentences,
 ) -> Result<(), DescriptorLoweringError> {

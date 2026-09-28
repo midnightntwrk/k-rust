@@ -400,13 +400,13 @@ impl SemanticTheory {
 }
 
 /// One resolved module. Imports are a set; declaration vectors are sentence
-/// sets and are canonically sorted without reordering nested semantic data.
+/// collections and are canonically sorted without reordering nested semantic data.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SemanticModule {
     origin: NodeOrigin,
     id: ModuleId,
-    imports: Vec<ModuleId>,
+    imports: BTreeSet<ModuleId>,
     sorts: Vec<SemanticSort>,
     subsorts: Vec<SemanticSubsort>,
     productions: Vec<SemanticProduction>,
@@ -469,7 +469,7 @@ impl SemanticModule {
         Self {
             origin,
             id,
-            imports,
+            imports: imports.into_iter().collect(),
             sorts,
             subsorts,
             productions,
@@ -493,7 +493,7 @@ impl SemanticModule {
     }
     /// Returns set-valued imports.
     #[must_use]
-    pub fn imports(&self) -> &[ModuleId] {
+    pub const fn imports(&self) -> &BTreeSet<ModuleId> {
         &self.imports
     }
     /// Returns sort declarations.
@@ -538,8 +538,6 @@ impl SemanticModule {
     }
 
     fn canonicalize(&mut self) {
-        self.imports.sort();
-        self.imports.dedup();
         self.sorts.sort_by(|left, right| left.id.cmp(&right.id));
         self.subsorts.sort();
         self.productions

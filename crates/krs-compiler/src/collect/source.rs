@@ -17,7 +17,7 @@ use super::trivia::validate_dsl_trivia;
 use crate::facade::AttributeResolver;
 use crate::{CollectionError, CollectionErrorKind};
 
-static READ_FILES: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+static READ_FILES: Mutex<BTreeSet<(PathBuf, String)>> = Mutex::new(BTreeSet::new());
 static PROBES: Mutex<Vec<CollectorPathProbe>> = Mutex::new(Vec::new());
 static TRACK_READS: AtomicBool = AtomicBool::new(false);
 
@@ -29,9 +29,9 @@ pub(super) fn start_read_set() {
 
 pub(super) fn take_read_set() -> krs_ir::measure::CollectorReadSet {
     TRACK_READS.store(false, Ordering::Relaxed);
-    let mut files = std::mem::take(&mut *READ_FILES.lock().expect("read set lock poisoned"));
-    files.sort();
-    files.dedup();
+    let files = std::mem::take(&mut *READ_FILES.lock().expect("read set lock poisoned"))
+        .into_iter()
+        .collect();
     let mut probes = std::mem::take(&mut *PROBES.lock().expect("probe lock poisoned"));
     probes.sort_by(|left, right| left.path.cmp(&right.path));
     probes.dedup();
@@ -42,7 +42,7 @@ pub(crate) fn record_file(path: &Path, bytes: &[u8]) {
     if !TRACK_READS.load(Ordering::Relaxed) {
         return;
     }
-    READ_FILES.lock().expect("read set lock poisoned").push((
+    READ_FILES.lock().expect("read set lock poisoned").insert((
         path.canonicalize().unwrap_or_else(|_| path.to_path_buf()),
         format!("{:x}", Sha256::digest(bytes)),
     ));

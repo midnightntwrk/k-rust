@@ -364,7 +364,7 @@ impl Sample for SetOperation {
 impl Sample for SortDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
-            parents: sample::<Vec<StableItemId>>(),
+            parents: sample::<BTreeSet<StableItemId>>(),
         }]
     }
 }

@@ -385,14 +385,13 @@ fn emit_module<'a>(
     writer.push("module ");
     writer.push(module.id().as_str());
     writer.push("\n");
-    let mut imports = module
-        .imports()
-        .iter()
-        .map(|import| import.as_str().to_owned())
-        .collect::<Vec<_>>();
-    imports.extend(builtin_imports(module));
-    imports.sort();
-    imports.dedup();
+    let mut imports = builtin_imports(module);
+    imports.extend(
+        module
+            .imports()
+            .iter()
+            .map(|import| import.as_str().to_owned()),
+    );
     for import in &imports {
         writer.push("  imports ");
         writer.push(import);
@@ -507,7 +506,7 @@ impl BuiltinRequirements {
     }
 }
 
-fn builtin_imports(module: &DefinitionModule) -> Vec<String> {
+fn builtin_imports(module: &DefinitionModule) -> BTreeSet<String> {
     let mut requirements = BuiltinRequirements::default();
     for sentence in module.sentences() {
         match sentence {
@@ -567,12 +566,12 @@ fn builtin_imports(module: &DefinitionModule) -> Vec<String> {
             }
         }
     }
-    let imports = requirements
+    requirements
         .sorts
         .into_iter()
         .filter_map(|sort| builtin_import(sort, &requirements.operations))
-        .collect::<BTreeSet<_>>();
-    imports.into_iter().map(str::to_owned).collect()
+        .map(str::to_owned)
+        .collect()
 }
 
 fn builtin_import(

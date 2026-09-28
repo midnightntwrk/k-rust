@@ -138,13 +138,13 @@ pub struct ResolvedPackage {
     pub version: String,
     /// Path-free logical Cargo source identity.
     pub cargo_source: String,
-    /// Activated Cargo feature names, sorted and deduplicated.
-    pub features: Vec<String>,
+    /// Activated Cargo feature names.
+    pub features: BTreeSet<String>,
     /// Whether this package contributes an explicitly selected semantics facet.
     pub semantics: bool,
     pub(crate) cargo_package_id: String,
     pub(crate) manifest_path: PathBuf,
-    pub(crate) dependency_ids: Vec<String>,
+    pub(crate) dependency_ids: BTreeSet<String>,
 }
 
 /// A deterministic, validated collector build plan.
@@ -156,8 +156,8 @@ pub struct CollectorPlan {
     package_closure: Vec<ResolvedPackage>,
     /// Host target triple.
     host_target: String,
-    /// Sorted, deduplicated KRS cfg inputs.
-    cfg: Vec<KrsCfg>,
+    /// KRS cfg inputs.
+    cfg: BTreeSet<KrsCfg>,
     pub(crate) dependencies: Vec<GeneratedDependency>,
     pub(crate) kind: CollectorKind,
 }
@@ -197,7 +197,7 @@ struct ResolvedSelection {
     facets: Vec<ResolvedFacet>,
     package_closure: Vec<ResolvedPackage>,
     host_target: String,
-    cfg: Vec<KrsCfg>,
+    cfg: BTreeSet<KrsCfg>,
     dependencies: Vec<GeneratedDependency>,
     extra_alias: Option<String>,
 }
@@ -220,7 +220,7 @@ pub(crate) struct GeneratedDependency {
     pub alias: String,
     pub package_name: String,
     pub manifest_path: PathBuf,
-    pub features: Vec<String>,
+    pub features: BTreeSet<String>,
     pub semantics: bool,
 }
 
@@ -364,23 +364,15 @@ impl CollectorPlan {
             .map(|id| {
                 let package = packages[id.as_str()];
                 let node = nodes[id.as_str()];
-                let mut features = node.features.clone();
-                features.sort();
-                features.dedup();
                 ResolvedPackage {
                     name: package.name.clone(),
                     version: package.version.clone(),
                     cargo_source: logical_cargo_source(package, &workspace_members),
-                    features,
+                    features: node.features.iter().cloned().collect(),
                     semantics: semantic_ids.contains(id.as_str()),
                     cargo_package_id: id.clone(),
                     manifest_path: PathBuf::from(&package.manifest_path),
-                    dependency_ids: {
-                        let mut dependencies = node.dependencies.clone();
-                        dependencies.sort();
-                        dependencies.dedup();
-                        dependencies
-                    },
+                    dependency_ids: node.dependencies.iter().cloned().collect(),
                 }
             })
             .collect::<Vec<_>>();
@@ -390,29 +382,22 @@ impl CollectorPlan {
             .map(|id| {
                 let package = packages[*id];
                 let node = nodes[*id];
-                let mut features = node.features.clone();
-                features.sort();
-                features.dedup();
                 GeneratedDependency {
                     alias: aliases[*id].clone(),
                     package_name: package.name.clone(),
                     manifest_path: PathBuf::from(&package.manifest_path),
-                    features,
+                    features: node.features.iter().cloned().collect(),
                     semantics: semantic_ids.contains(*id),
                 }
             })
             .collect::<Vec<_>>();
         dependencies.sort_by(|left, right| left.alias.cmp(&right.alias));
 
-        let mut cfg = cfg.to_vec();
-        cfg.sort();
-        cfg.dedup();
-
         Ok(ResolvedSelection {
             facets,
             package_closure,
             host_target: host_target.to_owned(),
-            cfg,
+            cfg: cfg.iter().cloned().collect(),
             dependencies,
             extra_alias: extra_package.map(|package| aliases[&package.id].clone()),
         })
@@ -553,9 +538,9 @@ impl CollectorPlan {
         &self.host_target
     }
 
-    /// Sorted, deduplicated KRS cfg inputs.
+    /// KRS cfg inputs in canonical order.
     #[must_use]
-    pub fn cfg(&self) -> &[KrsCfg] {
+    pub fn cfg(&self) -> &BTreeSet<KrsCfg> {
         &self.cfg
     }
 
@@ -642,11 +627,11 @@ impl CollectorPlan {
         Ok(contexts)
     }
 
-    fn features_for(&self, package_id: &str) -> &[String] {
+    fn features_for(&self, package_id: &str) -> BTreeSet<&String> {
         self.package_closure
             .iter()
             .find(|package| package.cargo_package_id == package_id)
-            .map_or(&[], |package| package.features.as_slice())
+            .map_or_else(BTreeSet::new, |package| package.features.iter().collect())
     }
 }
 
@@ -654,7 +639,7 @@ impl CollectorPlan {
 struct CanonicalSelection<'a> {
     schema: u32,
     facets: Vec<CanonicalFacet<'a>>,
-    cfg: &'a [KrsCfg],
+    cfg: &'a BTreeSet<KrsCfg>,
 }
 
 #[derive(Serialize)]
@@ -672,7 +657,7 @@ struct CanonicalFacet<'a> {
     root: &'a str,
     #[serde(rename = "syntax-root")]
     syntax_root: &'a str,
-    features: &'a [String],
+    features: BTreeSet<&'a String>,
 }
 
 struct FacetRecord<'a> {
@@ -982,14 +967,13 @@ fn dependency_order(
             ));
         }
         let node = nodes[id];
-        let mut dependencies = node.dependencies.clone();
-        dependencies.sort_by(|left, right| {
-            package_sort_key(packages[left.as_str()])
-                .cmp(&package_sort_key(packages[right.as_str()]))
-        });
-        dependencies.dedup();
-        for dependency in dependencies {
-            visit(&dependency, nodes, packages, visiting, visited, output)?;
+        let dependencies = node
+            .dependencies
+            .iter()
+            .map(|dependency| (package_sort_key(packages[dependency.as_str()]), dependency))
+            .collect::<BTreeSet<_>>();
+        for (_, dependency) in dependencies {
+            visit(dependency, nodes, packages, visiting, visited, output)?;
         }
         visiting.remove(id);
         visited.insert(id.to_owned());

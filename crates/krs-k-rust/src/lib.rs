@@ -1286,12 +1286,13 @@ impl Adapter {
             let native = self.sentence(sentence, &module_name, sentence_index)?;
             local_sentences.push(std::sync::Arc::new(native));
         }
-        let mut imports = module
-            .imports()
-            .iter()
-            .map(|import| import.as_str().to_owned())
-            .collect::<BTreeSet<_>>();
-        imports.extend(module_builtin_imports(module));
+        let mut imports = module_builtin_imports(module);
+        imports.extend(
+            module
+                .imports()
+                .iter()
+                .map(|import| import.as_str().to_owned()),
+        );
         Ok(FlatModule {
             name: module_name,
             imports: imports

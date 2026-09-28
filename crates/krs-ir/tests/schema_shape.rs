@@ -841,7 +841,7 @@ fn collector_encoding_is_pinned() {
     let sort = collector_descriptor(
         sort_id.clone(),
         DescriptorPayload::Sort(SortDescriptor {
-            parents: Vec::new(),
+            parents: BTreeSet::new(),
         }),
         true,
     );

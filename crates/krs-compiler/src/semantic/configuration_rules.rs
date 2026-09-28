@@ -29,7 +29,7 @@ type DescriptorRuleCell = ProtocolRuleCell<DescriptorCellReference, DescriptorTe
 struct StateRuleTerms<'a> {
     descriptor: &'a Descriptor,
     declarations: &'a BTreeMap<StableItemId, &'a Descriptor>,
-    sort_parents: &'a BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
@@ -193,7 +193,7 @@ pub(super) fn lower_configuration_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorConfigurationRule,
     declarations: &BTreeMap<StableItemId, &Descriptor>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let configuration = require_fixed_configuration(
@@ -458,7 +458,7 @@ pub(super) fn lower_context_alias_descriptor(
     descriptor: &Descriptor,
     alias: &krs_ir::DescriptorContextAlias,
     declarations: &BTreeMap<StableItemId, &Descriptor>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticContextAlias, DescriptorLoweringError> {
     let configuration = require_fixed_configuration(

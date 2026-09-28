@@ -1,6 +1,6 @@
 //! Target-neutral open-sort analysis tests.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::{AnalysisErrorKind, analyze_open_sorts};
 use krs_ir::testing;
@@ -28,10 +28,13 @@ fn diamond_closure_and_constructor_membership_are_path_independent() {
     let analysis = analyze_open_sorts(&bundle).unwrap();
     assert_eq!(
         analysis.transitive_parents()[&value],
-        vec![expr.clone(), kitem.clone(), kresult.clone()]
+        BTreeSet::from([expr.clone(), kitem.clone(), kresult.clone()])
     );
     assert_eq!(analysis.member_sorts()[&integer].len(), 4);
-    assert_eq!(analysis.constructors_by_sort()[&kitem], vec![integer]);
+    assert_eq!(
+        analysis.constructors_by_sort()[&kitem],
+        BTreeSet::from([integer])
+    );
 }
 
 #[test]
@@ -125,7 +128,9 @@ fn sort(id: StableItemId, parents: Vec<StableItemId>) -> Descriptor {
         id,
         cfg: BTreeMap::new(),
         provenance: provenance(ProvenanceRole::SortDeclaration),
-        payload: DescriptorPayload::Sort(SortDescriptor { parents }),
+        payload: DescriptorPayload::Sort(SortDescriptor {
+            parents: parents.into_iter().collect(),
+        }),
     }
 }
 

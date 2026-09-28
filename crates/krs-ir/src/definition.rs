@@ -583,15 +583,15 @@ impl DefinitionIr {
 pub struct DefinitionModule {
     origin: NodeOrigin,
     id: ModuleId,
-    imports: Vec<ModuleId>,
+    imports: BTreeSet<ModuleId>,
     production_groups: Vec<ProductionGroupIdentity>,
     sentences: Vec<DefinitionSentence>,
 }
 
 impl DefinitionModule {
-    /// Creates a module. Imports and sentences are set-valued at this stage.
+    /// Creates a module. Imports are a set; sentences retain caller order until canonical serialization.
     #[must_use]
-    pub const fn new(
+    pub fn new(
         origin: NodeOrigin,
         id: ModuleId,
         imports: Vec<ModuleId>,
@@ -601,7 +601,7 @@ impl DefinitionModule {
         Self {
             origin,
             id,
-            imports,
+            imports: imports.into_iter().collect(),
             production_groups,
             sentences,
         }
@@ -618,7 +618,7 @@ impl DefinitionModule {
     }
     /// Returns imported module IDs.
     #[must_use]
-    pub fn imports(&self) -> &[ModuleId] {
+    pub const fn imports(&self) -> &BTreeSet<ModuleId> {
         &self.imports
     }
     /// Returns compiler-owned emitted identities for nominal production groups.
@@ -632,8 +632,6 @@ impl DefinitionModule {
         &self.sentences
     }
     fn canonicalize(&mut self) {
-        self.imports.sort();
-        self.imports.dedup();
         self.production_groups
             .sort_by(|left, right| left.id.cmp(&right.id));
         self.sentences

@@ -14,34 +14,34 @@ use crate::{AnalysisError, AnalysisErrorKind};
 /// and diamonds are deduplicated by stable identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OpenSortAnalysis {
-    direct_parents: BTreeMap<StableItemId, Vec<StableItemId>>,
-    transitive_parents: BTreeMap<StableItemId, Vec<StableItemId>>,
-    member_sorts: BTreeMap<StableItemId, Vec<StableItemId>>,
-    constructors_by_sort: BTreeMap<StableItemId, Vec<StableItemId>>,
+    direct_parents: BTreeMap<StableItemId, BTreeSet<StableItemId>>,
+    transitive_parents: BTreeMap<StableItemId, BTreeSet<StableItemId>>,
+    member_sorts: BTreeMap<StableItemId, BTreeSet<StableItemId>>,
+    constructors_by_sort: BTreeMap<StableItemId, BTreeSet<StableItemId>>,
 }
 
 impl OpenSortAnalysis {
     /// Returns direct `subsort -> supersort` edges in canonical order.
     #[must_use]
-    pub const fn direct_parents(&self) -> &BTreeMap<StableItemId, Vec<StableItemId>> {
+    pub const fn direct_parents(&self) -> &BTreeMap<StableItemId, BTreeSet<StableItemId>> {
         &self.direct_parents
     }
 
     /// Returns strict transitive parents for every sort in canonical order.
     #[must_use]
-    pub const fn transitive_parents(&self) -> &BTreeMap<StableItemId, Vec<StableItemId>> {
+    pub const fn transitive_parents(&self) -> &BTreeMap<StableItemId, BTreeSet<StableItemId>> {
         &self.transitive_parents
     }
 
     /// Returns every direct or inherited sort containing each constructor.
     #[must_use]
-    pub const fn member_sorts(&self) -> &BTreeMap<StableItemId, Vec<StableItemId>> {
+    pub const fn member_sorts(&self) -> &BTreeMap<StableItemId, BTreeSet<StableItemId>> {
         &self.member_sorts
     }
 
     /// Returns direct and inherited constructors visible through each sort.
     #[must_use]
-    pub const fn constructors_by_sort(&self) -> &BTreeMap<StableItemId, Vec<StableItemId>> {
+    pub const fn constructors_by_sort(&self) -> &BTreeMap<StableItemId, BTreeSet<StableItemId>> {
         &self.constructors_by_sort
     }
 }
@@ -56,21 +56,16 @@ impl OpenSortAnalysis {
 pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis, AnalysisError> {
     let kinds = descriptor_kinds(bundle)?;
     let OpenSortEdges {
-        mut direct_parents,
+        direct_parents,
         mut constructors,
     } = open_sort_edges(bundle, &kinds)?;
 
-    for parents in direct_parents.values_mut() {
-        parents.sort();
-        parents.dedup();
-    }
-
-    let mut transitive_parents: BTreeMap<StableItemId, Vec<StableItemId>> = BTreeMap::new();
+    let mut transitive_parents: BTreeMap<StableItemId, BTreeSet<StableItemId>> = BTreeMap::new();
     for sort in direct_parents.keys() {
         let mut visiting = Vec::new();
         let mut closure = BTreeSet::new();
         visit_parents(sort, sort, &direct_parents, &mut visiting, &mut closure)?;
-        transitive_parents.insert(sort.clone(), closure.into_iter().collect());
+        transitive_parents.insert(sort.clone(), closure);
     }
 
     constructors.sort();
@@ -78,14 +73,13 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
     let mut constructors_by_sort = direct_parents
         .keys()
         .cloned()
-        .map(|sort| (sort, Vec::new()))
+        .map(|sort| (sort, BTreeSet::new()))
         .collect::<BTreeMap<_, _>>();
     for (constructor, direct_sort) in constructors {
         let mut memberships = BTreeSet::from([direct_sort.clone()]);
         if let Some(parents) = transitive_parents.get(&direct_sort) {
             memberships.extend(parents.iter().cloned());
         }
-        let memberships = memberships.into_iter().collect::<Vec<_>>();
         for sort in &memberships {
             let Some(members) = constructors_by_sort.get_mut(sort) else {
                 return Err(AnalysisError::new(
@@ -93,13 +87,9 @@ pub fn analyze_open_sorts(bundle: &DescriptorBundle) -> Result<OpenSortAnalysis,
                     format!("member sort `{sort}` has no declaration"),
                 ));
             };
-            members.push(constructor.clone());
+            members.insert(constructor.clone());
         }
         member_sorts.insert(constructor, memberships);
-    }
-    for members in constructors_by_sort.values_mut() {
-        members.sort();
-        members.dedup();
     }
 
     Ok(OpenSortAnalysis {
@@ -132,7 +122,7 @@ fn descriptor_kinds(
 /// Direct subsort edges and `(constructor, declared sort)` memberships, before
 /// canonical ordering.
 struct OpenSortEdges {
-    direct_parents: BTreeMap<StableItemId, Vec<StableItemId>>,
+    direct_parents: BTreeMap<StableItemId, BTreeSet<StableItemId>>,
     constructors: Vec<(StableItemId, StableItemId)>,
 }
 
@@ -140,22 +130,19 @@ fn open_sort_edges(
     bundle: &DescriptorBundle,
     kinds: &BTreeMap<StableItemId, ItemKind>,
 ) -> Result<OpenSortEdges, AnalysisError> {
-    let mut direct_parents: BTreeMap<StableItemId, Vec<StableItemId>> = BTreeMap::new();
+    let mut direct_parents: BTreeMap<StableItemId, BTreeSet<StableItemId>> = BTreeMap::new();
     let mut constructors = Vec::new();
     for descriptor in &bundle.descriptors {
         match &descriptor.payload {
             DescriptorPayload::Sort(sort) => {
                 require_kind(&descriptor.id, ItemKind::Sort, kinds)?;
-                let mut parents = sort.parents.clone();
-                parents.sort();
-                parents.dedup();
-                for parent in &parents {
+                for parent in &sort.parents {
                     require_kind(parent, ItemKind::Sort, kinds)?;
                 }
                 direct_parents
                     .entry(descriptor.id.clone())
                     .or_default()
-                    .extend(parents);
+                    .extend(sort.parents.iter().cloned());
             }
             DescriptorPayload::Constructor(constructor) => {
                 require_kind(&descriptor.id, ItemKind::Constructor, kinds)?;
@@ -191,7 +178,7 @@ fn open_sort_edges(
                         direct_parents
                             .entry(subsort.clone())
                             .or_default()
-                            .push(supersort.clone());
+                            .insert(supersort.clone());
                     }
                 }
                 GrammarDescriptor::Precedence { .. } | GrammarDescriptor::Associativity { .. } => {}
@@ -207,7 +194,7 @@ fn open_sort_edges(
 fn visit_parents(
     root: &StableItemId,
     current: &StableItemId,
-    graph: &BTreeMap<StableItemId, Vec<StableItemId>>,
+    graph: &BTreeMap<StableItemId, BTreeSet<StableItemId>>,
     visiting: &mut Vec<StableItemId>,
     closure: &mut BTreeSet<StableItemId>,
 ) -> Result<(), AnalysisError> {

@@ -1,6 +1,6 @@
 //! Golden protocol and serialization-boundary tests.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::testing::{authored, item};
 use krs_ir::transport::collector;
@@ -53,8 +53,7 @@ fn populated_bundle(reverse: bool) -> DescriptorBundle {
     let sort = descriptor(
         value.clone(),
         DescriptorPayload::Sort(SortDescriptor {
-            // Parent insertion is intentionally non-canonical.
-            parents: vec![k_item.clone(), k_item.clone()],
+            parents: BTreeSet::from([k_item.clone()]),
         }),
     );
     let constructor = descriptor(

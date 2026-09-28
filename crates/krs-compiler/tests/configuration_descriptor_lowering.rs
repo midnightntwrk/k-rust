@@ -1,6 +1,6 @@
 //! Stable configuration descriptors reach the existing semantic/Definition lane.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::{emit_k, lower_descriptor_bundle, lower_semantic_theory};
 use krs_ir::testing;
@@ -443,11 +443,15 @@ fn bundle() -> DescriptorBundle {
     DescriptorBundle::new(vec![
         descriptor(
             framework_kitem(),
-            DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+            DescriptorPayload::Sort(SortDescriptor {
+                parents: BTreeSet::new(),
+            }),
         ),
         descriptor(
             id("Value", ItemKind::Sort),
-            DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+            DescriptorPayload::Sort(SortDescriptor {
+                parents: BTreeSet::new(),
+            }),
         ),
         descriptor(
             owner,

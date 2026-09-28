@@ -1,6 +1,6 @@
 //! Stable grammar and structured-rule descriptors lower without reparsing Rust spellings.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use krs_compiler::{
     LoweringError, MappedIdentity, SourceMapNodeKind, emit_k, lower_descriptor_bundle,
@@ -187,7 +187,9 @@ fn bundle() -> (DescriptorBundle, StableItemId) {
     let mut descriptors = vec![
         declaration(
             expr.clone(),
-            DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+            DescriptorPayload::Sort(SortDescriptor {
+                parents: BTreeSet::new(),
+            }),
             ProvenanceRole::SortDeclaration,
         ),
         declaration(
@@ -530,7 +532,7 @@ fn add_builtin_expr_subsort(
             [key(ProvenanceRole::SortParent, 0)],
         ),
         payload: DescriptorPayload::Sort(SortDescriptor {
-            parents: vec![expr],
+            parents: [expr].into(),
         }),
     });
     let primary = key(ProvenanceRole::SubsortDeclaration, 0);
@@ -633,7 +635,7 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundle, name: &str) -> Stab
             [key(ProvenanceRole::SortParent, 0)],
         ),
         payload: DescriptorPayload::Sort(SortDescriptor {
-            parents: vec![expr],
+            parents: [expr].into(),
         }),
     });
     let primary = key(ProvenanceRole::SubsortDeclaration, 0);
@@ -961,7 +963,9 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
         let sort_id = id(builtin.k_name(), ItemKind::Sort);
         descriptors.descriptors.push(declaration(
             sort_id.clone(),
-            DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+            DescriptorPayload::Sort(SortDescriptor {
+                parents: BTreeSet::new(),
+            }),
             ProvenanceRole::SortDeclaration,
         ));
         let error = lower_descriptor_bundle(&descriptors)
@@ -977,7 +981,9 @@ fn declared_sort_names_cannot_collide_with_builtin_k_names() {
     let sort_id = id("Renamed", ItemKind::Sort);
     descriptors.descriptors.push(declaration(
         sort_id.clone(),
-        DescriptorPayload::Sort(SortDescriptor { parents: vec![] }),
+        DescriptorPayload::Sort(SortDescriptor {
+            parents: BTreeSet::new(),
+        }),
         ProvenanceRole::SortDeclaration,
     ));
     descriptors

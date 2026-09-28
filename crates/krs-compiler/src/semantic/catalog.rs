@@ -25,8 +25,8 @@ pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
 
 pub(super) fn build_semantic_sort_parents(
     descriptors: &[&Descriptor],
-) -> BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> {
-    let mut parents = BTreeMap::<SemanticSortRef, Vec<SemanticSortRef>>::new();
+) -> BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>> {
+    let mut parents = BTreeMap::<SemanticSortRef, BTreeSet<SemanticSortRef>>::new();
     for descriptor in descriptors {
         match &descriptor.payload {
             DescriptorPayload::Sort(sort) => {
@@ -43,7 +43,7 @@ pub(super) fn build_semantic_sort_parents(
                     parents
                         .entry(semantic_sort_ref(&subsort.sort))
                         .or_default()
-                        .push(semantic_sort_ref(&supersort.sort));
+                        .insert(semantic_sort_ref(&supersort.sort));
                 }
             }
             DescriptorPayload::Constructor(_)
@@ -55,17 +55,13 @@ pub(super) fn build_semantic_sort_parents(
             | DescriptorPayload::ContextAlias(_) => {}
         }
     }
-    for direct in parents.values_mut() {
-        direct.sort();
-        direct.dedup();
-    }
     parents
 }
 
 pub(super) fn semantic_is_subsort(
     candidate: &SemanticSortRef,
     expected: &SemanticSortRef,
-    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> bool {
     if candidate == expected {
         return true;
@@ -191,7 +187,7 @@ pub(super) struct DeclarationCatalog<'a> {
 pub(super) fn common_sequence_item_sort(
     descriptor: &Descriptor,
     items: &[SemanticTerm],
-    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<SemanticSortRef, DescriptorLoweringError> {
     if items.is_empty() {
         return Ok(SemanticSortRef::k_sequence());
@@ -221,7 +217,7 @@ pub(super) fn common_sequence_item_sort(
 
 pub(super) fn semantic_sort_closure(
     start: &SemanticSortRef,
-    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> BTreeSet<SemanticSortRef> {
     let mut pending = vec![start.clone()];
     let mut closure = BTreeSet::new();

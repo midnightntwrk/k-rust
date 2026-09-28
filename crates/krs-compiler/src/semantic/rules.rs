@@ -141,7 +141,7 @@ pub(super) fn lower_head_rule_descriptor(
     descriptor: &Descriptor,
     rule: &krs_ir::DescriptorHeadRule,
     declarations: &BTreeMap<StableItemId, &Descriptor>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let configuration = head_rule_configuration(rule, declarations)?;
@@ -426,7 +426,7 @@ fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
     head_sort: Option<&SemanticSortRef>,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = builder.descriptor;
     let subject_head = builder.lower(&rule.subject, head_sort, true)?;
@@ -669,7 +669,7 @@ fn collect_declared_leaf_identities(
 pub(super) fn lower_structured_rule_descriptor(
     descriptor: &Descriptor,
     rule: &StructuredRuleDescriptor,
-    sort_parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticRule, DescriptorLoweringError> {
     let binding_names = rule.bindings.iter().cloned().collect::<BTreeSet<_>>();

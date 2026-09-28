@@ -1,7 +1,7 @@
 //! Resolution of host descriptor payloads against the declared items of the selected packages.
 
 use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, DescriptorApplicationRef,
@@ -522,13 +522,11 @@ pub(super) fn resolve_payload(
 ) -> Result<DescriptorPayload, CollectionError> {
     match payload {
         HostDescriptorPayload::Sort(sort) => {
-            let mut parents = sort
+            let parents = sort
                 .parents
                 .iter()
                 .map(|parent| resolve_nominal_reference(parent, ItemKind::Sort, declarations))
-                .collect::<Result<Vec<_>, _>>()?;
-            parents.sort();
-            parents.dedup();
+                .collect::<Result<BTreeSet<_>, _>>()?;
             Ok(DescriptorPayload::Sort(SortDescriptor { parents }))
         }
         HostDescriptorPayload::Constructor(constructor) => {

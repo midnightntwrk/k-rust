@@ -19,7 +19,7 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
     pub(super) declarations: Option<&'a BTreeMap<StableItemId, &'a Descriptor>>,
     pub(super) k_item_sort: Option<SemanticSortRef>,
-    pub(super) sort_parents: &'a BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    pub(super) sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     pub(super) binding_names: &'a BTreeSet<String>,
     pub(super) pattern_key: Option<&'a ProvenanceKey>,
     /// Finalized inferred sorts.
@@ -929,7 +929,7 @@ pub(super) fn initial_binding_constraints(
 /// ambiguous result deterministic for diagnostics.
 fn most_specific_common_descendants(
     constraints: &BTreeSet<SemanticSortRef>,
-    parents: &BTreeMap<SemanticSortRef, Vec<SemanticSortRef>>,
+    parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Vec<SemanticSortRef> {
     let universe = parents
         .keys()
