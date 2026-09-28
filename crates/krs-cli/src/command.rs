@@ -410,7 +410,7 @@ fn build_collector_measured(
 ) -> Result<PathBuf, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
     // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let mut build = ProcessCommand::new("cargo");
+    let mut build = crate::cargo::command();
     build
         .current_dir(collector_directory)
         .args(["build", "--manifest-path"])
@@ -917,7 +917,7 @@ fn write_output(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), Comman
 fn cargo_metadata(manifest: &Path) -> Result<CargoMetadata, CommandError> {
     let output = cargo(
         "Cargo metadata",
-        ProcessCommand::new("cargo")
+        crate::cargo::command()
             .args(["metadata", "--format-version", "1", "--manifest-path"])
             .arg(manifest),
     )?;

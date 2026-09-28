@@ -6,6 +6,7 @@
 //! entrypoint-based planner remains available for the compatibility oracle;
 //! authored production packages do not implement a collector runtime.
 
+mod cargo;
 mod command;
 mod diagnostic;
 mod generate;
