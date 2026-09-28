@@ -117,3 +117,8 @@ jobs:
 
       - name: Check WebAssembly compatibility
         run: cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
+
+      - name: Check the standalone regex crate stays dependency-free
+        run: |
+          cargo build -p k-rust-regex --target wasm32-unknown-unknown --locked
+          test "$(cargo tree -p k-rust-regex -e normal --prefix none | wc -l)" -eq 1

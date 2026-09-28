@@ -1032,6 +1032,7 @@ dependencies = [
  "k-rust",
  "k-rust-backend",
  "k-rust-kore",
+ "k-rust-regex",
  "lean-conformance",
  "libc",
  "num-bigint",
@@ -1104,6 +1105,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "k-rust-regex"
+version = "0.4.0"
 
 [[package]]
 name = "k-rust-wasm"

@@ -14,7 +14,7 @@ fixture_homes = ["inner"]
 
 [[subsystem]]
 name = "definition"
-source_pattern = "k-rust/src/definition/|tests/definition_|tests/partial_order|tests/provenance_manifest|src/provenance\\.rs|src/builtin\\.rs|tests/hook_capabilities|tests/structured_definition_conformance"
+source_pattern = "k-rust/src/definition/|k-rust-regex/|tests/definition_|tests/partial_order|tests/provenance_manifest|src/provenance\\.rs|src/builtin\\.rs|tests/hook_capabilities|tests/structured_definition_conformance"
 fixture_homes = []
 
 [[subsystem]]

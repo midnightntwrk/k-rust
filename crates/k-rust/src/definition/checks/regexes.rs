@@ -1,13 +1,15 @@
 //! This Java-compatible definition check traverses module sentences and terms linearly; callers supply derived catalogs and no dedicated counter is recorded.
 //!
-//! Semantic validation ported from Java `CheckRegex`.
+//! Definition-dependent validation of K token regexes: `{Name}` references must resolve to
+//! lexical declarations without cycles, and named lexical declarations cannot carry line anchors.
+//! Everything decidable from one regex alone comes from `k_rust_regex::check`.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::Sentence;
 use crate::definition::ProductionItem;
-use crate::definition::regex::{CharClass, Regex, RegexBody, parse};
+use crate::definition::regex::{Issue, Regex, check, parse};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 
 pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnostic> {
@@ -28,7 +30,12 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
                 Ok(regex) => {
                     dependencies.insert(
                         name.clone(),
-                        named_references(&regex.body).into_iter().collect(),
+                        regex
+                            .body
+                            .named_references()
+                            .into_iter()
+                            .map(str::to_owned)
+                            .collect(),
                     );
                     if regex.start_line || regex.end_line {
                         diagnostics.push(invalid_regex(
@@ -58,8 +65,8 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
         // Invariant: `bad_names` holds, without duplicates and in first-occurrence order, the undeclared names yielded before `name`; each iteration consumes one yielded name and scans `bad_names` once, quadratic in the number of undeclared references.
         for name in parsed
             .iter()
-            .flat_map(|regex| named_references(&regex.body))
-            .filter(|name| !declarations.contains_key(name))
+            .flat_map(|regex| regex.body.named_references())
+            .filter(|name| !declarations.contains_key(*name))
         {
             if !bad_names.contains(&name) {
                 bad_names.push(name);
@@ -93,100 +100,34 @@ pub fn check_regexes(local: &[&Sentence], visible: &[&Sentence]) -> Vec<Diagnost
     diagnostics
 }
 
+// Descending ranges are reported per occurrence; the non-ASCII findings of all regexes in one
+// sentence are merged, so a sentence gets at most one diagnostic of each non-ASCII kind.
 fn check_parsed_regexes(regexes: &[Regex], sentence: &Sentence, diagnostics: &mut Vec<Diagnostic>) {
-    let mut negated_unicode = Vec::new();
-    let mut range_unicode = Vec::new();
-    for regex in regexes {
-        regex.body.visit_preorder(&mut |body| match body {
-            RegexBody::CharClass { negated, members } => {
-                for member in members {
-                    match member {
-                        CharClass::Char(character) if *negated && !character.is_ascii() => {
-                            push_unique(&mut negated_unicode, *character);
-                        }
-                        CharClass::Range { start, end } => {
-                            if *negated {
-                                for character in [*start, *end]
-                                    .into_iter()
-                                    .filter(|character| !character.is_ascii())
-                                {
-                                    push_unique(&mut negated_unicode, character);
-                                }
-                            }
-                            for character in [*start, *end]
-                                .into_iter()
-                                .filter(|character| !character.is_ascii())
-                            {
-                                push_unique(&mut range_unicode, character);
-                            }
-                            if start > end {
-                                diagnostics.push(invalid_regex(
-                                    format!(
-                                        "Invalid character range '{}'. Start of range U+{:04X} is greater than end of range U+{:04X}.",
-                                        member,
-                                        *start as u32,
-                                        *end as u32
-                                    ),
-                                    sentence,
-                                ));
-                            }
-                        }
-                        CharClass::Char(_) => {}
-                    }
+    let mut negated_non_ascii = Vec::new();
+    let mut range_non_ascii = Vec::new();
+    for issue in regexes.iter().flat_map(check) {
+        match issue {
+            Issue::NonAsciiInNegatedClass(characters) => {
+                for character in characters {
+                    push_unique(&mut negated_non_ascii, character);
                 }
             }
-            RegexBody::Range {
-                at_least,
-                at_most,
-                ..
-            } if at_least > at_most => diagnostics.push(invalid_regex(
-                format!(
-                    "Invalid numeric range '{}'. Start of range {at_least} is greater than end of range {at_most}.",
-                    body
-                ),
-                sentence,
-            )),
-            _ => {}
-        });
-    }
-    if !negated_unicode.is_empty() {
-        diagnostics.push(invalid_regex(
-            format!(
-                "Unsupported non-ASCII characters found in negated character class: [{}]",
-                negated_unicode
-                    .into_iter()
-                    .map(|character| character.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            sentence,
-        ));
-    }
-    if !range_unicode.is_empty() {
-        diagnostics.push(invalid_regex(
-            format!(
-                "Unsupported non-ASCII characters found in character class range: [{}]",
-                range_unicode
-                    .into_iter()
-                    .map(|character| character.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            sentence,
-        ));
-    }
-}
-
-fn named_references(body: &RegexBody) -> Vec<String> {
-    let mut names = Vec::new();
-    body.visit_preorder(&mut |body| {
-        if let RegexBody::Named(name) = body
-            && !names.contains(name)
-        {
-            names.push(name.clone());
+            Issue::NonAsciiInClassRange(characters) => {
+                for character in characters {
+                    push_unique(&mut range_non_ascii, character);
+                }
+            }
+            issue => diagnostics.push(invalid_regex(issue.to_string(), sentence)),
         }
-    });
-    names
+    }
+    if !negated_non_ascii.is_empty() {
+        let issue = Issue::NonAsciiInNegatedClass(negated_non_ascii);
+        diagnostics.push(invalid_regex(issue.to_string(), sentence));
+    }
+    if !range_non_ascii.is_empty() {
+        let issue = Issue::NonAsciiInClassRange(range_non_ascii);
+        diagnostics.push(invalid_regex(issue.to_string(), sentence));
+    }
 }
 
 fn push_unique<T: PartialEq>(values: &mut Vec<T>, value: T) {

@@ -16,6 +16,17 @@
 //! Cost is linear in visited syntax unless its local documentation states another bound; no dedicated counter.
 //!
 //! K's structured regular-expression syntax.
+//!
+//! This crate is the whole definition-independent part of K token regexes: the AST, [`parse`],
+//! the K, Flex, and Rust printers, and [`check`]. Whether a regex is well formed depends only on
+//! its own text, so none of this needs a K definition, KORE, or a backend, and the crate has no
+//! dependencies. Two rules do need the surrounding definition and stay with the definition checks:
+//! resolving `{Name}` references (see [`RegexBody::named_references`]) against lexical
+//! declarations, which rejects undeclared and circular names, and forbidding line anchors in named
+//! lexical declarations.
+//!
+//! A regex that passes [`parse`] and yields no [`check`] issue is rejected by the definition
+//! checks only for those two definition-dependent reasons.
 
 use std::fmt::{Display, Write};
 
@@ -104,7 +115,7 @@ pub enum RegexBody {
 
 impl RegexBody {
     // Invariant: `visitor` has been applied to `self` before any of its subexpressions, and each recursive call descends into a strict subexpression of `self`, so the size of `self` bounds the calls.
-    pub fn visit_preorder(&self, visitor: &mut impl FnMut(&Self)) {
+    pub fn visit_preorder<'a>(&'a self, visitor: &mut impl FnMut(&'a Self)) {
         visitor(self);
         match self {
             Self::Union { left, right } => {
@@ -124,6 +135,23 @@ impl RegexBody {
             | Self::Range { body, .. } => body.visit_preorder(visitor),
             Self::Char(_) | Self::AnyChar | Self::Named(_) | Self::CharClass { .. } => {}
         }
+    }
+
+    /// The `{Name}` lexical identifiers this body references, without duplicates, in preorder
+    /// first-occurrence order.
+    ///
+    /// A reference means nothing without a lexical declaration of that name, so a caller that has
+    /// no declarations in scope must reject any body for which this is nonempty.
+    pub fn named_references(&self) -> Vec<&str> {
+        let mut names = Vec::<&str>::new();
+        self.visit_preorder(&mut |body| {
+            if let Self::Named(name) = body
+                && !names.contains(&name.as_str())
+            {
+                names.push(name);
+            }
+        });
+        names
     }
 
     pub fn to_k_string(&self) -> String {
@@ -219,9 +247,22 @@ pub fn mangle_flex_identifier(name: &str) -> String {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParseError {
+    /// Position of the error in `input`, counted in `char`s, not bytes. It equals
+    /// `input.chars().count()` when the error is at the end of the input.
     pub index: usize,
     pub message: String,
     pub input: String,
+}
+
+impl ParseError {
+    /// Byte offset in `input` of the character at [`ParseError::index`], or `input.len()` when the
+    /// error is at the end of the input; always a `char` boundary of `input`.
+    pub fn byte_index(&self) -> usize {
+        self.input
+            .char_indices()
+            .nth(self.index)
+            .map_or(self.input.len(), |(offset, _)| offset)
+    }
 }
 
 impl Display for ParseError {
@@ -236,8 +277,150 @@ impl Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
+/// Parse K's structured token-regex syntax.
 pub fn parse(input: &str) -> Result<Regex, ParseError> {
     Parser::new(input).parse()
+}
+
+/// A reason a parsed regex is still not an acceptable K token regex.
+///
+/// The variants fall in two groups:
+///
+/// - Well-formedness of the regex language: [`Issue::DescendingCharRange`] and
+///   [`Issue::DescendingRepeat`] denote empty sets written in a form that is almost certainly a
+///   mistake, so they are rejected rather than silently matching nothing.
+/// - Restrictions of the scanner target: [`Issue::NonAsciiInNegatedClass`] and
+///   [`Issue::NonAsciiInClassRange`] are well formed as regexes, but the Flex scanner generated
+///   from a definition reads UTF-8 input as bytes. A non-ASCII code point is several bytes, so it
+///   can neither be excluded by a byte class nor serve as a byte-range endpoint. A non-ASCII
+///   member of a plain class does not have this problem, because it is rewritten into an
+///   alternation (see [`Regex::to_flex_string`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum Issue {
+    /// A class range `start-end` with `start > end`.
+    DescendingCharRange { start: char, end: char },
+    /// A repetition `body{at_least,at_most}` with `at_least > at_most`.
+    DescendingRepeat {
+        body: RegexBody,
+        at_least: u32,
+        at_most: u32,
+    },
+    /// Non-ASCII characters that are members or range endpoints of a negated class, without
+    /// duplicates, in first-occurrence order.
+    NonAsciiInNegatedClass(Vec<char>),
+    /// Non-ASCII range endpoints in any class, without duplicates, in first-occurrence order.
+    NonAsciiInClassRange(Vec<char>),
+}
+
+impl Display for Issue {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DescendingCharRange { start, end } => write!(
+                formatter,
+                "Invalid character range '{}'. Start of range U+{:04X} is greater than end of range U+{:04X}.",
+                CharClass::Range {
+                    start: *start,
+                    end: *end
+                },
+                *start as u32,
+                *end as u32
+            ),
+            Self::DescendingRepeat {
+                body,
+                at_least,
+                at_most,
+            } => write!(
+                formatter,
+                "Invalid numeric range '{}'. Start of range {at_least} is greater than end of range {at_most}.",
+                RegexBody::Range {
+                    body: Box::new(body.clone()),
+                    at_least: *at_least,
+                    at_most: *at_most,
+                }
+            ),
+            Self::NonAsciiInNegatedClass(characters) => write!(
+                formatter,
+                "Unsupported non-ASCII characters found in negated character class: [{}]",
+                join_characters(characters)
+            ),
+            Self::NonAsciiInClassRange(characters) => write!(
+                formatter,
+                "Unsupported non-ASCII characters found in character class range: [{}]",
+                join_characters(characters)
+            ),
+        }
+    }
+}
+
+impl std::error::Error for Issue {}
+
+fn join_characters(characters: &[char]) -> String {
+    characters
+        .iter()
+        .map(char::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Report every [`Issue`] of a parsed regex that does not depend on a surrounding definition.
+///
+/// Descending ranges and repetitions come first, one per occurrence in preorder; then at most one
+/// [`Issue::NonAsciiInNegatedClass`] followed by at most one [`Issue::NonAsciiInClassRange`].
+/// Named references are not examined; see [`RegexBody::named_references`].
+pub fn check(regex: &Regex) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let mut negated_non_ascii = Vec::new();
+    let mut range_non_ascii = Vec::new();
+    regex.body.visit_preorder(&mut |body| match body {
+        RegexBody::CharClass { negated, members } => {
+            for member in members {
+                match *member {
+                    CharClass::Char(character) => {
+                        if *negated && !character.is_ascii() {
+                            push_unique(&mut negated_non_ascii, character);
+                        }
+                    }
+                    CharClass::Range { start, end } => {
+                        for character in [start, end] {
+                            if !character.is_ascii() {
+                                if *negated {
+                                    push_unique(&mut negated_non_ascii, character);
+                                }
+                                push_unique(&mut range_non_ascii, character);
+                            }
+                        }
+                        if start > end {
+                            issues.push(Issue::DescendingCharRange { start, end });
+                        }
+                    }
+                }
+            }
+        }
+        RegexBody::Range {
+            body,
+            at_least,
+            at_most,
+        } if at_least > at_most => issues.push(Issue::DescendingRepeat {
+            body: (**body).clone(),
+            at_least: *at_least,
+            at_most: *at_most,
+        }),
+        _ => {}
+    });
+    if !negated_non_ascii.is_empty() {
+        issues.push(Issue::NonAsciiInNegatedClass(negated_non_ascii));
+    }
+    if !range_non_ascii.is_empty() {
+        issues.push(Issue::NonAsciiInClassRange(range_non_ascii));
+    }
+    issues
+}
+
+fn push_unique(values: &mut Vec<char>, value: char) {
+    if !values.contains(&value) {
+        values.push(value);
+    }
 }
 
 struct Parser {
@@ -279,8 +462,14 @@ impl Parser {
         let body = self.parse_union()?;
         let end_line = self.consume('$');
         if self.has_remaining() {
-            self.cursor -= usize::from(end_line);
-            return Err(self.unescaped('$'));
+            // The top-level union stops only before a `)` or a `$`. After a consumed `$`, that `$`
+            // is the offending token because it is not at the end; otherwise the leftover is an
+            // unmatched `)`.
+            if end_line {
+                self.cursor -= 1;
+                return Err(self.unescaped('$'));
+            }
+            return Err(self.unescaped(self.characters[self.cursor]));
         }
         Ok(Regex {
             start_line,

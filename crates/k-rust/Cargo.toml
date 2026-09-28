@@ -24,6 +24,7 @@ clap = { workspace = true, optional = true }
 gmp-mpfr-sys = { workspace = true, optional = true }
 k-rust-backend.workspace = true
 k-rust-kore.workspace = true
+k-rust-regex.workspace = true
 libc = { version = "0.2", optional = true }
 indexmap.workspace = true
 num-bigint.workspace = true

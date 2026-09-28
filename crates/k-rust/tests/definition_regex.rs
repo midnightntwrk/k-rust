@@ -65,6 +65,7 @@ regex_snapshot!(
 
 regex_error_snapshot!(empty_regex_error, "");
 regex_error_snapshot!(unescaped_anchor_error, "a$b");
+regex_error_snapshot!(unmatched_close_group_error, "a)");
 regex_error_snapshot!(invalid_identifier_error, "{lowercase}");
 regex_error_snapshot!(empty_character_class_error, "[]");
 regex_error_snapshot!(oversized_repetition_error, "a{999999999999}");
@@ -344,6 +345,35 @@ fn ranges_and_unicode_match_check_regex() {
             .message
             .contains("non-ASCII characters found in character class range")
     }));
+}
+
+#[test]
+fn non_ascii_findings_merge_across_the_regexes_of_one_production() {
+    let production = Sentence::Production {
+        label: Some(Label::new("token")),
+        parameters: Vec::new(),
+        sort: Sort::new("Token"),
+        items: vec![
+            ProductionItem::regex("[^é-ü]"),
+            ProductionItem::regex("[a-z]"),
+            ProductionItem::regex("[^ü]x{3,1}[à-a]"),
+        ],
+        attributes: Attributes::default(),
+    };
+    let messages = check_regexes(&[&production], &[&production])
+        .into_iter()
+        .map(|diagnostic| diagnostic.message)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        messages,
+        [
+            "Invalid numeric range 'x{3,1}'. Start of range 3 is greater than end of range 1.",
+            "Invalid character range 'à-a'. Start of range U+00E0 is greater than end of range U+0061.",
+            "Unsupported non-ASCII characters found in negated character class: [é, ü]",
+            "Unsupported non-ASCII characters found in character class range: [é, ü, à]",
+        ]
+    );
 }
 
 fn regex_source() -> impl Strategy<Value = String> {

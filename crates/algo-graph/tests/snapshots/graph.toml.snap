@@ -3577,18 +3577,18 @@ table = "Algorithm::ALL"
 registry_name = "DefinitionRegexParse"
 
 [node.anchor]
-crate = "k-rust"
-file = "crates/k-rust/src/definition/regex.rs"
+crate = "k-rust-regex"
+file = "crates/k-rust-regex/src/lib.rs"
 symbol = "parse"
 
 [[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/definition/regex.rs"
+crate = "k-rust-regex"
+file = "crates/k-rust-regex/src/lib.rs"
 symbol = "parse"
 
 [[node.sites]]
-crate = "k-rust"
-file = "crates/k-rust/src/definition/regex.rs"
+crate = "k-rust-regex"
+file = "crates/k-rust-regex/src/lib.rs"
 symbol = "Parser::parse"
 
 [[node.cost]]

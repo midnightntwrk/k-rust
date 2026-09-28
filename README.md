@@ -99,7 +99,10 @@ Implemented end to end:
 
 The frontend implementation lives in the `k-rust` crate, with shared KORE syntax and serialization
 in `k-rust-kore` so the in-process backend can consume the same representation without depending on
-frontend internals. Thin `k-rust-napi` and `k-rust-wasm` crates expose the host-independent APIs to
+frontend internals. K token regexes (syntax, parsing, printing, and the checks that need no
+definition) live in the dependency-free `k-rust-regex` crate, re-exported as
+`k_rust::definition::regex`, so proc macros and WebAssembly tools can validate them without building
+the frontend. Thin `k-rust-napi` and `k-rust-wasm` crates expose the host-independent APIs to
 native Node.js and portable WebAssembly respectively.
 
 ## Install and build

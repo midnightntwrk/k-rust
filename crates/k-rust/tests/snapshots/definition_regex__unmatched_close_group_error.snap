@@ -1,0 +1,9 @@
+---
+source: crates/k-rust/tests/definition_regex.rs
+description: "Invalid K regex:\n\na)"
+---
+ParseError {
+    index: 1,
+    message: "Unexpected token ')'. Did you mean '\\)'?",
+    input: "a)",
+}
