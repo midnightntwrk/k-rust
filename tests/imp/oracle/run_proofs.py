@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from imp_static_semantics import normalize as normalizer  # noqa: E402
 import proofs  # noqa: E402
-from support import ROOT, GateError  # noqa: E402
+from support import ROOT, GateError, entry  # noqa: E402
 from support.checkouts import verify_checkout  # noqa: E402
 from support.hashing import canonical_json, json_sha256, sha256_text  # noqa: E402
 from support.kdefinition import emitted_claims  # noqa: E402
@@ -56,7 +56,7 @@ def prepare_workspace(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def source_cases(pins: Mapping[str, Any], proofs: Any) -> list[dict[str, Any]]:
+def source_cases(pins: Ledger, proofs: Any) -> list[dict[str, Any]]:
     outcomes = pins.get("proof_outcomes")
     labels = pins.get("claim_labels")
     if not isinstance(outcomes, dict) or len(outcomes) != 21:
@@ -116,8 +116,8 @@ def actual_spec_source(execution_source: Path, claims: str) -> str:
     )
 
 
-def proof_policy(pins: Mapping[str, Any], side: str, cases: Sequence[Mapping[str, Any]], proofs: Any) -> Any:
-    term_policy = pins.get("behavior", {}).get("term_policy", {}).get(side)
+def proof_policy(pins: Ledger, side: str, cases: Sequence[Mapping[str, Any]], proofs: Any) -> Any:
+    term_policy = pins.table("behavior").get("term_policy", {}).get(side)
     if not isinstance(term_policy, dict) or set(term_policy) != {
         "label_map", "identity_labels", "sort_map", "identity_sorts"
     }:
@@ -456,9 +456,7 @@ def main() -> int:
     if pins.get("schema") != 1 or pins.get("milestone") != "IMP":
         raise GateError("proof pins are not the exact IMP schema-1 ledger")
 
-    revisions = pins.get("revisions")
-    if not isinstance(revisions, dict):
-        raise GateError("proof revision pins are absent")
+    revisions = pins.table("revisions")
     verify_checkout(K, arguments.k_commit, label="K", clean=False)
     verify_checkout(IMP, revisions["imp"]["commit"], label="IMP", clean=False)
     kompile = k_executable("kompile")
@@ -466,13 +464,13 @@ def main() -> int:
     kore_exec = k_executable("kore-exec")
 
     workers = worker_count("KRS_IMP_ORACLE_WORKERS", 4)
-    cases = source_cases(pins.data, proofs)
+    cases = source_cases(pins, proofs)
     labels = pins["claim_labels"]
     reference_definition, actual_definition, actual_spec = compile_definitions(
         workspace=workspace, kompile=kompile, expected_labels=labels, workers=workers
     )
-    reference_policy = proof_policy(pins.data, "reference", cases, proofs)
-    actual_policy = proof_policy(pins.data, "actual", cases, proofs)
+    reference_policy = proof_policy(pins, "reference", cases, proofs)
+    actual_policy = proof_policy(pins, "actual", cases, proofs)
 
     support = build_support(workspace)
     krs = arguments.krs.resolve(strict=True)
@@ -595,8 +593,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except (OSError, KeyError, TypeError, ValueError, RuntimeError) as error:
-        print(f"FAIL IMP proofs: {error}", file=sys.stderr)
-        sys.exit(1)
+    entry("IMP proofs", main, errors=(OSError, KeyError, TypeError, ValueError, RuntimeError))
