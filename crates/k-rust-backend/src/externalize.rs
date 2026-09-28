@@ -1319,6 +1319,38 @@ mod tests {
     use super::*;
     use crate::definition::BackendDefinition;
 
+    #[test]
+    fn json_source_matches_materialized_shared_and_collection_terms() {
+        use k_rust_kore::kore::json;
+
+        let byte_string = Term::domain_value(Sort::simple("SortString"), vec![0, 255, b'x']);
+        let shared = Term::injection(
+            Sort::simple("SortString"),
+            Sort::simple("SortKItem"),
+            byte_string,
+        );
+        let symbols = CollectionSymbols {
+            unit: "Lbl'Stop'List".into(),
+            element: "LblListItem".into(),
+            concat: "Lbl'Unds'List'Unds'".into(),
+        };
+        let list = Term::list(
+            std::sync::Arc::new(crate::term::ListDefinition {
+                symbols,
+                element_sort: "SortKItem".into(),
+                list_sort: "SortList".into(),
+            }),
+            vec![shared.clone(), shared.clone()],
+            None,
+        );
+        for term in [shared.clone(), Term::and(shared.clone(), shared), list] {
+            assert_eq!(
+                json::to_value_source(External::Term(&term)).unwrap(),
+                json::to_value(&super::term(&term)).unwrap(),
+            );
+        }
+    }
+
     #[cfg(feature = "measure")]
     #[test]
     fn source_node_count_sees_shared_backend_allocations() {

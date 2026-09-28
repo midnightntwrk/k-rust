@@ -3,7 +3,21 @@
 //! The text, JSON, and binary codecs and every traversal of [`Pattern`] are iterative and impose no depth limit.
 //! Host APIs likewise apply no deliberate parser depth cap, but host envelopes that retain [`serde_json::Value`] remain bounded by their thread's native stack during value serialization and destruction.
 //! KAST term traits and text codecs, backend pattern internalization, and backend term passes retain their own native-stack bounds.
+//!
+//! ```toml algorithm
+//! id = "kore.json.encode_source"
+//! name = "encode KORE JSON from a pattern source"
+//! sites = ["to_value_source", "pattern_node", "pattern_node_from_parts"]
+//! variable = "p = expanded KORE pattern nodes"
+//! counters = []
+//! no_counter = "observation JSON counts are recorded by its backend caller"
+//!
+//! [[cost]]
+//! mode = "one JSON value"
+//! bound = "O(p) source reads and JSON nodes; the returned JSON value has O(p) space"
+//! ```
 
+use super::node::{PatternNode, PatternSource};
 use crate::json_tree::{self, Node};
 
 use super::{
@@ -208,14 +222,19 @@ pub fn to_string_pretty(pattern: &Pattern) -> Result<String, Error> {
 }
 
 pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
-    Ok(envelope_node(pattern).into_value())
+    to_value_source(pattern)
 }
 
-fn envelope_node(pattern: &Pattern) -> Node {
+/// Encode a pattern one node at a time, without materializing its KORE tree.
+pub fn to_value_source<'a, S: PatternSource<'a>>(source: S) -> Result<serde_json::Value, Error> {
+    Ok(envelope_node(source).into_value())
+}
+
+fn envelope_node<'a, S: PatternSource<'a>>(source: S) -> Node {
     Node::Object(vec![
         ("format".into(), Node::String(FORMAT.into())),
         ("version".into(), Node::Number(VERSION.to_string())),
-        ("term".into(), pattern_node(pattern)),
+        ("term".into(), pattern_node(source)),
     ])
 }
 
@@ -757,227 +776,194 @@ fn array_nodes<'a>(values: impl IntoIterator<Item = &'a Sort>) -> Node {
     Node::Array(values.into_iter().map(sort_node).collect())
 }
 
-fn pattern_node(pattern: &Pattern) -> Node {
-    super::walk::rebuild(pattern, |pattern, children| {
-        let mut children = children.into_iter();
-        let mut child = || {
-            children
-                .next()
-                .expect("the traversal supplies every pattern child")
-        };
-        match pattern {
-            Pattern::String(value) => Node::Object(vec![
-                ("tag".into(), Node::String("String".into())),
-                ("value".into(), Node::String(json_string_value(value))),
-            ]),
-            Pattern::Variable(variable) => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if variable.kind == VariableKind::Element {
-                            "EVar"
-                        } else {
-                            "SVar"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("name".into(), Node::String(variable.name.clone())),
-                ("sort".into(), sort_node(&variable.sort)),
-            ]),
-            Pattern::Application { symbol, .. } => Node::Object(vec![
-                ("tag".into(), Node::String("App".into())),
-                ("name".into(), Node::String(symbol.name.clone())),
-                ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
-                ("args".into(), Node::Array(children.collect())),
-            ]),
-            Pattern::Top { sort } | Pattern::Bottom { sort } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::Top { .. }) {
-                            "Top"
-                        } else {
-                            "Bottom"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("sort".into(), sort_node(sort)),
-            ]),
-            Pattern::And { sort, .. } | Pattern::Or { sort, .. } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::And { .. }) {
-                            "And"
-                        } else {
-                            "Or"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("sort".into(), sort_node(sort)),
-                ("patterns".into(), Node::Array(children.collect())),
-            ]),
-            Pattern::Not { sort, .. } | Pattern::Next { sort, .. } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::Not { .. }) {
-                            "Not"
-                        } else {
-                            "Next"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("sort".into(), sort_node(sort)),
-                (
-                    if matches!(pattern, Pattern::Not { .. }) {
-                        "arg"
+fn pattern_node<'a, S: PatternSource<'a>>(root: S) -> Node {
+    enum Task<'a, S> {
+        Enter(S),
+        Finish(PatternNode<'a, ()>, usize),
+    }
+    let mut tasks = vec![Task::Enter(root)];
+    let mut values = Vec::new();
+    // Invariant: each Finish task follows its children in the work stack, and values holds their completed JSON nodes in source order.
+    while let Some(task) = tasks.pop() {
+        match task {
+            Task::Enter(source) => {
+                let (node, children) = source.node().split();
+                let count = children.len();
+                tasks.push(Task::Finish(node, count));
+                tasks.extend(children.into_iter().rev().map(Task::Enter));
+            }
+            Task::Finish(node, count) => {
+                let children = values.split_off(values.len() - count);
+                values.push(pattern_node_from_parts(node, children));
+            }
+        }
+    }
+    values.pop().expect("the source has a root node")
+}
+
+fn pattern_node_from_parts(node: PatternNode<'_, ()>, children: Vec<Node>) -> Node {
+    let is_top = matches!(node, PatternNode::Top { .. });
+    let is_and = matches!(node, PatternNode::And { .. });
+    let is_not = matches!(node, PatternNode::Not { .. });
+    let is_implies = matches!(node, PatternNode::Implies { .. });
+    let is_exists = matches!(node, PatternNode::Exists { .. });
+    let is_mu = matches!(node, PatternNode::Mu { .. });
+    let is_ceil = matches!(node, PatternNode::Ceil { .. });
+    let is_equals = matches!(node, PatternNode::Equals { .. });
+    let mut children = children.into_iter();
+    let mut child = || {
+        children
+            .next()
+            .expect("the traversal supplies every pattern child")
+    };
+    match node {
+        PatternNode::String(value) => Node::Object(vec![
+            ("tag".into(), Node::String("String".into())),
+            ("value".into(), Node::String(json_string_value(&value))),
+        ]),
+        PatternNode::Variable(variable) => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(
+                    if variable.kind == VariableKind::Element {
+                        "EVar"
                     } else {
-                        "dest"
+                        "SVar"
                     }
                     .into(),
-                    child(),
                 ),
-            ]),
-            Pattern::Implies { sort, .. } | Pattern::Iff { sort, .. } => Node::Object(vec![
+            ),
+            ("name".into(), Node::String(variable.name.clone())),
+            ("sort".into(), sort_node(&variable.sort)),
+        ]),
+        PatternNode::Application { symbol, .. } => Node::Object(vec![
+            ("tag".into(), Node::String("App".into())),
+            ("name".into(), Node::String(symbol.name.clone())),
+            ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
+            ("args".into(), Node::Array(children.collect())),
+        ]),
+        PatternNode::Top { sort } | PatternNode::Bottom { sort } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_top { "Top" } else { "Bottom" }.into()),
+            ),
+            ("sort".into(), sort_node(&sort)),
+        ]),
+        PatternNode::And { sort, .. } | PatternNode::Or { sort, .. } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_and { "And" } else { "Or" }.into()),
+            ),
+            ("sort".into(), sort_node(&sort)),
+            ("patterns".into(), Node::Array(children.collect())),
+        ]),
+        PatternNode::Not { sort, .. } | PatternNode::Next { sort, .. } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_not { "Not" } else { "Next" }.into()),
+            ),
+            ("sort".into(), sort_node(&sort)),
+            (if is_not { "arg" } else { "dest" }.into(), child()),
+        ]),
+        PatternNode::Implies { sort, .. } | PatternNode::Iff { sort, .. } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_implies { "Implies" } else { "Iff" }.into()),
+            ),
+            ("sort".into(), sort_node(&sort)),
+            ("first".into(), child()),
+            ("second".into(), child()),
+        ]),
+        PatternNode::Rewrites { sort, .. } => Node::Object(vec![
+            ("tag".into(), Node::String("Rewrites".into())),
+            ("sort".into(), sort_node(&sort)),
+            ("source".into(), child()),
+            ("dest".into(), child()),
+        ]),
+        PatternNode::Exists { sort, variable, .. } | PatternNode::Forall { sort, variable, .. } => {
+            Node::Object(vec![
                 (
                     "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::Implies { .. }) {
-                            "Implies"
-                        } else {
-                            "Iff"
-                        }
-                        .into(),
-                    ),
+                    Node::String(if is_exists { "Exists" } else { "Forall" }.into()),
                 ),
-                ("sort".into(), sort_node(sort)),
-                ("first".into(), child()),
-                ("second".into(), child()),
-            ]),
-            Pattern::Rewrites { sort, .. } => Node::Object(vec![
-                ("tag".into(), Node::String("Rewrites".into())),
-                ("sort".into(), sort_node(sort)),
-                ("source".into(), child()),
-                ("dest".into(), child()),
-            ]),
-            Pattern::Exists { sort, variable, .. } | Pattern::Forall { sort, variable, .. } => {
-                Node::Object(vec![
-                    (
-                        "tag".into(),
-                        Node::String(
-                            if matches!(pattern, Pattern::Exists { .. }) {
-                                "Exists"
-                            } else {
-                                "Forall"
-                            }
-                            .into(),
-                        ),
-                    ),
-                    ("sort".into(), sort_node(sort)),
-                    ("var".into(), Node::String(variable.name.clone())),
-                    ("varSort".into(), sort_node(&variable.sort)),
-                    ("arg".into(), child()),
-                ])
-            }
-            Pattern::Mu { variable, .. } | Pattern::Nu { variable, .. } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::Mu { .. }) {
-                            "Mu"
-                        } else {
-                            "Nu"
-                        }
-                        .into(),
-                    ),
-                ),
+                ("sort".into(), sort_node(&sort)),
                 ("var".into(), Node::String(variable.name.clone())),
                 ("varSort".into(), sort_node(&variable.sort)),
                 ("arg".into(), child()),
-            ]),
-            Pattern::Ceil {
-                operand_sort,
-                result_sort,
-                ..
-            }
-            | Pattern::Floor {
-                operand_sort,
-                result_sort,
-                ..
-            } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::Ceil { .. }) {
-                            "Ceil"
-                        } else {
-                            "Floor"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("argSort".into(), sort_node(operand_sort)),
-                ("sort".into(), sort_node(result_sort)),
-                ("arg".into(), child()),
-            ]),
-            Pattern::Equals {
-                operand_sort,
-                result_sort,
-                ..
-            }
-            | Pattern::In {
-                operand_sort,
-                result_sort,
-                ..
-            } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if matches!(pattern, Pattern::Equals { .. }) {
-                            "Equals"
-                        } else {
-                            "In"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("argSort".into(), sort_node(operand_sort)),
-                ("sort".into(), sort_node(result_sort)),
-                ("first".into(), child()),
-                ("second".into(), child()),
-            ]),
-            Pattern::DomainValue { sort, value } => Node::Object(vec![
-                ("tag".into(), Node::String("DV".into())),
-                ("sort".into(), sort_node(sort)),
-                ("value".into(), Node::String(json_string_value(value))),
-            ]),
-            Pattern::AssociativeApplication {
-                associativity,
-                symbol,
-                ..
-            } => Node::Object(vec![
-                (
-                    "tag".into(),
-                    Node::String(
-                        if *associativity == Associativity::Left {
-                            "LeftAssoc"
-                        } else {
-                            "RightAssoc"
-                        }
-                        .into(),
-                    ),
-                ),
-                ("symbol".into(), Node::String(symbol.name.clone())),
-                ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
-                ("argss".into(), Node::Array(children.collect())),
-            ]),
+            ])
         }
-    })
+        PatternNode::Mu { variable, .. } | PatternNode::Nu { variable, .. } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_mu { "Mu" } else { "Nu" }.into()),
+            ),
+            ("var".into(), Node::String(variable.name.clone())),
+            ("varSort".into(), sort_node(&variable.sort)),
+            ("arg".into(), child()),
+        ]),
+        PatternNode::Ceil {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | PatternNode::Floor {
+            operand_sort,
+            result_sort,
+            ..
+        } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_ceil { "Ceil" } else { "Floor" }.into()),
+            ),
+            ("argSort".into(), sort_node(&operand_sort)),
+            ("sort".into(), sort_node(&result_sort)),
+            ("arg".into(), child()),
+        ]),
+        PatternNode::Equals {
+            operand_sort,
+            result_sort,
+            ..
+        }
+        | PatternNode::In {
+            operand_sort,
+            result_sort,
+            ..
+        } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(if is_equals { "Equals" } else { "In" }.into()),
+            ),
+            ("argSort".into(), sort_node(&operand_sort)),
+            ("sort".into(), sort_node(&result_sort)),
+            ("first".into(), child()),
+            ("second".into(), child()),
+        ]),
+        PatternNode::DomainValue { sort, value } => Node::Object(vec![
+            ("tag".into(), Node::String("DV".into())),
+            ("sort".into(), sort_node(&sort)),
+            ("value".into(), Node::String(json_string_value(&value))),
+        ]),
+        PatternNode::AssociativeApplication {
+            associativity,
+            symbol,
+            ..
+        } => Node::Object(vec![
+            (
+                "tag".into(),
+                Node::String(
+                    if associativity == Associativity::Left {
+                        "LeftAssoc"
+                    } else {
+                        "RightAssoc"
+                    }
+                    .into(),
+                ),
+            ),
+            ("symbol".into(), Node::String(symbol.name.clone())),
+            ("sorts".into(), array_nodes(symbol.sort_parameters.iter())),
+            ("argss".into(), Node::Array(children.collect())),
+        ]),
+    }
 }
 
 #[cfg(test)]

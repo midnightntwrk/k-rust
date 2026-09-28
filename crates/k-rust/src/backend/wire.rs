@@ -5,9 +5,9 @@ use serde_json::Value;
 
 use super::{
     BackendError, ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput,
-    ExecutionResult, TraceEntry, encode_pattern as encode_pattern_value, halt_reason, trace_entry,
+    ExecutionResult, TraceEntry, halt_reason, trace_entry,
 };
-use crate::kore::ast::Pattern as KorePattern;
+use crate::kore::json as kore_json;
 use k_rust_backend::{
     builtin::{BuiltinEffect, BuiltinError},
     diagnostic::BackendDiagnostic,
@@ -739,10 +739,10 @@ pub struct PathPatternSearchResponse {
 }
 
 fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
-    pattern: &KorePattern,
     source: S,
 ) -> Result<Value, BackendError> {
-    let value = encode_pattern_value(pattern)?;
+    let value = kore_json::to_value_source(source.clone())
+        .map_err(|error| BackendError(format!("could not encode KORE JSON: {error}")))?;
     #[cfg(feature = "measure")]
     if measure::output_counting_enabled() {
         let (nodes, distinct) = k_rust_kore::kore::node::measure_nodes(source);
@@ -758,7 +758,7 @@ fn encode_pattern_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
 }
 
 fn encode_term(term: &Term) -> Result<Value, BackendError> {
-    encode_pattern_source(&externalize::term(term), externalize::External::Term(term))
+    encode_pattern_source(externalize::External::Term(term))
 }
 
 fn encode_variable(variable: &k_rust_backend::term::Variable) -> Result<Value, BackendError> {
@@ -769,14 +769,11 @@ fn encode_predicate(
     predicate: &k_rust_backend::rule::Predicate,
     result_sort: &Sort,
 ) -> Result<Value, BackendError> {
-    encode_pattern_source(
-        &externalize::predicate_pattern(predicate, result_sort),
-        externalize::External::Predicate {
-            predicate,
-            sort: externalize::ResultSort::Given(result_sort),
-            preserve_terms: false,
-        },
-    )
+    encode_pattern_source(externalize::External::Predicate {
+        predicate,
+        sort: externalize::ResultSort::Given(result_sort),
+        preserve_terms: false,
+    })
 }
 
 fn bindings_output(bindings: Substitution) -> Result<Vec<BindingOutput>, BackendError> {
@@ -856,14 +853,8 @@ fn transition_observation_output(
         rule_label: observation.rule_label,
         bindings: bindings_output(observation.bindings)?,
         introduced_predicates: predicates_output(observation.introduced_predicates, &result_sort)?,
-        before: encode_pattern_source(
-            &externalize::constrained_pattern(&observation.before),
-            externalize::External::Constrained(&observation.before),
-        )?,
-        after: encode_pattern_source(
-            &externalize::constrained_pattern(&observation.after),
-            externalize::External::Constrained(&observation.after),
-        )?,
+        before: encode_pattern_source(externalize::External::Constrained(&observation.before))?,
+        after: encode_pattern_source(externalize::External::Constrained(&observation.after))?,
         effects: effects_output(observation.effects),
     })
 }
@@ -876,14 +867,8 @@ fn evaluation_observation_output(
         class: evaluation_class_output(observation.class),
         rule_label: observation.rule_label,
         anchor: observation.anchor,
-        before: encode_pattern_source(
-            &externalize::constrained_pattern(&observation.before),
-            externalize::External::Constrained(&observation.before),
-        )?,
-        after: encode_pattern_source(
-            &externalize::constrained_pattern(&observation.after),
-            externalize::External::Constrained(&observation.after),
-        )?,
+        before: encode_pattern_source(externalize::External::Constrained(&observation.before))?,
+        after: encode_pattern_source(externalize::External::Constrained(&observation.after))?,
         effects: effects_output(observation.effects),
     })
 }
@@ -923,10 +908,7 @@ fn observations_output(
 fn search_state_output(state: SearchState) -> Result<SearchStateOutput, BackendError> {
     let result_sort = state.pattern.term.sort();
     Ok(SearchStateOutput {
-        state: encode_pattern_source(
-            &externalize::constrained_pattern(&state.pattern),
-            externalize::External::Constrained(&state.pattern),
-        )?,
+        state: encode_pattern_source(externalize::External::Constrained(&state.pattern))?,
         diagnostics: diagnostics_output(state.diagnostics, &result_sort)?,
         depth: state.depth,
         trace: state.trace.into_iter().map(trace_entry).collect(),
@@ -939,10 +921,7 @@ fn path_witness_output(witness: PathWitness) -> Result<PathWitnessOutput, Backen
     let result_sort = witness.pattern.term.sort();
     Ok(PathWitnessOutput {
         id: witness.id.into_iter().map(transition_id_output).collect(),
-        state: encode_pattern_source(
-            &externalize::constrained_pattern(&witness.pattern),
-            externalize::External::Constrained(&witness.pattern),
-        )?,
+        state: encode_pattern_source(externalize::External::Constrained(&witness.pattern))?,
         diagnostics: diagnostics_output(witness.diagnostics, &result_sort)?,
         depth: witness.depth,
         trace: witness.trace.into_iter().map(trace_entry).collect(),
@@ -1162,10 +1141,7 @@ fn diagnostics_output(
 fn candidate_output(candidate: AppliedRule) -> Result<ExecutionCandidateOutput, BackendError> {
     let result_sort = candidate.pattern.term.sort();
     Ok(ExecutionCandidateOutput {
-        state: encode_pattern_source(
-            &externalize::constrained_pattern(&candidate.pattern),
-            externalize::External::Constrained(&candidate.pattern),
-        )?,
+        state: encode_pattern_source(externalize::External::Constrained(&candidate.pattern))?,
         unique_id: candidate.unique_id,
         label: candidate.label,
         diagnostics: diagnostics_output(candidate.diagnostics, &result_sort)?,
@@ -1175,10 +1151,7 @@ fn candidate_output(candidate: AppliedRule) -> Result<ExecutionCandidateOutput, 
 fn remainder_output(remainder: RemainderBranch) -> Result<ExecutionRemainderOutput, BackendError> {
     let result_sort = remainder.pattern.term.sort();
     Ok(ExecutionRemainderOutput {
-        state: encode_pattern_source(
-            &externalize::constrained_pattern(&remainder.pattern),
-            externalize::External::Constrained(&remainder.pattern),
-        )?,
+        state: encode_pattern_source(externalize::External::Constrained(&remainder.pattern))?,
         rule_ids: remainder.rule_ids,
         diagnostics: diagnostics_output(remainder.diagnostics, &result_sort)?,
     })
@@ -1463,10 +1436,9 @@ pub(super) fn execution_response(
                 };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
-                    state: encode_pattern_source(
-                        &externalize::constrained_pattern(&leaf.pattern),
-                        externalize::External::Constrained(&leaf.pattern),
-                    )?,
+                    state: encode_pattern_source(externalize::External::Constrained(
+                        &leaf.pattern,
+                    ))?,
                     diagnostics: diagnostics_output(leaf.diagnostics, &result_sort)?,
                     candidates,
                     remainder,

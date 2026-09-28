@@ -288,6 +288,8 @@ algorithms! {
     KorePatternWalk => "kore.pattern.walk",
     /// Node-at-a-time reading of KORE patterns: order, flattening, and materialization.
     KorePatternSource => "kore.pattern.source",
+    /// KORE JSON encoding from a pattern source.
+    KoreJsonEncodeSource => "kore.json.encode_source",
 }
 
 /// An entered tracing span for one algorithm invocation.
