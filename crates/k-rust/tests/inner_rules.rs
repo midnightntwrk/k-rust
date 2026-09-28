@@ -4706,16 +4706,11 @@ fn strict_cast_rule_bodies(rule: &str) -> Result<Vec<String>, RuleError> {
 fn strict_cast_rejects_an_inner_term_of_a_proper_subsort() {
     for rule in ["f({b}::A) => .K", "f(b::A) => .K", "f({g(X)}::A) => .K"] {
         let result = strict_cast_rule_bodies(rule);
-        // Under checked inference a disagreement between the engines is itself reported as a
-        // sort-inference error, so the rejection only counts when both engines reject.
         assert!(
             matches!(
                 result,
                 Err(RuleError::Parse(ref error))
-                    if matches!(
-                        error.error,
-                        ParseError::SortInference { ref message } if !message.contains("disagree")
-                    )
+                    if matches!(error.error, ParseError::SortInference { .. })
             ),
             "`rule {rule}` casts a B-sorted term to its proper supersort A: {result:?}"
         );

@@ -1234,15 +1234,7 @@ fn checked_inference_result(
     match (portable, z3) {
         (Ok(portable), Ok(z3)) if portable == z3 => Ok(portable),
         (Err(portable), Err(_)) => Err(portable),
-        (Ok(portable), Ok(z3)) => Err(inference_error(format!(
-            "portable and Z3 sort inference produced different terms: portable {portable:?}; Z3 {z3:?}"
-        ))),
-        (Ok(portable), Err(z3)) => Err(inference_error(format!(
-            "portable and Z3 sort inference disagree: portable accepted {portable:?}; Z3 rejected with {z3}"
-        ))),
-        (Err(portable), Ok(z3)) => Err(inference_error(format!(
-            "portable and Z3 sort inference disagree: portable rejected with {portable}; Z3 accepted {z3:?}"
-        ))),
+        (portable, z3) => Err(engine_disagreement(portable, z3, false)),
     }
 }
 
@@ -1255,18 +1247,27 @@ fn checked_lowered_result(
     match (portable, z3) {
         (Ok(portable), Ok(z3)) if portable.identical(&z3) => Ok(z3),
         (Err(_), Err(z3)) => Err(z3),
-        (Ok(portable), Ok(z3)) => Err(inference_error(format!(
-            "portable and Z3 sort inference lowered an ambiguous parse to different terms: \
-             portable {portable:?}; Z3 {z3:?}"
-        ))),
-        (Ok(portable), Err(z3)) => Err(inference_error(format!(
-            "portable and Z3 sort inference disagree on an ambiguous parse: portable lowered to \
-             {portable:?}; Z3 rejected with {z3}"
-        ))),
-        (Err(portable), Ok(z3)) => Err(inference_error(format!(
-            "portable and Z3 sort inference disagree on an ambiguous parse: portable rejected \
-             with {portable}; Z3 lowered to {z3:?}"
-        ))),
+        (portable, z3) => Err(engine_disagreement(portable, z3, true)),
+    }
+}
+
+/// The outcome of checked inference when the engines differ: at least one accepted, so the
+/// term is neither inferred nor rejected.
+#[cfg(feature = "z3-inference")]
+fn engine_disagreement<T: std::fmt::Debug>(
+    portable: Result<T, ParseError>,
+    z3: Result<T, ParseError>,
+    ambiguous_parse: bool,
+) -> ParseError {
+    let render = |outcome: Result<T, ParseError>| {
+        outcome
+            .map(|term| format!("{term:?}"))
+            .map_err(|error| error.to_string())
+    };
+    ParseError::InferenceEngineDisagreement {
+        portable: render(portable),
+        z3: render(z3),
+        ambiguous_parse,
     }
 }
 
@@ -1828,16 +1829,99 @@ mod tests {
             ),
             Err(ParseError::SortInference { ref message }) if message == "portable rejection"
         ));
-        assert!(matches!(
-            checked_inference_result(Ok(x.clone()), Ok(y)),
-            Err(ParseError::SortInference { ref message })
-                if message.contains("produced different terms")
-        ));
-        assert!(matches!(
-            checked_inference_result(Ok(x), Err(inference_error("Z3 rejection"))),
-            Err(ParseError::SortInference { ref message })
-                if message.contains("portable accepted") && message.contains("Z3 rejected")
-        ));
+        assert_eq!(
+            checked_inference_result(Ok(x.clone()), Ok(y.clone())),
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Ok(format!("{x:?}")),
+                z3: Ok(format!("{y:?}")),
+                ambiguous_parse: false,
+            })
+        );
+        assert_eq!(
+            checked_inference_result(Ok(x.clone()), Err(inference_error("Z3 rejection"))),
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Ok(format!("{x:?}")),
+                z3: Err("Z3 rejection".to_owned()),
+                ambiguous_parse: false,
+            })
+        );
+        assert_eq!(
+            checked_inference_result(Err(inference_error("portable rejection")), Ok(y.clone())),
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Err("portable rejection".to_owned()),
+                z3: Ok(format!("{y:?}")),
+                ambiguous_parse: false,
+            })
+        );
+    }
+
+    /// A disagreement is its own outcome, not a sort-inference rejection: a caller that expects
+    /// `ParseError::SortInference` must not accept a term that one engine accepted, or that the
+    /// engines inferred differently. The message text of each disagreement is unchanged.
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn checked_mode_reports_a_disagreement_apart_from_a_sort_inference_rejection() {
+        let x = ParsedTerm::Term(Term::variable("X"));
+        let y = ParsedTerm::Term(Term::variable("Y"));
+        let s = || Term::apply("s", Vec::new());
+        let t = || Term::apply("t", Vec::new());
+        let rejection = |engine: &str| inference_error(format!("{engine} rejection"));
+
+        let outcomes: [(Result<(), ParseError>, String); 6] = [
+            (
+                checked_inference_result(Ok(x.clone()), Ok(y.clone())).map(drop),
+                format!(
+                    "portable and Z3 sort inference produced different terms: portable {x:?}; \
+                     Z3 {y:?}"
+                ),
+            ),
+            (
+                checked_inference_result(Ok(x.clone()), Err(rejection("Z3"))).map(drop),
+                format!(
+                    "portable and Z3 sort inference disagree: portable accepted {x:?}; Z3 \
+                     rejected with Z3 rejection"
+                ),
+            ),
+            (
+                checked_inference_result(Err(rejection("portable")), Ok(y.clone())).map(drop),
+                format!(
+                    "portable and Z3 sort inference disagree: portable rejected with portable \
+                     rejection; Z3 accepted {y:?}"
+                ),
+            ),
+            (
+                checked_lowered_result(Ok(s()), Ok(t())).map(drop),
+                format!(
+                    "portable and Z3 sort inference lowered an ambiguous parse to different \
+                     terms: portable {:?}; Z3 {:?}",
+                    s(),
+                    t()
+                ),
+            ),
+            (
+                checked_lowered_result(Ok(s()), Err(rejection("Z3"))).map(drop),
+                format!(
+                    "portable and Z3 sort inference disagree on an ambiguous parse: portable \
+                     lowered to {:?}; Z3 rejected with Z3 rejection",
+                    s()
+                ),
+            ),
+            (
+                checked_lowered_result(Err(rejection("portable")), Ok(t())).map(drop),
+                format!(
+                    "portable and Z3 sort inference disagree on an ambiguous parse: portable \
+                     rejected with portable rejection; Z3 lowered to {:?}",
+                    t()
+                ),
+            ),
+        ];
+        for (outcome, text) in outcomes {
+            assert!(
+                !matches!(outcome, Ok(()) | Err(ParseError::SortInference { .. })),
+                "{outcome:?}"
+            );
+            assert_eq!(outcome.unwrap_err().to_string(), text);
+        }
     }
 
     /// `Item ::= Big` (`big`) and `Item ::= Small` (`small`) with `Small < Big`,
@@ -2004,20 +2088,29 @@ mod tests {
             ),
             Err(ParseError::SortInference { ref message }) if message == "Z3 rejection"
         ));
-        assert!(matches!(
+        assert_eq!(
             checked_lowered_result(Ok(s()), Ok(annotated())),
-            Err(ParseError::SortInference { ref message })
-                if message.contains("lowered an ambiguous parse to different terms")
-        ));
-        assert!(matches!(
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Ok(format!("{:?}", s())),
+                z3: Ok(format!("{:?}", annotated())),
+                ambiguous_parse: true,
+            })
+        );
+        assert_eq!(
             checked_lowered_result(Ok(s()), Err(inference_error("Z3 rejection"))),
-            Err(ParseError::SortInference { ref message })
-                if message.contains("portable lowered") && message.contains("Z3 rejected")
-        ));
-        assert!(matches!(
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Ok(format!("{:?}", s())),
+                z3: Err("Z3 rejection".to_owned()),
+                ambiguous_parse: true,
+            })
+        );
+        assert_eq!(
             checked_lowered_result(Err(inference_error("portable rejection")), Ok(s())),
-            Err(ParseError::SortInference { ref message })
-                if message.contains("portable rejected") && message.contains("Z3 lowered")
-        ));
+            Err(ParseError::InferenceEngineDisagreement {
+                portable: Err("portable rejection".to_owned()),
+                z3: Ok(format!("{:?}", s())),
+                ambiguous_parse: true,
+            })
+        );
     }
 }

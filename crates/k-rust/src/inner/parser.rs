@@ -295,6 +295,21 @@ pub enum ParseError {
     SortInference {
         message: String,
     },
+    /// Checked inference only (`KRUST_TYPE_INFERENCE_MODE=checked`): the portable and Z3
+    /// engines reached different outcomes on one term. Each engine's outcome is `Ok` with the
+    /// `Debug` rendering of the term it inferred (for an ambiguous parse, of the term it
+    /// lowered the parse to) or `Err` with the message of its rejection. The checked
+    /// comparison never builds one in which both engines rejected: that is agreement.
+    ///
+    /// It is kept apart from `SortInference`, so a caller that expects a rejection does not
+    /// take a term that one engine accepted, or that the engines inferred differently, for one.
+    InferenceEngineDisagreement {
+        portable: Result<String, String>,
+        z3: Result<String, String>,
+        /// Whether the engines decided an ambiguous parse, so what they produced is the
+        /// lowered term rather than the inferred tree.
+        ambiguous_parse: bool,
+    },
     Z3InferenceRequired {
         ambiguity: bool,
         parametric_sorts: bool,
@@ -477,6 +492,36 @@ impl fmt::Display for ParseError {
                 "could not find a production for K label {label:?} with arity {arity}"
             ),
             Self::SortInference { message } => formatter.write_str(message),
+            Self::InferenceEngineDisagreement {
+                portable,
+                z3,
+                ambiguous_parse,
+            } => {
+                formatter.write_str("portable and Z3 sort inference ")?;
+                if let (Ok(portable), Ok(z3)) = (portable, z3) {
+                    let outcome = if *ambiguous_parse {
+                        "lowered an ambiguous parse to different terms"
+                    } else {
+                        "produced different terms"
+                    };
+                    return write!(formatter, "{outcome}: portable {portable}; Z3 {z3}");
+                }
+                let (disagree, accepted) = if *ambiguous_parse {
+                    ("disagree on an ambiguous parse", "lowered to")
+                } else {
+                    ("disagree", "accepted")
+                };
+                let side = |outcome: &Result<String, String>| match outcome {
+                    Ok(term) => format!("{accepted} {term}"),
+                    Err(message) => format!("rejected with {message}"),
+                };
+                write!(
+                    formatter,
+                    "{disagree}: portable {}; Z3 {}",
+                    side(portable),
+                    side(z3)
+                )
+            }
             Self::Z3InferenceRequired {
                 ambiguity,
                 parametric_sorts,
