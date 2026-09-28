@@ -898,3 +898,515 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
         }
     });
 }
+
+// ---------------------------------------------------------------- CPL-09 audit attacks
+//
+// README section 12, attacks A1-A6. A1 and A6 are execution-identical mutants that the
+// declared observation kills; they are pinned as accepted residuals, each naming its open
+// ticket. Every other attack must end in a refusal or `Unknown`, never in a kill.
+
+/// A one-candidate generation whose patch is `patch`, selected as one tuple of the exact
+/// `sites` (rule label and path each; an unconstrained join when there are several), so that
+/// the patch may write every listed rule.
+fn fixed<'b>(
+    baseline: &'b Baseline,
+    sites: &[(&str, &[u32])],
+    operator: &str,
+    patch: &Patch,
+) -> CandidateGeneration<'b> {
+    let discovery = sites
+        .iter()
+        .map(|(rule, path)| {
+            derive_sites(
+                baseline,
+                operator,
+                &[
+                    SiteSelector::RuleLabel((*rule).into()),
+                    SiteSelector::Path(path.to_vec()),
+                ],
+            )
+            .expect("site")
+        })
+        .reduce(|left, right| left.join(&right, false).expect("join"))
+        .expect("at least one site");
+    assert!(discovery.exhaustive());
+    let generation = select(&discovery, exact(1, sites.len()), 1)
+        .expect("selection")
+        .fold(operator, |_| patch.clone())
+        .expect("generation");
+    assert!(generation.scored());
+    assert_eq!(generation.candidates().len(), 1);
+    generation
+}
+
+/// Renames every occurrence of the variable `from` to `to` and of `to` to `from`; returns the
+/// number of renamed occurrences.
+fn swap_names(term: &mut Term, from: &str, to: &str) -> usize {
+    match term {
+        Term::Variable { name, .. } if name == from => {
+            *name = to.into();
+            1
+        }
+        Term::Variable { name, .. } if name == to => {
+            *name = from.into();
+            1
+        }
+        Term::Rewrite { left, right } => swap_names(left, from, to) + swap_names(right, from, to),
+        Term::As { pattern, alias } => swap_names(pattern, from, to) + swap_names(alias, from, to),
+        Term::Sequence(items) => items
+            .iter_mut()
+            .map(|item| swap_names(item, from, to))
+            .sum(),
+        Term::Apply { arguments, .. } => arguments
+            .iter_mut()
+            .map(|argument| swap_names(argument, from, to))
+            .sum(),
+        Term::Annotated { term, .. } => swap_names(term, from, to),
+        _ => 0,
+    }
+}
+
+/// The edit that applies `swap_names(from, to)` to the term at `path` of `rule`.
+fn renamed(baseline: &Baseline, rule: &str, path: &[u32], from: &str, to: &str) -> Edit {
+    let at = TermRef::new(support::rule(baseline, rule), path);
+    let expected = baseline.term(&at).expect("term").clone();
+    let mut replacement = expected.clone();
+    assert!(
+        swap_names(&mut replacement, from, to) > 0,
+        "{rule} {path:?}"
+    );
+    Edit::ReplaceTerm {
+        at,
+        expected,
+        replacement,
+    }
+}
+
+/// One atom of `constructor` binding `variable` at payload `position`.
+fn binds(
+    vocabulary: &EventVocabulary,
+    constructor: &str,
+    position: usize,
+    variable: &str,
+    sort: &str,
+    with_bindings: bool,
+) -> OracleDeclaration {
+    let plan = PatternPlan::new(
+        vocabulary,
+        vec![(variable.into(), kore_sort(sort))],
+        vec![PatternArm {
+            atoms: vec![Atom {
+                constructor: constructor.into(),
+                payload: vec![PayloadClause {
+                    position,
+                    mode: MatchMode::Bind,
+                    variable: variable.into(),
+                }],
+            }],
+            relations: vec![],
+        }],
+        None,
+    )
+    .expect("plan");
+    OracleDeclaration::new(
+        CrashPolicy::CompareIdentity,
+        Projection::Pattern {
+            plan,
+            with_bindings,
+        },
+    )
+    .expect("oracle")
+}
+
+/// Audit A1 (accepted residual, ticket CPL-T02, open). Exchanging the operations of
+/// `SYMMEM.write` and `SYMMEM.load` leaves the rewrite system unchanged and moves only the
+/// source positions that observation is attached to. `equivalent_compilation` compares rule
+/// order, so it does not call the mutant `Equivalent`, and the trace kills an
+/// execution-identical mutant. This pins today's status until CPL-T02's order-insensitive
+/// equivalence check lands; that change must turn this row into `Equivalent`.
+#[test]
+fn audit_a1_relabel_swap_is_killed_until_ticket_t02() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let op = |rule| {
+            let at = TermRef::new(support::rule(baseline, rule), [0, 0, 0]);
+            let term = baseline.term(&at).expect("operation").clone();
+            (at, term)
+        };
+        let (write_at, write_op) = op("SYMMEM.write");
+        let (load_at, load_op) = op("SYMMEM.load");
+        let patch = Patch::new(vec![
+            Edit::ReplaceTerm {
+                at: write_at,
+                expected: write_op.clone(),
+                replacement: load_op.clone(),
+            },
+            Edit::ReplaceTerm {
+                at: load_at,
+                expected: load_op,
+                replacement: write_op,
+            },
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("SYMMEM.write", &[0, 0, 0]), ("SYMMEM.load", &[0, 0, 0])],
+            "relabel-swap",
+            &patch,
+        );
+        let run = run_campaign(
+            &fixture.campaign(&fixture.tests),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_baseline(&run);
+        assert_eq!(
+            outcomes(&run),
+            vec![
+                vec![A, D, D, A],
+                vec![A, D, D, A],
+                vec![A, D, D, A],
+                vec![A, A, A, A]
+            ]
+        );
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(
+            run.mutants[0].report.killing_test_ids,
+            ["ground-shared", "sym-shared", "sym-distinct"]
+        );
+    });
+}
+
+/// Audit A2 (ticket CPL-T05, resolved for campaigns). Renaming the payload variable `V` to
+/// `U` in both observed rules is an alpha-renaming: under positional payloads it silently read
+/// `RuleVarU` and survived (CPL-00 Q11). With named payloads every run of the mutant fails to
+/// resolve `RuleVarV`, so every test is `UnresolvedObservation` and the mutant is `Unknown`.
+#[test]
+fn audit_a2_renamed_payload_variable_is_unknown() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let baseline = fixture.validator.baseline();
+        let patch = Patch::new(vec![
+            renamed(baseline, "SYMMEM.write", &[0, 0, 0, 1], "V", "U"),
+            renamed(baseline, "SYMMEM.load", &[0, 0, 0, 1], "V", "U"),
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[
+                ("SYMMEM.write", &[0, 0, 0, 1]),
+                ("SYMMEM.load", &[0, 0, 0, 1]),
+            ],
+            "rename-value",
+            &patch,
+        );
+        let run = run_campaign(
+            &fixture.campaign(&fixture.tests),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_baseline(&run);
+        let mutant = &run.mutants[0];
+        assert!(
+            mutant.plan.tests.iter().all(|test| test.run
+                == TestRun::Failed(kink_campaign::ExecutionFailureKind::UnresolvedObservation)),
+            "{:?}",
+            mutant.plan.tests
+        );
+        assert_eq!(mutant.plan.tests.len(), 4);
+        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert!(mutant.report.killing_test_ids.is_empty());
+    });
+}
+
+/// Audit A3 (ticket CPL-T04, resolved in CPL-03), end to end. (1) A `with_bindings` plan over
+/// a symbolic symmem test binds `addr(X)`: the baseline side is `Unknown` and the campaign is
+/// refused. (2) guardedmem: the mutant's `load` also writes `A *Int 0`, so its binding set
+/// `{0, Y *Int 0}` equals the baseline's `{0}` on every instance while differing as terms. It
+/// must not be killed: in the Z3 profile the slot is `Unknown` (it was `Distinguish` before
+/// CPL-03); in the no-Z3 profile the symbolic baseline is not admitted.
+#[test]
+fn audit_a3_symbolic_binding_sets_do_not_kill() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled(fixture.validator.baseline(), false);
+        let bound = [TestCase {
+            id: "sym-shared-bindings".into(),
+            initial_state: fixture.tests[1].initial_state.clone(),
+            oracles: vec![binds(
+                &fixture.vocabulary,
+                "memoryWrite",
+                0,
+                "A",
+                "SortAddress",
+                true,
+            )],
+        }];
+        let failure = run_campaign(&fixture.campaign(&bound), &generation, ScheduleMode::Full)
+            .expect_err("a symbolic binding set is not a baseline value");
+        assert_eq!(failure.kind(), CampaignFailureKind::BaselineOracleFailed);
+
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let load = support::rule(baseline, "GUARDEDMEM.load");
+        let continuation = TermRef::new(load.clone(), [0, 1]);
+        let p = baseline.term(&continuation).expect("P").clone();
+        let a = term(baseline, "GUARDEDMEM.load", &[0, 0, 0, 0, 0]);
+        let v = term(baseline, "GUARDEDMEM.load", &[0, 0, 0, 1]);
+        let zero_address = Term::apply(
+            "_*Int_",
+            vec![
+                a,
+                Term::Token {
+                    token: "0".into(),
+                    sort: Sort::new("Int"),
+                },
+            ],
+        );
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            at: continuation,
+            expected: p.clone(),
+            replacement: Term::apply(
+                "seq",
+                vec![
+                    Term::apply("write", vec![Term::apply("addr", vec![zero_address]), v]),
+                    p,
+                ],
+            ),
+        }])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.load", &[0, 1])],
+            "write-zero-on-load",
+            &patch,
+        );
+        let tests = [TestCase {
+            id: "sym-zero-write".into(),
+            initial_state: state(
+                addr(support::int(0)),
+                support::var("V", "SortInt"),
+                addr(support::var("Y", "SortInt")),
+                support::var("W", "SortInt"),
+            ),
+            oracles: vec![
+                guarded.tests[0].oracles[0].clone(),
+                binds(&guarded.vocabulary, "memoryWrite", 0, "A", "SortInt", true),
+            ],
+        }];
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full);
+        if cfg!(feature = "z3") {
+            // Without the CPL-03 guard this slot is `Distinguish` and the mutant `Killed`.
+            let run = run.expect("Z3 admits the symbolic baseline");
+            assert_eq!(outcomes(&run), vec![vec![A, U]]);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        } else {
+            assert_eq!(
+                run.expect_err("no-Z3 leaves the guarded baseline undecided")
+                    .kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+        }
+    });
+}
+
+/// Audit A4 (R1, retired for campaigns by CPL-05). `opaquemem.k` is refused in
+/// `relations.rs`. Two distinct domain values of the non-builtin sort `Address` never reach a
+/// relation: k-rust refuses to internalize a domain value of a sort without domain values, so
+/// the baseline run fails and the campaign is refused (`BaselineError`) before any mutant runs.
+/// (Were they admitted, `BackendRelations` counts only canonical `Int`/`Bool`/`String` values
+/// as distinct, so the relation would be undecided.)
+#[test]
+fn audit_a4_distinct_non_builtin_domain_values_do_not_decide() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled(fixture.validator.baseline(), false);
+        let dv = |value: &str| Pattern::DomainValue {
+            sort: kore_sort("SortAddress"),
+            value: value.into(),
+        };
+        let one = app("s", vec![z()]);
+        let tests = [TestCase {
+            id: "dv-addresses".into(),
+            initial_state: state(dv("a"), one.clone(), dv("b"), one),
+            oracles: fixture.tests[0].oracles.clone(),
+        }];
+        let result = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full);
+        let failure = result.expect_err("no baseline value");
+        assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
+    });
+}
+
+/// Audit A5 (ticket CPL-T08). `d() => 2` keeps `f` total on every instance, but withdrawal
+/// removes `total` from `f` and `d` on the side the symbolic test runs on, which can then carry
+/// a definedness case the compiled mutant lacks. No state or pattern slot of that side may
+/// distinguish: every slot of the symbolic test is `Unknown` in both profiles.
+#[test]
+fn audit_a5_withdrawn_claims_do_not_kill() {
+    with_stack(|| {
+        let validator = NativeValidator::bind(
+            support::load_path(
+                &std::path::Path::new(support::DIR).join("symbolic-claim-survivor.k"),
+                "SYMPARTIAL",
+            ),
+            CompileOptions::default(),
+        );
+        let baseline = validator.baseline();
+        let vocabulary = EventVocabulary::new(
+            ["memoryWrite", "memoryLoad"]
+                .map(|name| Constructor {
+                    name: name.into(),
+                    payload_sorts: vec![kore_sort("SortInt"), kore_sort("SortInt")],
+                })
+                .to_vec(),
+        )
+        .expect("vocabulary");
+        let observed = vec![
+            observed(baseline, "SYMPARTIAL.write", "memoryWrite", &["A", "V"]),
+            observed(baseline, "SYMPARTIAL.load", "memoryLoad", &["A", "V"]),
+        ];
+        let program = |argument: Pattern| {
+            let one = || app("addr", vec![support::int(1)]);
+            support::initial_state(
+                app(
+                    "seq",
+                    vec![
+                        app("write", vec![one(), support::int(5)]),
+                        app(
+                            "seq",
+                            vec![
+                                app("half", vec![argument]),
+                                app(
+                                    "seq",
+                                    vec![
+                                        app("load", vec![one(), support::int(5)]),
+                                        app("halt", vec![]),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                "SortProg",
+            )
+        };
+        let oracles = vec![
+            OracleDeclaration::new(
+                CrashPolicy::CompareIdentity,
+                Projection::State(StateProjection::WholeTerm),
+            )
+            .expect("final"),
+            OracleDeclaration::new(
+                CrashPolicy::CompareIdentity,
+                Projection::State(StateProjection::ExitStop {
+                    exit_code_cell: None,
+                }),
+            )
+            .expect("exit"),
+            pattern_with_sort(
+                &vocabulary,
+                "memoryWrite",
+                "memoryLoad",
+                Relation::EventuallyAfter,
+                "SortInt",
+            ),
+        ];
+        let tests = [TestCase {
+            id: "X".into(),
+            initial_state: program(nat("X")),
+            oracles,
+        }];
+        let at = TermRef::new(support::rule(baseline, "SYMPARTIAL.d"), [0, 1]);
+        let patch = Patch::new(vec![Edit::ReplaceTerm {
+            expected: baseline.term(&at).expect("d body").clone(),
+            replacement: Term::Token {
+                token: "2".into(),
+                sort: Sort::new("Int"),
+            },
+            at,
+        }])
+        .expect("patch");
+        let generation = fixed(baseline, &[("SYMPARTIAL.d", &[0, 1])], "literal-d", &patch);
+        let run = run_campaign(
+            &Campaign {
+                validator: &validator,
+                module: "SYMPARTIAL",
+                observed_rules: &observed,
+                vocabulary: &vocabulary,
+                classify: &normal,
+                tests: &tests,
+                budget: BUDGET,
+            },
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        let mutant = &run.mutants[0];
+        assert_eq!(mutant.report.claims.withdrawn.len(), 2, "total on f and d");
+        assert_eq!(outcomes(&run), vec![vec![U, U, U]]);
+        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert!(mutant.report.killing_test_ids.is_empty());
+    });
+}
+
+/// Audit A6 (accepted residual, ticket CPL-T01, open): a payload variable that keeps its
+/// name but changes what it binds still kills an execution-identical mutant. (1) Control C
+/// (`V -> s(V)` in `write` and `load`) under a value-binding plan: `RuleVarV` is now the
+/// predecessor of the stored value. (2) Swapping the names `A` and `V` throughout
+/// `GUARDEDMEM.write` (body and `requires`) is an alpha-renaming, yet `RuleVarA` now carries
+/// the value, so even the address-only plan `GWL-after` distinguishes. Named payloads (H1 = A2)
+/// cannot see either; this pins today's status until CPL-T01 is designed.
+#[test]
+fn audit_a6_name_kept_meaning_change_is_killed_until_ticket_t01() {
+    with_stack(|| {
+        let fixture = Symmem::new();
+        let generation = coupled(fixture.validator.baseline(), true);
+        let valued = [TestCase {
+            id: "ground-shared-value".into(),
+            initial_state: fixture.tests[0].initial_state.clone(),
+            oracles: vec![binds(
+                &fixture.vocabulary,
+                "memoryWrite",
+                1,
+                "V",
+                "SortNat",
+                true,
+            )],
+        }];
+        let run = run_campaign(&fixture.campaign(&valued), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![D]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let patch = Patch::new(vec![
+            renamed(baseline, "GUARDEDMEM.write", &[0], "A", "V"),
+            renamed(baseline, "GUARDEDMEM.write", &[1], "A", "V"),
+        ])
+        .expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[0])],
+            "swap-names",
+            &patch,
+        );
+        let tests = [TestCase {
+            id: "ground-distinct-values".into(),
+            initial_state: state(
+                addr(support::int(1)),
+                support::int(5),
+                addr(support::int(1)),
+                support::int(7),
+            ),
+            oracles: guarded.tests[1].oracles.clone(),
+        }];
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![A, D]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+    });
+}
