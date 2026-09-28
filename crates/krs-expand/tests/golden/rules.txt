@@ -36,30 +36,19 @@ fn __krs_head_rule_descriptor_7087aad6655bc41e() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"foo-to-bar\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Object::Foo\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[]},\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":2,\"authored_path\":\"Object::Bar\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[]}},\"requires\":null,\"extras\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(3usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_head_rule_sort_7087aad6655bc41e),
-                        ),
-                    );
-                slots
-                    .push(::k::__KrsSlot::Variant {
-                        owner: ::k::HostTypeKey(
-                            __krs_rule_application_7087aad6655bc41e_0,
-                        ),
-                        marker: ::k::HostTypeKey(Object::__krs_variant_type_id_Foo),
-                    });
-                slots
-                    .push(::k::__KrsSlot::Variant {
-                        owner: ::k::HostTypeKey(
-                            __krs_rule_application_7087aad6655bc41e_1,
-                        ),
-                        marker: ::k::HostTypeKey(Object::__krs_variant_type_id_Bar),
-                    });
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_sort_7087aad6655bc41e),
+                ),
+                ::k::__KrsSlot::Variant {
+                    owner: ::k::HostTypeKey(__krs_rule_application_7087aad6655bc41e_0),
+                    marker: ::k::HostTypeKey(Object::__krs_variant_type_id_Foo),
+                },
+                ::k::__KrsSlot::Variant {
+                    owner: ::k::HostTypeKey(__krs_rule_application_7087aad6655bc41e_1),
+                    marker: ::k::HostTypeKey(Object::__krs_variant_type_id_Bar),
+                },
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

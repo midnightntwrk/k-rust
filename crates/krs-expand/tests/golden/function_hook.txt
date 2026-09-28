@@ -44,22 +44,14 @@ fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::k::HostDescriptor {
         ),
         payload: ::k::__krs_host_payload(
             "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Bytes\"}},\"syntax\":\"Keccak256raw({value})\",\"fields\":[{\"name\":\"value\",\"sort\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Bytes\"}}]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(2usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
+                ),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -139,28 +131,17 @@ fn __krs_constructor_grammar_5c8a8ac291b809e7() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":2,\"authored_path\":\"Keccak256Raw\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Bytes\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"Keccak256raw\"},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":1},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":2},\"field_key\":{\"role\":\"constructor_syntax_field_reference\",\"ordinal\":0},\"declaration_key\":{\"role\":\"constructor_field_declaration\",\"ordinal\":0},\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"k :: builtin :: Bytes\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":3},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"function\",\"key\":{\"role\":\"function_declaration\",\"ordinal\":0}},{\"attribute_kind\":\"total\",\"key\":{\"role\":\"function_total\",\"ordinal\":0}},{\"attribute_kind\":\"hook\",\"key\":{\"role\":\"function_hook\",\"ordinal\":0},\"operation\":\"krypto_keccak256_raw\"}]}}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(3usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_constructor_type_5c8a8ac291b809e7),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_constructor_sort_5c8a8ac291b809e7),
+                ),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_constructor_field_5c8a8ac291b809e7_0),
+                ),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_constructor_type_5c8a8ac291b809e7),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

@@ -33,35 +33,22 @@ fn __krs_head_rule_descriptor_e51d7eb561f143b4() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"eval-neg\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"value\"}],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Neg\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"value\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"value\"}}]},\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":2,\"authored_path\":\"int :: sub\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"0\"}}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"value\"}}]}},\"requires\":null,\"extras\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(3usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_head_rule_sort_e51d7eb561f143b4),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Target({
-                            let __krs_rule_application_witness: ::core::option::Option<
-                                _,
-                            > = ::core::option::Option::None;
-                            if let ::core::option::Option::Some(Neg { .. }) = &__krs_rule_application_witness {}
-                            ::k::__krs_resolve_rule_application::<
-                                _,
-                                3981750628755627713u64,
-                            >(&__krs_rule_application_witness, "Neg")
-                        }),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_rule_application_e51d7eb561f143b4_0),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_sort_e51d7eb561f143b4),
+                ),
+                ::k::__KrsSlot::Target({
+                    let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                    if let ::core::option::Option::Some(Neg { .. }) = &__krs_rule_application_witness {}
+                    ::k::__krs_resolve_rule_application::<
+                        _,
+                        3981750628755627713u64,
+                    >(&__krs_rule_application_witness, "Neg")
+                }),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_rule_application_e51d7eb561f143b4_0),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -293,35 +280,22 @@ fn __krs_head_rule_descriptor_c84c8a448ba7aa30() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"eval-not\"},\"priority\":{\"key\":{\"role\":\"rule_owise\",\"ordinal\":0},\"value\":200},\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"value\"}],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Not\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"value\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"value\"}}]},\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":2,\"authored_path\":\"bool :: not\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"value\"}}]}},\"requires\":null,\"extras\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(3usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_head_rule_sort_c84c8a448ba7aa30),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Target({
-                            let __krs_rule_application_witness: ::core::option::Option<
-                                _,
-                            > = ::core::option::Option::None;
-                            if let ::core::option::Option::Some(Not { .. }) = &__krs_rule_application_witness {}
-                            ::k::__krs_resolve_rule_application::<
-                                _,
-                                3991304285291260842u64,
-                            >(&__krs_rule_application_witness, "Not")
-                        }),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_rule_application_c84c8a448ba7aa30_0),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_sort_c84c8a448ba7aa30),
+                ),
+                ::k::__KrsSlot::Target({
+                    let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                    if let ::core::option::Option::Some(Not { .. }) = &__krs_rule_application_witness {}
+                    ::k::__krs_resolve_rule_application::<
+                        _,
+                        3991304285291260842u64,
+                    >(&__krs_rule_application_witness, "Not")
+                }),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_rule_application_c84c8a448ba7aa30_0),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -566,51 +540,28 @@ fn __krs_head_rule_descriptor_6a376551c93fda1a() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"eval-bool-eq\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[{\"name\":\"lhs\",\"refinement\":{\"key\":{\"role\":\"rule_binding_type\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Bool\"}}},{\"name\":\"rhs\",\"refinement\":{\"key\":{\"role\":\"rule_binding_type\",\"ordinal\":1},\"target\":{\"slot\":2,\"authored_path\":\"Bool\"}}}],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":3,\"authored_path\":\"Eq\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"lhs\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":1},\"name\":\"lhs\"}},{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":1},\"field\":\"rhs\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_left_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":2},\"name\":\"rhs\"}}]},\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_right_application_head\",\"ordinal\":0},\"target\":4,\"authored_path\":\"bool :: eq\"},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":0},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":1},\"name\":\"lhs\"}},{\"argument_kind\":\"positional\",\"value\":{\"term_kind\":\"variable\",\"key\":{\"role\":\"rule_right_reference\",\"ordinal\":1},\"path_key\":{\"role\":\"rule_right_path\",\"ordinal\":2},\"name\":\"rhs\"}}]}},\"requires\":null,\"extras\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(5usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_head_rule_sort_6a376551c93fda1a),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(
-                                __krs_head_rule_refinement_6a376551c93fda1a_0,
-                            ),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(
-                                __krs_head_rule_refinement_6a376551c93fda1a_1,
-                            ),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Target({
-                            let __krs_rule_application_witness: ::core::option::Option<
-                                _,
-                            > = ::core::option::Option::None;
-                            if let ::core::option::Option::Some(Eq { .. }) = &__krs_rule_application_witness {}
-                            ::k::__krs_resolve_rule_application::<
-                                _,
-                                647175875755122083u64,
-                            >(&__krs_rule_application_witness, "Eq")
-                        }),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_rule_application_6a376551c93fda1a_0),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_sort_6a376551c93fda1a),
+                ),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_refinement_6a376551c93fda1a_0),
+                ),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_refinement_6a376551c93fda1a_1),
+                ),
+                ::k::__KrsSlot::Target({
+                    let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                    if let ::core::option::Option::Some(Eq { .. }) = &__krs_rule_application_witness {}
+                    ::k::__krs_resolve_rule_application::<
+                        _,
+                        647175875755122083u64,
+                    >(&__krs_rule_application_witness, "Eq")
+                }),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_rule_application_6a376551c93fda1a_0),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -900,29 +851,19 @@ fn __krs_head_rule_descriptor_2883af4a4b250df7() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"head_rule\":{\"sentence_kind\":\"transition\",\"label\":{\"key\":{\"role\":\"rule_label\",\"ordinal\":0},\"name\":\"and-false\"},\"priority\":null,\"pattern_key\":{\"role\":\"rule_pattern\",\"ordinal\":0},\"result_key\":{\"role\":\"rule_result\",\"ordinal\":0},\"head_sort\":{\"key\":{\"role\":\"rule_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"configuration\":null,\"computation_cell_name\":null,\"bindings\":[],\"subject\":{\"term_kind\":\"application\",\"head_class\":\"applied\",\"reference\":{\"key\":{\"role\":\"rule_left_application_head\",\"ordinal\":0},\"target\":1,\"authored_path\":\"And\"},\"path_key\":{\"role\":\"rule_left_path\",\"ordinal\":0},\"arguments\":[{\"argument_kind\":\"named\",\"key\":{\"role\":\"rule_left_record_field_name\",\"ordinal\":0},\"field\":\"lhs\",\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_left_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"bool\",\"value\":false}}}]},\"result\":{\"head_result_kind\":\"replace\",\"head_result\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"bool\",\"value\":false}}},\"requires\":null,\"extras\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(2usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_head_rule_sort_2883af4a4b250df7),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Target({
-                            let __krs_rule_application_witness: ::core::option::Option<
-                                _,
-                            > = ::core::option::Option::None;
-                            if let ::core::option::Option::Some(And { .. }) = &__krs_rule_application_witness {}
-                            ::k::__krs_resolve_rule_application::<
-                                _,
-                                17985607907566428902u64,
-                            >(&__krs_rule_application_witness, "And")
-                        }),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_head_rule_sort_2883af4a4b250df7),
+                ),
+                ::k::__KrsSlot::Target({
+                    let __krs_rule_application_witness: ::core::option::Option<_> = ::core::option::Option::None;
+                    if let ::core::option::Option::Some(And { .. }) = &__krs_rule_application_witness {}
+                    ::k::__krs_resolve_rule_application::<
+                        _,
+                        17985607907566428902u64,
+                    >(&__krs_rule_application_witness, "And")
+                }),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

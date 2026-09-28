@@ -88,16 +88,11 @@ fn __krs_enum_constructor_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
         ),
         payload: ::k::__krs_host_payload(
             "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"syntax\":\"foo\",\"fields\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(1usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -212,21 +207,15 @@ fn __krs_enum_grammar_b069f7e9deaef2f1_0() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Object::Foo\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"foo\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"object_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"foo\"}}]}]}}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(2usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
-                        ),
-                    );
-                slots
-                    .push(::k::__KrsSlot::Variant {
-                        owner: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
-                        marker: ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_0),
-                    });
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
+                ),
+                ::k::__KrsSlot::Variant {
+                    owner: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                    marker: ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_0),
+                },
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -346,16 +335,11 @@ fn __krs_enum_constructor_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
         ),
         payload: ::k::__krs_host_payload(
             "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"syntax\":\"bar\",\"fields\":[]}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(1usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
@@ -470,21 +454,15 @@ fn __krs_enum_grammar_b069f7e9deaef2f1_1() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"template_key\":{\"role\":\"constructor_syntax\",\"ordinal\":0},\"owner\":{\"production_owner\":\"constructor\",\"constructor\":{\"key\":{\"role\":\"constructor_declaration\",\"ordinal\":0},\"target\":1,\"authored_path\":\"Object::Bar\"}},\"result_sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ObjectTerm\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"constructor_syntax_item\",\"ordinal\":0},\"text\":\"bar\"}],\"attributes\":[{\"attribute_kind\":\"group\",\"reference\":{\"key\":{\"role\":\"constructor_group\",\"ordinal\":0},\"group\":\"object_tier0\"}},{\"attribute_kind\":\"format\",\"key\":{\"role\":\"constructor_format\",\"ordinal\":0},\"fragments\":[{\"key\":{\"role\":\"constructor_format_fragment\",\"ordinal\":0},\"fragment\":{\"format_kind\":\"literal\",\"value\":\"bar\"}}]}]}}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(2usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
-                        ),
-                    );
-                slots
-                    .push(::k::__KrsSlot::Variant {
-                        owner: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
-                        marker: ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_1),
-                    });
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_enum_family_sort_b069f7e9deaef2f1),
+                ),
+                ::k::__KrsSlot::Variant {
+                    owner: ::k::HostTypeKey(__krs_enum_type_b069f7e9deaef2f1),
+                    marker: ::k::HostTypeKey(__krs_enum_variant_b069f7e9deaef2f1_1),
+                },
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

@@ -92,12 +92,7 @@ impl WireSlots {
 
     pub(super) fn tokens(&self) -> TokenStream {
         let values = &self.expressions;
-        let count = values.len();
-        quote!(&{
-            let mut slots = ::std::vec::Vec::with_capacity(#count);
-            #(slots.push(#values);)*
-            slots
-        })
+        quote!(&[#(#values),*])
     }
 }
 

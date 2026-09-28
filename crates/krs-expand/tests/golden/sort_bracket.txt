@@ -89,16 +89,7 @@ fn __krs_bracket_descriptor_a30ee37fad75f5f2_0() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"production\",\"grammar\":{\"key\":{\"role\":\"bracket_declaration\",\"ordinal\":0},\"template_key\":null,\"owner\":{\"production_owner\":\"bracket_sort\",\"sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},\"result_sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},\"items\":[{\"item_kind\":\"terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":0},\"text\":\"(\"},{\"item_kind\":\"non_terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":1},\"field_key\":{\"role\":\"bracket_value_reference\",\"ordinal\":0},\"declaration_key\":null,\"field\":\"value\",\"sort\":{\"key\":{\"role\":\"sort_declaration\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}}},{\"item_kind\":\"terminal\",\"key\":{\"role\":\"bracket_syntax_item\",\"ordinal\":2},\"text\":\")\"}],\"attributes\":[{\"attribute_kind\":\"bracket\",\"key\":{\"role\":\"bracket_declaration\",\"ordinal\":0}}]}}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(1usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_sort_type_a30ee37fad75f5f2),
-                        ),
-                    );
-                slots
-            },
+            &[::k::__KrsSlot::Type(::k::HostTypeKey(__krs_sort_type_a30ee37fad75f5f2))],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(

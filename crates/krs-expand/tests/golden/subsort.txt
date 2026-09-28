@@ -24,22 +24,14 @@ fn __krs_subsort_descriptor_ec843611dce35b9f() -> ::k::HostDescriptor {
         declared_type: ::core::option::Option::None,
         payload: ::k::__krs_host_payload(
             "{\"grammar\":{\"grammar_kind\":\"subsort\",\"grammar\":{\"key\":{\"role\":\"subsort_declaration\",\"ordinal\":0},\"subsort\":{\"key\":{\"role\":\"subsort_sub_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"Identifier\"}},\"supersort\":{\"key\":{\"role\":\"subsort_super_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Value\"}}}}}",
-            &{
-                let mut slots = ::std::vec::Vec::with_capacity(2usize);
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_subsort_super_ec843611dce35b9f),
-                        ),
-                    );
-                slots
-                    .push(
-                        ::k::__KrsSlot::Type(
-                            ::k::HostTypeKey(__krs_subsort_sub_ec843611dce35b9f),
-                        ),
-                    );
-                slots
-            },
+            &[
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_subsort_super_ec843611dce35b9f),
+                ),
+                ::k::__KrsSlot::Type(
+                    ::k::HostTypeKey(__krs_subsort_sub_ec843611dce35b9f),
+                ),
+            ],
         ),
         cfg: ::core::default::Default::default(),
         provenance: ::k::__krs_host_provenance(
