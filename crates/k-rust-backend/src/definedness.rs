@@ -27,7 +27,7 @@
 //! true, plus pairwise distinctness checks over map keys and set elements, with `FxHashSet`
 //! deduplication; no counter, no worklist loop.
 
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use k_rust_kore::measure::{self, Algorithm};
 use rustc_hash::FxHashSet;
@@ -38,10 +38,11 @@ use crate::{
         InjectionEquality, MatchMode, MatchResult, match_injection_equality,
         match_terms_in_definition,
     },
-    rewrite::substitute_predicates,
+    rewrite::{Pattern, substitute_predicates},
     rule::{Predicate, RewriteRule, RuleRhs, TermIndex, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify_predicates_with_solver, term_is_provably_defined},
     smt::NoSolver,
+    substitution::Substitution,
     term::{FunctionType, InjectionComparison, SymbolType, Term, TermKind, VariableKind},
 };
 
@@ -358,12 +359,7 @@ pub(crate) fn condition_definedness(
     conditions: Vec<Predicate>,
     known: &[Predicate],
 ) -> Vec<Predicate> {
-    let ceil_free = conditions.iter().all(|condition| {
-        let mut free = true;
-        condition.visit_terms(&mut |term| free &= term.attributes().ceil_free());
-        free
-    });
-    if ceil_free {
+    if predicates_are_ceil_free(&conditions) {
         return conditions;
     }
     let _span = measure::algorithm_span(Algorithm::BackendDefinedness);
@@ -393,6 +389,73 @@ pub(crate) fn condition_definedness(
         }
     }
     result.extend(rewritten);
+    result
+}
+
+/// Whether every term of `predicates` has its stored `ceil_free` attribute, one read per term:
+/// then no atom of them has a definedness obligation to state.
+fn predicates_are_ceil_free(predicates: &[Predicate]) -> bool {
+    predicates.iter().all(|predicate| {
+        let mut free = true;
+        predicate.visit_terms(&mut |term| free &= term.attributes().ceil_free());
+        free
+    })
+}
+
+/// The facts every instance of a pattern `t ∧ φ` satisfies (I7): `condition_definedness(φ)`
+/// followed by the members of `ceil_term(t)` it lacks.
+///
+/// A pattern denotes `⌈t⌉ ∧ t ∧ φ`, since a term is `\bottom` where it is undefined and
+/// `\bottom ∧ φ` is `\bottom`, so `⌈t⌉` holds on each of its instances. And `φ` equals
+/// `condition_definedness(φ)`, so the obligations that call states are consequences of `φ` there.
+/// A decision taken on the pattern's instances (a claim applied to a proof state) takes these as
+/// known: a stated `⌈s⌉` they contain is a fact, not an open condition, and a solver that reads
+/// `⌈s⌉` as an opaque atom would otherwise find a model where it fails.
+///
+/// The result is equivalent to `pattern.constraints` on the pattern's instances. It is the
+/// constraints themselves, borrowed, when the term and every constraint term are `ceil_free`, after
+/// one read of the stored attribute per term.
+pub(crate) fn pattern_knowledge<'a>(
+    definition: &BackendDefinition,
+    pattern: &'a Pattern,
+) -> Cow<'a, [Predicate]> {
+    if pattern.term.attributes().ceil_free() && predicates_are_ceil_free(&pattern.constraints) {
+        return Cow::Borrowed(&pattern.constraints);
+    }
+    let mut knowledge = condition_definedness(definition, pattern.constraints.clone(), &[]);
+    for predicate in ceil_term(definition, &pattern.term) {
+        if !knowledge.contains(&predicate) {
+            knowledge.push(predicate);
+        }
+    }
+    Cow::Owned(knowledge)
+}
+
+/// `predicates` under `bindings`, followed by `ceil_term` of each value bound to an element
+/// variable (I2), minus the predicates in `known` or already among the result.
+///
+/// For an element variable `x` and a functional term `t`, `∃x. (x = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/x]`:
+/// an element variable denotes a defined element, so no `x` equals `t` where `t` is undefined.
+/// Replacing `x` by `t` without `⌈t⌉` would assert `ψ[t/x]` also where `t` is undefined, where the
+/// binding has no instance. A set variable denotes any set of elements, `\bottom` included, so its
+/// binding states nothing.
+pub(crate) fn eliminate_bindings(
+    definition: &BackendDefinition,
+    predicates: &[Predicate],
+    bindings: &Substitution,
+    known: &[Predicate],
+) -> Vec<Predicate> {
+    let mut result = substitute_predicates(predicates, bindings);
+    for (variable, value) in bindings {
+        if variable.kind != VariableKind::Element || value.attributes().ceil_free() {
+            continue;
+        }
+        for predicate in ceil_term(definition, value) {
+            if !known.contains(&predicate) && !result.contains(&predicate) {
+                result.push(predicate);
+            }
+        }
+    }
     result
 }
 

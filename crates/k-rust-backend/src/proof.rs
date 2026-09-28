@@ -44,7 +44,7 @@ use k_rust_kore::{
 use crate::{
     cancellation::cancellation_requested,
     claim::{ReachabilityClaim, ReachabilityMode},
-    definedness::ceil_term,
+    definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
     fresh::fresh_name,
     implication::{
@@ -1295,10 +1295,14 @@ fn apply_claim(
         max_iterations: options.max_simplification_iterations,
         ..SimplificationOptions::default()
     };
+    // Every instance of the subject satisfies its constraints with their definedness stated and
+    // the definedness of its term (I7): the claim's condition is stated and decided under these
+    // facts, so a `⌈t⌉` the subject already implies is neither restated nor left open.
+    let subject_knowledge = pattern_knowledge(definition, subject);
     let mut match_conditions = match simplify_predicates_with_solver(
         definition,
         &match_conditions,
-        &subject.constraints,
+        &subject_knowledge,
         simplification,
         solver,
     ) {
@@ -1313,9 +1317,16 @@ fn apply_claim(
         return ClaimApplication::NotApplicable;
     }
 
-    let requires = substitute_predicates(&claim.lhs.constraints, &substitution);
-    let mut match_knowledge = subject.constraints.clone();
+    // The instantiated `requires` is `⊥` wherever one of its atoms is over an undefined term, so
+    // the claim does not apply there (I1): state that definedness before the condition is
+    // simplified or decided, since a solver reads a partial function as a total operation.
+    let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
+    let requires = condition_definedness(
+        definition,
+        substitute_predicates(&claim.lhs.constraints, &substitution),
+        &match_knowledge,
+    );
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
@@ -1340,11 +1351,14 @@ fn apply_claim(
         .collect::<BTreeSet<_>>();
     let (defined, requires) = extract_substitution_for(&requires, &unbound, &definition.sort_graph);
     substitution = compose(&defined, &substitution);
-    match_conditions = substitute_predicates(&match_conditions, &defined);
+    // A claim variable bound by an equation of the requires denotes a defined element, so its
+    // value's definedness stays among the conditions the claim applies under (I2).
+    match_conditions =
+        eliminate_bindings(definition, &match_conditions, &defined, &subject_knowledge);
     match_conditions = match simplify_predicates_with_solver(
         definition,
         &match_conditions,
-        &subject.constraints,
+        &subject_knowledge,
         simplification,
         solver,
     ) {
@@ -1358,9 +1372,9 @@ fn apply_claim(
     if predicates_truth(&match_conditions) == Truth::False {
         return ClaimApplication::NotApplicable;
     }
-    let mut match_knowledge = subject.constraints.clone();
+    let mut match_knowledge = subject_knowledge.to_vec();
     extend_unique(&mut match_knowledge, match_conditions.clone());
-    let requires = substitute_predicates(&requires, &defined);
+    let requires = eliminate_bindings(definition, &requires, &defined, &match_knowledge);
     let requires = match simplify_predicates_with_solver(
         definition,
         &requires,
@@ -1386,9 +1400,10 @@ fn apply_claim(
     conditions.retain(|condition| {
         predicates_truth(std::slice::from_ref(condition)) == Truth::Unknown
             && !subject.constraints.contains(condition)
+            && !subject_knowledge.contains(condition)
     });
     if !conditions.is_empty() {
-        match solver.check_predicates(&subject.constraints, &Substitution::new(), &conditions) {
+        match solver.check_predicates(&subject_knowledge, &Substitution::new(), &conditions) {
             Ok(Validity::Valid) => conditions.clear(),
             Ok(Validity::Invalid | Validity::InconsistentGroundTruth) => {
                 return ClaimApplication::NotApplicable;
@@ -1422,8 +1437,13 @@ fn apply_claim(
     // bottom successor is left for the vacuity check to reject.
     let complement = match complement {
         Some(negated) => {
-            match remainder_is_unsatisfiable(definition, subject, &negated, simplification, solver)
-            {
+            match remainder_is_unsatisfiable(
+                definition,
+                &subject_knowledge,
+                &negated,
+                simplification,
+                solver,
+            ) {
                 Ok(true) => None,
                 Ok(false) => Some(negated),
                 Err(error) => {
@@ -1460,10 +1480,14 @@ fn apply_claim(
             .iter()
             .map(|rhs| {
                 let mut constraints = covered_knowledge.clone();
-                extend_unique(
-                    &mut constraints,
+                // An equivalence (I1): the successor states the definedness its constraints
+                // imply, so later decisions on it do not read a partial term as total.
+                let rhs_constraints = condition_definedness(
+                    definition,
                     substitute_predicates(&rhs.constraints, &substitution),
+                    &constraints,
                 );
+                extend_unique(&mut constraints, rhs_constraints);
                 Pattern {
                     term: substitute(&rhs.term, &substitution),
                     constraints,
@@ -1476,12 +1500,13 @@ fn apply_claim(
 
 /// The remainder of a claim application is the subject under the negated, quantified match
 /// condition. It is unsatisfiable when that condition simplifies to false or the solver refutes
-/// it together with the subject's constraints; an undecided or unavailable solver, or a failed
-/// simplification, keeps it. An exhausted stack is returned instead: keeping the remainder would
-/// turn the lack of stack into a state the claim does not cover.
+/// it together with `subject_knowledge`, the subject's `pattern_knowledge`; an undecided or
+/// unavailable solver, or a failed simplification, keeps it. An exhausted stack is returned
+/// instead: keeping the remainder would turn the lack of stack into a state the claim does not
+/// cover.
 fn remainder_is_unsatisfiable(
     definition: &BackendDefinition,
-    subject: &Pattern,
+    subject_knowledge: &[crate::rule::Predicate],
     negated: &crate::rule::Predicate,
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
@@ -1489,7 +1514,7 @@ fn remainder_is_unsatisfiable(
     let simplified = match simplify_predicates_with_solver(
         definition,
         std::slice::from_ref(negated),
-        &subject.constraints,
+        subject_knowledge,
         options,
         solver,
     ) {
@@ -1500,7 +1525,7 @@ fn remainder_is_unsatisfiable(
     if predicates_truth(&simplified) == Truth::False {
         return Ok(true);
     }
-    let mut constraints = subject.constraints.clone();
+    let mut constraints = subject_knowledge.to_vec();
     extend_unique(&mut constraints, simplified);
     Ok(matches!(
         solver.is_sat(&constraints, &Substitution::new()),
@@ -1941,6 +1966,155 @@ mod tests {
             .iter()
             .find(|claim| claim.attributes.label.as_deref() == Some(label))
             .unwrap_or_else(|| panic!("claim {label:?} should be indexed"))
+    }
+
+    /// A definition with a partial `divInt` (no `total` attribute, no ceil equation), so that
+    /// `10 /Int Y` is undefined at `Y = 0`.
+    #[cfg(feature = "z3")]
+    fn partial_claim_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortState{} []
+                symbol pair{}(SortInt{}, SortInt{}) : SortState{} [constructor{}()]
+                symbol done{}() : SortState{} [constructor{}()]
+                hooked-symbol leInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.le"), smt-hook{}("<=")]
+                hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.add"), smt-hook{}("+")]
+                hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// A one-path claim `lhs ∧ requires ⇒ rhs` over `partial_claim_definition`.
+    #[cfg(feature = "z3")]
+    fn partial_claim(
+        definition: &BackendDefinition,
+        lhs: &str,
+        requires: &str,
+        rhs: &str,
+    ) -> ReachabilityClaim {
+        let requires = crate::rule::Predicate::Equals(
+            term(definition, r#"\dv{SortBool{}}("true")"#),
+            term(definition, requires),
+        );
+        ReachabilityClaim {
+            lhs: Pattern {
+                term: term(definition, lhs),
+                constraints: vec![requires],
+            },
+            rhs: vec![Pattern {
+                term: term(definition, rhs),
+                constraints: Vec::new(),
+            }],
+            existentials: BTreeSet::new(),
+            mode: crate::claim::ReachabilityMode::OnePath,
+            attributes: crate::claim::ClaimAttributes {
+                label: Some("partial".into()),
+                unique_id: "partial".into(),
+                trusted: false,
+                source: None,
+                location: None,
+            },
+        }
+    }
+
+    /// Ported from the probe `cbc07_probe_claim_requires_over_a_partial_term` (P3).
+    /// At `Y = 0` the claim's instantiated `requires` `10 /Int Y <=Int 10 /Int Y +Int 1` denotes
+    /// `⊥` (I1), so the claim does not apply to `pair(0, 1)`: those instances must stay in the
+    /// remainder rather than leave the proof unexamined.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_claim_requires_over_a_partial_term_leaves_its_undefined_instances() {
+        let definition = partial_claim_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let claim = partial_claim(
+            &definition,
+            r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#,
+            r#"leInt{}(divInt{}(\dv{SortInt{}}("10"), X:SortInt{}), addInt{}(divInt{}(\dv{SortInt{}}("10"), X:SortInt{}), \dv{SortInt{}}("1")))"#,
+            r#"pair{}(X:SortInt{}, \dv{SortInt{}}("2"))"#,
+        );
+        let subject = Pattern {
+            term: term(&definition, r#"pair{}(Y:SortInt{}, \dv{SortInt{}}("1"))"#),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+        let application = apply_claim(
+            &definition,
+            &claim,
+            &subject,
+            ProofOptions::default(),
+            &solver,
+            &mut fresh,
+        );
+        let ClaimApplication::Applied {
+            patterns,
+            remainder,
+        } = application
+        else {
+            panic!("the claim should apply to the defined instances");
+        };
+        assert_eq!(patterns.len(), 1, "{patterns:#?}");
+        let remainder = remainder.expect("the instances where 10 /Int Y is undefined remain");
+        assert_eq!(remainder.pattern.term, subject.term);
+        let mut constraints = remainder.pattern.constraints.clone();
+        constraints.push(crate::rule::Predicate::Equals(
+            term(&definition, "Y:SortInt{}"),
+            term(&definition, r#"\dv{SortInt{}}("0")"#),
+        ));
+        assert_eq!(
+            solver.is_sat(&constraints, &Substitution::new()),
+            Ok(Satisfiability::Sat),
+            "the remainder must admit Y = 0: {:#?}",
+            remainder.pattern.constraints
+        );
+    }
+
+    /// Ported from the probe `cbc07_probe_claim_subject_term_defines` (I7).
+    /// The subject `pair(Y, 10 /Int Y)` is empty where `10 /Int Y` is undefined, so `⌈10 /Int Y⌉`
+    /// holds on every instance and the claim covers the whole subject.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_claim_on_a_subject_whose_term_defines_the_partial_term_leaves_no_remainder() {
+        let definition = partial_claim_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        let claim = partial_claim(
+            &definition,
+            r#"pair{}(X:SortInt{}, Z:SortInt{})"#,
+            r#"leInt{}(Z:SortInt{}, addInt{}(Z:SortInt{}, \dv{SortInt{}}("1")))"#,
+            r#"done{}()"#,
+        );
+        let subject = Pattern {
+            term: term(
+                &definition,
+                r#"pair{}(Y:SortInt{}, divInt{}(\dv{SortInt{}}("10"), Y:SortInt{}))"#,
+            ),
+            constraints: Vec::new(),
+        };
+        let mut fresh = 0;
+        let application = apply_claim(
+            &definition,
+            &claim,
+            &subject,
+            ProofOptions::default(),
+            &solver,
+            &mut fresh,
+        );
+        let ClaimApplication::Applied {
+            patterns,
+            remainder,
+        } = application
+        else {
+            panic!("the claim should apply");
+        };
+        assert_eq!(patterns.len(), 1, "{patterns:#?}");
+        assert!(remainder.is_none(), "{remainder:#?}");
     }
 
     fn claim_requires_definition() -> BackendDefinition {
@@ -4188,24 +4362,33 @@ mod tests {
             term(&definition, "opaque{}()"),
             term(&definition, "a{}()"),
         );
-        // The stuck `b()` carries `¬(opaque() = a())`, whose satisfiability rests on the
-        // abstracted `opaque()`: the leaf fails the claim without certifying a refutation.
+        // `opaque()` is partial, and the equality with the defined `a()` is `⊥` where it is
+        // undefined, so the instantiated requires is stated as `⌈opaque()⌉ ∧ opaque() = a()`
+        // (I1): the equality already implies `⌈opaque()⌉`, so this is the same condition.
+        let definedness = crate::rule::Predicate::Ceil(term(&definition, "opaque{}()"));
+        let condition = crate::rule::Predicate::And(vec![definedness.clone(), requires.clone()]);
+        // The stuck `b()` carries `¬(⌈opaque()⌉ ∧ opaque() = a())`, whose satisfiability rests on
+        // the abstracted `opaque()`: the leaf fails the claim without certifying a refutation.
         assert_eq!(result.status, ProofStatus::Failed, "{result:#?}");
-        assert!(result.leaves.iter().any(|leaf| {
-            leaf.pattern.term == term(&definition, "c{}()")
-                && leaf.pattern.constraints.contains(&requires)
-                && matches!(leaf.outcome, ProofLeafOutcome::Proven(_))
-                && leaf.trace.iter().any(|entry| {
-                    entry.kind == TraceKind::Claim
-                        && entry.label.as_deref() == Some("indeterminate-second")
-                })
-        }));
+        assert!(
+            result.leaves.iter().any(|leaf| {
+                leaf.pattern.term == term(&definition, "c{}()")
+                    && leaf.pattern.constraints.contains(&requires)
+                    && leaf.pattern.constraints.contains(&definedness)
+                    && matches!(leaf.outcome, ProofLeafOutcome::Proven(_))
+                    && leaf.trace.iter().any(|entry| {
+                        entry.kind == TraceKind::Claim
+                            && entry.label.as_deref() == Some("indeterminate-second")
+                    })
+            }),
+            "{result:#?}"
+        );
         assert!(result.leaves.iter().any(|leaf| {
             leaf.pattern.term == term(&definition, "b{}()")
                 && leaf
                     .pattern
                     .constraints
-                    .contains(&crate::rule::Predicate::Not(Box::new(requires.clone())))
+                    .contains(&crate::rule::Predicate::Not(Box::new(condition.clone())))
                 && matches!(leaf.outcome, ProofLeafOutcome::Stuck)
                 && leaf
                     .trace
