@@ -1,37 +1,32 @@
 //! Attribute payload parser acceptance, rejection, and span tests.
 
-use krs_syntax::{
-    ProvenanceRole, SyntaxErrorKind, parse_alias_attribute_source,
-    parse_constructor_attribute_source, parse_constructors_attribute_source,
-    parse_context_alias_attribute_source, parse_equation_attribute_source,
-    parse_function_attribute_source, parse_priority_attribute_source, parse_rule_attribute_source,
-    parse_simplification_attribute_source, parse_sort_attribute_source,
-    parse_subsort_attribute_source,
-};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, SyntaxErrorKind};
 use quote::ToTokens;
 
 #[test]
 fn empty_marker_attributes_are_accepted() {
-    let sort = parse_sort_attribute_source("").unwrap();
+    let sort = krs_syntax::SortAttribute::parse_source("").unwrap();
     assert!(!sort.is_reference());
     assert!(sort.alias().is_none());
     assert!(sort.parents().is_empty());
-    parse_equation_attribute_source("").unwrap();
-    parse_alias_attribute_source("").unwrap();
-    let rule = parse_rule_attribute_source("").unwrap();
+    krs_syntax::EquationAttribute::parse_source("").unwrap();
+    krs_syntax::AliasAttribute::parse_source("").unwrap();
+    let rule = krs_syntax::RuleAttribute::parse_source("").unwrap();
     assert!(rule.label().is_none());
     assert!(!rule.is_owise());
 }
 
 #[test]
 fn sort_accepts_explicit_alias_and_parent_carriers() {
-    let alias = parse_sort_attribute_source("alias = Expr").unwrap();
+    let alias = krs_syntax::SortAttribute::parse_source("alias = Expr").unwrap();
     assert!(alias.is_reference());
     assert_eq!(alias.alias().unwrap(), "Expr");
     assert!(alias.parents().is_empty());
 
     let inherited =
-        parse_sort_attribute_source("parents = [Expr, k::KResult], alias = Value,").unwrap();
+        krs_syntax::SortAttribute::parse_source("parents = [Expr, k::KResult], alias = Value,")
+            .unwrap();
     assert!(inherited.is_reference());
     assert_eq!(inherited.alias().unwrap(), "Value");
     assert_eq!(
@@ -59,11 +54,11 @@ fn sort_rejects_incomplete_duplicate_unknown_and_malformed_reference_payloads() 
     ];
     for source in cases {
         assert!(
-            parse_sort_attribute_source(source).is_err(),
+            krs_syntax::SortAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
-    let missing = parse_sort_attribute_source("parents = [Expr]").unwrap_err();
+    let missing = krs_syntax::SortAttribute::parse_source("parents = [Expr]").unwrap_err();
     assert!(matches!(
         missing.kind(),
         SyntaxErrorKind::MissingArgument { name: "alias" }
@@ -72,7 +67,7 @@ fn sort_rejects_incomplete_duplicate_unknown_and_malformed_reference_payloads() 
 
 #[test]
 fn subsort_reference_attribute_requires_one_semantic_sort_path() {
-    let parsed = parse_subsort_attribute_source("sort = crate::Value,").unwrap();
+    let parsed = krs_syntax::SubsortAttribute::parse_source("sort = crate::Value,").unwrap();
     assert_eq!(
         parsed.sort().to_token_stream().to_string(),
         "crate :: Value"
@@ -86,7 +81,7 @@ fn subsort_reference_attribute_requires_one_semantic_sort_path() {
         "sort = Vec<Value>",
     ] {
         assert!(
-            parse_subsort_attribute_source(source).is_err(),
+            krs_syntax::SubsortAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -94,12 +89,13 @@ fn subsort_reference_attribute_requires_one_semantic_sort_path() {
 
 #[test]
 fn constructors_distinguishes_closed_readable_and_reference_families() {
-    let closed = parse_constructors_attribute_source("sort = Expr").unwrap();
+    let closed = krs_syntax::ConstructorsAttribute::parse_source("sort = Expr").unwrap();
     assert!(!closed.is_open_family());
     assert!(!closed.is_reference());
     assert!(closed.result().is_none());
 
-    let readable = parse_constructors_attribute_source("result = KResult, sort = Expr,").unwrap();
+    let readable =
+        krs_syntax::ConstructorsAttribute::parse_source("result = KResult, sort = Expr,").unwrap();
     assert!(readable.is_open_family());
     assert!(!readable.is_reference());
     assert_eq!(
@@ -107,7 +103,8 @@ fn constructors_distinguishes_closed_readable_and_reference_families() {
         "KResult"
     );
 
-    let reference = parse_constructors_attribute_source("reference, sort = Expr").unwrap();
+    let reference =
+        krs_syntax::ConstructorsAttribute::parse_source("reference, sort = Expr").unwrap();
     assert!(reference.is_open_family());
     assert!(reference.is_reference());
     assert!(reference.result().is_none());
@@ -124,7 +121,7 @@ fn constructors_reference_is_bare_unique_and_mutually_exclusive_with_result() {
         "sort = Expr, result = KResult, reference",
     ] {
         assert!(
-            parse_constructors_attribute_source(source).is_err(),
+            krs_syntax::ConstructorsAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -133,7 +130,7 @@ fn constructors_reference_is_bare_unique_and_mutually_exclusive_with_result() {
         "sort = Expr, reference, result = KResult",
         "sort = Expr, result = KResult, reference",
     ] {
-        let error = parse_constructors_attribute_source(source).unwrap_err();
+        let error = krs_syntax::ConstructorsAttribute::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::InvalidArgumentValue { .. }
@@ -145,7 +142,7 @@ fn constructors_reference_is_bare_unique_and_mutually_exclusive_with_result() {
 fn alias_rejects_recursive_and_other_payloads() {
     for source in ["recursive", "true", "mode = recursive"] {
         assert!(
-            parse_alias_attribute_source(source).is_err(),
+            krs_syntax::AliasAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -153,7 +150,9 @@ fn alias_rejects_recursive_and_other_payloads() {
 
 #[test]
 fn context_alias_requires_typed_name_and_here_identifiers() {
-    let parsed = parse_context_alias_attribute_source("here = site, name = eval_context,").unwrap();
+    let parsed =
+        krs_syntax::ContextAliasAttribute::parse_source("here = site, name = eval_context,")
+            .unwrap();
     assert_eq!(parsed.name(), "eval_context");
     assert_eq!(parsed.here(), "site");
 
@@ -179,7 +178,7 @@ fn context_alias_rejects_missing_duplicate_unknown_and_qualified_values() {
     ];
     for source in cases {
         assert!(
-            parse_context_alias_attribute_source(source).is_err(),
+            krs_syntax::ContextAliasAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -187,7 +186,8 @@ fn context_alias_rejects_missing_duplicate_unknown_and_qualified_values() {
 
 #[test]
 fn equation_does_not_invent_an_explicit_label_surface() {
-    let error = parse_equation_attribute_source(r#"label = "not-settled""#).unwrap_err();
+    let error =
+        krs_syntax::EquationAttribute::parse_source(r#"label = "not-settled""#).unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::UnexpectedAttributePayload {
@@ -198,7 +198,7 @@ fn equation_does_not_invent_an_explicit_label_surface() {
 
 #[test]
 fn priority_accepts_one_u32_and_anchors_its_literal() {
-    let priority = parse_priority_attribute_source("40").unwrap();
+    let priority = krs_syntax::PriorityAttribute::parse_source("40").unwrap();
     assert_eq!(priority.value(), 40);
     let anchors = priority.provenance().unwrap();
     assert_eq!(anchors.len(), 1);
@@ -209,7 +209,7 @@ fn priority_accepts_one_u32_and_anchors_its_literal() {
 fn priority_rejects_missing_noninteger_multiple_and_overflow_values() {
     for source in ["", "high", "40, 80", "4294967296"] {
         assert!(
-            parse_priority_attribute_source(source).is_err(),
+            krs_syntax::PriorityAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -217,11 +217,11 @@ fn priority_rejects_missing_noninteger_multiple_and_overflow_values() {
 
 #[test]
 fn simplification_accepts_empty_or_one_typed_priority() {
-    let plain = parse_simplification_attribute_source("").unwrap();
+    let plain = krs_syntax::SimplificationAttribute::parse_source("").unwrap();
     assert_eq!(plain.priority(), None);
     assert!(plain.provenance().unwrap().is_empty());
 
-    let hinted = parse_simplification_attribute_source("priority = 50").unwrap();
+    let hinted = krs_syntax::SimplificationAttribute::parse_source("priority = 50").unwrap();
     assert_eq!(hinted.priority(), Some(50));
     let anchors = hinted.provenance().unwrap();
     assert_eq!(anchors.len(), 1);
@@ -238,7 +238,7 @@ fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
         "label = 1",
     ] {
         assert!(
-            parse_simplification_attribute_source(source).is_err(),
+            krs_syntax::SimplificationAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -246,7 +246,7 @@ fn simplification_rejects_unknown_duplicate_and_invalid_hints() {
 
 #[test]
 fn total_function_requires_and_anchors_total_sort_syntax_and_hook() {
-    let parsed = parse_function_attribute_source(
+    let parsed = krs_syntax::FunctionAttribute::parse_source(
         r##"syntax = "#next({value})", total, hook = krypto::keccak256_raw, sort = crate::Int"##,
     )
     .unwrap();
@@ -279,8 +279,10 @@ fn total_function_requires_and_anchors_total_sort_syntax_and_hook() {
 
 #[test]
 fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
-    let partial =
-        parse_function_attribute_source(r#"partial, sort = Int, syntax = "f({value})""#).unwrap();
+    let partial = krs_syntax::FunctionAttribute::parse_source(
+        r#"partial, sort = Int, syntax = "f({value})""#,
+    )
+    .unwrap();
     assert!(!partial.is_total());
     for source in [
         r#"sort = Int, syntax = "f({value})""#,
@@ -289,7 +291,7 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
         r"total, sort = Int",
     ] {
         assert!(
-            parse_function_attribute_source(source).is_err(),
+            krs_syntax::FunctionAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -297,7 +299,7 @@ fn function_accepts_partial_and_rejects_missing_or_duplicate_totality() {
 
 #[test]
 fn rule_accepts_an_exact_k_label_and_anchors_its_literal() {
-    let attribute = parse_rule_attribute_source(r#"owise, label = "if-true""#).unwrap();
+    let attribute = krs_syntax::RuleAttribute::parse_source(r#"owise, label = "if-true""#).unwrap();
     assert_eq!(attribute.label().unwrap().value(), "if-true");
     assert!(attribute.is_owise());
     let anchors = attribute.provenance().unwrap();
@@ -322,7 +324,7 @@ fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
     ];
     for source in cases {
         assert!(
-            parse_rule_attribute_source(source).is_err(),
+            krs_syntax::RuleAttribute::parse_source(source).is_err(),
             "unexpectedly accepted {source:?}"
         );
     }
@@ -330,7 +332,7 @@ fn rule_rejects_unknown_duplicate_non_string_and_invalid_labels() {
 
 #[test]
 fn marker_attributes_and_sort_reject_unknown_payload_at_first_token() {
-    let error = parse_sort_attribute_source("unexpected").unwrap_err();
+    let error = krs_syntax::SortAttribute::parse_source("unexpected").unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::UnknownArgument { name } if name == "unexpected"
@@ -340,7 +342,7 @@ fn marker_attributes_and_sort_reject_unknown_payload_at_first_token() {
 
 #[test]
 fn constructor_accepts_required_sort_and_optional_template_in_any_order() {
-    let parsed = parse_constructor_attribute_source(
+    let parsed = krs_syntax::ConstructorAttribute::parse_source(
         r#"syntax = r"{lhs} + {rhs}", sort = crate::syntax::Expr,"#,
     )
     .unwrap();
@@ -356,7 +358,7 @@ fn constructor_accepts_required_sort_and_optional_template_in_any_order() {
 
 #[test]
 fn constructor_syntax_is_optional() {
-    let parsed = parse_constructor_attribute_source("sort = Value").unwrap();
+    let parsed = krs_syntax::ConstructorAttribute::parse_source("sort = Value").unwrap();
     assert!(parsed.syntax.is_none());
     assert_eq!(parsed.provenance().unwrap().len(), 1);
 }
@@ -373,7 +375,7 @@ fn constructor_rejects_unknown_duplicate_missing_and_wrong_values() {
         ("sort = Vec<Value>", "sort_value"),
     ];
     for (source, expected) in cases {
-        let error = parse_constructor_attribute_source(source).unwrap_err();
+        let error = krs_syntax::ConstructorAttribute::parse_source(source).unwrap_err();
         match expected {
             "unknown" => assert!(matches!(
                 error.kind(),
@@ -403,7 +405,8 @@ fn constructor_rejects_unknown_duplicate_missing_and_wrong_values() {
 
 #[test]
 fn duplicate_error_points_at_the_second_key() {
-    let error = parse_constructor_attribute_source("sort = Value,\nsort = Expr").unwrap_err();
+    let error =
+        krs_syntax::ConstructorAttribute::parse_source("sort = Value,\nsort = Expr").unwrap_err();
     let start = error.span().start();
     assert_eq!((start.line, start.column), (2, 0));
 }

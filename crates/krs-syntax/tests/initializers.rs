@@ -1,13 +1,12 @@
 //! Restricted declarative single-cell initializer parser tests.
 
-use krs_syntax::{
-    ProvenanceRole, SyntaxErrorKind, parse_init_attribute_source, parse_initializer_function_source,
-};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, SyntaxErrorKind};
 
 #[test]
 fn empty_init_attribute_and_zero_argument_foo_initializer_are_accepted() {
-    parse_init_attribute_source("").unwrap();
-    let initializer = parse_initializer_function_source(
+    krs_syntax::InitAttribute::parse_source("").unwrap();
+    let initializer = krs_syntax::InitializerFunction::parse_source(
         "pub fn init() -> Self { \
          Self { k: k::configuration::KCell::new(k![model::Foo]) } \
          }",
@@ -47,7 +46,7 @@ fn empty_init_attribute_and_zero_argument_foo_initializer_are_accepted() {
 
 #[test]
 fn one_main_variable_preserves_parameter_body_and_resolution_candidates() {
-    let initializer = parse_initializer_function_source(
+    let initializer = krs_syntax::InitializerFunction::parse_source(
         "fn init(\
             #[k::config_var(name = \"PGM\", main)]\
             program: k::Term<dyn model::KItem>,\
@@ -87,7 +86,7 @@ fn one_main_variable_preserves_parameter_body_and_resolution_candidates() {
 
 #[test]
 fn main_variable_accepts_a_declared_open_syntax_sort() {
-    let initializer = parse_initializer_function_source(
+    let initializer = krs_syntax::InitializerFunction::parse_source(
         "fn init(\
             #[k::config_var(name = \"PGM\", main)]\
             program: k::Term<dyn model::Expr>,\
@@ -108,7 +107,7 @@ fn main_variable_accepts_a_declared_open_syntax_sort() {
 
 #[test]
 fn readable_initializer_infers_variables_wrappers_and_main_input() {
-    let initializer = parse_initializer_function_source(
+    let initializer = krs_syntax::InitializerFunction::parse_source(
         "fn init(pgm: model::Stmt, env: builtin::Map<builtin::Id, model::Value>) -> Self {\
              Self { k: k![pgm], env }\
          }",
@@ -160,7 +159,7 @@ fn readable_initializer_infers_variables_wrappers_and_main_input() {
 
 #[test]
 fn readable_initializer_honors_name_override_and_rejects_ambiguous_main() {
-    let overridden = parse_initializer_function_source(
+    let overridden = krs_syntax::InitializerFunction::parse_source(
         "fn init(#[renamed::config_var(name = \"SOURCE\")] pgm: Stmt) -> Self {\
              Self { k: renamed::k![pgm] }\
          }",
@@ -171,7 +170,7 @@ fn readable_initializer_honors_name_override_and_rejects_ambiguous_main() {
     assert!(!variable.attribute().has_inferred_name());
     assert!(variable.attribute().has_inferred_main());
 
-    let error = parse_initializer_function_source(
+    let error = krs_syntax::InitializerFunction::parse_source(
         "fn init(first: Stmt, second: Stmt) -> Self { Self { k: k![first, second] } }",
     )
     .unwrap_err();
@@ -183,7 +182,8 @@ fn readable_initializer_honors_name_override_and_rejects_ambiguous_main() {
 
 #[test]
 fn initializer_rejects_empty_and_repeated_fields_at_field_tokens() {
-    let missing = parse_initializer_function_source("fn init() -> Self { Self {} }").unwrap_err();
+    let missing =
+        krs_syntax::InitializerFunction::parse_source("fn init() -> Self { Self {} }").unwrap_err();
     assert!(matches!(
         missing.kind(),
         SyntaxErrorKind::UnsupportedInitializerBody { .. }
@@ -191,7 +191,7 @@ fn initializer_rejects_empty_and_repeated_fields_at_field_tokens() {
 
     let repeated_source =
         "fn init() -> Self { Self { k: KCell::new(k![Foo]), k: KCell::new(k![Bar]) } }";
-    let repeated = parse_initializer_function_source(repeated_source).unwrap_err();
+    let repeated = krs_syntax::InitializerFunction::parse_source(repeated_source).unwrap_err();
     assert!(matches!(
         repeated.kind(),
         SyntaxErrorKind::DuplicateConfigurationField { .. }
@@ -214,7 +214,7 @@ fn host_statements_control_flow_mutation_calls_and_early_return_are_rejected() {
         "fn init() -> Self { Self { k: KCell::new(k![Foo]), ..base } }",
     ];
     for source in cases {
-        let error = parse_initializer_function_source(source).unwrap_err();
+        let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::UnsupportedInitializerBody { .. }
@@ -229,7 +229,7 @@ fn unsupported_signatures_variables_and_ambiguous_main_are_rejected_locally() {
          #[k::config_var(name = \"ONE\", main)] one: Term<dyn KItem>,\
          #[k::config_var(name = \"TWO\", main)] two: Term<dyn KItem>\
          ) -> Self { Self { k: KCell::new(k![one]) } }";
-    let ambiguous = parse_initializer_function_source(ambiguous_source).unwrap_err();
+    let ambiguous = krs_syntax::InitializerFunction::parse_source(ambiguous_source).unwrap_err();
     assert!(matches!(
         ambiguous.kind(),
         SyntaxErrorKind::AmbiguousMainConfigurationVariable
@@ -249,7 +249,7 @@ fn unsupported_signatures_variables_and_ambiguous_main_are_rejected_locally() {
         "fn init(#[k::config_var(name = \"PGM\", name = \"OTHER\", main)] program: Term<dyn KItem>) -> Self { Self { k: KCell::new(k![program]) } }",
     ];
     for source in cases {
-        let error = parse_initializer_function_source(source).unwrap_err();
+        let error = krs_syntax::InitializerFunction::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::UnsupportedInitializerSignature { .. }
@@ -263,7 +263,7 @@ fn unsupported_signatures_variables_and_ambiguous_main_are_rejected_locally() {
 
 #[test]
 fn init_marker_rejects_payload_at_first_token() {
-    let error = parse_init_attribute_source("unexpected").unwrap_err();
+    let error = krs_syntax::InitAttribute::parse_source("unexpected").unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::UnexpectedAttributePayload { attribute: "init" }

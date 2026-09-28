@@ -1,15 +1,16 @@
 //! Unit and record constructor declaration parser tests.
 
-use krs_syntax::{ProvenanceRole, SyntaxErrorKind, parse_constructor_declaration_source};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, SyntaxErrorKind};
 
 #[test]
 fn unit_and_named_record_constructors_preserve_original_items() {
-    let unit = parse_constructor_declaration_source("pub struct Halt;").unwrap();
+    let unit = krs_syntax::ConstructorDeclaration::parse_source("pub struct Halt;").unwrap();
     assert_eq!(unit.name(), "Halt");
     assert!(unit.fields().is_empty());
     assert!(matches!(unit.item().fields, syn::Fields::Unit));
 
-    let record = parse_constructor_declaration_source(
+    let record = krs_syntax::ConstructorDeclaration::parse_source(
         "#[derive(Clone)] pub struct Add { \
          pub lhs: krs::Term<dyn model::Expr>, \
          rhs: Term<crate::value::Value> \
@@ -35,7 +36,7 @@ fn unit_and_named_record_constructors_preserve_original_items() {
 
 #[test]
 fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
-    let constructor = parse_constructor_declaration_source(
+    let constructor = krs_syntax::ConstructorDeclaration::parse_source(
         "struct Pair { left: Term<dyn syntax::Expr>, right: Term<value::Value> }",
     )
     .unwrap();
@@ -60,7 +61,7 @@ fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
 
 #[test]
 fn production_rustdoc_is_normalized_and_has_exact_full_provenance() {
-    let constructor = parse_constructor_declaration_source(
+    let constructor = krs_syntax::ConstructorDeclaration::parse_source(
         "/// First line.\n#[doc = \"Second line.\"]\nstruct Documented;",
     )
     .unwrap();
@@ -86,7 +87,7 @@ fn production_rustdoc_is_normalized_and_has_exact_full_provenance() {
         [0, 1],
     );
 
-    let error = parse_constructor_declaration_source(
+    let error = krs_syntax::ConstructorDeclaration::parse_source(
         "#[doc = concat!(\"not literal\")] struct DynamicDoc;",
     )
     .unwrap_err();
@@ -106,7 +107,7 @@ fn tuple_generic_where_and_attributed_field_shapes_are_rejected() {
     ];
 
     for source in cases {
-        let error = parse_constructor_declaration_source(source).unwrap_err();
+        let error = krs_syntax::ConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::UnsupportedConstructorDeclaration { .. }
@@ -123,7 +124,7 @@ fn fields_without_unambiguous_object_sort_types_are_rejected() {
         "struct MultipleBounds { value: Term<dyn Expr + Value> }",
         "struct Reference { value: &'static Term<Expr> }",
     ] {
-        let error = parse_constructor_declaration_source(source).unwrap_err();
+        let error = krs_syntax::ConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(matches!(error.kind(), SyntaxErrorKind::InvalidTermType));
     }
 }

@@ -1,5 +1,6 @@
 //! Enum production families: `#[k::constructors]`.
 
+use krs_syntax::KrsSyntax;
 use std::collections::BTreeMap;
 
 use krs_ir::wire::{
@@ -13,7 +14,6 @@ use krs_ir::{
 };
 use krs_syntax::{
     GroupAssociativity as SyntaxGroupAssociativity, ProvenanceRole, SyntaxTemplateItem, TokenRange,
-    parse_constructors_attribute,
 };
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
@@ -37,7 +37,7 @@ pub(crate) fn constructors(
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
-    let attribute = parse_constructors_attribute(attributes)?;
+    let attribute = krs_syntax::ConstructorsAttribute::parse_tokens(attributes)?;
     let item: ItemEnum = syn::parse2(item)?;
     let declaration = krs_syntax::EnumConstructorDeclaration::from_parts(&attribute, item)?;
     let facade = env.facade_path()?;

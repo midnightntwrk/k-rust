@@ -1,5 +1,6 @@
 //! Deterministic readable-to-reference Rust projection.
 
+use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -90,7 +91,7 @@ pub fn expand_reference_source(
             items.extend(trailing_enum_grammar);
             continue;
         }
-        let block = krs_syntax::parse_rule_block(invocation.mac.tokens.clone())
+        let block = krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
             .map_err(ReferenceExpansionError::KrsSyntax)?;
         for clause in block.clauses() {
             let name = clause.rule().item().sig.ident.unraw().to_string();
@@ -527,7 +528,7 @@ fn render_family_grammar(
 fn materialize_readable_sorts(
     invocation: &syn::ItemMacro,
 ) -> Result<Vec<syn::Item>, ReferenceExpansionError> {
-    let declaration = krs_syntax::parse_sorts_declaration(invocation.mac.tokens.clone())
+    let declaration = krs_syntax::SortsDeclaration::parse_tokens(invocation.mac.tokens.clone())
         .map_err(ReferenceExpansionError::KrsSyntax)?;
     let local_parents = declaration
         .entries()
@@ -707,7 +708,7 @@ fn materialize_configuration_wrappers(
     if !has_attribute(&item.attrs, "configuration") && !has_attribute(&item.attrs, "cell") {
         return Ok(());
     }
-    let declaration = krs_syntax::parse_configuration_declaration(item.to_token_stream())
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item.to_token_stream())
         .map_err(ReferenceExpansionError::KrsSyntax)?;
     let syn::Fields::Named(fields) = &mut item.fields else {
         return Err(ReferenceExpansionError::GeneratedRust(syn::Error::new(
@@ -756,8 +757,9 @@ fn materialize_initializers(item: &mut syn::ItemImpl) -> Result<(), ReferenceExp
         parsed_method
             .attrs
             .retain(|attribute| !attribute_is(attribute, "init"));
-        let initializer = krs_syntax::parse_initializer_function(parsed_method.to_token_stream())
-            .map_err(ReferenceExpansionError::KrsSyntax)?;
+        let initializer =
+            krs_syntax::InitializerFunction::parse_tokens(parsed_method.to_token_stream())
+                .map_err(ReferenceExpansionError::KrsSyntax)?;
         for (input, variable) in method.sig.inputs.iter_mut().zip(initializer.variables()) {
             let syn::FnArg::Typed(parameter) = input else {
                 continue;

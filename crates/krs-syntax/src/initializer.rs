@@ -12,7 +12,8 @@ use syn::{
 use crate::ReferenceCandidate;
 use crate::attribute::is_plain_path;
 use crate::parse::{
-    checked_ordinal, structured_args, unsupported_configuration_variable as unsupported_variable,
+    KrsSyntax, checked_ordinal, structured_args,
+    unsupported_configuration_variable as unsupported_variable,
     unsupported_initializer_body as unsupported_body,
     unsupported_initializer_signature as unsupported_signature,
 };
@@ -20,7 +21,6 @@ use crate::rule::{TermSort, parse_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
     TermExpression, TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,
-    parse_term_expression,
 };
 
 /// Parsed payload of one `#[k::config_var(name = "...", main)]` helper.
@@ -434,25 +434,10 @@ impl InitializerFunction {
     }
 }
 
-/// Parses a fixed-state initializer method from proc-macro item tokens.
-///
-/// # Errors
-///
-/// Returns Rust parsing failures or a structured closed-grammar error.
-pub fn parse_initializer_function(tokens: TokenStream) -> Result<InitializerFunction, SyntaxError> {
-    InitializerFunction::from_item(syn::parse2::<ImplItemFn>(tokens)?)
-}
-
-/// Parses a fixed-state initializer method shape directly from source text.
-///
-/// The source is the method item delivered to an attribute macro, so it does
-/// not include the invoking `#[k::init]` attribute.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_initializer_function`].
-pub fn parse_initializer_function_source(source: &str) -> Result<InitializerFunction, SyntaxError> {
-    InitializerFunction::from_item(syn::parse_str::<ImplItemFn>(source)?)
+impl KrsSyntax for InitializerFunction {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2::<ImplItemFn>(tokens)?)
+    }
 }
 
 fn validate_signature(item: &ImplItemFn) -> Result<(), SyntaxError> {
@@ -902,7 +887,7 @@ fn parse_initializer_cell(field: syn::FieldValue) -> Result<FixedCellInitializer
         }
         Expr::Path(_) => InitializerCellContent::Leaf {
             constructor: inferred_constructor_path(false, field.expr.span()),
-            value: StateTerm::Term(parse_term_expression(field.expr.to_token_stream())?),
+            value: StateTerm::Term(TermExpression::parse_tokens(field.expr.to_token_stream())?),
             computation: false,
             inferred_constructor: true,
         },
@@ -955,7 +940,7 @@ fn parse_initializer_state_term(
             expression.span(),
         ));
     }
-    Ok(StateTerm::Term(parse_term_expression(
+    Ok(StateTerm::Term(TermExpression::parse_tokens(
         expression.to_token_stream(),
     )?))
 }

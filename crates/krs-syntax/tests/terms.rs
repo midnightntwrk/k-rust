@@ -1,13 +1,12 @@
 //! Named term grammar and endpoint-preservation tests.
 
-use krs_syntax::{
-    ProvenanceRole, SyntaxErrorKind, TermRootKind, TermSymbolKind, parse_term_expression_source,
-};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, SyntaxErrorKind, TermRootKind, TermSymbolKind};
 
 #[test]
 fn named_call_terms_preserve_preorder_paths_and_exact_endpoints() {
     let source = "m::Outer(inner::Leaf(value))";
-    let term = parse_term_expression_source(source).unwrap();
+    let term = krs_syntax::TermExpression::parse_source(source).unwrap();
     assert_eq!(term.root_kind(), TermRootKind::Call);
     let symbols = term.symbols();
     assert_eq!(symbols.len(), 3);
@@ -59,22 +58,24 @@ fn named_call_terms_preserve_preorder_paths_and_exact_endpoints() {
 
 #[test]
 fn record_and_unit_terms_are_accepted() {
-    let record =
-        parse_term_expression_source("crate::Add { lhs, rhs: IntValue(1), flag: true }").unwrap();
+    let record = krs_syntax::TermExpression::parse_source(
+        "crate::Add { lhs, rhs: IntValue(1), flag: true }",
+    )
+    .unwrap();
     assert_eq!(record.root_kind(), TermRootKind::Record);
     assert_eq!(record.symbols().len(), 3);
 
-    let unit = parse_term_expression_source("syntax::Done").unwrap();
+    let unit = krs_syntax::TermExpression::parse_source("syntax::Done").unwrap();
     assert_eq!(unit.root_kind(), TermRootKind::Named);
 }
 
 #[test]
 fn int_and_bool_literals_are_root_and_nested_nodes() {
-    let integer = parse_term_expression_source("42").unwrap();
+    let integer = krs_syntax::TermExpression::parse_source("42").unwrap();
     assert_eq!(integer.root_kind(), TermRootKind::Literal);
     assert_eq!(integer.nodes().len(), 1);
 
-    let boolean = parse_term_expression_source("bool_ops::not(false)").unwrap();
+    let boolean = krs_syntax::TermExpression::parse_source("bool_ops::not(false)").unwrap();
     assert_eq!(boolean.nodes().len(), 2);
     let anchors = boolean.full_provenance().unwrap();
     assert_eq!(anchors[1].role(), ProvenanceRole::TermApplicationHead);
@@ -95,7 +96,7 @@ fn out_of_scope_rust_expressions_are_rejected() {
         "Ctor::<Value>(value)",
         "outer!(value)",
     ] {
-        let error = parse_term_expression_source(source).unwrap_err();
+        let error = krs_syntax::TermExpression::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::UnsupportedTermExpression { .. } | SyntaxErrorKind::UnsupportedPath

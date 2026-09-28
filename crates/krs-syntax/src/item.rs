@@ -6,7 +6,7 @@ use syn::{
 };
 
 use crate::attribute::is_plain_path;
-use crate::parse::checked_ordinal;
+use crate::parse::{KrsSyntax, checked_ordinal};
 use crate::rule::{TermSort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -258,26 +258,10 @@ pub(crate) fn production_documentation(
         .collect()
 }
 
-/// Parses and validates a constructor struct from tokens.
-///
-/// # Errors
-///
-/// Returns Rust syntax errors or a structured constructor-shape restriction.
-pub fn parse_constructor_declaration(
-    tokens: TokenStream,
-) -> Result<ConstructorDeclaration, SyntaxError> {
-    ConstructorDeclaration::from_item(syn::parse2::<ItemStruct>(tokens)?)
-}
-
-/// Parses and validates a constructor struct from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_constructor_declaration`].
-pub fn parse_constructor_declaration_source(
-    source: &str,
-) -> Result<ConstructorDeclaration, SyntaxError> {
-    ConstructorDeclaration::from_item(syn::parse_str::<ItemStruct>(source)?)
+impl KrsSyntax for ConstructorDeclaration {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2::<ItemStruct>(tokens)?)
+    }
 }
 
 /// Validated marker-trait sort declaration.
@@ -385,22 +369,10 @@ impl SortDeclaration {
     }
 }
 
-/// Parses and validates a sort marker trait from tokens.
-///
-/// # Errors
-///
-/// Returns Rust syntax errors or a structured marker-trait restriction.
-pub fn parse_sort_declaration(tokens: TokenStream) -> Result<SortDeclaration, SyntaxError> {
-    SortDeclaration::from_item(syn::parse2::<ItemTrait>(tokens)?)
-}
-
-/// Parses and validates a sort marker trait from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_sort_declaration`].
-pub fn parse_sort_declaration_source(source: &str) -> Result<SortDeclaration, SyntaxError> {
-    SortDeclaration::from_item(syn::parse_str::<ItemTrait>(source)?)
+impl KrsSyntax for SortDeclaration {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2::<ItemTrait>(tokens)?)
+    }
 }
 
 fn unsupported_sort(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {

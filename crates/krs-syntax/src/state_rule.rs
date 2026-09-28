@@ -7,9 +7,9 @@ use syn::{
 
 use crate::ReferenceCandidate;
 use crate::attribute::is_plain_path;
-use crate::attribute::{ClaimBinder, ExistsAttribute, parse_exists_attribute};
+use crate::attribute::{ClaimBinder, ExistsAttribute};
 use crate::parse::{
-    ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
+    KrsSyntax, ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
     unsupported_rule_signature as signature_error,
 };
 use crate::provenance::RuleSide;
@@ -317,24 +317,10 @@ impl StateClaimItem {
     }
 }
 
-/// Parses one complete whole-configuration claim.
-///
-/// # Errors
-///
-/// Returns the same errors as [`StateClaimItem::from_item`], plus Rust token
-/// parsing errors.
-pub fn parse_state_claim_item(tokens: TokenStream) -> Result<StateClaimItem, SyntaxError> {
-    StateClaimItem::from_item(syn::parse2(tokens)?)
-}
-
-/// Parses one whole-configuration claim from source text.
-///
-/// # Errors
-///
-/// Returns the same errors as [`StateClaimItem::from_item`], plus Rust source
-/// parsing errors.
-pub fn parse_state_claim_item_source(source: &str) -> Result<StateClaimItem, SyntaxError> {
-    StateClaimItem::from_item(syn::parse_str(source)?)
+impl KrsSyntax for StateClaimItem {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2(tokens)?)
+    }
 }
 
 /// One zero-return, one-sided fixed-configuration context-alias declaration.
@@ -751,22 +737,10 @@ impl StateRuleItem {
     }
 }
 
-/// Parses one complete simultaneous configuration rule from macro item tokens.
-///
-/// # Errors
-///
-/// Returns Rust parsing or [`StateRuleItem`] shape errors.
-pub fn parse_state_rule_item(tokens: TokenStream) -> Result<StateRuleItem, SyntaxError> {
-    StateRuleItem::from_item(syn::parse2(tokens)?)
-}
-
-/// Parses one complete simultaneous configuration rule from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_state_rule_item`].
-pub fn parse_state_rule_item_source(source: &str) -> Result<StateRuleItem, SyntaxError> {
-    StateRuleItem::from_item(syn::parse_str(source)?)
+impl KrsSyntax for StateRuleItem {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2(tokens)?)
+    }
 }
 
 /// Parses a one-sided context-alias function item.
@@ -779,19 +753,6 @@ pub fn parse_state_context_alias_item(
     here: &Ident,
 ) -> Result<StateContextAliasItem, SyntaxError> {
     StateContextAliasItem::from_item(syn::parse2(tokens)?, here)
-}
-
-/// Parses one complete one-sided context-alias function from source text.
-///
-/// # Errors
-///
-/// Returns Rust identifier/item parsing errors or the same shape failures as
-/// [`parse_state_context_alias_item`].
-pub fn parse_state_context_alias_item_source(
-    source: &str,
-    here: &str,
-) -> Result<StateContextAliasItem, SyntaxError> {
-    StateContextAliasItem::from_item(syn::parse_str(source)?, &syn::parse_str(here)?)
 }
 
 fn validate_signature(item: &ItemFn) -> Result<(), SyntaxError> {
@@ -1437,7 +1398,7 @@ fn take_exists_helper(
                     attribute.span(),
                 ));
             }
-            found = Some(parse_exists_attribute(helper_payload(
+            found = Some(ExistsAttribute::parse_tokens(helper_payload(
                 &attribute, "exists",
             )?)?);
         } else {

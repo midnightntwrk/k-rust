@@ -1,6 +1,7 @@
 //! Readable rule blocks: `rules!`.
 
-use krs_syntax::{ProvenanceRole, TokenRange, parse_rule_block};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, TokenRange};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
@@ -14,7 +15,7 @@ use crate::provenance::host_provenance_static;
 
 /// Expands a readable block into independent ordinary rule declarations.
 pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
-    let block = parse_rule_block(input)?;
+    let block = krs_syntax::RuleBlock::parse_tokens(input)?;
     let enum_owner = block.imports().first().map(krs_syntax::RuleImport::owner);
     let enum_variant = block
         .imports()

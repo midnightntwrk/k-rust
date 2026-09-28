@@ -1,10 +1,11 @@
 //! Folded sort-block parser and provenance tests.
 
-use krs_syntax::{ProvenanceRole, SortsEntry, parse_sorts_declaration_source};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, SortsEntry};
 
 #[test]
 fn declarations_bounds_brackets_and_memberships_preserve_order() {
-    let declaration = parse_sorts_declaration_source(
+    let declaration = krs_syntax::SortsDeclaration::parse_source(
         r#"
             #[k::bracket("(", ")")]
             Expr;
@@ -60,7 +61,7 @@ fn declarations_bounds_brackets_and_memberships_preserve_order() {
 #[test]
 fn membership_only_blocks_are_supported() {
     let declaration =
-        parse_sorts_declaration_source("impl crate::Expr for crate::Feature;").unwrap();
+        krs_syntax::SortsDeclaration::parse_source("impl crate::Expr for crate::Feature;").unwrap();
     assert!(matches!(declaration.entries(), [SortsEntry::Membership(_)]));
 }
 
@@ -77,6 +78,9 @@ fn malformed_or_ambiguous_lines_are_rejected_locally() {
         "#[k::bracket(\"(\", \")\")] impl Expr for Id;",
         "impl Value<T> for Int;",
     ] {
-        assert!(parse_sorts_declaration_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::SortsDeclaration::parse_source(source).is_err(),
+            "{source}"
+        );
     }
 }

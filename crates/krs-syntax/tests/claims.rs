@@ -1,8 +1,6 @@
 //! Frozen negative surface coverage for reachability claims.
 
-use krs_syntax::{
-    parse_claim_attribute_source, parse_exists_attribute_source, parse_state_claim_item_source,
-};
+use krs_syntax::KrsSyntax;
 
 fn assert_error_contains<T: std::fmt::Debug>(
     result: Result<T, krs_syntax::SyntaxError>,
@@ -43,7 +41,7 @@ fn claim_metadata_rejects_missing_duplicate_and_incompatible_modalities() {
             "unknown claim argument",
         ),
     ] {
-        assert_error_contains(parse_claim_attribute_source(source), expected);
+        assert_error_contains(krs_syntax::ClaimAttribute::parse_source(source), expected);
     }
 }
 
@@ -65,7 +63,7 @@ fn claim_metadata_rejects_missing_and_nonportable_labels() {
             "invalid portable K claim label",
         ),
     ] {
-        assert_error_contains(parse_claim_attribute_source(source), expected);
+        assert_error_contains(krs_syntax::ClaimAttribute::parse_source(source), expected);
     }
 }
 
@@ -77,7 +75,7 @@ fn exists_rejects_empty_malformed_and_duplicate_binders() {
         ("n:", "unexpected end of input"),
         ("n: Int, n: Int", "duplicate existential binder"),
     ] {
-        assert_error_contains(parse_exists_attribute_source(source), expected);
+        assert_error_contains(krs_syntax::ExistsAttribute::parse_source(source), expected);
     }
 }
 
@@ -112,7 +110,7 @@ fn claim_item_rejects_duplicate_and_malformed_helpers() {
         ("#[k::ensures()]", "claim helper payload must not be empty"),
     ] {
         assert_error_contains(
-            parse_state_claim_item_source(&format!("{helpers} {body}")),
+            krs_syntax::StateClaimItem::parse_source(&format!("{helpers} {body}")),
             expected,
         );
     }
@@ -121,7 +119,7 @@ fn claim_item_rejects_duplicate_and_malformed_helpers() {
 #[test]
 fn claim_item_rejects_shadowing_and_non_configuration_shapes() {
     assert_error_contains(
-        parse_state_claim_item_source(
+        krs_syntax::StateClaimItem::parse_source(
             r"
             #[k::exists(n: Int)]
             fn shadow(
@@ -155,13 +153,13 @@ fn claim_item_rejects_shadowing_and_non_configuration_shapes() {
             "a configuration-rule body must contain exactly one `cells!` expression",
         ),
     ] {
-        assert_error_contains(parse_state_claim_item_source(source), expected);
+        assert_error_contains(krs_syntax::StateClaimItem::parse_source(source), expected);
     }
 }
 
 #[test]
 fn claim_item_accepts_readable_sort_aliases_for_binders() {
-    let claim = parse_state_claim_item_source(
+    let claim = krs_syntax::StateClaimItem::parse_source(
         r#"
         #[k::exists(new_value: Value)]
         fn readable(

@@ -5,9 +5,9 @@ use krs_ir::{
     DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
     GroupAssociativity, ProductionGroupId,
 };
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     GroupAssociativity as SyntaxGroupAssociativity, ProvenanceAnchor, ProvenanceRole,
-    parse_associativity_declaration, parse_precedence_declaration,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -25,7 +25,7 @@ pub(crate) fn precedence(
     let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
     let precedence_chain_role = ProvenanceRole::PrecedenceChain;
     let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
-    let declaration = parse_precedence_declaration(input)?;
+    let declaration = krs_syntax::PrecedenceDeclaration::parse_tokens(input)?;
     let facade = env.facade_path()?;
     let anchors = declaration.provenance()?;
     let fallback = anchors
@@ -93,7 +93,7 @@ pub(crate) fn associativity(
     let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
     let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
     let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
-    let declaration = parse_associativity_declaration(input)?;
+    let declaration = krs_syntax::AssociativityDeclaration::parse_tokens(input)?;
     let facade = env.facade_path()?;
     let anchors = declaration.provenance()?;
     let fallback = anchors

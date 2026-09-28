@@ -1,5 +1,6 @@
 //! Host collection integration tests.
 
+use krs_syntax::KrsSyntax;
 use std::any::TypeId;
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,10 +14,7 @@ use krs_ir::{
     ItemKind, ProvenanceRole, RustVisibility, SchemaVersion,
 };
 use krs_syntax::surface;
-use krs_syntax::{
-    ConstructorDeclaration, ProvenanceAnchor, SortDeclaration, parse_constructor_attribute,
-    parse_symbol_attribute,
-};
+use krs_syntax::{ConstructorDeclaration, ProvenanceAnchor, SortDeclaration};
 use krs_test_support::{TempDir, temp_dir};
 use syn::{Item, Meta};
 
@@ -912,7 +910,9 @@ impl TestPackage {
             .attrs
             .iter()
             .find(|attribute| is_symbol_attribute(attribute))
-            .map(|attribute| parse_symbol_attribute(attribute_tokens(attribute)).unwrap());
+            .map(|attribute| {
+                krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(attribute)).unwrap()
+            });
         let mut anchors = SortDeclaration::from_item(trait_item)
             .unwrap()
             .provenance()
@@ -960,7 +960,7 @@ impl TestPackage {
         let Meta::List(list) = &attribute.meta else {
             panic!("constructor attribute must be a list")
         };
-        let parsed = parse_constructor_attribute(list.tokens.clone()).unwrap();
+        let parsed = krs_syntax::ConstructorAttribute::parse_tokens(list.tokens.clone()).unwrap();
         let declaration = ConstructorDeclaration::from_item(item.clone()).unwrap();
         let mut provenance = parsed.provenance().unwrap();
         provenance.extend(declaration.provenance().unwrap());
@@ -970,7 +970,7 @@ impl TestPackage {
             .find(|attribute| is_symbol_attribute(attribute))
         {
             provenance.extend(
-                parse_symbol_attribute(attribute_tokens(symbol))
+                krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(symbol))
                     .unwrap()
                     .provenance()
                     .unwrap(),

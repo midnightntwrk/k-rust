@@ -7,7 +7,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
 use crate::attribute::{is_plain_path, path_spelling};
-use crate::parse::{checked_ordinal, structured_with, tokens_from_source};
+use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TokenRange,
 };
@@ -415,24 +415,6 @@ pub fn parse_k_sequence_expression(tokens: TokenStream) -> Result<KSequence, Syn
     parse_k_sequence(tokens, StateMacroContext::Expression)
 }
 
-/// Parses a `k!` pattern payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_k_sequence_pattern`].
-pub fn parse_k_sequence_pattern_source(source: &str) -> Result<KSequence, SyntaxError> {
-    parse_k_sequence_pattern(tokens_from_source(source)?)
-}
-
-/// Parses a `k!` expression payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_k_sequence_expression`].
-pub fn parse_k_sequence_expression_source(source: &str) -> Result<KSequence, SyntaxError> {
-    parse_k_sequence_expression(tokens_from_source(source)?)
-}
-
 /// Parses a `map!` pattern payload.
 ///
 /// # Errors
@@ -451,15 +433,6 @@ pub fn parse_map_expression(tokens: TokenStream) -> Result<MapExpression, Syntax
     parse_map(tokens, StateMacroContext::Expression)
 }
 
-/// Parses a `map!` pattern payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_map_pattern`].
-pub fn parse_map_pattern_source(source: &str) -> Result<MapExpression, SyntaxError> {
-    parse_map_pattern(tokens_from_source(source)?)
-}
-
 /// Parses a `map!` pattern payload together with lossless source trivia.
 ///
 /// # Errors
@@ -472,15 +445,6 @@ pub fn parse_map_pattern_source_with_trivia(
     let (tokens, trivia) = crate::trivia::tokenize_with_trivia(source)?;
     trivia.reject_non_doc_block_comments("map")?;
     Ok((parse_map_pattern(tokens)?, trivia))
-}
-
-/// Parses a `map!` expression payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_map_expression`].
-pub fn parse_map_expression_source(source: &str) -> Result<MapExpression, SyntaxError> {
-    parse_map_expression(tokens_from_source(source)?)
 }
 
 /// Parses a `map!` expression payload together with lossless source trivia.
@@ -515,15 +479,6 @@ pub fn parse_cells_expression(tokens: TokenStream) -> Result<CellsExpression, Sy
     parse_cells(tokens, StateMacroContext::Expression)
 }
 
-/// Parses a `cells!` pattern payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_cells_pattern`].
-pub fn parse_cells_pattern_source(source: &str) -> Result<CellsExpression, SyntaxError> {
-    parse_cells_pattern(tokens_from_source(source)?)
-}
-
 /// Parses a `cells!` pattern payload together with lossless source trivia.
 ///
 /// # Errors
@@ -536,15 +491,6 @@ pub fn parse_cells_pattern_source_with_trivia(
     let (tokens, trivia) = crate::trivia::tokenize_with_trivia(source)?;
     trivia.reject_non_doc_block_comments("cells")?;
     Ok((parse_cells_pattern(tokens)?, trivia))
-}
-
-/// Parses a `cells!` expression payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_cells_expression`].
-pub fn parse_cells_expression_source(source: &str) -> Result<CellsExpression, SyntaxError> {
-    parse_cells_expression(tokens_from_source(source)?)
 }
 
 /// Parses a `cells!` expression payload together with lossless source trivia.
@@ -701,7 +647,7 @@ fn parse_map(
                 bracket.span(),
             ));
         }
-        let base = crate::parse_term_expression(base)?;
+        let base = TermExpression::parse_tokens(base)?;
         let (key, value) = parse_update_inner(bracket.stream())?;
         return Ok(MapExpression {
             tokens,
@@ -716,7 +662,7 @@ fn parse_map(
                 tokens.span(),
             ));
         }
-        let base = crate::parse_term_expression(base_tokens)?;
+        let base = TermExpression::parse_tokens(base_tokens)?;
         let (key, value) = parse_update_inner(update_tokens)?;
         return Ok(MapExpression {
             tokens,
@@ -1108,8 +1054,8 @@ fn parse_update_inner(
     let key = trees[..split].iter().cloned().collect();
     let value = trees[split + 2..].iter().cloned().collect();
     Ok((
-        crate::parse_term_expression(key)?,
-        crate::parse_term_expression(value)?,
+        TermExpression::parse_tokens(key)?,
+        TermExpression::parse_tokens(value)?,
     ))
 }
 

@@ -1,10 +1,11 @@
 //! Readable term-rule family parser coverage.
 
-use krs_syntax::{ProvenanceRole, RuleExtra, RuleHeadResult, parse_rule_block_source};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, RuleExtra, RuleHeadResult};
 
 #[test]
 fn nonlinear_subject_bindings_are_one_catalog_entry_with_repeated_occurrences() {
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r"
         for Expr;
         use Op::*;
@@ -21,7 +22,7 @@ fn nonlinear_subject_bindings_are_one_catalog_entry_with_repeated_occurrences() 
 
 #[test]
 fn imp_expression_table_reuses_the_structured_rule_grammar() {
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r"
         for Expr;
         use Op::*;
@@ -102,7 +103,7 @@ fn imp_expression_table_reuses_the_structured_rule_grammar() {
 
 #[test]
 fn positional_docs_labels_and_raw_identities_are_retained() {
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r#"
         for Stmt;
         use StmtSyntax::*;
@@ -130,7 +131,7 @@ fn positional_docs_labels_and_raw_identities_are_retained() {
 
 #[test]
 fn control_flow_results_and_gradual_map_extras_are_structured() {
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r"
         for Stmt;
         use StmtSyntax::*;
@@ -167,7 +168,7 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
     assert!(roles.contains(&ProvenanceRole::RuleRightMapKey));
     assert!(roles.contains(&ProvenanceRole::RuleRightMapValue));
 
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r"
         for Expr;
         var: name => value
@@ -204,7 +205,7 @@ fn control_flow_results_and_gradual_map_extras_are_structured() {
 
 #[test]
 fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r"
         for Machine;
         use StmtSyntax::Assign;
@@ -279,7 +280,7 @@ fn final_machine_records_preserve_cells_bindings_and_configuration_ownership() {
 
 #[test]
 fn machine_records_support_ordinary_fixed_cell_term_rewrites() {
-    let block = parse_rule_block_source(
+    let block = krs_syntax::RuleBlock::parse_source(
         r"
         for Machine;
         use Instr::Binary;
@@ -375,7 +376,7 @@ fn malformed_blocks_fail_at_the_local_construct() {
             "implicit preserved tail",
         ),
     ] {
-        let error = parse_rule_block_source(source).unwrap_err();
+        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
         assert!(
             error.to_string().contains(expected),
             "expected {expected:?} in {error}"
@@ -385,9 +386,10 @@ fn malformed_blocks_fail_at_the_local_construct() {
 
 #[test]
 fn map_update_head_identity_is_deferred_to_rust_resolution() {
-    let block =
-        parse_rule_block_source("for Expr; x: Wrap(a) => a where update env = aliased(env, a, a);")
-            .unwrap();
+    let block = krs_syntax::RuleBlock::parse_source(
+        "for Expr; x: Wrap(a) => a where update env = aliased(env, a, a);",
+    )
+    .unwrap();
     let [RuleExtra::UpdateMap { update, .. }] = block.clauses()[0].extras() else {
         panic!("expected one map update")
     };

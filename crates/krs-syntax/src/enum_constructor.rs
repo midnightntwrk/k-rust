@@ -8,13 +8,10 @@ use syn::{
     parse_quote,
 };
 
-use crate::attribute::{
-    ConstructorsAttribute, VariantSyntaxAttribute, parse_constructors_attribute,
-    parse_variant_syntax_attribute,
-};
+use crate::attribute::{ConstructorsAttribute, VariantSyntaxAttribute};
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
-use crate::parse::checked_ordinal;
+use crate::parse::{KrsSyntax, checked_ordinal};
 use crate::rule::{parse_readable_sort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -624,27 +621,10 @@ impl EnumConstructorDeclaration {
     }
 }
 
-/// Parses a complete attributed closed-enum declaration from tokens.
-///
-/// # Errors
-///
-/// Returns Rust parsing failures or [`EnumConstructorDeclaration`] shape and
-/// helper-attribute errors.
-pub fn parse_enum_constructor_declaration(
-    tokens: TokenStream,
-) -> Result<EnumConstructorDeclaration, SyntaxError> {
-    EnumConstructorDeclaration::from_attributed_item(syn::parse2(tokens)?)
-}
-
-/// Parses a complete attributed closed-enum declaration from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_enum_constructor_declaration`].
-pub fn parse_enum_constructor_declaration_source(
-    source: &str,
-) -> Result<EnumConstructorDeclaration, SyntaxError> {
-    EnumConstructorDeclaration::from_attributed_item(syn::parse_str(source)?)
+impl KrsSyntax for EnumConstructorDeclaration {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_attributed_item(syn::parse2(tokens)?)
+    }
 }
 
 fn parse_outer_attribute(attribute: &Attribute) -> Result<ConstructorsAttribute, SyntaxError> {
@@ -654,7 +634,7 @@ fn parse_outer_attribute(attribute: &Attribute) -> Result<ConstructorsAttribute,
             attribute.span(),
         ));
     };
-    parse_constructors_attribute(list.tokens.clone())
+    ConstructorsAttribute::parse_tokens(list.tokens.clone())
 }
 
 #[derive(Clone, Debug)]
@@ -950,7 +930,7 @@ fn take_variant_helpers(
                     attribute.span(),
                 ));
             };
-            helpers.syntax = Some(parse_variant_syntax_attribute(list.tokens.clone())?);
+            helpers.syntax = Some(VariantSyntaxAttribute::parse_tokens(list.tokens.clone())?);
         } else if open_family && is_helper_named(&attribute, "format") {
             if helpers.format.is_some() {
                 return Err(unsupported_enum(

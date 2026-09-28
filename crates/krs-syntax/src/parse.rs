@@ -118,6 +118,25 @@ pub fn tokens_from_source(source: &str) -> Result<TokenStream, SyntaxError> {
     })
 }
 
+/// Parses a syntax value from tokens or source text.
+pub trait KrsSyntax: Sized {
+    /// Parses a complete token stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns a syntax error when the tokens do not form this value.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError>;
+
+    /// Parses source text after tokenization.
+    ///
+    /// # Errors
+    ///
+    /// Returns a syntax error when tokenization or parsing fails.
+    fn parse_source(source: &str) -> Result<Self, SyntaxError> {
+        Self::parse_tokens(tokens_from_source(source)?)
+    }
+}
+
 /// Converts an existing index to a provenance ordinal without renumbering gaps.
 ///
 /// # Errors

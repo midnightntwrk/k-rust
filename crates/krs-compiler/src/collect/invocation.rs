@@ -1,5 +1,6 @@
 //! Reparsing of authored KRS attribute invocations and comparison with host payloads.
 
+use krs_syntax::KrsSyntax;
 use std::collections::BTreeMap;
 
 use krs_ir::{HostDescriptorPayload, ProvenanceKey, RustVisibility, StableItemId};
@@ -8,13 +9,7 @@ use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
     InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
     StateClaimItem, StateContextAliasItem, StateRuleItem, SubsortDeclaration, TokenDeclaration,
-    TokenRange, parse_alias_attribute, parse_associativity_declaration, parse_bracket_attribute,
-    parse_claim_attribute, parse_configuration_attribute, parse_constructor_attribute,
-    parse_constructors_attribute, parse_equation_attribute, parse_function_attribute,
-    parse_init_attribute, parse_precedence_declaration, parse_priority_attribute,
-    parse_rule_attribute, parse_rule_block, parse_seqstrict_attribute,
-    parse_simplification_attribute, parse_sort_attribute, parse_sorts_declaration,
-    parse_strict_attribute, parse_subsort_attribute, parse_symbol_attribute, parse_token_attribute,
+    TokenRange, parse_seqstrict_attribute, parse_strict_attribute,
 };
 use proc_macro2::TokenStream;
 use syn::{Attribute, ImplItem, Item, Meta};
@@ -105,8 +100,8 @@ fn collect_trait_invocations(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Sort))
     {
-        let sort_attribute =
-            parse_sort_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let sort_attribute = krs_syntax::SortAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let declaration = SortDeclaration::from_item(item_trait.clone()).map_err(source_syntax)?;
         if sort_attribute.is_reference()
             && sort_attribute.parents().len() != declaration.parents().len()
@@ -169,14 +164,15 @@ fn collect_trait_brackets(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Bracket))
     {
-        let bracket =
-            parse_bracket_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let bracket = krs_syntax::BracketAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let sort_attribute = item_trait
             .attrs
             .iter()
             .find(|candidate| resolver.invokes(candidate, AttributeMacro::Sort))
             .map(|candidate| {
-                parse_sort_attribute(attribute_tokens(candidate)?).map_err(source_syntax)
+                krs_syntax::SortAttribute::parse_tokens(attribute_tokens(candidate)?)
+                    .map_err(source_syntax)
             })
             .transpose()?;
         let semantic_name = sort_attribute.as_ref().map_or_else(
@@ -227,8 +223,8 @@ fn collect_struct_invocations(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Function))
     {
-        let parsed =
-            parse_function_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let parsed = krs_syntax::FunctionAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let declaration =
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         parsed
@@ -282,8 +278,8 @@ fn collect_struct_constructors(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Constructor))
     {
-        let parsed =
-            parse_constructor_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let parsed = krs_syntax::ConstructorAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let declaration =
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         let mut anchors = parsed.provenance().map_err(source_syntax)?;
@@ -300,7 +296,8 @@ fn collect_struct_constructors(
             .iter()
             .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Alias))
         {
-            parse_alias_attribute(attribute_tokens(helper)?).map_err(source_syntax)?;
+            krs_syntax::AliasAttribute::parse_tokens(attribute_tokens(helper)?)
+                .map_err(source_syntax)?;
             let marker = helper
                 .path()
                 .segments
@@ -371,7 +368,8 @@ fn collect_struct_remaining(
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Token))
     {
         let token_attribute =
-            parse_token_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+            krs_syntax::TokenAttribute::parse_tokens(attribute_tokens(attribute)?)
+                .map_err(source_syntax)?;
         let token = TokenDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         let mut anchors = token_attribute.provenance().map_err(source_syntax)?;
         anchors.extend(token.provenance().map_err(source_syntax)?);
@@ -397,8 +395,8 @@ fn collect_struct_remaining(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Configuration))
     {
-        let parsed =
-            parse_configuration_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let parsed = krs_syntax::ConfigurationAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let declaration =
             ConfigurationDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         let mut anchors = parsed.provenance().map_err(source_syntax)?;
@@ -437,8 +435,8 @@ fn collect_enum_invocations(
         .iter()
         .find(|attribute| resolver.invokes(attribute, AttributeMacro::Constructors))
         .expect("the match guard found a constructors attribute");
-    let attribute =
-        parse_constructors_attribute(attribute_tokens(invoking)?).map_err(source_syntax)?;
+    let attribute = krs_syntax::ConstructorsAttribute::parse_tokens(attribute_tokens(invoking)?)
+        .map_err(source_syntax)?;
     let mut reparsed = item_enum.clone();
     reparsed
         .attrs
@@ -508,7 +506,8 @@ fn collect_fn_invocations(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Claim))
     {
-        let parsed = parse_claim_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let parsed = krs_syntax::ClaimAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let claim = StateClaimItem::from_item(item_fn.clone()).map_err(source_syntax)?;
         let mut anchors = claim.provenance().map_err(source_syntax)?;
         anchors.extend(parsed.provenance().map_err(source_syntax)?);
@@ -524,7 +523,7 @@ fn collect_fn_invocations(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::ContextAlias))
     {
-        let parsed = krs_syntax::parse_context_alias_attribute(attribute_tokens(attribute)?)
+        let parsed = krs_syntax::ContextAliasAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let alias = StateContextAliasItem::from_item(item_fn.clone(), parsed.here())
             .map_err(source_syntax)?;
@@ -548,7 +547,8 @@ fn collect_fn_invocations(
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Simplification))
     {
         let parsed =
-            parse_simplification_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+            krs_syntax::SimplificationAttribute::parse_tokens(attribute_tokens(attribute)?)
+                .map_err(source_syntax)?;
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
@@ -585,7 +585,8 @@ fn collect_fn_rules(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Equation))
     {
-        parse_equation_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        krs_syntax::EquationAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
@@ -601,7 +602,7 @@ fn collect_fn_rules(
             .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Priority))
         {
             anchors.extend(
-                parse_priority_attribute(attribute_tokens(priority)?)
+                krs_syntax::PriorityAttribute::parse_tokens(attribute_tokens(priority)?)
                     .map_err(source_syntax)?
                     .provenance()
                     .map_err(source_syntax)?,
@@ -619,7 +620,8 @@ fn collect_fn_rules(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Alias))
     {
-        parse_alias_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        krs_syntax::AliasAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         let rule = RuleItem::from_item(item_fn.clone()).map_err(source_syntax)?;
         let bindings = rule
             .parameter()
@@ -646,8 +648,8 @@ fn collect_fn_rules(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Rule))
     {
-        let rule_attribute =
-            parse_rule_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+        let rule_attribute = krs_syntax::RuleAttribute::parse_tokens(attribute_tokens(attribute)?)
+            .map_err(source_syntax)?;
         if let Ok(rule) = StateRuleItem::from_item(item_fn.clone()) {
             let mut anchors = rule.provenance().map_err(source_syntax)?;
             anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
@@ -698,7 +700,8 @@ fn collect_impl_invocations(
         let anchors = if tokens.is_empty() {
             declaration.provenance().map_err(source_syntax)?
         } else {
-            let reference = parse_subsort_attribute(tokens).map_err(source_syntax)?;
+            let reference =
+                krs_syntax::SubsortAttribute::parse_tokens(tokens).map_err(source_syntax)?;
             vec![
                 ProvenanceAnchor::new(
                     ProvenanceRole::SubsortDeclaration,
@@ -734,7 +737,8 @@ fn collect_impl_invocations(
             .iter()
             .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Init))
         {
-            parse_init_attribute(attribute_tokens(attribute)?).map_err(source_syntax)?;
+            krs_syntax::InitAttribute::parse_tokens(attribute_tokens(attribute)?)
+                .map_err(source_syntax)?;
             let mut method = method.clone();
             method
                 .attrs
@@ -773,8 +777,9 @@ fn collect_macro_invocations(
         Item::Macro(item_macro)
             if resolver.resolve_macro(&item_macro.mac.path) == Some(FunctionMacro::Precedence) =>
         {
-            let declaration = parse_precedence_declaration(item_macro.mac.tokens.clone())
-                .map_err(source_syntax)?;
+            let declaration =
+                krs_syntax::PrecedenceDeclaration::parse_tokens(item_macro.mac.tokens.clone())
+                    .map_err(source_syntax)?;
             output.push(parsed_invocation(
                 ProvenanceRole::PrecedenceDeclaration,
                 String::new(),
@@ -786,8 +791,9 @@ fn collect_macro_invocations(
             if resolver.resolve_macro(&item_macro.mac.path)
                 == Some(FunctionMacro::Associativity) =>
         {
-            let declaration = parse_associativity_declaration(item_macro.mac.tokens.clone())
-                .map_err(source_syntax)?;
+            let declaration =
+                krs_syntax::AssociativityDeclaration::parse_tokens(item_macro.mac.tokens.clone())
+                    .map_err(source_syntax)?;
             output.push(parsed_invocation(
                 ProvenanceRole::AssociativityDeclaration,
                 String::new(),
@@ -804,7 +810,8 @@ fn collect_rules_macro(
     item_macro: &syn::ItemMacro,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let block = parse_rule_block(item_macro.mac.tokens.clone()).map_err(source_syntax)?;
+    let block = krs_syntax::RuleBlock::parse_tokens(item_macro.mac.tokens.clone())
+        .map_err(source_syntax)?;
     for clause in block.clauses() {
         let rule = clause.rule();
         let bindings = clause.bindings().iter().map(ToString::to_string).collect();
@@ -854,8 +861,8 @@ fn collect_sorts_macro(
     item_macro: &syn::ItemMacro,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let declaration =
-        parse_sorts_declaration(item_macro.mac.tokens.clone()).map_err(source_syntax)?;
+    let declaration = krs_syntax::SortsDeclaration::parse_tokens(item_macro.mac.tokens.clone())
+        .map_err(source_syntax)?;
     for entry in declaration.entries() {
         match entry {
             SortsEntry::Sort(sort) => {
@@ -1099,7 +1106,10 @@ pub(super) fn declaration_metadata(
                     ),
                 ));
             }
-            Some(parse_symbol_attribute(attribute_tokens(symbol)?).map_err(source_syntax)?)
+            Some(
+                krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(symbol)?)
+                    .map_err(source_syntax)?,
+            )
         }
         _ => {
             return Err(CollectionError::new(

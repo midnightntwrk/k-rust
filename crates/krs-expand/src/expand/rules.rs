@@ -7,12 +7,9 @@ use krs_ir::{
     DescriptorRuleLabel, DescriptorRulePriority, DescriptorSimplification,
     DescriptorSimplificationPriority,
 };
+use krs_syntax::KrsSyntax;
 use krs_syntax::surface::{AttributeMacro, helper_entry};
-use krs_syntax::{
-    ProvenanceAnchor, ProvenanceRole, TokenRange, parse_alias_attribute, parse_equation_attribute,
-    parse_priority_attribute, parse_rule_attribute, parse_rule_item,
-    parse_simplification_attribute, role_tokens,
-};
+use krs_syntax::{ProvenanceAnchor, ProvenanceRole, TokenRange, role_tokens};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
@@ -65,7 +62,7 @@ pub(crate) fn rule(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute = parse_rule_attribute(attributes)?;
+    let attribute = krs_syntax::RuleAttribute::parse_tokens(attributes)?;
     let parsed: ItemFn = syn::parse2(item.clone())?;
     let is_cells_rule = parsed.sig.inputs.last().is_some_and(|argument| {
         let FnArg::Typed(argument) = argument else {
@@ -99,7 +96,7 @@ pub(crate) fn equation(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    parse_equation_attribute(attributes)?;
+    krs_syntax::EquationAttribute::parse_tokens(attributes)?;
     let attribute = krs_syntax::RuleAttribute::default();
     ordinary_rule(
         env,
@@ -116,7 +113,7 @@ pub(crate) fn simplification(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute = parse_simplification_attribute(attributes)?;
+    let attribute = krs_syntax::SimplificationAttribute::parse_tokens(attributes)?;
     ordinary_rule(
         env,
         item,
@@ -132,7 +129,7 @@ pub(crate) fn alias(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    parse_alias_attribute(attributes)?;
+    krs_syntax::AliasAttribute::parse_tokens(attributes)?;
     if syn::parse2::<ItemFn>(item.clone()).is_ok() {
         return ordinary_rule(
             env,
@@ -154,7 +151,7 @@ pub(crate) fn priority(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let priority = parse_priority_attribute(attributes)?;
+    let priority = krs_syntax::PriorityAttribute::parse_tokens(attributes)?;
     let mut function: ItemFn = syn::parse2(item)?;
     let Some(index) = function
         .attrs
@@ -186,7 +183,7 @@ fn ordinary_rule(
     priority: Option<&krs_syntax::PriorityAttribute>,
     simplification: Option<&krs_syntax::SimplificationAttribute>,
 ) -> syn::Result<TokenStream> {
-    let rule = parse_rule_item(item)?;
+    let rule = krs_syntax::RuleItem::parse_tokens(item)?;
     expand_ordinary_rule(
         env,
         &rule,

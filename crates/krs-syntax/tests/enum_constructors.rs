@@ -1,14 +1,14 @@
 //! Closed-enum constructor-family parser and provenance contract tests.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     EnumConstructorDeclaration, ProvenanceRole, StrictnessKind, StructuredFormatFragment,
-    SyntaxErrorKind, SyntaxTemplateItem, parse_constructors_attribute_source,
-    parse_enum_constructor_declaration_source,
+    SyntaxErrorKind, SyntaxTemplateItem,
 };
 
 #[test]
 fn multiple_unit_and_record_variants_preserve_rust_and_metadata() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[doc = "kept enum"]
 #[k::constructors(sort = model::Value)]
 pub enum BooleanExpr {
@@ -73,7 +73,7 @@ pub enum BooleanExpr {
 
 #[test]
 fn aliases_remain_authored_paths_and_are_not_a_parser_resolution_concern() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[k::constructors(sort = OuterAlias)]
 enum Family {
     #[k::syntax("wrap {value}")]
@@ -90,7 +90,8 @@ enum Family {
         "InnerAlias"
     );
 
-    let split_attribute = parse_constructors_attribute_source("sort = renamed::Outer").unwrap();
+    let split_attribute =
+        krs_syntax::ConstructorsAttribute::parse_source("sort = renamed::Outer").unwrap();
     let split_item: syn::ItemEnum =
         syn::parse_str(r#"#[doc = "ordinary"] enum ViaMacro { #[k::syntax("unit")] Unit }"#)
             .unwrap();
@@ -101,7 +102,7 @@ enum Family {
 
 #[test]
 fn semantic_descriptors_have_separate_exact_provenance_catalogs() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         "#[k::constructors(sort = outer::Value)]\n\
          pub enum Boolean {\n\
              /// Equality production.\n\
@@ -193,7 +194,7 @@ fn unsupported_enum_shapes_and_helpers_are_rejected_locally() {
         "#[k::constructors(sort = Value)] enum FieldAttribute { Value { #[cfg(any())] value: Term<Value> } }",
     ];
     for source in cases {
-        let error = parse_enum_constructor_declaration_source(source).unwrap_err();
+        let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(
             matches!(
                 error.kind(),
@@ -206,7 +207,7 @@ fn unsupported_enum_shapes_and_helpers_are_rejected_locally() {
 
 #[test]
 fn invalid_term_shapes_and_templates_reuse_constructor_contract() {
-    let invalid_term = parse_enum_constructor_declaration_source(
+    let invalid_term = krs_syntax::EnumConstructorDeclaration::parse_source(
         "#[k::constructors(sort = Value)] enum Raw { Value { value: Int } }",
     )
     .unwrap_err();
@@ -220,7 +221,7 @@ fn invalid_term_shapes_and_templates_reuse_constructor_contract() {
         "#[k::constructors(sort = Value)] enum Repeated { #[k::syntax(\"{value} {value}\")] Value { value: Term<Value> } }",
         "#[k::constructors(sort = Value)] enum Unknown { #[k::syntax(\"{other}\")] Value { value: Term<Value> } }",
     ] {
-        let error = parse_enum_constructor_declaration_source(source).unwrap_err();
+        let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::InvalidTemplateFieldOccurrence { .. }
@@ -232,7 +233,7 @@ fn invalid_term_shapes_and_templates_reuse_constructor_contract() {
 #[test]
 #[allow(clippy::too_many_lines)] // One end-to-end readable production metadata specimen.
 fn readable_open_family_parses_exhaustive_chain_fields_and_formats() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[dialect::constructors(sort = ExprAlias, result = framework::KResult)]
 #[dialect::precedence(
     (Neg) > left remainder (Mul, Block, ValueNode, EmptyBlock)
@@ -361,7 +362,7 @@ enum Op {
 
 #[test]
 fn enum_precedence_distinguishes_bare_and_explicit_non_associative_groups() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[k::constructors(sort = Expr, result = KResult)]
 #[k::precedence((Not) > non_assoc equality (Eq) > (Atom))]
 enum Family {
@@ -394,7 +395,7 @@ fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
         "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((X))] enum Bad { #[k::syntax(\"x\")] X(u8) }",
     ] {
         assert!(
-            parse_enum_constructor_declaration_source(source).is_err(),
+            krs_syntax::EnumConstructorDeclaration::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -402,7 +403,7 @@ fn readable_family_rejects_malformed_fields_and_variant_precedence_helpers() {
 
 #[test]
 fn reference_family_requires_and_preserves_fully_materialized_metadata() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[k::constructors(sort = Expr, reference)]
 enum Op {
     #[k::syntax(
@@ -513,7 +514,7 @@ enum SiblingFormat {
     ];
 
     for (source, expected) in cases {
-        let error = parse_enum_constructor_declaration_source(source).unwrap_err();
+        let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(
             error.to_string().contains(expected),
             "`{source}` reported `{error}` instead of containing `{expected}`"
@@ -558,14 +559,14 @@ fn enum_precedence_chain_is_exhaustive_named_and_fail_fast() {
         ),
     ];
     for (source, expected) in cases {
-        let error = parse_enum_constructor_declaration_source(source).unwrap_err();
+        let error = krs_syntax::EnumConstructorDeclaration::parse_source(source).unwrap_err();
         assert!(
             error.to_string().contains(expected),
             "`{source}` reported `{error}` instead of containing `{expected}`"
         );
     }
 
-    let suggestion = parse_enum_constructor_declaration_source(
+    let suggestion = krs_syntax::EnumConstructorDeclaration::parse_source(
         "#[k::constructors(sort = Expr, result = KResult)] #[k::precedence((Mull))] enum Family { #[k::syntax(\"mul\")] Mul }",
     )
     .unwrap_err();
@@ -574,7 +575,7 @@ fn enum_precedence_chain_is_exhaustive_named_and_fail_fast() {
 
 #[test]
 fn materialized_variant_group_may_match_the_exhaustive_chain() {
-    let declaration = parse_enum_constructor_declaration_source(
+    let declaration = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[k::constructors(sort = Expr, result = KResult)]
 #[k::precedence((Atom) > left infix (Add))]
 enum Family {
@@ -604,7 +605,7 @@ enum Family {
 
 #[test]
 fn materialized_variant_group_must_match_the_exhaustive_chain() {
-    let error = parse_enum_constructor_declaration_source(
+    let error = krs_syntax::EnumConstructorDeclaration::parse_source(
         r#"#[k::constructors(sort = Expr, result = KResult)]
 #[k::precedence((Atom))]
 enum Family {

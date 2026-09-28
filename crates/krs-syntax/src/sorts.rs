@@ -3,11 +3,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path, Token};
 
-use crate::parse::checked_ordinal;
-use crate::{
-    BracketAttribute, ProvenanceAnchor, ProvenanceRole, SyntaxError, TokenRange,
-    parse_bracket_attribute,
-};
+use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::{BracketAttribute, ProvenanceAnchor, ProvenanceRole, SyntaxError, TokenRange};
 
 /// One declaration or membership sentence in `k::sorts!`.
 #[derive(Clone, Debug)]
@@ -148,23 +145,10 @@ impl SortsDeclaration {
     }
 }
 
-/// Parses a `k::sorts!` body from proc-macro tokens.
-///
-/// # Errors
-///
-/// Rejects malformed declarations, unsupported attributes, non-path
-/// endpoints, empty comma lists, and missing semicolons.
-pub fn parse_sorts_declaration(tokens: TokenStream) -> Result<SortsDeclaration, SyntaxError> {
-    syn::parse2(tokens).map_err(Into::into)
-}
-
-/// Parses a `k::sorts!` body from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_sorts_declaration`].
-pub fn parse_sorts_declaration_source(source: &str) -> Result<SortsDeclaration, SyntaxError> {
-    syn::parse_str(source).map_err(Into::into)
+impl KrsSyntax for SortsDeclaration {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        syn::parse2(tokens).map_err(Into::into)
+    }
 }
 
 impl Parse for SortsDeclaration {
@@ -226,7 +210,7 @@ fn parse_sort(input: ParseStream<'_>, attributes: Vec<Attribute>) -> syn::Result
                 "`#[k::bracket]` requires delimiter arguments",
             ));
         };
-        brackets.push(parse_bracket_attribute(list.tokens.clone())?);
+        brackets.push(BracketAttribute::parse_tokens(list.tokens.clone())?);
     }
 
     Ok(SortsSort {

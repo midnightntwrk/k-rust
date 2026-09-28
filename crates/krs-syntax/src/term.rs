@@ -8,7 +8,7 @@ use syn::{
 };
 
 use crate::attribute::{is_plain_path, path_spelling};
-use crate::parse::checked_ordinal;
+use crate::parse::{KrsSyntax, checked_ordinal};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// Syntactic shape at the root of an accepted term.
@@ -634,25 +634,11 @@ enum TermExpressionContext {
     Expression,
 }
 
-/// Parses a Rust-expression named term from proc-macro or reparsed tokens.
-///
-/// # Errors
-///
-/// Returns Rust syntax errors or a structured out-of-scope term error.
-pub fn parse_term_expression(tokens: TokenStream) -> Result<TermExpression, SyntaxError> {
-    let expression = syn::parse2::<Expr>(tokens)?;
-    TermExpression::from_expression(expression)
-}
-
-/// Parses a Rust-expression named term directly from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_term_expression`], with source-text
-/// span locations retained by `syn`/`proc_macro2`.
-pub fn parse_term_expression_source(source: &str) -> Result<TermExpression, SyntaxError> {
-    let expression = syn::parse_str::<Expr>(source)?;
-    TermExpression::from_expression(expression)
+impl KrsSyntax for TermExpression {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let expression = syn::parse2::<Expr>(tokens)?;
+        Self::from_expression(expression)
+    }
 }
 
 fn validate_expression(
@@ -1079,11 +1065,12 @@ pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {
 
 #[cfg(test)]
 mod bytes_token_tests {
-    use super::{TermNode, TermTree, parse_term_expression_source};
+    use super::{TermExpression, TermNode, TermTree};
+    use crate::KrsSyntax;
 
     #[test]
     fn byte_string_macro_parses_as_one_intrinsic_token() {
-        let expression = parse_term_expression_source(r#"k::bytes!(b"\x00A\xff")"#).unwrap();
+        let expression = TermExpression::parse_source(r#"k::bytes!(b"\x00A\xff")"#).unwrap();
         let TermTree::BytesToken { literal } = expression.tree() else {
             panic!("bytes! must retain its intrinsic token node");
         };
@@ -1094,6 +1081,6 @@ mod bytes_token_tests {
 
     #[test]
     fn byte_string_macro_rejects_non_byte_literals() {
-        assert!(parse_term_expression_source(r#"k::bytes!("not bytes")"#).is_err());
+        assert!(TermExpression::parse_source(r#"k::bytes!("not bytes")"#).is_err());
     }
 }

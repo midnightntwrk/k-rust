@@ -1,15 +1,12 @@
 //! Sort declarations: `#[k::sort]`, `sorts!`, the facade's framework sort block, `#[k::bracket]`, and `#[k::subsort]`.
 
+use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::terms::{WireSlots, wire_key, wire_sort_reference};
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
-use krs_syntax::{
-    ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange, parse_bracket_attribute,
-    parse_sort_attribute, parse_sort_declaration, parse_sorts_declaration, parse_subsort_attribute,
-    parse_subsort_declaration,
-};
+use krs_syntax::{ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange};
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
 use syn::spanned::Spanned;
@@ -30,12 +27,12 @@ pub(crate) fn sort(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute = parse_sort_attribute(attributes)?;
+    let attribute = krs_syntax::SortAttribute::parse_tokens(attributes)?;
     let mut item: ItemTrait = syn::parse2(item)?;
     reject_unexpanded_symbol(&item.attrs)?;
     let explicit_symbol = take_explicit_symbol_helper(&mut item.attrs)?;
     let brackets = take_bracket_helpers(&mut item.attrs)?;
-    let declaration = parse_sort_declaration(item.to_token_stream())?;
+    let declaration = krs_syntax::SortDeclaration::parse_tokens(item.to_token_stream())?;
     let facade = env.facade_path()?;
     if attribute.is_reference() && attribute.parents().len() != declaration.parents().len() {
         return Err(syn::Error::new(
@@ -189,7 +186,7 @@ pub(crate) fn sort(
 /// produce exactly one Rust impl for their shared ancestor; only the authored
 /// direct edge is registered as an object-language subsort descriptor.
 pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
-    let declaration = parse_sorts_declaration(input)?;
+    let declaration = krs_syntax::SortsDeclaration::parse_tokens(input)?;
     let facade = env.facade_path()?;
     let local_parents = declaration
         .entries()
@@ -608,7 +605,7 @@ fn take_bracket_helpers(
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         if helper_entry(attribute.path()) == Some(AttributeMacro::Bracket) {
-            brackets.push(parse_bracket_attribute(helper_tokens(
+            brackets.push(krs_syntax::BracketAttribute::parse_tokens(helper_tokens(
                 &attribute,
                 AttributeMacro::Bracket.name(),
             )?)?);
@@ -621,7 +618,7 @@ fn take_bracket_helpers(
 }
 
 pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> syn::Result<TokenStream> {
-    parse_bracket_attribute(attributes)?;
+    krs_syntax::BracketAttribute::parse_tokens(attributes)?;
     Err(syn::Error::new(
         Span::call_site(),
         "`#[k::bracket]` is a sort helper; place `#[k::sort]` before it",
@@ -636,9 +633,9 @@ pub(crate) fn subsort(
 ) -> syn::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let reference = (!attributes.is_empty())
-        .then(|| parse_subsort_attribute(attributes))
+        .then(|| krs_syntax::SubsortAttribute::parse_tokens(attributes))
         .transpose()?;
-    let declaration = parse_subsort_declaration(item)?;
+    let declaration = krs_syntax::SubsortDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
     let anchors = if let Some(reference) = &reference {
@@ -898,9 +895,10 @@ fn expand_bracket_grammar_parts(
 #[cfg(test)]
 mod tests {
     use super::ReadableMembershipIdentity;
+    use krs_syntax::KrsSyntax;
 
     fn membership_identity_bytes(source: &str) -> Vec<Vec<u8>> {
-        let declaration = krs_syntax::parse_sorts_declaration_source(source).unwrap();
+        let declaration = krs_syntax::SortsDeclaration::parse_source(source).unwrap();
         let mut identities = Vec::new();
         for entry in declaration.entries() {
             let krs_syntax::SortsEntry::Membership(membership) = entry else {

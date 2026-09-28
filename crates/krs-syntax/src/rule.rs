@@ -16,7 +16,7 @@ use krs_ir::ProvenanceKey;
 use crate::ReferenceCandidate;
 use crate::attribute::{is_plain_path, path_spelling};
 use crate::parse::{
-    checked_ordinal, unsupported_rule_pattern as unsupported_pattern,
+    KrsSyntax, checked_ordinal, unsupported_rule_pattern as unsupported_pattern,
     unsupported_rule_signature as unsupported_signature,
 };
 use crate::term::{is_term_macro, push_record_field_anchors, unexpected_macro};
@@ -1890,7 +1890,7 @@ pub(crate) fn take_requires_helper(
                 attribute.span(),
             ));
         };
-        let term = crate::parse_term_expression(list.tokens)?;
+        let term = TermExpression::parse_tokens(list.tokens)?;
         if term.root_kind() == crate::TermRootKind::Literal {
             return Err(unsupported_signature(
                 "a rule condition must be an object-Bool term constructor, not a host literal",
@@ -1903,64 +1903,31 @@ pub(crate) fn take_requires_helper(
     Ok(condition)
 }
 
-/// Parses and validates a rule function from tokens.
-///
-/// # Errors
-///
-/// Returns Rust syntax errors or a structured rule-shape restriction.
-pub fn parse_rule_item(tokens: TokenStream) -> Result<RuleItem, SyntaxError> {
-    RuleItem::from_item(syn::parse2::<ItemFn>(tokens)?)
+impl KrsSyntax for RuleItem {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2::<ItemFn>(tokens)?)
+    }
 }
 
-/// Parses and validates a rule function from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_rule_item`].
-pub fn parse_rule_item_source(source: &str) -> Result<RuleItem, SyntaxError> {
-    RuleItem::from_item(syn::parse_str::<ItemFn>(source)?)
-}
-
-/// Parses and validates one alias-typed readable term-rule family.
-///
-/// # Errors
-///
-/// Rejects non-path headers, non-glob imports, duplicate names, malformed
-/// clauses, unsupported ordinary rule patterns/results, and invalid binding
-/// refinements.
-pub fn parse_rule_block(tokens: TokenStream) -> Result<RuleBlock, SyntaxError> {
-    let parser = |input: ParseStream<'_>| RuleBlock::from_stream(input);
-    parser.parse2(tokens).map_err(SyntaxError::from)
-}
-
-/// Parses a readable term-rule family directly from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_rule_block`].
-pub fn parse_rule_block_source(source: &str) -> Result<RuleBlock, SyntaxError> {
-    let tokens = source
-        .parse::<TokenStream>()
-        .map_err(syn::Error::from)
-        .map_err(SyntaxError::from)?;
-    parse_rule_block(tokens)
+impl KrsSyntax for RuleBlock {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let parser = |input: ParseStream<'_>| Self::from_stream(input);
+        parser.parse2(tokens).map_err(SyntaxError::from)
+    }
 }
 
 /// Parses a readable term-rule family together with lossless source trivia.
 ///
-/// This additive source-reparse seam preserves [`parse_rule_block_source`]
-/// unchanged while enforcing F7's line-comments-only DSL-body policy.
-///
 /// # Errors
 ///
-/// Returns the same semantic failures as [`parse_rule_block`] and rejects
+/// Returns the same semantic failures as [`RuleBlock::parse_tokens`] and rejects
 /// non-documentation block comments with a byte-exact source range.
 pub fn parse_rule_block_source_with_trivia(
     source: &str,
 ) -> Result<(RuleBlock, crate::TriviaTable), SyntaxError> {
     let (tokens, trivia) = crate::trivia::tokenize_with_trivia(source)?;
     trivia.reject_non_doc_block_comments("k::rules")?;
-    Ok((parse_rule_block(tokens)?, trivia))
+    Ok((RuleBlock::parse_tokens(tokens)?, trivia))
 }
 
 fn take_rule_clause_attribute(
@@ -1987,7 +1954,7 @@ fn take_rule_clause_attribute(
                     attribute.span(),
                 ));
             };
-            rule = Some(crate::parse_rule_attribute(list.tokens.clone())?);
+            rule = Some(crate::RuleAttribute::parse_tokens(list.tokens.clone())?);
         } else {
             retained.push(attribute);
         }
@@ -2636,7 +2603,7 @@ fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));
             }
-            crate::parse_term_expression(expression_macro.mac.tokens.clone())
+            TermExpression::parse_tokens(expression_macro.mac.tokens.clone())
         }
         expression => TermExpression::from_expression(expression.clone()),
     }

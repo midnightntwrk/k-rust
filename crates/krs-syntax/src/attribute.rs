@@ -5,7 +5,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, ExprPath, Ident, Lit, LitBool, LitInt, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
-use crate::parse::{ParseError, checked_ordinal, structured, tokens_from_source};
+use crate::parse::{KrsSyntax, ParseError, checked_ordinal, structured};
 use crate::{
     ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
     TokenRange,
@@ -399,84 +399,86 @@ impl Parse for RuleAttribute {
     }
 }
 
-/// Parses the frozen explicit claim metadata contract.
-///
-/// # Errors
-///
-/// Rejects missing, duplicate, unknown, or incompatible claim arguments and
-/// labels outside the portable K label subset.
-pub fn parse_claim_attribute(tokens: TokenStream) -> Result<ClaimAttribute, SyntaxError> {
-    let parser = |input: ParseStream<'_>| -> syn::Result<ClaimAttribute> {
-        let mut modality = None;
-        let mut label = None;
-        let mut circularity = None;
-        while !input.is_empty() {
-            let key: Ident = input.parse()?;
-            match key.to_string().as_str() {
-                "all_paths" | "one_path" => {
-                    if modality.is_some() {
-                        return Err(syn::Error::new(
-                            key.span(),
-                            "a claim requires exactly one modality",
-                        ));
+impl KrsSyntax for ClaimAttribute {
+    /// Parses the frozen explicit claim metadata contract.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing, duplicate, unknown, or incompatible claim arguments and
+    /// labels outside the portable K label subset.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let parser = |input: ParseStream<'_>| -> syn::Result<ClaimAttribute> {
+            let mut modality = None;
+            let mut label = None;
+            let mut circularity = None;
+            while !input.is_empty() {
+                let key: Ident = input.parse()?;
+                match key.to_string().as_str() {
+                    "all_paths" | "one_path" => {
+                        if modality.is_some() {
+                            return Err(syn::Error::new(
+                                key.span(),
+                                "a claim requires exactly one modality",
+                            ));
+                        }
+                        let value = if key == "all_paths" {
+                            ClaimModality::AllPaths
+                        } else {
+                            ClaimModality::OnePath
+                        };
+                        modality = Some((value, key));
                     }
-                    let value = if key == "all_paths" {
-                        ClaimModality::AllPaths
-                    } else {
-                        ClaimModality::OnePath
-                    };
-                    modality = Some((value, key));
+                    "label" => {
+                        if label.is_some() {
+                            return Err(syn::Error::new(key.span(), "duplicate claim label"));
+                        }
+                        input.parse::<Token![=]>()?;
+                        let literal: LitStr = input.parse()?;
+                        if !valid_claim_label(&literal.value()) {
+                            return Err(syn::Error::new(
+                                literal.span(),
+                                "invalid portable K claim label",
+                            ));
+                        }
+                        label = Some(literal);
+                    }
+                    "circularity" => {
+                        if circularity.is_some() {
+                            return Err(syn::Error::new(
+                                key.span(),
+                                "duplicate circularity modifier",
+                            ));
+                        }
+                        circularity = Some(key);
+                    }
+                    _ => return Err(syn::Error::new(key.span(), "unknown claim argument")),
                 }
-                "label" => {
-                    if label.is_some() {
-                        return Err(syn::Error::new(key.span(), "duplicate claim label"));
-                    }
-                    input.parse::<Token![=]>()?;
-                    let literal: LitStr = input.parse()?;
-                    if !valid_claim_label(&literal.value()) {
-                        return Err(syn::Error::new(
-                            literal.span(),
-                            "invalid portable K claim label",
-                        ));
-                    }
-                    label = Some(literal);
+                if input.is_empty() {
+                    break;
                 }
-                "circularity" => {
-                    if circularity.is_some() {
-                        return Err(syn::Error::new(
-                            key.span(),
-                            "duplicate circularity modifier",
-                        ));
-                    }
-                    circularity = Some(key);
-                }
-                _ => return Err(syn::Error::new(key.span(), "unknown claim argument")),
+                input.parse::<Token![,]>()?;
             }
-            if input.is_empty() {
-                break;
+            let (modality, modality_ident) =
+                modality.ok_or_else(|| input.error("claim requires `all_paths` or `one_path`"))?;
+            let label =
+                label.ok_or_else(|| input.error("claim requires an explicit `label = \"...\"`"))?;
+            if modality == ClaimModality::OnePath
+                && let Some(circularity) = &circularity
+            {
+                return Err(syn::Error::new(
+                    circularity.span(),
+                    "circularity is valid only on an all-path claim",
+                ));
             }
-            input.parse::<Token![,]>()?;
-        }
-        let (modality, modality_ident) =
-            modality.ok_or_else(|| input.error("claim requires `all_paths` or `one_path`"))?;
-        let label =
-            label.ok_or_else(|| input.error("claim requires an explicit `label = \"...\"`"))?;
-        if modality == ClaimModality::OnePath
-            && let Some(circularity) = &circularity
-        {
-            return Err(syn::Error::new(
-                circularity.span(),
-                "circularity is valid only on an all-path claim",
-            ));
-        }
-        Ok(ClaimAttribute {
-            modality,
-            modality_ident,
-            label,
-            circularity,
-        })
-    };
-    parser.parse2(tokens).map_err(SyntaxError::from)
+            Ok(ClaimAttribute {
+                modality,
+                modality_ident,
+                label,
+                circularity,
+            })
+        };
+        parser.parse2(tokens).map_err(SyntaxError::from)
+    }
 }
 
 fn valid_claim_label(value: &str) -> bool {
@@ -485,57 +487,39 @@ fn valid_claim_label(value: &str) -> bool {
         && !value.contains(['[', ']', ':'])
 }
 
-/// Parses claim metadata from source text.
-///
-/// # Errors
-///
-/// Returns the same errors as [`parse_claim_attribute`], plus tokenization
-/// errors for malformed Rust source.
-pub fn parse_claim_attribute_source(source: &str) -> Result<ClaimAttribute, SyntaxError> {
-    parse_claim_attribute(tokens_from_source(source)?)
-}
-
-/// Parses one or more typed existential binders.
-///
-/// # Errors
-///
-/// Rejects an empty payload, duplicate names, and malformed `name: Sort`
-/// entries.
-pub fn parse_exists_attribute(tokens: TokenStream) -> Result<ExistsAttribute, SyntaxError> {
-    let parser = |input: ParseStream<'_>| -> syn::Result<ExistsAttribute> {
-        let mut binders = Vec::new();
-        while !input.is_empty() {
-            let name: Ident = input.parse()?;
-            input.parse::<Token![:]>()?;
-            let sort: Path = input.parse()?;
-            if binders
-                .iter()
-                .any(|binder: &ClaimBinder| binder.name == name)
-            {
-                return Err(syn::Error::new(name.span(), "duplicate existential binder"));
+impl KrsSyntax for ExistsAttribute {
+    /// Parses one or more typed existential binders.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an empty payload, duplicate names, and malformed `name: Sort`
+    /// entries.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let parser = |input: ParseStream<'_>| -> syn::Result<ExistsAttribute> {
+            let mut binders = Vec::new();
+            while !input.is_empty() {
+                let name: Ident = input.parse()?;
+                input.parse::<Token![:]>()?;
+                let sort: Path = input.parse()?;
+                if binders
+                    .iter()
+                    .any(|binder: &ClaimBinder| binder.name == name)
+                {
+                    return Err(syn::Error::new(name.span(), "duplicate existential binder"));
+                }
+                binders.push(ClaimBinder { name, sort });
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>()?;
             }
-            binders.push(ClaimBinder { name, sort });
-            if input.is_empty() {
-                break;
+            if binders.is_empty() {
+                return Err(input.error("exists requires at least one `name: Sort` binder"));
             }
-            input.parse::<Token![,]>()?;
-        }
-        if binders.is_empty() {
-            return Err(input.error("exists requires at least one `name: Sort` binder"));
-        }
-        Ok(ExistsAttribute { binders })
-    };
-    parser.parse2(tokens).map_err(SyntaxError::from)
-}
-
-/// Parses existential binders from source text.
-///
-/// # Errors
-///
-/// Returns the same errors as [`parse_exists_attribute`], plus tokenization
-/// errors for malformed Rust source.
-pub fn parse_exists_attribute_source(source: &str) -> Result<ExistsAttribute, SyntaxError> {
-    parse_exists_attribute(tokens_from_source(source)?)
+            Ok(ExistsAttribute { binders })
+        };
+        parser.parse2(tokens).map_err(SyntaxError::from)
+    }
 }
 
 /// Generated-top or explicit named-root configuration metadata.
@@ -1068,362 +1052,225 @@ impl Parse for ConstructorAttribute {
     }
 }
 
-/// Parses a legacy empty or explicit reference sort-attribute payload.
-///
-/// # Errors
-///
-/// Rejects unknown, repeated, or incorrectly typed arguments and requires
-/// `alias` whenever `parents` is present.
-pub fn parse_sort_attribute(tokens: TokenStream) -> Result<SortAttribute, SyntaxError> {
-    structured(tokens, parse_sort_stream)
+impl KrsSyntax for SortAttribute {
+    /// Parses a legacy empty or explicit reference sort-attribute payload.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown, repeated, or incorrectly typed arguments and requires
+    /// `alias` whenever `parents` is present.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_sort_stream)
+    }
 }
 
-/// Parses a sort-attribute payload directly from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_sort_attribute`], plus tokenization
-/// failures.
-pub fn parse_sort_attribute_source(source: &str) -> Result<SortAttribute, SyntaxError> {
-    parse_sort_attribute(tokens_from_source(source)?)
+impl KrsSyntax for SubsortAttribute {
+    /// Parses the explicit supersort alias carried by a reference subsort impl.
+    ///
+    /// # Errors
+    ///
+    /// Requires exactly one plain Rust path-valued `sort` argument and rejects
+    /// missing, unknown, repeated, or incorrectly typed arguments.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_subsort_stream)
+    }
 }
 
-/// Parses the explicit supersort alias carried by a reference subsort impl.
-///
-/// # Errors
-///
-/// Requires exactly one plain Rust path-valued `sort` argument and rejects
-/// missing, unknown, repeated, or incorrectly typed arguments.
-pub fn parse_subsort_attribute(tokens: TokenStream) -> Result<SubsortAttribute, SyntaxError> {
-    structured(tokens, parse_subsort_stream)
+impl KrsSyntax for SymbolAttribute {
+    /// Parses exactly one string literal as a stable public symbol identity.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing or additional tokens, non-string values, and malformed
+    /// logical symbol paths.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let parser = |input: ParseStream<'_>| -> syn::Result<SymbolAttribute> {
+            let literal: LitStr = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("symbol accepts exactly one string literal"));
+            }
+            let value = krs_ir::ExplicitSymbol::new(literal.value())
+                .map_err(|error| syn::Error::new(literal.span(), error))?;
+            Ok(SymbolAttribute { literal, value })
+        };
+        parser.parse2(tokens).map_err(SyntaxError::from)
+    }
 }
 
-/// Parses a reference subsort-attribute payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_subsort_attribute`].
-pub fn parse_subsort_attribute_source(source: &str) -> Result<SubsortAttribute, SyntaxError> {
-    parse_subsort_attribute(tokens_from_source(source)?)
+impl KrsSyntax for EquationAttribute {
+    /// Parses the intentionally empty equation payload.
+    ///
+    /// # Errors
+    ///
+    /// Rejects labels and every other payload at its first token.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        parse_empty_tokens(tokens, "equation").map(|()| EquationAttribute)
+    }
 }
 
-/// Parses exactly one string literal as a stable public symbol identity.
-///
-/// # Errors
-///
-/// Rejects missing or additional tokens, non-string values, and malformed
-/// logical symbol paths.
-pub fn parse_symbol_attribute(tokens: TokenStream) -> Result<SymbolAttribute, SyntaxError> {
-    let parser = |input: ParseStream<'_>| -> syn::Result<SymbolAttribute> {
-        let literal: LitStr = input.parse()?;
-        if !input.is_empty() {
-            return Err(input.error("symbol accepts exactly one string literal"));
-        }
-        let value = krs_ir::ExplicitSymbol::new(literal.value())
-            .map_err(|error| syn::Error::new(literal.span(), error))?;
-        Ok(SymbolAttribute { literal, value })
-    };
-    parser.parse2(tokens).map_err(SyntaxError::from)
+impl KrsSyntax for SimplificationAttribute {
+    /// Parses an empty simplification payload or exactly `priority = N`.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown, malformed, repeated, or out-of-range payloads.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let parser = |input: ParseStream<'_>| -> syn::Result<SimplificationAttribute> {
+            if input.is_empty() {
+                return Ok(SimplificationAttribute::default());
+            }
+            let key: Ident = input.parse()?;
+            if key != "priority" {
+                return Err(syn::Error::new(key.span(), "expected `priority = N`"));
+            }
+            input.parse::<Token![=]>()?;
+            let literal: LitInt = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("simplification accepts only `priority = N`"));
+            }
+            let value = literal.base10_parse::<u32>()?;
+            Ok(SimplificationAttribute {
+                priority: Some((literal, value)),
+            })
+        };
+        parser.parse2(tokens).map_err(SyntaxError::from)
+    }
 }
 
-/// Parses an explicit stable symbol identity from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_symbol_attribute`].
-pub fn parse_symbol_attribute_source(source: &str) -> Result<SymbolAttribute, SyntaxError> {
-    parse_symbol_attribute(tokens_from_source(source)?)
+impl KrsSyntax for AliasAttribute {
+    /// Parses the intentionally empty alias payload.
+    ///
+    /// # Errors
+    ///
+    /// Rejects recursive mode and every other payload at its first token.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        parse_empty_tokens(tokens, "alias").map(|()| AliasAttribute)
+    }
 }
 
-/// Parses the intentionally empty equation payload.
-///
-/// # Errors
-///
-/// Rejects labels and every other payload at its first token.
-pub fn parse_equation_attribute(tokens: TokenStream) -> Result<EquationAttribute, SyntaxError> {
-    parse_empty_tokens(tokens, "equation").map(|()| EquationAttribute)
+impl KrsSyntax for ContextAliasAttribute {
+    /// Parses a checked context-alias payload.
+    ///
+    /// # Errors
+    ///
+    /// Requires exactly one unqualified identifier for each of `name` and `here`,
+    /// and rejects unknown or repeated arguments at their own tokens.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_context_alias_stream)
+    }
 }
 
-/// Parses an equation payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_equation_attribute`].
-pub fn parse_equation_attribute_source(source: &str) -> Result<EquationAttribute, SyntaxError> {
-    parse_equation_attribute(tokens_from_source(source)?)
+impl KrsSyntax for PriorityAttribute {
+    /// Parses one exact unsigned equation priority.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing, noninteger, repeated, or out-of-range values.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let parser = |input: ParseStream<'_>| -> syn::Result<PriorityAttribute> {
+            let literal: LitInt = input.parse()?;
+            if !input.is_empty() {
+                return Err(input.error("priority accepts exactly one integer"));
+            }
+            let value = literal.base10_parse::<u32>()?;
+            Ok(PriorityAttribute { literal, value })
+        };
+        parser.parse2(tokens).map_err(SyntaxError::from)
+    }
 }
 
-/// Parses an empty simplification payload or exactly `priority = N`.
-///
-/// # Errors
-///
-/// Rejects unknown, malformed, repeated, or out-of-range payloads.
-pub fn parse_simplification_attribute(
-    tokens: TokenStream,
-) -> Result<SimplificationAttribute, SyntaxError> {
-    let parser = |input: ParseStream<'_>| -> syn::Result<SimplificationAttribute> {
-        if input.is_empty() {
-            return Ok(SimplificationAttribute::default());
-        }
-        let key: Ident = input.parse()?;
-        if key != "priority" {
-            return Err(syn::Error::new(key.span(), "expected `priority = N`"));
-        }
-        input.parse::<Token![=]>()?;
-        let literal: LitInt = input.parse()?;
-        if !input.is_empty() {
-            return Err(input.error("simplification accepts only `priority = N`"));
-        }
-        let value = literal.base10_parse::<u32>()?;
-        Ok(SimplificationAttribute {
-            priority: Some((literal, value)),
-        })
-    };
-    parser.parse2(tokens).map_err(SyntaxError::from)
+impl KrsSyntax for RuleAttribute {
+    /// Parses an optional explicit rule-label payload.
+    ///
+    /// # Errors
+    ///
+    /// Accepts empty payloads and exactly `label = "..."`.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_rule_stream)
+    }
 }
 
-/// Parses a simplification payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_simplification_attribute`].
-pub fn parse_simplification_attribute_source(
-    source: &str,
-) -> Result<SimplificationAttribute, SyntaxError> {
-    parse_simplification_attribute(tokens_from_source(source)?)
+impl KrsSyntax for ConfigurationAttribute {
+    /// Parses the generated-top or named-root configuration attribute payload.
+    ///
+    /// # Errors
+    ///
+    /// Requires exactly one string-valued `root` argument and rejects unknown or
+    /// repeated arguments at their own tokens.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_configuration_stream)
+    }
 }
 
-/// Parses the intentionally empty alias payload.
-///
-/// # Errors
-///
-/// Rejects recursive mode and every other payload at its first token.
-pub fn parse_alias_attribute(tokens: TokenStream) -> Result<AliasAttribute, SyntaxError> {
-    parse_empty_tokens(tokens, "alias").map(|()| AliasAttribute)
+impl KrsSyntax for CellAttributePayload {
+    /// Parses a fixed-cell helper payload.
+    ///
+    /// # Errors
+    ///
+    /// Rejects unknown/repeated keys and empty or non-string values locally.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_cell_stream)
+    }
 }
 
-/// Parses an alias payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_alias_attribute`].
-pub fn parse_alias_attribute_source(source: &str) -> Result<AliasAttribute, SyntaxError> {
-    parse_alias_attribute(tokens_from_source(source)?)
+impl KrsSyntax for InitAttribute {
+    /// Parses the empty initializer attribute payload.
+    ///
+    /// # Errors
+    ///
+    /// Rejects any payload at its first token.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        parse_empty_tokens(tokens, "init").map(|()| InitAttribute)
+    }
 }
 
-/// Parses a checked context-alias payload.
-///
-/// # Errors
-///
-/// Requires exactly one unqualified identifier for each of `name` and `here`,
-/// and rejects unknown or repeated arguments at their own tokens.
-pub fn parse_context_alias_attribute(
-    tokens: TokenStream,
-) -> Result<ContextAliasAttribute, SyntaxError> {
-    structured(tokens, parse_context_alias_stream)
+impl KrsSyntax for ConstructorAttribute {
+    /// Parses constructor arguments from proc-macro or reparsed tokens.
+    ///
+    /// # Errors
+    ///
+    /// Rejects missing or duplicate `sort`, duplicate `syntax`, unknown keys,
+    /// non-path sorts, non-string templates, and malformed comma syntax.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_constructor_stream)
+    }
 }
 
-/// Parses a context-alias payload directly from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_context_alias_attribute`].
-pub fn parse_context_alias_attribute_source(
-    source: &str,
-) -> Result<ContextAliasAttribute, SyntaxError> {
-    parse_context_alias_attribute(tokens_from_source(source)?)
+impl KrsSyntax for FunctionAttribute {
+    /// Parses one total-function production attribute.
+    ///
+    /// # Errors
+    ///
+    /// Requires the bare `total` marker plus `sort` and `syntax`, and rejects
+    /// unknown, repeated, or incorrectly typed arguments at their own tokens.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_function_stream)
+    }
 }
 
-/// Parses one exact unsigned equation priority.
-///
-/// # Errors
-///
-/// Rejects missing, noninteger, repeated, or out-of-range values.
-pub fn parse_priority_attribute(tokens: TokenStream) -> Result<PriorityAttribute, SyntaxError> {
-    let parser = |input: ParseStream<'_>| -> syn::Result<PriorityAttribute> {
-        let literal: LitInt = input.parse()?;
-        if !input.is_empty() {
-            return Err(input.error("priority accepts exactly one integer"));
-        }
-        let value = literal.base10_parse::<u32>()?;
-        Ok(PriorityAttribute { literal, value })
-    };
-    parser.parse2(tokens).map_err(SyntaxError::from)
+impl KrsSyntax for ConstructorsAttribute {
+    /// Parses the payload of `#[k::constructors(sort = OuterSort)]`.
+    ///
+    /// # Errors
+    ///
+    /// Requires exactly one plain Rust path-valued `sort` argument, accepts either
+    /// `result = ResultSort` or bare `reference` open-family mode, and rejects
+    /// unknown, repeated, or mutually exclusive arguments at their own tokens.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_constructors_stream)
+    }
 }
 
-/// Parses an equation priority from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_priority_attribute`].
-pub fn parse_priority_attribute_source(source: &str) -> Result<PriorityAttribute, SyntaxError> {
-    parse_priority_attribute(tokens_from_source(source)?)
-}
-
-/// Parses an optional explicit rule-label payload.
-///
-/// # Errors
-///
-/// Accepts empty payloads and exactly `label = "..."`.
-pub fn parse_rule_attribute(tokens: TokenStream) -> Result<RuleAttribute, SyntaxError> {
-    structured(tokens, parse_rule_stream)
-}
-
-/// Parses a rule-attribute payload directly from source text.
-///
-/// # Errors
-///
-/// Returns a structured error for invalid payloads or tokenization failures.
-pub fn parse_rule_attribute_source(source: &str) -> Result<RuleAttribute, SyntaxError> {
-    parse_rule_attribute(tokens_from_source(source)?)
-}
-
-/// Parses the generated-top or named-root configuration attribute payload.
-///
-/// # Errors
-///
-/// Requires exactly one string-valued `root` argument and rejects unknown or
-/// repeated arguments at their own tokens.
-pub fn parse_configuration_attribute(
-    tokens: TokenStream,
-) -> Result<ConfigurationAttribute, SyntaxError> {
-    structured(tokens, parse_configuration_stream)
-}
-
-/// Parses a configuration payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_configuration_attribute`].
-pub fn parse_configuration_attribute_source(
-    source: &str,
-) -> Result<ConfigurationAttribute, SyntaxError> {
-    parse_configuration_attribute(tokens_from_source(source)?)
-}
-
-/// Parses a fixed-cell helper payload.
-///
-/// # Errors
-///
-/// Rejects unknown/repeated keys and empty or non-string values locally.
-pub fn parse_cell_attribute(tokens: TokenStream) -> Result<CellAttributePayload, SyntaxError> {
-    structured(tokens, parse_cell_stream)
-}
-
-/// Parses a fixed-cell helper payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_cell_attribute`].
-pub fn parse_cell_attribute_source(source: &str) -> Result<CellAttributePayload, SyntaxError> {
-    parse_cell_attribute(tokens_from_source(source)?)
-}
-
-/// Parses the empty initializer attribute payload.
-///
-/// # Errors
-///
-/// Rejects any payload at its first token.
-pub fn parse_init_attribute(tokens: TokenStream) -> Result<InitAttribute, SyntaxError> {
-    parse_empty_tokens(tokens, "init").map(|()| InitAttribute)
-}
-
-/// Parses the empty initializer payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_init_attribute`].
-pub fn parse_init_attribute_source(source: &str) -> Result<InitAttribute, SyntaxError> {
-    parse_init_attribute(tokens_from_source(source)?)
-}
-
-/// Parses constructor arguments from proc-macro or reparsed tokens.
-///
-/// # Errors
-///
-/// Rejects missing or duplicate `sort`, duplicate `syntax`, unknown keys,
-/// non-path sorts, non-string templates, and malformed comma syntax.
-pub fn parse_constructor_attribute(
-    tokens: TokenStream,
-) -> Result<ConstructorAttribute, SyntaxError> {
-    structured(tokens, parse_constructor_stream)
-}
-
-/// Parses constructor arguments from source text using the same parser.
-///
-/// # Errors
-///
-/// Returns the same structured failures as [`parse_constructor_attribute`].
-pub fn parse_constructor_attribute_source(
-    source: &str,
-) -> Result<ConstructorAttribute, SyntaxError> {
-    parse_constructor_attribute(tokens_from_source(source)?)
-}
-
-/// Parses one total-function production attribute.
-///
-/// # Errors
-///
-/// Requires the bare `total` marker plus `sort` and `syntax`, and rejects
-/// unknown, repeated, or incorrectly typed arguments at their own tokens.
-pub fn parse_function_attribute(tokens: TokenStream) -> Result<FunctionAttribute, SyntaxError> {
-    structured(tokens, parse_function_stream)
-}
-
-/// Parses total-function arguments from source text using the same parser.
-///
-/// # Errors
-///
-/// Returns the same structured failures as [`parse_function_attribute`].
-pub fn parse_function_attribute_source(source: &str) -> Result<FunctionAttribute, SyntaxError> {
-    parse_function_attribute(tokens_from_source(source)?)
-}
-
-/// Parses the payload of `#[k::constructors(sort = OuterSort)]`.
-///
-/// # Errors
-///
-/// Requires exactly one plain Rust path-valued `sort` argument, accepts either
-/// `result = ResultSort` or bare `reference` open-family mode, and rejects
-/// unknown, repeated, or mutually exclusive arguments at their own tokens.
-pub fn parse_constructors_attribute(
-    tokens: TokenStream,
-) -> Result<ConstructorsAttribute, SyntaxError> {
-    structured(tokens, parse_constructors_stream)
-}
-
-/// Parses a `constructors` payload directly from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_constructors_attribute`].
-pub fn parse_constructors_attribute_source(
-    source: &str,
-) -> Result<ConstructorsAttribute, SyntaxError> {
-    parse_constructors_attribute(tokens_from_source(source)?)
-}
-
-/// Parses one enum-variant `#[k::syntax("...", ...)]` payload.
-///
-/// # Errors
-///
-/// Requires a leading string template and accepts only the closed `group`,
-/// `avoid`, and `format` metadata catalog after it.
-pub fn parse_variant_syntax_attribute(
-    tokens: TokenStream,
-) -> Result<VariantSyntaxAttribute, SyntaxError> {
-    structured(tokens, parse_variant_syntax_stream)
-}
-
-/// Parses enum-variant syntax metadata directly from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_variant_syntax_attribute`].
-pub fn parse_variant_syntax_attribute_source(
-    source: &str,
-) -> Result<VariantSyntaxAttribute, SyntaxError> {
-    parse_variant_syntax_attribute(tokens_from_source(source)?)
+impl KrsSyntax for VariantSyntaxAttribute {
+    /// Parses one enum-variant `#[k::syntax("...", ...)]` payload.
+    ///
+    /// # Errors
+    ///
+    /// Requires a leading string template and accepts only the closed `group`,
+    /// `avoid`, and `format` metadata catalog after it.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_variant_syntax_stream)
+    }
 }
 
 fn parse_empty_tokens(tokens: TokenStream, attribute: &'static str) -> Result<(), SyntaxError> {

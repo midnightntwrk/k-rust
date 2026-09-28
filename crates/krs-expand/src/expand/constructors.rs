@@ -5,12 +5,11 @@ use krs_ir::wire::{
     WireProduction, WireProductionAttribute, WireProductionItem, WireProductionOwner,
     WireSortReference, WireTypeReference,
 };
+use krs_syntax::KrsSyntax;
 use krs_syntax::surface::{AttributeMacro, helper_entry, last_segment_entry};
 use krs_syntax::{
     ProvenanceAnchor, ProvenanceRole, StrictnessAttribute, SyntaxTemplateItem, TokenRange,
-    parse_alias_attribute, parse_constructor_attribute, parse_constructor_declaration,
-    parse_function_attribute, parse_seqstrict_attribute, parse_strict_attribute,
-    parse_symbol_attribute, parse_token_attribute, parse_token_declaration,
+    parse_seqstrict_attribute, parse_strict_attribute,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -28,7 +27,7 @@ use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
 pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-    let symbol = parse_symbol_attribute(attributes)?;
+    let symbol = krs_syntax::SymbolAttribute::parse_tokens(attributes)?;
     let mut item: Item = syn::parse2(item)?;
     let (attrs, span) = match &mut item {
         Item::Trait(item) => (&mut item.attrs, item.ident.span()),
@@ -77,7 +76,7 @@ pub(crate) fn constructor(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute = parse_constructor_attribute(attributes)?;
+    let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
     constructor_like(env, attribute, item, None, None)
 }
 
@@ -86,7 +85,7 @@ pub(crate) fn function(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let function = parse_function_attribute(attributes)?;
+    let function = krs_syntax::FunctionAttribute::parse_tokens(attributes)?;
     let totality_anchor = function
         .provenance()?
         .into_iter()
@@ -181,7 +180,7 @@ fn constructor_like(
             "a function production cannot also be a static alias",
         ));
     }
-    let declaration = parse_constructor_declaration(raw_item.to_token_stream())?;
+    let declaration = krs_syntax::ConstructorDeclaration::parse_tokens(raw_item.to_token_stream())?;
     attribute.validate_declaration(&declaration)?;
     if let Some(strictness) = &strictness {
         strictness.validate_fields(
@@ -420,8 +419,10 @@ pub(super) fn take_explicit_symbol_helper(
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         if attribute.path().is_ident("__krs_explicit_symbol") {
-            let parsed =
-                parse_symbol_attribute(helper_tokens(&attribute, "__krs_explicit_symbol")?)?;
+            let parsed = krs_syntax::SymbolAttribute::parse_tokens(helper_tokens(
+                &attribute,
+                "__krs_explicit_symbol",
+            )?)?;
             if symbol.replace(parsed).is_some() {
                 return Err(syn::Error::new(
                     attribute.span(),
@@ -483,7 +484,7 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
                     ));
                 }
             };
-            parse_alias_attribute(tokens)?;
+            krs_syntax::AliasAttribute::parse_tokens(tokens)?;
             if alias.is_some() {
                 return Err(syn::Error::new(
                     attribute.span(),
@@ -538,8 +539,8 @@ pub(crate) fn token(
     let token_lexical_precedence_role = ProvenanceRole::TokenLexicalPrecedence;
     let token_declaration_role = ProvenanceRole::TokenDeclaration;
     let token_regex_role = ProvenanceRole::TokenRegex;
-    let attribute = parse_token_attribute(attributes)?;
-    let declaration = parse_token_declaration(item)?;
+    let attribute = krs_syntax::TokenAttribute::parse_tokens(attributes)?;
+    let declaration = krs_syntax::TokenDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
     let nonce = expansion_nonce(env, "token", declaration.name(), fallback);

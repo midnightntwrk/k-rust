@@ -10,10 +10,10 @@ use syn::{
 
 use crate::ReferenceCandidate;
 use crate::attribute::is_plain_path;
-use crate::parse::checked_ordinal;
+use crate::parse::{KrsSyntax, checked_ordinal};
 use crate::{
     CellAttributePayload, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
-    TokenRange, parse_cell_attribute,
+    TokenRange,
 };
 
 /// Leaf term content or a nominal nested fixed-cell group.
@@ -406,26 +406,10 @@ impl ConfigurationDeclaration {
     }
 }
 
-/// Parses a fixed configuration declaration.
-///
-/// # Errors
-///
-/// Returns Rust parsing failures or a structured fixed-cell error.
-pub fn parse_configuration_declaration(
-    tokens: TokenStream,
-) -> Result<ConfigurationDeclaration, SyntaxError> {
-    ConfigurationDeclaration::from_item(syn::parse2::<ItemStruct>(tokens)?)
-}
-
-/// Parses a fixed configuration declaration from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_configuration_declaration`].
-pub fn parse_configuration_declaration_source(
-    source: &str,
-) -> Result<ConfigurationDeclaration, SyntaxError> {
-    ConfigurationDeclaration::from_item(syn::parse_str::<ItemStruct>(source)?)
+impl KrsSyntax for ConfigurationDeclaration {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2::<ItemStruct>(tokens)?)
+    }
 }
 
 fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellField, SyntaxError> {
@@ -468,7 +452,7 @@ fn parse_cell_helper(
     }
     let parsed = match &attribute.meta {
         syn::Meta::Path(_) => Ok(CellAttributePayload::default()),
-        syn::Meta::List(list) => parse_cell_attribute(list.tokens.clone()),
+        syn::Meta::List(list) => CellAttributePayload::parse_tokens(list.tokens.clone()),
         syn::Meta::NameValue(value) => Err(unsupported_field(
             "`cell` metadata uses `#[k::cell(...)]` arguments",
             value.span(),

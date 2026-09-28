@@ -1,9 +1,7 @@
 //! Configuration declarations: `#[k::configuration]` and `#[k::cell]`.
 
-use krs_syntax::{
-    ConfigurationCellContent, ProvenanceRole, TokenRange, parse_configuration_attribute,
-    parse_configuration_declaration, role_tokens,
-};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange, role_tokens};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
@@ -21,8 +19,8 @@ pub(crate) fn configuration(
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
-    let attribute = parse_configuration_attribute(attributes)?;
-    let declaration = parse_configuration_declaration(item)?;
+    let attribute = krs_syntax::ConfigurationAttribute::parse_tokens(attributes)?;
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
     let mut anchors = declaration.provenance()?;
@@ -115,8 +113,8 @@ pub(crate) fn cell(
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
-    krs_syntax::parse_cell_attribute(attributes)?;
-    let declaration = parse_configuration_declaration(item)?;
+    krs_syntax::CellAttributePayload::parse_tokens(attributes)?;
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
     let anchors = declaration.provenance()?;

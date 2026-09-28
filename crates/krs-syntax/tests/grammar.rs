@@ -1,22 +1,18 @@
 //! Object-grammar, metadata, and provenance contract tests.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     GroupAssociativity, ProvenanceRole, StrictnessKind, StructuredFormatFragment, SyntaxErrorKind,
-    SyntaxTemplateItem, TermSymbolKind, parse_associativity_declaration_source,
-    parse_bracket_attribute_source, parse_constructor_attribute_source,
-    parse_constructor_declaration_source, parse_precedence_declaration_source,
-    parse_rule_item_source, parse_seqstrict_attribute_source, parse_strict_attribute_source,
-    parse_subsort_declaration_source, parse_term_expression_source, parse_token_attribute_source,
-    parse_token_declaration_source,
+    SyntaxTemplateItem, TermSymbolKind,
 };
 
 #[test]
 fn nominal_expr_production_is_checked_and_keyed() {
-    let attribute = parse_constructor_attribute_source(
+    let attribute = krs_syntax::ConstructorAttribute::parse_source(
         r#"sort = Expr, syntax = "{lhs} + {rhs}", group = "additive", avoid = true, format = "%1%2%3""#,
     )
     .unwrap();
-    let declaration = parse_constructor_declaration_source(
+    let declaration = krs_syntax::ConstructorDeclaration::parse_source(
         "pub struct Add { pub lhs: Term<dyn Expr>, pub rhs: Term<dyn Expr> }",
     )
     .unwrap();
@@ -77,12 +73,14 @@ fn nominal_expr_production_is_checked_and_keyed() {
 
 #[test]
 fn templates_escape_braces_and_reject_field_mismatches() {
-    let declaration =
-        parse_constructor_declaration_source("struct Pair { left: Term<Expr>, right: Term<Expr> }")
-            .unwrap();
-    let escaped =
-        parse_constructor_attribute_source(r#"sort = Expr, syntax = "{{{left}}}:{right}""#)
-            .unwrap();
+    let declaration = krs_syntax::ConstructorDeclaration::parse_source(
+        "struct Pair { left: Term<Expr>, right: Term<Expr> }",
+    )
+    .unwrap();
+    let escaped = krs_syntax::ConstructorAttribute::parse_source(
+        r#"sort = Expr, syntax = "{{{left}}}:{right}""#,
+    )
+    .unwrap();
     escaped.validate_declaration(&declaration).unwrap();
     assert_eq!(
         escaped.syntax_template().unwrap().items(),
@@ -100,7 +98,7 @@ fn templates_escape_braces_and_reject_field_mismatches() {
         r#"sort = Expr, syntax = "{left}{left}{right}""#,
         r#"sort = Expr, syntax = "{left}{missing}""#,
     ] {
-        let attribute = parse_constructor_attribute_source(source).unwrap();
+        let attribute = krs_syntax::ConstructorAttribute::parse_source(source).unwrap();
         let error = attribute.validate_declaration(&declaration).unwrap_err();
         assert!(matches!(
             error.kind(),
@@ -117,7 +115,7 @@ fn templates_escape_braces_and_reject_field_mismatches() {
         r#"sort = Expr, syntax = "{left{right}}""#,
     ] {
         assert!(matches!(
-            parse_constructor_attribute_source(source)
+            krs_syntax::ConstructorAttribute::parse_source(source)
                 .unwrap_err()
                 .kind(),
             SyntaxErrorKind::InvalidSyntaxTemplate { .. }
@@ -125,13 +123,13 @@ fn templates_escape_braces_and_reject_field_mismatches() {
     }
 
     let unmatched_open =
-        parse_constructor_attribute_source(r#"sort = Expr, syntax = "{""#).unwrap_err();
+        krs_syntax::ConstructorAttribute::parse_source(r#"sort = Expr, syntax = "{""#).unwrap_err();
     assert!(unmatched_open.to_string().contains("did you mean `{{`"));
 }
 
 #[test]
 fn syntax_layout_is_nonsemantic_and_terminals_match_k_token_boundaries() {
-    let attribute = parse_constructor_attribute_source(
+    let attribute = krs_syntax::ConstructorAttribute::parse_source(
         r#"sort = Expr, syntax = "if ({condition}) {body} else {otherwise}""#,
     )
     .unwrap();
@@ -147,7 +145,7 @@ fn syntax_layout_is_nonsemantic_and_terminals_match_k_token_boundaries() {
             SyntaxTemplateItem::Field("otherwise".into()),
         ]
     );
-    let compact = parse_constructor_attribute_source(
+    let compact = krs_syntax::ConstructorAttribute::parse_source(
         r#"sort = Expr, syntax = "if({condition}){body}else{otherwise}""#,
     )
     .unwrap();
@@ -156,7 +154,7 @@ fn syntax_layout_is_nonsemantic_and_terminals_match_k_token_boundaries() {
         compact.syntax_template().unwrap().items()
     );
 
-    let operators = parse_constructor_attribute_source(
+    let operators = krs_syntax::ConstructorAttribute::parse_source(
         r#"sort = Expr, syntax = "{lhs} >= {rhs};{lhs2} != {rhs2}""#,
     )
     .unwrap();
@@ -195,15 +193,16 @@ fn group_avoid_and_structured_format_values_are_closed() {
         r#"sort = Expr, format = "%70000""#,
     ] {
         assert!(
-            parse_constructor_attribute_source(source).is_err(),
+            krs_syntax::ConstructorAttribute::parse_source(source).is_err(),
             "{source}"
         );
     }
 
-    let declaration = parse_constructor_declaration_source("struct Unit;").unwrap();
-    let out_of_range =
-        parse_constructor_attribute_source(r#"sort = Expr, syntax = "unit", format = "%2""#)
-            .unwrap();
+    let declaration = krs_syntax::ConstructorDeclaration::parse_source("struct Unit;").unwrap();
+    let out_of_range = krs_syntax::ConstructorAttribute::parse_source(
+        r#"sort = Expr, syntax = "unit", format = "%2""#,
+    )
+    .unwrap();
     assert!(matches!(
         out_of_range
             .validate_declaration(&declaration)
@@ -216,10 +215,11 @@ fn group_avoid_and_structured_format_values_are_closed() {
 #[test]
 fn authored_id_token_is_distinct_from_builtin_int_and_bool() {
     let attribute =
-        parse_token_attribute_source(r#"regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2"#).unwrap();
+        krs_syntax::TokenAttribute::parse_source(r#"regex = r"[a-zA-Z][a-zA-Z0-9_]*", prec = 2"#)
+            .unwrap();
     assert_eq!(attribute.regex().value(), "[a-zA-Z][a-zA-Z0-9_]*");
     assert_eq!(attribute.lexical_precedence(), Some(2));
-    let declaration = parse_token_declaration_source("pub struct Id(String);").unwrap();
+    let declaration = krs_syntax::TokenDeclaration::parse_source("pub struct Id(String);").unwrap();
     assert_eq!(declaration.name(), "Id");
     assert_eq!(
         declaration.provenance().unwrap()[0].role(),
@@ -235,7 +235,10 @@ fn authored_id_token_is_distinct_from_builtin_int_and_bool() {
         r#"regex = "abc", prec = 2u8"#,
         r#"regex = "abc", regex = "def""#,
     ] {
-        assert!(parse_token_attribute_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::TokenAttribute::parse_source(source).is_err(),
+            "{source}"
+        );
     }
     for source in [
         "struct Id;",
@@ -246,7 +249,9 @@ fn authored_id_token_is_distinct_from_builtin_int_and_bool() {
         "struct Id(#[cfg(any())] String);",
     ] {
         assert!(matches!(
-            parse_token_declaration_source(source).unwrap_err().kind(),
+            krs_syntax::TokenDeclaration::parse_source(source)
+                .unwrap_err()
+                .kind(),
             SyntaxErrorKind::UnsupportedTokenDeclaration { .. }
         ));
     }
@@ -254,7 +259,7 @@ fn authored_id_token_is_distinct_from_builtin_int_and_bool() {
 
 #[test]
 fn bracket_is_syntax_only_and_has_one_same_sort_value() {
-    let bracket = parse_bracket_attribute_source(r#""({value})""#).unwrap();
+    let bracket = krs_syntax::BracketAttribute::parse_source(r#""({value})""#).unwrap();
     assert_eq!(
         bracket.template().items(),
         [
@@ -279,10 +284,13 @@ fn bracket_is_syntax_only_and_has_one_same_sort_value() {
         r#""(""#,
         r#""({value})", extra"#,
     ] {
-        assert!(parse_bracket_attribute_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::BracketAttribute::parse_source(source).is_err(),
+            "{source}"
+        );
     }
 
-    let delimiters = parse_bracket_attribute_source(r#""(", ")""#).unwrap();
+    let delimiters = krs_syntax::BracketAttribute::parse_source(r#""(", ")""#).unwrap();
     assert_eq!(delimiters.template().items(), bracket.template().items());
     assert_eq!(
         delimiters
@@ -294,16 +302,23 @@ fn bracket_is_syntax_only_and_has_one_same_sort_value() {
         1
     );
     for source in [r#""", ")""#, r#""(", """#, r#""(", ")", "extra""#] {
-        assert!(parse_bracket_attribute_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::BracketAttribute::parse_source(source).is_err(),
+            "{source}"
+        );
     }
 }
 
 #[test]
 fn strictness_is_ordered_typed_and_field_checked() {
-    let declaration =
-        parse_constructor_declaration_source("struct Add { lhs: Term<Expr>, rhs: Term<Expr> }")
-            .unwrap();
-    let strict = parse_strict_attribute_source("sequence = [lhs], result = Value").unwrap();
+    let declaration = krs_syntax::ConstructorDeclaration::parse_source(
+        "struct Add { lhs: Term<Expr>, rhs: Term<Expr> }",
+    )
+    .unwrap();
+    let strict = krs_syntax::parse_strict_attribute(
+        krs_syntax::parse::tokens_from_source("sequence = [lhs], result = Value").unwrap(),
+    )
+    .unwrap();
     assert_eq!(strict.kind(), StrictnessKind::Strict);
     assert!(strict.using().is_none());
     strict
@@ -315,8 +330,11 @@ fn strictness_is_ordered_typed_and_field_checked() {
         )
         .unwrap();
 
-    let sequential = parse_seqstrict_attribute_source(
-        "result = value::Value, using = eval_context, sequence = [rhs, lhs],",
+    let sequential = krs_syntax::parse_seqstrict_attribute(
+        krs_syntax::parse::tokens_from_source(
+            "result = value::Value, using = eval_context, sequence = [rhs, lhs],",
+        )
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(sequential.kind(), StrictnessKind::SeqStrict);
@@ -345,11 +363,17 @@ fn strictness_is_ordered_typed_and_field_checked() {
         "using = execute, using = other, sequence = [lhs], result = Value",
     ] {
         assert!(
-            parse_seqstrict_attribute_source(source).is_err(),
+            krs_syntax::parse_seqstrict_attribute(
+                krs_syntax::parse::tokens_from_source(source).unwrap()
+            )
+            .is_err(),
             "{source}"
         );
     }
-    let unknown = parse_seqstrict_attribute_source("sequence = [missing], result = Value").unwrap();
+    let unknown = krs_syntax::parse_seqstrict_attribute(
+        krs_syntax::parse::tokens_from_source("sequence = [missing], result = Value").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         unknown
             .validate_fields(
@@ -366,7 +390,7 @@ fn strictness_is_ordered_typed_and_field_checked() {
 
 #[test]
 fn precedence_supports_unrelated_chains_and_stable_flattened_order() {
-    let declaration = parse_precedence_declaration_source(
+    let declaration = krs_syntax::PrecedenceDeclaration::parse_source(
         "multiplicative > additive > comparison; prefix > equality;",
     )
     .unwrap();
@@ -387,7 +411,7 @@ fn precedence_supports_unrelated_chains_and_stable_flattened_order() {
 
     for source in ["", "additive", "> additive", "a >", "a > b c > d"] {
         assert!(
-            parse_precedence_declaration_source(source).is_err(),
+            krs_syntax::PrecedenceDeclaration::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -395,7 +419,7 @@ fn precedence_supports_unrelated_chains_and_stable_flattened_order() {
 
 #[test]
 fn precedence_accepts_an_optional_family_owner_and_rejects_malformed_owners() {
-    let declaration = parse_precedence_declaration_source(
+    let declaration = krs_syntax::PrecedenceDeclaration::parse_source(
         "for Op; multiplicative > additive; prefix > equality;",
     )
     .unwrap();
@@ -419,7 +443,7 @@ fn precedence_accepts_an_optional_family_owner_and_rejects_malformed_owners() {
         "for Op;; a > b",
     ] {
         assert!(
-            parse_precedence_declaration_source(source).is_err(),
+            krs_syntax::PrecedenceDeclaration::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -427,7 +451,7 @@ fn precedence_accepts_an_optional_family_owner_and_rejects_malformed_owners() {
 
 #[test]
 fn associativity_is_typed_and_rejects_bad_punctuation() {
-    let declaration = parse_associativity_declaration_source(
+    let declaration = krs_syntax::AssociativityDeclaration::parse_source(
         "left: multiplicative, additive; right: exponent; non_associative: equality;",
     )
     .unwrap();
@@ -460,7 +484,7 @@ fn associativity_is_typed_and_rejects_bad_punctuation() {
         "left: additive, additive;",
     ] {
         assert!(
-            parse_associativity_declaration_source(source).is_err(),
+            krs_syntax::AssociativityDeclaration::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -468,7 +492,7 @@ fn associativity_is_typed_and_rejects_bad_punctuation() {
 
 #[test]
 fn associativity_accepts_an_optional_family_owner_and_rejects_malformed_owners() {
-    let declaration = parse_associativity_declaration_source(
+    let declaration = krs_syntax::AssociativityDeclaration::parse_source(
         "for StmtSyntax; left: application, addition; right: sequence;",
     )
     .unwrap();
@@ -492,7 +516,7 @@ fn associativity_accepts_an_optional_family_owner_and_rejects_malformed_owners()
         "for Op;; left: addition;",
     ] {
         assert!(
-            parse_associativity_declaration_source(source).is_err(),
+            krs_syntax::AssociativityDeclaration::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -500,7 +524,8 @@ fn associativity_accepts_an_optional_family_owner_and_rejects_malformed_owners()
 
 #[test]
 fn explicit_builtin_to_authored_subsort_retains_both_paths() {
-    let declaration = parse_subsort_declaration_source("impl value::Value for k::Int {}").unwrap();
+    let declaration =
+        krs_syntax::SubsortDeclaration::parse_source("impl value::Value for k::Int {}").unwrap();
     assert_eq!(
         declaration.super_sort().to_token_stream().to_string(),
         "value :: Value"
@@ -524,7 +549,9 @@ fn explicit_builtin_to_authored_subsort_retains_both_paths() {
         "impl Value for Int { fn marker() {} }",
     ] {
         assert!(matches!(
-            parse_subsort_declaration_source(source).unwrap_err().kind(),
+            krs_syntax::SubsortDeclaration::parse_source(source)
+                .unwrap_err()
+                .kind(),
             SyntaxErrorKind::UnsupportedSubsortDeclaration { .. } | SyntaxErrorKind::RustSyntax(_)
         ));
     }
@@ -532,7 +559,7 @@ fn explicit_builtin_to_authored_subsort_retains_both_paths() {
 
 #[test]
 fn rules_preserve_builtin_heads_binders_and_literals() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn add(Add { lhs, rhs }: Term<Expr>) -> Term<Value> { int::add(lhs, int::sub(rhs, 0)) }",
     )
     .unwrap();
@@ -574,9 +601,10 @@ fn rules_preserve_builtin_heads_binders_and_literals() {
             .any(|anchor| anchor.role() == ProvenanceRole::RuleRightLiteral)
     );
 
-    let literal_root =
-        parse_rule_item_source("fn identity(true: Term<k::Bool>) -> Term<k::Bool> { true }")
-            .unwrap();
+    let literal_root = krs_syntax::RuleItem::parse_source(
+        "fn identity(true: Term<k::Bool>) -> Term<k::Bool> { true }",
+    )
+    .unwrap();
     let roles = literal_root
         .full_provenance()
         .unwrap()
@@ -589,7 +617,7 @@ fn rules_preserve_builtin_heads_binders_and_literals() {
 
 #[test]
 fn rule_records_preserve_field_identity_on_both_sides() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn swap(Add { rhs: y, lhs: x }: Term<Expr>) -> Term<Expr> { \
          Add { lhs: x, rhs: y } }",
     )
@@ -636,7 +664,7 @@ fn rule_records_preserve_field_identity_on_both_sides() {
 
 #[test]
 fn rule_subject_wildcards_are_structured_and_exactly_keyed() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn short_circuit(And { lhs: false, rhs: _ }: Term<Expr>) -> Term<Expr> { false }",
     )
     .unwrap();
@@ -661,9 +689,10 @@ fn rule_subject_wildcards_are_structured_and_exactly_keyed() {
     assert_eq!(wildcards[0].range().start().column, 40);
     assert_eq!(wildcards[0].range().end().column, 41);
 
-    let multiple =
-        parse_rule_item_source("fn many(Pair(_, Pair(_, _)): Term<Expr>) -> Term<Expr> { Done }")
-            .unwrap();
+    let multiple = krs_syntax::RuleItem::parse_source(
+        "fn many(Pair(_, Pair(_, _)): Term<Expr>) -> Term<Expr> { Done }",
+    )
+    .unwrap();
     let multiple_wildcards = multiple
         .full_provenance()
         .unwrap()
@@ -683,7 +712,7 @@ fn rule_subject_wildcards_are_structured_and_exactly_keyed() {
             .all(|pair| pair[0].range().start().column < pair[1].range().start().column)
     );
 
-    assert!(parse_term_expression_source("_").is_err());
+    assert!(krs_syntax::TermExpression::parse_source("_").is_err());
 }
 
 use quote::ToTokens;
@@ -733,9 +762,10 @@ fn exact_public_surface_is_ordinary_rust_token_syntax() {
 fn every_imp_expression_operator_template_uses_the_frozen_item_shapes() {
     for operator in ["-", "!"] {
         let source = format!(r#"sort = Expr, syntax = "{operator}{{value}}", format = "%1%2""#);
-        let attribute = parse_constructor_attribute_source(&source).unwrap();
+        let attribute = krs_syntax::ConstructorAttribute::parse_source(&source).unwrap();
         let declaration =
-            parse_constructor_declaration_source("struct Unary { value: Term<Expr> }").unwrap();
+            krs_syntax::ConstructorDeclaration::parse_source("struct Unary { value: Term<Expr> }")
+                .unwrap();
         attribute.validate_declaration(&declaration).unwrap();
         assert_eq!(attribute.syntax_template().unwrap().items().len(), 2);
     }
@@ -745,8 +775,8 @@ fn every_imp_expression_operator_template_uses_the_frozen_item_shapes() {
     ] {
         let source =
             format!(r#"sort = Expr, syntax = "{{lhs}} {operator} {{rhs}}", group = "operators""#);
-        let attribute = parse_constructor_attribute_source(&source).unwrap();
-        let declaration = parse_constructor_declaration_source(
+        let attribute = krs_syntax::ConstructorAttribute::parse_source(&source).unwrap();
+        let declaration = krs_syntax::ConstructorDeclaration::parse_source(
             "struct Binary { lhs: Term<Expr>, rhs: Term<Expr> }",
         )
         .unwrap();
@@ -760,9 +790,10 @@ fn every_imp_expression_operator_template_uses_the_frozen_item_shapes() {
 
 #[test]
 fn term_reference_spans_and_ordinals_are_exact_and_deterministic() {
-    let precedence =
-        parse_precedence_declaration_source("multiplicative > additive; prefix > equality")
-            .unwrap();
+    let precedence = krs_syntax::PrecedenceDeclaration::parse_source(
+        "multiplicative > additive; prefix > equality",
+    )
+    .unwrap();
     let references = precedence
         .provenance()
         .unwrap()
@@ -781,9 +812,11 @@ fn term_reference_spans_and_ordinals_are_exact_and_deterministic() {
         [(0, 0, 14), (1, 17, 25), (2, 27, 33), (3, 36, 44)]
     );
 
-    let strict =
-        parse_seqstrict_attribute_source("sequence = [right, left], result = value::Value")
-            .unwrap();
+    let strict = krs_syntax::parse_seqstrict_attribute(
+        krs_syntax::parse::tokens_from_source("sequence = [right, left], result = value::Value")
+            .unwrap(),
+    )
+    .unwrap();
     let anchors = strict.provenance().unwrap();
     assert_eq!(anchors[1].ordinal(), 0);
     assert_eq!(anchors[1].range().start().column, 12);

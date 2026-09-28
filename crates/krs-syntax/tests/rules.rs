@@ -1,12 +1,11 @@
 //! Simple rule signature, pattern, and result parser tests.
 
-use krs_syntax::{
-    ProvenanceRole, RulePattern, SyntaxErrorKind, TermSymbolKind, parse_rule_item_source,
-};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ProvenanceRole, RulePattern, SyntaxErrorKind, TermSymbolKind};
 
 #[test]
 fn term_macro_rule_preserves_signature_references_and_roles() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn step(term![model::Foo(value)]: k::Term<dyn model::Expr>) \
          -> k::Term<dyn model::Expr> { term![model::Bar(value)] }",
     )
@@ -37,7 +36,7 @@ fn term_macro_rule_preserves_signature_references_and_roles() {
 
 #[test]
 fn native_tuple_and_record_constructor_rules_are_accepted() {
-    let tuple = parse_rule_item_source(
+    let tuple = krs_syntax::RuleItem::parse_source(
         "pub fn reduce(model::Foo(value, _): Term<dyn model::Expr>) \
          -> Term<dyn model::Expr> { model::Bar(value) }",
     )
@@ -47,7 +46,7 @@ fn native_tuple_and_record_constructor_rules_are_accepted() {
         RulePattern::Native { .. }
     ));
 
-    let record = parse_rule_item_source(
+    let record = krs_syntax::RuleItem::parse_source(
         "fn reduce(Foo { lhs, rhs: _ }: Term<Expr>) -> Term<Expr> \
          { Bar { value: lhs } }",
     )
@@ -61,7 +60,7 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
         #[k::requires(builtin::int::gt(value, 0))]
         fn guarded(Guarded { value }: Term<Expr>) -> Term<Expr> { Done }
     ";
-    let rule = parse_rule_item_source(source).unwrap();
+    let rule = krs_syntax::RuleItem::parse_source(source).unwrap();
     let condition = rule.requires().expect("guard is retained as a term");
     assert_eq!(condition.term().symbols().len(), 2);
 
@@ -115,7 +114,7 @@ fn requires_rejects_host_literals_missing_payloads_and_duplicates() {
         "#[k::requires] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
         "#[k::requires(is_ready(Foo))] #[k::requires(ok(Foo))] fn bad(Foo: Term<Expr>) -> Term<Expr> { Done }",
     ] {
-        let error = parse_rule_item_source(source).unwrap_err();
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(
             matches!(
                 error.kind(),
@@ -137,7 +136,7 @@ fn malformed_rule_signatures_are_rejected() {
         "fn wrong_type(Foo: Expr) -> Term<Expr> { Done }",
         "fn no_result(Foo: Term<Expr>) { Done }",
     ] {
-        let error = parse_rule_item_source(source).unwrap_err();
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::UnsupportedRuleSignature { .. } | SyntaxErrorKind::InvalidTermType
@@ -175,7 +174,7 @@ fn malformed_rule_patterns_and_bodies_are_rejected() {
         ),
     ];
     for (source, expected) in cases {
-        let error = parse_rule_item_source(source).unwrap_err();
+        let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         match expected {
             "pattern" => assert!(matches!(
                 error.kind(),
@@ -212,7 +211,7 @@ fn repeated_rule_pattern_binders_are_one_binding_with_two_occurrences() {
     ];
 
     for (source, is_term_pattern) in cases {
-        let rule = parse_rule_item_source(source).unwrap();
+        let rule = krs_syntax::RuleItem::parse_source(source).unwrap();
         assert_eq!(rule.parameter().pattern.bindings(), ["value"]);
         assert_eq!(rule.parameter().pattern.term().is_some(), is_term_pattern);
 
@@ -228,7 +227,7 @@ fn repeated_rule_pattern_binders_are_one_binding_with_two_occurrences() {
 
 #[test]
 fn term_rule_candidates_preserve_ast_ordinals_across_binding_gaps() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn step(\
             term![model::Foo(value, model::Unit)]: Term<dyn model::Expr>\
         ) -> Term<result::Expr> {\
@@ -278,7 +277,7 @@ fn term_rule_candidates_preserve_ast_ordinals_across_binding_gaps() {
 
 #[test]
 fn native_rule_bindings_are_not_guessed_as_short_name_constructors() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn step(\
             model::Foo { value, marker: model::Unit }: Term<model::Expr>\
         ) -> Term<model::Expr> {\
@@ -309,7 +308,7 @@ fn native_rule_bindings_are_not_guessed_as_short_name_constructors() {
 #[test]
 fn native_binding_has_exact_compact_and_typed_left_provenance() {
     let source = "fn r(Add { lhs }: Term<Expr>) -> Term<Expr> { lhs }";
-    let rule = parse_rule_item_source(source).unwrap();
+    let rule = krs_syntax::RuleItem::parse_source(source).unwrap();
     assert_eq!(rule.parameter().pattern.bindings(), ["lhs"]);
 
     let anchors = rule.full_provenance().unwrap();
@@ -380,7 +379,7 @@ fn native_binding_has_exact_compact_and_typed_left_provenance() {
 fn nested_reordered_native_records_retain_binding_preorder() {
     let source = "fn nested(Outer { rhs: Pair { second: right, first: Left(left) }, lhs }: \
                   Term<Expr>) -> Term<Expr> { lhs }";
-    let rule = parse_rule_item_source(source).unwrap();
+    let rule = krs_syntax::RuleItem::parse_source(source).unwrap();
     assert_eq!(
         rule.parameter().pattern.bindings(),
         ["right", "left", "lhs"]
@@ -440,7 +439,7 @@ fn nested_reordered_native_records_retain_binding_preorder() {
 
 #[test]
 fn native_resolution_candidates_keep_binding_ordinal_gaps() {
-    let rule = parse_rule_item_source(
+    let rule = krs_syntax::RuleItem::parse_source(
         "fn gaps(Outer(first, model::Unit, second, model::Done): Term<Expr>) -> Term<Expr> { \
          Result(first, model::Keep, second, model::End) }",
     )
@@ -507,7 +506,9 @@ fn native_resolution_candidates_keep_binding_ordinal_gaps() {
 
 #[test]
 fn bare_root_unit_constructor_is_a_reference_not_a_binding() {
-    let rule = parse_rule_item_source("fn stay(Done: Term<Expr>) -> Term<Expr> { Done }").unwrap();
+    let rule =
+        krs_syntax::RuleItem::parse_source("fn stay(Done: Term<Expr>) -> Term<Expr> { Done }")
+            .unwrap();
     assert!(rule.parameter().pattern.bindings().is_empty());
 
     let candidates = rule.reference_candidates().unwrap();

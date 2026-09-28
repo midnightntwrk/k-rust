@@ -1,8 +1,9 @@
 //! Term islands: `term!`, `k!`, `map!`, `cells!`, and `fragment!`.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     MapBody, StateTerm, TermExpression, TermTree, parse_cells_expression,
-    parse_k_sequence_expression, parse_map_expression, parse_term_expression,
+    parse_k_sequence_expression, parse_map_expression,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -12,7 +13,7 @@ use super::tokens::call_site_path;
 use crate::environment::MacroEnvironment;
 
 pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
-    let term = parse_term_expression(input)?;
+    let term = krs_syntax::TermExpression::parse_tokens(input)?;
     let expression = term.expression();
     Ok(quote! {{
         let _krs_typecheck_named_term = || {
@@ -100,7 +101,7 @@ pub(crate) fn fragment(
 ) -> syn::Result<TokenStream> {
     let facade = env.facade_path()?;
     let record: syn::ExprStruct = syn::parse2(input.clone())?;
-    let parsed = parse_term_expression(quote!(#facade::fragment![#input]))?;
+    let parsed = krs_syntax::TermExpression::parse_tokens(quote!(#facade::fragment![#input]))?;
     let TermTree::Cell(cell) = parsed.tree() else {
         return Err(syn::Error::new(
             Span::call_site(),

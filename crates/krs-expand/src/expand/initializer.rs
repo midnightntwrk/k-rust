@@ -1,9 +1,9 @@
 //! Configuration initializers: `#[k::init]`.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
-    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree,
-    parse_init_attribute, parse_initializer_function, role_tokens,
+    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree, role_tokens,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -35,8 +35,8 @@ pub(crate) fn init(
     let initializer_declaration_role = ProvenanceRole::InitializerDeclaration;
     let initializer_result_type_role = ProvenanceRole::InitializerResultType;
     let initializer_body_role = ProvenanceRole::InitializerBody;
-    parse_init_attribute(attributes)?;
-    let initializer = parse_initializer_function(item)?;
+    krs_syntax::InitAttribute::parse_tokens(attributes)?;
+    let initializer = krs_syntax::InitializerFunction::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let configuration_variable_main_role = role_tokens(configuration_variable_main_role, &facade);
     let configuration_variable_role = role_tokens(configuration_variable_role, &facade);

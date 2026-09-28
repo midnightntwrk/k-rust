@@ -1,13 +1,12 @@
 //! Explicit single-`<k>` configuration parser tests.
 
-use krs_syntax::{
-    ConfigurationCellContent, ProvenanceRole, SyntaxErrorKind,
-    parse_configuration_attribute_source, parse_configuration_declaration_source,
-};
+use krs_syntax::KrsSyntax;
+use krs_syntax::{ConfigurationCellContent, ProvenanceRole, SyntaxErrorKind};
 
 #[test]
 fn named_root_attribute_preserves_literal_and_anchor() {
-    let attribute = parse_configuration_attribute_source(r#"root = "machine""#).unwrap();
+    let attribute =
+        krs_syntax::ConfigurationAttribute::parse_source(r#"root = "machine""#).unwrap();
     assert_eq!(attribute.root().value(), "machine");
     let anchors = attribute.provenance().unwrap();
     assert_eq!(anchors.len(), 1);
@@ -26,7 +25,7 @@ fn named_root_rejects_duplicate_unknown_and_non_string_arguments() {
         (r#"root = """#, "invalid"),
     ];
     for (source, expected) in cases {
-        let error = parse_configuration_attribute_source(source).unwrap_err();
+        let error = krs_syntax::ConfigurationAttribute::parse_source(source).unwrap_err();
         match expected {
             "duplicate" => assert!(matches!(
                 error.kind(),
@@ -47,7 +46,7 @@ fn named_root_rejects_duplicate_unknown_and_non_string_arguments() {
 
 #[test]
 fn one_fixed_computation_cell_preserves_type_paths_and_order() {
-    let declaration = parse_configuration_declaration_source(
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
         "#[derive(Clone)] pub struct Machine { \
          pub k: k::configuration::KCell<k::builtin::KSequence>, \
          }",
@@ -85,7 +84,7 @@ fn one_fixed_computation_cell_preserves_type_paths_and_order() {
 
 #[test]
 fn readable_plain_fields_infer_leaf_wrappers_and_keep_exact_provenance() {
-    let declaration = parse_configuration_declaration_source(
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
         r#"
         pub struct Machine {
             /// The computation cell.
@@ -150,7 +149,7 @@ fn readable_plain_fields_infer_leaf_wrappers_and_keep_exact_provenance() {
 #[test]
 fn readable_plain_fields_require_cell_helpers_on_every_field() {
     let source = "struct Machine { #[k::cell] k: KSequence, env: Map<Id, Value> }";
-    let error = parse_configuration_declaration_source(source).unwrap_err();
+    let error = krs_syntax::ConfigurationDeclaration::parse_source(source).unwrap_err();
     assert!(matches!(
         error.kind(),
         SyntaxErrorKind::UnsupportedConfigurationField { reason }
@@ -170,7 +169,7 @@ fn unsupported_struct_and_multiplicity_shapes_are_local_errors() {
         "struct WrongContent { k: KCell<Map> }",
     ];
     for source in cases {
-        let error = parse_configuration_declaration_source(source).unwrap_err();
+        let error = krs_syntax::ConfigurationDeclaration::parse_source(source).unwrap_err();
         assert!(matches!(
             error.kind(),
             SyntaxErrorKind::UnsupportedConfigurationDeclaration { .. }

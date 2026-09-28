@@ -1,10 +1,10 @@
 //! Whole-configuration rules and named contexts: cells-form `#[k::rule]` and `#[k::context_alias]`.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole,
     RuleRole, RuleSide, StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind,
-    StateTerm, TermArguments, TermTree, TokenRange, parse_context_alias_attribute,
-    parse_state_context_alias_item, parse_state_rule_item, role_tokens,
+    StateTerm, TermArguments, TermTree, TokenRange, parse_state_context_alias_item, role_tokens,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -36,7 +36,7 @@ pub(crate) fn context_alias(
     let context_alias_here_role = ProvenanceRole::ContextAliasHere;
     let rule_pattern_role = ProvenanceRole::RulePattern;
     let rule_type_role = ProvenanceRole::RuleType;
-    let attribute = parse_context_alias_attribute(attributes)?;
+    let attribute = krs_syntax::ContextAliasAttribute::parse_tokens(attributes)?;
     let alias = parse_state_context_alias_item(item, attribute.here())?;
     let facade = env.facade_path()?;
     let rule_binding_type_role = role_tokens(rule_binding_type_role, &facade);
@@ -204,7 +204,7 @@ pub(super) fn configuration_rule(
     let rule_type_role = ProvenanceRole::RuleType;
     let rule_result_role = ProvenanceRole::RuleResult;
     let rule_result_type_role = ProvenanceRole::RuleResultType;
-    let rule = parse_state_rule_item(item)?;
+    let rule = krs_syntax::StateRuleItem::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let rule_binding_type_role = role_tokens(rule_binding_type_role, &facade);
     let rule_requires_role = role_tokens(rule_requires_role, &facade);

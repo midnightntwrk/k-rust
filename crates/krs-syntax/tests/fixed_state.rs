@@ -1,27 +1,23 @@
 //! Fixed-state authoring parser freeze.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     ConfigurationCellContent, InitializerCellContent, KSequenceNotation, MapBody, ProvenanceRole,
     StateMacroRemainder, StateRuleReferenceKind, StateTerm, StructuredFormatFragment,
-    SyntaxErrorKind, parse_cell_attribute_source, parse_cells_expression_source,
-    parse_cells_pattern_source, parse_configuration_attribute_source,
-    parse_configuration_declaration_source, parse_constructor_attribute_source,
-    parse_initializer_function_source, parse_k_sequence_expression_source,
-    parse_k_sequence_pattern_source, parse_map_expression_source, parse_map_pattern_source,
-    parse_state_context_alias_item_source, parse_state_rule_item_source,
+    SyntaxErrorKind,
 };
 
 #[test]
 fn generated_and_named_roots_and_cell_payloads_are_closed() {
-    let generated = parse_configuration_attribute_source("").unwrap();
+    let generated = krs_syntax::ConfigurationAttribute::parse_source("").unwrap();
     assert!(generated.is_generated_top());
     assert!(generated.optional_root().is_none());
     assert!(generated.provenance().unwrap().is_empty());
 
-    let named = parse_configuration_attribute_source(r#"root = "machine""#).unwrap();
+    let named = krs_syntax::ConfigurationAttribute::parse_source(r#"root = "machine""#).unwrap();
     assert_eq!(named.optional_root().unwrap().value(), "machine");
 
-    let cell = parse_cell_attribute_source(
+    let cell = krs_syntax::CellAttributePayload::parse_source(
         r#"color = "green", name = "currentFrame", multiplicity = "*", cell_type = "Map", nested"#,
     )
     .unwrap();
@@ -53,13 +49,16 @@ fn generated_and_named_roots_and_cell_payloads_are_closed() {
         r#"cell_type = "Map""#,
         r#"multiplicity = "*", cell_type = "Queue""#,
     ] {
-        assert!(parse_cell_attribute_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::CellAttributePayload::parse_source(source).is_err(),
+            "{source}"
+        );
     }
 }
 
 #[test]
 fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
-    let declaration = parse_configuration_declaration_source(
+    let declaration = krs_syntax::ConfigurationDeclaration::parse_source(
         r#"
         pub struct Machine {
             #[k::cell(color = "green")]
@@ -122,7 +121,7 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
         r#"struct Unknown { #[k::cell(stream = "stdin")] env: Cell<Map> }"#,
     ] {
         assert!(
-            parse_configuration_declaration_source(source).is_err(),
+            krs_syntax::ConfigurationDeclaration::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -130,27 +129,42 @@ fn multiple_fixed_and_nested_cells_preserve_order_types_metadata_and_keys() {
 
 #[test]
 fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
-    let pattern = parse_k_sequence_pattern_source("Assign(X, V), tail @ ..").unwrap();
+    let pattern = krs_syntax::parse_k_sequence_pattern(
+        krs_syntax::parse::tokens_from_source("Assign(X, V), tail @ ..").unwrap(),
+    )
+    .unwrap();
     assert_eq!(pattern.items().len(), 1);
     assert!(
         matches!(pattern.tail(), StateMacroRemainder::Bind { binding, .. } if binding == "tail")
     );
 
-    let operator = parse_k_sequence_expression_source("S1 ~> S2 ~> .K").unwrap();
+    let operator = krs_syntax::parse_k_sequence_expression(
+        krs_syntax::parse::tokens_from_source("S1 ~> S2 ~> .K").unwrap(),
+    )
+    .unwrap();
     assert_eq!(operator.items().len(), 2);
     assert_eq!(operator.notation(), KSequenceNotation::Operator);
     assert!(matches!(operator.tail(), StateMacroRemainder::Exact));
 
-    let empty = parse_k_sequence_expression_source(".K").unwrap();
+    let empty = krs_syntax::parse_k_sequence_expression(
+        krs_syntax::parse::tokens_from_source(".K").unwrap(),
+    )
+    .unwrap();
     assert!(empty.is_empty());
     assert_eq!(empty.notation(), KSequenceNotation::DotK);
 
-    let framed = parse_k_sequence_expression_source("S1, ..tail").unwrap();
+    let framed = krs_syntax::parse_k_sequence_expression(
+        krs_syntax::parse::tokens_from_source("S1, ..tail").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         framed.tail(),
         StateMacroRemainder::Reuse { binding, .. } if binding == "tail"
     ));
-    let whole_frame = parse_k_sequence_pattern_source("tail @ ..").unwrap();
+    let whole_frame = krs_syntax::parse_k_sequence_pattern(
+        krs_syntax::parse::tokens_from_source("tail @ ..").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         whole_frame.tail(),
         StateMacroRemainder::Bind { binding, .. } if binding == "tail"
@@ -164,43 +178,76 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
         "S1, ~> S2",
     ] {
         assert!(
-            parse_k_sequence_expression_source(source).is_err(),
+            krs_syntax::parse_k_sequence_expression(
+                krs_syntax::parse::tokens_from_source(source).unwrap()
+            )
+            .is_err(),
             "{source}"
         );
     }
-    assert!(parse_k_sequence_pattern_source("S1, ..tail").is_err());
+    assert!(
+        krs_syntax::parse_k_sequence_pattern(
+            krs_syntax::parse::tokens_from_source("S1, ..tail").unwrap()
+        )
+        .is_err()
+    );
 }
 
 #[test]
 fn maps_freeze_empty_items_remainders_and_functional_update() {
     assert!(matches!(
-        parse_map_expression_source(".Map").unwrap().body(),
+        krs_syntax::parse_map_expression(krs_syntax::parse::tokens_from_source(".Map").unwrap())
+            .unwrap()
+            .body(),
         MapBody::Empty { explicit_dot: true }
     ));
-    let pattern = parse_map_pattern_source("X -> V, rest @ ..").unwrap();
+    let pattern = krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source("X -> V, rest @ ..").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         pattern.body(),
         MapBody::Items { items, remainder: StateMacroRemainder::Bind { binding, .. } }
             if items.len() == 1 && binding == "rest"
     ));
-    let remainder_only = parse_map_pattern_source("rest @ ..").unwrap();
+    let remainder_only =
+        krs_syntax::parse_map_pattern(krs_syntax::parse::tokens_from_source("rest @ ..").unwrap())
+            .unwrap();
     assert!(matches!(
         remainder_only.body(),
         MapBody::Items { items, remainder: StateMacroRemainder::Bind { .. } }
             if items.is_empty()
     ));
-    let update = parse_map_expression_source("E [ X <- V ]").unwrap();
+    let update = krs_syntax::parse_map_expression(
+        krs_syntax::parse::tokens_from_source("E [ X <- V ]").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(update.body(), MapBody::Update { .. }));
-    let items =
-        parse_map_pattern_source(r#"k::id!("$s") -> 3, k::id!("$n") -> 4, rest @ .."#).unwrap();
+    let items = krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source(r#"k::id!("$s") -> 3, k::id!("$n") -> 4, rest @ .."#)
+            .unwrap(),
+    )
+    .unwrap();
     assert!(matches!(items.body(), MapBody::Items { items, .. } if items.len() == 2));
-    let nested = parse_map_pattern_source("X -> F(A, B), Y -> G(C)").unwrap();
+    let nested = krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source("X -> F(A, B), Y -> G(C)").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(nested.body(), MapBody::Items { items, .. } if items.len() == 2));
-    let update = parse_map_expression_source("E; X <- V").unwrap();
+    let update = krs_syntax::parse_map_expression(
+        krs_syntax::parse::tokens_from_source("E; X <- V").unwrap(),
+    )
+    .unwrap();
     assert!(matches!(update.body(), MapBody::Update { .. }));
 
     for source in ["X", "X ->", "X -> V, X ->", ".Map, X -> V", "E; X <- V, Y"] {
-        assert!(parse_map_expression_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::parse_map_expression(
+                krs_syntax::parse::tokens_from_source(source).unwrap()
+            )
+            .is_err(),
+            "{source}"
+        );
     }
     for (source, expected) in [
         (
@@ -220,18 +267,37 @@ fn maps_freeze_empty_items_remainders_and_functional_update() {
             "`=>` is reserved for rewrites; map updates use `<-`",
         ),
     ] {
-        let error = parse_map_expression_source(source).unwrap_err();
+        let error = krs_syntax::parse_map_expression(
+            krs_syntax::parse::tokens_from_source(source).unwrap(),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains(expected), "{source}: {error}");
     }
-    assert!(parse_map_pattern_source("E [ X <- V ]").is_err());
-    assert!(parse_map_pattern_source("X -> V, ..rest").is_err());
-    assert!(parse_map_expression_source(".. ").is_err());
+    assert!(
+        krs_syntax::parse_map_pattern(
+            krs_syntax::parse::tokens_from_source("E [ X <- V ]").unwrap()
+        )
+        .is_err()
+    );
+    assert!(
+        krs_syntax::parse_map_pattern(
+            krs_syntax::parse::tokens_from_source("X -> V, ..rest").unwrap()
+        )
+        .is_err()
+    );
+    assert!(
+        krs_syntax::parse_map_expression(krs_syntax::parse::tokens_from_source(".. ").unwrap())
+            .is_err()
+    );
 }
 
 #[test]
 fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands() {
-    let pattern = parse_cells_pattern_source(
-        "k: KCell(Assign(X, V), tail @ ..), env: Cell(map![X -> V, rest @ ..]), state @ ..",
+    let pattern = krs_syntax::parse_cells_pattern(
+        krs_syntax::parse::tokens_from_source(
+            "k: KCell(Assign(X, V), tail @ ..), env: Cell(map![X -> V, rest @ ..]), state @ ..",
+        )
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(pattern.entries().len(), 2);
@@ -244,8 +310,11 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
         matches!(pattern.remainder(), StateMacroRemainder::Bind { binding, .. } if binding == "state")
     );
 
-    let qualified = parse_cells_pattern_source(
-        "crate::model::Account::storage: Cell(S), Account::storage: Cell(T)",
+    let qualified = krs_syntax::parse_cells_pattern(
+        krs_syntax::parse::tokens_from_source(
+            "crate::model::Account::storage: Cell(S), Account::storage: Cell(T)",
+        )
+        .unwrap(),
     )
     .unwrap();
     assert_eq!(qualified.entries()[0].name(), "storage");
@@ -264,9 +333,13 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
         Some("Account")
     );
 
-    let expression =
-        parse_cells_expression_source("k: KCell(.K), env: Cell(map![E [ X <- V ]]), ..state")
-            .unwrap();
+    let expression = krs_syntax::parse_cells_expression(
+        krs_syntax::parse::tokens_from_source(
+            "k: KCell(.K), env: Cell(map![E [ X <- V ]]), ..state",
+        )
+        .unwrap(),
+    )
+    .unwrap();
     assert_eq!(expression.entries().len(), 2);
     assert!(
         matches!(expression.remainder(), StateMacroRemainder::Reuse { binding, .. } if binding == "state")
@@ -279,19 +352,27 @@ fn cells_pattern_and_expression_validate_context_duplicates_and_nested_islands()
         "k: KCell(.K), ..state, env: Cell(E)",
         "Account::storage: Cell(S), Account::storage: Cell(T)",
     ] {
-        assert!(parse_cells_expression_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::parse_cells_expression(
+                krs_syntax::parse::tokens_from_source(source).unwrap()
+            )
+            .is_err(),
+            "{source}"
+        );
     }
     assert!(matches!(
-        parse_cells_pattern_source("k: KCell(.K), ..state")
-            .unwrap_err()
-            .kind(),
+        krs_syntax::parse_cells_pattern(
+            krs_syntax::parse::tokens_from_source("k: KCell(.K), ..state").unwrap()
+        )
+        .unwrap_err()
+        .kind(),
         SyntaxErrorKind::InvalidStateMacro { .. }
     ));
 }
 
 #[test]
 fn typed_variables_and_recursive_initializers_are_complete_and_ordered() {
-    let initializer = parse_initializer_function_source(
+    let initializer = krs_syntax::InitializerFunction::parse_source(
         r#"
         pub fn init(
             #[k::config_var(name = "PGM", main)] program: Term<dyn Stmt>,
@@ -332,7 +413,7 @@ fn typed_variables_and_recursive_initializers_are_complete_and_ordered() {
         r"fn init() -> Self { Self { env: Cell::new(map![X ->]) } }",
     ] {
         assert!(
-            parse_initializer_function_source(source).is_err(),
+            krs_syntax::InitializerFunction::parse_source(source).is_err(),
             "{source}"
         );
     }
@@ -340,7 +421,7 @@ fn typed_variables_and_recursive_initializers_are_complete_and_ordered() {
 
 #[test]
 fn structured_format_controls_do_not_change_percent_escaping() {
-    let attribute = parse_constructor_attribute_source(
+    let attribute = krs_syntax::ConstructorAttribute::parse_source(
         r#"sort = Stmt, syntax = "{first} {second}", format = "%1%n%i%2%d%%""#,
     )
     .unwrap();
@@ -356,15 +437,19 @@ fn structured_format_controls_do_not_change_percent_escaping() {
         ]
     );
     assert!(
-        parse_constructor_attribute_source(r#"sort = Stmt, syntax = "unit", format = "%x""#)
-            .is_err()
+        krs_syntax::ConstructorAttribute::parse_source(
+            r#"sort = Stmt, syntax = "unit", format = "%x""#
+        )
+        .is_err()
     );
 }
 
 #[test]
 fn state_macro_provenance_ranges_select_the_exact_authored_tokens() {
     let source = "k: KCell(X, tail @ ..), env: Cell(map![K -> V, rest @ ..]), state @ ..";
-    let cells = parse_cells_pattern_source(source).unwrap();
+    let cells =
+        krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+            .unwrap();
     let anchors = cells.provenance().unwrap();
     let spelling = |anchor: &krs_syntax::ProvenanceAnchor| {
         &source[anchor.range().start().column..anchor.range().end().column]
@@ -396,8 +481,11 @@ fn state_macro_provenance_ranges_select_the_exact_authored_tokens() {
 #[test]
 #[allow(clippy::too_many_lines)] // One assertion block freezes the descriptor-wide ordering contract.
 fn whole_configuration_rules_share_one_side_specific_provenance_catalog() {
-    parse_k_sequence_expression_source("V, ..tail").unwrap();
-    let rule = parse_state_rule_item_source(
+    krs_syntax::parse_k_sequence_expression(
+        krs_syntax::parse::tokens_from_source("V, ..tail").unwrap(),
+    )
+    .unwrap();
+    let rule = krs_syntax::StateRuleItem::parse_source(
         r"
         pub fn var(
             x: Term<Id>,
@@ -526,7 +614,11 @@ fn context_aliases_reject_missing_duplicate_or_structural_here_bindings() {
         ),
     ] {
         assert!(
-            parse_state_context_alias_item_source(source, here).is_err(),
+            krs_syntax::parse_state_context_alias_item(
+                krs_syntax::parse::tokens_from_source(source).unwrap(),
+                &syn::parse_str(here).unwrap()
+            )
+            .is_err(),
             "{source} with HERE={here}"
         );
     }
@@ -539,7 +631,11 @@ fn context_aliases_reject_return_values_and_nonempty_post_state_bodies() {
         "fn bad(cells! { k: KCell(site, tail @ ..), state @ .. }: Machine) { let post_state = (); }",
     ] {
         assert!(
-            parse_state_context_alias_item_source(source, "site").is_err(),
+            krs_syntax::parse_state_context_alias_item(
+                krs_syntax::parse::tokens_from_source(source).unwrap(),
+                &syn::parse_str("site").unwrap()
+            )
+            .is_err(),
             "{source}"
         );
     }
@@ -547,7 +643,7 @@ fn context_aliases_reject_return_values_and_nonempty_post_state_bodies() {
 
 #[test]
 fn whole_configuration_rule_requires_uses_the_shared_typed_term_catalog() {
-    let rule = parse_state_rule_item_source(
+    let rule = krs_syntax::StateRuleItem::parse_source(
         r"
         #[k::requires(builtin::int::le(value, limit))]
         fn guarded(
@@ -596,7 +692,10 @@ fn whole_configuration_rules_reject_unbound_frames_and_non_rule_shells() {
         "fn bad(a: Machine, b: Machine) -> Machine { cells! { k: KCell(.K) } }",
         "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) { cells! { k: KCell(x, ..tail) } }",
     ] {
-        assert!(parse_state_rule_item_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::StateRuleItem::parse_source(source).is_err(),
+            "{source}"
+        );
     }
 }
 
@@ -609,13 +708,16 @@ fn whole_configuration_rules_require_exact_typed_term_binding_order() {
         "fn bad(tail: Term<Id>, cells! { k: KCell(tail @ ..) }: Machine) -> Machine { cells! { k: KCell(..tail) } }",
         "fn bad(x: Term<Id>, x: Term<Id>, cells! { k: KCell(x, tail @ ..) }: Machine) -> Machine { cells! { k: KCell(x, ..tail) } }",
     ] {
-        assert!(parse_state_rule_item_source(source).is_err(), "{source}");
+        assert!(
+            krs_syntax::StateRuleItem::parse_source(source).is_err(),
+            "{source}"
+        );
     }
 }
 
 #[test]
 fn whole_configuration_rule_patterns_retain_nested_wildcards() {
-    let rule = parse_state_rule_item_source(
+    let rule = krs_syntax::StateRuleItem::parse_source(
         "fn choose(s: Term<dyn Stmt>, cells! { k: KCell(IfElse(true, s, _), tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(s, ..tail), ..state } }",
     )
     .unwrap();
@@ -633,7 +735,7 @@ fn whole_configuration_rule_patterns_retain_nested_wildcards() {
         [0]
     );
     assert!(
-        parse_state_rule_item_source(
+        krs_syntax::StateRuleItem::parse_source(
             "fn bad(x: Term<Id>, cells! { k: KCell(x, tail @ ..), state @ .. }: Machine) -> Machine { cells! { k: KCell(_, ..tail), ..state } }",
         )
         .is_err()

@@ -1,8 +1,9 @@
 //! Whole-configuration reachability claims: `#[k::claim]`.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     ClaimModality as SyntaxClaimModality, ProvenanceRole, RuleSide, StateRuleBindingKind,
-    StateRuleReferenceKind, TokenRange, parse_claim_attribute, parse_state_claim_item, role_tokens,
+    StateRuleReferenceKind, TokenRange, role_tokens,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -23,7 +24,7 @@ pub(crate) fn claim(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute = parse_claim_attribute(attributes)?;
+    let attribute = krs_syntax::ClaimAttribute::parse_tokens(attributes)?;
     configuration_claim(env, item, &attribute)
 }
 
@@ -47,7 +48,7 @@ fn configuration_claim(
     let rule_type_role = ProvenanceRole::RuleType;
     let rule_result_role = ProvenanceRole::RuleResult;
     let rule_result_type_role = ProvenanceRole::RuleResultType;
-    let claim = parse_state_claim_item(item)?;
+    let claim = krs_syntax::StateClaimItem::parse_tokens(item)?;
     let rule = claim.rule();
     let facade = env.facade_path()?;
     let claim_universal_binder_role = role_tokens(claim_universal_binder_role, &facade);

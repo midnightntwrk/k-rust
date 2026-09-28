@@ -1,10 +1,10 @@
 //! Qualification for lossless source-trivia recovery and F7 source seams.
 
+use krs_syntax::KrsSyntax;
 use krs_syntax::{
     DocCommentStyle, SourceRange, SyntaxErrorKind, TriviaAttachment, TriviaKind, TriviaTable,
     lex_gaps, parse_cells_expression_source_with_trivia, parse_cells_pattern_source_with_trivia,
-    parse_map_expression_source_with_trivia, parse_map_pattern_source,
-    parse_map_pattern_source_with_trivia, parse_rule_block_source,
+    parse_map_expression_source_with_trivia, parse_map_pattern_source_with_trivia,
     parse_rule_block_source_with_trivia,
 };
 
@@ -171,7 +171,9 @@ fn totality_rejects_unclassified_bytes_and_invalid_utf8_boundaries() {
 #[test]
 fn every_new_dsl_entry_point_preserves_the_semantic_parser_contract() {
     let map_pattern = "X -> V, rest @ .. // trailing";
-    let legacy = parse_map_pattern_source(map_pattern).unwrap();
+    let legacy =
+        krs_syntax::parse_map_pattern(krs_syntax::parse::tokens_from_source(map_pattern).unwrap())
+            .unwrap();
     let (with_trivia, map_pattern_trivia) =
         parse_map_pattern_source_with_trivia(map_pattern).unwrap();
     assert_eq!(
@@ -193,7 +195,7 @@ fn every_new_dsl_entry_point_preserves_the_semantic_parser_contract() {
     assert_table_totality(cells_expression, &table);
 
     let rule = "for Expr; id: A(x) => x; // trailing";
-    let legacy = parse_rule_block_source(rule).unwrap();
+    let legacy = krs_syntax::RuleBlock::parse_source(rule).unwrap();
     let (with_trivia, table) = parse_rule_block_source_with_trivia(rule).unwrap();
     assert_eq!(legacy.clauses().len(), with_trivia.clauses().len());
     assert_table_totality(rule, &table);
@@ -202,7 +204,7 @@ fn every_new_dsl_entry_point_preserves_the_semantic_parser_contract() {
 #[test]
 fn legacy_source_parser_keeps_its_pre_f7_block_comment_behavior() {
     let source = "X -> /* accepted by the legacy token-only seam */ V";
-    parse_map_pattern_source(source).unwrap();
+    krs_syntax::parse_map_pattern(krs_syntax::parse::tokens_from_source(source).unwrap()).unwrap();
     let error = parse_map_pattern_source_with_trivia(source).unwrap_err();
     assert!(matches!(
         error.kind(),
@@ -210,7 +212,10 @@ fn legacy_source_parser_keeps_its_pre_f7_block_comment_behavior() {
     ));
 
     let not_a_doc_comment = "X -> /**/ V";
-    parse_map_pattern_source(not_a_doc_comment).unwrap();
+    krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source(not_a_doc_comment).unwrap(),
+    )
+    .unwrap();
     assert!(matches!(
         parse_map_pattern_source_with_trivia(not_a_doc_comment)
             .unwrap_err()

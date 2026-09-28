@@ -7,8 +7,8 @@ use syn::{Field, Fields, Ident, ItemImpl, ItemStruct, LitInt, LitStr, Path, Toke
 
 use crate::attribute::{is_plain_path, path_spelling};
 use crate::parse::{
-    ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument, missing,
-    structured, tokens_from_source, unknown,
+    KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument,
+    missing, structured, unknown,
 };
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -554,23 +554,15 @@ impl TokenAttribute {
     }
 }
 
-/// Parses a token attribute payload from proc-macro tokens.
-///
-/// # Errors
-///
-/// Requires one nonempty checked `regex` string and at most one unsuffixed
-/// `u32` `prec` value.
-pub fn parse_token_attribute(tokens: TokenStream) -> Result<TokenAttribute, SyntaxError> {
-    structured(tokens, parse_token_attribute_stream)
-}
-
-/// Parses a token attribute payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_token_attribute`].
-pub fn parse_token_attribute_source(source: &str) -> Result<TokenAttribute, SyntaxError> {
-    parse_token_attribute(tokens_from_source(source)?)
+impl KrsSyntax for TokenAttribute {
+    /// Parses a token attribute payload from proc-macro tokens.
+    ///
+    /// # Errors
+    ///
+    /// The payload must contain one nonempty checked `regex` string and at most one unsuffixed `u32` `prec` value.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, parse_token_attribute_stream)
+    }
 }
 
 fn parse_token_attribute_stream(input: ParseStream<'_>) -> ParseResult<TokenAttribute> {
@@ -792,22 +784,15 @@ impl TokenDeclaration {
     }
 }
 
-/// Parses a token newtype from proc-macro tokens.
-///
-/// # Errors
-///
-/// Returns Rust syntax or [`TokenDeclaration::from_item`] errors.
-pub fn parse_token_declaration(tokens: TokenStream) -> Result<TokenDeclaration, SyntaxError> {
-    TokenDeclaration::from_item(syn::parse2(tokens)?)
-}
-
-/// Parses a token newtype from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_token_declaration`].
-pub fn parse_token_declaration_source(source: &str) -> Result<TokenDeclaration, SyntaxError> {
-    TokenDeclaration::from_item(syn::parse_str(source)?)
+impl KrsSyntax for TokenDeclaration {
+    /// Parses a token newtype from proc-macro tokens.
+    ///
+    /// # Errors
+    ///
+    /// Returns Rust syntax or [`TokenDeclaration::from_item`] errors.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2(tokens)?)
+    }
 }
 
 fn unsupported_token(reason: &'static str, span: Span) -> SyntaxError {
@@ -860,69 +845,61 @@ impl BracketAttribute {
     }
 }
 
-/// Parses a syntax-only bracket payload from proc-macro tokens.
-///
-/// # Errors
-///
-/// Accepts the compatibility template form (`"({value})"`) or the preferred
-/// two-delimiter form (`"(", ")"`). Both forms produce exactly one same-sort
-/// value and at least one terminal.
-pub fn parse_bracket_attribute(tokens: TokenStream) -> Result<BracketAttribute, SyntaxError> {
-    let delimiter_tokens = tokens.clone();
-    structured(tokens, |input| {
-        let first: LitStr = input.parse()?;
-        let (literal, delimiter_tokens) = if input.is_empty() {
-            (first, None)
-        } else {
-            input.parse::<Token![,]>()?;
-            let close: LitStr = input.parse()?;
-            if !input.is_empty() {
-                return Err(ParseError::Syn(
-                    input.error("expected exactly two bracket delimiter literals"),
-                ));
-            }
-            if first.value().is_empty() || close.value().is_empty() {
+impl KrsSyntax for BracketAttribute {
+    /// Parses a syntax-only bracket payload from proc-macro tokens.
+    ///
+    /// # Errors
+    ///
+    /// The payload may use the compatibility template form (`"({value})"`) or the two-delimiter form (`"(", ")"`).
+    /// Both forms must produce exactly one same-sort value and at least one terminal.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let delimiter_tokens = tokens.clone();
+        structured(tokens, |input| {
+            let first: LitStr = input.parse()?;
+            let (literal, delimiter_tokens) = if input.is_empty() {
+                (first, None)
+            } else {
+                input.parse::<Token![,]>()?;
+                let close: LitStr = input.parse()?;
+                if !input.is_empty() {
+                    return Err(ParseError::Syn(
+                        input.error("expected exactly two bracket delimiter literals"),
+                    ));
+                }
+                if first.value().is_empty() || close.value().is_empty() {
+                    return Err(ParseError::Structured(invalid_template(
+                        "bracket delimiters must not be empty",
+                        first.span(),
+                    )));
+                }
+                (
+                    LitStr::new(
+                        &format!("{}{{value}}{}", first.value(), close.value()),
+                        first.span(),
+                    ),
+                    Some(delimiter_tokens.clone()),
+                )
+            };
+            let template = SyntaxTemplate::parse(literal).map_err(ParseError::Structured)?;
+            template
+                .validate_fields([&Ident::new("value", template.literal().span())])
+                .map_err(ParseError::Structured)?;
+            if !template
+                .items()
+                .iter()
+                .any(|item| matches!(item, SyntaxTemplateItem::Terminal(_)))
+            {
                 return Err(ParseError::Structured(invalid_template(
-                    "bracket delimiters must not be empty",
-                    first.span(),
+                    "a bracket must contain terminal text around `{value}`",
+                    template.literal().span(),
                 )));
             }
-            (
-                LitStr::new(
-                    &format!("{}{{value}}{}", first.value(), close.value()),
-                    first.span(),
-                ),
-                Some(delimiter_tokens.clone()),
-            )
-        };
-        let template = SyntaxTemplate::parse(literal).map_err(ParseError::Structured)?;
-        template
-            .validate_fields([&Ident::new("value", template.literal().span())])
-            .map_err(ParseError::Structured)?;
-        if !template
-            .items()
-            .iter()
-            .any(|item| matches!(item, SyntaxTemplateItem::Terminal(_)))
-        {
-            return Err(ParseError::Structured(invalid_template(
-                "a bracket must contain terminal text around `{value}`",
-                template.literal().span(),
-            )));
-        }
-        Ok(BracketAttribute {
-            template,
-            delimiter_tokens,
+            Ok(BracketAttribute {
+                template,
+                delimiter_tokens,
+            })
         })
-    })
-}
-
-/// Parses a syntax-only bracket payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_bracket_attribute`].
-pub fn parse_bracket_attribute_source(source: &str) -> Result<BracketAttribute, SyntaxError> {
-    parse_bracket_attribute(tokens_from_source(source)?)
+    }
 }
 
 /// Strict versus authored-order sequential strictness.
@@ -1137,15 +1114,6 @@ pub fn parse_strict_attribute(tokens: TokenStream) -> Result<StrictnessAttribute
     parse_strictness(tokens, StrictnessKind::Strict)
 }
 
-/// Parses a strict payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_strict_attribute`].
-pub fn parse_strict_attribute_source(source: &str) -> Result<StrictnessAttribute, SyntaxError> {
-    parse_strict_attribute(tokens_from_source(source)?)
-}
-
 /// Parses `#[k::seqstrict([using = alias,] sequence = [...], result = SortPath)]`
 /// tokens.
 ///
@@ -1154,15 +1122,6 @@ pub fn parse_strict_attribute_source(source: &str) -> Result<StrictnessAttribute
 /// Rejects missing, empty, repeated, unknown, or malformed arguments.
 pub fn parse_seqstrict_attribute(tokens: TokenStream) -> Result<StrictnessAttribute, SyntaxError> {
     parse_strictness(tokens, StrictnessKind::SeqStrict)
-}
-
-/// Parses a sequential-strict payload from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_seqstrict_attribute`].
-pub fn parse_seqstrict_attribute_source(source: &str) -> Result<StrictnessAttribute, SyntaxError> {
-    parse_seqstrict_attribute(tokens_from_source(source)?)
 }
 
 fn parse_strictness(
@@ -1390,78 +1349,66 @@ impl PrecedenceDeclaration {
     }
 }
 
-/// Parses an optional `for Owner;` followed by one or more
-/// semicolon-separated precedence chains.
-///
-/// # Errors
-///
-/// Every chain must contain at least two identifiers separated by `>`.
-pub fn parse_precedence_declaration(
-    tokens: TokenStream,
-) -> Result<PrecedenceDeclaration, SyntaxError> {
-    let range = TokenRange::for_tokens(&tokens).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::InvalidGrammarMacro {
-                reason: "precedence must contain at least one chain",
-            },
-            Span::call_site(),
-        )
-    })?;
-    structured(tokens, move |input| {
-        let owner = parse_optional_grammar_owner(input)?;
-        if input.is_empty() {
-            return Err(invalid_grammar(
-                "precedence must contain at least one chain",
-                owner.as_ref().map_or_else(|| input.span(), Ident::span),
-            ));
-        }
-        let mut chains = Vec::new();
-        while !input.is_empty() {
-            let first: Ident = input.parse()?;
-            if !input.peek(Token![>]) {
-                return Err(invalid_grammar(
-                    "a precedence chain must contain at least one `>`",
-                    first.span(),
-                ));
-            }
-            let mut groups = vec![first];
-            while input.peek(Token![>]) {
-                input.parse::<Token![>]>()?;
-                groups.push(input.parse()?);
-            }
-            let Some(last) = groups.last() else {
-                return Err(invalid_grammar(
-                    "a precedence chain must contain a group",
-                    input.span(),
-                ));
-            };
-            let chain_range = TokenRange::new(groups[0].span(), last.span());
-            chains.push(PrecedenceChain {
-                groups,
-                range: chain_range,
-            });
+impl KrsSyntax for PrecedenceDeclaration {
+    /// Parses an optional `for Owner;` followed by one or more semicolon-separated precedence chains.
+    ///
+    /// # Errors
+    ///
+    /// Every chain must contain at least two identifiers separated by `>`.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let range = TokenRange::for_tokens(&tokens).map_err(|_| {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidGrammarMacro {
+                    reason: "precedence must contain at least one chain",
+                },
+                Span::call_site(),
+            )
+        })?;
+        structured(tokens, move |input| {
+            let owner = parse_optional_grammar_owner(input)?;
             if input.is_empty() {
-                break;
+                return Err(invalid_grammar(
+                    "precedence must contain at least one chain",
+                    owner.as_ref().map_or_else(|| input.span(), Ident::span),
+                ));
             }
-            input.parse::<Token![;]>()?;
-        }
-        Ok(PrecedenceDeclaration {
-            owner,
-            chains,
-            range,
+            let mut chains = Vec::new();
+            while !input.is_empty() {
+                let first: Ident = input.parse()?;
+                if !input.peek(Token![>]) {
+                    return Err(invalid_grammar(
+                        "a precedence chain must contain at least one `>`",
+                        first.span(),
+                    ));
+                }
+                let mut groups = vec![first];
+                while input.peek(Token![>]) {
+                    input.parse::<Token![>]>()?;
+                    groups.push(input.parse()?);
+                }
+                let Some(last) = groups.last() else {
+                    return Err(invalid_grammar(
+                        "a precedence chain must contain a group",
+                        input.span(),
+                    ));
+                };
+                let chain_range = TokenRange::new(groups[0].span(), last.span());
+                chains.push(PrecedenceChain {
+                    groups,
+                    range: chain_range,
+                });
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![;]>()?;
+            }
+            Ok(PrecedenceDeclaration {
+                owner,
+                chains,
+                range,
+            })
         })
-    })
-}
-
-/// Parses precedence source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_precedence_declaration`].
-pub fn parse_precedence_declaration_source(
-    source: &str,
-) -> Result<PrecedenceDeclaration, SyntaxError> {
-    parse_precedence_declaration(tokens_from_source(source)?)
+    }
 }
 
 /// Typed group associativity in a grammar macro.
@@ -1557,107 +1504,94 @@ impl AssociativityDeclaration {
     }
 }
 
-/// Parses an optional `for Owner;` followed by semicolon-terminated typed
-/// associativity sentences.
-///
-/// # Errors
-///
-/// Requires `left:`, `right:`, or `non_associative:` followed by a nonempty,
-/// duplicate-free comma-separated group list.
-pub fn parse_associativity_declaration(
-    tokens: TokenStream,
-) -> Result<AssociativityDeclaration, SyntaxError> {
-    let range = TokenRange::for_tokens(&tokens).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::InvalidGrammarMacro {
-                reason: "associativity must contain at least one sentence",
-            },
-            Span::call_site(),
-        )
-    })?;
-    structured(tokens, move |input| {
-        let owner = parse_optional_grammar_owner(input)?;
-        if input.is_empty() {
-            return Err(invalid_grammar(
-                "associativity must contain at least one sentence",
-                owner.as_ref().map_or_else(|| input.span(), Ident::span),
-            ));
-        }
-        let mut sentences = Vec::new();
-        while !input.is_empty() {
-            let keyword: Ident = input.parse()?;
-            let associativity = match keyword.to_string().as_str() {
-                "left" => GroupAssociativity::Left,
-                "right" => GroupAssociativity::Right,
-                "non_associative" => GroupAssociativity::NonAssociative,
-                _ => {
+impl KrsSyntax for AssociativityDeclaration {
+    /// Parses an optional `for Owner;` followed by semicolon-terminated typed associativity sentences.
+    ///
+    /// # Errors
+    ///
+    /// A sentence must start with `left:`, `right:`, or `non_associative:` followed by a nonempty, duplicate-free comma-separated group list.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let range = TokenRange::for_tokens(&tokens).map_err(|_| {
+            SyntaxError::new(
+                SyntaxErrorKind::InvalidGrammarMacro {
+                    reason: "associativity must contain at least one sentence",
+                },
+                Span::call_site(),
+            )
+        })?;
+        structured(tokens, move |input| {
+            let owner = parse_optional_grammar_owner(input)?;
+            if input.is_empty() {
+                return Err(invalid_grammar(
+                    "associativity must contain at least one sentence",
+                    owner.as_ref().map_or_else(|| input.span(), Ident::span),
+                ));
+            }
+            let mut sentences = Vec::new();
+            while !input.is_empty() {
+                let keyword: Ident = input.parse()?;
+                let associativity = match keyword.to_string().as_str() {
+                    "left" => GroupAssociativity::Left,
+                    "right" => GroupAssociativity::Right,
+                    "non_associative" => GroupAssociativity::NonAssociative,
+                    _ => {
+                        return Err(invalid_grammar(
+                            "expected `left`, `right`, or `non_associative`",
+                            keyword.span(),
+                        ));
+                    }
+                };
+                input.parse::<Token![:]>()?;
+                if input.peek(Token![;]) || input.is_empty() {
                     return Err(invalid_grammar(
-                        "expected `left`, `right`, or `non_associative`",
+                        "an associativity sentence must name at least one group",
                         keyword.span(),
                     ));
                 }
-            };
-            input.parse::<Token![:]>()?;
-            if input.peek(Token![;]) || input.is_empty() {
-                return Err(invalid_grammar(
-                    "an associativity sentence must name at least one group",
-                    keyword.span(),
-                ));
-            }
-            let mut groups = Vec::<Ident>::new();
-            loop {
-                groups.push(input.parse()?);
-                if !input.peek(Token![,]) {
-                    break;
+                let mut groups = Vec::<Ident>::new();
+                loop {
+                    groups.push(input.parse()?);
+                    if !input.peek(Token![,]) {
+                        break;
+                    }
+                    input.parse::<Token![,]>()?;
+                    if input.peek(Token![;]) || input.is_empty() {
+                        break;
+                    }
                 }
-                input.parse::<Token![,]>()?;
-                if input.peek(Token![;]) || input.is_empty() {
-                    break;
+                let mut seen = BTreeSet::new();
+                for group in &groups {
+                    if !seen.insert(group.to_string()) {
+                        return Err(invalid_grammar(
+                            "an associativity sentence must not repeat a group",
+                            group.span(),
+                        ));
+                    }
                 }
-            }
-            let mut seen = BTreeSet::new();
-            for group in &groups {
-                if !seen.insert(group.to_string()) {
+                let Some(last) = groups.last() else {
                     return Err(invalid_grammar(
-                        "an associativity sentence must not repeat a group",
-                        group.span(),
+                        "an associativity sentence must name at least one group",
+                        keyword.span(),
                     ));
+                };
+                let sentence_range = TokenRange::new(keyword.span(), last.span());
+                sentences.push(AssociativitySentence {
+                    associativity,
+                    groups,
+                    range: sentence_range,
+                });
+                if input.is_empty() {
+                    break;
                 }
+                input.parse::<Token![;]>()?;
             }
-            let Some(last) = groups.last() else {
-                return Err(invalid_grammar(
-                    "an associativity sentence must name at least one group",
-                    keyword.span(),
-                ));
-            };
-            let sentence_range = TokenRange::new(keyword.span(), last.span());
-            sentences.push(AssociativitySentence {
-                associativity,
-                groups,
-                range: sentence_range,
-            });
-            if input.is_empty() {
-                break;
-            }
-            input.parse::<Token![;]>()?;
-        }
-        Ok(AssociativityDeclaration {
-            owner,
-            sentences,
-            range,
+            Ok(AssociativityDeclaration {
+                owner,
+                sentences,
+                range,
+            })
         })
-    })
-}
-
-/// Parses associativity source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_associativity_declaration`].
-pub fn parse_associativity_declaration_source(
-    source: &str,
-) -> Result<AssociativityDeclaration, SyntaxError> {
-    parse_associativity_declaration(tokens_from_source(source)?)
+    }
 }
 
 fn invalid_grammar(reason: &'static str, span: Span) -> ParseError {
@@ -1808,22 +1742,15 @@ impl SubsortDeclaration {
     }
 }
 
-/// Parses an explicit subsort impl from proc-macro tokens.
-///
-/// # Errors
-///
-/// Returns Rust syntax or [`SubsortDeclaration::from_item`] errors.
-pub fn parse_subsort_declaration(tokens: TokenStream) -> Result<SubsortDeclaration, SyntaxError> {
-    SubsortDeclaration::from_item(syn::parse2(tokens)?)
-}
-
-/// Parses an explicit subsort impl from source text.
-///
-/// # Errors
-///
-/// Returns the same failures as [`parse_subsort_declaration`].
-pub fn parse_subsort_declaration_source(source: &str) -> Result<SubsortDeclaration, SyntaxError> {
-    SubsortDeclaration::from_item(syn::parse_str(source)?)
+impl KrsSyntax for SubsortDeclaration {
+    /// Parses an explicit subsort impl from proc-macro tokens.
+    ///
+    /// # Errors
+    ///
+    /// Returns Rust syntax or [`SubsortDeclaration::from_item`] errors.
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::from_item(syn::parse2(tokens)?)
+    }
 }
 
 fn unsupported_subsort(reason: &'static str, span: Span) -> SyntaxError {
