@@ -2034,6 +2034,13 @@ fn authored_claim_has_an_emitted_identity_with_its_origin() {
 }
 
 #[test]
+fn only_the_haskell_backend_proves_claims() {
+    for backend in Backend::ALL {
+        assert_eq!(backend.proves_claims(), backend == Backend::Haskell);
+    }
+}
+
+#[test]
 fn llvm_compilation_omits_claims_and_keeps_provenance_consistent() {
     let (ir, origin) = smoke_definition_with_claim();
     let adapted = adapt_definition_for(&ir, Backend::Llvm).unwrap();
