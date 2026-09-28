@@ -2794,6 +2794,127 @@ mod tests {
         }
     }
 
+    /// Refutes an obligation that is a single equation, answers every other obligation as
+    /// contingent, and every satisfiability query as `Sat`. For the claim of
+    /// [`a_refuted_binding_of_a_variable_state_leaves_the_whole_state_uncovered`] the only
+    /// equation obligation is the destination's `0 = X` under `X >Int 0`, which is refuted: no
+    /// positive integer is `0`, and the state `X >Int 0` has instances.
+    struct RefutesEquationSolver;
+
+    impl SmtSolver for RefutesEquationSolver {
+        fn is_sat(
+            &self,
+            _predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Result<Satisfiability, SmtError> {
+            Ok(Satisfiability::Sat)
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            checked: &[crate::rule::Predicate],
+        ) -> Result<Validity, SmtError> {
+            Ok(match checked {
+                [crate::rule::Predicate::Equals(..)] => Validity::Invalid,
+                _ => Validity::Indeterminate,
+            })
+        }
+    }
+
+    fn variable_state_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                alias weakAlwaysFinally{S}(S) : S
+                    where weakAlwaysFinally{S}(@X:S) := @X:S []
+                claim{} \implies{SortInt{}}(
+                    \and{SortInt{}}(
+                        X:SortInt{},
+                        \equals{SortBool{}, SortInt{}}(
+                            gtInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    weakAlwaysFinally{SortInt{}}(\dv{SortInt{}}("0"))
+                ) [label{}("positive-reaches-zero")]
+            endmodule []"#,
+        )
+        .expect("variable state definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("variable state definition should internalize")
+    }
+
+    /// `X ∧ X >Int 0 ⇒ ◇ 0` is false in a definition without rules: every instance is a
+    /// positive integer, none is `0`, and none rewrites. The destination match leaves the
+    /// obligation `0 = X`, which the state's constraint refutes, so no instance is covered and
+    /// the uncovered part is the whole state, `X ∧ X >Int 0 ∧ ¬(0 = X)`. That equation binds the
+    /// state's own variable; the uncovered part is the complement of every obligation the
+    /// covered instances satisfy, the binding included. Dropping it from the complement would
+    /// leave `¬⊤ = ⊥`, an empty remainder that vacuity closes although no instance reached `0`.
+    fn assert_a_refuted_binding_leaves_the_whole_state_uncovered(solver: &dyn SmtSolver) {
+        let definition = variable_state_definition();
+        let claim = claim_with_label(&definition, "positive-reaches-zero");
+        let variable = term(&definition, "X:SortInt{}");
+        for allow_vacuous in [true, false] {
+            for stuck_check in [true, false] {
+                let options = ProofOptions {
+                    allow_vacuous,
+                    stuck_check,
+                    ..ProofOptions::default()
+                };
+                let result =
+                    prove_claim(&definition, claim, options, solver).expect("claim should execute");
+                let label = format!("allow_vacuous {allow_vacuous}, stuck_check {stuck_check}");
+
+                assert_ne!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
+                assert!(
+                    !result.leaves.iter().any(|leaf| matches!(
+                        leaf.outcome,
+                        ProofLeafOutcome::Proven(_) | ProofLeafOutcome::Vacuous
+                    )),
+                    "{label}: {result:#?}"
+                );
+                if stuck_check {
+                    let [leaf] = result.leaves.as_slice() else {
+                        panic!("{label}: expected one leaf, found {result:#?}");
+                    };
+                    assert_eq!(
+                        leaf.outcome,
+                        ProofLeafOutcome::Stuck,
+                        "{label}: {result:#?}"
+                    );
+                    assert_eq!(leaf.pattern.term, variable, "{label}: {result:#?}");
+                    assert!(
+                        !leaf
+                            .pattern
+                            .constraints
+                            .contains(&crate::rule::Predicate::False),
+                        "{label}: {result:#?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_refuted_binding_of_a_variable_state_leaves_the_whole_state_uncovered() {
+        assert_a_refuted_binding_leaves_the_whole_state_uncovered(&RefutesEquationSolver);
+    }
+
+    #[test]
+    #[cfg(feature = "z3")]
+    fn a_refuted_binding_of_a_variable_state_leaves_the_whole_state_uncovered_under_z3() {
+        let definition = variable_state_definition();
+        let solver = crate::smt::Z3Solver::new(&definition).expect("Z3 should initialize");
+        assert_a_refuted_binding_leaves_the_whole_state_uncovered(&solver);
+    }
+
     #[test]
     #[cfg(feature = "z3")]
     fn checks_implication_before_classifying_a_rewrite_remainder_as_stuck() {

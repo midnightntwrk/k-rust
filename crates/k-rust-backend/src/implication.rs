@@ -1107,9 +1107,18 @@ fn discharge_consequent(
             valid_with_witnesses(substitution, witnesses),
             Refutation::Undecided,
         ),
+        // Under the proof policy the part of the state outside the destination is the
+        // complement of this condition's predicates, so every obligation stays among them: an
+        // equation `X = t` that binds the antecedent variable is one of the obligations the
+        // covered instances satisfy, and moving it into the substitution would leave `¬⊤ = ⊥`
+        // as the uncovered part of a state whose term is `X`. The complete policy reports that
+        // equation as a binding of the antecedent variable.
         Ok(Validity::Invalid) if had_match_remainder => (
             partial(
-                source.original_variable,
+                match options.counterexamples {
+                    CounterexamplePolicy::PreserveIndeterminate => None,
+                    CounterexamplePolicy::RefuteImplication => source.original_variable,
+                },
                 substitution,
                 witnesses,
                 obligations,
