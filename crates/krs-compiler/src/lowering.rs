@@ -367,7 +367,7 @@ impl NamingPass {
             .cloned()
             .ok_or_else(|| LoweringError::UnsupportedShape {
                 node: "module reference",
-                detail: format!("no naming entry for {:?}", id.as_str()),
+                detail: format!("no naming entry for {id}"),
             })
     }
 }
@@ -736,7 +736,7 @@ fn lower_fixed_cells(
             let symbol = names.fixed_cells.get(cell.id()).cloned().ok_or_else(|| {
                 LoweringError::UnsupportedShape {
                     node: "configuration cell",
-                    detail: format!("no naming entry for {:?}", cell.id().as_str()),
+                    detail: format!("no naming entry for {}", cell.id()),
                 }
             })?;
             let origin = origins.lower(cell.origin(), "cell", None, Some(cell.id().as_str()))?;
@@ -802,7 +802,7 @@ fn lower_cell_id(id: &krs_ir::SemanticId, names: &NamingPass) -> Result<SymbolId
         .cloned()
         .ok_or_else(|| LoweringError::UnsupportedShape {
             node: "configuration cell reference",
-            detail: format!("no naming entry for {:?}", id.as_str()),
+            detail: format!("no naming entry for {id}"),
         })
 }
 

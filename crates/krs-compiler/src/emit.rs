@@ -266,9 +266,7 @@ impl<'a> EmitContext<'a> {
         self.sorts
             .get(id)
             .map(|symbol| symbol.emitted_name())
-            .ok_or_else(|| {
-                EmitError::InvalidReference(format!("missing source sort {:?}", id.as_str()))
-            })
+            .ok_or_else(|| EmitError::InvalidReference(format!("missing source sort {id}")))
     }
 
     fn sort_name_ref(&self, sort: &DefinitionSortRef) -> Result<&str, EmitError> {
@@ -287,21 +285,24 @@ impl<'a> EmitContext<'a> {
     }
 
     fn production(&self, id: &SymbolId) -> Result<&ProductionSentence, EmitError> {
-        self.productions.get(id).copied().ok_or_else(|| {
-            EmitError::InvalidReference(format!("missing source production {:?}", id.as_str()))
-        })
+        self.productions
+            .get(id)
+            .copied()
+            .ok_or_else(|| EmitError::InvalidReference(format!("missing source production {id}")))
     }
 
     fn group_name(&self, id: &ProductionGroupId) -> Result<&str, EmitError> {
-        self.groups.get(id).copied().ok_or_else(|| {
-            EmitError::InvalidReference(format!("missing production group {:?}", id.as_str()))
-        })
+        self.groups
+            .get(id)
+            .copied()
+            .ok_or_else(|| EmitError::InvalidReference(format!("missing production group {id}")))
     }
 
     fn cell_name(&self, id: &SymbolId) -> Result<&str, EmitError> {
-        self.cells.get(id).copied().ok_or_else(|| {
-            EmitError::InvalidReference(format!("missing fixed cell {:?}", id.as_str()))
-        })
+        self.cells
+            .get(id)
+            .copied()
+            .ok_or_else(|| EmitError::InvalidReference(format!("missing fixed cell {id}")))
     }
 
     fn repeated_ancestor(&self, id: &SymbolId) -> Option<&SymbolId> {
@@ -2270,8 +2271,7 @@ fn sentence_key(sentence: &DefinitionSentence) -> SentenceOrderKey {
             sentence.supersort().stable_text(),
             sentence.subsort().stable_text()
         )),
-        // Precedence and associativity Debug text reaches the unique origin key before any other varying field.
-        // SourceMapKey stable text preserves Debug escaping for every valid key.
+        // Origin keys are unique per definition, so ordering by their stable text is total.
         DefinitionSentence::Precedence(sentence) => {
             SentenceOrderKey::Precedence(sentence.origin().key().stable_text().into_owned())
         }
