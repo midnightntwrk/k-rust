@@ -1026,7 +1026,7 @@ mod tests {
             assert!(
                 matches!(
                     segments[0],
-                    "parser" | "definition" | "kompile" | "backend" | "kore"
+                    "parser" | "definition" | "kompile" | "backend" | "kore" | "rpc"
                 ),
                 "{}",
                 algorithm.as_str()
