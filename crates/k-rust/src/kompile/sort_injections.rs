@@ -412,10 +412,16 @@ impl<'view, 'definition> SortInjector<'view, 'definition> {
         self.sorts.list_sorts().contains(sort)
     }
 
-    /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
-    pub fn inject_sentence(&self, sentence: &Sentence) -> Result<Sentence, SortInjectionError> {
+    /// Forget the sort parameters introduced so far, so that the next term numbers its fresh
+    /// parameters from zero as a new injector would.
+    pub(crate) fn reset_sort_parameters(&self) {
         self.next_sort_parameter.set(0);
         self.used_sort_parameters.borrow_mut().clear();
+    }
+
+    /// Match Java's sentence boundary: rule/claim conditions are always `Bool`.
+    pub fn inject_sentence(&self, sentence: &Sentence) -> Result<Sentence, SortInjectionError> {
+        self.reset_sort_parameters();
         match sentence {
             Sentence::Rule {
                 body,

@@ -406,3 +406,36 @@ fn one_grammar_serves_the_assembler_and_a_search_pattern() {
     bind_all_but(&mut assembler, "");
     assembler.finish().unwrap();
 }
+
+#[test]
+fn a_reused_assembler_builds_what_a_fresh_one_builds() {
+    // A value of a sort-parametric production whose parameter no argument fixes is converted
+    // with fresh sort parameters; their numbering must not depend on earlier configurations.
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax {S} S ::= "undef" [symbol(undef), function, total]
+  syntax Foo ::= "foo" [symbol(foo)]
+  configuration <k> $PGM:Foo </k> <x> $X:Foo </x> <y> $Y:K </y>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let build = |assembler: &mut ConfigurationAssembler<'_>| {
+        assembler.program(&Sort::new("Foo"), "undef").unwrap();
+        assembler.bind("X", "undef").unwrap();
+        assembler.bind("Y", "undef").unwrap();
+        render(&assembler.finish().unwrap())
+    };
+    let mut reused = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let first = build(&mut reused);
+    assert!(first.contains("SortParam"), "{first}");
+    assert_eq!(build(&mut reused), first);
+    // A configuration abandoned half-way leaves nothing behind either.
+    reused.bind("X", "undef").unwrap();
+    reused.clear();
+    assert_eq!(build(&mut reused), first);
+    let mut fresh = ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    assert_eq!(build(&mut fresh), first);
+}

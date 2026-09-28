@@ -366,11 +366,9 @@ impl<'g> ConfigurationAssembler<'g> {
         if !missing.is_empty() {
             return Err(ConfigurationError::Missing { names: missing });
         }
-        self.bound.clear();
-        Ok(top_cell_initializer(
-            self.program.take(),
-            std::mem::take(&mut self.bindings),
-        ))
+        let initial = top_cell_initializer(self.program.take(), std::mem::take(&mut self.bindings));
+        self.clear();
+        Ok(initial)
     }
 
     /// Discard the program and every binding without assembling them.
@@ -378,6 +376,11 @@ impl<'g> ConfigurationAssembler<'g> {
         self.program = None;
         self.bound.clear();
         self.bindings.clear();
+        // The injector numbers the sort parameters it introduces across the values of one
+        // configuration; the next configuration starts from zero, as with a fresh assembler.
+        if let Some(injector) = &self.injector {
+            injector.reset_sort_parameters();
+        }
     }
 
     fn parser_modules(&mut self) -> Result<&BTreeMap<String, String>, ConfigurationError> {
