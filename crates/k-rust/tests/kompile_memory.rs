@@ -66,6 +66,8 @@ fn module_chain_compile_stays_under_the_pre_regression_peak_rss() {
     let log = workspace.root.join("measure");
 
     let output = Command::new("python3")
+        // The peak-RSS ceiling pins the configured engine's memory.
+        .env_remove("KRUST_TYPE_INFERENCE_MODE")
         .arg(&measure)
         .arg("--log")
         .arg(&log)

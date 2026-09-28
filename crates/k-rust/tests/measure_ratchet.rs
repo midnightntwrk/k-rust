@@ -24,6 +24,11 @@ use k_rust::{
 };
 use k_rust_kore::measure::{Counter, Snapshot, snapshot};
 
+/// The snapshots pin one engine's work, while checked inference runs both engines.
+fn checked_inference() -> bool {
+    std::env::var("KRUST_TYPE_INFERENCE_MODE").as_deref() == Ok("checked")
+}
+
 /// The counters a run touched, for the measurement line a ratchet prints.
 fn nonzero(snapshot: &Snapshot) -> Vec<(&'static str, u64)> {
     snapshot.iter().filter(|(_, value)| *value > 0).collect()
@@ -92,6 +97,9 @@ fn compile(file_name: &str, source: &str, main_module: &str) -> Snapshot {
 
 #[test]
 fn rewrite_example_compile_stays_within_the_pinned_kompile_work() {
+    if checked_inference() {
+        return;
+    }
     let (name, source) = example("rewrite.k");
     let delta = compile(&name, &source, "REWRITE");
     eprintln!("kompile of examples/rewrite.k: {:?}", nonzero(&delta));
@@ -150,6 +158,9 @@ fn chain_definition(modules: usize) -> String {
 
 #[test]
 fn module_chain_compile_resolves_per_pass_and_grows_sentences_linearly() {
+    if checked_inference() {
+        return;
+    }
     let at_5 = compile("chain.k", &chain_definition(5), "CHAIN-4");
     let at_10 = compile("chain.k", &chain_definition(10), "CHAIN-9");
     eprintln!("kompile of the 5-module chain: {:?}", nonzero(&at_5));
@@ -291,6 +302,9 @@ fn casted_rule_chain_builds_its_two_rule_grammars_once() {
 
 #[test]
 fn indexed_prediction_preserves_the_casted_chain_counts() {
+    if checked_inference() {
+        return;
+    }
     let delta = parse_casted_chain(15);
     snapshot_report(
         "casted_chain_15_parser_counters",

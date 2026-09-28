@@ -3974,6 +3974,10 @@ fn assert_test_passes_under_checked_inference(test_name: &str) {
 #[cfg(feature = "z3-inference")]
 #[test]
 fn every_rule_test_passes_under_checked_inference() {
+    // This binary is already running under checked inference.
+    if std::env::var("KRUST_TYPE_INFERENCE_MODE").as_deref() == Ok("checked") {
+        return;
+    }
     let output = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--skip", "under_checked_inference"])
         .env("KRUST_TYPE_INFERENCE_MODE", "checked")

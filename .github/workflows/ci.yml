@@ -72,6 +72,11 @@ jobs:
       - name: Run tests with native Z3 inference
         run: cargo test --workspace --locked --no-fail-fast
 
+      - name: Test k-rust under checked sort inference
+        run: cargo test -p k-rust --locked --no-fail-fast
+        env:
+          KRUST_TYPE_INFERENCE_MODE: checked
+
       - name: Smoke-test the unified in-process backend
         env:
           KRUST_BIN: ${{ github.workspace }}/target/debug/krust
