@@ -169,6 +169,59 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join(".krs-artifacts").is_file());
 }
 
+#[test]
+fn failed_collector_removes_scratch_files() {
+    let temporary = temp_dir();
+    let source = FOO_BAR.replace(
+        "pub trait Obj: KResult {}",
+        "pub trait Obj: KResult + Send {}",
+    );
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let target = fixture_target(&manifest, Some(temporary.path()));
+    let scratch = temporary.path().join("scratch");
+    fs::create_dir(&scratch).unwrap();
+    let timings_path = temporary.path().join("timings.json");
+    let mut process = krs_command!();
+    let output = process
+        .args(["check", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--package",
+            "krs-cli-foo-bar-fixture",
+            "--definition",
+            "main",
+            "--timings",
+        ])
+        .arg(&timings_path)
+        .env("CARGO_TARGET_DIR", target)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("RUSTUP_TOOLCHAIN", "stable")
+        .env("TMPDIR", &scratch)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{stderr}");
+    assert!(stderr.contains("collector execution failed"), "{stderr}");
+    assert!(
+        stderr.contains("Rust path `Send` does not resolve to a selected KRS type declaration"),
+        "{stderr}"
+    );
+    let timings = read_json(&timings_path);
+    assert_eq!(timings["failed_span"], "collector.run");
+    let leftovers = fs::read_dir(&scratch)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            name.starts_with("krs-collector-read-set-")
+                || name.starts_with("krs-collector-measure-")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        leftovers.is_empty(),
+        "collector scratch files remain: {leftovers:?}"
+    );
+}
+
 /// `check --timings --counters` reports the whole pipeline and stable counters.
 fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, stdout: &[u8]) {
     let timings_path = temporary.join("check-timings.json");

@@ -27,6 +27,7 @@ proc-macro2 = "1.0.107"
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
+tempfile = "3.27.0"
 toml_edit = { version = "0.25.13", default-features = false, features = ["display", "parse"] }
 
 [dev-dependencies]

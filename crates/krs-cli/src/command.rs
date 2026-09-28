@@ -352,36 +352,26 @@ fn run_collector(
     executable: &Path,
     measurement: &mut Measurement,
 ) -> Result<(Vec<u8>, CollectorReadSet), CommandError> {
-    let read_set_path = std::env::temp_dir().join(format!(
-        "krs-collector-read-set-{}-{}.json",
-        std::process::id(),
-        unix_seconds().to_bits()
-    ));
-    let _ = fs::remove_file(&read_set_path);
+    let read_set = scratch_file("krs-collector-read-set-")?;
     let mut command = ProcessCommand::new(executable);
     command
         .current_dir(collector_directory)
-        .env(COLLECTOR_READ_SET_ENV, &read_set_path);
-    let sidecar = measurement.is_enabled().then(|| {
-        std::env::temp_dir().join(format!(
-            "krs-collector-measure-{}-{}.json",
-            std::process::id(),
-            unix_seconds().to_bits()
-        ))
-    });
+        .env(COLLECTOR_READ_SET_ENV, read_set.path());
+    let sidecar = measurement
+        .is_enabled()
+        .then(|| scratch_file("krs-collector-measure-"))
+        .transpose()?;
     if let Some(sidecar) = &sidecar {
-        let _ = fs::remove_file(sidecar);
-        command.env(COLLECTOR_MEASURE_ENV, sidecar);
+        command.env(COLLECTOR_MEASURE_ENV, sidecar.path());
     }
     let spawned = sidecar.as_ref().map(|_| unix_seconds());
     let output = measurement.timings.try_span("collector.run", |_| {
         process("collector execution", &mut command)
     });
     if let (Some(sidecar), Some(spawned)) = (sidecar, spawned) {
-        let document = fs::read(&sidecar)
+        let document = fs::read(sidecar.path())
             .ok()
             .and_then(|bytes| serde_json::from_slice::<CollectorMeasureDocument>(&bytes).ok());
-        let _ = fs::remove_file(&sidecar);
         if let Some(document) = document {
             let timings = &mut measurement.timings;
             timings.record("collector.exec", document.started_unix_seconds - spawned, 1);
@@ -394,13 +384,24 @@ fn run_collector(
         }
     }
     let output = output?;
-    let bytes = fs::read(&read_set_path).map_err(|source| CommandError::Io {
-        path: read_set_path.clone(),
+    let bytes = fs::read(read_set.path()).map_err(|source| CommandError::Io {
+        path: read_set.path().to_path_buf(),
         source,
     });
-    let _ = fs::remove_file(&read_set_path);
     let read_set = serde_json::from_slice(&bytes?).map_err(CommandError::Serialization)?;
     Ok((output.stdout, read_set))
+}
+
+/// A JSON scratch file in the system temporary directory, removed on drop.
+fn scratch_file(prefix: &str) -> Result<tempfile::NamedTempFile, CommandError> {
+    tempfile::Builder::new()
+        .prefix(prefix)
+        .suffix(".json")
+        .tempfile()
+        .map_err(|source| CommandError::Io {
+            path: std::env::temp_dir(),
+            source,
+        })
 }
 
 fn build_collector_measured(
