@@ -511,7 +511,7 @@ fn representative_expression_definition_has_canonical_bytes() {
         .to_canonical_json()
         .unwrap();
     assert_eq!(normal, reordered);
-    assert_eq!(normal, include_str!("golden/definition_expr.json"));
+    expect_test::expect_file!["golden/definition_expr.json"].assert_eq(&normal);
     assert!(normal.contains("\"sort\": \"int\""));
     assert!(normal.contains("\"sort\": \"bool\""));
     assert!(normal.contains("\"application\": \"int_add\""));

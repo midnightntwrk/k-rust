@@ -1,7 +1,6 @@
 //! Frozen acceptance snapshot for the parser-owned provenance protocol seam.
 
 const SOURCE: &str = include_str!("../src/provenance.rs");
-const GOLDEN: &str = include_str!("golden/provenance_roles.txt");
 
 fn frozen_catalog(source: &str) -> String {
     let mut catalog = String::new();
@@ -28,6 +27,6 @@ fn frozen_catalog(source: &str) -> String {
 #[test]
 fn provenance_role_protocol_catalog_is_frozen() {
     let actual = frozen_catalog(SOURCE);
-    assert_eq!(actual, GOLDEN);
+    expect_test::expect_file!["golden/provenance_roles.txt"].assert_eq(&actual);
     assert_eq!(actual.lines().count(), 156);
 }

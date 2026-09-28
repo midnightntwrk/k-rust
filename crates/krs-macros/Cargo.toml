@@ -17,6 +17,7 @@ proc-macro2 = { version = "1.0.107", features = ["span-locations"] }
 syn = { version = "2.0.119", features = ["full", "parsing", "printing"] }
 
 [dev-dependencies]
+expect-test = "1.5.1"
 quote = "1.0.47"
 
 [lints]

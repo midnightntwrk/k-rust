@@ -524,9 +524,7 @@ fn calc_theory(options: CalcOptions) -> SemanticTheory {
 }
 
 fn assert_exact_source(source: &str) {
-    assert_eq!(
-        source,
-        r#"module KRS-CALC
+    expect_test::expect![[r#"module KRS-CALC
   imports ID-SYNTAX
   imports MAP
 
@@ -560,8 +558,8 @@ fn assert_exact_source(source: &str) {
     <k> V58:Id => V56:Value ... </k>
     <env> V58:Id |-> V56:Value ... </env>
 endmodule
-"#
-    );
+"#]]
+    .assert_eq(source);
 }
 
 #[allow(clippy::too_many_lines)]

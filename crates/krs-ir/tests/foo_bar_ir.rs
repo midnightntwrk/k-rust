@@ -335,7 +335,7 @@ fn semantic_foo_bar_matches_golden_and_set_reordering() {
     let normal = semantic_theory(false, None).to_canonical_json().unwrap();
     let reversed = semantic_theory(true, None).to_canonical_json().unwrap();
     assert_eq!(normal, reversed);
-    assert_eq!(normal, include_str!("golden/semantic_foo_bar.json"));
+    expect_test::expect_file!["golden/semantic_foo_bar.json"].assert_eq(&normal);
 }
 
 #[test]
@@ -343,7 +343,7 @@ fn definition_foo_bar_matches_golden_and_set_reordering() {
     let normal = definition_ir(false, None).to_canonical_json().unwrap();
     let reversed = definition_ir(true, None).to_canonical_json().unwrap();
     assert_eq!(normal, reversed);
-    assert_eq!(normal, include_str!("golden/definition_foo_bar.json"));
+    expect_test::expect_file!["golden/definition_foo_bar.json"].assert_eq(&normal);
 }
 
 #[test]

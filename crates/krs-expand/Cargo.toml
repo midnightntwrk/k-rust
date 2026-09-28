@@ -15,6 +15,7 @@ serde_json.workspace = true
 syn = { version = "2.0.119", features = ["full", "parsing", "printing", "visit"] }
 
 [dev-dependencies]
+expect-test = "1.5.1"
 prettyplease = "0.2.37"
 sha2 = "0.10.9"
 

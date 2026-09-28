@@ -9,7 +9,7 @@
 //! printed by `prettyplease` when it is a sequence of items, otherwise its
 //! `TokenStream` spelling, or one line per diagnostic.
 //!
-//! Set `KRS_EXPAND_GOLDEN_RECORD=1` to rewrite the expected files after an
+//! Set `UPDATE_EXPECT=1` to rewrite the expected files after an
 //! intended output change.
 
 use std::fmt::Write as _;
@@ -21,8 +21,6 @@ use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
 use syn::spanned::Spanned;
-
-const RECORD: &str = "KRS_EXPAND_GOLDEN_RECORD";
 
 /// (case name, authored source).
 const CASES: &[(&str, &str)] = &[
@@ -731,22 +729,10 @@ fn every_entry_point_has_a_golden_case() {
 /// source map in a fixed order.
 #[test]
 fn expansions_match_the_goldens() {
-    let record = std::env::var_os(RECORD).is_some();
     let dir = golden_dir();
-    let mut mismatches = Vec::new();
     for (name, source) in CASES {
         let actual = expand(source);
-        let path = dir.join(format!("{name}.txt"));
-        if record {
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(&path, &actual).unwrap();
-            continue;
-        }
-        let expected = std::fs::read_to_string(&path)
-            .unwrap_or_else(|error| panic!("{}: {error}; set {RECORD}=1", path.display()));
-        if actual != expected {
-            mismatches.push(*name);
-        }
+        expect_test::expect_file![format!("golden/{name}.txt")].assert_eq(&actual);
     }
     let mut stale = std::fs::read_dir(&dir)
         .unwrap()
@@ -759,8 +745,4 @@ fn expansions_match_the_goldens() {
         .collect::<Vec<_>>();
     stale.sort();
     assert!(stale.is_empty(), "golden files without a case: {stale:?}");
-    assert!(
-        mismatches.is_empty(),
-        "expansions differ from tests/golden for {mismatches:?}; set {RECORD}=1 after an intended change"
-    );
 }

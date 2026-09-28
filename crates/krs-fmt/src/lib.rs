@@ -260,9 +260,7 @@ mod tests {
         };
         let before = format_source(source, options).expect("format original labels");
         let after = format_source(&renamed, options).expect("format renamed label");
-        assert_eq!(
-            before,
-            r"fn definition() {
+        expect_test::expect![[r"fn definition() {
     k::rules! {
         for Expr;
 
@@ -270,11 +268,9 @@ mod tests {
         medium: Pair(lhs, rhs) => rhs;
     }
 }
-"
-        );
-        assert_eq!(
-            after,
-            r"fn definition() {
+"]]
+        .assert_eq(&before);
+        expect_test::expect![[r"fn definition() {
     k::rules! {
         for Expr;
 
@@ -282,8 +278,8 @@ mod tests {
         medium             : Pair(lhs, rhs) => rhs;
     }
 }
-"
-        );
+"]]
+        .assert_eq(&after);
     }
 
     #[test]
@@ -306,9 +302,7 @@ mod tests {
         let aligned = format_source(source, options).expect("aligned comments");
         options.trailing_comments = TrailingCommentStyle::FixedGutter;
         let gutter = format_source(source, options).expect("gutter comments");
-        assert_eq!(
-            aligned,
-            r"fn definition() {
+        expect_test::expect![[r"fn definition() {
     k::rules! {
         for Expr;
         use Op::*;
@@ -317,11 +311,9 @@ mod tests {
         considerably_longer: Pair(lhs, rhs) => rhs;  // second
     }
 }
-"
-        );
-        assert_eq!(
-            gutter,
-            r"fn definition() {
+"]]
+        .assert_eq(&aligned);
+        expect_test::expect![[r"fn definition() {
     k::rules! {
         for Expr;
         use Op::*;
@@ -330,8 +322,8 @@ mod tests {
         considerably_longer: Pair(lhs, rhs) => rhs;  // second
     }
 }
-"
-        );
+"]]
+        .assert_eq(&gutter);
     }
 
     #[test]

@@ -58,6 +58,8 @@ fn renamed_facade_positive_surface_registers_expected_descriptors() {
         "fixture must print its sorted summary"
     );
     assert_eq!(run.stdout, repeated.stdout, "descriptor summary changed");
+    expect_test::expect_file!["golden/positive_summary.txt"]
+        .assert_eq(std::str::from_utf8(&run.stdout).unwrap());
 }
 
 #[test]

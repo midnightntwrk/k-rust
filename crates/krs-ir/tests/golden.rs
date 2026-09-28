@@ -98,10 +98,8 @@ fn populated_bundle(reverse: bool) -> DescriptorBundle {
 
 #[test]
 fn empty_bundle_matches_golden() {
-    assert_eq!(
-        DescriptorBundle::empty().to_canonical_json().unwrap(),
-        include_str!("golden/empty_bundle.json")
-    );
+    expect_test::expect_file!["golden/empty_bundle.json"]
+        .assert_eq(&DescriptorBundle::empty().to_canonical_json().unwrap());
 }
 
 #[test]
@@ -118,11 +116,8 @@ fn prior_protocols_have_no_compatibility_reader() {
 
 #[test]
 fn populated_bundle_matches_golden() {
-    let actual: serde_json::Value =
-        serde_json::from_str(&populated_bundle(false).to_canonical_json().unwrap()).unwrap();
-    let expected: serde_json::Value =
-        serde_json::from_str(include_str!("golden/sort_constructors.json")).unwrap();
-    assert_eq!(actual, expected);
+    expect_test::expect_file!["golden/sort_constructors.json"]
+        .assert_eq(&populated_bundle(false).to_canonical_json().unwrap());
 }
 
 #[test]
@@ -132,18 +127,14 @@ fn collector_protocol_matches_goldens_and_counts_provenance_values() {
     empty
         .write_collector_protocol_in_place(&mut empty_bytes)
         .unwrap();
-    assert_eq!(
-        empty_bytes.as_slice(),
-        include_bytes!("golden/collector_empty_bundle.json")
-    );
+    expect_test::expect_file!["golden/collector_empty_bundle.json"]
+        .assert_eq(std::str::from_utf8(&empty_bytes).unwrap());
 
     let bundle = populated_bundle(false);
     let mut owned = bundle.clone();
     let (bytes, provenance) = owned.to_collector_protocol_measured_in_place().unwrap();
-    assert_eq!(
-        bytes.as_slice(),
-        include_bytes!("golden/collector_sort_constructors.json")
-    );
+    expect_test::expect_file!["golden/collector_sort_constructors.json"]
+        .assert_eq(std::str::from_utf8(&bytes).unwrap());
     let mut streamed = Vec::new();
     bundle
         .clone()

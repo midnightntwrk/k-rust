@@ -951,9 +951,7 @@ fn control_flow_theory(options: ControlOptions) -> Result<SemanticTheory, Semant
 }
 
 fn assert_exact_source(source: &str) {
-    assert_eq!(
-        source,
-        r#"module KRS-CALC
+    expect_test::expect![[r#"module KRS-CALC
   imports KRS-CALC-SYNTAX
   imports MAP
 
@@ -1013,8 +1011,8 @@ module KRS-IMP-SYNTAX
   syntax Stmt ::= "if" "(" Expr ")" Stmt "else" Stmt [symbol(ifThenElse), group(krsgroup-35f1322f2f4f01e6affff031), strict(1), result(KResult), avoid, format(%1 %2%3%4 %5 %6 %7)]
   syntax Stmt ::= "while" "(" Expr ")" Stmt [symbol(while), group(krsgroup-35f1322f2f4f01e6affff031), format(%1 %2%3%4 %5)]
 endmodule
-"#,
-    );
+"#]]
+    .assert_eq(source);
 }
 
 fn assert_definition_structure(lowered: &LoweredDefinition) {

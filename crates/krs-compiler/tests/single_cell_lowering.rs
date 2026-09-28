@@ -182,9 +182,7 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
     let emitted = emit_k(&normal).unwrap();
     let reemitted = emit_k(&reordered).unwrap();
     assert_eq!(emitted, reemitted);
-    assert_eq!(
-        emitted.source(),
-        r#"module KRS-FOO-BAR
+    expect_test::expect![[r#"module KRS-FOO-BAR
   syntax KItem
   syntax KResult
   syntax Obj
@@ -201,8 +199,8 @@ fn exact_source_snapshot_and_reordering_are_byte_identical() {
 
   rule foo => bar [label(krsRule_7ff2bcc3f880afc8861cfcfe)]
 endmodule
-"#
-    );
+"#]]
+    .assert_eq(emitted.source());
 }
 
 #[test]

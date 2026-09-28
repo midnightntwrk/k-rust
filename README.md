@@ -73,6 +73,9 @@ cargo +1.88.0 check --workspace --all-targets --locked --offline
 cargo +stable test --manifest-path semantics/Cargo.toml --locked --offline --workspace
 ```
 
+Set `UPDATE_EXPECT=1` for a workspace test run to re-record Rust test snapshots after an intended output change.
+Review the resulting golden files and inline expectations before running the tests again without it.
+
 ### Gates
 
 Run every gate from the repository root with `PYTHONDONTWRITEBYTECODE=1 python3 tests/<gate>/verify.py`.

@@ -11,6 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+expect-test = "1.5.1"
 static_assertions = "1.1.0"
 toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
 

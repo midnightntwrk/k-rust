@@ -697,10 +697,15 @@ mod tests {
         ";
         let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
             .expect("format body");
-        assert_eq!(
-            output,
-            "    for Expr;\n    use Op::*;\n\n    tiny  : A(x)           => x;\n    longer: Pair(lhs, rhs) => k![lhs, rhs] where lhs: Value;"
-        );
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Expr;
+                use Op::*;
+
+                tiny  : A(x)           => x;
+                longer: Pair(lhs, rhs) => k![lhs, rhs] where lhs: Value;"]]
+        .assert_eq(&actual);
     }
 
     #[test]
@@ -713,9 +718,20 @@ mod tests {
         ";
         let output = format_rule_body(source, 0, "    ", TrailingCommentStyle::AlignedColumn)
             .expect("format body");
-        assert_eq!(
-            output,
-            "    for Machine;\n    use Op::Pair;\n\n    apply: {\n        env: e,\n        k: [Pair(name, value), ..],\n    } => {\n        k: [..],\n        env: map::update(e, name, value),\n    }\n    where value: Value;"
-        );
+        let actual = format!("body:\n{output}");
+        expect_test::expect![[r"
+            body:
+                for Machine;
+                use Op::Pair;
+
+                apply: {
+                    env: e,
+                    k: [Pair(name, value), ..],
+                } => {
+                    k: [..],
+                    env: map::update(e, name, value),
+                }
+                where value: Value;"]]
+        .assert_eq(&actual);
     }
 }
