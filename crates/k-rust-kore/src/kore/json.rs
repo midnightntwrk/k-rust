@@ -17,12 +17,12 @@
 //! bound = "O(p) source reads and JSON nodes; the returned JSON value has O(p) space"
 //! ```
 
-use super::node::{PatternNode, PatternSource};
 use crate::json_tree::{self, Node};
 
 use super::{
     ast::{Associativity, KoreString, Pattern, Sort, Symbol, Variable, VariableKind},
     lexical::{self, Problem},
+    node::{PatternNode, PatternSource},
 };
 
 pub const FORMAT: &str = "KORE";
@@ -228,6 +228,253 @@ pub fn to_value(pattern: &Pattern) -> Result<serde_json::Value, Error> {
 /// Encode a pattern one node at a time, without materializing its KORE tree.
 pub fn to_value_source<'a, S: PatternSource<'a>>(source: S) -> Result<serde_json::Value, Error> {
     Ok(envelope_node(source).into_value())
+}
+
+/// Serialize the KORE JSON envelope directly from a pattern source. The task stack follows the
+/// expanded tree, while the output buffer holds only its final JSON bytes.
+pub fn source_to_string<'a, S: PatternSource<'a>>(source: S) -> String {
+    enum Task<S> {
+        Text(&'static str),
+        String(String),
+        Pattern(S),
+        Sort(Sort),
+        Array(Vec<Task<S>>),
+        Object(Vec<(&'static str, Task<S>)>),
+    }
+
+    fn string<S>(value: impl Into<String>) -> Task<S> {
+        Task::String(value.into())
+    }
+
+    fn sort_array<S>(sorts: Vec<Sort>) -> Task<S> {
+        Task::Array(sorts.into_iter().map(Task::Sort).collect())
+    }
+
+    fn pattern_array<S>(patterns: Vec<S>) -> Task<S> {
+        Task::Array(patterns.into_iter().map(Task::Pattern).collect())
+    }
+
+    let mut output = Vec::new();
+    let mut stack = vec![Task::Object(vec![
+        ("format", string(FORMAT)),
+        ("term", Task::Pattern(source)),
+        ("version", Task::Text("1")),
+    ])];
+    while let Some(task) = stack.pop() {
+        match task {
+            Task::Text(value) => output.extend_from_slice(value.as_bytes()),
+            Task::String(value) => {
+                serde_json::to_writer(&mut output, &value).expect("writing to a Vec cannot fail");
+            }
+            Task::Array(elements) => {
+                stack.push(Task::Text("]"));
+                for (index, element) in elements.into_iter().enumerate().rev() {
+                    stack.push(element);
+                    if index != 0 {
+                        stack.push(Task::Text(","));
+                    }
+                }
+                stack.push(Task::Text("["));
+            }
+            Task::Object(fields) => {
+                stack.push(Task::Text("}"));
+                for (index, (key, value)) in fields.into_iter().enumerate().rev() {
+                    stack.push(value);
+                    stack.push(Task::Text(":"));
+                    stack.push(string(key));
+                    if index != 0 {
+                        stack.push(Task::Text(","));
+                    }
+                }
+                stack.push(Task::Text("{"));
+            }
+            Task::Sort(sort) => match sort {
+                Sort::Variable(name) => stack.push(Task::Object(vec![
+                    ("name", string(name)),
+                    ("tag", string("SortVar")),
+                ])),
+                Sort::Application { name, arguments } => stack.push(Task::Object(vec![
+                    ("args", sort_array(arguments)),
+                    ("name", string(name)),
+                    ("tag", string("SortApp")),
+                ])),
+            },
+            Task::Pattern(pattern) => {
+                let fields = match pattern.node() {
+                    PatternNode::String(value) => vec![
+                        ("tag", string("String")),
+                        ("value", string(json_string_value(&value))),
+                    ],
+                    PatternNode::Variable(variable) => vec![
+                        ("name", string(variable.name.clone())),
+                        ("sort", Task::Sort(variable.sort.clone())),
+                        (
+                            "tag",
+                            string(if variable.kind == VariableKind::Element {
+                                "EVar"
+                            } else {
+                                "SVar"
+                            }),
+                        ),
+                    ],
+                    PatternNode::Application { symbol, arguments } => vec![
+                        ("args", pattern_array(arguments)),
+                        ("name", string(symbol.name.clone())),
+                        ("sorts", sort_array(symbol.sort_parameters.clone())),
+                        ("tag", string("App")),
+                    ],
+                    PatternNode::Top { sort } => vec![
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Top")),
+                    ],
+                    PatternNode::Bottom { sort } => vec![
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Bottom")),
+                    ],
+                    PatternNode::And { sort, arguments } => vec![
+                        ("patterns", pattern_array(arguments)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("And")),
+                    ],
+                    PatternNode::Or { sort, arguments } => vec![
+                        ("patterns", pattern_array(arguments)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Or")),
+                    ],
+                    PatternNode::Not { sort, argument } => vec![
+                        ("arg", Task::Pattern(argument)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Not")),
+                    ],
+                    PatternNode::Next { sort, argument } => vec![
+                        ("dest", Task::Pattern(argument)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Next")),
+                    ],
+                    PatternNode::Implies { sort, left, right } => vec![
+                        ("first", Task::Pattern(left)),
+                        ("second", Task::Pattern(right)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Implies")),
+                    ],
+                    PatternNode::Iff { sort, left, right } => vec![
+                        ("first", Task::Pattern(left)),
+                        ("second", Task::Pattern(right)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Iff")),
+                    ],
+                    PatternNode::Rewrites { sort, left, right } => vec![
+                        ("dest", Task::Pattern(right)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("source", Task::Pattern(left)),
+                        ("tag", string("Rewrites")),
+                    ],
+                    PatternNode::Exists {
+                        sort,
+                        variable,
+                        body,
+                    } => vec![
+                        ("arg", Task::Pattern(body)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Exists")),
+                        ("var", string(variable.name.clone())),
+                        ("varSort", Task::Sort(variable.sort.clone())),
+                    ],
+                    PatternNode::Forall {
+                        sort,
+                        variable,
+                        body,
+                    } => vec![
+                        ("arg", Task::Pattern(body)),
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("Forall")),
+                        ("var", string(variable.name.clone())),
+                        ("varSort", Task::Sort(variable.sort.clone())),
+                    ],
+                    PatternNode::Mu { variable, body } => vec![
+                        ("arg", Task::Pattern(body)),
+                        ("tag", string("Mu")),
+                        ("var", string(variable.name.clone())),
+                        ("varSort", Task::Sort(variable.sort.clone())),
+                    ],
+                    PatternNode::Nu { variable, body } => vec![
+                        ("arg", Task::Pattern(body)),
+                        ("tag", string("Nu")),
+                        ("var", string(variable.name.clone())),
+                        ("varSort", Task::Sort(variable.sort.clone())),
+                    ],
+                    PatternNode::Ceil {
+                        operand_sort,
+                        result_sort,
+                        argument,
+                    } => vec![
+                        ("arg", Task::Pattern(argument)),
+                        ("argSort", Task::Sort(operand_sort.into_owned())),
+                        ("sort", Task::Sort(result_sort.into_owned())),
+                        ("tag", string("Ceil")),
+                    ],
+                    PatternNode::Floor {
+                        operand_sort,
+                        result_sort,
+                        argument,
+                    } => vec![
+                        ("arg", Task::Pattern(argument)),
+                        ("argSort", Task::Sort(operand_sort.into_owned())),
+                        ("sort", Task::Sort(result_sort.into_owned())),
+                        ("tag", string("Floor")),
+                    ],
+                    PatternNode::Equals {
+                        operand_sort,
+                        result_sort,
+                        left,
+                        right,
+                    } => vec![
+                        ("argSort", Task::Sort(operand_sort.into_owned())),
+                        ("first", Task::Pattern(left)),
+                        ("second", Task::Pattern(right)),
+                        ("sort", Task::Sort(result_sort.into_owned())),
+                        ("tag", string("Equals")),
+                    ],
+                    PatternNode::In {
+                        operand_sort,
+                        result_sort,
+                        left,
+                        right,
+                    } => vec![
+                        ("argSort", Task::Sort(operand_sort.into_owned())),
+                        ("first", Task::Pattern(left)),
+                        ("second", Task::Pattern(right)),
+                        ("sort", Task::Sort(result_sort.into_owned())),
+                        ("tag", string("In")),
+                    ],
+                    PatternNode::DomainValue { sort, value } => vec![
+                        ("sort", Task::Sort(sort.into_owned())),
+                        ("tag", string("DV")),
+                        ("value", string(json_string_value(&value))),
+                    ],
+                    PatternNode::AssociativeApplication {
+                        associativity,
+                        symbol,
+                        arguments,
+                    } => vec![
+                        ("argss", pattern_array(arguments)),
+                        ("sorts", sort_array(symbol.sort_parameters.clone())),
+                        ("symbol", string(symbol.name.clone())),
+                        (
+                            "tag",
+                            string(if associativity == Associativity::Left {
+                                "LeftAssoc"
+                            } else {
+                                "RightAssoc"
+                            }),
+                        ),
+                    ],
+                };
+                stack.push(Task::Object(fields));
+            }
+        }
+    }
+    String::from_utf8(output).expect("JSON serialization emits UTF-8")
 }
 
 fn envelope_node<'a, S: PatternSource<'a>>(source: S) -> Node {
@@ -971,6 +1218,25 @@ mod tests {
     use super::*;
     use crate::kore::parser::parse_pattern;
     use serde_json::{Value, json};
+
+    #[test]
+    fn source_writer_matches_value_serialization() {
+        for source in [
+            r#"\top{S{}}()"#,
+            r#"\bottom{S{}}()"#,
+            r#"\and{S{}}(\dv{S{}}("a"), X:S{})"#,
+            r#"\not{S{}}(\or{S{}}(X:S{}, Y:S{}))"#,
+            r#"\exists{S{}}(X:S{}, \equals{S{}, S{}}(X:S{}, Y:S{}))"#,
+            r#"\rewrites{S{}}(\ceil{S{}, S{}}(X:S{}), \floor{S{}, S{}}(Y:S{}))"#,
+        ] {
+            let pattern = parse_pattern(source).unwrap();
+            assert_eq!(
+                source_to_string(&pattern),
+                serde_json::to_string(&to_value(&pattern).unwrap()).unwrap(),
+                "{source}"
+            );
+        }
+    }
 
     fn sort() -> Value {
         json!({ "tag": "SortApp", "name": "S", "args": [] })

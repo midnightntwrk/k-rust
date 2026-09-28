@@ -17,7 +17,7 @@
 //! ```toml algorithm
 //! id = "rpc.json.encode"
 //! name = "JSON-RPC response encoding"
-//! sites = ["encode_kore_source", "RpcService::handle_line"]
+//! sites = ["encode_kore_source", "encode_kore_source_raw", "encode_substitution_source", "RpcValue::to_string"]
 //! variable = "N = expanded KORE pattern nodes; B = response bytes"
 //! counters = ["RpcJsonNodesWritten", "RpcJsonDistinctNodes", "RpcJsonBytesWritten"]
 //! span = "per call"
@@ -25,11 +25,11 @@
 //!
 //! [[cost]]
 //! mode = "response encode"
-//! bound = "O(N + B) to materialize KORE JSON values and serialize the response"
+//! bound = "O(N + B) to write KORE JSON from PatternSource and serialize the response"
 //! ```
 
 use std::{
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     error::Error,
     io::{self, BufWriter, Read, Write},
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -175,6 +175,82 @@ impl RequestControl {
 
 pub(super) struct RpcService {
     backend: Backend,
+}
+
+enum RpcValue {
+    Plain(Value),
+    Raw(String),
+    Array(Vec<Self>),
+    Object(BTreeMap<String, Self>),
+}
+
+impl From<Value> for RpcValue {
+    fn from(value: Value) -> Self {
+        Self::Plain(value)
+    }
+}
+
+impl RpcValue {
+    fn object<K: Into<String>, I: IntoIterator<Item = (K, Self)>>(fields: I) -> Self {
+        Self::Object(
+            fields
+                .into_iter()
+                .map(|(key, value)| (key.into(), value))
+                .collect(),
+        )
+    }
+
+    #[cfg(test)]
+    fn into_value(self) -> Value {
+        serde_json::from_str(&self.to_string()).unwrap()
+    }
+
+    fn to_string(&self) -> String {
+        enum Task<'a> {
+            Value(&'a RpcValue),
+            Text(&'static [u8]),
+            Key(&'a str),
+        }
+
+        let mut output = Vec::new();
+        let mut stack = vec![Task::Value(self)];
+        while let Some(task) = stack.pop() {
+            match task {
+                Task::Text(text) => output.extend_from_slice(text),
+                Task::Key(key) => {
+                    serde_json::to_writer(&mut output, key).expect("writing to a Vec cannot fail");
+                }
+                Task::Value(Self::Plain(value)) => {
+                    serde_json::to_writer(&mut output, value)
+                        .expect("JSON-RPC responses are serializable");
+                }
+                Task::Value(Self::Raw(json)) => output.extend_from_slice(json.as_bytes()),
+                Task::Value(Self::Array(values)) => {
+                    stack.push(Task::Text(b"]"));
+                    for (index, value) in values.iter().enumerate().rev() {
+                        stack.push(Task::Value(value));
+                        if index != 0 {
+                            stack.push(Task::Text(b","));
+                        }
+                    }
+                    stack.push(Task::Text(b"["));
+                }
+                Task::Value(Self::Object(fields)) => {
+                    stack.push(Task::Text(b"}"));
+                    for (index, (key, value)) in fields.iter().enumerate().rev() {
+                        stack.push(Task::Value(value));
+                        stack.push(Task::Text(b":"));
+                        stack.push(Task::Key(key));
+                        if index != 0 {
+                            stack.push(Task::Text(b","));
+                        }
+                    }
+                    stack.push(Task::Text(b"{"));
+                }
+            }
+        }
+        String::from_utf8(output).expect("JSON serialization emits UTF-8")
+    }
 }
 
 #[derive(Debug)]
@@ -500,28 +576,34 @@ impl RpcService {
             }
         };
         let response = match message {
-            Value::Array(requests) if requests.is_empty() => {
-                Some(RpcFault::invalid_request(Some(json!([]))).into_value(Value::Null))
-            }
+            Value::Array(requests) if requests.is_empty() => Some(
+                RpcFault::invalid_request(Some(json!([])))
+                    .into_value(Value::Null)
+                    .into(),
+            ),
             Value::Array(requests) => {
                 let responses = requests
                     .into_iter()
                     .filter_map(|request| self.handle_request(request))
                     .collect::<Vec<_>>();
-                (!responses.is_empty()).then_some(Value::Array(responses))
+                (!responses.is_empty()).then_some(RpcValue::Array(responses))
             }
             request => self.handle_request(request),
         };
         response.map(|response| {
             #[cfg(feature = "measure")]
             let _span = measure::algorithm_span(Algorithm::RpcJsonEncode);
-            serde_json::to_string(&response).expect("JSON-RPC responses are serializable")
+            response.to_string()
         })
     }
 
-    fn handle_request(&mut self, request: Value) -> Option<Value> {
+    fn handle_request(&mut self, request: Value) -> Option<RpcValue> {
         let Some(object) = request.as_object() else {
-            return Some(RpcFault::invalid_request(Some(request)).into_value(Value::Null));
+            return Some(
+                RpcFault::invalid_request(Some(request))
+                    .into_value(Value::Null)
+                    .into(),
+            );
         };
         let id_present = object.contains_key("id");
         let id = object.get("id").cloned().unwrap_or(Value::Null);
@@ -531,7 +613,11 @@ impl RpcService {
             || method.is_none()
             || !valid_id
         {
-            return Some(RpcFault::invalid_request(Some(request)).into_value(Value::Null));
+            return Some(
+                RpcFault::invalid_request(Some(request))
+                    .into_value(Value::Null)
+                    .into(),
+            );
         }
         let method = method.expect("checked above");
         let params = object.get("params").cloned().unwrap_or(Value::Null);
@@ -540,12 +626,19 @@ impl RpcService {
             return None;
         }
         Some(match result {
-            Ok(result) => json!({ "jsonrpc": JSON_RPC_VERSION, "id": id, "result": result }),
-            Err(error) => error.into_value(id),
+            Ok(result) => RpcValue::object([
+                ("id", RpcValue::Plain(id)),
+                (
+                    "jsonrpc",
+                    RpcValue::Plain(Value::String(JSON_RPC_VERSION.into())),
+                ),
+                ("result", result),
+            ]),
+            Err(error) => error.into_value(id).into(),
         })
     }
 
-    fn dispatch(&mut self, method: &str, params: Value) -> Result<Value, RpcFault> {
+    fn dispatch(&mut self, method: &str, params: Value) -> Result<RpcValue, RpcFault> {
         if cancellation_requested() {
             return Err(RpcFault::cancelled());
         }
@@ -560,9 +653,9 @@ impl RpcService {
         let result = match method {
             "execute" => self.execute(decode_params(params)?),
             "simplify" => self.simplify(decode_params(params)?),
-            "implies" => self.implies(decode_params(params)?),
-            "add-module" => self.add_module(decode_params(params)?),
-            "get-model" => self.get_model(decode_params(params)?),
+            "implies" => self.implies(decode_params(params)?).map(Into::into),
+            "add-module" => self.add_module(decode_params(params)?).map(Into::into),
+            "get-model" => self.get_model(decode_params(params)?).map(Into::into),
             "cancel" => Err(RpcFault::cancel_not_supported()),
             _ => Err(RpcFault {
                 code: -32601,
@@ -585,7 +678,7 @@ impl RpcService {
         }
     }
 
-    fn execute(&mut self, params: ExecuteParams) -> Result<Value, RpcFault> {
+    fn execute(&mut self, params: ExecuteParams) -> Result<RpcValue, RpcFault> {
         let ExecuteParams {
             state,
             max_depth,
@@ -642,7 +735,7 @@ impl RpcService {
                     .into_iter()
                     .next_back()
                     .ok_or_else(|| RpcFault::runtime("execution produced no result", None))?;
-                let mut output = Map::new();
+                let mut output = BTreeMap::new();
                 let (reason, next_states, rule) = match &leaf.halt_reason {
                     HaltReason::Cancelled => return Err(RpcFault::cancelled()),
                     HaltReason::Stuck => ("stuck", None, None),
@@ -700,17 +793,17 @@ impl RpcService {
                         ("terminal-rule", None, Some(rule.clone()))
                     }
                 };
-                output.insert("reason".into(), Value::String(reason.into()));
-                output.insert("depth".into(), Value::from(leaf.depth));
+                output.insert("reason".into(), Value::String(reason.into()).into());
+                output.insert("depth".into(), Value::from(leaf.depth).into());
                 if let Some(rule) = rule {
-                    output.insert("rule".into(), Value::String(rule));
+                    output.insert("rule".into(), Value::String(rule).into());
                 }
                 output.insert(
                     "state".into(),
                     execute_state(definition, &leaf.pattern, &configuration_variables)?,
                 );
                 if let Some(next_states) = next_states {
-                    output.insert("next-states".into(), Value::Array(next_states));
+                    output.insert("next-states".into(), RpcValue::Array(next_states));
                 }
                 if log_successful_rewrites || log_failed_rewrites {
                     let mut logs = leaf
@@ -732,7 +825,7 @@ impl RpcService {
                         logs.extend(execute_failed_rewrite_logs(&leaf.halt_reason));
                     }
                     if !logs.is_empty() {
-                        output.insert("logs".into(), Value::Array(logs));
+                        output.insert("logs".into(), Value::Array(logs).into());
                     }
                 }
                 if !haskell_logging.is_empty() {
@@ -742,14 +835,15 @@ impl RpcService {
                             &haskell_logging,
                             &leaf.trace,
                             &leaf.halt_reason,
-                        )),
+                        ))
+                        .into(),
                     );
                 }
-                Ok(Value::Object(output))
+                Ok(RpcValue::Object(output))
             })
     }
 
-    fn simplify(&mut self, params: SimplifyParams) -> Result<Value, RpcFault> {
+    fn simplify(&mut self, params: SimplifyParams) -> Result<RpcValue, RpcFault> {
         let _booster_only = params.booster_only;
         let _haskell_logging = params.haskell_logging;
         self.ensure_module(params.module.as_deref())?;
@@ -768,12 +862,10 @@ impl RpcService {
                         solver,
                     )
                     .map_err(|error| simplify_fault(error, &pattern.term.sort()))?;
-                    Ok(json!({
-                        "state": encode_kore_source(
-                            &externalize::constrained_pattern(&simplified),
-                            externalize::External::Constrained(&simplified),
-                        )?
-                    }))
+                    Ok(RpcValue::object([(
+                        "state",
+                        encode_kore_source_raw(externalize::External::Constrained(&simplified))?,
+                    )]))
                 }
                 PatternOrPredicate::Predicate(predicate, result_sort) => {
                     let simplified = backend_simplification::simplify_predicate(
@@ -783,16 +875,14 @@ impl RpcService {
                         solver,
                     )
                     .map_err(|error| simplify_fault(error, &result_sort))?;
-                    Ok(json!({
-                        "state": encode_kore_source(
-                            &externalize::ml_pattern(&simplified, &result_sort),
-                            externalize::External::Predicate {
-                                predicate: &simplified,
-                                sort: externalize::ResultSort::Given(&result_sort),
-                                preserve_terms: true,
-                            },
-                        )?
-                    }))
+                    Ok(RpcValue::object([(
+                        "state",
+                        encode_kore_source_raw(externalize::External::Predicate {
+                            predicate: &simplified,
+                            sort: externalize::ResultSort::Given(&result_sort),
+                            preserve_terms: true,
+                        })?,
+                    )]))
                 }
             },
         )
@@ -1466,7 +1556,42 @@ fn execute_failed_rewrite_logs(reason: &HaltReason) -> Vec<Value> {
     }
 }
 
-fn attach_legacy_log_entries(method: &str, requested: &[String], result: &mut Value) {
+fn attach_legacy_log_entries(method: &str, requested: &[String], result: &mut RpcValue) {
+    if let RpcValue::Plain(value) = result {
+        return attach_legacy_log_entries_plain(method, requested, value);
+    }
+    let RpcValue::Object(result) = result else {
+        return;
+    };
+    if requested.is_empty() {
+        return;
+    }
+    let (method_name, method_context) = match method {
+        "execute" => ("Execute", "execute"),
+        "simplify" => ("Simplify", "simplify"),
+        _ => return,
+    };
+    let mut entries = Vec::new();
+    if legacy_log_selected(requested, &["Proxy", method_name]) {
+        entries.push(json!({
+            "context": ["proxy", method_context],
+            "message": if method == "execute" {
+                "Starting execute request".to_owned()
+            } else {
+                format!("{method_context} request")
+            },
+        }));
+    }
+    if let Some(RpcValue::Plain(Value::Array(existing))) = result.remove("haskell-log-entries") {
+        entries.extend(existing);
+    }
+    result.insert(
+        "haskell-log-entries".into(),
+        RpcValue::Plain(Value::Array(entries)),
+    );
+}
+
+fn attach_legacy_log_entries_plain(method: &str, requested: &[String], result: &mut Value) {
     if requested.is_empty() {
         return;
     }
@@ -1593,16 +1718,49 @@ fn encode_kore_source<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
         .map_err(|error| RpcFault::runtime(format!("could not encode KORE JSON: {error}"), None))
 }
 
+fn encode_kore_source_raw<'a, S: k_rust_kore::kore::node::PatternSource<'a>>(
+    source: S,
+) -> Result<RpcValue, RpcFault> {
+    #[cfg(feature = "measure")]
+    let _span = measure::algorithm_span(Algorithm::RpcJsonEncode);
+    #[cfg(feature = "measure")]
+    if measure::output_counting_enabled() {
+        let (nodes, distinct) = k_rust_kore::kore::node::measure_nodes(source.clone());
+        measure::add(Counter::RpcJsonNodesWritten, nodes);
+        measure::add(Counter::RpcJsonDistinctNodes, distinct);
+    }
+    Ok(RpcValue::Raw(kore_json::source_to_string(source)))
+}
+
 fn encode_kore(pattern: &KorePattern) -> Result<Value, RpcFault> {
     encode_kore_source(pattern, pattern)
+}
+
+fn encode_substitution_source(
+    substitution: &Substitution,
+    result_sort: &BackendSort,
+    shape: externalize::ConjunctionShape,
+) -> Result<Option<RpcValue>, RpcFault> {
+    let sort = externalize::sort(result_sort);
+    let operands = externalize::ordered_bindings(substitution, externalize::BindingOrder::Natural)
+        .into_iter()
+        .map(|(variable, value)| externalize::External::Binding {
+            variable,
+            value,
+            sort: result_sort,
+        })
+        .collect::<Vec<_>>();
+    externalize::connective_source(&sort, &operands, shape, true)
+        .map(encode_kore_source_raw)
+        .transpose()
 }
 
 fn execute_state(
     definition: &BackendDefinition,
     pattern: &Pattern,
     configuration_variables: &BTreeSet<Variable>,
-) -> Result<Value, RpcFault> {
-    let mut state = Map::new();
+) -> Result<RpcValue, RpcFault> {
+    let mut state = BTreeMap::new();
     let (predicates, substitution) = split_constraints(
         &pattern.constraints,
         configuration_variables,
@@ -1611,10 +1769,7 @@ fn execute_state(
     let term = substitute(&pattern.term, &substitution);
     state.insert(
         "term".into(),
-        encode_kore_source(
-            &externalize::term(&term),
-            externalize::External::Term(&term),
-        )?,
+        encode_kore_source_raw(externalize::External::Term(&term))?,
     );
     let predicates = substitute_predicates(&predicates, &substitution);
     let mut ordered_predicates = predicates
@@ -1636,26 +1791,31 @@ fn execute_state(
             .collect(),
         externalize::ConjunctionShape::Flat,
     ) {
-        state.insert("predicate".into(), encode_kore(&predicate)?);
+        state.insert("predicate".into(), encode_kore_source_raw(&predicate)?);
     }
-    if let Some(substitution) =
-        backend_simplification::model_substitution(&substitution, &pattern.term.sort())
-    {
-        state.insert("substitution".into(), encode_kore(&substitution)?);
+    if let Some(value) = encode_substitution_source(
+        &substitution,
+        &pattern.term.sort(),
+        externalize::ConjunctionShape::Flat,
+    )? {
+        state.insert("substitution".into(), value);
     }
-    Ok(Value::Object(state))
+    Ok(RpcValue::Object(state))
 }
 
 fn execute_applied_state(
     definition: &BackendDefinition,
     applied: &AppliedRule,
     configuration_variables: &BTreeSet<Variable>,
-) -> Result<Value, RpcFault> {
+) -> Result<RpcValue, RpcFault> {
     let mut state = execute_state(definition, &applied.pattern, configuration_variables)?;
-    let object = state
-        .as_object_mut()
-        .expect("execute_state always returns an object");
-    object.insert("rule-id".into(), Value::String(applied.unique_id.clone()));
+    let RpcValue::Object(object) = &mut state else {
+        unreachable!("execute_state always returns an object")
+    };
+    object.insert(
+        "rule-id".into(),
+        Value::String(applied.unique_id.clone()).into(),
+    );
     if let Some(rule_predicate) = externalize::predicates_pattern(
         &applied.rule_predicates,
         &applied.pattern.term.sort(),
@@ -1668,50 +1828,37 @@ fn execute_applied_state(
         },
         externalize::ConjunctionShape::LeftNested,
     ) {
-        object.insert("rule-predicate".into(), encode_kore(&rule_predicate)?);
+        object.insert(
+            "rule-predicate".into(),
+            encode_kore_source_raw(&rule_predicate)?,
+        );
     }
     let (_, state_substitution) = split_constraints(
         &applied.pattern.constraints,
         configuration_variables,
         &definition.sort_graph,
     );
-    if let Some(substitution) = externalize_rule_substitution(
-        &applied.rule_substitution,
-        &state_substitution,
+    let substitution = project_rule_substitution(&applied.rule_substitution, &state_substitution);
+    if let Some(value) = encode_substitution_source(
+        &substitution,
         &applied.pattern.term.sort(),
-    ) {
-        object.insert("rule-substitution".into(), encode_kore(&substitution)?);
+        externalize::ConjunctionShape::LeftNested,
+    )? {
+        object.insert("rule-substitution".into(), value);
     }
     Ok(state)
 }
 
-fn externalize_rule_substitution(
+fn project_rule_substitution(
     substitution: &Substitution,
     state_substitution: &Substitution,
-    result_sort: &BackendSort,
-) -> Option<KorePattern> {
+) -> Substitution {
     // `externalize::external_variable_name` drops the `Rule#`/`Ex#` markers the way Booster's
     // externaliseRuleMarker does when the bindings are emitted below.
-    let substitution = substitution
+    substitution
         .iter()
         .map(|(variable, value)| (variable.clone(), substitute(value, state_substitution)))
-        .collect();
-    // The response carries the bindings as one left-nested `\and` at the conjunction's sort.
-    // Whether there is a conjunct to re-nest is decided on a borrow first, so that the
-    // conjuncts can then be moved out of the conjunction instead of copied next to it; a
-    // non-conjunction, or a conjunction whose operands are all its unit, is returned as built.
-    backend_simplification::model_substitution(&substitution, result_sort).map(|pattern| {
-        let sort = match &pattern {
-            KorePattern::And { sort, .. } if !pattern.conjuncts_at(sort).is_empty() => sort.clone(),
-            _ => return pattern,
-        };
-        externalize::conjunction(
-            &sort,
-            pattern.into_conjuncts_at(&sort),
-            externalize::ConjunctionShape::LeftNested,
-        )
-        .expect("the conjuncts were checked to be non-empty")
-    })
+        .collect()
 }
 
 fn pattern_variables(pattern: &Pattern) -> BTreeSet<Variable> {
@@ -4705,7 +4852,9 @@ endmodule
             )],
         };
 
-        let state = execute_state(&definition, &pattern, &BTreeSet::from([variable])).unwrap();
+        let state = execute_state(&definition, &pattern, &BTreeSet::from([variable]))
+            .unwrap()
+            .into_value();
         assert_eq!(state["term"]["term"]["tag"], "DV");
         assert_eq!(state["term"]["term"]["value"], "resolved");
         assert_eq!(state["substitution"]["term"]["tag"], "Equals");
@@ -4730,7 +4879,9 @@ endmodule
             ],
         };
 
-        let state = execute_state(&definition, &pattern, &BTreeSet::from([x, y])).unwrap();
+        let state = execute_state(&definition, &pattern, &BTreeSet::from([x, y]))
+            .unwrap()
+            .into_value();
 
         assert_eq!(state["term"]["term"]["value"], "resolved");
         assert_eq!(state["substitution"]["term"]["tag"], "And");
@@ -4895,9 +5046,15 @@ endmodule
         let state_substitution =
             Substitution::from([(state_variable, Term::domain_value(sort.clone(), "resolved"))]);
 
-        let pattern =
-            externalize_rule_substitution(&rule_substitution, &state_substitution, &sort).unwrap();
-        let pattern = encode_kore(&pattern).unwrap();
+        let substitution = project_rule_substitution(&rule_substitution, &state_substitution);
+        let pattern = encode_substitution_source(
+            &substitution,
+            &sort,
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap()
+        .unwrap()
+        .into_value();
         assert_eq!(pattern["term"]["first"]["name"], "RuleX");
         assert_eq!(pattern["term"]["second"]["value"], "resolved");
     }
@@ -4920,16 +5077,27 @@ endmodule
             ),
         ]);
 
-        let pattern = externalize_rule_substitution(&substitution, &Substitution::new(), &sort)
-            .expect("non-empty rule substitution");
-        assert!(matches!(
-            &pattern,
-            KorePattern::And { arguments, .. }
-                if arguments.len() == 2
-                    && matches!(&arguments[0], KorePattern::And { arguments, .. }
-                        if arguments.len() == 2)
-                    && matches!(&arguments[1], KorePattern::Equals { .. })
-        ));
+        let substitution = project_rule_substitution(&substitution, &Substitution::new());
+        let pattern = encode_substitution_source(
+            &substitution,
+            &sort,
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap()
+        .unwrap()
+        .into_value();
+        assert_eq!(pattern["term"]["tag"], "And");
+        assert_eq!(pattern["term"]["patterns"][0]["tag"], "And");
+        assert_eq!(pattern["term"]["patterns"][1]["tag"], "Equals");
+        let old = backend_simplification::model_substitution(&substitution, &sort).unwrap();
+        let kore_sort = externalize::sort(&sort);
+        let old = externalize::conjunction(
+            &kore_sort,
+            old.into_conjuncts_at(&kore_sort),
+            externalize::ConjunctionShape::LeftNested,
+        )
+        .unwrap();
+        assert_eq!(pattern, encode_kore(&old).unwrap());
     }
 
     #[test]

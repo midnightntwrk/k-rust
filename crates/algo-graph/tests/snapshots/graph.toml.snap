@@ -7621,11 +7621,21 @@ symbol = "encode_kore_source"
 [[node.sites]]
 crate = "k-rust"
 file = "crates/k-rust/src/rpc.rs"
-symbol = "RpcService::handle_line"
+symbol = "encode_kore_source_raw"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "encode_substitution_source"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/rpc.rs"
+symbol = "RpcValue::to_string"
 
 [[node.cost]]
 mode = "response encode"
-bound = "O(N + B) to materialize KORE JSON values and serialize the response"
+bound = "O(N + B) to write KORE JSON from PatternSource and serialize the response"
 
 [[node]]
 kind = "phase"

@@ -212,6 +212,12 @@ proptest! {
     }
 
     #[test]
+    fn source_json_matches_materialized_value(pattern in json_pattern()) {
+        let expected = serde_json::to_string(&json::to_value(&pattern).unwrap()).unwrap();
+        prop_assert_eq!(json::source_to_string(&pattern), expected);
+    }
+
+    #[test]
     fn kast_normalization_is_idempotent(pattern in pattern()) {
         let normalized = normalize::for_kast(&pattern);
         prop_assert_eq!(normalize::for_kast(&normalized), normalized);
