@@ -84,15 +84,21 @@ fn state(
     )
 }
 
-fn observed(baseline: &Baseline, label: &str, constructor: &str, names: &[&str]) -> ObservedRule {
+fn observed(
+    baseline: &Baseline,
+    label: &str,
+    constructor: &str,
+    paths: &[Vec<u32>],
+) -> ObservedRule {
     ObservedRule {
         rule: support::rule(baseline, label),
         emit_rule_applied: false,
         domain_events: vec![DomainEventSpec {
             constructor: constructor.into(),
-            payload: names
+            payload: paths
                 .iter()
-                .map(|name| PayloadSource::BindingValueNamed(format!("RuleVar{name}")))
+                .cloned()
+                .map(PayloadSource::BeforeTerm)
                 .collect(),
         }],
     }
@@ -220,9 +226,24 @@ impl Symmem {
         ])
         .expect("vocabulary");
         let observed = vec![
-            observed(baseline, "SYMMEM.write", "memoryWrite", &["A", "V"]),
-            observed(baseline, "SYMMEM.load", "memoryLoad", &["A", "V"]),
-            observed(baseline, "SYMMEM.free", "memoryFree", &["A"]),
+            observed(
+                baseline,
+                "SYMMEM.write",
+                "memoryWrite",
+                &[support::k_head(&[0, 0]), support::k_head(&[0, 1])],
+            ),
+            observed(
+                baseline,
+                "SYMMEM.load",
+                "memoryLoad",
+                &[support::k_head(&[0, 0]), support::k_head(&[0, 1])],
+            ),
+            observed(
+                baseline,
+                "SYMMEM.free",
+                "memoryFree",
+                &[support::k_head(&[0, 0])],
+            ),
         ];
         let tests = tests(&vocabulary);
         Self {
@@ -270,9 +291,24 @@ impl Guarded {
         ])
         .expect("vocabulary");
         let observed = vec![
-            observed(baseline, "GUARDEDMEM.write", "memoryWrite", &["A", "V"]),
-            observed(baseline, "GUARDEDMEM.load", "memoryLoad", &["A", "V"]),
-            observed(baseline, "GUARDEDMEM.loadNeg", "memoryLoad", &["A", "V"]),
+            observed(
+                baseline,
+                "GUARDEDMEM.write",
+                "memoryWrite",
+                &[support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])],
+            ),
+            observed(
+                baseline,
+                "GUARDEDMEM.load",
+                "memoryLoad",
+                &[support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])],
+            ),
+            observed(
+                baseline,
+                "GUARDEDMEM.loadNeg",
+                "memoryLoad",
+                &[support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])],
+            ),
         ];
         let oracles = vec![
             OracleDeclaration::new(
@@ -901,9 +937,11 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
 
 // ---------------------------------------------------------------- CPL-09 audit attacks
 //
-// README section 12, attacks A1-A6. A1 and A6 are execution-identical mutants that the
-// declared observation kills; they are pinned as accepted residuals, each naming its open
-// ticket. Every other attack must end in a refusal or `Unknown`, never in a kill.
+// README section 12, attacks A1-A6. A1 is an execution-identical mutant that the declared
+// observation still kills; it is pinned as an accepted residual until KS-06 (ticket CPL-T02).
+// With pre-state payloads A2 and A6 are no longer execution-identical kills or unknowns:
+// their execution-identical mutants survive. Every other attack must end in a refusal,
+// `Unknown` or survival, never in a kill of an execution-identical mutant.
 
 /// A one-candidate generation whose patch is `patch`, selected as one tuple of the exact
 /// `sites` (rule label and path each; an unconstrained join when there are several), so that
@@ -1079,12 +1117,9 @@ fn audit_a1_relabel_swap_is_killed_until_ticket_t02() {
     });
 }
 
-/// Audit A2 (ticket CPL-T05, resolved for campaigns). Renaming the payload variable `V` to
-/// `U` in both observed rules is an alpha-renaming: under positional payloads it silently read
-/// `RuleVarU` and survived (CPL-00 Q11). With named payloads every run of the mutant fails to
-/// resolve `RuleVarV`, so every test is `UnresolvedObservation` and the mutant is `Unknown`.
+/// Audit A2. Renaming `V` to `U` changes no pre-state, so no slot distinguishes.
 #[test]
-fn audit_a2_renamed_payload_variable_is_unknown() {
+fn audit_a2_renamed_payload_variable_is_not_killed() {
     with_stack(|| {
         let fixture = Symmem::new();
         let baseline = fixture.validator.baseline();
@@ -1110,14 +1145,8 @@ fn audit_a2_renamed_payload_variable_is_unknown() {
         .expect("campaign");
         assert_baseline(&run);
         let mutant = &run.mutants[0];
-        assert!(
-            mutant.plan.tests.iter().all(|test| test.run
-                == TestRun::Failed(kink_campaign::ExecutionFailureKind::UnresolvedObservation)),
-            "{:?}",
-            mutant.plan.tests
-        );
-        assert_eq!(mutant.plan.tests.len(), 4);
-        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert_eq!(outcomes(&run), vec![vec![A, A, A, A]; 4]);
+        assert_eq!(mutant.report.status, MutantStatus::Survived);
         assert!(mutant.report.killing_test_ids.is_empty());
     });
 }
@@ -1265,8 +1294,18 @@ fn audit_a5_withdrawn_claims_do_not_kill() {
         )
         .expect("vocabulary");
         let observed = vec![
-            observed(baseline, "SYMPARTIAL.write", "memoryWrite", &["A", "V"]),
-            observed(baseline, "SYMPARTIAL.load", "memoryLoad", &["A", "V"]),
+            observed(
+                baseline,
+                "SYMPARTIAL.write",
+                "memoryWrite",
+                &[support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])],
+            ),
+            observed(
+                baseline,
+                "SYMPARTIAL.load",
+                "memoryLoad",
+                &[support::k_head(&[0, 0, 0]), support::k_head(&[0, 1])],
+            ),
         ];
         let program = |argument: Pattern| {
             let one = || app("addr", vec![support::int(1)]);
@@ -1352,15 +1391,10 @@ fn audit_a5_withdrawn_claims_do_not_kill() {
     });
 }
 
-/// Audit A6 (accepted residual, ticket CPL-T01, open): a payload variable that keeps its
-/// name but changes what it binds still kills an execution-identical mutant. (1) Control C
-/// (`V -> s(V)` in `write` and `load`) under a value-binding plan: `RuleVarV` is now the
-/// predecessor of the stored value. (2) Swapping the names `A` and `V` throughout
-/// `GUARDEDMEM.write` (body and `requires`) is an alpha-renaming, yet `RuleVarA` now carries
-/// the value, so even the address-only plan `GWL-after` distinguishes. Named payloads (H1 = A2)
-/// cannot see either; this pins today's status until CPL-T01 is designed.
+/// Audit A6. CPL-T01 is resolved by pre-state payloads: execution-identical changes
+/// survive, while row 1b still kills C where its execution differs.
 #[test]
-fn audit_a6_name_kept_meaning_change_is_killed_until_ticket_t01() {
+fn audit_a6_name_kept_meaning_change_is_not_killed() {
     with_stack(|| {
         let fixture = Symmem::new();
         let generation = coupled(fixture.validator.baseline(), true);
@@ -1378,8 +1412,30 @@ fn audit_a6_name_kept_meaning_change_is_killed_until_ticket_t01() {
         }];
         let run = run_campaign(&fixture.campaign(&valued), &generation, ScheduleMode::Full)
             .expect("campaign");
-        assert_eq!(outcomes(&run), vec![vec![D]]);
+        assert_eq!(outcomes(&run), vec![vec![A]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+
+        let zero_valued = [TestCase {
+            id: "ground-zero-value".into(),
+            initial_state: state(addr(z()), z(), addr(z()), z()),
+            oracles: vec![
+                fixture.tests[0].oracles[0].clone(),
+                binds(&fixture.vocabulary, "memoryWrite", 1, "V", "SortNat", true),
+            ],
+        }];
+        let run = run_campaign(
+            &fixture.campaign(&zero_valued),
+            &generation,
+            ScheduleMode::Full,
+        )
+        .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![D, D]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(
+            run.mutants[0].report.killing_test_ids,
+            ["ground-zero-value"]
+        );
 
         let guarded = Guarded::new();
         let baseline = guarded.validator.baseline();
@@ -1406,7 +1462,79 @@ fn audit_a6_name_kept_meaning_change_is_killed_until_ticket_t01() {
         }];
         let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
             .expect("campaign");
-        assert_eq!(outcomes(&run), vec![vec![A, D]]);
-        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(outcomes(&run), vec![vec![A, A]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+    });
+}
+
+#[test]
+fn missing_before_term_on_a_mutant_is_unknown() {
+    with_stack(|| {
+        let mut fixture = Symmem::new();
+        fixture.observed[0].domain_events[0].payload = vec![
+            PayloadSource::BeforeTerm(support::k_head(&[0, 0])),
+            PayloadSource::BeforeTerm(support::k_head(&[0, 1, 0])),
+        ];
+        let baseline = fixture.validator.baseline();
+        let discovery = derive_sites(
+            baseline,
+            "load-continuation",
+            &[
+                SiteSelector::RuleLabel("SYMMEM.load".into()),
+                SiteSelector::Path(vec![0, 1]),
+            ],
+        )
+        .expect("site");
+        assert!(discovery.exhaustive());
+        let generation = select(&discovery, exact(1, 1), 1)
+            .expect("selection")
+            .fold("load-writes-zero", |origin| {
+                let at = origin.discovery_tuples[0].sites[0].at.clone();
+                let continuation = baseline.term(&at).expect("continuation").clone();
+                let address = term(baseline, "SYMMEM.load", &[0, 0, 0, 0]);
+                Patch::new(vec![Edit::ReplaceTerm {
+                    at,
+                    expected: continuation.clone(),
+                    replacement: Term::apply(
+                        "seq",
+                        vec![
+                            Term::apply("write", vec![address, Term::apply("z", vec![])]),
+                            continuation,
+                        ],
+                    ),
+                }])
+                .expect("patch")
+            })
+            .expect("generation");
+        let tests = [fixture.tests[0].clone()];
+        let run = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("baseline admitted");
+        assert_eq!(run.baseline.len(), 1);
+        assert!(matches!(run.baseline[0].run, SideRun::Sides { .. }));
+        let [mutant] = run.mutants.as_slice() else {
+            panic!("one mutant")
+        };
+        assert_eq!(mutant.plan.tests.len(), 1);
+        assert_eq!(
+            mutant.plan.tests[0].run,
+            TestRun::Failed(kink_campaign::ExecutionFailureKind::UnresolvedObservation)
+        );
+        assert_eq!(mutant.report.status, MutantStatus::Unknown);
+        assert!(mutant.report.killing_test_ids.is_empty());
+    });
+}
+
+#[test]
+fn before_term_missing_on_the_baseline_is_refused() {
+    with_stack(|| {
+        let mut fixture = Symmem::new();
+        fixture.observed[0].domain_events[0].payload =
+            vec![PayloadSource::BeforeTerm(support::k_head(&[0, 5]))];
+        let generation = release_after_write(fixture.validator.baseline());
+        let tests = [fixture.tests[0].clone()];
+        let failure = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect_err("missing baseline path");
+        assert_eq!(failure.kind(), CampaignFailureKind::BaselineError);
     });
 }

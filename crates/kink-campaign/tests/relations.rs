@@ -77,8 +77,8 @@ fn observed(validator: &NativeValidator, label: &str, constructor: &str) -> Obse
         emit_rule_applied: false,
         domain_events: vec![DomainEventSpec {
             constructor: constructor.into(),
-            payload: ["RuleVarA", "RuleVarV"]
-                .map(|name| PayloadSource::BindingValueNamed(name.into()))
+            payload: [support::k_head(&[0, 0]), support::k_head(&[0, 1])]
+                .map(PayloadSource::BeforeTerm)
                 .to_vec(),
         }],
     }
