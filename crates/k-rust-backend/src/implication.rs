@@ -32,7 +32,7 @@ use k_rust_kore::kore::ast as kore;
 use k_rust_kore::measure::{self, Algorithm};
 
 use crate::{
-    definedness::ceil_term,
+    definedness::{ceil_term, condition_definedness, eliminate_bindings, pattern_knowledge},
     definition::BackendDefinition,
     fresh::fresh_name,
     ite::{IteSplit, split_ite_pair},
@@ -281,19 +281,34 @@ pub fn check_negated_consequent(
         UnificationResult::Unsupported { .. } => return Ok(indeterminate()),
         UnificationResult::Unified(unification) => unification,
     };
+    // Each side's constraints and the unifier's are conditions on the common instances, stated
+    // with their definedness (I1): an atom over a term undefined somewhere is `⊥` there, and under
+    // a negation `⊤`, which a solver reading a partial function as a total operation would not see.
     let mut conjunction = Pattern {
         term: substitute(&antecedent.term, &substitution),
-        constraints: substitute_predicates(&antecedent.constraints, &substitution),
+        constraints: condition_definedness(
+            definition,
+            substitute_predicates(&antecedent.constraints, &substitution),
+            &[],
+        ),
     };
     // The bindings' values must denote values too, even where the term no longer mentions them.
     let definedness = substitution
         .values()
         .flat_map(|value| ceil_term(definition, value))
         .collect::<Vec<_>>();
-    for predicate in substitute_predicates(&negated.constraints, &substitution)
-        .into_iter()
-        .chain(substitute_predicates(&constraints, &substitution))
-        .chain(definedness)
+    for predicate in condition_definedness(
+        definition,
+        substitute_predicates(&negated.constraints, &substitution),
+        &conjunction.constraints,
+    )
+    .into_iter()
+    .chain(condition_definedness(
+        definition,
+        substitute_predicates(&constraints, &substitution),
+        &conjunction.constraints,
+    ))
+    .chain(definedness)
     {
         if !conjunction.constraints.contains(&predicate) {
             conjunction.constraints.push(predicate);
@@ -535,6 +550,8 @@ pub fn check_disjunctive_implication_with_existentials(
         let mut matched = false;
         let mut incomplete = false;
         let mut contingent_coverage = None;
+        // The antecedent's instances satisfy these facts (I7); every branch is decided on them.
+        let knowledge = pattern_knowledge(definition, &antecedent);
         for (consequent, existentials) in &consequents {
             let (substitution, remainder) = match match_terms_in_definition(
                 MatchMode::Implies,
@@ -554,17 +571,18 @@ pub fn check_disjunctive_implication_with_existentials(
             };
             matched = true;
             let obligations = implication_obligation_branches(
+                definition,
                 consequent,
                 existentials,
                 &substitution,
                 remainder,
-                &antecedent.constraints,
+                &knowledge,
             );
             let obligations = match eliminate_and_quantify_obligation_branches(
                 definition,
                 obligations,
                 existentials,
-                &antecedent.constraints,
+                &knowledge,
                 options,
                 solver,
             ) {
@@ -578,7 +596,7 @@ pub fn check_disjunctive_implication_with_existentials(
             let predicates = match simplify_predicates_with_solver(
                 definition,
                 &obligations.predicates,
-                &antecedent.constraints,
+                &knowledge,
                 options,
                 solver,
             ) {
@@ -618,11 +636,7 @@ pub fn check_disjunctive_implication_with_existentials(
                     .collect(),
             )];
             let combined = match simplify_predicates_with_solver(
-                definition,
-                &combined,
-                &antecedent.constraints,
-                options,
-                solver,
+                definition, &combined, &knowledge, options, solver,
             ) {
                 Ok(simplified) => simplified,
                 Err(error) => {
@@ -636,11 +650,8 @@ pub fn check_disjunctive_implication_with_existentials(
                 }
                 Truth::False => {}
                 Truth::Unknown => {
-                    let verdict = solver.check_predicates(
-                        &antecedent.constraints,
-                        &Substitution::new(),
-                        &combined,
-                    );
+                    let verdict =
+                        solver.check_predicates(&knowledge, &Substitution::new(), &combined);
                     match &verdict {
                         Ok(Validity::Valid) => {
                             return Ok(valid_with_witnesses(Substitution::new(), witnesses));
@@ -648,14 +659,8 @@ pub fn check_disjunctive_implication_with_existentials(
                         Ok(Validity::InconsistentGroundTruth) => return Ok(vacuously_valid()),
                         _ => {}
                     }
-                    if refuted_by_simplification(
-                        definition,
-                        &antecedent,
-                        &combined,
-                        options,
-                        solver,
-                    )
-                    .or_else(|error| stack_exhaustion(error).map(|()| false))?
+                    if refuted_by_simplification(definition, &knowledge, &combined, options, solver)
+                        .or_else(|error| stack_exhaustion(error).map(|()| false))?
                     {
                         return Ok(valid_with_witnesses(Substitution::new(), witnesses));
                     }
@@ -985,6 +990,9 @@ fn discharge_consequent(
 ) -> Result<ImplicationResult, ImplicationError> {
     let source = antecedent;
     let antecedent = source.pattern;
+    // Every obligation is decided on the antecedent's instances, where its term is defined and its
+    // constraints hold with their definedness stated (I7).
+    let knowledge = pattern_knowledge(definition, antecedent);
     let (substitution, remainder, solved_constraints) = solve_collection_remainder_pairs(
         definition,
         substitution,
@@ -993,15 +1001,16 @@ fn discharge_consequent(
     );
     let had_match_remainder = !remainder.is_empty();
     let mut obligations = implication_obligation_branches(
+        definition,
         consequent.pattern,
         consequent.existentials,
         &substitution,
         remainder,
-        &antecedent.constraints,
+        &knowledge,
     );
     for branch in &mut obligations {
         for predicate in &solved_constraints {
-            if !branch.contains(predicate) && !antecedent.constraints.contains(predicate) {
+            if !branch.contains(predicate) && !knowledge.contains(predicate) {
                 branch.push(predicate.clone());
             }
         }
@@ -1010,7 +1019,7 @@ fn discharge_consequent(
         definition,
         obligations,
         consequent.existentials,
-        &antecedent.constraints,
+        &knowledge,
         options.simplification,
         solver,
     ) {
@@ -1027,7 +1036,7 @@ fn discharge_consequent(
     let predicates = match simplify_predicates_with_solver(
         definition,
         &obligations.predicates,
-        &antecedent.constraints,
+        &knowledge,
         options.simplification,
         solver,
     ) {
@@ -1086,14 +1095,13 @@ fn discharge_consequent(
         predicates: obligations,
         witnesses,
     } = obligations;
-    let verdict =
-        solver.check_predicates(&antecedent.constraints, &Substitution::new(), &obligations);
+    let verdict = solver.check_predicates(&knowledge, &Substitution::new(), &obligations);
     if !matches!(
         &verdict,
         Ok(Validity::Valid | Validity::InconsistentGroundTruth)
     ) && refuted_by_simplification(
         definition,
-        antecedent,
+        &knowledge,
         &obligations,
         options.simplification,
         solver,
@@ -1327,16 +1335,18 @@ fn contains_conjunction(term: &Term) -> bool {
     }
 }
 
+/// Whether the antecedent's instances, described by `knowledge`, admit no counterexample to
+/// `obligations` once the simplifier evaluates functions under the negated obligations.
 fn refuted_by_simplification(
     definition: &BackendDefinition,
-    antecedent: &Pattern,
+    knowledge: &[Predicate],
     obligations: &[Predicate],
     options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Result<bool, SimplificationError> {
     let counterexample =
         normalize_predicate(Predicate::Not(Box::new(conjoin(obligations.to_vec()))));
-    let mut conjuncts = antecedent.constraints.clone();
+    let mut conjuncts = knowledge.to_vec();
     conjuncts.push(counterexample);
     let simplified = simplify_predicates_with_solver(definition, &conjuncts, &[], options, solver)?;
     Ok(predicates_truth(&simplified) == Truth::False
@@ -1429,9 +1439,11 @@ fn eliminate_existential_witnesses(
         }
         remaining.retain(|variable| !found.contains_key(variable));
         witnesses = compose(&found, &witnesses);
+        // `∃e. (e = t ∧ ψ)` is `⌈t⌉ ∧ ψ[t/e]` for an element variable `e` (I2): the witness's
+        // definedness stays an obligation unless the antecedent's knowledge holds it.
         branch = simplify_predicates_with_solver(
             definition,
-            &substitute_predicates(&rest, &found),
+            &eliminate_bindings(definition, &rest, &found, known),
             known,
             options,
             solver,
@@ -1445,13 +1457,18 @@ fn eliminate_existential_witnesses(
         }
     }
 
+    // The witnesses found above are already eliminated: an extracted substitution is saturated,
+    // so `rest` under it mentions none of its variables. Only a residual match remains; its
+    // equation holds under the match, and its witnesses' definedness is kept (I2).
+    let mut residual = Substitution::new();
     if let Some(found) = residual_existential_equality_match(definition, &branch, &remaining) {
         witnesses = compose(&found, &witnesses);
         branch.clear();
+        residual = found;
     }
 
     Ok(Obligations {
-        predicates: substitute_predicates(&branch, &witnesses),
+        predicates: eliminate_bindings(definition, &branch, &residual, known),
         witnesses,
     })
 }
@@ -1565,6 +1582,7 @@ fn is_collection_pair(left: &crate::term::Term, right: &crate::term::Term) -> bo
 }
 
 fn implication_obligation_branches(
+    definition: &BackendDefinition,
     consequent: &Pattern,
     existentials: &BTreeSet<Variable>,
     substitution: &Substitution,
@@ -1576,12 +1594,20 @@ fn implication_obligation_branches(
     branches
         .into_iter()
         .map(|remainder| {
-            implication_obligations(consequent, existentials, substitution, remainder, known)
+            implication_obligations(
+                definition,
+                consequent,
+                existentials,
+                substitution,
+                remainder,
+                known,
+            )
         })
         .collect()
 }
 
 fn implication_obligations(
+    definition: &BackendDefinition,
     consequent: &Pattern,
     existentials: &BTreeSet<Variable>,
     substitution: &Substitution,
@@ -1611,7 +1637,14 @@ fn implication_obligations(
             obligations.push(predicate);
         }
     }
-    for predicate in substitute_predicates(&consequent.constraints, substitution) {
+    // The consequent's constraints under the match are a condition on the antecedent's instances
+    // (I1): an atom over a term undefined on some of them is `⊥` there, so its definedness is
+    // stated before the condition is simplified or decided, except where `known` holds it.
+    for predicate in condition_definedness(
+        definition,
+        substitute_predicates(&consequent.constraints, substitution),
+        known,
+    ) {
         if !obligations.contains(&predicate) {
             obligations.push(predicate);
         }
@@ -2364,6 +2397,7 @@ mod tests {
         let consequent = pattern(&definition, "X:SortInt{}");
 
         let obligations = implication_obligations(
+            &definition,
             &consequent,
             &BTreeSet::new(),
             &Substitution::new(),
@@ -3644,5 +3678,277 @@ mod tests {
             ),
             ImplicationStatus::Indeterminate
         );
+    }
+
+    /// A partial `divInt` (no `total` attribute; `smt-hook(div)` gives the solver a total
+    /// operation) and a partial uninterpreted `g`, with `axioms` added to the module.
+    #[cfg(feature = "z3")]
+    fn partial_definition_with(axioms: &str) -> BackendDefinition {
+        let syntax = parse_definition(&format!(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{{}} [hook{{}}("INT.Int"), hasDomainValues{{}}()]
+                hooked-sort SortBool{{}} [hook{{}}("BOOL.Bool"), hasDomainValues{{}}()]
+                sort SortKItem{{}} []
+                symbol pair{{}}(SortInt{{}}, SortInt{{}}) : SortKItem{{}} [constructor{{}}()]
+                hooked-symbol leInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.le"), smt-hook{{}}("<=")]
+                hooked-symbol neInt{{}}(SortInt{{}}, SortInt{{}}) : SortBool{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.ne"), smt-hook{{}}("distinct")]
+                hooked-symbol addInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), total{{}}(), hook{{}}("INT.add"), smt-hook{{}}("+")]
+                hooked-symbol divInt{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), hook{{}}("INT.tdiv"), smt-hook{{}}("div")]
+                symbol g{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+                {axioms}
+            endmodule []"#
+        ))
+        .expect("partial definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN")
+            .expect("partial definition should internalize")
+    }
+
+    #[cfg(feature = "z3")]
+    fn partial_definition() -> BackendDefinition {
+        partial_definition_with("")
+    }
+
+    /// `10 /Int X` and `g(X)`, each undefined for some `X`.
+    #[cfg(feature = "z3")]
+    const PARTIAL_VALUES: [&str; 2] = [
+        r#"divInt{}(\dv{SortInt{}}("10"), X:SortInt{})"#,
+        r#"g{}(X:SortInt{})"#,
+    ];
+
+    /// `value <=Int value +Int 1`, true wherever `value` is defined.
+    #[cfg(feature = "z3")]
+    fn at_most_its_successor(value: &str) -> String {
+        format!(r#"leInt{{}}({value}, addInt{{}}({value}, \dv{{SortInt{{}}}}("1")))"#)
+    }
+
+    /// The K Boolean atom `atom` as a predicate: `\equals(true, atom)`.
+    #[cfg(feature = "z3")]
+    fn holds(definition: &BackendDefinition, atom: &str) -> Predicate {
+        Predicate::Equals(
+            term(definition, r#"\dv{SortBool{}}("true")"#),
+            term(definition, atom),
+        )
+    }
+
+    /// Ported from `cbc07_probe_consequent_condition_over_a_partial_term` (P1).
+    /// `pair(X, 1) → pair(X, 1) ∧ (v <=Int v +Int 1)` fails at an `X` where `v` is undefined:
+    /// there the atom is `\equals(true, ⊥) = ⊥`, so the consequent has no instance while the
+    /// antecedent has `pair(X, 1)`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_consequent_condition_over_a_partial_term_is_not_valid() {
+        let definition = partial_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let mut answers = Vec::new();
+        for value in PARTIAL_VALUES {
+            let mut consequent =
+                pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+            consequent
+                .constraints
+                .push(holds(&definition, &at_most_its_successor(value)));
+            let proof = check_implication(&definition, &antecedent, &consequent, &solver)
+                .expect("implication should be checked");
+            let complete = check_complete(&definition, &antecedent, &consequent, &solver)
+                .expect("implication should be checked");
+            answers.push((value, proof.status, complete.status));
+        }
+        assert!(
+            answers.iter().all(|&(_, proof, complete)| {
+                proof != ImplicationStatus::Valid && complete != ImplicationStatus::Valid
+            }),
+            "(value, proof, complete): {answers:#?}"
+        );
+    }
+
+    /// The companion of P1: where the antecedent states `X =/=Int 0` and the definition states
+    /// that `I /Int J` is defined wherever `J =/=Int 0`, the consequent's condition holds on every
+    /// instance of the antecedent.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_consequent_condition_over_a_term_the_antecedent_defines_is_valid() {
+        let definition = partial_definition_with(
+            r#"axiom{R, Q} \implies{R}(
+                    \equals{SortBool{}, R}(
+                        neInt{}(J:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    ),
+                    \equals{Q, R}(
+                        \ceil{SortInt{}, Q}(divInt{}(I:SortInt{}, J:SortInt{})),
+                        \and{Q}(\top{Q}(), \top{Q}())
+                    )
+                ) [label{}("div-defined"), simplification{}()]"#,
+        );
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        antecedent.constraints.push(holds(
+            &definition,
+            r#"neInt{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
+        ));
+        let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        consequent.constraints.push(holds(
+            &definition,
+            &at_most_its_successor(PARTIAL_VALUES[0]),
+        ));
+        let result = check_implication(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        let result = check_complete(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+    }
+
+    /// Ported from `cbc07_probe_existential_witness_over_a_partial_term` (P2).
+    /// `pair(X, 1) → ∃E. pair(X, 1) ∧ E = v` fails at an `X` where `v` is undefined: no element
+    /// `E` equals `⊥`, so the consequent has no instance there.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_existential_witness_over_a_partial_term_is_not_valid() {
+        let definition = partial_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let e = Variable::new("E", Sort::simple("SortInt"));
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let mut answers = Vec::new();
+        for value in PARTIAL_VALUES {
+            let mut consequent =
+                pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+            consequent.constraints.push(Predicate::Equals(
+                Term::variable(e.clone()),
+                term(&definition, value),
+            ));
+            let existentials = BTreeSet::from([e.clone()]);
+            let proof = check_implication_with_existentials(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &existentials,
+                &solver,
+            )
+            .expect("implication should be checked");
+            let complete = check_implication_with_existentials_complete(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &existentials,
+                &solver,
+            )
+            .expect("implication should be checked");
+            answers.push((value, proof.status, complete.status));
+        }
+        assert!(
+            answers.iter().all(|&(_, proof, complete)| {
+                proof != ImplicationStatus::Valid && complete != ImplicationStatus::Valid
+            }),
+            "(value, proof, complete): {answers:#?}"
+        );
+    }
+
+    /// Ported from `cbc07_probe_negated_consequent_over_a_partial_term` (P4).
+    /// `pair(X, 1) → ¬(pair(X, 1) ∧ ¬(v <=Int v +Int 1))` fails at an `X` where `v` is undefined:
+    /// there `¬\equals(true, ⊥)` is `⊤`, so both sides contain `pair(X, 1)`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn a_negated_consequent_over_a_partial_term_is_not_valid() {
+        let definition = partial_definition();
+        let antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        let mut answers = Vec::new();
+        for value in PARTIAL_VALUES {
+            let atom = at_most_its_successor(value);
+            let consequent = format!(
+                r#"\not{{SortKItem{{}}}}(\and{{SortKItem{{}}}}(
+                    pair{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("1")),
+                    \not{{SortKItem{{}}}}(
+                        \equals{{SortBool{{}}, SortKItem{{}}}}(\dv{{SortBool{{}}}}("true"), {atom})
+                    )
+                ))"#
+            );
+            answers.push((value, negated(&definition, antecedent.clone(), &consequent)));
+        }
+        assert!(
+            answers
+                .iter()
+                .all(|&(_, status)| status != ImplicationStatus::Valid),
+            "(value, status): {answers:#?}"
+        );
+    }
+
+    /// Ported from `cbc07_probe_antecedent_term_states_definedness` (I7).
+    /// `pair(X, v) → ∃Y. pair(X, Y) ∧ (Y <=Int Y +Int 1)` holds: the antecedent is empty wherever
+    /// `v` is undefined, so the witness `Y := v` is defined on each of its instances.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_antecedent_term_defines_the_partial_terms_it_contains() {
+        let definition = partial_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let y = Variable::new("Y", Sort::simple("SortInt"));
+        let existentials = BTreeSet::from([y]);
+        for value in PARTIAL_VALUES {
+            let antecedent = pattern(&definition, &format!("pair{{}}(X:SortInt{{}}, {value})"));
+            let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#);
+            consequent
+                .constraints
+                .push(holds(&definition, &at_most_its_successor("Y:SortInt{}")));
+            let result = check_implication_with_existentials(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &existentials,
+                &solver,
+            )
+            .expect("implication should be checked");
+            assert_eq!(
+                result.status,
+                ImplicationStatus::Valid,
+                "{value}: {result:#?}"
+            );
+            let result = check_implication_with_existentials_complete(
+                &definition,
+                &antecedent,
+                &BTreeSet::new(),
+                &consequent,
+                &existentials,
+                &solver,
+            )
+            .expect("implication should be checked");
+            assert_eq!(
+                result.status,
+                ImplicationStatus::Valid,
+                "{value}: {result:#?}"
+            );
+        }
+    }
+
+    /// Ported from `cbc07_probe_antecedent_constraint_states_definedness` (I7).
+    /// `pair(X, 1) ∧ (0 <=Int g(X)) → pair(X, 1) ∧ (g(X) <=Int g(X) +Int 1)` holds: the
+    /// antecedent's own atom is `⊥` wherever `g(X)` is undefined, so it implies `⌈g(X)⌉`.
+    #[cfg(feature = "z3")]
+    #[test]
+    fn an_antecedent_constraint_defines_the_partial_terms_it_contains() {
+        let definition = partial_definition();
+        let solver = Z3Solver::new(&definition).expect("Z3 should initialize");
+        let value = PARTIAL_VALUES[1];
+        let mut antecedent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        antecedent.constraints.push(holds(
+            &definition,
+            &format!(r#"leInt{{}}(\dv{{SortInt{{}}}}("0"), {value})"#),
+        ));
+        let mut consequent = pattern(&definition, r#"pair{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
+        consequent
+            .constraints
+            .push(holds(&definition, &at_most_its_successor(value)));
+        let result = check_implication(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
+        let result = check_complete(&definition, &antecedent, &consequent, &solver)
+            .expect("implication should be checked");
+        assert_eq!(result.status, ImplicationStatus::Valid, "{result:#?}");
     }
 }
