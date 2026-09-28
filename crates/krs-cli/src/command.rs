@@ -14,7 +14,7 @@ use krs_ir::measure::{
 };
 use krs_ir::{
     DefinitionSentence, Descriptor, DescriptorBundle, DescriptorPayload, OriginFrame, PackageId,
-    RangedOriginKind, Sha256Digest, SourceFileId, SourceRange,
+    RangedOriginKind, Sha256Digest, SourceFileId, SourceRange, StableText,
 };
 use krs_k_rust::{
     Backend, CompileOptions, DefinitionCompileError, FRONTEND_CAPABILITIES, adapt_definition,
@@ -402,7 +402,10 @@ fn count_bundle(counters: &mut Counters, bundle: &DescriptorBundle, bytes: usize
     let mut frames = 0;
     for descriptor in &bundle.descriptors {
         counters.add(
-            format!("descriptors.kind.{:?}", descriptor.id.item_kind()),
+            format!(
+                "descriptors.kind.{}",
+                descriptor.id.item_kind().stable_text()
+            ),
             1u64,
         );
         let origins = descriptor.provenance.origins();

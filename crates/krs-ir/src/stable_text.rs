@@ -106,37 +106,106 @@ impl StableText for SourceMapKey {
 mod tests {
     use super::*;
 
+    const ITEM_KINDS: [ItemKind; 11] = [
+        ItemKind::Sort,
+        ItemKind::Constructor,
+        ItemKind::Grammar,
+        ItemKind::Configuration,
+        ItemKind::Cell,
+        ItemKind::Rule,
+        ItemKind::Equation,
+        ItemKind::Simplification,
+        ItemKind::Alias,
+        ItemKind::ContextAlias,
+        ItemKind::Claim,
+    ];
+
+    /// Pins one spelling per variant; a new variant fails to compile here.
+    fn frozen_item_kind(kind: ItemKind) -> &'static str {
+        match kind {
+            ItemKind::Sort => "Sort",
+            ItemKind::Constructor => "Constructor",
+            ItemKind::Grammar => "Grammar",
+            ItemKind::Configuration => "Configuration",
+            ItemKind::Cell => "Cell",
+            ItemKind::Rule => "Rule",
+            ItemKind::Equation => "Equation",
+            ItemKind::Simplification => "Simplification",
+            ItemKind::Alias => "Alias",
+            ItemKind::ContextAlias => "ContextAlias",
+            ItemKind::Claim => "Claim",
+        }
+    }
+
+    /// Pins one spelling per variant; a new variant fails to compile here.
+    fn frozen_builtin_sort(sort: BuiltinSort) -> &'static str {
+        match sort {
+            BuiltinSort::KSequence => "KSequence",
+            BuiltinSort::Int => "Int",
+            BuiltinSort::Bool => "Bool",
+            BuiltinSort::Map => "Map",
+            BuiltinSort::Id => "Id",
+            BuiltinSort::Bytes => "Bytes",
+            BuiltinSort::String => "String",
+            BuiltinSort::List => "List",
+            BuiltinSort::Set => "Set",
+        }
+    }
+
     #[test]
     fn item_kind_spellings_are_frozen() {
-        let cases = [
-            ItemKind::Sort,
-            ItemKind::Constructor,
-            ItemKind::Grammar,
-            ItemKind::Configuration,
-            ItemKind::Cell,
-            ItemKind::Rule,
-            ItemKind::Equation,
-            ItemKind::Simplification,
-            ItemKind::Alias,
-            ItemKind::ContextAlias,
-            ItemKind::Claim,
-        ];
-        for kind in cases {
-            let expected = match kind {
-                ItemKind::Sort => "Sort",
-                ItemKind::Constructor => "Constructor",
-                ItemKind::Grammar => "Grammar",
-                ItemKind::Configuration => "Configuration",
-                ItemKind::Cell => "Cell",
-                ItemKind::Rule => "Rule",
-                ItemKind::Equation => "Equation",
-                ItemKind::Simplification => "Simplification",
-                ItemKind::Alias => "Alias",
-                ItemKind::ContextAlias => "ContextAlias",
-                ItemKind::Claim => "Claim",
-            };
-            assert_eq!(kind.stable_text(), expected);
+        for kind in ITEM_KINDS {
+            assert_eq!(kind.stable_text(), frozen_item_kind(kind));
         }
+    }
+
+    #[test]
+    fn builtin_sort_spellings_are_frozen() {
+        for sort in BuiltinSort::ALL {
+            assert_eq!(sort.stable_text(), frozen_builtin_sort(sort));
+        }
+    }
+
+    #[test]
+    fn closed_catalog_spelling_sets_are_frozen() {
+        let item_kinds = ITEM_KINDS
+            .iter()
+            .map(StableText::stable_text)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            item_kinds.into_iter().collect::<Vec<_>>(),
+            [
+                "Alias",
+                "Cell",
+                "Claim",
+                "Configuration",
+                "Constructor",
+                "ContextAlias",
+                "Equation",
+                "Grammar",
+                "Rule",
+                "Simplification",
+                "Sort",
+            ]
+        );
+        let builtin_sorts = BuiltinSort::ALL
+            .iter()
+            .map(StableText::stable_text)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            builtin_sorts.into_iter().collect::<Vec<_>>(),
+            [
+                "Bool",
+                "Bytes",
+                "Id",
+                "Int",
+                "KSequence",
+                "List",
+                "Map",
+                "Set",
+                "String",
+            ]
+        );
     }
 
     #[test]
