@@ -28,7 +28,7 @@
 //!
 //! [[cost]]
 //! mode = "simple paths"
-//! bound = "exponential in b and d, plus O(d) visited-list work per pop"
+//! bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 //! ```
 //!
 //! ```toml algorithm

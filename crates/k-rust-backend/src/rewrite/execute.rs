@@ -24,6 +24,10 @@
 //! [[cost]]
 //! mode = "trace storage with retain_trace false"
 //! bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
+//!
+//! [[cost]]
+//! mode = "branch-stop candidate identity"
+//! bound = "O(1) without observation; with observation O(KORE text bytes) per candidate to name its transition, and once more for an observed discarded candidate; each digest uses O(printer traversal stack) extra memory"
 //! ```
 //!
 //! Depth-first exploration of the rewrite tree (stack discipline) with a per-state pipeline and
@@ -824,10 +828,6 @@ impl<'a> Execution<'a> {
             let mut simplified_branches = Vec::with_capacity(branches.len());
             let mut failed_branch = None;
             for mut applied in branches {
-                let attempted_id = TransitionId {
-                    rule: applied.unique_id.clone(),
-                    target: PatternDigest::of(&applied.pattern),
-                };
                 // Each candidate's normalization is recorded on its own observation head, after
                 // its transition, as it would be on the branch the candidate extends.
                 let mut observation = applied_observation(
@@ -853,16 +853,23 @@ impl<'a> Execution<'a> {
                 extend_distinct(&mut applied.diagnostics, &diagnostics);
                 match simplified {
                     Ok(simplified) => {
+                        let discarded_id = self
+                            .observation
+                            .filter(|options| {
+                                predicates_truth(&simplified.pattern.constraints) == Truth::False
+                                    && options.observes(&applied.unique_id)
+                            })
+                            .map(|_| TransitionId {
+                                rule: applied.unique_id.clone(),
+                                target: PatternDigest::of(&applied.pattern),
+                            });
                         applied.pattern = simplified.pattern;
                         applied.effects.extend(simplified.effects);
                         if predicates_truth(&applied.pattern.constraints) != Truth::False {
                             simplified_branches.push((applied, observation));
-                        } else if self
-                            .observation
-                            .is_some_and(|options| options.observes(&applied.unique_id))
-                        {
+                        } else if let Some(id) = discarded_id {
                             self.discarded.push(UncommittedObservation {
-                                id: attempted_id,
+                                id,
                                 rule_label: applied.label,
                                 effects: applied.effects,
                                 reason: UncommittedReason::RolledBack,

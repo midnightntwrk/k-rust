@@ -13,7 +13,4 @@ simplify.nodes_skipped_evaluated = 33
 smt.queries = 17
 smt.solver_runs = 9
 smt.rlimit_count = 759
-output.kore_text.nodes_written = 44
-output.kore_text.distinct_nodes = 44
-output.kore_text.bytes_written = 829
 term.constructed = 29

@@ -1883,6 +1883,10 @@ bound = "O(L^2) structural key comparisons"
 mode = "trace storage with retain_trace false"
 bound = "O(1) rewrite entries per active path, excluding transient simplification entries"
 
+[[node.cost]]
+mode = "branch-stop candidate identity"
+bound = "O(1) without observation; with observation O(KORE text bytes) per candidate to name its transition, and once more for an observed discarded candidate; each digest uses O(printer traversal stack) extra memory"
+
 [[node]]
 kind = "algorithm"
 id = "backend.rewrite.recover"
@@ -2224,7 +2228,7 @@ symbol = "retain_witness"
 
 [[node.cost]]
 mode = "simple paths"
-bound = "exponential in b and d, plus O(d) visited-list work per pop"
+bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 
 [[node]]
 kind = "algorithm"
