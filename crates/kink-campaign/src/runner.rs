@@ -412,6 +412,7 @@ fn campaign_payload_refusal(source: &PayloadSource) -> Option<&'static str> {
             "whole constrained states carry path conditions whose syntax depends on the solver profile and on requires phrasing",
         ),
         PayloadSource::BindingValueNamed(_) => None,
+        PayloadSource::BeforeTerm(_) => None,
     }
 }
 

@@ -245,23 +245,25 @@ fn split_state(
     let sort = sorts
         .sort_of(&state)
         .ok_or(BridgeFailure::UndecidedStateSort)?;
-    let (terms, predicates) = state
-        .into_conjuncts_at(&sort)
-        .into_iter()
-        .partition(|conjunct| {
-            matches!(
-                conjunct,
-                Pattern::Application { .. }
-                    | Pattern::AssociativeApplication { .. }
-                    | Pattern::DomainValue { .. }
-                    | Pattern::String(_)
-                    | Pattern::Variable(_)
-            )
-        });
+    let (terms, predicates) = partition_conjuncts(state.into_conjuncts_at(&sort));
     Ok(SplitState {
         sort,
         terms,
         predicates,
+    })
+}
+
+/// Separates term conjuncts from path predicates using the bridge's state classification.
+pub(crate) fn partition_conjuncts(conjuncts: Vec<Pattern>) -> (Vec<Pattern>, Vec<Pattern>) {
+    conjuncts.into_iter().partition(|conjunct| {
+        matches!(
+            conjunct,
+            Pattern::Application { .. }
+                | Pattern::AssociativeApplication { .. }
+                | Pattern::DomainValue { .. }
+                | Pattern::String(_)
+                | Pattern::Variable(_)
+        )
     })
 }
 

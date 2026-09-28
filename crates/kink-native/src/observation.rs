@@ -11,7 +11,7 @@ use k_rust::backend::{
     BindingOutput, EffectOutput, EvaluationClassOutput, ObservationEventOutput, TraceEntry,
     TransitionClassOutput, TransitionIdOutput, UncommittedReasonOutput,
 };
-use k_rust::kore::{ast::Pattern, codec};
+use k_rust::kore::{ast::Pattern, codec, walk};
 use kink_patch::SentenceRef;
 use kink_pattern::AttributionUnknownReason;
 use serde_json::Value;
@@ -37,13 +37,29 @@ pub struct DomainEventSpec {
 /// Closed payload sources exposed by the k-rust transition wire contract.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PayloadSource {
+    /// The subterm at this child-index path (`kore::walk::children`, as in
+    /// `StateProjection::TermPaths`) of the unique term conjunct of the transition's
+    /// `before` constrained pattern. Every stepped-through node must be an
+    /// `Application`. Path conditions are excluded; an empty path selects the whole
+    /// configuration term. Admissible in campaigns.
+    BeforeTerm(Vec<u32>),
+    /// Not admissible in campaigns: whole constrained states carry path conditions
+    /// whose syntax depends on the solver profile and `requires` phrasing.
     BeforeState,
+    /// Not admissible in campaigns: whole constrained states carry path conditions
+    /// whose syntax depends on the solver profile and `requires` phrasing.
     AfterState,
+    /// Not admissible in campaigns: positional rule-variable payloads depend on the rule.
     BindingVariable(usize),
+    /// Not admissible in campaigns: positional rule-variable payloads depend on the rule.
     BindingValue(usize),
     /// The value bound to the uniquely named variable on the transition wire.
+    /// Refused in campaigns once KS-05 lands: resolved against each side's rule.
     BindingValueNamed(String),
+    /// Not admissible in campaigns: rule predicates depend on the solver profile
+    /// and the rule's phrasing.
     IntroducedPredicate(usize),
+    /// Not admissible in campaigns: effect payloads cannot be bridged into patterns.
     Effect(usize),
 }
 
@@ -402,6 +418,7 @@ pub(crate) fn adapt_branch(
                             }));
                             emission_ordinal += 1;
                         }
+                        let mut before_pattern = None;
                         for domain in &spec.domain_events {
                             let payload = domain
                                 .payload
@@ -410,6 +427,7 @@ pub(crate) fn adapt_branch(
                                     payload_value(
                                         source.clone(),
                                         &before,
+                                        &mut before_pattern,
                                         &after,
                                         &bindings,
                                         &introduced_predicates,
@@ -538,6 +556,7 @@ fn inventory_effects(effects: &[EffectOutput]) {
 fn payload_value(
     source: PayloadSource,
     before: &Value,
+    before_pattern: &mut Option<Pattern>,
     after: &Value,
     bindings: &[BindingOutput],
     predicates: &[Value],
@@ -545,6 +564,38 @@ fn payload_value(
 ) -> Result<DomainPayload, ObservationFailure> {
     let missing = || ObservationFailure::MissingPayloadSource(source.clone());
     Ok(match source {
+        PayloadSource::BeforeTerm(ref path) => {
+            if before_pattern.is_none() {
+                *before_pattern =
+                    Some(codec::from_value(before).map_err(|error| {
+                        ObservationFailure::UndecodableState(error.to_string())
+                    })?);
+            }
+            let state = before_pattern.as_ref().expect("decoded pre-state");
+            let conjuncts = if let Pattern::And { sort, .. } = state {
+                state.clone().into_conjuncts_at(sort)
+            } else {
+                vec![state.clone()]
+            };
+            let (terms, _) = crate::bridge::partition_conjuncts(conjuncts);
+            let [term] = terms.as_slice() else {
+                return Err(missing());
+            };
+            let mut subterm = term;
+            for step in path {
+                if !matches!(subterm, Pattern::Application { .. }) {
+                    return Err(missing());
+                }
+                subterm = walk::children(subterm)
+                    .get(*step as usize)
+                    .copied()
+                    .ok_or_else(&missing)?;
+            }
+            DomainPayload::Term(
+                codec::to_value(subterm)
+                    .map_err(|error| ObservationFailure::UndecodableState(error.to_string()))?,
+            )
+        }
         PayloadSource::BeforeState => DomainPayload::Term(before.clone()),
         PayloadSource::AfterState => DomainPayload::Term(after.clone()),
         PayloadSource::BindingVariable(index) => {
@@ -596,6 +647,8 @@ pub enum ObservationFailure {
         actual: Option<String>,
     },
     MissingPayloadSource(PayloadSource),
+    /// A transition pre-state could not be decoded or its selected term encoded.
+    UndecodableState(String),
     InvalidEvaluationAnchor(usize),
 }
 
@@ -604,7 +657,97 @@ mod tests {
     use super::*;
     use k_rust::backend::ObservationEventOutput;
     use k_rust::kompile::initial_configuration::kore_sort;
-    use k_rust::kore::ast::{Variable, VariableKind};
+    use k_rust::kore::ast::{Associativity, Symbol, Variable, VariableKind};
+
+    #[test]
+    fn before_term_payload_selects_by_path() {
+        let sort = kore_sort("SortS");
+        let symbol = |name: &str| Symbol {
+            name: name.into(),
+            sort_parameters: vec![],
+        };
+        let application = |name: &str, arguments| Pattern::Application {
+            symbol: symbol(name),
+            arguments,
+        };
+        let a = application("a", vec![]);
+        let b = application("b", vec![]);
+        let term = application("f", vec![a.clone(), b.clone()]);
+        let predicate = Pattern::Equals {
+            operand_sort: Box::new(sort.clone()),
+            result_sort: sort.clone(),
+            left: Box::new(a.clone()),
+            right: Box::new(a.clone()),
+        };
+        let constrained = Pattern::And {
+            sort: sort.clone(),
+            arguments: vec![term.clone(), predicate],
+        };
+        let read = |state: &Pattern, path: &[u32]| {
+            payload_value(
+                PayloadSource::BeforeTerm(path.to_vec()),
+                &codec::to_value(state).expect("KORE state"),
+                &mut None,
+                &Value::Null,
+                &[],
+                &[],
+                &[],
+            )
+        };
+        let selected = |pattern: &Pattern| {
+            Ok(DomainPayload::Term(
+                codec::to_value(pattern).expect("KORE payload"),
+            ))
+        };
+        let missing = |path: &[u32]| {
+            Err(ObservationFailure::MissingPayloadSource(
+                PayloadSource::BeforeTerm(path.to_vec()),
+            ))
+        };
+        assert_eq!(read(&constrained, &[1]), selected(&b));
+        assert_eq!(read(&constrained, &[]), selected(&term));
+        assert_eq!(read(&constrained, &[2]), missing(&[2]));
+        assert_eq!(read(&constrained, &[0, 0]), missing(&[0, 0]));
+        assert_eq!(read(&term, &[0]), selected(&a));
+        assert_eq!(
+            read(
+                &Pattern::And {
+                    sort: sort.clone(),
+                    arguments: vec![term.clone(), a.clone()],
+                },
+                &[],
+            ),
+            missing(&[])
+        );
+        assert_eq!(
+            read(
+                &Pattern::And {
+                    sort: sort.clone(),
+                    arguments: vec![term.clone(), Pattern::Top { sort: sort.clone() }],
+                },
+                &[1],
+            ),
+            selected(&b)
+        );
+        let associative = Pattern::AssociativeApplication {
+            associativity: Associativity::Left,
+            symbol: symbol("assoc"),
+            arguments: vec![a, b],
+        };
+        assert_eq!(read(&associative, &[0]), missing(&[0]));
+        assert!(matches!(
+            payload_value(
+                PayloadSource::BeforeTerm(vec![]),
+                &serde_json::json!("not kore"),
+                &mut None,
+                &Value::Null,
+                &[],
+                &[],
+                &[],
+            ),
+            Err(ObservationFailure::UndecodableState(_))
+        ));
+    }
 
     #[test]
     fn named_binding_payload_selects_by_variable() {
@@ -635,7 +778,15 @@ mod tests {
         let bindings = [binding("RuleVarA", a), binding("RuleVarV", v.clone())];
         let source = PayloadSource::BindingValueNamed("RuleVarV".into());
         let read = |source: PayloadSource, bindings: &[BindingOutput]| {
-            payload_value(source, &Value::Null, &Value::Null, bindings, &[], &[])
+            payload_value(
+                source,
+                &Value::Null,
+                &mut None,
+                &Value::Null,
+                bindings,
+                &[],
+                &[],
+            )
         };
         assert_eq!(read(source.clone(), &bindings), Ok(DomainPayload::Term(v)));
         let missing = PayloadSource::BindingValueNamed("RuleVarMissing".into());
