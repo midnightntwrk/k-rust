@@ -18,7 +18,7 @@
 //! rename or removal is a contract change and bumps the dump's `version`.
 
 /// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 12;
+pub const COUNTER_SCHEMA_VERSION: u64 = 13;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -96,6 +96,8 @@ algorithms! {
     BackendImplicationCheck => "backend.implication.check",
     /// Bounded FIFO memoization of SMT query scripts.
     BackendSmtCache => "backend.smt.cache",
+    /// Z3 satisfiability check after parsing the script.
+    BackendSmtCheck => "backend.smt.check",
     /// Structural definedness constraint generation and discharge.
     BackendDefinedness => "backend.definedness.discharge",
     /// KORE definition validation and internalization.
@@ -445,6 +447,8 @@ pub enum Counter {
     SmtQueries,
     /// SMT queries that ran a solver instance.
     SmtSolverRuns,
+    /// Z3 resource-limit units consumed by solver checks.
+    SmtRlimitCount,
     /// Allocations made by the measured executable.
     Allocations,
     /// Requested bytes in those allocations.
@@ -479,7 +483,7 @@ pub enum Counter {
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 70;
+    pub const COUNT: usize = 71;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -538,6 +542,7 @@ impl Counter {
         Counter::SimplifyBuiltinEvaluations,
         Counter::SmtQueries,
         Counter::SmtSolverRuns,
+        Counter::SmtRlimitCount,
         Counter::Allocations,
         Counter::AllocatedBytes,
         Counter::KoreTextNodesWritten,
@@ -615,6 +620,7 @@ impl Counter {
             Counter::SimplifyBuiltinEvaluations => "simplify.builtin_evaluations",
             Counter::SmtQueries => "smt.queries",
             Counter::SmtSolverRuns => "smt.solver_runs",
+            Counter::SmtRlimitCount => "smt.rlimit_count",
             Counter::Allocations => "allocation.count",
             Counter::AllocatedBytes => "allocation.bytes",
             Counter::KoreTextNodesWritten => "output.kore_text.nodes_written",

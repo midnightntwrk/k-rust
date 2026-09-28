@@ -3,7 +3,7 @@
 //! name = "bounded FIFO memoization of SMT query scripts"
 //! sites = ["Z3Solver::solve", "SolverResultCache::get", "SolverResultCache::insert", "Z3Solver::solve_uncached", "SolverResultCache", "Z3Solver::solve_model", "Z3Solver::confirm_answer", "Z3Solver::check_prelude"]
 //! variable = "e = entries evicted; E = cached entries; L = script length in bytes"
-//! counters = ["SmtQueries", "SmtSolverRuns"]
+//! counters = ["SmtQueries", "SmtSolverRuns", "SmtRlimitCount"]
 //! span = "per call"
 //! invariant = "entries and insertion_order agree; eviction stops once the entry and key-byte limits admit the new key"
 //!
@@ -29,6 +29,20 @@
 //! explicit prelude check.
 //! A validity check (`decide_validity`) issues a positive subquery, then a negative or a base
 //! subquery, and a third on the unknown path; each subquery goes through the cache.
+//!
+//! ```toml algorithm
+//! id = "backend.smt.check"
+//! name = "Z3 satisfiability check"
+//! sites = ["measured_check", "Z3Solver::solve_uncached", "Z3Solver::solve_model"]
+//! variable = "R = Z3 resource-limit units consumed by one check"
+//! counters = ["SmtSolverRuns", "SmtRlimitCount"]
+//! span = "per call"
+//! invariant = "the rlimit delta is read around each check from the cumulative statistics of its context"
+//!
+//! [[cost]]
+//! mode = "solver check"
+//! bound = "O(R) solver work as reported by Z3"
+//! ```
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -57,6 +71,29 @@ use crate::{
     substitution::Substitution,
     term::{Term, Variable},
 };
+
+#[cfg(feature = "measure")]
+fn rlimit_count(solver: &Solver) -> u64 {
+    match solver.get_statistics().value("rlimit count") {
+        Some(z3::StatisticsValue::UInt(value)) => u64::from(value),
+        _ => 0,
+    }
+}
+
+fn measured_check(solver: &Solver) -> SatResult {
+    #[cfg(feature = "measure")]
+    let before = rlimit_count(solver);
+    let result = {
+        let _span = measure::algorithm_span(Algorithm::BackendSmtCheck);
+        solver.check()
+    };
+    #[cfg(feature = "measure")]
+    measure::add(
+        Counter::SmtRlimitCount,
+        rlimit_count(solver).saturating_sub(before),
+    );
+    result
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Z3Options {
@@ -316,7 +353,7 @@ impl Z3Solver {
             parameters.set_u32("timeout", timeout);
             solver.set_params(&parameters);
             solver.from_string(script);
-            match solver.check() {
+            match measured_check(&solver) {
                 SatResult::Sat => return Satisfiability::Sat,
                 SatResult::Unsat => return Satisfiability::Unsat,
                 SatResult::Unknown if attempt < self.options.retry_limit => {
@@ -372,7 +409,7 @@ impl Z3Solver {
             parameters.set_u32("timeout", timeout);
             solver.set_params(&parameters);
             solver.from_string(query.base.as_str());
-            match solver.check() {
+            match measured_check(&solver) {
                 SatResult::Sat => {
                     self.confirm_answer(Satisfiability::Sat)?;
                     if !exact {

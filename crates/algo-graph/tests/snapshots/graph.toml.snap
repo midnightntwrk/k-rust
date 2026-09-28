@@ -3,6 +3,34 @@ source: crates/algo-graph/tests/freshness.rs
 expression: canonical
 ---
 [[node]]
+kind = "observation"
+id = "AllocatedBytes"
+provenance = "table"
+area = "allocation"
+name = "AllocatedBytes"
+table = "Counter::ALL"
+registry_name = "allocation.bytes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::AllocatedBytes"
+
+[[node]]
+kind = "observation"
+id = "Allocations"
+provenance = "table"
+area = "allocation"
+name = "Allocations"
+table = "Counter::ALL"
+registry_name = "allocation.count"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::Allocations"
+
+[[node]]
 kind = "registry"
 id = "Counter::ALL"
 provenance = "table"
@@ -198,6 +226,48 @@ symbol = "Counter::KompileSentencesTransformed"
 
 [[node]]
 kind = "observation"
+id = "KoreTextBytesWritten"
+provenance = "table"
+area = "output"
+name = "KoreTextBytesWritten"
+table = "Counter::ALL"
+registry_name = "output.kore_text.bytes_written"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KoreTextBytesWritten"
+
+[[node]]
+kind = "observation"
+id = "KoreTextDistinctNodes"
+provenance = "table"
+area = "output"
+name = "KoreTextDistinctNodes"
+table = "Counter::ALL"
+registry_name = "output.kore_text.distinct_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KoreTextDistinctNodes"
+
+[[node]]
+kind = "observation"
+id = "KoreTextNodesWritten"
+provenance = "table"
+area = "output"
+name = "KoreTextNodesWritten"
+table = "Counter::ALL"
+registry_name = "output.kore_text.nodes_written"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::KoreTextNodesWritten"
+
+[[node]]
+kind = "observation"
 id = "MatchingCollectionProblems"
 provenance = "table"
 area = "matching"
@@ -237,6 +307,48 @@ registry_name = "matching.problems"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::MatchingProblems"
+
+[[node]]
+kind = "observation"
+id = "ObservationJsonBytesWritten"
+provenance = "table"
+area = "output"
+name = "ObservationJsonBytesWritten"
+table = "Counter::ALL"
+registry_name = "output.observation_json.bytes_written"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ObservationJsonBytesWritten"
+
+[[node]]
+kind = "observation"
+id = "ObservationJsonDistinctNodes"
+provenance = "table"
+area = "output"
+name = "ObservationJsonDistinctNodes"
+table = "Counter::ALL"
+registry_name = "output.observation_json.distinct_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ObservationJsonDistinctNodes"
+
+[[node]]
+kind = "observation"
+id = "ObservationJsonNodesWritten"
+provenance = "table"
+area = "output"
+name = "ObservationJsonNodesWritten"
+table = "Counter::ALL"
+registry_name = "output.observation_json.nodes_written"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::ObservationJsonNodesWritten"
 
 [[node]]
 kind = "observation"
@@ -702,6 +814,48 @@ symbol = "Counter::RewriteSteps"
 
 [[node]]
 kind = "observation"
+id = "RpcJsonBytesWritten"
+provenance = "table"
+area = "output"
+name = "RpcJsonBytesWritten"
+table = "Counter::ALL"
+registry_name = "output.rpc_json.bytes_written"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RpcJsonBytesWritten"
+
+[[node]]
+kind = "observation"
+id = "RpcJsonDistinctNodes"
+provenance = "table"
+area = "output"
+name = "RpcJsonDistinctNodes"
+table = "Counter::ALL"
+registry_name = "output.rpc_json.distinct_nodes"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RpcJsonDistinctNodes"
+
+[[node]]
+kind = "observation"
+id = "RpcJsonNodesWritten"
+provenance = "table"
+area = "output"
+name = "RpcJsonNodesWritten"
+table = "Counter::ALL"
+registry_name = "output.rpc_json.nodes_written"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::RpcJsonNodesWritten"
+
+[[node]]
+kind = "observation"
 id = "SearchStatesDeduplicated"
 provenance = "table"
 area = "search"
@@ -797,6 +951,20 @@ registry_name = "smt.queries"
 crate = "k-rust-kore"
 file = "crates/k-rust-kore/src/measure.rs"
 symbol = "Counter::SmtQueries"
+
+[[node]]
+kind = "observation"
+id = "SmtRlimitCount"
+provenance = "table"
+area = "smt"
+name = "SmtRlimitCount"
+table = "Counter::ALL"
+registry_name = "smt.rlimit_count"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::SmtRlimitCount"
 
 [[node]]
 kind = "observation"
@@ -2271,6 +2439,42 @@ bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
 [[node.cost]]
 mode = "prelude consistency"
 bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
+
+[[node]]
+kind = "algorithm"
+id = "backend.smt.check"
+provenance = "declared"
+area = "backend"
+name = "Z3 satisfiability check"
+variable = "R = Z3 resource-limit units consumed by one check"
+invariant = "the rlimit delta is read around each check from the cumulative statistics of its context"
+span = "per call"
+table = "Algorithm::ALL"
+registry_name = "BackendSmtCheck"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "measured_check"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "measured_check"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::solve_uncached"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/smt/z3.rs"
+symbol = "Z3Solver::solve_model"
+
+[[node.cost]]
+mode = "solver check"
+bound = "O(R) solver work as reported by Z3"
 
 [[node]]
 kind = "algorithm"
@@ -5098,7 +5302,6 @@ provenance = "declared"
 area = "kore"
 name = "construction of KORE pretty-print documents"
 variable = "N = KORE syntax nodes; the Doc::concat, Doc::nest, and Doc::group wrappers around any op are bounded by a constant, because they wrap only the sentence, sentence-body nest, and attribute-list delimited levels, and definition_ops and module_ops add a constant number of ops per module and sentence, while patterns, sorts, symbols, and variables are produced by the SyntaxOps task stack, which reads each pattern node once through PatternSource::node; Printer::write_pattern and Printer::write_source pull those ops on demand from inside the render span, and definition and module printing pull each sentence's document the same way, so their construction time is measured together with rendering"
-no_counter = "KORE document construction has no dedicated counter"
 span = "per call"
 table = "Algorithm::ALL"
 registry_name = "KorePrinterBuild"
@@ -7748,6 +7951,24 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "backend.smt.cache"
+to = "SmtRlimitCount"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.cache"
+to = "SmtSolverRuns"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.check"
+to = "SmtRlimitCount"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.smt.check"
 to = "SmtSolverRuns"
 provenance = "declared"
 
@@ -8359,6 +8580,24 @@ provenance = "declared"
 kind = "measured-by"
 from = "kompile.sort_injections.insert"
 to = "KompileInjectionsInserted"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kore.printer.build"
+to = "KoreTextBytesWritten"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kore.printer.build"
+to = "KoreTextDistinctNodes"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "kore.printer.build"
+to = "KoreTextNodesWritten"
 provenance = "declared"
 
 [[edge]]
