@@ -31,7 +31,7 @@ pub(super) fn validate_all_stable_references(
                         DescriptorLoweringError::UnsupportedShape {
                             node: "constructor field",
                             detail: format!(
-                                "field {:?} on {:?} has no resolved sort",
+                                "field {:?} on {} has no resolved sort",
                                 field.name, descriptor.id
                             ),
                         }

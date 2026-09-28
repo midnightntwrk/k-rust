@@ -541,7 +541,7 @@ fn validate_payload_item_kind(host: &HostDescriptor) -> Result<(), CollectionErr
         return Err(CollectionError::new(
             CollectionErrorKind::ItemKindMismatch,
             format!(
-                "host item `{}` declares kind {:?} but its payload requires {expected:?}",
+                "host item `{}` declares kind {} but its payload requires {expected}",
                 host.id.item_name(),
                 host.id.item_kind()
             ),
@@ -559,17 +559,7 @@ fn is_rust_identifier(value: &str) -> bool {
 }
 
 fn display_item(id: &StableItemId) -> String {
-    let module = if id.module_path().is_empty() {
-        String::new()
-    } else {
-        format!("{}::", id.module_path().join("::"))
-    };
-    format!(
-        "{}::{module}{}#{:?}",
-        id.package().k_namespace(),
-        id.item_name(),
-        id.item_kind()
-    )
+    id.to_string()
 }
 
 fn path_spelling(path: &syn::Path) -> String {

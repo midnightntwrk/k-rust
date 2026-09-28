@@ -300,7 +300,7 @@ fn non_bool_guard_is_rejected_after_real_collection_and_sort_inference() {
     );
     assert_eq!(
         String::from_utf8(output.stdout).unwrap().trim(),
-        "application result sort Builtin(Int) is not admissible at sort Builtin(Bool)"
+        "application result sort Int is not admissible at sort Bool"
     );
 }
 

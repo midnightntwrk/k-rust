@@ -583,49 +583,40 @@ pub enum HostBuiltinRegistryError {
 impl fmt::Display for HostBuiltinRegistryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateSort(sort) => write!(formatter, "duplicate builtin sort {sort:?}"),
+            Self::DuplicateSort(sort) => write!(formatter, "duplicate builtin sort {sort}"),
             Self::DuplicateOperation(operation) => {
-                write!(formatter, "duplicate builtin operation {operation:?}")
+                write!(formatter, "duplicate builtin operation {operation}")
             }
-            Self::MissingSort(sort) => write!(formatter, "missing builtin sort {sort:?}"),
+            Self::MissingSort(sort) => write!(formatter, "missing builtin sort {sort}"),
             Self::MissingOperation(operation) => {
-                write!(formatter, "missing builtin operation {operation:?}")
+                write!(formatter, "missing builtin operation {operation}")
             }
             Self::DuplicateMapOperation(operation) => {
-                write!(formatter, "duplicate Map operation {operation:?}")
+                write!(formatter, "duplicate {operation}")
             }
             Self::MissingMapOperation(operation) => {
-                write!(formatter, "missing Map operation {operation:?}")
+                write!(formatter, "missing {operation}")
             }
             Self::UnsupportedMapOperation(operation) => {
-                write!(
-                    formatter,
-                    "Map operation {operation:?} is not an ordinary term application"
-                )
+                write!(formatter, "{operation} is not an ordinary term application")
             }
             Self::DuplicateListOperation(operation) => {
-                write!(formatter, "duplicate List operation {operation:?}")
+                write!(formatter, "duplicate {operation}")
             }
             Self::MissingListOperation(operation) => {
-                write!(formatter, "missing List operation {operation:?}")
+                write!(formatter, "missing {operation}")
             }
             Self::UnsupportedListOperation(operation) => {
-                write!(
-                    formatter,
-                    "List operation {operation:?} is not an ordinary term application"
-                )
+                write!(formatter, "{operation} is not an ordinary term application")
             }
             Self::DuplicateSetOperation(operation) => {
-                write!(formatter, "duplicate Set operation {operation:?}")
+                write!(formatter, "duplicate {operation}")
             }
             Self::MissingSetOperation(operation) => {
-                write!(formatter, "missing Set operation {operation:?}")
+                write!(formatter, "missing {operation}")
             }
             Self::UnsupportedSetOperation(operation) => {
-                write!(
-                    formatter,
-                    "Set operation {operation:?} is not an ordinary term application"
-                )
+                write!(formatter, "{operation} is not an ordinary term application")
             }
             Self::ReusedRustType => {
                 formatter.write_str("one Rust marker type has multiple builtin meanings")
@@ -1526,18 +1517,18 @@ impl fmt::Display for GrammarTransportError {
                 write!(formatter, "{field} must not be empty")
             }
             Self::SortReferenceKind(kind) => {
-                write!(formatter, "declared sort reference has item kind {kind:?}")
+                write!(formatter, "declared sort reference has item kind {kind}")
             }
             Self::ApplicationReferenceKind(kind) => {
                 write!(
                     formatter,
-                    "declared application reference has item kind {kind:?}"
+                    "declared application reference has item kind {kind}"
                 )
             }
             Self::DuplicateValue(field) => write!(formatter, "{field} contains a duplicate"),
             Self::DescriptorItemKind { expected, actual } => write!(
                 formatter,
-                "descriptor item kind mismatch: expected {expected:?}, found {actual:?}"
+                "descriptor item kind mismatch: expected {expected}, found {actual}"
             ),
             Self::MissingProvenance(key) => write!(
                 formatter,

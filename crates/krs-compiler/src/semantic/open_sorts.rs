@@ -257,7 +257,7 @@ fn require_kind(
         return Err(AnalysisError::new(
             AnalysisErrorKind::ReferenceKindMismatch,
             format!(
-                "stable reference `{}` has kind {actual:?}, but {expected:?} is required",
+                "stable reference `{}` has kind {actual}, but {expected} is required",
                 display_item(id)
             ),
         ));
@@ -266,15 +266,5 @@ fn require_kind(
 }
 
 fn display_item(id: &StableItemId) -> String {
-    let module = if id.module_path().is_empty() {
-        String::new()
-    } else {
-        format!("{}::", id.module_path().join("::"))
-    };
-    format!(
-        "{}::{module}{}#{:?}",
-        id.package().k_namespace(),
-        id.item_name(),
-        id.item_kind()
-    )
+    id.to_string()
 }

@@ -109,7 +109,7 @@ impl fmt::Display for EmitError {
             Self::InvalidReference(detail) => formatter.write_str(detail),
             Self::DuplicateGeneratedRange(key) => write!(
                 formatter,
-                "duplicate generated range for source-map key {:?}",
+                "duplicate generated range for source-map key {}",
                 key.as_str()
             ),
             Self::InvalidSidecar(detail) => write!(formatter, "invalid emitted sidecar: {detail}"),
@@ -312,7 +312,7 @@ impl<'a> EmitContext<'a> {
         self.context_aliases
             .get(id)
             .map(String::as_str)
-            .ok_or_else(|| EmitError::InvalidReference(format!("missing context alias {id:?}")))
+            .ok_or_else(|| EmitError::InvalidReference(format!("missing context alias {id}")))
     }
 
     fn is_non_associative(&self, group: &ProductionGroupId) -> bool {
@@ -1760,7 +1760,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::BytesEmpty {
         if !arguments.is_empty() {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1770,7 +1770,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::BytesLength {
         if arguments.len() != 1 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1787,7 +1787,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::BytesGet {
         if arguments.len() != 2 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1808,7 +1808,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::BytesUpdate {
         if arguments.len() != 3 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1835,7 +1835,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::BytesPadRight {
         if arguments.len() != 3 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1857,7 +1857,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::BytesSubstring {
         if arguments.len() != 3 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1879,7 +1879,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::IntPowMod {
         if arguments.len() != 3 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1905,7 +1905,7 @@ fn render_builtin_application(
     if operation == BuiltinOperation::IntLog2 {
         if arguments.len() != 1 {
             return Err(EmitError::InvalidReference(format!(
-                "builtin operation {operation:?} has invalid arity {}",
+                "builtin operation {operation} has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -1952,7 +1952,7 @@ fn render_builtin_application(
     };
     if arguments.len() != expected {
         return Err(EmitError::InvalidReference(format!(
-            "builtin operation {operation:?} has invalid arity {}",
+            "builtin operation {operation} has invalid arity {}",
             arguments.len()
         )));
     }
@@ -2099,7 +2099,7 @@ fn render_map(
         }
         _ => {
             return Err(EmitError::InvalidReference(format!(
-                "Map operation {operation:?} has invalid arity {}",
+                "the {operation} operation has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -2141,7 +2141,7 @@ fn render_set(
         }
         _ => {
             return Err(EmitError::InvalidReference(format!(
-                "Set operation {operation:?} has invalid arity {}",
+                "the {operation} operation has invalid arity {}",
                 arguments.len()
             )));
         }
@@ -2220,7 +2220,7 @@ fn render_list(
         }
         _ => {
             return Err(EmitError::InvalidReference(format!(
-                "List operation {operation:?} has invalid arity {}",
+                "the {operation} operation has invalid arity {}",
                 arguments.len()
             )));
         }

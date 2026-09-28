@@ -143,7 +143,7 @@ pub(super) fn build_production_catalog(
         {
             return Err(DescriptorLoweringError::UnsupportedShape {
                 node: "production catalog",
-                detail: format!("more than one grammar descriptor owns {id:?}"),
+                detail: format!("more than one grammar descriptor owns {id}"),
             });
         }
     }
@@ -165,10 +165,7 @@ pub(super) fn build_production_catalog(
                 let sort = field.sort.clone().ok_or_else(|| {
                     DescriptorLoweringError::UnsupportedShape {
                         node: "constructor field",
-                        detail: format!(
-                            "constructor {:?} field {name:?} has no sort",
-                            descriptor.id
-                        ),
+                        detail: format!("constructor {} field {name:?} has no sort", descriptor.id),
                     }
                 })?;
                 Ok((ProductionFieldId::new(name)?, semantic_sort_ref(&sort)))
@@ -261,7 +258,7 @@ fn constructor_field_order(
         let Some(close) = remainder.find('}') else {
             return Err(DescriptorLoweringError::UnsupportedShape {
                 node: "constructor syntax",
-                detail: format!("constructor {production:?} has an unclosed placeholder"),
+                detail: format!("constructor {production} has an unclosed placeholder"),
             });
         };
         names.push(remainder[..close].to_owned());
@@ -275,7 +272,7 @@ fn constructor_field_order(
     {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "constructor syntax",
-            detail: format!("constructor {production:?} has inconsistent field placeholders"),
+            detail: format!("constructor {production} has inconsistent field placeholders"),
         });
     }
     Ok(names)

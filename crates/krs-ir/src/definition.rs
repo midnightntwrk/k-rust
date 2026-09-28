@@ -1803,52 +1803,48 @@ impl fmt::Display for DefinitionValidationError {
             Self::AdapterSpecificValue(field) => {
                 write!(formatter, "{field} must be target-neutral and path-free")
             }
-            Self::DuplicateModule(id) => write!(formatter, "duplicate module {:?}", id.as_str()),
+            Self::DuplicateModule(id) => write!(formatter, "duplicate module {id}"),
             Self::DuplicateSourceMapKey(key) => {
-                write!(formatter, "duplicate source-map key {:?}", key.as_str())
+                write!(formatter, "duplicate source-map key {key}")
             }
-            Self::DuplicateSymbol(id) => write!(formatter, "duplicate symbol {:?}", id.as_str()),
-            Self::DuplicateLabel(id) => write!(formatter, "duplicate label {:?}", id.as_str()),
+            Self::DuplicateSymbol(id) => write!(formatter, "duplicate symbol {id}"),
+            Self::DuplicateLabel(id) => write!(formatter, "duplicate label {id}"),
             Self::DuplicateEmittedName(name) => {
                 write!(formatter, "duplicate emitted name {name:?}")
             }
             Self::DuplicateProductionGroup(group) => {
-                write!(formatter, "duplicate production group {:?}", group.as_str())
+                write!(formatter, "duplicate production group {group}")
             }
             Self::DanglingProductionGroup(group) => {
-                write!(formatter, "dangling production group {:?}", group.as_str())
+                write!(formatter, "dangling production group {group}")
             }
             Self::PrecedenceCycle(group) => write!(
                 formatter,
-                "production-group precedence contains a cycle through {:?}",
-                group.as_str()
+                "production-group precedence contains a cycle through {group}"
             ),
             Self::SubsortCycle(sort) => {
                 write!(
                     formatter,
-                    "subsort relation contains a cycle through {sort:?}"
+                    "subsort relation contains a cycle through {sort}"
                 )
             }
-            Self::DanglingModule(id) => write!(formatter, "dangling module {:?}", id.as_str()),
-            Self::DanglingSymbol(id) => write!(formatter, "dangling symbol {:?}", id.as_str()),
+            Self::DanglingModule(id) => write!(formatter, "dangling module {id}"),
+            Self::DanglingSymbol(id) => write!(formatter, "dangling symbol {id}"),
             Self::WrongSymbolKind {
                 id,
                 expected,
                 actual,
             } => write!(
                 formatter,
-                "symbol {:?} has kind {actual:?}, expected {expected:?}",
-                id.as_str()
+                "symbol {id} has kind {actual}, expected {expected}"
             ),
             Self::ConfigurationCount(count) => write!(
                 formatter,
                 "Definition IR requires exactly one configuration, found {count}"
             ),
-            Self::EmptyProduction(id) => write!(
-                formatter,
-                "production {:?} must contain syntax items",
-                id.as_str()
-            ),
+            Self::EmptyProduction(id) => {
+                write!(formatter, "production {id} must contain syntax items")
+            }
             Self::DuplicateProductionAttribute(attribute) => {
                 write!(formatter, "production repeats {attribute} metadata")
             }
@@ -1866,25 +1862,21 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidBracketProduction => formatter
                 .write_str("bracket metadata requires exactly one nonterminal grammar item"),
             Self::DuplicateVariable(id) => {
-                write!(formatter, "duplicate variable {:?}", id.as_str())
+                write!(formatter, "duplicate variable {id}")
             }
-            Self::DanglingVariable(id) => write!(formatter, "dangling variable {:?}", id.as_str()),
-            Self::VariableSortMismatch(id) => write!(
-                formatter,
-                "variable {:?} is referenced with the wrong sort",
-                id.as_str()
-            ),
+            Self::DanglingVariable(id) => write!(formatter, "dangling variable {id}"),
+            Self::VariableSortMismatch(id) => {
+                write!(formatter, "variable {id} is referenced with the wrong sort")
+            }
             Self::VariableClosure => {
                 formatter.write_str("declared variables must exactly match sentence uses")
             }
-            Self::ApplicationSignature(id) => write!(
-                formatter,
-                "application does not match production {:?}",
-                id.as_str()
-            ),
+            Self::ApplicationSignature(id) => {
+                write!(formatter, "application does not match production {id}")
+            }
             Self::BuiltinApplicationSignature(operation) => write!(
                 formatter,
-                "application does not match builtin signature {operation:?}"
+                "application does not match builtin signature {operation}"
             ),
             Self::RewriteSortMismatch => {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")
@@ -1896,57 +1888,46 @@ impl fmt::Display for DefinitionValidationError {
                 formatter.write_str("K sequence item must be a subsort of its item sort")
             }
             Self::RuleBodyNotRewrite(id) => {
-                write!(formatter, "rule {:?} body must be a rewrite", id.as_str())
+                write!(formatter, "rule {id} body must be a rewrite")
             }
             Self::InvalidEquationRoot(id) => write!(
                 formatter,
-                "equation {:?} must be headed by a functional production",
-                id.as_str()
+                "equation {id} must be headed by a functional production"
             ),
             Self::InvalidAliasRoot(id) => write!(
                 formatter,
-                "alias clause {:?} must be headed by an alias production",
-                id.as_str()
+                "alias clause {id} must be headed by an alias production"
             ),
             Self::InvalidSimplificationRoot(id) => write!(
                 formatter,
-                "simplification {:?} must be headed by a function or builtin function",
-                id.as_str()
+                "simplification {id} must be headed by a function or builtin function"
             ),
             Self::InvalidSimplificationMetadata(id) => write!(
                 formatter,
-                "simplification metadata disagrees with sentence {:?}",
-                id.as_str()
+                "simplification metadata disagrees with sentence {id}"
             ),
             Self::InvalidRulePriority(id) => write!(
                 formatter,
-                "rule priority cannot occur on unsupported sentence {:?}",
-                id.as_str()
+                "rule priority cannot occur on unsupported sentence {id}"
             ),
-            Self::InvalidClaimMetadata(id) => write!(
-                formatter,
-                "claim metadata disagrees with sentence {:?}",
-                id.as_str()
-            ),
+            Self::InvalidClaimMetadata(id) => {
+                write!(formatter, "claim metadata disagrees with sentence {id}")
+            }
             Self::ClaimBodyNotConfiguration(id) => write!(
                 formatter,
-                "claim {:?} requires a configuration rewrite body",
-                id.as_str()
+                "claim {id} requires a configuration rewrite body"
             ),
             Self::InvalidClaimBinder(id) => write!(
                 formatter,
-                "claim binder {:?} is repeated, unbound, or has the wrong sort",
-                id.as_str()
+                "claim binder {id} is repeated, unbound, or has the wrong sort"
             ),
             Self::ExistentialScopeViolation(id) => write!(
                 formatter,
-                "existential claim binder {:?} cannot occur in the left-hand side or requires condition",
-                id.as_str()
+                "existential claim binder {id} cannot occur in the left-hand side or requires condition"
             ),
             Self::UnusedExistential(id) => write!(
                 formatter,
-                "existential claim binder {:?} must occur in the right-hand side or ensures condition",
-                id.as_str()
+                "existential claim binder {id} must occur in the right-hand side or ensures condition"
             ),
             Self::RuleConditionSortMismatch => {
                 formatter.write_str("rule condition must have builtin Bool sort")
@@ -1960,7 +1941,7 @@ impl fmt::Display for DefinitionValidationError {
             Self::InvalidHookSignature(operation) => {
                 write!(
                     formatter,
-                    "hook has invalid production signature {operation:?}"
+                    "hook has invalid production signature {operation}"
                 )
             }
             Self::InvalidBn128PointConstructor {
@@ -1970,7 +1951,7 @@ impl fmt::Display for DefinitionValidationError {
                 matching_constructors,
             } => write!(
                 formatter,
-                "hook {hook:?} requires a unique {expected_signature} constructor; sort {sort:?} has {matching_constructors} matching constructors"
+                "hook {hook} requires a unique {expected_signature} constructor; sort {sort} has {matching_constructors} matching constructors"
             ),
             Self::InvalidAliasProduction => {
                 formatter.write_str("alias metadata cannot be combined with function metadata")
@@ -1983,32 +1964,21 @@ impl fmt::Display for DefinitionValidationError {
             }
             Self::MapSortMismatch => formatter.write_str("Map term must have builtin Map sort"),
             Self::MapOperationSignature(operation) => {
-                write!(
-                    formatter,
-                    "Map operation has invalid signature {operation:?}"
-                )
+                write!(formatter, "{operation} has an invalid signature")
             }
             Self::ListOperationSignature(operation) => {
-                write!(
-                    formatter,
-                    "List operation has invalid signature {operation:?}"
-                )
+                write!(formatter, "{operation} has an invalid signature")
             }
             Self::SetOperationSignature(operation) => {
-                write!(
-                    formatter,
-                    "Set operation has invalid signature {operation:?}"
-                )
+                write!(formatter, "{operation} has an invalid signature")
             }
             Self::ConfigurationRuleWithoutFixedConfiguration(id) => write!(
                 formatter,
-                "configuration rule {:?} requires a general fixed configuration",
-                id.as_str()
+                "configuration rule {id} requires a general fixed configuration"
             ),
             Self::ConfigurationRuleTargetMismatch(id) => write!(
                 formatter,
-                "configuration rule {:?} names a different fixed configuration",
-                id.as_str()
+                "configuration rule {id} names a different fixed configuration"
             ),
             Self::InvalidCellFraming => formatter.write_str(
                 "configuration rewrite must mention or explicitly omit every fixed leaf cell",
@@ -2018,8 +1988,7 @@ impl fmt::Display for DefinitionValidationError {
             }
             Self::CellFrameBindingMismatch(id) => write!(
                 formatter,
-                "cell-frame binding {:?} is missing or has the wrong sort",
-                id.as_str()
+                "cell-frame binding {id} is missing or has the wrong sort"
             ),
         }
     }

@@ -540,7 +540,7 @@ impl fmt::Display for StateTransportError {
                 actual,
             } => write!(
                 formatter,
-                "{field} item kind mismatch: expected {expected}, found {actual:?}"
+                "{field} item kind mismatch: expected {expected}, found {actual}"
             ),
             Self::CellOwnerMismatch => formatter.write_str("cell identity owner mismatch"),
             Self::CellFieldMismatch => {

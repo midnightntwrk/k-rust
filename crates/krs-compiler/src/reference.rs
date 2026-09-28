@@ -1532,10 +1532,7 @@ impl fmt::Display for ReferenceExpansionError {
                 "readable enum field `{family}::{variant}.{field}` has no collected sort"
             ),
             Self::MissingSemanticRule(id) => {
-                write!(
-                    formatter,
-                    "collected rule {id:?} is absent from semantic IR"
-                )
+                write!(formatter, "collected rule {id} is absent from semantic IR")
             }
             Self::MissingBindingSort { rule, binding } => {
                 write!(
@@ -1545,11 +1542,11 @@ impl fmt::Display for ReferenceExpansionError {
             }
             Self::ExternalDeclaration(id) => write!(
                 formatter,
-                "cannot render external declaration {id:?} without its authored Cargo alias"
+                "cannot render external declaration {id} without its authored Cargo alias"
             ),
             Self::ExternalReferenceSort(id) => write!(
                 formatter,
-                "cannot render external reference-sort marker {id:?} without its authored Cargo alias"
+                "cannot render external reference-sort marker {id} without its authored Cargo alias"
             ),
             Self::MixedApplicationArguments => {
                 formatter.write_str("application mixes positional and named arguments")
@@ -1558,23 +1555,23 @@ impl fmt::Display for ReferenceExpansionError {
                 formatter.write_str("builtin application unexpectedly uses named arguments")
             }
             Self::MissingDeclaration(id) => {
-                write!(formatter, "application declaration {id:?} is absent")
+                write!(formatter, "application declaration {id} is absent")
             }
             Self::NamedNonConstructor(id) => {
-                write!(formatter, "named application {id:?} is not a constructor")
+                write!(formatter, "named application {id} is not a constructor")
             }
             Self::DuplicateApplicationField { id, field } => {
-                write!(formatter, "constructor {id:?} repeats field `{field}`")
+                write!(formatter, "constructor {id} repeats field `{field}`")
             }
             Self::MissingApplicationField { id, field } => {
-                write!(formatter, "constructor result {id:?} omits field `{field}`")
+                write!(formatter, "constructor result {id} omits field `{field}`")
             }
             Self::UnknownApplicationField { id, field } => {
-                write!(formatter, "constructor {id:?} has no field `{field}`")
+                write!(formatter, "constructor {id} has no field `{field}`")
             }
             Self::InvalidLiteral(value) => write!(formatter, "invalid integer literal `{value}`"),
             Self::UnsupportedBuiltinToken(sort) => {
-                write!(formatter, "unsupported builtin token sort {sort:?}")
+                write!(formatter, "unsupported builtin token sort {sort}")
             }
         }
     }

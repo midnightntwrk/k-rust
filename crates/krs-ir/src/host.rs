@@ -311,6 +311,12 @@ impl HostSourcePosition {
     }
 }
 
+impl fmt::Display for HostSourcePosition {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}:{}", self.line, self.scalar_column)
+    }
+}
+
 /// Precision available for one expansion-time source anchor.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AnchorPrecision {
@@ -581,7 +587,7 @@ impl fmt::Display for HostProvenanceError {
             Self::ReversedEndpoints { start, end } => {
                 write!(
                     formatter,
-                    "host source endpoint {end:?} precedes start {start:?}"
+                    "host source endpoint {end} precedes start {start}"
                 )
             }
             Self::EmptyRole => formatter.write_str("provenance role must not be empty"),

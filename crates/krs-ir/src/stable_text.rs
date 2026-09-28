@@ -154,7 +154,6 @@ mod tests {
             declared.stable_text(),
             "Declared(StableItemId { package: PackageId { k_namespace: \"EXAMPLE\", cargo_name: \"example\", cargo_version: \"1.0.0\", cargo_source: \"workspace\" }, module_path: [\"syntax\"], item_name: \"Expr\", item_kind: Sort, disambiguator: \"\" })"
         );
-        assert_eq!(declared.stable_text(), format!("{declared:?}"));
         assert_eq!(
             SemanticSortRef::Builtin(BuiltinSort::Int).stable_text(),
             "Builtin(Int)"

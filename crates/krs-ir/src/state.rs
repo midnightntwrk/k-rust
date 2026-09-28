@@ -1006,8 +1006,7 @@ impl fmt::Display for StateShapeError {
             Self::DuplicateVariable(id) => {
                 write!(
                     formatter,
-                    "configuration variable {:?} occurs more than once",
-                    id.as_str()
+                    "configuration variable {id} occurs more than once"
                 )
             }
             Self::DuplicateExternalVariable(name) => {

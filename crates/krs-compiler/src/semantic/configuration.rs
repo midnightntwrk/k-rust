@@ -147,7 +147,7 @@ fn lower_cell_declaration(
                     return Err(DescriptorLoweringError::UnsupportedShape {
                         node: "nested cell declaration",
                         detail: format!(
-                            "cyclic nominal cell declaration at {:?}",
+                            "cyclic nominal cell declaration at {}",
                             declaration.declaration
                         ),
                     });

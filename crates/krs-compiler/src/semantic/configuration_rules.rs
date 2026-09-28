@@ -717,7 +717,7 @@ fn validate_state_frame_pair(
         Err(DescriptorLoweringError::UnsupportedShape {
             node,
             detail: format!(
-                "rule {:?} uses incompatible subject/result associative state families or frames",
+                "rule {} uses incompatible subject/result associative state families or frames",
                 descriptor.id
             ),
         })
@@ -751,7 +751,7 @@ fn validate_frame_pair(
         Err(DescriptorLoweringError::UnsupportedShape {
             node,
             detail: format!(
-                "rule {:?} uses incompatible subject/result frames",
+                "rule {} uses incompatible subject/result frames",
                 descriptor.id
             ),
         })

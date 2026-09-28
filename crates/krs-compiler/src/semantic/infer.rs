@@ -68,7 +68,7 @@ impl StructuredTermBuilder<'_> {
                     && !semantic_is_subsort(&sort, expected, self.sort_parents)
                 {
                     return Err(self.invalid_term(format!(
-                        "literal of sort {sort:?} is not admissible at sort {expected:?}"
+                        "literal of sort {sort} is not admissible at sort {expected}"
                     )));
                 }
             }
@@ -140,7 +140,7 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Declared(id) => {
                 self.catalog.get(id).cloned().ok_or_else(|| {
                     self.invalid_term(format!(
-                        "declared application {id:?} has no grammar production"
+                        "declared application {id} has no grammar production"
                     ))
                 })?
             }
@@ -164,7 +164,7 @@ impl StructuredTermBuilder<'_> {
             && !semantic_is_subsort(&signature.result_sort, expected, self.sort_parents)
         {
             return Err(self.invalid_term(format!(
-                "application result sort {:?} is not admissible at sort {expected:?}",
+                "application result sort {} is not admissible at sort {expected}",
                 signature.result_sort
             )));
         }
@@ -203,7 +203,7 @@ impl StructuredTermBuilder<'_> {
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
         {
             return Err(self.invalid_term(format!(
-                "Map operation result sort {result_sort:?} is not admissible at sort {expected:?}"
+                "Map operation result sort {result_sort} is not admissible at sort {expected}"
             )));
         }
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
@@ -351,7 +351,7 @@ impl StructuredTermBuilder<'_> {
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
         {
             return Err(self.invalid_term(format!(
-                "List operation result sort {result_sort:?} is not admissible at sort {expected:?}"
+                "List operation result sort {result_sort} is not admissible at sort {expected}"
             )));
         }
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
@@ -450,7 +450,7 @@ impl StructuredTermBuilder<'_> {
             && !semantic_is_subsort(&result_sort, expected, self.sort_parents)
         {
             return Err(self.invalid_term(format!(
-                "Set operation result sort {result_sort:?} is not admissible at sort {expected:?}"
+                "Set operation result sort {result_sort} is not admissible at sort {expected}"
             )));
         }
         let operand_sorts: Vec<Option<&SemanticSortRef>> = match operation {
@@ -512,16 +512,22 @@ impl StructuredTermBuilder<'_> {
                 self.invalid_term(format!("variable {name:?} has no expected sort"))
             })?;
             let candidates = most_specific_common_descendants(constraints, self.sort_parents);
+            let occurrence_sorts = constraints
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
             let inferred = match candidates.as_slice() {
                 [sort] => sort.clone(),
                 [] => {
                     return Err(self.invalid_term(format!(
-                        "variable {name:?} has no declared common descendant for occurrence sorts {constraints:?}"
+                        "variable {name:?} has no declared common descendant for occurrence sorts [{occurrence_sorts}]"
                     )));
                 }
                 _ => {
                     return Err(self.invalid_term(format!(
-                        "variable {name:?} has ambiguous most-specific common descendants {candidates:?} for occurrence sorts {constraints:?}"
+                        "variable {name:?} has ambiguous most-specific common descendants [{}] for occurrence sorts [{occurrence_sorts}]",
+                        candidates.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
                     )));
                 }
             };
@@ -640,7 +646,7 @@ impl StructuredTermBuilder<'_> {
             DescriptorApplicationRef::Declared(id) => {
                 let signature = self.catalog.get(id).cloned().ok_or_else(|| {
                     self.invalid_term(format!(
-                        "declared application {id:?} has no grammar production"
+                        "declared application {id} has no grammar production"
                     ))
                 })?;
                 (ApplicationRef::Declared(id.clone()), signature)
@@ -982,13 +988,13 @@ fn ordinary_map_arguments(
         MapOperation::Get | MapOperation::InKeys => 2,
         MapOperation::Empty | MapOperation::Item => {
             return Err(format!(
-                "Map operation {operation:?} is not available as an ordinary term application"
+                "the {operation} operation is not available as an ordinary term application"
             ));
         }
     };
     if arguments.len() != expected {
         return Err(format!(
-            "Map operation {operation:?} expects {expected} positional arguments but received {}",
+            "the {operation} operation expects {expected} positional arguments but received {}",
             arguments.len()
         ));
     }
@@ -1020,7 +1026,7 @@ fn ordinary_set_arguments(
     };
     if arguments.len() != expected {
         return Err(format!(
-            "Set operation {operation:?} expects {expected} positional arguments but received {}",
+            "the {operation} operation expects {expected} positional arguments but received {}",
             arguments.len()
         ));
     }
@@ -1042,7 +1048,7 @@ fn ordinary_list_arguments(
     };
     if arguments.len() != expected {
         return Err(format!(
-            "List operation {operation:?} expects {expected} positional arguments but received {}",
+            "the {operation} operation expects {expected} positional arguments but received {}",
             arguments.len()
         ));
     }

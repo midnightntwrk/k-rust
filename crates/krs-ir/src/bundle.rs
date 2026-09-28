@@ -258,18 +258,18 @@ pub enum DescriptorDeclarationError {
 impl fmt::Display for DescriptorDeclarationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Missing(id) => write!(formatter, "missing declaration metadata for {id:?}"),
-            Self::Extra(id) => write!(formatter, "declaration metadata names unknown {id:?}"),
-            Self::Duplicate(id) => write!(formatter, "duplicate declaration metadata for {id:?}"),
+            Self::Missing(id) => write!(formatter, "missing declaration metadata for {id}"),
+            Self::Extra(id) => write!(formatter, "declaration metadata names unknown {id}"),
+            Self::Duplicate(id) => write!(formatter, "duplicate declaration metadata for {id}"),
             Self::MissingSymbolOrigin(id) => {
                 write!(
                     formatter,
-                    "explicit symbol metadata for {id:?} has no exact origin"
+                    "explicit symbol metadata for {id} has no exact origin"
                 )
             }
             Self::UnexpectedSymbolOrigin(id) => write!(
                 formatter,
-                "stable-symbol origin for {id:?} has no explicit symbol metadata"
+                "stable-symbol origin for {id} has no explicit symbol metadata"
             ),
         }
     }

@@ -1,7 +1,9 @@
 use std::error::Error;
 use std::fmt;
 
-use krs_ir::{BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, StableItemId};
+use krs_ir::{
+    BuiltinSort, IrIdentityError, ItemKind, SemanticValidationError, StableItemId, StableText,
+};
 
 /// Typed failure at the sole descriptor-bundle to semantic-theory boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,11 +76,12 @@ pub enum DescriptorLoweringError {
 impl fmt::Display for DescriptorLoweringError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateItemId(id) => write!(formatter, "duplicate stable descriptor {id:?}"),
+            Self::DuplicateItemId(id) => write!(formatter, "duplicate stable descriptor {id}"),
             Self::BuiltinSortNameCollision { id, builtin } => write!(
                 formatter,
-                "declared sort {id:?} has K name `{}`; use `k::builtin::{builtin:?}` instead",
-                builtin.k_name()
+                "declared sort {id} has K name `{}`; use `k::builtin::{}` instead",
+                builtin.k_name(),
+                builtin.stable_text()
             ),
             Self::ConfigurationCount(count) => write!(
                 formatter,
@@ -95,24 +98,24 @@ impl fmt::Display for DescriptorLoweringError {
                 actual,
             } => write!(
                 formatter,
-                "descriptor reference {id:?} has kind {actual:?}, expected {expected:?}"
+                "descriptor reference {id} has kind {actual}, expected {expected}"
             ),
             Self::DanglingReference(id) => {
-                write!(formatter, "dangling descriptor reference {id:?}")
+                write!(formatter, "dangling descriptor reference {id}")
             }
             Self::ParserReferenceDisagreement { id, detail } => write!(
                 formatter,
-                "parser/reference disagreement for {id:?}: {detail}"
+                "parser/reference disagreement for {id}: {detail}"
             ),
             Self::InvalidTerm { id, detail } => {
-                write!(formatter, "invalid descriptor term for {id:?}: {detail}")
+                write!(formatter, "invalid descriptor term for {id}: {detail}")
             }
             Self::UnsupportedShape { node, detail } => {
                 write!(formatter, "unsupported {node}: {detail}")
             }
             Self::OverlappingRules { first, second } => write!(
                 formatter,
-                "readable rules {first:?} and {second:?} have overlapping left-hand patterns at the same priority; refine a pattern, add disjoint `where` sorts, or mark the fallback `#[k::rule(owise)]`"
+                "readable rules {first} and {second} have overlapping left-hand patterns at the same priority; refine a pattern, add disjoint `where` sorts, or mark the fallback `#[k::rule(owise)]`"
             ),
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
             Self::InvalidSemanticTheory(error) => error.fmt(formatter),

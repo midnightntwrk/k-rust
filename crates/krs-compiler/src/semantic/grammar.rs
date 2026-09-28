@@ -376,7 +376,7 @@ fn lower_constructor_placeholder(
         .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
             node: "constructor field",
             detail: format!(
-                "field {:?} on {:?} has no resolved sort",
+                "field {:?} on {} has no resolved sort",
                 field.name, descriptor.id
             ),
         })?;
@@ -424,7 +424,7 @@ fn constructor_template_error<T>(
 ) -> Result<T, DescriptorLoweringError> {
     Err(DescriptorLoweringError::UnsupportedShape {
         node: "constructor syntax",
-        detail: format!("constructor {:?}: {}", descriptor.id, detail.into()),
+        detail: format!("constructor {}: {}", descriptor.id, detail.into()),
     })
 }
 

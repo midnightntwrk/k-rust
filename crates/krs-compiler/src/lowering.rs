@@ -113,7 +113,7 @@ impl fmt::Display for LoweringError {
             Self::InvalidProductionTemplate { production, detail } => {
                 write!(
                     formatter,
-                    "invalid syntax template for {production:?}: {detail}"
+                    "invalid syntax template for {production}: {detail}"
                 )
             }
             Self::InvalidEmittedName { role, value } => {
@@ -132,7 +132,7 @@ impl fmt::Display for LoweringError {
             Self::SourceMapCollision(key) => {
                 write!(
                     formatter,
-                    "generated source-map key collision at {:?}",
+                    "generated source-map key collision at {}",
                     key.as_str()
                 )
             }
@@ -343,7 +343,7 @@ impl NamingPass {
             .cloned()
             .ok_or_else(|| LoweringError::UnsupportedShape {
                 node: "sort reference",
-                detail: format!("no naming entry for {id:?}"),
+                detail: format!("no naming entry for {id}"),
             })
     }
 
@@ -357,7 +357,7 @@ impl NamingPass {
             .cloned()
             .ok_or_else(|| LoweringError::UnsupportedShape {
                 node: "production reference",
-                detail: format!("no naming entry for {id:?}"),
+                detail: format!("no naming entry for {id}"),
             })
     }
 
@@ -590,7 +590,7 @@ fn lower_module(
                 .cloned()
                 .ok_or_else(|| LoweringError::UnsupportedShape {
                     node: "rule",
-                    detail: format!("no naming entry for {:?}", rule.id()),
+                    detail: format!("no naming entry for {}", rule.id()),
                 })?;
         let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
         let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;

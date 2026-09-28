@@ -49,7 +49,7 @@ pub(super) fn lower_package_module(
     let module_id = module_ids.get(package).cloned().ok_or_else(|| {
         DescriptorLoweringError::UnsupportedShape {
             node: "module",
-            detail: format!("package {package:?} has no generated module identity"),
+            detail: format!("package {package} has no generated module identity"),
         }
     })?;
     let origin_descriptor =
@@ -58,7 +58,7 @@ pub(super) fn lower_package_module(
             .copied()
             .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
                 node: "module",
-                detail: format!("package {package:?} has no semantic descriptors"),
+                detail: format!("package {package} has no semantic descriptors"),
             })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
     let mut imports = referenced_packages(descriptors)
@@ -68,7 +68,7 @@ pub(super) fn lower_package_module(
             module_ids.get(&referenced).cloned().ok_or_else(|| {
                 DescriptorLoweringError::UnsupportedShape {
                     node: "module import",
-                    detail: format!("referenced package {referenced:?} has no module"),
+                    detail: format!("referenced package {referenced} has no module"),
                 }
             })
         })
@@ -129,7 +129,7 @@ fn lower_module_descriptor(
     let declaration = declarations.metadata.get(&descriptor.id).ok_or_else(|| {
         DescriptorLoweringError::UnsupportedShape {
             node: "declaration metadata",
-            detail: format!("descriptor {:?} has no API metadata", descriptor.id),
+            detail: format!("descriptor {} has no API metadata", descriptor.id),
         }
     })?;
     match &descriptor.payload {

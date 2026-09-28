@@ -13,6 +13,7 @@
 
 pub mod bundle;
 pub mod definition;
+mod display;
 pub mod generated;
 pub mod grammar;
 pub mod host;

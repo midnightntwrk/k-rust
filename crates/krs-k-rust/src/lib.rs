@@ -288,14 +288,11 @@ impl fmt::Display for AdapterError {
         match self {
             Self::MissingSymbol { key, symbol } => write!(
                 formatter,
-                "Definition IR symbol {:?} referenced at {:?} is absent from the adapter index",
-                symbol.as_str(),
-                key.as_str()
+                "Definition IR symbol {symbol} referenced at {key} is absent from the adapter index"
             ),
             Self::MissingReference { key, kind, target } => write!(
                 formatter,
-                "Definition IR {kind} reference {target:?} at {:?} is absent from the adapter index",
-                key.as_str()
+                "Definition IR {kind} reference {target:?} at {key} is absent from the adapter index"
             ),
         }
     }
@@ -532,7 +529,62 @@ pub enum ProvenanceError {
 
 impl fmt::Display for ProvenanceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "invalid native sentence provenance: {self:?}")
+        match self {
+            Self::DuplicateSentenceMapping { module, index } => write!(
+                formatter,
+                "native sentence provenance maps {module} sentence {index} more than once"
+            ),
+            Self::MissingSentenceMapping(address) => write!(
+                formatter,
+                "native sentence provenance has no mapping for {}",
+                ProvenanceAddress(address)
+            ),
+            Self::LossyCompileAddress(address) => write!(
+                formatter,
+                "native sentence provenance cannot map compile address {} to a KRS sentence",
+                ProvenanceAddress(address)
+            ),
+            Self::IndexOutOfRange(address) => write!(
+                formatter,
+                "native sentence provenance address {} is outside its module",
+                ProvenanceAddress(address)
+            ),
+            Self::KindMismatch {
+                address,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "native sentence provenance at {} has kind {}; expected {}",
+                ProvenanceAddress(address),
+                actual.as_str(),
+                expected.as_str()
+            ),
+            Self::MissingKind(address) => write!(
+                formatter,
+                "native sentence provenance has no kind for {}",
+                ProvenanceAddress(address)
+            ),
+            Self::InvalidIdentity(id) => write!(
+                formatter,
+                "native sentence provenance identity {id:?} has an invalid author relation"
+            ),
+        }
+    }
+}
+
+struct ProvenanceAddress<'a>(&'a InputAddress);
+
+impl fmt::Display for ProvenanceAddress<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let address = self.0;
+        write!(
+            formatter,
+            "{} input, module {}, sentence {}",
+            address.input.as_str(),
+            address.module,
+            address.index
+        )
     }
 }
 
@@ -572,10 +624,7 @@ impl fmt::Display for DefinitionCompileError {
             Self::Preparation(message) => write!(formatter, "native preparation failed: {message}"),
             Self::Provenance(error) => error.fmt(formatter),
             Self::Compile { stage, message, .. } => {
-                write!(
-                    formatter,
-                    "native frontend stage {stage:?} failed: {message}"
-                )
+                write!(formatter, "native frontend stage {stage} failed: {message}")
             }
             Self::KoreReparse { artifact, message } => {
                 write!(formatter, "pinned parser rejected {artifact}: {message}")
@@ -1035,7 +1084,7 @@ impl fmt::Display for CompileError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "native frontend stage {:?} failed: {}",
+            "native frontend stage {} failed: {}",
             self.source.stage, self.source.message
         )
     }
@@ -2227,7 +2276,7 @@ impl Adapter {
             _ => Err(AdapterError::MissingReference {
                 key: origin.key().clone(),
                 kind: "Map operation arity",
-                target: format!("{operation:?}/{}", arguments.len()),
+                target: format!("{operation}/{}", arguments.len()),
             }),
         }
     }
@@ -2251,7 +2300,7 @@ impl Adapter {
                 return Err(AdapterError::MissingReference {
                     key: origin.key().clone(),
                     kind: "List operation arity",
-                    target: format!("{operation:?}/{}", arguments.len()),
+                    target: format!("{operation}/{}", arguments.len()),
                 });
             }
         };
@@ -2273,7 +2322,7 @@ impl Adapter {
                 return Err(AdapterError::MissingReference {
                     key: origin.key().clone(),
                     kind: "Set operation arity",
-                    target: format!("{operation:?}/{}", arguments.len()),
+                    target: format!("{operation}/{}", arguments.len()),
                 });
             }
         };
@@ -2325,7 +2374,7 @@ impl Adapter {
             .ok_or_else(|| AdapterError::MissingReference {
                 key: origin.key().clone(),
                 kind: "context alias",
-                target: format!("{alias:?}"),
+                target: alias.to_string(),
             })
     }
 

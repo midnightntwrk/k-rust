@@ -1040,10 +1040,7 @@ fn ordinary_map_update_rejects_a_non_map_base_locally() {
     let krs_compiler::DescriptorLoweringError::InvalidTerm { detail, .. } = error else {
         panic!("unexpected error: {error:?}")
     };
-    assert_eq!(
-        detail,
-        "literal of sort Builtin(Int) is not admissible at sort Builtin(Map)"
-    );
+    assert_eq!(detail, "literal of sort Int is not admissible at sort Map");
 }
 
 #[test]
@@ -1454,6 +1451,6 @@ fn non_bool_requires_is_rejected_after_descriptor_sort_inference() {
     assert!(matches!(
         error,
         krs_compiler::DescriptorLoweringError::InvalidTerm { detail, .. }
-            if detail == "application result sort Builtin(Int) is not admissible at sort Builtin(Bool)"
+            if detail == "application result sort Int is not admissible at sort Bool"
     ));
 }

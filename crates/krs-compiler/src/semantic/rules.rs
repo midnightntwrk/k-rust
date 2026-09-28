@@ -322,7 +322,7 @@ fn seed_head_rule_sorts(
                     return Err(DescriptorLoweringError::InvalidTerm {
                         id: Box::new(descriptor.id.clone()),
                         detail: format!(
-                            "updated-cell binding {base_binding:?} has a refinement other than {cell_sort:?}"
+                            "updated-cell binding {base_binding:?} has a refinement other than {cell_sort}"
                         ),
                     });
                 }

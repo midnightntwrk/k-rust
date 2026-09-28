@@ -47,7 +47,7 @@ impl fmt::Display for GeneratedProductionIdError {
         match self {
             Self::ExpectedGrammarDescriptor { actual } => write!(
                 formatter,
-                "generated production source must be a grammar descriptor, not {actual:?}"
+                "generated production source must be a grammar descriptor, not {actual}"
             ),
             Self::InvalidDerivedIdentity(error) => {
                 write!(formatter, "invalid generated production identity: {error}")

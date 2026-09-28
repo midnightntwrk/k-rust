@@ -30,6 +30,17 @@ pub enum MappedIdentity {
     ContextAlias(StableItemId),
 }
 
+impl fmt::Display for MappedIdentity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Module(id) => write!(formatter, "module {id}"),
+            Self::Symbol(id) => write!(formatter, "symbol {id}"),
+            Self::Label(id) => write!(formatter, "label {id}"),
+            Self::ContextAlias(id) => write!(formatter, "context alias {id}"),
+        }
+    }
+}
+
 /// One deterministic symbol-map row.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -619,11 +630,11 @@ impl fmt::Display for SidecarError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateIdentity(identity) => {
-                write!(formatter, "duplicate sidecar identity {identity:?}")
+                write!(formatter, "duplicate sidecar identity {identity}")
             }
             Self::DuplicateSourceMapKey(key) => write!(
                 formatter,
-                "duplicate sidecar source-map key {:?}",
+                "duplicate sidecar source-map key {}",
                 key.as_str()
             ),
             Self::AbsolutePath(value) => write!(

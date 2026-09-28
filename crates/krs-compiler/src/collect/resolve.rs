@@ -1132,7 +1132,7 @@ fn resolve_constructor_field_sort(
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to {kind:?} `{}`, but Sort is required",
+                    "Rust path `{}` resolves to {kind} `{}`, but a sort is required",
                     reference.authored_path,
                     display_item(id)
                 ),
@@ -1170,7 +1170,7 @@ fn resolve_declared_identity(
         return Err(CollectionError::new(
             CollectionErrorKind::ReferenceKindMismatch,
             format!(
-                "Rust path `{}` resolves to {:?} `{}`, but {:?} is required",
+                "Rust path `{}` resolves to {} `{}`, but {} is required",
                 authored_path,
                 kind,
                 display_item(id),
@@ -1194,7 +1194,7 @@ fn resolve_sort_reference(
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to {kind:?} `{}`, but Sort is required",
+                    "Rust path `{}` resolves to {kind} `{}`, but a sort is required",
                     reference.target.authored_path,
                     display_item(id)
                 ),
@@ -1230,7 +1230,7 @@ fn resolve_application_reference(
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to {kind:?} `{}`, but Constructor is required",
+                    "Rust path `{}` resolves to {kind} `{}`, but a constructor is required",
                     reference.target.authored_path(),
                     display_item(id)
                 ),
