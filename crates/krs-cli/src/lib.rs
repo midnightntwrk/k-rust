@@ -2,9 +2,10 @@
 //!
 //! A production command plans an explicit definition selection, generates and
 //! executes a host collector, then sends its canonical descriptor protocol
-//! through the shared semantic-theory and Definition-IR pipeline. The legacy
-//! entrypoint-based planner remains available for the compatibility oracle;
-//! authored production packages do not implement a collector runtime.
+//! through the shared semantic-theory and Definition-IR pipeline.
+//! [`CollectorRequest`] plans a collector that calls a caller-named entry point;
+//! production planning shares its package and facet selection.
+//! Authored production packages do not implement a collector runtime.
 
 mod cargo;
 mod command;

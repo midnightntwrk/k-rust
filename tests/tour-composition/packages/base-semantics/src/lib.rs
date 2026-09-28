@@ -15,6 +15,3 @@ pub struct Same;
 
 #[k::constructor(sort = Common, syntax = "base-unit")]
 pub struct Unit;
-
-/// A reachable name used only to satisfy the current collector-entrypoint plan model.
-pub fn collector_anchor() {}

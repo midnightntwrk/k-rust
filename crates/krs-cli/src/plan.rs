@@ -150,18 +150,68 @@ pub struct ResolvedPackage {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectorPlan {
     /// Root facet followed by dependency facets in canonical order.
-    pub facets: Vec<ResolvedFacet>,
+    facets: Vec<ResolvedFacet>,
     /// Root package dependency closure in deterministic dependency order.
-    pub package_closure: Vec<ResolvedPackage>,
+    package_closure: Vec<ResolvedPackage>,
     /// Host target triple.
-    pub host_target: String,
+    host_target: String,
     /// Sorted, deduplicated KRS cfg inputs.
-    pub cfg: Vec<KrsCfg>,
+    cfg: Vec<KrsCfg>,
     pub(crate) dependencies: Vec<GeneratedDependency>,
-    pub(crate) entry_alias: String,
-    pub(crate) entry_function: Vec<String>,
-    pub(crate) runtime: Option<CollectorRuntime>,
-    pub(crate) registration: RegistrationMode,
+    pub(crate) kind: CollectorKind,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum CollectorKind {
+    EntryPoint {
+        alias: EntryAlias,
+        function: Vec<String>,
+    },
+    Production {
+        runtime: CollectorRuntime,
+        registration: RegistrationMode,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EntryAlias(String);
+
+impl EntryAlias {
+    fn new(alias: String) -> Result<Self, PlanningError> {
+        if !valid_identifier_segment(&alias) {
+            return Err(PlanningError::new(
+                PlanningErrorKind::InvalidEntrypoint,
+                "collector entry package has an invalid generated alias",
+            ));
+        }
+        Ok(Self(alias))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+struct ResolvedSelection {
+    facets: Vec<ResolvedFacet>,
+    package_closure: Vec<ResolvedPackage>,
+    host_target: String,
+    cfg: Vec<KrsCfg>,
+    dependencies: Vec<GeneratedDependency>,
+    extra_alias: Option<String>,
+}
+
+impl ResolvedSelection {
+    fn into_plan(self, kind: CollectorKind) -> CollectorPlan {
+        CollectorPlan {
+            facets: self.facets,
+            package_closure: self.package_closure,
+            host_target: self.host_target,
+            cfg: self.cfg,
+            dependencies: self.dependencies,
+            kind,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -181,14 +231,45 @@ impl CollectorPlan {
     /// Returns a typed [`PlanningError`] for incomplete or inconsistent Cargo
     /// metadata, missing or ambiguous selections, invalid facet metadata,
     /// unreachable dependency selections, or unsafe host/cfg/function inputs.
-    #[allow(clippy::too_many_lines)]
     pub fn resolve(
         metadata: &CargoMetadata,
         request: &CollectorRequest,
     ) -> Result<Self, PlanningError> {
-        validate_host_target(&request.host_target)?;
-        validate_cfg(&request.cfg)?;
         validate_rust_path(&request.entrypoint.function)?;
+        let selection = Self::resolve_selection(
+            metadata,
+            &request.root,
+            &request.dependencies,
+            &request.host_target,
+            &request.cfg,
+            Some(&request.entrypoint.package),
+        )?;
+        let alias = selection.extra_alias.clone().ok_or_else(|| {
+            PlanningError::new(
+                PlanningErrorKind::InvalidEntrypoint,
+                "collector entry package has no generated alias",
+            )
+        })?;
+        let alias = EntryAlias::new(alias)?;
+        let plan = selection.into_plan(CollectorKind::EntryPoint {
+            alias,
+            function: request.entrypoint.function.clone(),
+        });
+        plan.package_contexts()?;
+        Ok(plan)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn resolve_selection(
+        metadata: &CargoMetadata,
+        root: &FacetSelector,
+        dependencies: &[FacetSelector],
+        host_target: &str,
+        cfg: &[KrsCfg],
+        extra_direct_package: Option<&PackageSelector>,
+    ) -> Result<ResolvedSelection, PlanningError> {
+        validate_host_target(host_target)?;
+        validate_cfg(cfg)?;
 
         let packages = package_map(metadata)?;
         let nodes = node_map(metadata, &packages)?;
@@ -197,17 +278,12 @@ impl CollectorPlan {
             .iter()
             .map(String::as_str)
             .collect::<BTreeSet<_>>();
-        let root_package = select_package(metadata, &request.root.package)?;
+        let root_package = select_package(metadata, &root.package)?;
         let reachable = reachable_packages(&root_package.id, &nodes)?;
 
-        let mut selections = Vec::with_capacity(1 + request.dependencies.len());
-        selections.push((&request.root, true));
-        selections.extend(
-            request
-                .dependencies
-                .iter()
-                .map(|selection| (selection, false)),
-        );
+        let mut selections = Vec::with_capacity(1 + dependencies.len());
+        selections.push((root, true));
+        selections.extend(dependencies.iter().map(|selection| (selection, false)));
 
         let mut facet_records = Vec::new();
         for (selection, is_root) in selections {
@@ -230,13 +306,17 @@ impl CollectorPlan {
         });
         ensure_unique_namespaces(&facet_records)?;
 
-        let entry_package = select_package(metadata, &request.entrypoint.package)?;
-        if !reachable.contains(&entry_package.id) {
+        let extra_package = extra_direct_package
+            .map(|selector| select_package(metadata, selector))
+            .transpose()?;
+        if let Some(package) = extra_package
+            && !reachable.contains(&package.id)
+        {
             return Err(PlanningError::new(
                 PlanningErrorKind::UnreachableEntrypoint,
                 format!(
                     "collector entry package `{}` is not in root package `{}`'s resolved dependency closure",
-                    entry_package.name, root_package.name
+                    package.name, root_package.name
                 ),
             ));
         }
@@ -248,7 +328,7 @@ impl CollectorPlan {
         let direct_ids: BTreeSet<_> = semantic_ids
             .iter()
             .copied()
-            .chain(std::iter::once(entry_package.id.as_str()))
+            .chain(extra_package.map(|package| package.id.as_str()))
             .collect();
         let aliases = allocate_aliases(
             direct_ids
@@ -323,31 +403,25 @@ impl CollectorPlan {
             .collect::<Vec<_>>();
         dependencies.sort_by(|left, right| left.alias.cmp(&right.alias));
 
-        let mut cfg = request.cfg.clone();
+        let mut cfg = cfg.to_vec();
         cfg.sort();
         cfg.dedup();
 
-        let plan = Self {
+        Ok(ResolvedSelection {
             facets,
             package_closure,
-            host_target: request.host_target.clone(),
+            host_target: host_target.to_owned(),
             cfg,
             dependencies,
-            entry_alias: aliases[&entry_package.id].clone(),
-            entry_function: request.entrypoint.function.clone(),
-            runtime: None,
-            registration: RegistrationMode::Inventory,
-        };
-        plan.package_contexts()?;
-        Ok(plan)
+            extra_alias: extra_package.map(|package| aliases[&package.id].clone()),
+        })
     }
 
-    /// Resolve an entrypoint-free production collector request.
+    /// Resolve a production collector request.
     ///
     /// The runtime manifests identify infrastructure owned by the installed
     /// KRS tool, not functions or packages supplied by the authored language.
-    /// Generated collection always calls `krs::host_descriptors` and
-    /// `krs_compiler::collect_host_descriptors` itself.
+    /// Generated collection calls the KRS host and compiler APIs directly.
     ///
     /// # Errors
     ///
@@ -361,24 +435,19 @@ impl CollectorPlan {
     ) -> Result<Self, PlanningError> {
         validate_runtime_manifest(&runtime.host_manifest, "krs")?;
         validate_runtime_manifest(&runtime.compiler_manifest, "krs-compiler")?;
-
-        // Reuse the selection implementation with a private placeholder. The
-        // root package is necessarily in its own closure and already receives
-        // an alias because it contributes a semantic facet.
-        let legacy = CollectorRequest {
-            root: request.root.clone(),
-            dependencies: request.dependencies.clone(),
-            entrypoint: CollectorEntrypoint {
-                package: request.root.package.clone(),
-                function: vec!["__krs_production_collector".to_owned()],
-            },
-            host_target: request.host_target.clone(),
-            cfg: request.cfg.clone(),
-        };
-        let mut plan = Self::resolve(metadata, &legacy)?;
-        plan.entry_alias.clear();
-        plan.entry_function.clear();
-        plan.runtime = Some(runtime);
+        let selection = Self::resolve_selection(
+            metadata,
+            &request.root,
+            &request.dependencies,
+            &request.host_target,
+            &request.cfg,
+            None,
+        )?;
+        let plan = selection.into_plan(CollectorKind::Production {
+            runtime,
+            registration: RegistrationMode::Inventory,
+        });
+        plan.package_contexts()?;
         Ok(plan)
     }
 
@@ -443,20 +512,57 @@ impl CollectorPlan {
                 ),
             ));
         }
-        self.registration = RegistrationMode::Explicit;
+        if let CollectorKind::Production { registration, .. } = &mut self.kind {
+            *registration = RegistrationMode::Explicit;
+        }
         Ok(self)
     }
 
     /// The descriptor registration mechanism of the generated collector.
+    /// Entry-point collectors do not use registration and report inventory mode.
     #[must_use]
     pub const fn registration(&self) -> RegistrationMode {
-        self.registration
+        match &self.kind {
+            CollectorKind::EntryPoint { .. } => RegistrationMode::Inventory,
+            CollectorKind::Production { registration, .. } => *registration,
+        }
     }
 
     /// Whether this plan uses KRS-owned production collection.
     #[must_use]
     pub const fn is_production(&self) -> bool {
-        self.runtime.is_some()
+        matches!(self.kind, CollectorKind::Production { .. })
+    }
+
+    /// Selected definition facets in canonical order.
+    #[must_use]
+    pub fn facets(&self) -> &[ResolvedFacet] {
+        &self.facets
+    }
+
+    /// Root package dependency closure in deterministic dependency order.
+    #[must_use]
+    pub fn package_closure(&self) -> &[ResolvedPackage] {
+        &self.package_closure
+    }
+
+    /// Host target triple used to execute the collector.
+    #[must_use]
+    pub fn host_target(&self) -> &str {
+        &self.host_target
+    }
+
+    /// Sorted, deduplicated KRS cfg inputs.
+    #[must_use]
+    pub fn cfg(&self) -> &[KrsCfg] {
+        &self.cfg
+    }
+
+    pub(crate) fn context_facets(&self) -> impl Iterator<Item = &ResolvedFacet> {
+        let mut seen = BTreeSet::new();
+        self.facets
+            .iter()
+            .filter(move |facet| seen.insert((&facet.cargo_package_id, &facet.k_namespace)))
     }
 
     /// Canonical, path-free JSON selection data.
@@ -508,14 +614,11 @@ impl CollectorPlan {
     ///
     /// Returns [`PlanningError`] if stored Cargo identity, target, or manifest
     /// data does not satisfy [`PackageContext`] validation. A plan returned by
-    /// [`Self::resolve`] has already passed this validation.
+    /// [`Self::resolve`] or [`Self::resolve_definition`] has already passed
+    /// this validation.
     pub fn package_contexts(&self) -> Result<Vec<PackageContext>, PlanningError> {
-        let mut seen = BTreeSet::new();
         let mut contexts = Vec::new();
-        for facet in &self.facets {
-            if !seen.insert((&facet.cargo_package_id, &facet.k_namespace)) {
-                continue;
-            }
+        for facet in self.context_facets() {
             let context = PackageContext::new(
                 &facet.k_namespace,
                 &facet.package_name,

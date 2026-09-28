@@ -1,4 +1,4 @@
-use crate::plan::{CollectorPlan, KrsCfg, RegistrationMode, manifest_directory};
+use crate::plan::{CollectorKind, CollectorPlan, KrsCfg, RegistrationMode, manifest_directory};
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fmt;
@@ -129,13 +129,17 @@ fn render_manifest(plan: &CollectorPlan, package_name: &str) -> Result<String, G
         }
         output.push_str(" }\n");
     }
-    if let Some(runtime) = &plan.runtime {
+    if let CollectorKind::Production {
+        runtime,
+        registration,
+    } = &plan.kind
+    {
         render_runtime_dependency(
             &mut output,
             "__krs_host_runtime",
             "krs",
             &runtime.host_manifest,
-            plan.registration() == RegistrationMode::Explicit,
+            *registration == RegistrationMode::Explicit,
         )?;
         render_runtime_dependency(
             &mut output,
@@ -183,11 +187,22 @@ fn render_main(plan: &CollectorPlan) -> String {
         output.push_str(&dependency.alias);
         output.push_str(" as _;\n");
     }
-    if plan.is_production() {
-        return render_production_main(plan, output);
+    match &plan.kind {
+        CollectorKind::EntryPoint { alias, function } => {
+            render_entrypoint_main(plan, output, alias.as_str(), function)
+        }
+        CollectorKind::Production { .. } => render_production_main(plan, output),
     }
+}
+
+fn render_entrypoint_main(
+    plan: &CollectorPlan,
+    mut output: String,
+    alias: &str,
+    function: &[String],
+) -> String {
     output.push_str("\nconst SELECTED_FACETS: &[(&str, &str, &str, &str)] = &[\n");
-    for facet in &plan.facets {
+    for facet in plan.facets() {
         output.push_str("    (");
         output.push_str(&rust_string(&facet.k_namespace));
         output.push_str(", ");
@@ -206,9 +221,9 @@ fn main() {
     let mut output = stdout.lock();
     if let Err(error) = ",
     );
-    output.push_str(&plan.entry_alias);
+    output.push_str(alias);
     output.push_str("::");
-    output.push_str(&plan.entry_function.join("::"));
+    output.push_str(&function.join("::"));
     output.push_str(
         "(&mut output, SELECTED_FACETS) {
         eprintln!(\"KRS collector failed: {error}\");
@@ -224,11 +239,7 @@ fn render_production_main(plan: &CollectorPlan, mut output: String) -> String {
     output.push_str(
         "\nfn main() {\n    if let Err(error) = collect() {\n        eprintln!(\"KRS collector failed: {error}\");\n        std::process::exit(1);\n    }\n}\n\nfn collect() -> Result<(), Box<dyn std::error::Error>> {\n    let contexts = vec![\n",
     );
-    let mut seen = std::collections::BTreeSet::new();
-    for facet in &plan.facets {
-        if !seen.insert((&facet.cargo_package_id, &facet.k_namespace)) {
-            continue;
-        }
+    for facet in plan.context_facets() {
         output.push_str("        __krs_compiler_runtime::PackageContext::new(");
         for value in [
             facet.k_namespace.as_str(),
@@ -277,14 +288,14 @@ fn render_cargo_config(plan: &CollectorPlan) -> String {
         "# @generated: an explicit host target prevents target-side collector execution.\n[build]\n",
     );
     output.push_str("target = ");
-    output.push_str(&toml_string(&plan.host_target));
+    output.push_str(&toml_string(plan.host_target()));
     output.push('\n');
     output.push_str("rustflags = [");
     let flags = plan
-        .cfg
+        .cfg()
         .iter()
         .map(check_cfg_flag)
-        .chain(plan.cfg.iter().map(cfg_flag))
+        .chain(plan.cfg().iter().map(cfg_flag))
         .collect::<Vec<_>>();
     for (index, flag) in flags.iter().enumerate() {
         if index > 0 {

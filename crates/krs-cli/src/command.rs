@@ -582,7 +582,7 @@ fn expand(
     plan: &CollectorPlan,
 ) -> Result<CommandOutcome, CommandError> {
     let root = plan
-        .facets
+        .facets()
         .iter()
         .find(|facet| facet.is_root)
         .ok_or_else(|| CommandError::InvalidMetadata("collector plan has no root facet".into()))?;

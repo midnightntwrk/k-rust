@@ -1,6 +1,6 @@
 use krs_cli::{
     CargoMetadata, CollectorEntrypoint, CollectorPlan, CollectorRequest, FacetSelector,
-    GeneratedCollector, KrsCfg, PackageSelector, PlanningErrorKind,
+    GeneratedCollector, KrsCfg, PackageSelector, PlanningErrorKind, RegistrationMode,
 };
 use serde_json::json;
 use std::fs;
@@ -18,8 +18,18 @@ fn reordered_metadata_and_requests_generate_identical_bytes() {
     let normal = plan(false);
     let reordered = plan(true);
 
-    assert_eq!(normal.facets, reordered.facets);
-    assert_eq!(normal.package_closure, reordered.package_closure);
+    assert!(!normal.is_production());
+    assert_eq!(normal.registration(), RegistrationMode::Inventory);
+    assert_eq!(
+        normal
+            .clone()
+            .with_explicit_registration()
+            .unwrap_err()
+            .kind(),
+        PlanningErrorKind::InvalidRegistrationMode
+    );
+    assert_eq!(normal.facets(), reordered.facets());
+    assert_eq!(normal.package_closure(), reordered.package_closure());
     assert_eq!(
         normal.canonical_selection_json().unwrap(),
         reordered.canonical_selection_json().unwrap()
