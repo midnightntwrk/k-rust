@@ -509,7 +509,7 @@ pins = ["k"]
 args = ["--definition", "${prepared}/shared-branch/definition.kore", "--module", "SHARED-BRANCH", "--request", "${prepared}/shared-rpc-execute-initial-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
 [workload.ladder]
 param = "n"
-values = [8, 10, 12]
+values = [8, 12, 16]
 stop_seconds = 120
 input = "dup(${n})\n"
 [workload.check]
@@ -525,7 +525,7 @@ pins = ["k"]
 args = ["--definition", "${prepared}/shared-branch/definition.kore", "--module", "SHARED-BRANCH", "--request", "${prepared}/shared-rpc-simplify-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
 [workload.ladder]
 param = "n"
-values = [8, 12, 16]
+values = [8, 10, 12]
 stop_seconds = 120
 input = "dup(${n})\n"
 [workload.check]
