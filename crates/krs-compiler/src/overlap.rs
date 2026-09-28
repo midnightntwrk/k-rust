@@ -93,6 +93,8 @@ impl VariableCatalog {
 struct SortGraph {
     candidates: BTreeSet<SemanticSortRef>,
     parents: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    ancestors: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    compatible: BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 }
 
 impl SortGraph {
@@ -118,34 +120,44 @@ impl SortGraph {
                     .insert(edge.supersort().clone());
             }
         }
+        graph.build_closure();
         graph
     }
 
+    fn build_closure(&mut self) {
+        for candidate in &self.candidates {
+            let mut pending = vec![candidate.clone()];
+            let mut ancestors = BTreeSet::new();
+            while let Some(sort) = pending.pop() {
+                if !ancestors.insert(sort.clone()) {
+                    continue;
+                }
+                if let Some(parents) = self.parents.get(&sort) {
+                    pending.extend(parents.iter().cloned());
+                }
+            }
+            for left in &ancestors {
+                self.compatible
+                    .entry(left.clone())
+                    .or_default()
+                    .extend(ancestors.iter().cloned());
+            }
+            self.ancestors.insert(candidate.clone(), ancestors);
+        }
+    }
+
     fn is_subsort(&self, candidate: &SemanticSortRef, expected: &SemanticSortRef) -> bool {
-        if candidate == expected {
-            return true;
-        }
-        let mut pending = vec![candidate];
-        let mut visited = BTreeSet::new();
-        while let Some(sort) = pending.pop() {
-            if !visited.insert(sort.clone()) {
-                continue;
-            }
-            let Some(parents) = self.parents.get(sort) else {
-                continue;
-            };
-            if parents.contains(expected) {
-                return true;
-            }
-            pending.extend(parents);
-        }
-        false
+        candidate == expected
+            || self
+                .ancestors
+                .get(candidate)
+                .is_some_and(|ancestors| ancestors.contains(expected))
     }
 
     fn compatible(&self, left: &SemanticSortRef, right: &SemanticSortRef) -> bool {
-        self.candidates
-            .iter()
-            .any(|candidate| self.is_subsort(candidate, left) && self.is_subsort(candidate, right))
+        self.compatible
+            .get(left)
+            .is_some_and(|compatible| compatible.contains(right))
     }
 }
 
@@ -645,15 +657,123 @@ mod tests {
         assert!(!Unifier::new(&graph).unify(repeated, contradictory));
     }
 
+    #[test]
+    fn transitive_subsorts_and_shared_descendants_remain_compatible() {
+        let child = SemanticSortRef::Declared(declared("Child", ItemKind::Sort));
+        let left = SemanticSortRef::Declared(declared("Left", ItemKind::Sort));
+        let right = SemanticSortRef::Declared(declared("Right", ItemKind::Sort));
+        let ancestor = SemanticSortRef::Declared(declared("Ancestor", ItemKind::Sort));
+        let mut graph = SortGraph::default();
+        graph
+            .candidates
+            .extend([child.clone(), left.clone(), right.clone(), ancestor.clone()]);
+        graph
+            .parents
+            .insert(child.clone(), BTreeSet::from([left.clone(), right.clone()]));
+        graph
+            .parents
+            .insert(left.clone(), BTreeSet::from([ancestor.clone()]));
+        graph
+            .parents
+            .insert(right.clone(), BTreeSet::from([ancestor.clone()]));
+        graph.build_closure();
+
+        assert!(graph.is_subsort(&child, &ancestor));
+        assert!(!graph.is_subsort(&ancestor, &child));
+        assert!(graph.compatible(&left, &right));
+        assert!(requirements_compatible(
+            &graph,
+            &BTreeSet::from([left.clone(), right.clone()])
+        ));
+        assert!(!requirements_compatible(
+            &graph,
+            &BTreeSet::from([left, SemanticSortRef::Builtin(BuiltinSort::Bool)])
+        ));
+        assert!(!graph.compatible(&child, &SemanticSortRef::Builtin(BuiltinSort::Bool)));
+    }
+
+    #[test]
+    fn subsort_cycle_closure_terminates() {
+        let left = SemanticSortRef::Declared(declared("CycleLeft", ItemKind::Sort));
+        let right = SemanticSortRef::Declared(declared("CycleRight", ItemKind::Sort));
+        let unrelated = SemanticSortRef::Declared(declared("Unrelated", ItemKind::Sort));
+        let mut graph = SortGraph::default();
+        graph.candidates.extend([left.clone(), right.clone()]);
+        graph
+            .parents
+            .insert(left.clone(), BTreeSet::from([right.clone()]));
+        graph
+            .parents
+            .insert(right.clone(), BTreeSet::from([left.clone()]));
+        graph.build_closure();
+
+        assert!(graph.is_subsort(&left, &right));
+        assert!(graph.is_subsort(&right, &left));
+        assert!(graph.compatible(&left, &right));
+        assert!(!graph.is_subsort(&left, &unrelated));
+    }
+
+    #[test]
+    fn sort_outside_candidates_has_only_reflexive_subsort_relation() {
+        let candidate = SemanticSortRef::Declared(declared("Candidate", ItemKind::Sort));
+        let outside = SemanticSortRef::Declared(declared("Outside", ItemKind::Sort));
+        let mut graph = SortGraph::default();
+        graph.candidates.insert(candidate.clone());
+        graph
+            .parents
+            .insert(outside.clone(), BTreeSet::from([candidate.clone()]));
+        graph.build_closure();
+
+        assert!(graph.is_subsort(&outside, &outside));
+        assert!(!graph.is_subsort(&outside, &candidate));
+        assert!(!graph.compatible(&outside, &outside));
+        assert!(!graph.compatible(&outside, &candidate));
+    }
+
+    #[test]
+    fn builtin_sorts_are_only_compatible_with_themselves() {
+        let graph = SortGraph::default_with_builtins();
+        for left in BuiltinSort::ALL {
+            for right in BuiltinSort::ALL {
+                let left = SemanticSortRef::Builtin(left);
+                let right = SemanticSortRef::Builtin(right);
+                assert_eq!(graph.is_subsort(&left, &right), left == right);
+                assert_eq!(graph.compatible(&left, &right), left == right);
+            }
+        }
+    }
+
+    #[test]
+    fn compatibility_is_symmetric() {
+        let child = SemanticSortRef::Declared(declared("Child", ItemKind::Sort));
+        let left = SemanticSortRef::Declared(declared("Left", ItemKind::Sort));
+        let right = SemanticSortRef::Declared(declared("Right", ItemKind::Sort));
+        let outside = SemanticSortRef::Declared(declared("Outside", ItemKind::Sort));
+        let mut graph = SortGraph::default_with_builtins();
+        graph
+            .candidates
+            .extend([child.clone(), left.clone(), right.clone()]);
+        graph.parents.insert(child, BTreeSet::from([left, right]));
+        graph.build_closure();
+
+        for left in graph.candidates.iter().chain(std::iter::once(&outside)) {
+            for right in graph.candidates.iter().chain(std::iter::once(&outside)) {
+                assert_eq!(graph.compatible(left, right), graph.compatible(right, left));
+            }
+        }
+    }
+
     impl SortGraph {
         fn default_with_builtins() -> Self {
-            Self {
+            let mut graph = Self {
                 candidates: BuiltinSort::ALL
                     .into_iter()
                     .map(SemanticSortRef::Builtin)
                     .collect(),
-                parents: BTreeMap::new(),
-            }
+                ..Self::default()
+            };
+            graph.build_closure();
+            graph
         }
     }
 }
