@@ -25,12 +25,9 @@ pub(crate) fn precedence(
     let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
     let precedence_chain_role = ProvenanceRole::PrecedenceChain;
     let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
-    let declaration =
-        parse_precedence_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let declaration = parse_precedence_declaration(input)?;
     let facade = env.facade_path()?;
-    let anchors = declaration
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = declaration.provenance()?;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
@@ -96,12 +93,9 @@ pub(crate) fn associativity(
     let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
     let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
     let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
-    let declaration =
-        parse_associativity_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let declaration = parse_associativity_declaration(input)?;
     let facade = env.facade_path()?;
-    let anchors = declaration
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = declaration.provenance()?;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)

@@ -8,38 +8,13 @@ use syn::{
     Attribute, Field, Fields, GenericArgument, Ident, ItemStruct, Path, PathArguments, Type,
 };
 
-use crate::attribute::{is_plain_path, path_spelling};
+use crate::ReferenceCandidate;
+use crate::attribute::is_plain_path;
+use crate::parse::checked_ordinal;
 use crate::{
     CellAttributePayload, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
     TokenRange, parse_cell_attribute,
 };
-
-/// One rustc-resolvable type path in a fixed configuration declaration.
-#[derive(Clone, Debug)]
-pub struct ConfigurationReferenceCandidate {
-    key: ProvenanceKey,
-    path: Path,
-}
-
-impl ConfigurationReferenceCandidate {
-    /// Returns the parser-owned provenance key for the reference.
-    #[must_use]
-    pub const fn key(&self) -> &ProvenanceKey {
-        &self.key
-    }
-
-    /// Returns the authored Rust path.
-    #[must_use]
-    pub const fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Returns a deterministic token spelling for diagnostics and tests.
-    #[must_use]
-    pub fn path_spelling(&self) -> String {
-        path_spelling(&self.path)
-    }
-}
 
 /// Leaf term content or a nominal nested fixed-cell group.
 #[derive(Clone, Debug)]
@@ -289,7 +264,11 @@ impl ConfigurationDeclaration {
         )];
         let mut argument_ordinal = 0_usize;
         for (ordinal, cell) in self.cells.iter().enumerate() {
-            let ordinal = checked_ordinal(ordinal, cell.name.span())?;
+            let ordinal = checked_ordinal(
+                ordinal,
+                ProvenanceRole::ConfigurationField,
+                cell.name.span(),
+            )?;
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::ConfigurationField,
                 ordinal,
@@ -348,7 +327,11 @@ impl ConfigurationDeclaration {
                     for argument in arguments {
                         anchors.push(ProvenanceAnchor::new(
                             ProvenanceRole::ConfigurationCellContentArgument,
-                            checked_ordinal(argument_ordinal, argument.span())?,
+                            checked_ordinal(
+                                argument_ordinal,
+                                ProvenanceRole::ConfigurationField,
+                                argument.span(),
+                            )?,
                             TokenRange::for_tokens(argument)?,
                         ));
                         argument_ordinal += 1;
@@ -368,7 +351,7 @@ impl ConfigurationDeclaration {
 
     /// Returns wrapper/content/nested paths with keys matching [`Self::provenance`].
     #[must_use]
-    pub fn reference_candidates(&self) -> Vec<ConfigurationReferenceCandidate> {
+    pub fn reference_candidates(&self) -> Vec<ReferenceCandidate> {
         let mut output = Vec::new();
         let mut argument_ordinal = 0_u32;
         for (ordinal, cell) in self.cells.iter().enumerate() {
@@ -384,22 +367,25 @@ impl ConfigurationDeclaration {
                     ..
                 } => {
                     if !inferred_wrapper {
-                        output.push(ConfigurationReferenceCandidate {
+                        output.push(ReferenceCandidate {
                             key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
                             path: wrapper.clone(),
+                            kind: (),
                         });
                     }
-                    output.push(ConfigurationReferenceCandidate {
+                    output.push(ReferenceCandidate {
                         key: key(ProvenanceRole::ConfigurationCellContent, ordinal),
                         path: sort.clone(),
+                        kind: (),
                     });
                     for argument in arguments {
-                        output.push(ConfigurationReferenceCandidate {
+                        output.push(ReferenceCandidate {
                             key: key(
                                 ProvenanceRole::ConfigurationCellContentArgument,
                                 argument_ordinal,
                             ),
                             path: argument.clone(),
+                            kind: (),
                         });
                         let Some(next) = argument_ordinal.checked_add(1) else {
                             break;
@@ -408,9 +394,10 @@ impl ConfigurationDeclaration {
                     }
                 }
                 ConfigurationCellContent::Nested { declaration } => {
-                    output.push(ConfigurationReferenceCandidate {
+                    output.push(ReferenceCandidate {
                         key: key(ProvenanceRole::ConfigurationCellContent, ordinal),
                         path: declaration.clone(),
+                        kind: (),
                     });
                 }
             }
@@ -682,17 +669,6 @@ fn is_cell_attribute(attribute: &Attribute) -> bool {
             .segments
             .last()
             .is_some_and(|segment| segment.ident == "cell")
-}
-
-fn checked_ordinal(ordinal: usize, span: proc_macro2::Span) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: ProvenanceRole::ConfigurationField.as_str(),
-            },
-            span,
-        )
-    })
 }
 
 fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {

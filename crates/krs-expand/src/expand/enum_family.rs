@@ -37,14 +37,11 @@ pub(crate) fn constructors(
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
-    let attribute = parse_constructors_attribute(attributes)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_constructors_attribute(attributes)?;
     let item: ItemEnum = syn::parse2(item)?;
-    let declaration = krs_syntax::EnumConstructorDeclaration::from_parts(&attribute, item)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let declaration = krs_syntax::EnumConstructorDeclaration::from_parts(&attribute, item)?;
     let facade = env.facade_path()?;
-    let fallback = TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = TokenRange::for_tokens(declaration.item())?;
     let nonce = expansion_nonce(env, "constructors", declaration.sort_name(), fallback);
     let cfg = call_site_cfg_attributes(&declaration.item().attrs)?;
     let enum_ident = call_site_ident(declaration.sort_name())?;
@@ -169,13 +166,9 @@ pub(crate) fn constructors(
     let closed_sort = if declaration.is_open_family() {
         TokenStream::new()
     } else {
-        let sort_anchors = declaration
-            .sort_provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+        let sort_anchors = declaration.sort_provenance()?;
         let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors);
-        let membership_anchors = declaration
-            .membership_provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+        let membership_anchors = declaration.membership_provenance()?;
         let membership_provenance = host_provenance(env, &facade, fallback, &membership_anchors);
         quote! {
             #(#cfg)*
@@ -302,10 +295,7 @@ fn expand_enum_family_grammar(
         return Ok(TokenStream::new());
     }
     let mut output = Vec::new();
-    if let Some(anchors) = declaration
-        .precedence_provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?
-    {
+    if let Some(anchors) = declaration.precedence_provenance()? {
         let provenance = host_provenance(env, facade, fallback, &anchors);
         let factory = format_ident!("__krs_enum_precedence_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_precedence");
@@ -338,10 +328,7 @@ fn expand_enum_family_grammar(
         );
         output.push(quote!(#(#cfg)* #descriptor));
     }
-    if let Some(anchors) = declaration
-        .associativity_provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?
-    {
+    if let Some(anchors) = declaration.associativity_provenance()? {
         let provenance = host_provenance(env, facade, fallback, &anchors);
         let factory = format_ident!("__krs_enum_associativity_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_associativity");
@@ -414,9 +401,7 @@ fn expand_enum_variant(
     let grammar_factory = format_ident!("__krs_enum_grammar_{nonce:016x}_{index}");
     let disambiguator = format!("enum:{enum_name}");
     let grammar_name = format!("__krs_grammar_{enum_name}_{variant_name}");
-    let anchors = declaration
-        .variant_provenance(variant)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = declaration.variant_provenance(variant)?;
     if variant.syntax().is_some_and(|syntax| !syntax.avoid())
         && anchors
             .iter()
@@ -427,8 +412,7 @@ fn expand_enum_variant(
             "`avoid = false` is not metadata; omit the argument instead",
         ));
     }
-    let fallback = TokenRange::for_tokens(variant.variant())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = TokenRange::for_tokens(variant.variant())?;
     let provenance = host_provenance(env, facade, fallback, &anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
     let syntax = variant.syntax().map(|syntax| syntax.syntax().value());

@@ -1,6 +1,6 @@
 //! Shared, span-preserving parsers for compiler-owned KRS syntax islands.
 //!
-//! This is an ordinary library rather than a procedural-macro crate. Both the
+//! This is an ordinary library rather than a procedural-macro crate.
 //! The macro facade and the collector's source-reparsing provenance pass use these
 //! ASTs, validation rules, and [`ProvenanceRole`] values. Global Rust/K name
 //! resolution and semantic IR construction deliberately live elsewhere.
@@ -12,6 +12,7 @@ mod error;
 mod grammar;
 mod initializer;
 mod item;
+pub mod parse;
 mod provenance;
 mod range;
 mod rule;
@@ -44,9 +45,8 @@ pub use attribute::{
     parse_variant_syntax_attribute_source,
 };
 pub use configuration::{
-    ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration,
-    ConfigurationReferenceCandidate, FixedCellField, parse_configuration_declaration,
-    parse_configuration_declaration_source,
+    ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
+    parse_configuration_declaration, parse_configuration_declaration_source,
 };
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceGroup,
@@ -67,21 +67,21 @@ pub use grammar::{
 };
 pub use initializer::{
     ComputationCellInitializer, ConfigurationVariable, ConfigurationVariableAttribute,
-    FixedCellInitializer, InitializerCellContent, InitializerFunction,
-    InitializerReferenceCandidate, parse_initializer_function, parse_initializer_function_source,
+    FixedCellInitializer, InitializerCellContent, InitializerFunction, parse_initializer_function,
+    parse_initializer_function_source,
 };
 pub use item::{
     ConstructorDeclaration, ConstructorField, ProductionDocumentation, SortDeclaration,
     parse_constructor_declaration, parse_constructor_declaration_source, parse_sort_declaration,
     parse_sort_declaration_source,
 };
+pub use parse::ReferenceCandidate;
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
     RuleBlock, RuleClause, RuleCondition, RuleExtra, RuleHeadResult, RuleImport, RuleItem,
-    RuleNarrowing, RuleParameter, RulePattern, RuleReferenceCandidate, RuleTermReferenceCandidate,
-    TermSort, parse_rule_block, parse_rule_block_source, parse_rule_block_source_with_trivia,
-    parse_rule_item, parse_rule_item_source,
+    RuleNarrowing, RuleParameter, RulePattern, TermSort, parse_rule_block, parse_rule_block_source,
+    parse_rule_block_source_with_trivia, parse_rule_item, parse_rule_item_source,
 };
 pub use sorts::{
     SortsDeclaration, SortsEntry, SortsMembership, SortsSort, parse_sorts_declaration,
@@ -99,8 +99,8 @@ pub use state_macro::{
 };
 pub use state_rule::{
     ClaimEnsures, ClaimSortCandidate, StateClaimItem, StateContextAliasItem, StateRuleBinding,
-    StateRuleBindingKind, StateRuleItem, StateRuleReferenceCandidate, StateRuleReferenceKind,
-    parse_state_claim_item, parse_state_claim_item_source, parse_state_context_alias_item,
+    StateRuleBindingKind, StateRuleItem, StateRuleReferenceKind, parse_state_claim_item,
+    parse_state_claim_item_source, parse_state_context_alias_item,
     parse_state_context_alias_item_source, parse_state_rule_item, parse_state_rule_item_source,
 };
 pub use term::{

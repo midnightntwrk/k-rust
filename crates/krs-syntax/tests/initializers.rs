@@ -79,7 +79,7 @@ fn one_main_variable_preserves_parameter_body_and_resolution_candidates() {
     let candidates = initializer.reference_candidates().unwrap();
     let paths = candidates
         .iter()
-        .map(krs_syntax::InitializerReferenceCandidate::path_spelling)
+        .map(krs_syntax::ReferenceCandidate::path_spelling)
         .collect::<Vec<_>>();
     assert_eq!(paths, ["Self", "model :: KItem", "KCell :: new"]);
     assert!(!paths.iter().any(|path| path == "program"));

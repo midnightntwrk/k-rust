@@ -8,6 +8,7 @@ use syn::{
 };
 
 use crate::attribute::{is_plain_path, path_spelling};
+use crate::parse::checked_ordinal;
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// Syntactic shape at the root of an accepted term.
@@ -596,14 +597,7 @@ impl TermExpression {
             let range = node.range()?;
             anchors.push(ProvenanceAnchor::new(
                 role,
-                u32::try_from(ordinal).map_err(|_| {
-                    SyntaxError::new(
-                        SyntaxErrorKind::TooManyProvenanceOccurrences {
-                            role: role.as_str(),
-                        },
-                        range.first(),
-                    )
-                })?,
+                checked_ordinal(ordinal, role, range.first())?,
                 range,
             ));
         }
@@ -623,14 +617,7 @@ impl TermExpression {
             TokenRange::for_tokens(&self.expression)?,
         ));
         for (ordinal, symbol) in self.symbols.iter().enumerate() {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: path_role.as_str(),
-                    },
-                    symbol.path.span(),
-                )
-            })?;
+            let ordinal = checked_ordinal(ordinal, path_role, symbol.path.span())?;
             anchors.push(ProvenanceAnchor::new(
                 path_role,
                 ordinal,
@@ -1025,14 +1012,7 @@ pub(crate) fn push_record_field_anchors(
     for (ordinal, field) in fields.iter().enumerate() {
         anchors.push(ProvenanceAnchor::new(
             role,
-            u32::try_from(ordinal).map_err(|_| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: role.as_str(),
-                    },
-                    field.span(),
-                )
-            })?,
+            checked_ordinal(ordinal, role, field.span())?,
             TokenRange::for_tokens(field)?,
         ));
     }

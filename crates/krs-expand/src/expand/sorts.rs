@@ -30,14 +30,12 @@ pub(crate) fn sort(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute =
-        parse_sort_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_sort_attribute(attributes)?;
     let mut item: ItemTrait = syn::parse2(item)?;
     reject_unexpanded_symbol(&item.attrs)?;
     let explicit_symbol = take_explicit_symbol_helper(&mut item.attrs)?;
     let brackets = take_bracket_helpers(&mut item.attrs)?;
-    let declaration = parse_sort_declaration(item.to_token_stream())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let declaration = parse_sort_declaration(item.to_token_stream())?;
     let facade = env.facade_path()?;
     if attribute.is_reference() && attribute.parents().len() != declaration.parents().len() {
         return Err(syn::Error::new(
@@ -46,8 +44,7 @@ pub(crate) fn sort(
         ));
     }
     let semantic_sort_range =
-        TokenRange::for_tokens(attribute.alias().unwrap_or(&declaration.item().ident))
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+        TokenRange::for_tokens(attribute.alias().unwrap_or(&declaration.item().ident))?;
     let mut anchors = if attribute.is_reference() {
         let mut anchors = vec![ProvenanceAnchor::new(
             ProvenanceRole::SortDeclaration,
@@ -60,24 +57,17 @@ pub(crate) fn sort(
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::SortParent,
                 ordinal,
-                TokenRange::for_tokens(parent).map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                TokenRange::for_tokens(parent)?,
             ));
         }
         anchors
     } else {
-        declaration
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?
+        declaration.provenance()?
     };
     if let Some(symbol) = &explicit_symbol {
-        anchors.extend(
-            symbol
-                .provenance()
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-        );
+        anchors.extend(symbol.provenance()?);
     }
-    let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "sort", &declaration.item().ident, fallback);
     let factory = format_ident!(
@@ -199,8 +189,7 @@ pub(crate) fn sort(
 /// produce exactly one Rust impl for their shared ancestor; only the authored
 /// direct edge is registered as an object-language subsort descriptor.
 pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
-    let declaration =
-        parse_sorts_declaration(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let declaration = parse_sorts_declaration(input)?;
     let facade = env.facade_path()?;
     let local_parents = declaration
         .entries()
@@ -368,9 +357,7 @@ fn expand_readable_sort(
     facade: &Path,
     declaration: &krs_syntax::SortsSort,
 ) -> syn::Result<TokenStream> {
-    let anchors = declaration
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = declaration.provenance()?;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
@@ -409,9 +396,7 @@ fn expand_readable_sort(
 
     let mut brackets = Vec::new();
     for (index, bracket) in declaration.brackets().iter().enumerate() {
-        let anchors = declaration
-            .bracket_provenance(bracket)
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+        let anchors = declaration.bracket_provenance(bracket)?;
         brackets.push(expand_bracket_grammar_parts(
             env,
             facade,
@@ -476,9 +461,7 @@ fn expand_readable_membership(
     identity: &ReadableMembershipIdentity,
 ) -> syn::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
-    let anchors = declaration
-        .member_provenance(member)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = declaration.member_provenance(member)?;
     let fallback = anchors[0].range();
     let provenance = host_provenance(env, facade, fallback, &anchors);
     let rust_key = &identity.rust_key;
@@ -625,10 +608,10 @@ fn take_bracket_helpers(
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         if helper_entry(attribute.path()) == Some(AttributeMacro::Bracket) {
-            brackets.push(
-                parse_bracket_attribute(helper_tokens(&attribute, AttributeMacro::Bracket.name())?)
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-            );
+            brackets.push(parse_bracket_attribute(helper_tokens(
+                &attribute,
+                AttributeMacro::Bracket.name(),
+            )?)?);
         } else {
             retained.push(attribute);
         }
@@ -638,7 +621,7 @@ fn take_bracket_helpers(
 }
 
 pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> syn::Result<TokenStream> {
-    parse_bracket_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    parse_bracket_attribute(attributes)?;
     Err(syn::Error::new(
         Span::call_site(),
         "`#[k::bracket]` is a sort helper; place `#[k::sort]` before it",
@@ -654,33 +637,26 @@ pub(crate) fn subsort(
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let reference = (!attributes.is_empty())
         .then(|| parse_subsort_attribute(attributes))
-        .transpose()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let declaration =
-        parse_subsort_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+        .transpose()?;
+    let declaration = parse_subsort_declaration(item)?;
     let facade = env.facade_path()?;
-    let fallback = TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = TokenRange::for_tokens(declaration.item())?;
     let anchors = if let Some(reference) = &reference {
         vec![
             ProvenanceAnchor::new(ProvenanceRole::SubsortDeclaration, 0, fallback),
             ProvenanceAnchor::new(
                 ProvenanceRole::SubsortSuperSort,
                 0,
-                TokenRange::for_tokens(reference.sort())
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                TokenRange::for_tokens(reference.sort())?,
             ),
             ProvenanceAnchor::new(
                 ProvenanceRole::SubsortSubSort,
                 0,
-                TokenRange::for_tokens(declaration.sub_sort())
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                TokenRange::for_tokens(declaration.sub_sort())?,
             ),
         ]
     } else {
-        declaration
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?
+        declaration.provenance()?
     };
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let (super_key, sub_key, factory, grammar_name) = if let Some(reference) = &reference {
@@ -794,9 +770,7 @@ fn expand_bracket_grammar(
     index: usize,
     cfg: &[Attribute],
 ) -> syn::Result<TokenStream> {
-    let mut anchors = bracket
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut anchors = bracket.provenance()?;
     anchors.push(ProvenanceAnchor::new(
         ProvenanceRole::SortDeclaration,
         0,

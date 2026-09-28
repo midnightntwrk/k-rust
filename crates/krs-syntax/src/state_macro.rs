@@ -1,13 +1,13 @@
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::quote;
-use syn::parse::{ParseStream, Parser};
+use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
 use crate::attribute::{is_plain_path, path_spelling};
+use crate::parse::{checked_ordinal, structured_with, tokens_from_source};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TokenRange,
 };
@@ -129,9 +129,9 @@ impl KSequence {
         for (index, item) in self.items.iter().enumerate() {
             output.push(ProvenanceAnchor::new(
                 ProvenanceRole::KSequenceItem,
-                ordinal(
-                    ProvenanceRole::KSequenceItem,
+                checked_ordinal(
                     index,
+                    ProvenanceRole::KSequenceItem,
                     item.expression().span(),
                 )?,
                 TokenRange::for_tokens(item.expression())?,
@@ -234,8 +234,11 @@ impl MapExpression {
             MapBody::Empty { .. } => {}
             MapBody::Items { items, remainder } => {
                 for (index, item) in items.iter().enumerate() {
-                    let ordinal =
-                        ordinal(ProvenanceRole::MapKey, index, item.key.expression().span())?;
+                    let ordinal = checked_ordinal(
+                        index,
+                        ProvenanceRole::MapKey,
+                        item.key.expression().span(),
+                    )?;
                     output.push(ProvenanceAnchor::new(
                         ProvenanceRole::MapKey,
                         ordinal,
@@ -370,7 +373,7 @@ impl CellsExpression {
             TokenRange::for_tokens(&self.tokens)?,
         )];
         for (index, entry) in self.entries.iter().enumerate() {
-            let ordinal = ordinal(ProvenanceRole::CellsField, index, entry.name.span())?;
+            let ordinal = checked_ordinal(index, ProvenanceRole::CellsField, entry.name.span())?;
             output.push(ProvenanceAnchor::new(
                 ProvenanceRole::CellsField,
                 ordinal,
@@ -418,7 +421,7 @@ pub fn parse_k_sequence_expression(tokens: TokenStream) -> Result<KSequence, Syn
 ///
 /// Returns the same failures as [`parse_k_sequence_pattern`].
 pub fn parse_k_sequence_pattern_source(source: &str) -> Result<KSequence, SyntaxError> {
-    parse_k_sequence_pattern(source_tokens(source)?)
+    parse_k_sequence_pattern(tokens_from_source(source)?)
 }
 
 /// Parses a `k!` expression payload from source text.
@@ -427,7 +430,7 @@ pub fn parse_k_sequence_pattern_source(source: &str) -> Result<KSequence, Syntax
 ///
 /// Returns the same failures as [`parse_k_sequence_expression`].
 pub fn parse_k_sequence_expression_source(source: &str) -> Result<KSequence, SyntaxError> {
-    parse_k_sequence_expression(source_tokens(source)?)
+    parse_k_sequence_expression(tokens_from_source(source)?)
 }
 
 /// Parses a `map!` pattern payload.
@@ -454,7 +457,7 @@ pub fn parse_map_expression(tokens: TokenStream) -> Result<MapExpression, Syntax
 ///
 /// Returns the same failures as [`parse_map_pattern`].
 pub fn parse_map_pattern_source(source: &str) -> Result<MapExpression, SyntaxError> {
-    parse_map_pattern(source_tokens(source)?)
+    parse_map_pattern(tokens_from_source(source)?)
 }
 
 /// Parses a `map!` pattern payload together with lossless source trivia.
@@ -477,7 +480,7 @@ pub fn parse_map_pattern_source_with_trivia(
 ///
 /// Returns the same failures as [`parse_map_expression`].
 pub fn parse_map_expression_source(source: &str) -> Result<MapExpression, SyntaxError> {
-    parse_map_expression(source_tokens(source)?)
+    parse_map_expression(tokens_from_source(source)?)
 }
 
 /// Parses a `map!` expression payload together with lossless source trivia.
@@ -518,7 +521,7 @@ pub fn parse_cells_expression(tokens: TokenStream) -> Result<CellsExpression, Sy
 ///
 /// Returns the same failures as [`parse_cells_pattern`].
 pub fn parse_cells_pattern_source(source: &str) -> Result<CellsExpression, SyntaxError> {
-    parse_cells_pattern(source_tokens(source)?)
+    parse_cells_pattern(tokens_from_source(source)?)
 }
 
 /// Parses a `cells!` pattern payload together with lossless source trivia.
@@ -541,7 +544,7 @@ pub fn parse_cells_pattern_source_with_trivia(
 ///
 /// Returns the same failures as [`parse_cells_expression`].
 pub fn parse_cells_expression_source(source: &str) -> Result<CellsExpression, SyntaxError> {
-    parse_cells_expression(source_tokens(source)?)
+    parse_cells_expression(tokens_from_source(source)?)
 }
 
 /// Parses a `cells!` expression payload together with lossless source trivia.
@@ -564,17 +567,109 @@ fn parse_k_sequence(
     context: StateMacroContext,
 ) -> Result<KSequence, SyntaxError> {
     let original = tokens.clone();
-    parse_structured(tokens, "k", move |input| {
-        if input.is_empty() {
-            return Ok(KSequence {
-                tokens: original.clone(),
-                items: Vec::new(),
-                tail: StateMacroRemainder::Exact,
-                notation: KSequenceNotation::Comma,
-            });
-        }
-        if starts_remainder(input) {
-            let tail = parse_remainder(input, context, "k")?;
+    structured_with(
+        tokens,
+        move |input| {
+            if input.is_empty() {
+                return Ok(KSequence {
+                    tokens: original.clone(),
+                    items: Vec::new(),
+                    tail: StateMacroRemainder::Exact,
+                    notation: KSequenceNotation::Comma,
+                });
+            }
+            if starts_remainder(input) {
+                let tail = parse_remainder(input, context, "k")?;
+                if !input.is_empty() {
+                    return Err(state_error(
+                        "k",
+                        "the sequence tail must be last",
+                        input.span(),
+                    ));
+                }
+                return Ok(KSequence {
+                    tokens: original.clone(),
+                    items: Vec::new(),
+                    tail,
+                    notation: KSequenceNotation::Comma,
+                });
+            }
+            if input.peek(Token![.]) {
+                let range = parse_dot_unit(input, "K")?;
+                if !input.is_empty() {
+                    return Err(state_error(
+                        "k",
+                        "`.K` must be the complete empty sequence",
+                        input.span(),
+                    ));
+                }
+                let _ = range;
+                return Ok(KSequence {
+                    tokens: original.clone(),
+                    items: Vec::new(),
+                    tail: StateMacroRemainder::Exact,
+                    notation: KSequenceNotation::DotK,
+                });
+            }
+
+            let mut items = Vec::new();
+            let mut tail = StateMacroRemainder::Exact;
+            let mut notation = None;
+            loop {
+                if starts_remainder(input) {
+                    tail = parse_remainder(input, context, "k")?;
+                    break;
+                }
+                let expression = input
+                    .call(Expr::parse_without_eager_brace)
+                    .map_err(SyntaxError::from)?;
+                items.push(state_term_expression(expression, context)?);
+                if input.is_empty() {
+                    break;
+                }
+                let separator = if input.peek(Token![,]) {
+                    input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+                    KSequenceNotation::Comma
+                } else if input.peek(Token![~]) {
+                    input.parse::<Token![~]>().map_err(SyntaxError::from)?;
+                    input.parse::<Token![>]>().map_err(SyntaxError::from)?;
+                    KSequenceNotation::Operator
+                } else {
+                    return Err(state_error(
+                        "k",
+                        "expected `,`, `~>`, or a sequence tail",
+                        input.span(),
+                    ));
+                };
+                if let Some(previous) = notation
+                    && previous != separator
+                {
+                    return Err(state_error(
+                        "k",
+                        "cannot mix `,` and `~>` separators",
+                        input.span(),
+                    ));
+                }
+                notation = Some(separator);
+                if input.is_empty() {
+                    return Err(state_error(
+                        "k",
+                        "a sequence separator requires another item",
+                        input.span(),
+                    ));
+                }
+                if input.peek(Token![.]) && !input.peek(Token![..]) {
+                    parse_dot_unit(input, "K")?;
+                    if !input.is_empty() {
+                        return Err(state_error(
+                            "k",
+                            "`.K` must terminate the sequence",
+                            input.span(),
+                        ));
+                    }
+                    break;
+                }
+            }
             if !input.is_empty() {
                 return Err(state_error(
                     "k",
@@ -582,103 +677,15 @@ fn parse_k_sequence(
                     input.span(),
                 ));
             }
-            return Ok(KSequence {
+            Ok(KSequence {
                 tokens: original.clone(),
-                items: Vec::new(),
+                items,
                 tail,
-                notation: KSequenceNotation::Comma,
-            });
-        }
-        if input.peek(Token![.]) {
-            let range = parse_dot_unit(input, "K")?;
-            if !input.is_empty() {
-                return Err(state_error(
-                    "k",
-                    "`.K` must be the complete empty sequence",
-                    input.span(),
-                ));
-            }
-            let _ = range;
-            return Ok(KSequence {
-                tokens: original.clone(),
-                items: Vec::new(),
-                tail: StateMacroRemainder::Exact,
-                notation: KSequenceNotation::DotK,
-            });
-        }
-
-        let mut items = Vec::new();
-        let mut tail = StateMacroRemainder::Exact;
-        let mut notation = None;
-        loop {
-            if starts_remainder(input) {
-                tail = parse_remainder(input, context, "k")?;
-                break;
-            }
-            let expression = input
-                .call(Expr::parse_without_eager_brace)
-                .map_err(SyntaxError::from)?;
-            items.push(state_term_expression(expression, context)?);
-            if input.is_empty() {
-                break;
-            }
-            let separator = if input.peek(Token![,]) {
-                input.parse::<Token![,]>().map_err(SyntaxError::from)?;
-                KSequenceNotation::Comma
-            } else if input.peek(Token![~]) {
-                input.parse::<Token![~]>().map_err(SyntaxError::from)?;
-                input.parse::<Token![>]>().map_err(SyntaxError::from)?;
-                KSequenceNotation::Operator
-            } else {
-                return Err(state_error(
-                    "k",
-                    "expected `,`, `~>`, or a sequence tail",
-                    input.span(),
-                ));
-            };
-            if let Some(previous) = notation
-                && previous != separator
-            {
-                return Err(state_error(
-                    "k",
-                    "cannot mix `,` and `~>` separators",
-                    input.span(),
-                ));
-            }
-            notation = Some(separator);
-            if input.is_empty() {
-                return Err(state_error(
-                    "k",
-                    "a sequence separator requires another item",
-                    input.span(),
-                ));
-            }
-            if input.peek(Token![.]) && !input.peek(Token![..]) {
-                parse_dot_unit(input, "K")?;
-                if !input.is_empty() {
-                    return Err(state_error(
-                        "k",
-                        "`.K` must terminate the sequence",
-                        input.span(),
-                    ));
-                }
-                break;
-            }
-        }
-        if !input.is_empty() {
-            return Err(state_error(
-                "k",
-                "the sequence tail must be last",
-                input.span(),
-            ));
-        }
-        Ok(KSequence {
-            tokens: original.clone(),
-            items,
-            tail,
-            notation: notation.unwrap_or(KSequenceNotation::Comma),
-        })
-    })
+                notation: notation.unwrap_or(KSequenceNotation::Comma),
+            })
+        },
+        |error| state_error("k", "malformed compiler-owned state syntax", error.span()),
+    )
 }
 
 #[allow(clippy::too_many_lines)] // One closed grammar keeps update/item diagnostics local.
@@ -717,89 +724,93 @@ fn parse_map(
         });
     }
     let original = tokens.clone();
-    parse_structured(tokens, "map", move |input| {
-        if input.is_empty() {
-            return Ok(MapExpression {
-                tokens: original.clone(),
-                body: MapBody::Empty {
-                    explicit_dot: false,
-                },
-            });
-        }
-        if input.peek(Token![.]) {
-            parse_dot_unit(input, "Map")?;
-            if !input.is_empty() {
-                return Err(state_error(
-                    "map",
-                    "`.Map` must be the complete empty map",
-                    input.span(),
-                ));
-            }
-            return Ok(MapExpression {
-                tokens: original.clone(),
-                body: MapBody::Empty { explicit_dot: true },
-            });
-        }
-
-        if starts_remainder(input) {
-            let remainder = parse_remainder(input, context, "map")?;
-            if !input.is_empty() {
-                return Err(state_error(
-                    "map",
-                    "the map remainder must be the complete payload",
-                    input.span(),
-                ));
-            }
-            return Ok(MapExpression {
-                tokens: original.clone(),
-                body: MapBody::Items {
-                    items: Vec::new(),
-                    remainder,
-                },
-            });
-        }
-
-        let first = parse_map_item_key(input)?;
-        parse_map_item_arrow(input)?;
-        let value = input
-            .call(Expr::parse_without_eager_brace)
-            .map_err(SyntaxError::from)?;
-        let mut items = vec![MapItem {
-            key: state_term_expression(first, context)?,
-            value: state_term_expression(value, context)?,
-        }];
-        let mut remainder = StateMacroRemainder::Exact;
-        while !input.is_empty() {
-            input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+    structured_with(
+        tokens,
+        move |input| {
             if input.is_empty() {
-                break;
+                return Ok(MapExpression {
+                    tokens: original.clone(),
+                    body: MapBody::Empty {
+                        explicit_dot: false,
+                    },
+                });
             }
+            if input.peek(Token![.]) {
+                parse_dot_unit(input, "Map")?;
+                if !input.is_empty() {
+                    return Err(state_error(
+                        "map",
+                        "`.Map` must be the complete empty map",
+                        input.span(),
+                    ));
+                }
+                return Ok(MapExpression {
+                    tokens: original.clone(),
+                    body: MapBody::Empty { explicit_dot: true },
+                });
+            }
+
             if starts_remainder(input) {
-                remainder = parse_remainder(input, context, "map")?;
-                break;
+                let remainder = parse_remainder(input, context, "map")?;
+                if !input.is_empty() {
+                    return Err(state_error(
+                        "map",
+                        "the map remainder must be the complete payload",
+                        input.span(),
+                    ));
+                }
+                return Ok(MapExpression {
+                    tokens: original.clone(),
+                    body: MapBody::Items {
+                        items: Vec::new(),
+                        remainder,
+                    },
+                });
             }
-            let key = parse_map_item_key(input)?;
+
+            let first = parse_map_item_key(input)?;
             parse_map_item_arrow(input)?;
             let value = input
                 .call(Expr::parse_without_eager_brace)
                 .map_err(SyntaxError::from)?;
-            items.push(MapItem {
-                key: state_term_expression(key, context)?,
+            let mut items = vec![MapItem {
+                key: state_term_expression(first, context)?,
                 value: state_term_expression(value, context)?,
-            });
-        }
-        if !input.is_empty() {
-            return Err(state_error(
-                "map",
-                "the map remainder must be last",
-                input.span(),
-            ));
-        }
-        Ok(MapExpression {
-            tokens: original.clone(),
-            body: MapBody::Items { items, remainder },
-        })
-    })
+            }];
+            let mut remainder = StateMacroRemainder::Exact;
+            while !input.is_empty() {
+                input.parse::<Token![,]>().map_err(SyntaxError::from)?;
+                if input.is_empty() {
+                    break;
+                }
+                if starts_remainder(input) {
+                    remainder = parse_remainder(input, context, "map")?;
+                    break;
+                }
+                let key = parse_map_item_key(input)?;
+                parse_map_item_arrow(input)?;
+                let value = input
+                    .call(Expr::parse_without_eager_brace)
+                    .map_err(SyntaxError::from)?;
+                items.push(MapItem {
+                    key: state_term_expression(key, context)?,
+                    value: state_term_expression(value, context)?,
+                });
+            }
+            if !input.is_empty() {
+                return Err(state_error(
+                    "map",
+                    "the map remainder must be last",
+                    input.span(),
+                ));
+            }
+            Ok(MapExpression {
+                tokens: original.clone(),
+                body: MapBody::Items { items, remainder },
+            })
+        },
+        |error| state_error("map", "malformed compiler-owned state syntax", error.span()),
+    )
 }
 
 fn parse_map_item_arrow(input: ParseStream<'_>) -> Result<(), SyntaxError> {
@@ -827,110 +838,121 @@ fn parse_map_item_key(input: ParseStream<'_>) -> Result<Expr, SyntaxError> {
     syn::parse2(tokens).map_err(SyntaxError::from)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<CellsExpression, SyntaxError> {
     let original = tokens.clone();
-    parse_structured(tokens, "cells", move |input| {
-        let mut entries = Vec::new();
-        let mut names = BTreeSet::new();
-        let mut remainder = StateMacroRemainder::Exact;
-        while !input.is_empty() {
-            if starts_remainder(input) {
-                remainder = parse_remainder(input, context, "cells")?;
-                if !input.is_empty() {
+    structured_with(
+        tokens,
+        move |input| {
+            let mut entries = Vec::new();
+            let mut names = BTreeSet::new();
+            let mut remainder = StateMacroRemainder::Exact;
+            while !input.is_empty() {
+                if starts_remainder(input) {
+                    remainder = parse_remainder(input, context, "cells")?;
+                    if !input.is_empty() {
+                        return Err(state_error(
+                            "cells",
+                            "the configuration remainder must be last",
+                            input.span(),
+                        ));
+                    }
+                    break;
+                }
+                let mut field: Path = input.parse().map_err(SyntaxError::from)?;
+                if !is_plain_path(&field) {
                     return Err(state_error(
                         "cells",
-                        "the configuration remainder must be last",
-                        input.span(),
+                        "cell fields must be plain Rust paths",
+                        field.span(),
                     ));
                 }
-                break;
-            }
-            let mut field: Path = input.parse().map_err(SyntaxError::from)?;
-            if !is_plain_path(&field) {
-                return Err(state_error(
-                    "cells",
-                    "cell fields must be plain Rust paths",
-                    field.span(),
-                ));
-            }
-            let name = field
-                .segments
-                .pop()
-                .expect("a plain cell field path is nonempty")
-                .into_value()
-                .ident;
-            field.segments.pop_punct();
-            let owner = if field.segments.is_empty() {
-                None
-            } else {
-                Some(field)
-            };
-            let identity = owner.as_ref().map_or_else(
-                || name.to_string(),
-                |owner| format!("{}::{name}", path_spelling(owner)),
-            );
-            if !names.insert(identity) {
-                return Err(state_error(
-                    "cells",
-                    "an owner-qualified cell field occurs more than once",
-                    name.span(),
-                ));
-            }
-            input.parse::<Token![:]>().map_err(SyntaxError::from)?;
-            let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
-            if !is_plain_path(&wrapper) {
-                return Err(state_error(
-                    "cells",
-                    "cell wrappers must be plain Rust paths",
-                    wrapper.span(),
-                ));
-            }
-            let value_tokens = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
-            let wrapper_name = wrapper
-                .segments
-                .last()
-                .expect("plain path is nonempty")
-                .ident
-                .to_string();
-            let value = match wrapper_name.as_str() {
-                "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
-                "Cell" => parse_state_term(value_tokens, context)?,
-                _ => {
+                let name = field
+                    .segments
+                    .pop()
+                    .expect("a plain cell field path is nonempty")
+                    .into_value()
+                    .ident;
+                field.segments.pop_punct();
+                let owner = if field.segments.is_empty() {
+                    None
+                } else {
+                    Some(field)
+                };
+                let identity = owner.as_ref().map_or_else(
+                    || name.to_string(),
+                    |owner| format!("{}::{name}", path_spelling(owner)),
+                );
+                if !names.insert(identity) {
                     return Err(state_error(
                         "cells",
-                        "entries require `Cell(...)` or `KCell(...)`",
+                        "an owner-qualified cell field occurs more than once",
+                        name.span(),
+                    ));
+                }
+                input.parse::<Token![:]>().map_err(SyntaxError::from)?;
+                let wrapper: Path = input.parse().map_err(SyntaxError::from)?;
+                if !is_plain_path(&wrapper) {
+                    return Err(state_error(
+                        "cells",
+                        "cell wrappers must be plain Rust paths",
                         wrapper.span(),
                     ));
                 }
-            };
-            entries.push(CellsEntry {
-                name,
-                owner,
-                wrapper,
-                value,
-            });
-            if input.is_empty() {
-                break;
+                let value_tokens = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
+                let wrapper_name = wrapper
+                    .segments
+                    .last()
+                    .expect("plain path is nonempty")
+                    .ident
+                    .to_string();
+                let value = match wrapper_name.as_str() {
+                    "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
+                    "Cell" => parse_state_term(value_tokens, context)?,
+                    _ => {
+                        return Err(state_error(
+                            "cells",
+                            "entries require `Cell(...)` or `KCell(...)`",
+                            wrapper.span(),
+                        ));
+                    }
+                };
+                entries.push(CellsEntry {
+                    name,
+                    owner,
+                    wrapper,
+                    value,
+                });
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>().map_err(SyntaxError::from)?;
             }
-            input.parse::<Token![,]>().map_err(SyntaxError::from)?;
-        }
-        if entries.is_empty() {
-            return Err(state_error(
+            if entries.is_empty() {
+                return Err(state_error(
+                    "cells",
+                    "at least one cell clause is required",
+                    input.span(),
+                ));
+            }
+            Ok(CellsExpression {
+                tokens: original.clone(),
+                context,
+                entries,
+                remainder,
+            })
+        },
+        |error| {
+            state_error(
                 "cells",
-                "at least one cell clause is required",
-                input.span(),
-            ));
-        }
-        Ok(CellsExpression {
-            tokens: original.clone(),
-            context,
-            entries,
-            remainder,
-        })
-    })
+                "malformed compiler-owned state syntax",
+                error.span(),
+            )
+        },
+    )
 }
 
 fn parse_state_term(
@@ -1122,55 +1144,11 @@ fn macro_payload(tokens: &TokenStream) -> Option<(String, TokenStream)> {
     (bang.as_char() == '!').then(|| (name.to_string(), group.stream()))
 }
 
-fn parse_structured<T>(
-    tokens: TokenStream,
-    macro_name: &'static str,
-    parser: impl Fn(ParseStream<'_>) -> Result<T, SyntaxError>,
-) -> Result<T, SyntaxError> {
-    let structured = RefCell::new(None);
-    let parser = |input: ParseStream<'_>| match parser(input) {
-        Ok(value) => Ok(value),
-        Err(error) => {
-            structured.replace(Some(error.clone()));
-            Err(error.into_syn_error())
-        }
-    };
-    parser.parse2(tokens).map_err(|error| {
-        structured.borrow_mut().take().unwrap_or_else(|| {
-            state_error(
-                macro_name,
-                "malformed compiler-owned state syntax",
-                error.span(),
-            )
-        })
-    })
-}
-
-fn source_tokens(source: &str) -> Result<TokenStream, SyntaxError> {
-    source.parse().map_err(|error: proc_macro2::LexError| {
-        SyntaxError::new(
-            SyntaxErrorKind::RustSyntax(error.to_string()),
-            Span::call_site(),
-        )
-    })
-}
-
 fn state_error(macro_name: &'static str, reason: &'static str, span: Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::InvalidStateMacro { macro_name, reason },
         span,
     )
-}
-
-fn ordinal(role: ProvenanceRole, value: usize, span: Span) -> Result<u32, SyntaxError> {
-    u32::try_from(value).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
 }
 
 /// Deterministic spelling helper for state-macro reference paths.

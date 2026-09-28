@@ -9,7 +9,13 @@ use syn::{
     LitStr, Member, Pat, PatType, Path, PathArguments, ReturnType, Stmt, Token, Type,
 };
 
-use crate::attribute::{is_plain_path, path_spelling};
+use crate::ReferenceCandidate;
+use crate::attribute::is_plain_path;
+use crate::parse::{
+    checked_ordinal, structured_args, unsupported_configuration_variable as unsupported_variable,
+    unsupported_initializer_body as unsupported_body,
+    unsupported_initializer_signature as unsupported_signature,
+};
 use crate::rule::{TermSort, parse_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
@@ -174,33 +180,6 @@ impl FixedCellInitializer {
                 ..
             }
         )
-    }
-}
-
-/// One rustc-resolvable type or constructor path in an initializer.
-#[derive(Clone, Debug)]
-pub struct InitializerReferenceCandidate {
-    key: ProvenanceKey,
-    path: Path,
-}
-
-impl InitializerReferenceCandidate {
-    /// Returns the parser-owned provenance key.
-    #[must_use]
-    pub const fn key(&self) -> &ProvenanceKey {
-        &self.key
-    }
-
-    /// Returns the authored Rust path.
-    #[must_use]
-    pub const fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Returns a deterministic token spelling for diagnostics and tests.
-    #[must_use]
-    pub fn path_spelling(&self) -> String {
-        path_spelling(&self.path)
     }
 }
 
@@ -419,16 +398,17 @@ impl InitializerFunction {
     ///
     /// Returns a structured overflow error if a role has more than `u32::MAX`
     /// occurrences.
-    pub fn reference_candidates(&self) -> Result<Vec<InitializerReferenceCandidate>, SyntaxError> {
+    pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
         let Type::Path(result_type) = initializer_result_type(&self.item) else {
             unreachable!("the initializer return type was validated as `Self`")
         };
-        let mut candidates = vec![InitializerReferenceCandidate {
+        let mut candidates = vec![ReferenceCandidate {
             key: canonical_key(ProvenanceRole::InitializerResultType, 0),
             path: result_type.path.clone(),
+            kind: (),
         }];
         for (ordinal, variable) in self.variables.iter().enumerate() {
-            candidates.push(InitializerReferenceCandidate {
+            candidates.push(ReferenceCandidate {
                 key: canonical_key(
                     ProvenanceRole::ConfigurationVariableType,
                     checked_ordinal(
@@ -438,6 +418,7 @@ impl InitializerFunction {
                     )?,
                 ),
                 path: variable.sort.clone(),
+                kind: (),
             });
         }
         let mut constructor_ordinal = 0;
@@ -629,20 +610,7 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
 fn parse_config_var_attribute(
     attribute: &Attribute,
 ) -> Result<ConfigurationVariableAttribute, SyntaxError> {
-    let structured = std::cell::RefCell::new(None);
-    let parser = |input: ParseStream<'_>| match parse_config_var_stream(input) {
-        Ok(value) => Ok(value),
-        Err(error) => {
-            structured.replace(Some(error.clone()));
-            Err(error.into_syn_error())
-        }
-    };
-    attribute.parse_args_with(parser).map_err(|error| {
-        structured
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| error.into())
-    })
+    structured_args(attribute, parse_config_var_stream)
 }
 
 fn parse_config_var_stream(
@@ -1141,7 +1109,7 @@ fn append_term_anchors(
 fn append_initializer_candidates(
     cells: &[FixedCellInitializer],
     variables: &[ConfigurationVariable],
-    output: &mut Vec<InitializerReferenceCandidate>,
+    output: &mut Vec<ReferenceCandidate>,
     constructor_ordinal: &mut usize,
     term_path_ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
@@ -1159,9 +1127,10 @@ fn append_initializer_candidates(
                     constructor.span(),
                 )?;
                 if !inferred_constructor {
-                    output.push(InitializerReferenceCandidate {
+                    output.push(ReferenceCandidate {
                         key: canonical_key(ProvenanceRole::InitializerCellConstructor, current),
                         path: constructor.clone(),
+                        kind: (),
                     });
                 }
                 *constructor_ordinal += 1;
@@ -1171,7 +1140,7 @@ fn append_initializer_candidates(
                 constructor,
                 children,
             } => {
-                output.push(InitializerReferenceCandidate {
+                output.push(ReferenceCandidate {
                     key: canonical_key(
                         ProvenanceRole::InitializerNestedConstructor,
                         checked_ordinal(
@@ -1181,6 +1150,7 @@ fn append_initializer_candidates(
                         )?,
                     ),
                     path: constructor.clone(),
+                    kind: (),
                 });
                 *constructor_ordinal += 1;
                 append_initializer_candidates(
@@ -1199,7 +1169,7 @@ fn append_initializer_candidates(
 fn append_state_term_candidates(
     value: &StateTerm,
     variables: &[ConfigurationVariable],
-    output: &mut Vec<InitializerReferenceCandidate>,
+    output: &mut Vec<ReferenceCandidate>,
     ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
     match value {
@@ -1231,7 +1201,7 @@ fn append_state_term_candidates(
 fn append_term_candidates(
     term: &TermExpression,
     variables: &[ConfigurationVariable],
-    output: &mut Vec<InitializerReferenceCandidate>,
+    output: &mut Vec<ReferenceCandidate>,
     ordinal: &mut usize,
 ) -> Result<(), SyntaxError> {
     for symbol in term.symbols() {
@@ -1250,9 +1220,10 @@ fn append_term_candidates(
         {
             continue;
         }
-        output.push(InitializerReferenceCandidate {
+        output.push(ReferenceCandidate {
             key: canonical_key(ProvenanceRole::InitializerTermPath, current),
             path: symbol.path().clone(),
+            kind: (),
         });
     }
     Ok(())
@@ -1360,37 +1331,4 @@ fn initializer_result_type(item: &ImplItemFn) -> &Type {
 
 fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
-}
-
-fn checked_ordinal(
-    ordinal: usize,
-    role: ProvenanceRole,
-    span: proc_macro2::Span,
-) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
-}
-
-fn unsupported_signature(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(
-        SyntaxErrorKind::UnsupportedInitializerSignature { reason },
-        span,
-    )
-}
-
-fn unsupported_variable(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(
-        SyntaxErrorKind::UnsupportedConfigurationVariable { reason },
-        span,
-    )
-}
-
-fn unsupported_body(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(SyntaxErrorKind::UnsupportedInitializerBody { reason }, span)
 }

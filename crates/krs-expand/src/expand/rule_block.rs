@@ -14,7 +14,7 @@ use crate::provenance::host_provenance_static;
 
 /// Expands a readable block into independent ordinary rule declarations.
 pub(crate) fn rules(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
-    let block = parse_rule_block(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let block = parse_rule_block(input)?;
     let enum_owner = block.imports().first().map(krs_syntax::RuleImport::owner);
     let enum_variant = block
         .imports()
@@ -62,17 +62,9 @@ fn expand_head_rule(
     let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
     let rule = clause.rule();
-    let mut anchors = clause
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    anchors.extend(
-        clause
-            .attribute()
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
-    let fallback =
-        TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut anchors = clause.provenance()?;
+    anchors.extend(clause.attribute().provenance()?);
+    let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance_static(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");

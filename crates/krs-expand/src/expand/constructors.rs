@@ -28,8 +28,7 @@ use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
 pub(crate) fn symbol(attributes: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-    let symbol =
-        parse_symbol_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let symbol = parse_symbol_attribute(attributes)?;
     let mut item: Item = syn::parse2(item)?;
     let (attrs, span) = match &mut item {
         Item::Trait(item) => (&mut item.attrs, item.ident.span()),
@@ -78,8 +77,7 @@ pub(crate) fn constructor(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute =
-        parse_constructor_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_constructor_attribute(attributes)?;
     constructor_like(env, attribute, item, None, None)
 }
 
@@ -88,11 +86,9 @@ pub(crate) fn function(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let function =
-        parse_function_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let function = parse_function_attribute(attributes)?;
     let totality_anchor = function
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?
+        .provenance()?
         .into_iter()
         .find(|anchor| {
             matches!(
@@ -149,7 +145,7 @@ pub(crate) fn function(
                     ProvenanceRole::FunctionHook,
                     0,
                     TokenRange::for_tokens(path)
-                        .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                        ?,
                 ),
                 operation,
             ))
@@ -185,43 +181,25 @@ fn constructor_like(
             "a function production cannot also be a static alias",
         ));
     }
-    let declaration = parse_constructor_declaration(raw_item.to_token_stream())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    attribute
-        .validate_declaration(&declaration)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let declaration = parse_constructor_declaration(raw_item.to_token_stream())?;
+    attribute.validate_declaration(&declaration)?;
     if let Some(strictness) = &strictness {
-        strictness
-            .validate_fields(
-                declaration
-                    .fields()
-                    .iter()
-                    .map(krs_syntax::ConstructorField::name),
-            )
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+        strictness.validate_fields(
+            declaration
+                .fields()
+                .iter()
+                .map(krs_syntax::ConstructorField::name),
+        )?;
     }
     let facade = env.facade_path()?;
-    let mut declaration_anchors = attribute
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    declaration_anchors.extend(
-        declaration
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
+    let mut declaration_anchors = attribute.provenance()?;
+    declaration_anchors.extend(declaration.provenance()?);
     if let Some(symbol) = &explicit_symbol {
-        declaration_anchors.extend(
-            symbol
-                .provenance()
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-        );
+        declaration_anchors.extend(symbol.provenance()?);
     }
-    let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &declaration_anchors);
-    let mut grammar_anchors = attribute
-        .full_provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut grammar_anchors = attribute.full_provenance()?;
     if !attribute.avoid
         && grammar_anchors
             .iter()
@@ -232,17 +210,9 @@ fn constructor_like(
             "`avoid = false` is not metadata; omit the argument instead",
         ));
     }
-    grammar_anchors.extend(
-        declaration
-            .full_provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
+    grammar_anchors.extend(declaration.full_provenance()?);
     if let Some(symbol) = &explicit_symbol {
-        grammar_anchors.extend(
-            symbol
-                .provenance()
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-        );
+        grammar_anchors.extend(symbol.provenance()?);
     }
     if let Some(alias) = &alias {
         grammar_anchors.push(alias.clone());
@@ -252,8 +222,7 @@ fn constructor_like(
             grammar_anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::FunctionDeclaration,
                 0,
-                TokenRange::for_tokens(declaration.name())
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                TokenRange::for_tokens(declaration.name())?,
             ));
         }
         grammar_anchors.push(
@@ -268,11 +237,7 @@ fn constructor_like(
         grammar_anchors.push(anchor.clone());
     }
     if let Some(strictness) = &strictness {
-        grammar_anchors.extend(
-            strictness
-                .provenance()
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-        );
+        grammar_anchors.extend(strictness.provenance()?);
     }
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
     let nonce = expansion_nonce(env, "constructor", declaration.name(), fallback);
@@ -456,8 +421,7 @@ pub(super) fn take_explicit_symbol_helper(
     for attribute in std::mem::take(attributes) {
         if attribute.path().is_ident("__krs_explicit_symbol") {
             let parsed =
-                parse_symbol_attribute(helper_tokens(&attribute, "__krs_explicit_symbol")?)
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+                parse_symbol_attribute(helper_tokens(&attribute, "__krs_explicit_symbol")?)?;
             if symbol.replace(parsed).is_some() {
                 return Err(syn::Error::new(
                     attribute.span(),
@@ -479,14 +443,13 @@ fn take_strictness_helpers(
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         let parsed = match helper_entry(attribute.path()) {
-            Some(entry @ AttributeMacro::Strict) => Some(
-                parse_strict_attribute(helper_tokens(&attribute, entry.name())?)
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-            ),
-            Some(entry @ AttributeMacro::Seqstrict) => Some(
-                parse_seqstrict_attribute(helper_tokens(&attribute, entry.name())?)
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-            ),
+            Some(entry @ AttributeMacro::Strict) => Some(parse_strict_attribute(helper_tokens(
+                &attribute,
+                entry.name(),
+            )?)?),
+            Some(entry @ AttributeMacro::Seqstrict) => Some(parse_seqstrict_attribute(
+                helper_tokens(&attribute, entry.name())?,
+            )?),
             _ => None,
         };
         if let Some(parsed) = parsed {
@@ -520,7 +483,7 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
                     ));
                 }
             };
-            parse_alias_attribute(tokens).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+            parse_alias_attribute(tokens)?;
             if alias.is_some() {
                 return Err(syn::Error::new(
                     attribute.span(),
@@ -535,8 +498,7 @@ fn take_alias_helper(attributes: &mut Vec<Attribute>) -> syn::Result<Option<Prov
             alias = Some(ProvenanceAnchor::new(
                 ProvenanceRole::AliasProduction,
                 0,
-                TokenRange::for_tokens(&marker.ident)
-                    .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+                TokenRange::for_tokens(&marker.ident)?,
             ));
         } else {
             retained.push(attribute);
@@ -554,11 +516,10 @@ pub(crate) fn orphan_strictness(
     let name = entry.name();
     match entry {
         AttributeMacro::Strict => {
-            parse_strict_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+            parse_strict_attribute(attributes)?;
         }
         AttributeMacro::Seqstrict => {
-            parse_seqstrict_attribute(attributes)
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+            parse_seqstrict_attribute(attributes)?;
         }
         _ => unreachable!(),
     }
@@ -577,13 +538,10 @@ pub(crate) fn token(
     let token_lexical_precedence_role = ProvenanceRole::TokenLexicalPrecedence;
     let token_declaration_role = ProvenanceRole::TokenDeclaration;
     let token_regex_role = ProvenanceRole::TokenRegex;
-    let attribute =
-        parse_token_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let declaration =
-        parse_token_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_token_attribute(attributes)?;
+    let declaration = parse_token_declaration(item)?;
     let facade = env.facade_path()?;
-    let fallback = TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = TokenRange::for_tokens(declaration.item())?;
     let nonce = expansion_nonce(env, "token", declaration.name(), fallback);
     let key_fn = format_ident!("__krs_token_type_{nonce:016x}");
     let sort_factory = format_ident!("__krs_token_sort_descriptor_{nonce:016x}");
@@ -596,18 +554,11 @@ pub(crate) fn token(
     let sort_anchor = ProvenanceAnchor::new(
         ProvenanceRole::SortDeclaration,
         0,
-        TokenRange::for_tokens(declaration.name())
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+        TokenRange::for_tokens(declaration.name())?,
     );
     let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor]);
-    let mut grammar_anchors = attribute
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    grammar_anchors.extend(
-        declaration
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
+    let mut grammar_anchors = attribute.provenance()?;
+    grammar_anchors.extend(declaration.provenance()?);
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
     let regex = attribute.regex().value();
     let lexical_precedence =

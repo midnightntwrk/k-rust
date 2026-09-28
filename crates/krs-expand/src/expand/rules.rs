@@ -65,8 +65,7 @@ pub(crate) fn rule(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute =
-        parse_rule_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_rule_attribute(attributes)?;
     let parsed: ItemFn = syn::parse2(item.clone())?;
     let is_cells_rule = parsed.sig.inputs.last().is_some_and(|argument| {
         let FnArg::Typed(argument) = argument else {
@@ -100,7 +99,7 @@ pub(crate) fn equation(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    parse_equation_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    parse_equation_attribute(attributes)?;
     let attribute = krs_syntax::RuleAttribute::default();
     ordinary_rule(
         env,
@@ -117,8 +116,7 @@ pub(crate) fn simplification(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute = parse_simplification_attribute(attributes)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_simplification_attribute(attributes)?;
     ordinary_rule(
         env,
         item,
@@ -134,7 +132,7 @@ pub(crate) fn alias(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    parse_alias_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    parse_alias_attribute(attributes)?;
     if syn::parse2::<ItemFn>(item.clone()).is_ok() {
         return ordinary_rule(
             env,
@@ -156,8 +154,7 @@ pub(crate) fn priority(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let priority =
-        parse_priority_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let priority = parse_priority_attribute(attributes)?;
     let mut function: ItemFn = syn::parse2(item)?;
     let Some(index) = function
         .attrs
@@ -189,7 +186,7 @@ fn ordinary_rule(
     priority: Option<&krs_syntax::PriorityAttribute>,
     simplification: Option<&krs_syntax::SimplificationAttribute>,
 ) -> syn::Result<TokenStream> {
-    let rule = parse_rule_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let rule = parse_rule_item(item)?;
     expand_ordinary_rule(
         env,
         &rule,
@@ -220,44 +217,27 @@ fn expand_ordinary_rule(
     let rule_pattern_role = ProvenanceRole::RulePattern;
     let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
-    let mut anchors = rule
-        .full_provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    anchors.extend(
-        attribute
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
+    let mut anchors = rule.full_provenance()?;
+    anchors.extend(attribute.provenance()?);
     if sentence_kind == krs_ir::SentenceKind::Alias {
         anchors.push(ProvenanceAnchor::new(
             ProvenanceRole::AliasClause,
             0,
-            TokenRange::for_tokens(&rule.item().sig.ident)
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+            TokenRange::for_tokens(&rule.item().sig.ident)?,
         ));
     }
     if let Some(priority) = priority {
-        anchors.extend(
-            priority
-                .provenance()
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-        );
+        anchors.extend(priority.provenance()?);
     }
     if let Some(simplification) = simplification {
         anchors.push(ProvenanceAnchor::new(
             ProvenanceRole::SimplificationMarker,
             0,
-            TokenRange::for_tokens(&rule.item().sig.ident)
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+            TokenRange::for_tokens(&rule.item().sig.ident)?,
         ));
-        anchors.extend(
-            simplification
-                .provenance()
-                .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-        );
+        anchors.extend(simplification.provenance()?);
     }
-    let fallback = krs_syntax::TokenRange::for_tokens(rule.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let fallback = krs_syntax::TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance_static(env, &facade, fallback, &anchors);
     let sentence_name = match sentence_kind {
         krs_ir::SentenceKind::Transition => "rule",

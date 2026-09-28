@@ -36,10 +36,8 @@ pub(crate) fn context_alias(
     let context_alias_here_role = ProvenanceRole::ContextAliasHere;
     let rule_pattern_role = ProvenanceRole::RulePattern;
     let rule_type_role = ProvenanceRole::RuleType;
-    let attribute = parse_context_alias_attribute(attributes)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let alias = parse_state_context_alias_item(item, attribute.here())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_context_alias_attribute(attributes)?;
+    let alias = parse_state_context_alias_item(item, attribute.here())?;
     let facade = env.facade_path()?;
     let rule_binding_type_role = role_tokens(rule_binding_type_role, &facade);
     let context_alias_declaration_role = role_tokens(context_alias_declaration_role, &facade);
@@ -47,22 +45,14 @@ pub(crate) fn context_alias(
     let context_alias_here_role = role_tokens(context_alias_here_role, &facade);
     let rule_pattern_role = role_tokens(rule_pattern_role, &facade);
     let rule_type_role = role_tokens(rule_type_role, &facade);
-    let mut anchors = attribute
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut anchors = attribute.provenance()?;
     anchors.push(ProvenanceAnchor::new(
         ProvenanceRole::ContextAliasDeclaration,
         0,
-        TokenRange::for_tokens(&alias.item().sig.ident)
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
+        TokenRange::for_tokens(&alias.item().sig.ident)?,
     ));
-    anchors.extend(
-        alias
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
-    let fallback =
-        TokenRange::for_tokens(alias.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    anchors.extend(alias.provenance()?);
+    let fallback = TokenRange::for_tokens(alias.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "context_alias", &alias.item().sig.ident, fallback);
     let factory = format_ident!("__krs_context_alias_{nonce:016x}");
@@ -132,10 +122,7 @@ pub(crate) fn context_alias(
     let pattern = builder.expand_cells(alias.pattern(), &configuration_type)?;
     key_functions.extend(builder.terms.key_functions);
     let mut wrapper_checks = Vec::new();
-    for candidate in alias
-        .reference_candidates()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?
-    {
+    for candidate in alias.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
             let path = call_site_path(candidate.path())?;
             wrapper_checks.push(wrapper_type_check(&path));
@@ -217,7 +204,7 @@ pub(super) fn configuration_rule(
     let rule_type_role = ProvenanceRole::RuleType;
     let rule_result_role = ProvenanceRole::RuleResult;
     let rule_result_type_role = ProvenanceRole::RuleResultType;
-    let rule = parse_state_rule_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let rule = parse_state_rule_item(item)?;
     let facade = env.facade_path()?;
     let rule_binding_type_role = role_tokens(rule_binding_type_role, &facade);
     let rule_requires_role = role_tokens(rule_requires_role, &facade);
@@ -225,16 +212,9 @@ pub(super) fn configuration_rule(
     let rule_type_role = role_tokens(rule_type_role, &facade);
     let rule_result_role = role_tokens(rule_result_role, &facade);
     let rule_result_type_role = role_tokens(rule_result_type_role, &facade);
-    let mut anchors = rule
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    anchors.extend(
-        attribute
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
-    let fallback =
-        TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut anchors = rule.provenance()?;
+    anchors.extend(attribute.provenance()?);
+    let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_rule_{nonce:016x}");
@@ -343,10 +323,7 @@ pub(super) fn configuration_rule(
     let label = rule_label_tokens(&facade, attribute);
     let priority = rule_owise_tokens(&facade, attribute);
     let mut wrapper_checks = Vec::new();
-    for candidate in rule
-        .reference_candidates()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?
-    {
+    for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
             let path = call_site_path(candidate.path())?;
             wrapper_checks.push(wrapper_type_check(&path));

@@ -251,11 +251,11 @@ impl SyntaxError {
     pub const fn source_range(&self) -> Option<SourceRange> {
         self.source_range
     }
+}
 
-    /// Converts this error into the type expected by procedural macros.
-    #[must_use]
-    pub fn into_syn_error(self) -> syn::Error {
-        syn::Error::new(self.span, self.to_string())
+impl From<SyntaxError> for syn::Error {
+    fn from(error: SyntaxError) -> Self {
+        Self::new(error.span(), error.to_string())
     }
 }
 

@@ -21,22 +21,13 @@ pub(crate) fn configuration(
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
-    let attribute = parse_configuration_attribute(attributes)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let declaration =
-        parse_configuration_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_configuration_attribute(attributes)?;
+    let declaration = parse_configuration_declaration(item)?;
     let facade = env.facade_path()?;
     let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
-    let mut anchors = declaration
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    anchors.extend(
-        attribute
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
-    let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut anchors = declaration.provenance()?;
+    anchors.extend(attribute.provenance()?);
+    let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration", declaration.name(), fallback);
     let declared_key = format_ident!(
@@ -124,17 +115,12 @@ pub(crate) fn cell(
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
     let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
-    krs_syntax::parse_cell_attribute(attributes)
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let declaration =
-        parse_configuration_declaration(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    krs_syntax::parse_cell_attribute(attributes)?;
+    let declaration = parse_configuration_declaration(item)?;
     let facade = env.facade_path()?;
     let configuration_declaration_role = role_tokens(configuration_declaration_role, &facade);
-    let anchors = declaration
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let fallback = TokenRange::for_tokens(declaration.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = declaration.provenance()?;
+    let fallback = TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "cell", declaration.name(), fallback);
     let declared_key = format_ident!("__krs_cell_type_{nonce:016x}");

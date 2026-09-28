@@ -23,8 +23,7 @@ pub(crate) fn claim(
     attributes: TokenStream,
     item: TokenStream,
 ) -> syn::Result<TokenStream> {
-    let attribute =
-        parse_claim_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let attribute = parse_claim_attribute(attributes)?;
     configuration_claim(env, item, &attribute)
 }
 
@@ -48,7 +47,7 @@ fn configuration_claim(
     let rule_type_role = ProvenanceRole::RuleType;
     let rule_result_role = ProvenanceRole::RuleResult;
     let rule_result_type_role = ProvenanceRole::RuleResultType;
-    let claim = parse_state_claim_item(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let claim = parse_state_claim_item(item)?;
     let rule = claim.rule();
     let facade = env.facade_path()?;
     let claim_universal_binder_role = role_tokens(claim_universal_binder_role, &facade);
@@ -65,16 +64,9 @@ fn configuration_claim(
     let rule_type_role = role_tokens(rule_type_role, &facade);
     let rule_result_role = role_tokens(rule_result_role, &facade);
     let rule_result_type_role = role_tokens(rule_result_type_role, &facade);
-    let mut anchors = claim
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    anchors.extend(
-        attribute
-            .provenance()
-            .map_err(krs_syntax::SyntaxError::into_syn_error)?,
-    );
-    let fallback =
-        TokenRange::for_tokens(rule.item()).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let mut anchors = claim.provenance()?;
+    anchors.extend(attribute.provenance()?);
+    let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration_claim", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_claim_{nonce:016x}");
@@ -253,10 +245,7 @@ fn configuration_claim(
         quote!(#facade::ProvenanceKey::new(#claim_or_bool_role, #index))
     });
     let mut wrapper_checks = Vec::new();
-    for candidate in rule
-        .reference_candidates()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?
-    {
+    for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
             let path = call_site_path(candidate.path())?;
             wrapper_checks.push(wrapper_type_check(&path));

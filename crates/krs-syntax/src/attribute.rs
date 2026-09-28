@@ -1,11 +1,11 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::ToTokens;
-use std::cell::RefCell;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, ExprPath, Ident, Lit, LitBool, LitInt, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
+use crate::parse::{ParseError, checked_ordinal, structured, tokens_from_source};
 use crate::{
     ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
     TokenRange,
@@ -203,28 +203,19 @@ impl PriorityAttribute {
 
 impl Parse for SortAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_sort_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_sort_stream(input).map_err(syn::Error::from)
     }
 }
 
 impl Parse for SubsortAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_subsort_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_subsort_stream(input).map_err(syn::Error::from)
     }
 }
 
 impl Parse for ContextAliasAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_context_alias_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_context_alias_stream(input).map_err(syn::Error::from)
     }
 }
 
@@ -339,14 +330,11 @@ impl ExistsAttribute {
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut output = Vec::new();
         for (index, binder) in self.binders.iter().enumerate() {
-            let ordinal = u32::try_from(index).map_err(|_| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: ProvenanceRole::ClaimExistentialBinder.as_str(),
-                    },
-                    binder.name.span(),
-                )
-            })?;
+            let ordinal = checked_ordinal(
+                index,
+                ProvenanceRole::ClaimExistentialBinder,
+                binder.name.span(),
+            )?;
             output.push(ProvenanceAnchor::new(
                 ProvenanceRole::ClaimExistentialBinder,
                 ordinal,
@@ -407,10 +395,7 @@ impl RuleAttribute {
 
 impl Parse for RuleAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_rule_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_rule_stream(input).map_err(syn::Error::from)
     }
 }
 
@@ -507,7 +492,7 @@ fn valid_claim_label(value: &str) -> bool {
 /// Returns the same errors as [`parse_claim_attribute`], plus tokenization
 /// errors for malformed Rust source.
 pub fn parse_claim_attribute_source(source: &str) -> Result<ClaimAttribute, SyntaxError> {
-    parse_claim_attribute(parse_source_tokens(source)?)
+    parse_claim_attribute(tokens_from_source(source)?)
 }
 
 /// Parses one or more typed existential binders.
@@ -550,7 +535,7 @@ pub fn parse_exists_attribute(tokens: TokenStream) -> Result<ExistsAttribute, Sy
 /// Returns the same errors as [`parse_exists_attribute`], plus tokenization
 /// errors for malformed Rust source.
 pub fn parse_exists_attribute_source(source: &str) -> Result<ExistsAttribute, SyntaxError> {
-    parse_exists_attribute(parse_source_tokens(source)?)
+    parse_exists_attribute(tokens_from_source(source)?)
 }
 
 /// Generated-top or explicit named-root configuration metadata.
@@ -689,10 +674,7 @@ impl CellAttributePayload {
 
 impl Parse for ConfigurationAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_configuration_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_configuration_stream(input).map_err(syn::Error::from)
     }
 }
 
@@ -791,10 +773,7 @@ impl FunctionAttribute {
 
 impl Parse for FunctionAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_function_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_function_stream(input).map_err(syn::Error::from)
     }
 }
 
@@ -842,10 +821,7 @@ impl ConstructorsAttribute {
 
 impl Parse for ConstructorsAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_constructors_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_constructors_stream(input).map_err(syn::Error::from)
     }
 }
 
@@ -1088,10 +1064,7 @@ impl ConstructorAttribute {
 
 impl Parse for ConstructorAttribute {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
-        parse_constructor_stream(input).map_err(|error| match error {
-            ParseConstructorError::Structured(error) => error.into_syn_error(),
-            ParseConstructorError::Syn(error) => error,
-        })
+        parse_constructor_stream(input).map_err(syn::Error::from)
     }
 }
 
@@ -1102,7 +1075,7 @@ impl Parse for ConstructorAttribute {
 /// Rejects unknown, repeated, or incorrectly typed arguments and requires
 /// `alias` whenever `parents` is present.
 pub fn parse_sort_attribute(tokens: TokenStream) -> Result<SortAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_sort_stream)
+    structured(tokens, parse_sort_stream)
 }
 
 /// Parses a sort-attribute payload directly from source text.
@@ -1112,7 +1085,7 @@ pub fn parse_sort_attribute(tokens: TokenStream) -> Result<SortAttribute, Syntax
 /// Returns the same failures as [`parse_sort_attribute`], plus tokenization
 /// failures.
 pub fn parse_sort_attribute_source(source: &str) -> Result<SortAttribute, SyntaxError> {
-    parse_sort_attribute(parse_source_tokens(source)?)
+    parse_sort_attribute(tokens_from_source(source)?)
 }
 
 /// Parses the explicit supersort alias carried by a reference subsort impl.
@@ -1122,7 +1095,7 @@ pub fn parse_sort_attribute_source(source: &str) -> Result<SortAttribute, Syntax
 /// Requires exactly one plain Rust path-valued `sort` argument and rejects
 /// missing, unknown, repeated, or incorrectly typed arguments.
 pub fn parse_subsort_attribute(tokens: TokenStream) -> Result<SubsortAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_subsort_stream)
+    structured(tokens, parse_subsort_stream)
 }
 
 /// Parses a reference subsort-attribute payload from source text.
@@ -1131,7 +1104,7 @@ pub fn parse_subsort_attribute(tokens: TokenStream) -> Result<SubsortAttribute, 
 ///
 /// Returns the same failures as [`parse_subsort_attribute`].
 pub fn parse_subsort_attribute_source(source: &str) -> Result<SubsortAttribute, SyntaxError> {
-    parse_subsort_attribute(parse_source_tokens(source)?)
+    parse_subsort_attribute(tokens_from_source(source)?)
 }
 
 /// Parses exactly one string literal as a stable public symbol identity.
@@ -1159,7 +1132,7 @@ pub fn parse_symbol_attribute(tokens: TokenStream) -> Result<SymbolAttribute, Sy
 ///
 /// Returns the same failures as [`parse_symbol_attribute`].
 pub fn parse_symbol_attribute_source(source: &str) -> Result<SymbolAttribute, SyntaxError> {
-    parse_symbol_attribute(parse_source_tokens(source)?)
+    parse_symbol_attribute(tokens_from_source(source)?)
 }
 
 /// Parses the intentionally empty equation payload.
@@ -1177,7 +1150,7 @@ pub fn parse_equation_attribute(tokens: TokenStream) -> Result<EquationAttribute
 ///
 /// Returns the same failures as [`parse_equation_attribute`].
 pub fn parse_equation_attribute_source(source: &str) -> Result<EquationAttribute, SyntaxError> {
-    parse_equation_attribute(parse_source_tokens(source)?)
+    parse_equation_attribute(tokens_from_source(source)?)
 }
 
 /// Parses an empty simplification payload or exactly `priority = N`.
@@ -1217,7 +1190,7 @@ pub fn parse_simplification_attribute(
 pub fn parse_simplification_attribute_source(
     source: &str,
 ) -> Result<SimplificationAttribute, SyntaxError> {
-    parse_simplification_attribute(parse_source_tokens(source)?)
+    parse_simplification_attribute(tokens_from_source(source)?)
 }
 
 /// Parses the intentionally empty alias payload.
@@ -1235,7 +1208,7 @@ pub fn parse_alias_attribute(tokens: TokenStream) -> Result<AliasAttribute, Synt
 ///
 /// Returns the same failures as [`parse_alias_attribute`].
 pub fn parse_alias_attribute_source(source: &str) -> Result<AliasAttribute, SyntaxError> {
-    parse_alias_attribute(parse_source_tokens(source)?)
+    parse_alias_attribute(tokens_from_source(source)?)
 }
 
 /// Parses a checked context-alias payload.
@@ -1247,7 +1220,7 @@ pub fn parse_alias_attribute_source(source: &str) -> Result<AliasAttribute, Synt
 pub fn parse_context_alias_attribute(
     tokens: TokenStream,
 ) -> Result<ContextAliasAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_context_alias_stream)
+    structured(tokens, parse_context_alias_stream)
 }
 
 /// Parses a context-alias payload directly from source text.
@@ -1258,7 +1231,7 @@ pub fn parse_context_alias_attribute(
 pub fn parse_context_alias_attribute_source(
     source: &str,
 ) -> Result<ContextAliasAttribute, SyntaxError> {
-    parse_context_alias_attribute(parse_source_tokens(source)?)
+    parse_context_alias_attribute(tokens_from_source(source)?)
 }
 
 /// Parses one exact unsigned equation priority.
@@ -1284,7 +1257,7 @@ pub fn parse_priority_attribute(tokens: TokenStream) -> Result<PriorityAttribute
 ///
 /// Returns the same failures as [`parse_priority_attribute`].
 pub fn parse_priority_attribute_source(source: &str) -> Result<PriorityAttribute, SyntaxError> {
-    parse_priority_attribute(parse_source_tokens(source)?)
+    parse_priority_attribute(tokens_from_source(source)?)
 }
 
 /// Parses an optional explicit rule-label payload.
@@ -1293,7 +1266,7 @@ pub fn parse_priority_attribute_source(source: &str) -> Result<PriorityAttribute
 ///
 /// Accepts empty payloads and exactly `label = "..."`.
 pub fn parse_rule_attribute(tokens: TokenStream) -> Result<RuleAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_rule_stream)
+    structured(tokens, parse_rule_stream)
 }
 
 /// Parses a rule-attribute payload directly from source text.
@@ -1302,7 +1275,7 @@ pub fn parse_rule_attribute(tokens: TokenStream) -> Result<RuleAttribute, Syntax
 ///
 /// Returns a structured error for invalid payloads or tokenization failures.
 pub fn parse_rule_attribute_source(source: &str) -> Result<RuleAttribute, SyntaxError> {
-    parse_rule_attribute(parse_source_tokens(source)?)
+    parse_rule_attribute(tokens_from_source(source)?)
 }
 
 /// Parses the generated-top or named-root configuration attribute payload.
@@ -1314,22 +1287,7 @@ pub fn parse_rule_attribute_source(source: &str) -> Result<RuleAttribute, Syntax
 pub fn parse_configuration_attribute(
     tokens: TokenStream,
 ) -> Result<ConfigurationAttribute, SyntaxError> {
-    let structured = RefCell::new(None);
-    let parser = |input: ParseStream<'_>| match parse_configuration_stream(input) {
-        Ok(attribute) => Ok(attribute),
-        Err(ParseConstructorError::Structured(error)) => {
-            let diagnostic = syn::Error::new(error.span(), error.to_string());
-            structured.replace(Some(error));
-            Err(diagnostic)
-        }
-        Err(ParseConstructorError::Syn(error)) => Err(error),
-    };
-    parser.parse2(tokens).map_err(|error| {
-        structured
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| SyntaxError::from(error))
-    })
+    structured(tokens, parse_configuration_stream)
 }
 
 /// Parses a configuration payload from source text.
@@ -1340,7 +1298,7 @@ pub fn parse_configuration_attribute(
 pub fn parse_configuration_attribute_source(
     source: &str,
 ) -> Result<ConfigurationAttribute, SyntaxError> {
-    parse_configuration_attribute(parse_source_tokens(source)?)
+    parse_configuration_attribute(tokens_from_source(source)?)
 }
 
 /// Parses a fixed-cell helper payload.
@@ -1349,7 +1307,7 @@ pub fn parse_configuration_attribute_source(
 ///
 /// Rejects unknown/repeated keys and empty or non-string values locally.
 pub fn parse_cell_attribute(tokens: TokenStream) -> Result<CellAttributePayload, SyntaxError> {
-    parse_structured_attribute(tokens, parse_cell_stream)
+    structured(tokens, parse_cell_stream)
 }
 
 /// Parses a fixed-cell helper payload from source text.
@@ -1358,7 +1316,7 @@ pub fn parse_cell_attribute(tokens: TokenStream) -> Result<CellAttributePayload,
 ///
 /// Returns the same failures as [`parse_cell_attribute`].
 pub fn parse_cell_attribute_source(source: &str) -> Result<CellAttributePayload, SyntaxError> {
-    parse_cell_attribute(parse_source_tokens(source)?)
+    parse_cell_attribute(tokens_from_source(source)?)
 }
 
 /// Parses the empty initializer attribute payload.
@@ -1376,7 +1334,7 @@ pub fn parse_init_attribute(tokens: TokenStream) -> Result<InitAttribute, Syntax
 ///
 /// Returns the same failures as [`parse_init_attribute`].
 pub fn parse_init_attribute_source(source: &str) -> Result<InitAttribute, SyntaxError> {
-    parse_init_attribute(parse_source_tokens(source)?)
+    parse_init_attribute(tokens_from_source(source)?)
 }
 
 /// Parses constructor arguments from proc-macro or reparsed tokens.
@@ -1388,23 +1346,7 @@ pub fn parse_init_attribute_source(source: &str) -> Result<InitAttribute, Syntax
 pub fn parse_constructor_attribute(
     tokens: TokenStream,
 ) -> Result<ConstructorAttribute, SyntaxError> {
-    let structured = RefCell::new(None);
-    let parser = |input: ParseStream<'_>| match parse_constructor_stream(input) {
-        Ok(attribute) => Ok(attribute),
-        Err(ParseConstructorError::Structured(error)) => {
-            let diagnostic = syn::Error::new(error.span(), error.to_string());
-            structured.replace(Some(error));
-            Err(diagnostic)
-        }
-        Err(ParseConstructorError::Syn(error)) => Err(error),
-    };
-    let result = parser.parse2(tokens);
-    result.map_err(|error| {
-        structured
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| SyntaxError::from(error))
-    })
+    structured(tokens, parse_constructor_stream)
 }
 
 /// Parses constructor arguments from source text using the same parser.
@@ -1415,7 +1357,7 @@ pub fn parse_constructor_attribute(
 pub fn parse_constructor_attribute_source(
     source: &str,
 ) -> Result<ConstructorAttribute, SyntaxError> {
-    parse_constructor_attribute(parse_source_tokens(source)?)
+    parse_constructor_attribute(tokens_from_source(source)?)
 }
 
 /// Parses one total-function production attribute.
@@ -1425,7 +1367,7 @@ pub fn parse_constructor_attribute_source(
 /// Requires the bare `total` marker plus `sort` and `syntax`, and rejects
 /// unknown, repeated, or incorrectly typed arguments at their own tokens.
 pub fn parse_function_attribute(tokens: TokenStream) -> Result<FunctionAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_function_stream)
+    structured(tokens, parse_function_stream)
 }
 
 /// Parses total-function arguments from source text using the same parser.
@@ -1434,7 +1376,7 @@ pub fn parse_function_attribute(tokens: TokenStream) -> Result<FunctionAttribute
 ///
 /// Returns the same structured failures as [`parse_function_attribute`].
 pub fn parse_function_attribute_source(source: &str) -> Result<FunctionAttribute, SyntaxError> {
-    parse_function_attribute(parse_source_tokens(source)?)
+    parse_function_attribute(tokens_from_source(source)?)
 }
 
 /// Parses the payload of `#[k::constructors(sort = OuterSort)]`.
@@ -1447,7 +1389,7 @@ pub fn parse_function_attribute_source(source: &str) -> Result<FunctionAttribute
 pub fn parse_constructors_attribute(
     tokens: TokenStream,
 ) -> Result<ConstructorsAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_constructors_stream)
+    structured(tokens, parse_constructors_stream)
 }
 
 /// Parses a `constructors` payload directly from source text.
@@ -1458,7 +1400,7 @@ pub fn parse_constructors_attribute(
 pub fn parse_constructors_attribute_source(
     source: &str,
 ) -> Result<ConstructorsAttribute, SyntaxError> {
-    parse_constructors_attribute(parse_source_tokens(source)?)
+    parse_constructors_attribute(tokens_from_source(source)?)
 }
 
 /// Parses one enum-variant `#[k::syntax("...", ...)]` payload.
@@ -1470,7 +1412,7 @@ pub fn parse_constructors_attribute_source(
 pub fn parse_variant_syntax_attribute(
     tokens: TokenStream,
 ) -> Result<VariantSyntaxAttribute, SyntaxError> {
-    parse_structured_attribute(tokens, parse_variant_syntax_stream)
+    structured(tokens, parse_variant_syntax_stream)
 }
 
 /// Parses enum-variant syntax metadata directly from source text.
@@ -1481,16 +1423,7 @@ pub fn parse_variant_syntax_attribute(
 pub fn parse_variant_syntax_attribute_source(
     source: &str,
 ) -> Result<VariantSyntaxAttribute, SyntaxError> {
-    parse_variant_syntax_attribute(parse_source_tokens(source)?)
-}
-
-fn parse_source_tokens(source: &str) -> Result<TokenStream, SyntaxError> {
-    source.parse::<TokenStream>().map_err(|error| {
-        SyntaxError::new(
-            SyntaxErrorKind::RustSyntax(error.to_string()),
-            Span::call_site(),
-        )
-    })
+    parse_variant_syntax_attribute(tokens_from_source(source)?)
 }
 
 fn parse_empty_tokens(tokens: TokenStream, attribute: &'static str) -> Result<(), SyntaxError> {
@@ -1511,50 +1444,11 @@ fn parse_empty_attribute(input: ParseStream<'_>, attribute: &'static str) -> syn
             SyntaxErrorKind::UnexpectedAttributePayload { attribute },
             input.span(),
         )
-        .into_syn_error())
+        .into())
     }
 }
 
-enum ParseConstructorError {
-    Structured(SyntaxError),
-    Syn(syn::Error),
-}
-
-fn parse_structured_attribute<T>(
-    tokens: TokenStream,
-    parser: impl Fn(ParseStream<'_>) -> Result<T, ParseConstructorError>,
-) -> Result<T, SyntaxError> {
-    let structured = RefCell::new(None);
-    let parser = |input: ParseStream<'_>| match parser(input) {
-        Ok(value) => Ok(value),
-        Err(ParseConstructorError::Structured(error)) => {
-            let diagnostic = syn::Error::new(error.span(), error.to_string());
-            structured.replace(Some(error));
-            Err(diagnostic)
-        }
-        Err(ParseConstructorError::Syn(error)) => Err(error),
-    };
-    parser.parse2(tokens).map_err(|error| {
-        structured
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| SyntaxError::from(error))
-    })
-}
-
-impl From<SyntaxError> for ParseConstructorError {
-    fn from(error: SyntaxError) -> Self {
-        Self::Structured(error)
-    }
-}
-
-impl From<syn::Error> for ParseConstructorError {
-    fn from(error: syn::Error) -> Self {
-        Self::Syn(error)
-    }
-}
-
-fn parse_sort_stream(input: ParseStream<'_>) -> Result<SortAttribute, ParseConstructorError> {
+fn parse_sort_stream(input: ParseStream<'_>) -> Result<SortAttribute, ParseError> {
     if input.is_empty() {
         return Ok(SortAttribute::default());
     }
@@ -1618,7 +1512,7 @@ fn parse_sort_stream(input: ParseStream<'_>) -> Result<SortAttribute, ParseConst
     })
 }
 
-fn parse_subsort_stream(input: ParseStream<'_>) -> Result<SubsortAttribute, ParseConstructorError> {
+fn parse_subsort_stream(input: ParseStream<'_>) -> Result<SubsortAttribute, ParseError> {
     let missing_span = input.span();
     let mut sort = None;
     while !input.is_empty() {
@@ -1661,9 +1555,7 @@ fn parse_subsort_stream(input: ParseStream<'_>) -> Result<SubsortAttribute, Pars
     })
 }
 
-fn parse_context_alias_stream(
-    input: ParseStream<'_>,
-) -> Result<ContextAliasAttribute, ParseConstructorError> {
+fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttribute, ParseError> {
     let missing_span = input.span();
     let mut name = None;
     let mut here = None;
@@ -1727,9 +1619,7 @@ fn parse_context_alias_stream(
     })
 }
 
-fn parse_constructor_stream(
-    input: ParseStream<'_>,
-) -> Result<ConstructorAttribute, ParseConstructorError> {
+fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribute, ParseError> {
     let missing_span = input.span();
     let mut sort = None;
     let mut syntax = None;
@@ -1816,12 +1706,12 @@ fn parse_constructor_stream(
         .clone()
         .map(SyntaxTemplate::parse)
         .transpose()
-        .map_err(ParseConstructorError::Structured)?;
+        .map_err(ParseError::Structured)?;
     let structured_format = format
         .clone()
         .map(StructuredFormat::parse)
         .transpose()
-        .map_err(ParseConstructorError::Structured)?;
+        .map_err(ParseError::Structured)?;
     Ok(ConstructorAttribute {
         sort,
         syntax,
@@ -1834,9 +1724,7 @@ fn parse_constructor_stream(
     })
 }
 
-fn parse_function_stream(
-    input: ParseStream<'_>,
-) -> Result<FunctionAttribute, ParseConstructorError> {
+fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
     let missing_span = input.span();
     let mut totality = None;
     let mut sort = None;
@@ -1940,7 +1828,7 @@ fn parse_function_stream(
     })
 }
 
-fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseConstructorError> {
+fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError> {
     let mut label = None;
     let mut owise = None;
     while !input.is_empty() {
@@ -1986,9 +1874,7 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseConst
     Ok(RuleAttribute { label, owise })
 }
 
-fn parse_constructors_stream(
-    input: ParseStream<'_>,
-) -> Result<ConstructorsAttribute, ParseConstructorError> {
+fn parse_constructors_stream(input: ParseStream<'_>) -> Result<ConstructorsAttribute, ParseError> {
     let missing_span = input.span();
     let mut sort = None;
     let mut result = None;
@@ -2087,7 +1973,7 @@ fn parse_constructors_stream(
 
 fn parse_variant_syntax_stream(
     input: ParseStream<'_>,
-) -> Result<VariantSyntaxAttribute, ParseConstructorError> {
+) -> Result<VariantSyntaxAttribute, ParseError> {
     let missing_span = input.span();
     if input.is_empty() {
         return Err(SyntaxError::new(
@@ -2171,7 +2057,7 @@ fn parse_variant_syntax_stream(
 
 fn parse_configuration_stream(
     input: ParseStream<'_>,
-) -> Result<ConfigurationAttribute, ParseConstructorError> {
+) -> Result<ConfigurationAttribute, ParseError> {
     let missing_span = input.span();
     let mut root = None;
     while !input.is_empty() {
@@ -2221,9 +2107,7 @@ fn parse_configuration_stream(
 }
 
 #[allow(clippy::too_many_lines)] // Keeps the closed cell-attribute grammar in one ordered parser.
-fn parse_cell_stream(
-    input: ParseStream<'_>,
-) -> Result<CellAttributePayload, ParseConstructorError> {
+fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, ParseError> {
     let mut name = None;
     let mut color = None;
     let mut multiplicity = None;
@@ -2329,7 +2213,7 @@ fn parse_cell_stream(
     })
 }
 
-fn parse_string_value(name: &'static str, value: Expr) -> Result<LitStr, ParseConstructorError> {
+fn parse_string_value(name: &'static str, value: Expr) -> Result<LitStr, ParseError> {
     let Expr::Lit(ExprLit {
         attrs,
         lit: Lit::Str(literal),
@@ -2360,7 +2244,7 @@ fn parse_string_value(name: &'static str, value: Expr) -> Result<LitStr, ParseCo
 fn parse_unqualified_identifier_value(
     name: &'static str,
     value: Expr,
-) -> Result<Ident, ParseConstructorError> {
+) -> Result<Ident, ParseError> {
     let Expr::Path(ExprPath {
         attrs,
         qself: None,
@@ -2398,7 +2282,7 @@ fn parse_unqualified_identifier_value(
         .clone())
 }
 
-fn parse_sort_value(value: Expr) -> Result<Path, ParseConstructorError> {
+fn parse_sort_value(value: Expr) -> Result<Path, ParseError> {
     let Expr::Path(ExprPath {
         attrs,
         qself: None,
@@ -2427,7 +2311,7 @@ fn parse_sort_value(value: Expr) -> Result<Path, ParseConstructorError> {
     Ok(path)
 }
 
-fn parse_parent_paths_value(value: Expr) -> Result<Vec<Path>, ParseConstructorError> {
+fn parse_parent_paths_value(value: Expr) -> Result<Vec<Path>, ParseError> {
     let Expr::Array(array) = value else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::InvalidArgumentValue {
@@ -2483,7 +2367,7 @@ fn parse_parent_paths_value(value: Expr) -> Result<Vec<Path>, ParseConstructorEr
         .collect()
 }
 
-fn parse_syntax_value(value: Expr) -> Result<LitStr, ParseConstructorError> {
+fn parse_syntax_value(value: Expr) -> Result<LitStr, ParseError> {
     let Expr::Lit(ExprLit {
         attrs,
         lit: Lit::Str(literal),
@@ -2511,7 +2395,7 @@ fn parse_syntax_value(value: Expr) -> Result<LitStr, ParseConstructorError> {
     Ok(literal)
 }
 
-fn parse_group_value(value: Expr) -> Result<LitStr, ParseConstructorError> {
+fn parse_group_value(value: Expr) -> Result<LitStr, ParseError> {
     let literal = parse_string_value("group", value)?;
     let spelling = literal.value();
     let mut characters = spelling.chars();
@@ -2532,7 +2416,7 @@ fn parse_group_value(value: Expr) -> Result<LitStr, ParseConstructorError> {
     Ok(literal)
 }
 
-fn parse_rule_label_value(value: Expr) -> Result<LitStr, ParseConstructorError> {
+fn parse_rule_label_value(value: Expr) -> Result<LitStr, ParseError> {
     let literal = parse_string_value("label", value)?;
     let spelling = literal.value();
     let valid = spelling
@@ -2555,7 +2439,7 @@ fn parse_rule_label_value(value: Expr) -> Result<LitStr, ParseConstructorError> 
     Ok(literal)
 }
 
-fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseConstructorError> {
+fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseError> {
     let Expr::Lit(ExprLit {
         attrs,
         lit: Lit::Bool(literal),
@@ -2593,7 +2477,7 @@ fn parse_avoid_value(value: Expr) -> Result<LitBool, ParseConstructorError> {
     Ok(literal)
 }
 
-fn parse_format_value(value: Expr) -> Result<LitStr, ParseConstructorError> {
+fn parse_format_value(value: Expr) -> Result<LitStr, ParseError> {
     parse_string_value("format", value)
 }
 

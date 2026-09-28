@@ -1,12 +1,15 @@
-use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 use proc_macro2::{Span, TokenStream};
-use syn::parse::{ParseStream, Parser};
+use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Field, Fields, Ident, ItemImpl, ItemStruct, LitInt, LitStr, Path, Token, Type};
 
 use crate::attribute::{is_plain_path, path_spelling};
+use crate::parse::{
+    ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument, missing,
+    structured, tokens_from_source, unknown,
+};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One checked fragment of a nominal or bracket concrete-syntax template.
@@ -175,29 +178,20 @@ impl SyntaxTemplate {
         field_role: ProvenanceRole,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
-        let mut item_ordinal = 0_u32;
-        let mut field_ordinal = 0_u32;
+        let mut ordinals = ProvenanceAnchors::default();
         let mut anchors = Vec::new();
         for item in &self.items {
-            anchors.push(ProvenanceAnchor::new(item_role, item_ordinal, range));
-            item_ordinal = item_ordinal.checked_add(1).ok_or_else(|| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: item_role.as_str(),
-                    },
-                    self.literal.span(),
-                )
-            })?;
+            anchors.push(ProvenanceAnchor::new(
+                item_role,
+                ordinals.next(item_role, self.literal.span())?,
+                range,
+            ));
             if matches!(item, SyntaxTemplateItem::Field(_)) {
-                anchors.push(ProvenanceAnchor::new(field_role, field_ordinal, range));
-                field_ordinal = field_ordinal.checked_add(1).ok_or_else(|| {
-                    SyntaxError::new(
-                        SyntaxErrorKind::TooManyProvenanceOccurrences {
-                            role: field_role.as_str(),
-                        },
-                        self.literal.span(),
-                    )
-                })?;
+                anchors.push(ProvenanceAnchor::new(
+                    field_role,
+                    ordinals.next(field_role, self.literal.span())?,
+                    range,
+                ));
             }
         }
         Ok(anchors)
@@ -567,7 +561,7 @@ impl TokenAttribute {
 /// Requires one nonempty checked `regex` string and at most one unsuffixed
 /// `u32` `prec` value.
 pub fn parse_token_attribute(tokens: TokenStream) -> Result<TokenAttribute, SyntaxError> {
-    parse_structured(tokens, parse_token_attribute_stream)
+    structured(tokens, parse_token_attribute_stream)
 }
 
 /// Parses a token attribute payload from source text.
@@ -576,7 +570,7 @@ pub fn parse_token_attribute(tokens: TokenStream) -> Result<TokenAttribute, Synt
 ///
 /// Returns the same failures as [`parse_token_attribute`].
 pub fn parse_token_attribute_source(source: &str) -> Result<TokenAttribute, SyntaxError> {
-    parse_token_attribute(parse_source_tokens(source)?)
+    parse_token_attribute(tokens_from_source(source)?)
 }
 
 fn parse_token_attribute_stream(input: ParseStream<'_>) -> ParseResult<TokenAttribute> {
@@ -875,7 +869,7 @@ impl BracketAttribute {
 /// value and at least one terminal.
 pub fn parse_bracket_attribute(tokens: TokenStream) -> Result<BracketAttribute, SyntaxError> {
     let delimiter_tokens = tokens.clone();
-    parse_structured(tokens, |input| {
+    structured(tokens, |input| {
         let first: LitStr = input.parse()?;
         let (literal, delimiter_tokens) = if input.is_empty() {
             (first, None)
@@ -928,7 +922,7 @@ pub fn parse_bracket_attribute(tokens: TokenStream) -> Result<BracketAttribute, 
 ///
 /// Returns the same failures as [`parse_bracket_attribute`].
 pub fn parse_bracket_attribute_source(source: &str) -> Result<BracketAttribute, SyntaxError> {
-    parse_bracket_attribute(parse_source_tokens(source)?)
+    parse_bracket_attribute(tokens_from_source(source)?)
 }
 
 /// Strict versus authored-order sequential strictness.
@@ -990,7 +984,7 @@ impl StrictnessAttribute {
         result_sort: Path,
         available_fields: &[Ident],
     ) -> Result<Self, SyntaxError> {
-        let (using, fields) = parse_structured(tokens, |input| {
+        let (using, fields) = structured(tokens, |input| {
             let mut using = None;
             let mut fields = Vec::new();
             while !input.is_empty() {
@@ -1013,7 +1007,7 @@ impl StrictnessAttribute {
                     break;
                 }
             }
-            Ok((using, fields))
+            Ok::<_, ParseError>((using, fields))
         })?;
         let fields = if fields.is_empty() {
             available_fields.to_vec()
@@ -1149,7 +1143,7 @@ pub fn parse_strict_attribute(tokens: TokenStream) -> Result<StrictnessAttribute
 ///
 /// Returns the same failures as [`parse_strict_attribute`].
 pub fn parse_strict_attribute_source(source: &str) -> Result<StrictnessAttribute, SyntaxError> {
-    parse_strict_attribute(parse_source_tokens(source)?)
+    parse_strict_attribute(tokens_from_source(source)?)
 }
 
 /// Parses `#[k::seqstrict([using = alias,] sequence = [...], result = SortPath)]`
@@ -1168,7 +1162,7 @@ pub fn parse_seqstrict_attribute(tokens: TokenStream) -> Result<StrictnessAttrib
 ///
 /// Returns the same failures as [`parse_seqstrict_attribute`].
 pub fn parse_seqstrict_attribute_source(source: &str) -> Result<StrictnessAttribute, SyntaxError> {
-    parse_seqstrict_attribute(parse_source_tokens(source)?)
+    parse_seqstrict_attribute(tokens_from_source(source)?)
 }
 
 fn parse_strictness(
@@ -1181,7 +1175,7 @@ fn parse_strictness(
             Span::call_site(),
         )
     })?;
-    parse_structured(tokens, move |input| {
+    structured(tokens, move |input| {
         let missing_span = input.span();
         let mut using = None;
         let mut fields = None;
@@ -1413,7 +1407,7 @@ pub fn parse_precedence_declaration(
             Span::call_site(),
         )
     })?;
-    parse_structured(tokens, move |input| {
+    structured(tokens, move |input| {
         let owner = parse_optional_grammar_owner(input)?;
         if input.is_empty() {
             return Err(invalid_grammar(
@@ -1467,7 +1461,7 @@ pub fn parse_precedence_declaration(
 pub fn parse_precedence_declaration_source(
     source: &str,
 ) -> Result<PrecedenceDeclaration, SyntaxError> {
-    parse_precedence_declaration(parse_source_tokens(source)?)
+    parse_precedence_declaration(tokens_from_source(source)?)
 }
 
 /// Typed group associativity in a grammar macro.
@@ -1581,7 +1575,7 @@ pub fn parse_associativity_declaration(
             Span::call_site(),
         )
     })?;
-    parse_structured(tokens, move |input| {
+    structured(tokens, move |input| {
         let owner = parse_optional_grammar_owner(input)?;
         if input.is_empty() {
             return Err(invalid_grammar(
@@ -1663,7 +1657,7 @@ pub fn parse_associativity_declaration(
 pub fn parse_associativity_declaration_source(
     source: &str,
 ) -> Result<AssociativityDeclaration, SyntaxError> {
-    parse_associativity_declaration(parse_source_tokens(source)?)
+    parse_associativity_declaration(tokens_from_source(source)?)
 }
 
 fn invalid_grammar(reason: &'static str, span: Span) -> ParseError {
@@ -1841,91 +1835,10 @@ fn unsupported_subsort(reason: &'static str, span: Span) -> SyntaxError {
 
 type ParseResult<T> = Result<T, ParseError>;
 
-enum ParseError {
-    Structured(SyntaxError),
-    Syn(syn::Error),
-}
-
-impl From<syn::Error> for ParseError {
-    fn from(error: syn::Error) -> Self {
-        Self::Syn(error)
-    }
-}
-
-fn parse_structured<T>(
-    tokens: TokenStream,
-    parser: impl Fn(ParseStream<'_>) -> ParseResult<T>,
-) -> Result<T, SyntaxError> {
-    let structured = RefCell::new(None);
-    let parser = |input: ParseStream<'_>| match parser(input) {
-        Ok(value) => Ok(value),
-        Err(ParseError::Structured(error)) => {
-            let diagnostic = syn::Error::new(error.span(), error.to_string());
-            structured.replace(Some(error));
-            Err(diagnostic)
-        }
-        Err(ParseError::Syn(error)) => Err(error),
-    };
-    parser.parse2(tokens).map_err(|error| {
-        structured
-            .borrow_mut()
-            .take()
-            .unwrap_or_else(|| SyntaxError::from(error))
-    })
-}
-
-fn parse_source_tokens(source: &str) -> Result<TokenStream, SyntaxError> {
-    source.parse().map_err(|error: proc_macro2::LexError| {
-        SyntaxError::new(
-            SyntaxErrorKind::RustSyntax(error.to_string()),
-            Span::call_site(),
-        )
-    })
-}
-
 fn parse_optional_trailing_comma(input: ParseStream<'_>) -> ParseResult<()> {
     if input.is_empty() {
         return Ok(());
     }
     input.parse::<Token![,]>()?;
     Ok(())
-}
-
-fn duplicate(name: &'static str, span: Span) -> ParseError {
-    ParseError::Structured(SyntaxError::new(
-        SyntaxErrorKind::DuplicateArgument { name },
-        span,
-    ))
-}
-
-fn missing(name: &'static str, span: Span) -> ParseError {
-    ParseError::Structured(SyntaxError::new(
-        SyntaxErrorKind::MissingArgument { name },
-        span,
-    ))
-}
-
-fn unknown(name: String, span: Span) -> ParseError {
-    ParseError::Structured(SyntaxError::new(
-        SyntaxErrorKind::UnknownArgument { name },
-        span,
-    ))
-}
-
-fn invalid_argument(name: &'static str, expected: &'static str, span: Span) -> ParseError {
-    ParseError::Structured(SyntaxError::new(
-        SyntaxErrorKind::InvalidArgumentValue { name, expected },
-        span,
-    ))
-}
-
-fn checked_ordinal(ordinal: usize, role: ProvenanceRole, span: Span) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
 }

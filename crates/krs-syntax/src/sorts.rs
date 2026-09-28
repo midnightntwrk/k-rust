@@ -1,10 +1,11 @@
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path, Token};
 
+use crate::parse::checked_ordinal;
 use crate::{
-    BracketAttribute, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange,
+    BracketAttribute, ProvenanceAnchor, ProvenanceRole, SyntaxError, TokenRange,
     parse_bracket_attribute,
 };
 
@@ -225,9 +226,7 @@ fn parse_sort(input: ParseStream<'_>, attributes: Vec<Attribute>) -> syn::Result
                 "`#[k::bracket]` requires delimiter arguments",
             ));
         };
-        brackets.push(
-            parse_bracket_attribute(list.tokens.clone()).map_err(SyntaxError::into_syn_error)?,
-        );
+        brackets.push(parse_bracket_attribute(list.tokens.clone())?);
     }
 
     Ok(SortsSort {
@@ -271,15 +270,4 @@ fn parse_plain_path(input: ParseStream<'_>, role: &str) -> syn::Result<Path> {
         ));
     }
     Ok(path)
-}
-
-fn checked_ordinal(ordinal: usize, role: ProvenanceRole, span: Span) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
 }

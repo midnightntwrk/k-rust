@@ -12,7 +12,7 @@ use super::tokens::call_site_path;
 use crate::environment::MacroEnvironment;
 
 pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
-    let term = parse_term_expression(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let term = parse_term_expression(input)?;
     let expression = term.expression();
     Ok(quote! {{
         let _krs_typecheck_named_term = || {
@@ -23,8 +23,7 @@ pub(crate) fn term(input: TokenStream) -> syn::Result<TokenStream> {
 }
 
 pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
-    let sequence =
-        parse_k_sequence_expression(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let sequence = parse_k_sequence_expression(input)?;
     let expressions = sequence.items().iter().map(TermExpression::expression);
     let facade = env.facade_path()?;
     Ok(quote! {{
@@ -36,7 +35,7 @@ pub(crate) fn k(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<T
 }
 
 pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result<TokenStream> {
-    let map = parse_map_expression(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let map = parse_map_expression(input)?;
     let mut expressions = Vec::new();
     match map.body() {
         MapBody::Empty { .. } => {}
@@ -61,7 +60,7 @@ pub(crate) fn map(env: &dyn MacroEnvironment, input: TokenStream) -> syn::Result
 
 pub(crate) fn cells(input: TokenStream) -> syn::Result<TokenStream> {
     let island_import_checks = nested_state_island_import_checks(&input);
-    let cells = parse_cells_expression(input).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let cells = parse_cells_expression(input)?;
     let mut expressions = Vec::new();
     let wrappers = cells.entries().iter().map(krs_syntax::CellsEntry::wrapper);
     for entry in cells.entries() {
@@ -101,8 +100,7 @@ pub(crate) fn fragment(
 ) -> syn::Result<TokenStream> {
     let facade = env.facade_path()?;
     let record: syn::ExprStruct = syn::parse2(input.clone())?;
-    let parsed = parse_term_expression(quote!(#facade::fragment![#input]))
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let parsed = parse_term_expression(quote!(#facade::fragment![#input]))?;
     let TermTree::Cell(cell) = parsed.tree() else {
         return Err(syn::Error::new(
             Span::call_site(),

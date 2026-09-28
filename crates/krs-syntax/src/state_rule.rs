@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::spanned::Spanned;
@@ -7,8 +5,13 @@ use syn::{
     Attribute, Expr, FnArg, Ident, ItemFn, Macro, Meta, Pat, PatMacro, Path, ReturnType, Stmt, Type,
 };
 
+use crate::ReferenceCandidate;
+use crate::attribute::is_plain_path;
 use crate::attribute::{ClaimBinder, ExistsAttribute, parse_exists_attribute};
-use crate::attribute::{is_plain_path, path_spelling};
+use crate::parse::{
+    ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
+    unsupported_rule_signature as signature_error,
+};
 use crate::provenance::RuleSide;
 use crate::rule::{RuleCondition, parse_readable_sort, parse_term_sort, take_requires_helper};
 use crate::term::push_record_field_anchors;
@@ -72,40 +75,6 @@ pub enum StateRuleReferenceKind {
     ApplicationHead,
     /// Bare nonbinding path, normally a qualified unit constructor.
     Reference,
-}
-
-/// One descriptor-wide, parser-keyed Rust path in a configuration rule.
-#[derive(Clone, Debug)]
-pub struct StateRuleReferenceCandidate {
-    key: ProvenanceKey,
-    path: Path,
-    kind: StateRuleReferenceKind,
-}
-
-impl StateRuleReferenceCandidate {
-    /// Returns the exact descriptor-wide provenance key.
-    #[must_use]
-    pub const fn key(&self) -> &ProvenanceKey {
-        &self.key
-    }
-
-    /// Returns the rustc-resolvable authored path.
-    #[must_use]
-    pub const fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Returns the path's semantic role.
-    #[must_use]
-    pub const fn kind(&self) -> StateRuleReferenceKind {
-        self.kind
-    }
-
-    /// Returns a deterministic source-like spelling.
-    #[must_use]
-    pub fn path_spelling(&self) -> String {
-        path_spelling(&self.path)
-    }
 }
 
 /// One complete simultaneous fixed-configuration rule.
@@ -517,7 +486,7 @@ impl StateContextAliasItem {
         {
             output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(ordinal, sort.sort().span())?,
+                checked_ordinal(ordinal, ProvenanceRole::RuleBindingType, sort.sort().span())?,
                 TokenRange::for_tokens(sort.sort())?,
             ));
         }
@@ -530,24 +499,30 @@ impl StateContextAliasItem {
     /// # Errors
     ///
     /// Returns occurrence overflow failures only.
-    pub fn reference_candidates(&self) -> Result<Vec<StateRuleReferenceCandidate>, SyntaxError> {
+    pub fn reference_candidates(
+        &self,
+    ) -> Result<Vec<ReferenceCandidate<StateRuleReferenceKind>>, SyntaxError> {
         let mut output = self
             .bindings
             .iter()
             .filter_map(StateRuleBinding::term_sort)
             .enumerate()
             .map(|(ordinal, sort)| {
-                Ok(StateRuleReferenceCandidate {
+                Ok(ReferenceCandidate {
                     key: key(
                         ProvenanceRole::RuleBindingType,
-                        checked_ordinal(ordinal, sort.sort().span())?,
+                        checked_ordinal(
+                            ordinal,
+                            ProvenanceRole::RuleBindingType,
+                            sort.sort().span(),
+                        )?,
                     ),
                     path: sort.sort().clone(),
                     kind: StateRuleReferenceKind::BindingSort,
                 })
             })
             .collect::<Result<Vec<_>, SyntaxError>>()?;
-        output.push(StateRuleReferenceCandidate {
+        output.push(ReferenceCandidate {
             key: key(ProvenanceRole::RuleType, 0),
             path: self.configuration_type.clone(),
             kind: StateRuleReferenceKind::Configuration,
@@ -712,7 +687,7 @@ impl StateRuleItem {
         {
             output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(ordinal, sort.sort().span())?,
+                checked_ordinal(ordinal, ProvenanceRole::RuleBindingType, sort.sort().span())?,
                 TokenRange::for_tokens(sort.sort())?,
             ));
         }
@@ -735,17 +710,23 @@ impl StateRuleItem {
     /// # Errors
     ///
     /// Returns an occurrence-overflow error for pathological inputs.
-    pub fn reference_candidates(&self) -> Result<Vec<StateRuleReferenceCandidate>, SyntaxError> {
+    pub fn reference_candidates(
+        &self,
+    ) -> Result<Vec<ReferenceCandidate<StateRuleReferenceKind>>, SyntaxError> {
         let mut output = self
             .bindings
             .iter()
             .filter_map(StateRuleBinding::term_sort)
             .enumerate()
             .map(|(ordinal, sort)| {
-                Ok(StateRuleReferenceCandidate {
+                Ok(ReferenceCandidate {
                     key: key(
                         ProvenanceRole::RuleBindingType,
-                        checked_ordinal(ordinal, sort.sort().span())?,
+                        checked_ordinal(
+                            ordinal,
+                            ProvenanceRole::RuleBindingType,
+                            sort.sort().span(),
+                        )?,
                     ),
                     path: sort.sort().clone(),
                     kind: StateRuleReferenceKind::BindingSort,
@@ -753,12 +734,12 @@ impl StateRuleItem {
             })
             .collect::<Result<Vec<_>, SyntaxError>>()?;
         output.extend([
-            StateRuleReferenceCandidate {
+            ReferenceCandidate {
                 key: key(ProvenanceRole::RuleType, 0),
                 path: self.subject_type.clone(),
                 kind: StateRuleReferenceKind::Configuration,
             },
-            StateRuleReferenceCandidate {
+            ReferenceCandidate {
                 key: key(ProvenanceRole::RuleResultType, 0),
                 path: self.result_type.clone(),
                 kind: StateRuleReferenceKind::Configuration,
@@ -1172,7 +1153,7 @@ fn append_cells_provenance(
     side: RuleSide,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
-    let mut counters = RoleCounters::default();
+    let mut counters = ProvenanceAnchors::default();
     append_remapped(cells.provenance()?, side, &mut counters, output)?;
     for entry in cells.entries() {
         append_state_term_provenance(entry.value(), side, &mut counters, output)?;
@@ -1183,7 +1164,7 @@ fn append_cells_provenance(
 fn append_state_term_provenance(
     term: &StateTerm,
     side: RuleSide,
-    counters: &mut RoleCounters,
+    counters: &mut ProvenanceAnchors,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     match term {
@@ -1208,7 +1189,7 @@ fn append_state_term_provenance(
 fn append_term_provenance(
     term: &TermExpression,
     side: RuleSide,
-    counters: &mut RoleCounters,
+    counters: &mut ProvenanceAnchors,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role, literal_role, field_role) = match side {
@@ -1267,7 +1248,7 @@ fn append_term_provenance(
 fn append_remapped(
     anchors: Vec<ProvenanceAnchor>,
     side: RuleSide,
-    counters: &mut RoleCounters,
+    counters: &mut ProvenanceAnchors,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     for anchor in anchors {
@@ -1288,16 +1269,16 @@ fn append_cells_candidates(
     cells: &CellsExpression,
     side: RuleSide,
     bindings: &[StateRuleBinding],
-    output: &mut Vec<StateRuleReferenceCandidate>,
+    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
-    let mut counters = RoleCounters::default();
+    let mut counters = ProvenanceAnchors::default();
     for entry in cells.entries() {
         let wrapper_role = match side {
             RuleSide::Left => ProvenanceRole::RuleLeftCellsWrapper,
             RuleSide::Right => ProvenanceRole::RuleRightCellsWrapper,
         };
         let ordinal = counters.next(wrapper_role, entry.wrapper().span())?;
-        output.push(StateRuleReferenceCandidate {
+        output.push(ReferenceCandidate {
             key: key(wrapper_role, ordinal),
             path: entry.wrapper().clone(),
             kind: StateRuleReferenceKind::CellWrapper,
@@ -1311,8 +1292,8 @@ fn append_state_term_candidates(
     state: &StateTerm,
     side: RuleSide,
     bindings: &[StateRuleBinding],
-    counters: &mut RoleCounters,
-    output: &mut Vec<StateRuleReferenceCandidate>,
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
     match state {
         StateTerm::Term(term) => append_term_candidates(term, side, bindings, counters, output),
@@ -1335,8 +1316,8 @@ fn append_term_candidates(
     term: &TermExpression,
     side: RuleSide,
     bindings: &[StateRuleBinding],
-    counters: &mut RoleCounters,
-    output: &mut Vec<StateRuleReferenceCandidate>,
+    counters: &mut ProvenanceAnchors,
+    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role) = match side {
         RuleSide::Left => (
@@ -1352,7 +1333,7 @@ fn append_term_candidates(
         match node {
             TermNode::ApplicationHead(path) => {
                 let ordinal = counters.next(application_role, path.span())?;
-                output.push(StateRuleReferenceCandidate {
+                output.push(ReferenceCandidate {
                     key: key(application_role, ordinal),
                     path: path.clone(),
                     kind: StateRuleReferenceKind::ApplicationHead,
@@ -1366,7 +1347,7 @@ fn append_term_candidates(
                     })
                 });
                 if !bound {
-                    output.push(StateRuleReferenceCandidate {
+                    output.push(ReferenceCandidate {
                         key: key(reference_role, ordinal),
                         path: path.clone(),
                         kind: StateRuleReferenceKind::Reference,
@@ -1391,25 +1372,6 @@ fn map_terms(map: &MapExpression) -> Vec<&TermExpression> {
             .flat_map(|item| [item.key(), item.value()])
             .collect(),
         MapBody::Update { base, key, value } => vec![base, key, value],
-    }
-}
-
-#[derive(Default)]
-struct RoleCounters(BTreeMap<ProvenanceRole, u32>);
-
-impl RoleCounters {
-    fn next(&mut self, role: ProvenanceRole, span: proc_macro2::Span) -> Result<u32, SyntaxError> {
-        let value = self.0.entry(role).or_default();
-        let current = *value;
-        *value = value.checked_add(1).ok_or_else(|| {
-            SyntaxError::new(
-                SyntaxErrorKind::TooManyProvenanceOccurrences {
-                    role: role.as_str(),
-                },
-                span,
-            )
-        })?;
-        Ok(current)
     }
 }
 
@@ -1618,25 +1580,6 @@ fn bare_ident(path: &Path) -> Option<&Ident> {
 
 fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
-}
-
-fn checked_ordinal(ordinal: usize, span: proc_macro2::Span) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: ProvenanceRole::RuleBindingType.as_str(),
-            },
-            span,
-        )
-    })
-}
-
-fn signature_error(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(SyntaxErrorKind::UnsupportedRuleSignature { reason }, span)
-}
-
-fn pattern_error(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(SyntaxErrorKind::UnsupportedRulePattern { reason }, span)
 }
 
 fn body_error(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {

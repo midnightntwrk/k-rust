@@ -14,6 +14,7 @@ use crate::attribute::{
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
+use crate::parse::checked_ordinal;
 use crate::rule::{parse_readable_sort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -728,9 +729,9 @@ fn parse_enum_precedence_group(input: ParseStream<'_>) -> syn::Result<EnumPreced
         ));
     };
     let reference_range = if let Some(name) = &name {
-        TokenRange::for_tokens(name).map_err(SyntaxError::into_syn_error)?
+        TokenRange::for_tokens(name)?
     } else {
-        TokenRange::for_tokens(first_variant).map_err(SyntaxError::into_syn_error)?
+        TokenRange::for_tokens(first_variant)?
     };
     let range = TokenRange::new(
         first_span.unwrap_or_else(|| parentheses.span.open()),
@@ -1122,15 +1123,4 @@ fn invalid_enum_precedence(reason: impl Into<String>, span: Span) -> SyntaxError
         },
         span,
     )
-}
-
-fn checked_ordinal(ordinal: usize, role: ProvenanceRole, span: Span) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
 }

@@ -18,13 +18,13 @@ pub(super) fn sequence_has_role(sequence: &KSequence, role: ProvenanceRole) -> s
     sequence
         .provenance()
         .map(|anchors| anchors.iter().any(|anchor| anchor.role() == role))
-        .map_err(krs_syntax::SyntaxError::into_syn_error)
+        .map_err(syn::Error::from)
 }
 
 pub(super) fn map_has_role(map: &MapExpression, role: ProvenanceRole) -> syn::Result<bool> {
     map.provenance()
         .map(|anchors| anchors.iter().any(|anchor| anchor.role() == role))
-        .map_err(krs_syntax::SyntaxError::into_syn_error)
+        .map_err(syn::Error::from)
 }
 
 pub(super) fn k_notation(facade: &Path, notation: KSequenceNotation) -> TokenStream {

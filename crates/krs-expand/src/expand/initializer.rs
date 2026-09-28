@@ -35,9 +35,8 @@ pub(crate) fn init(
     let initializer_declaration_role = ProvenanceRole::InitializerDeclaration;
     let initializer_result_type_role = ProvenanceRole::InitializerResultType;
     let initializer_body_role = ProvenanceRole::InitializerBody;
-    parse_init_attribute(attributes).map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let initializer =
-        parse_initializer_function(item).map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    parse_init_attribute(attributes)?;
+    let initializer = parse_initializer_function(item)?;
     let facade = env.facade_path()?;
     let configuration_variable_main_role = role_tokens(configuration_variable_main_role, &facade);
     let configuration_variable_role = role_tokens(configuration_variable_role, &facade);
@@ -46,11 +45,8 @@ pub(crate) fn init(
     let initializer_declaration_role = role_tokens(initializer_declaration_role, &facade);
     let initializer_result_type_role = role_tokens(initializer_result_type_role, &facade);
     let initializer_body_role = role_tokens(initializer_body_role, &facade);
-    let anchors = initializer
-        .provenance()
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
-    let fallback = krs_syntax::TokenRange::for_tokens(initializer.item())
-        .map_err(krs_syntax::SyntaxError::into_syn_error)?;
+    let anchors = initializer.provenance()?;
+    let fallback = krs_syntax::TokenRange::for_tokens(initializer.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
 
     let bindings = initializer

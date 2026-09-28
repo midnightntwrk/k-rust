@@ -6,6 +6,7 @@ use syn::{
 };
 
 use crate::attribute::is_plain_path;
+use crate::parse::checked_ordinal;
 use crate::rule::{TermSort, parse_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -373,14 +374,7 @@ impl SortDeclaration {
             TokenRange::for_tokens(&self.item.ident)?,
         ));
         for (ordinal, parent) in self.parents.iter().enumerate() {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: ProvenanceRole::SortParent.as_str(),
-                    },
-                    parent.span(),
-                )
-            })?;
+            let ordinal = checked_ordinal(ordinal, ProvenanceRole::SortParent, parent.span())?;
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::SortParent,
                 ordinal,
@@ -418,19 +412,4 @@ fn unsupported_constructor(reason: &'static str, span: proc_macro2::Span) -> Syn
         SyntaxErrorKind::UnsupportedConstructorDeclaration { reason },
         span,
     )
-}
-
-fn checked_ordinal(
-    ordinal: usize,
-    role: ProvenanceRole,
-    span: proc_macro2::Span,
-) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
 }

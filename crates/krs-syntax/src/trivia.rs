@@ -261,12 +261,7 @@ pub fn lex_gaps(source: &str, token_ranges: &[SourceRange]) -> Result<Vec<Trivia
 pub(crate) fn tokenize_with_trivia(
     source: &str,
 ) -> Result<(TokenStream, TriviaTable), SyntaxError> {
-    let tokens = source.parse::<TokenStream>().map_err(|error| {
-        SyntaxError::new(
-            SyntaxErrorKind::RustSyntax(error.to_string()),
-            Span::call_site(),
-        )
-    })?;
+    let tokens = crate::parse::tokens_from_source(source)?;
     let raw_ranges = collect_token_ranges(&tokens);
     let token_ranges = normalize_token_ranges(source, &raw_ranges)?;
     let trivia = lex_gaps(source, &token_ranges)?;

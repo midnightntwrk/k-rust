@@ -13,7 +13,12 @@ use syn::{
 
 use krs_ir::ProvenanceKey;
 
+use crate::ReferenceCandidate;
 use crate::attribute::{is_plain_path, path_spelling};
+use crate::parse::{
+    checked_ordinal, unsupported_rule_pattern as unsupported_pattern,
+    unsupported_rule_signature as unsupported_signature,
+};
 use crate::term::{is_term_macro, push_record_field_anchors, unexpected_macro};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermApplication, TermArguments,
@@ -149,71 +154,6 @@ impl RulePattern {
     }
 }
 
-/// One parser-keyed Rust path which the host macro must resolve by `TypeId`.
-///
-/// Candidates contain syntax-level references only. Bare RHS paths equal to
-/// subject bindings are intentionally absent, while their provenance anchors
-/// and original preorder ordinals remain present.
-#[derive(Clone, Debug)]
-pub struct RuleReferenceCandidate {
-    key: ProvenanceKey,
-    path: Path,
-}
-
-/// One protocol-v6 term reference with its parser-owned semantic kind.
-#[derive(Clone, Debug)]
-pub struct RuleTermReferenceCandidate {
-    key: ProvenanceKey,
-    path: Path,
-    kind: TermSymbolKind,
-}
-
-impl RuleTermReferenceCandidate {
-    /// Returns the exact parser-owned key for this application/reference.
-    #[must_use]
-    pub const fn key(&self) -> &ProvenanceKey {
-        &self.key
-    }
-
-    /// Returns the rustc-resolvable authored path.
-    #[must_use]
-    pub const fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Returns application-head versus bare-reference syntax.
-    #[must_use]
-    pub const fn kind(&self) -> TermSymbolKind {
-        self.kind
-    }
-
-    /// Returns a deterministic source-like path spelling.
-    #[must_use]
-    pub fn path_spelling(&self) -> String {
-        path_spelling(&self.path)
-    }
-}
-
-impl RuleReferenceCandidate {
-    /// Returns the exact protocol-v3 parser key for this reference.
-    #[must_use]
-    pub const fn key(&self) -> &ProvenanceKey {
-        &self.key
-    }
-
-    /// Returns the authored rustc-resolvable path with original spans.
-    #[must_use]
-    pub const fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// Returns a deterministic source-like spelling of the authored path.
-    #[must_use]
-    pub fn path_spelling(&self) -> String {
-        path_spelling(&self.path)
-    }
-}
-
 /// The one typed subject parameter of a rule clause.
 #[derive(Clone, Debug)]
 pub struct RuleParameter {
@@ -281,7 +221,7 @@ impl RuleCondition {
     pub fn reference_candidates(
         &self,
         bindings: &[Ident],
-    ) -> Result<Vec<RuleTermReferenceCandidate>, SyntaxError> {
+    ) -> Result<Vec<ReferenceCandidate<TermSymbolKind>>, SyntaxError> {
         let mut candidates = Vec::new();
         push_term_reference_candidates(
             &mut candidates,
@@ -917,7 +857,7 @@ impl RuleBlock {
     fn from_stream(input: ParseStream<'_>) -> syn::Result<Self> {
         input.parse::<Token![for]>()?;
         let sort_type: Type = input.parse()?;
-        let sort = parse_readable_sort(sort_type.clone()).map_err(SyntaxError::into_syn_error)?;
+        let sort = parse_readable_sort(sort_type.clone())?;
         if input.peek(Token![in]) {
             return Err(input.error(
                 "`for Sort in cell` is a control-flow rule surface and is not implemented yet",
@@ -1028,8 +968,7 @@ impl RuleBlock {
             }
             let semicolon = input.parse::<Token![;]>()?;
 
-            let (attribute, retained) =
-                take_rule_clause_attribute(attributes).map_err(SyntaxError::into_syn_error)?;
+            let (attribute, retained) = take_rule_clause_attribute(attributes)?;
             let placeholder = match &head_result {
                 RuleHeadResult::Replace(_) => result,
                 RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
@@ -1038,7 +977,7 @@ impl RuleBlock {
                 #(#retained)*
                 pub fn #name(#pattern: #sort_type) -> #sort_type { #placeholder }
             })?;
-            let rule = RuleItem::from_readable_item(item).map_err(SyntaxError::into_syn_error)?;
+            let rule = RuleItem::from_readable_item(item)?;
             let mut bindings = rule.parameter.pattern.bindings().to_vec();
             for extra in &extras {
                 let introduced = match extra {
@@ -1190,8 +1129,7 @@ fn parse_machine_pattern_record(
             MachinePatternCell::MapItem { key, value }
         } else {
             let pattern = content.call(Pat::parse_single)?;
-            let (pattern, tree) =
-                parse_rule_pattern(pattern, true, true).map_err(SyntaxError::into_syn_error)?;
+            let (pattern, tree) = parse_rule_pattern(pattern, true, true)?;
             MachinePatternCell::Term {
                 pattern: Box::new(pattern),
                 tree: Box::new(tree),
@@ -1341,10 +1279,7 @@ fn parse_machine_clause(
                 }
                 extras.push(RuleExtra::HaveMap {
                     cell: cell.clone(),
-                    key: Box::new(
-                        TermExpression::from_expression(key.clone())
-                            .map_err(SyntaxError::into_syn_error)?,
-                    ),
+                    key: Box::new(TermExpression::from_expression(key.clone())?),
                     value: value.clone(),
                 });
                 extra_bindings.push(value.clone());
@@ -1380,10 +1315,7 @@ fn parse_machine_clause(
                         cell: cell.clone(),
                         before: pattern.clone(),
                         before_tree: before_tree.clone(),
-                        after: Box::new(
-                            TermExpression::from_expression((**result).clone())
-                                .map_err(SyntaxError::into_syn_error)?,
-                        ),
+                        after: Box::new(TermExpression::from_expression((**result).clone())?),
                     });
                 }
             }
@@ -1416,25 +1348,19 @@ fn parse_machine_clause(
         ));
     };
     let head_result = match result_k.as_slice() {
-        [] => RuleHeadResult::Erase(
-            TokenRange::for_tokens(&name).map_err(SyntaxError::into_syn_error)?,
-        ),
-        [term] => RuleHeadResult::Replace(Box::new(
-            TermExpression::from_expression(term.clone()).map_err(SyntaxError::into_syn_error)?,
-        )),
+        [] => RuleHeadResult::Erase(TokenRange::for_tokens(&name)?),
+        [term] => RuleHeadResult::Replace(Box::new(TermExpression::from_expression(term.clone())?)),
         items => RuleHeadResult::Splice {
-            range: TokenRange::for_tokens(&name).map_err(SyntaxError::into_syn_error)?,
+            range: TokenRange::for_tokens(&name)?,
             items: items
                 .iter()
                 .cloned()
                 .map(TermExpression::from_expression)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(SyntaxError::into_syn_error)?,
+                .collect::<Result<Vec<_>, _>>()?,
         },
     };
 
-    let (attribute, retained) =
-        take_rule_clause_attribute(attributes).map_err(SyntaxError::into_syn_error)?;
+    let (attribute, retained) = take_rule_clause_attribute(attributes)?;
     let placeholder: Expr = match &head_result {
         RuleHeadResult::Replace(term) => term.expression().clone(),
         RuleHeadResult::Splice { .. } | RuleHeadResult::Erase(_) => syn::parse_quote!(true),
@@ -1443,7 +1369,7 @@ fn parse_machine_clause(
         #(#retained)*
         pub fn #name(#subject_k: #configuration_type) -> #configuration_type { #placeholder }
     })?;
-    let rule = RuleItem::from_readable_item(item).map_err(SyntaxError::into_syn_error)?;
+    let rule = RuleItem::from_readable_item(item)?;
     let mut bindings = rule.parameter.pattern.bindings().to_vec();
     for introduced in extra_bindings {
         if bindings
@@ -1491,9 +1417,7 @@ fn parse_head_result(result: Expr) -> syn::Result<RuleHeadResult> {
     if let Expr::Tuple(tuple) = &result
         && tuple.elems.is_empty()
     {
-        return Ok(RuleHeadResult::Erase(
-            TokenRange::for_tokens(&result).map_err(SyntaxError::into_syn_error)?,
-        ));
+        return Ok(RuleHeadResult::Erase(TokenRange::for_tokens(&result)?));
     }
     if let Expr::Macro(expression) = &result
         && expression
@@ -1503,8 +1427,7 @@ fn parse_head_result(result: Expr) -> syn::Result<RuleHeadResult> {
             .last()
             .is_some_and(|segment| segment.ident == "k")
     {
-        let sequence = crate::parse_k_sequence_expression(expression.mac.tokens.clone())
-            .map_err(SyntaxError::into_syn_error)?;
+        let sequence = crate::parse_k_sequence_expression(expression.mac.tokens.clone())?;
         if !matches!(sequence.tail(), crate::StateMacroRemainder::Exact) {
             return Err(syn::Error::new(
                 expression.span(),
@@ -1512,12 +1435,12 @@ fn parse_head_result(result: Expr) -> syn::Result<RuleHeadResult> {
             ));
         }
         return Ok(RuleHeadResult::Splice {
-            range: TokenRange::for_tokens(&result).map_err(SyntaxError::into_syn_error)?,
+            range: TokenRange::for_tokens(&result)?,
             items: sequence.items().to_vec(),
         });
     }
     Ok(RuleHeadResult::Replace(Box::new(
-        TermExpression::from_expression(result).map_err(SyntaxError::into_syn_error)?,
+        TermExpression::from_expression(result)?,
     )))
 }
 
@@ -1534,7 +1457,7 @@ fn parse_have_extra(input: ParseStream<'_>) -> syn::Result<RuleExtra> {
     }
     Ok(RuleExtra::HaveMap {
         cell,
-        key: Box::new(TermExpression::from_expression(key).map_err(SyntaxError::into_syn_error)?),
+        key: Box::new(TermExpression::from_expression(key)?),
         value,
     })
 }
@@ -1597,8 +1520,7 @@ fn parse_map_update(
             format!("{base_error} `{}`", expected_base.unraw()),
         ));
     }
-    let update =
-        TermExpression::from_expression(expression.clone()).map_err(SyntaxError::into_syn_error)?;
+    let update = TermExpression::from_expression(expression.clone())?;
     Ok(RuleExtra::UpdateMap {
         cell: cell.clone(),
         base: base.path.segments[0].ident.clone(),
@@ -1829,15 +1751,17 @@ impl RuleItem {
     ///
     /// Returns a structured overflow error if one path role has more than
     /// `u32::MAX` occurrences.
-    pub fn reference_candidates(&self) -> Result<Vec<RuleReferenceCandidate>, SyntaxError> {
+    pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
         let mut candidates = vec![
-            RuleReferenceCandidate {
+            ReferenceCandidate {
                 key: canonical_key(ProvenanceRole::RuleType, 0),
                 path: self.parameter.term_sort.sort().clone(),
+                kind: (),
             },
-            RuleReferenceCandidate {
+            ReferenceCandidate {
                 key: canonical_key(ProvenanceRole::RuleResultType, 0),
                 path: self.result_sort.sort().clone(),
+                kind: (),
             },
         ];
 
@@ -1915,7 +1839,7 @@ impl RuleItem {
     /// Returns an occurrence-overflow error for pathological input.
     pub fn term_reference_candidates(
         &self,
-    ) -> Result<Vec<RuleTermReferenceCandidate>, SyntaxError> {
+    ) -> Result<Vec<ReferenceCandidate<TermSymbolKind>>, SyntaxError> {
         let mut candidates = Vec::new();
         push_term_reference_candidates(
             &mut candidates,
@@ -2615,7 +2539,7 @@ fn push_wildcard_anchors(
 }
 
 fn push_term_reference_candidates(
-    candidates: &mut Vec<RuleTermReferenceCandidate>,
+    candidates: &mut Vec<ReferenceCandidate<TermSymbolKind>>,
     nodes: &[TermNode],
     bindings: &[Ident],
     application_role: ProvenanceRole,
@@ -2650,7 +2574,7 @@ fn push_term_reference_candidates(
             | TermNode::OrBool(_) => continue,
         };
         let ordinal = checked_ordinal(ordinal, role, path.span())?;
-        candidates.push(RuleTermReferenceCandidate {
+        candidates.push(ReferenceCandidate {
             key: canonical_key(role, ordinal),
             path: path.clone(),
             kind,
@@ -2672,15 +2596,16 @@ fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
 }
 
 fn push_candidate(
-    candidates: &mut Vec<RuleReferenceCandidate>,
+    candidates: &mut Vec<ReferenceCandidate>,
     role: ProvenanceRole,
     ordinal: usize,
     path: &Path,
 ) -> Result<(), SyntaxError> {
     let ordinal = checked_ordinal(ordinal, role, path.span())?;
-    candidates.push(RuleReferenceCandidate {
+    candidates.push(ReferenceCandidate {
         key: canonical_key(role, ordinal),
         path: path.clone(),
+        kind: (),
     });
     Ok(())
 }
@@ -2715,27 +2640,4 @@ fn parse_rule_body(item: &ItemFn) -> Result<TermExpression, SyntaxError> {
         }
         expression => TermExpression::from_expression(expression.clone()),
     }
-}
-
-fn unsupported_signature(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(SyntaxErrorKind::UnsupportedRuleSignature { reason }, span)
-}
-
-fn unsupported_pattern(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
-    SyntaxError::new(SyntaxErrorKind::UnsupportedRulePattern { reason }, span)
-}
-
-fn checked_ordinal(
-    ordinal: usize,
-    role: ProvenanceRole,
-    span: proc_macro2::Span,
-) -> Result<u32, SyntaxError> {
-    u32::try_from(ordinal).map_err(|_| {
-        SyntaxError::new(
-            SyntaxErrorKind::TooManyProvenanceOccurrences {
-                role: role.as_str(),
-            },
-            span,
-        )
-    })
 }
