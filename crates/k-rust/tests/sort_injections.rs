@@ -1725,6 +1725,65 @@ fn definition_injection_errors_name_the_source_sentence() {
     );
 }
 
+#[test]
+fn definition_injection_errors_name_the_generating_pass() {
+    // `Foo < KItem < K` is declared because this lowered definition has no prelude: the
+    // rewrite `foo(X:Foo) => .K` needs a least upper bound of Foo and K, so that the only
+    // rejection left is the Foo at foo's Int position.
+    let before = lowered(indoc! {r#"
+        module MAIN
+          syntax Foo ::= "foo" "(" Int ")" [symbol(foo)]
+          syntax Int ::= r"[0-9]+" [token]
+          syntax KItem ::= Foo
+          syntax K ::= KItem
+        endmodule
+    "#});
+    let mut after = before.clone();
+    let truth = Term::Token {
+        token: "true".into(),
+        sort: Sort::new("Bool"),
+    };
+    after
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap()
+        .local_sentences
+        .push(Arc::new(Sentence::Rule {
+            body: Term::Rewrite {
+                left: Box::new(Term::apply(
+                    "foo",
+                    vec![Term::Variable {
+                        name: "X".into(),
+                        sort: Some(Sort::new("Foo")),
+                    }],
+                )),
+                right: Box::new(Term::Sequence(Vec::new())),
+            },
+            requires: truth.clone(),
+            ensures: truth,
+            attributes: Attributes::default(),
+        }));
+    let generated = k_rust::provenance::record_generated_origins(
+        &before,
+        after,
+        GeneratingPass::GenerateSortPredicateRules,
+    );
+
+    let error = add_sort_injections_to_definition(&generated).unwrap_err();
+
+    assert!(matches!(error, SortInjectionError::Sentence { .. }));
+    let message = error.to_string();
+    assert!(
+        message.contains("term X has sort Foo, which is not a subsort of the sort Int"),
+        "{message}"
+    );
+    assert!(
+        message.contains("(origin: generate-sort-predicate-rules)"),
+        "{message}"
+    );
+}
+
 // A loaded rule edited in place and relinked, as an embedder that mutates `LoadedDefinition`
 // does, and the same edited rule given to `load_structured` in place of its bubble: the compiler
 // must reject every term whose sort does not fit its position, whatever path produced it.

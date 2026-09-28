@@ -97,6 +97,10 @@ pub(crate) fn reject_label_parameters_in_definition(
                     .attributes()
                     .location()
                     .map(|location| location.start_line),
+                origin: sentence
+                    .attributes()
+                    .origin_record()
+                    .map(|record| record.pass),
                 error: Box::new(error),
             })?;
         }
@@ -136,6 +140,7 @@ pub enum SortInjectionError {
         sentence: usize,
         source: Option<String>,
         line: Option<u32>,
+        origin: Option<crate::provenance::GeneratingPass>,
         error: Box<SortInjectionError>,
     },
     InvalidArity {
@@ -243,6 +248,7 @@ impl fmt::Display for SortInjectionError {
                 sentence,
                 source,
                 line,
+                origin,
                 error,
             } => {
                 if let Some(source) = source {
@@ -253,6 +259,9 @@ impl fmt::Display for SortInjectionError {
                     write!(formatter, ": ")?;
                 } else {
                     write!(formatter, "sentence {sentence} of module {module:?}: ")?;
+                }
+                if let Some(origin) = origin {
+                    write!(formatter, "(origin: {}) ", origin.as_str())?;
                 }
                 error.fmt(formatter)
             }
@@ -1817,6 +1826,10 @@ pub(crate) fn add_sort_injections_to_definition_pass(
                         .attributes()
                         .location()
                         .map(|location| location.start_line),
+                    origin: sentence
+                        .attributes()
+                        .origin_record()
+                        .map(|record| record.pass),
                     error: Box::new(error),
                 }
             })?;
