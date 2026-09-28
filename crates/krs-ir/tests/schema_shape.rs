@@ -3,7 +3,8 @@
 //! A change to a pinned schema file must advance `SchemaVersion::CURRENT` and `Krs.lock`
 //! `[schemas] krs_ir`; a collector file change must advance `collector::VERSION` and its
 //! `Krs.lock` entry. A released version's file must never be overwritten.
-//! After advancing a version, use `UPDATE_EXPECT=1` to record the new versioned file.
+//! After advancing a version, use `UPDATE_EXPECT=1` to create the absent versioned file.
+//! An existing versioned file is compared byte for byte even when recording is enabled.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -14,7 +15,9 @@ use krs_ir::measure::*;
 use krs_ir::transport::collector;
 use krs_ir::wire::*;
 use krs_ir::*;
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde_reflection::{Error, Registry, Samples, Tracer, TracerConfig};
+use syn::{Item, Meta, Token, punctuated::Punctuated};
 
 mod schema_samples;
 
@@ -22,16 +25,51 @@ fn recording() -> bool {
     std::env::var("UPDATE_EXPECT").as_deref() == Ok("1")
 }
 
-fn assert_versioned_pin(file: String, bump: &str, actual: &str) {
+fn assert_versioned_pin(file: &str, bump: &str, actual: &str) {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
-        .join(&file);
-    assert!(
-        path.exists() || recording(),
-        "{} is missing; advance {bump}, then record the new versioned file with UPDATE_EXPECT=1; never overwrite a released version's file",
-        path.display()
+        .join(file);
+    let bump_message = format!(
+        "advance {bump}, then record the new versioned file with UPDATE_EXPECT=1; never overwrite a released version's file"
     );
-    expect_test::expect_file![file].assert_eq(actual);
+    match fs::read(&path) {
+        Ok(expected) => {
+            if expected != actual.as_bytes() {
+                let expected = String::from_utf8_lossy(&expected);
+                let hint = expected
+                    .lines()
+                    .zip(actual.lines())
+                    .enumerate()
+                    .find(|(_, (left, right))| left != right)
+                    .map_or_else(
+                        || {
+                            format!(
+                                "line count: expected {}, actual {}; first differing byte at {}",
+                                expected.lines().count(),
+                                actual.lines().count(),
+                                expected
+                                    .as_bytes()
+                                    .iter()
+                                    .zip(actual.as_bytes())
+                                    .position(|(left, right)| left != right)
+                                    .unwrap_or(expected.len().min(actual.len()))
+                            )
+                        },
+                        |(index, (left, right))| {
+                            format!("line {}: expected {left:?}, actual {right:?}", index + 1)
+                        },
+                    );
+                panic!("{} differs ({hint}); {bump_message}", path.display());
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && recording() => {
+            fs::write(&path, actual).unwrap();
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            panic!("{} is missing; {bump_message}", path.display());
+        }
+        Err(error) => panic!("cannot read {}: {error}", path.display()),
+    }
 }
 
 // Internally and adjacently tagged enums must remain outside reflection.
@@ -254,73 +292,140 @@ fn samples() -> Samples {
     samples
 }
 
-fn census() -> BTreeSet<String> {
-    fn rust_sources(directory: &std::path::Path, sources: &mut Vec<String>) {
-        for entry in fs::read_dir(directory).unwrap() {
-            let path = entry.unwrap().path();
-            if path.is_dir() {
-                rust_sources(&path, sources);
-            } else if path.extension().is_some_and(|extension| extension == "rs") {
-                sources.push(fs::read_to_string(path).unwrap());
-            }
+fn is_deserialize_path(path: &syn::Path) -> bool {
+    let mut segments = path.segments.iter();
+    match (segments.next(), segments.next(), segments.next()) {
+        (Some(deserialize), None, None) => deserialize.ident == "Deserialize",
+        (Some(serde), Some(deserialize), None) => {
+            serde.ident == "serde" && deserialize.ident == "Deserialize"
+        }
+        _ => false,
+    }
+}
+fn rust_sources(directory: &std::path::Path, sources: &mut Vec<syn::File>) {
+    for entry in fs::read_dir(directory).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            rust_sources(&path, sources);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            sources.push(syn::parse_file(&fs::read_to_string(path).unwrap()).unwrap());
         }
     }
+}
+fn has_deserialize(meta: &Meta) -> bool {
+    if meta.path().is_ident("derive") {
+        let Meta::List(list) = meta else { return false };
+        return list
+            .parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
+            .unwrap()
+            .iter()
+            .any(is_deserialize_path);
+    }
+    if meta.path().is_ident("cfg_attr") {
+        let Meta::List(list) = meta else { return false };
+        return list
+            .parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
+            .unwrap()
+            .iter()
+            .any(has_deserialize);
+    }
+    false
+}
+// Types declared inside `macro_rules!` transcribers cannot be parsed as items,
+// so their tokens are scanned for derive attributes and public declarations.
+fn collect_macro_tokens(
+    tokens: TokenStream,
+    public: &mut BTreeSet<String>,
+    derived: &mut BTreeSet<String>,
+) {
+    let tokens: Vec<TokenTree> = tokens.into_iter().collect();
+    let mut derives_deserialize = false;
+    for (index, token) in tokens.iter().enumerate() {
+        match token {
+            TokenTree::Punct(punct) if punct.as_char() == '#' => {
+                if let Some(TokenTree::Group(group)) = tokens.get(index + 1)
+                    && group.delimiter() == Delimiter::Bracket
+                    && let Ok(meta) = syn::parse2::<Meta>(group.stream())
+                    && has_deserialize(&meta)
+                {
+                    derives_deserialize = true;
+                }
+            }
+            TokenTree::Ident(keyword) if keyword == "pub" => {
+                if let (Some(TokenTree::Ident(kind)), Some(TokenTree::Ident(name))) =
+                    (tokens.get(index + 1), tokens.get(index + 2))
+                    && (kind == "struct" || kind == "enum")
+                {
+                    public.insert(name.to_string());
+                    if derives_deserialize {
+                        derived.insert(name.to_string());
+                    }
+                    derives_deserialize = false;
+                }
+            }
+            TokenTree::Group(group) => {
+                collect_macro_tokens(group.stream(), public, derived);
+            }
+            _ => {}
+        }
+    }
+}
+fn collect_items(
+    items: &[Item],
+    public: &mut BTreeSet<String>,
+    derived: &mut BTreeSet<String>,
+    implemented: &mut BTreeSet<String>,
+) {
+    for item in items {
+        let declaration = match item {
+            Item::Struct(item) => Some((&item.vis, &item.ident, &item.attrs)),
+            Item::Enum(item) => Some((&item.vis, &item.ident, &item.attrs)),
+            _ => None,
+        };
+        if let Some((syn::Visibility::Public(_), ident, attrs)) = declaration {
+            let name = ident.to_string();
+            public.insert(name.clone());
+            if attrs.iter().any(|attr| has_deserialize(&attr.meta)) {
+                derived.insert(name);
+            }
+        }
+        match item {
+            Item::Impl(item) => {
+                if let Some((_, trait_path, _)) = &item.trait_
+                    && is_deserialize_path(trait_path)
+                    && let syn::Type::Path(self_type) = item.self_ty.as_ref()
+                    && let Some(segment) = self_type.path.segments.last()
+                {
+                    implemented.insert(segment.ident.to_string());
+                }
+            }
+            Item::Mod(item) => {
+                if let Some((_, nested)) = &item.content {
+                    collect_items(nested, public, derived, implemented);
+                }
+            }
+            Item::Macro(item) if item.mac.path.is_ident("macro_rules") => {
+                collect_macro_tokens(item.mac.tokens.clone(), public, derived);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn census() -> BTreeSet<String> {
     let mut sources = Vec::new();
     rust_sources(
         &PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src")),
         &mut sources,
     );
-    let public: BTreeSet<String> = sources
-        .iter()
-        .flat_map(|source| source.lines())
-        .filter_map(|line| {
-            line.trim()
-                .strip_prefix("pub struct ")
-                .or_else(|| line.trim().strip_prefix("pub enum "))
-                .and_then(|rest| {
-                    rest.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                        .next()
-                })
-                .map(str::to_owned)
-        })
-        .collect();
-    let mut names = BTreeSet::new();
+    let mut public = BTreeSet::new();
+    let mut derived = BTreeSet::new();
+    let mut implemented = BTreeSet::new();
     for source in &sources {
-        let mut derives_deserialize = false;
-        for line in source.lines().map(str::trim) {
-            if line.starts_with("#[derive(") {
-                derives_deserialize = line.contains("Deserialize");
-            } else if let Some(rest) = line
-                .strip_prefix("pub struct ")
-                .or_else(|| line.strip_prefix("pub enum "))
-            {
-                if derives_deserialize {
-                    names.insert(
-                        rest.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                            .next()
-                            .unwrap()
-                            .to_owned(),
-                    );
-                }
-                derives_deserialize = false;
-            } else if line.starts_with("impl")
-                && line.contains("Deserialize<")
-                && line.contains(" for ")
-            {
-                let name = line
-                    .rsplit_once(" for ")
-                    .unwrap()
-                    .1
-                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-                    .next()
-                    .unwrap();
-                if public.contains(name) {
-                    names.insert(name.to_owned());
-                }
-            }
-        }
+        collect_items(&source.items, &mut public, &mut derived, &mut implemented);
     }
-    names
+    derived.extend(implemented.intersection(&public).cloned());
+    derived
 }
 
 #[allow(clippy::too_many_lines)]
@@ -587,10 +692,9 @@ fn registry() -> Registry {
 
 #[test]
 fn krs_ir_schema_shape_is_pinned() {
-    // serde_yaml cannot directly emit nested enum values in ContainerFormat.
-    let actual = serde_yaml::to_string(&serde_json::to_value(registry()).unwrap()).unwrap();
+    let actual = format!("{}\n", serde_json::to_string_pretty(&registry()).unwrap());
     assert_versioned_pin(
-        format!("schema/krs_ir-{}.yaml", SchemaVersion::CURRENT.0),
+        &format!("schema/krs_ir-{}.json", SchemaVersion::CURRENT.0),
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
         &actual,
     );
@@ -606,7 +710,7 @@ fn unsupported_samples_are_pinned() {
     assert_eq!(corpus.keys().copied().collect::<BTreeSet<_>>(), listed);
     let actual = format!("{}\n", serde_json::to_string_pretty(&corpus).unwrap());
     assert_versioned_pin(
-        format!("schema/krs_ir-{}.samples.json", SchemaVersion::CURRENT.0),
+        &format!("schema/krs_ir-{}.samples.json", SchemaVersion::CURRENT.0),
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
         &actual,
     );
@@ -732,7 +836,7 @@ fn collector_encoding_is_pinned() {
 
     let actual = format!("{}\n", serde_json::to_string_pretty(&encoded).unwrap());
     assert_versioned_pin(
-        format!("schema/collector-{}.json", collector::VERSION),
+        &format!("schema/collector-{}.json", collector::VERSION),
         "collector::VERSION and Krs.lock [schemas] collector",
         &actual,
     );

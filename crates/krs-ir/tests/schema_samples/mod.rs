@@ -14,6 +14,9 @@ trait Sample: Sized {
 fn sample<T: Sample>() -> T {
     T::first()
 }
+fn sample_origin(key: &str) -> NodeOrigin {
+    NodeOrigin::new(SourceMapKey::new(key).unwrap(), sample::<OriginStack>())
+}
 fn checked_samples<T>(
     values: Vec<T>,
     count: usize,
@@ -1988,7 +1991,6 @@ impl Sample for ConstructorFieldDescriptor {
 }
 impl Sample for ContextAliasSentence {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<StableItemId>(),
@@ -2003,7 +2005,6 @@ impl Sample for ContextAliasSentence {
 }
 impl Sample for DefinitionClaim {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<crate::ClaimModality>(),
@@ -2016,7 +2017,6 @@ impl Sample for DefinitionClaim {
 }
 impl Sample for DefinitionClaimBinder {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<NodeOrigin>(),
@@ -2028,19 +2028,43 @@ impl Sample for DefinitionClaimBinder {
 }
 impl Sample for DefinitionModule {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
+        let cell = SymbolId::new("definition.cell").unwrap();
+        let sort = DefinitionSortRef::Builtin(BuiltinSort::Int);
+        let configuration = FixedConfiguration::new(
+            sample_origin("definition.configuration"),
+            SemanticId::new("definition.configuration").unwrap(),
+            ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    sample_origin("definition.cell"),
+                    cell.clone(),
+                    "cell",
+                    vec![],
+                    sort.clone(),
+                )
+                .unwrap(),
+            ],
+            sample_origin("definition.initializer"),
+            SemanticId::new("definition.initializer").unwrap(),
+            vec![],
+            vec![FixedInitializerCell::term(
+                sample_origin("definition.initializer.cell"),
+                cell,
+                DefinitionTerm::token(sample_origin("definition.token"), sort, "1").unwrap(),
+            )],
+        )
+        .unwrap();
         vec![Self::new(
-            sample::<NodeOrigin>(),
+            sample_origin("definition.module"),
             sample::<ModuleId>(),
-            sample::<Vec<ModuleId>>(),
-            sample::<Vec<ProductionGroupIdentity>>(),
-            sample::<Vec<DefinitionSentence>>(),
+            vec![],
+            vec![],
+            vec![DefinitionSentence::Configuration(configuration)],
         )]
     }
 }
 impl Sample for DefinitionRuleCondition {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<DefinitionTerm>(),
@@ -2049,13 +2073,11 @@ impl Sample for DefinitionRuleCondition {
 }
 impl Sample for DefinitionRulePriority {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
     }
 }
 impl Sample for DefinitionSimplification {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<Option<DefinitionSimplificationPriority>>(),
@@ -2064,13 +2086,11 @@ impl Sample for DefinitionSimplification {
 }
 impl Sample for DefinitionSimplificationPriority {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
     }
 }
 impl Sample for DefinitionVariable {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<SemanticId>(),
             sample::<DefinitionSortRef>(),
@@ -2229,7 +2249,6 @@ impl<
 > Sample for FixedCellClause<C, T>
 {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<C>(),
@@ -2245,7 +2264,6 @@ impl<
 > Sample for FixedCellPattern<C, T>
 {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<C>(),
@@ -2256,7 +2274,6 @@ impl<
 }
 impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigurationVariable<S> {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![
             Self::new(
                 sample::<NodeOrigin>(),
@@ -2271,7 +2288,6 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigura
 }
 impl Sample for GroupAssociativitySentence {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![
             Self::new(
                 sample::<NodeOrigin>(),
@@ -2284,7 +2300,6 @@ impl Sample for GroupAssociativitySentence {
 }
 impl Sample for PrecedenceRelation {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![
             Self::new(
                 sample::<NodeOrigin>(),
@@ -2297,13 +2312,11 @@ impl Sample for PrecedenceRelation {
 }
 impl Sample for ProductionContextAliasReference {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<StableItemId>())]
     }
 }
 impl Sample for ProductionFieldReference {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<ProductionFieldId>(),
@@ -2312,7 +2325,6 @@ impl Sample for ProductionFieldReference {
 }
 impl Sample for ProductionGroupIdentity {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![
             Self::new(
                 sample::<NodeOrigin>(),
@@ -2325,7 +2337,6 @@ impl Sample for ProductionGroupIdentity {
 }
 impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProductionResultSort<S> {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<S>())]
     }
 }
@@ -2433,7 +2444,6 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleMa
 }
 impl Sample for SemanticClaim {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<crate::ClaimModality>(),
@@ -2446,7 +2456,6 @@ impl Sample for SemanticClaim {
 }
 impl Sample for SemanticClaimBinder {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<NodeOrigin>(),
@@ -2458,7 +2467,6 @@ impl Sample for SemanticClaimBinder {
 }
 impl Sample for SemanticContextAlias {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<StableItemId>(),
@@ -2473,25 +2481,21 @@ impl Sample for SemanticContextAlias {
 }
 impl Sample for SemanticRuleCondition {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<SemanticTerm>())]
     }
 }
 impl Sample for SemanticRuleLabel {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<String>()).unwrap()]
     }
 }
 impl Sample for SemanticRulePriority {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
     }
 }
 impl Sample for SemanticSimplification {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<Option<SemanticSimplificationPriority>>(),
@@ -2500,13 +2504,11 @@ impl Sample for SemanticSimplification {
 }
 impl Sample for SemanticSimplificationPriority {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<u32>())]
     }
 }
 impl Sample for SemanticSubsort {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<SemanticSortRef>(),
@@ -2516,7 +2518,6 @@ impl Sample for SemanticSubsort {
 }
 impl Sample for SemanticVariable {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<SemanticId>(),
             sample::<SemanticSortRef>(),
@@ -2543,7 +2544,6 @@ impl Sample for StructuredRuleDescriptor {
 }
 impl Sample for SubsortSentence {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(
             sample::<NodeOrigin>(),
             sample::<DefinitionSortRef>(),
@@ -2553,7 +2553,6 @@ impl Sample for SubsortSentence {
 }
 impl Sample for SyntaxSortSentence {
     fn samples() -> Vec<Self> {
-        // Fields are private; use the public constructor.
         vec![Self::new(sample::<NodeOrigin>(), sample::<SymbolIdentity>()).unwrap()]
     }
 }
@@ -2644,7 +2643,7 @@ impl Sample for WireStructuredRule {
     }
 }
 
-include!("manual.rs");
+mod manual;
 
 fn insert<T: Sample + Serialize + DeserializeOwned>(
     corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>,

@@ -1,3 +1,5 @@
+use super::*;
+
 macro_rules! leaf {
     ($ty:ty, $value:expr) => {
         impl Sample for $ty {
@@ -62,7 +64,6 @@ leaf!(
     NodeOrigin::new(sample::<SourceMapKey>(), sample::<OriginStack>())
 );
 
-// The frame list is private; use the validating constructor.
 impl Sample for OriginStack {
     fn samples() -> Vec<Self> {
         let mut stack = Self::authored(sample::<SourceRange>());
@@ -75,19 +76,19 @@ impl Sample for OriginStack {
     }
 }
 
-// The provenance fields are private; use the validating constructor.
 impl Sample for DescriptorProvenance {
     fn samples() -> Vec<Self> {
         let key = sample::<ProvenanceKey>();
-        vec![Self::new(
-            key.clone(),
-            vec![DescriptorNodeOrigin::new(key, sample::<OriginStack>())],
-        )
-        .unwrap()]
+        vec![
+            Self::new(
+                key.clone(),
+                vec![DescriptorNodeOrigin::new(key, sample::<OriginStack>())],
+            )
+            .unwrap(),
+        ]
     }
 }
 
-// The schema field is private; use the validating public constructor.
 impl Sample for DescriptorBundle {
     fn samples() -> Vec<Self> {
         let mut descriptor = sample::<Descriptor>();
@@ -112,7 +113,6 @@ impl Sample for DescriptorBundle {
     }
 }
 
-// The flattened fields are private; use the public constructor.
 impl Sample for DefinitionTerm {
     fn samples() -> Vec<Self> {
         vec![Self::variable(
@@ -123,7 +123,6 @@ impl Sample for DefinitionTerm {
     }
 }
 
-// The flattened fields are private; use the public constructor.
 impl Sample for SemanticTerm {
     fn samples() -> Vec<Self> {
         vec![Self::variable(
@@ -134,30 +133,18 @@ impl Sample for SemanticTerm {
     }
 }
 
-// The schema field is private; use the validating constructor.
 impl Sample for SemanticTheory {
     fn samples() -> Vec<Self> {
-        let value: serde_json::Value =
-            serde_json::from_str(include_str!("../golden/semantic_foo_bar.json")).unwrap();
-        let modules: Vec<SemanticModule> =
-            serde_json::from_value(value["modules"].clone()).unwrap();
-        vec![Self::new(modules).unwrap()]
+        vec![Self::new(sample::<Vec<SemanticModule>>()).unwrap()]
     }
 }
 
-// The schema field is private; use the validating constructor.
 impl Sample for DefinitionIr {
     fn samples() -> Vec<Self> {
-        let value: serde_json::Value =
-            serde_json::from_str(include_str!("../golden/definition_foo_bar.json")).unwrap();
-        let modules: Vec<DefinitionModule> =
-            serde_json::from_value(value["modules"].clone()).unwrap();
-        let main_module: ModuleId = serde_json::from_value(value["main_module"].clone()).unwrap();
-        vec![Self::new(main_module, modules).unwrap()]
+        vec![Self::new(sample::<ModuleId>(), sample::<Vec<DefinitionModule>>()).unwrap()]
     }
 }
 
-// The identity fields are private; use their public constructors.
 leaf!(
     LabelIdentity,
     LabelIdentity::new(sample::<LabelId>(), "label").unwrap()
@@ -175,27 +162,27 @@ leaf!(
     )
 );
 
-// The flattened fields are private; use the public constructor.
 impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for GrammarProductionItem<S> {
     fn samples() -> Vec<Self> {
         vec![Self::terminal(sample::<NodeOrigin>(), "terminal").unwrap()]
     }
 }
 
-// The sentence fields are private; use the validating constructor.
 impl Sample for ProductionSentence {
     fn samples() -> Vec<Self> {
         let symbol =
             SymbolIdentity::new(sample::<SymbolId>(), "production", SymbolKind::Production)
                 .unwrap();
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            symbol,
-            sample::<DefinitionSortRef>(),
-            sample::<Vec<ProductionItem>>(),
-            sample::<Vec<DefinitionProductionAttribute>>(),
-        )
-        .unwrap()]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                symbol,
+                sample::<DefinitionSortRef>(),
+                sample::<Vec<ProductionItem>>(),
+                sample::<Vec<DefinitionProductionAttribute>>(),
+            )
+            .unwrap(),
+        ]
     }
 }
 
@@ -218,29 +205,29 @@ impl OtherSample for SymbolId {
     }
 }
 
-// The content field is private; use the public leaf constructor.
 impl<
-        S: Sample + Clone + Serialize + DeserializeOwned,
-        C: Sample + Clone + Serialize + DeserializeOwned,
-    > Sample for FixedCell<S, C>
+    S: Sample + Clone + Serialize + DeserializeOwned,
+    C: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for FixedCell<S, C>
 {
     fn samples() -> Vec<Self> {
-        vec![Self::leaf(
-            sample::<NodeOrigin>(),
-            sample::<C>(),
-            "cell",
-            sample::<Vec<CellAttribute>>(),
-            sample::<S>(),
-        )
-        .unwrap()]
+        vec![
+            Self::leaf(
+                sample::<NodeOrigin>(),
+                sample::<C>(),
+                "cell",
+                sample::<Vec<CellAttribute>>(),
+                sample::<S>(),
+            )
+            .unwrap(),
+        ]
     }
 }
 
-// The content field is private; use the public term constructor.
 impl<
-        C: Sample + Clone + Serialize + DeserializeOwned,
-        T: Sample + Clone + Serialize + DeserializeOwned,
-    > Sample for FixedInitializerCell<C, T>
+    C: Sample + Clone + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for FixedInitializerCell<C, T>
 {
     fn samples() -> Vec<Self> {
         vec![Self::term(
@@ -251,63 +238,65 @@ impl<
     }
 }
 
-// The fields are private; use the validating constructor.
 impl<
-        S: Sample + Clone + Serialize + DeserializeOwned,
-        C: Sample + Clone + Ord + Serialize + DeserializeOwned,
-        T: Sample + Clone + Serialize + DeserializeOwned,
-    > Sample for FixedConfiguration<S, C, T>
+    S: Sample + Clone + Serialize + DeserializeOwned,
+    C: Sample + Clone + Ord + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for FixedConfiguration<S, C, T>
 {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<SemanticId>(),
-            sample::<ConfigurationRoot>(),
-            sample::<Vec<FixedCell<S, C>>>(),
-            sample::<NodeOrigin>(),
-            sample::<SemanticId>(),
-            sample::<Vec<FixedConfigurationVariable<S>>>(),
-            sample::<Vec<FixedInitializerCell<C, T>>>(),
-        )
-        .unwrap()]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<SemanticId>(),
+                sample::<ConfigurationRoot>(),
+                sample::<Vec<FixedCell<S, C>>>(),
+                sample::<NodeOrigin>(),
+                sample::<SemanticId>(),
+                sample::<Vec<FixedConfigurationVariable<S>>>(),
+                sample::<Vec<FixedInitializerCell<C, T>>>(),
+            )
+            .unwrap(),
+        ]
     }
 }
 
-// The fields are private; use the validating constructor.
 impl<
-        C: OtherSample + Clone + Ord + Serialize + DeserializeOwned,
-        T: Sample + Clone + Serialize + DeserializeOwned,
-    > Sample for FixedConfigurationPattern<C, T>
+    C: OtherSample + Clone + Ord + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for FixedConfigurationPattern<C, T>
 {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<SemanticId>(),
-            sample::<Vec<FixedCellPattern<C, T>>>(),
-            vec![C::other()],
-        )
-        .unwrap()]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<SemanticId>(),
+                sample::<Vec<FixedCellPattern<C, T>>>(),
+                vec![C::other()],
+            )
+            .unwrap(),
+        ]
     }
 }
 
-// The fields are private; use the validating constructor.
 impl<
-        C: OtherSample + Clone + Ord + Serialize + DeserializeOwned,
-        T: Sample + Clone + Serialize + DeserializeOwned,
-    > Sample for FixedConfigurationRewrite<C, T>
+    C: OtherSample + Clone + Ord + Serialize + DeserializeOwned,
+    T: Sample + Clone + Serialize + DeserializeOwned,
+> Sample for FixedConfigurationRewrite<C, T>
 {
     fn samples() -> Vec<Self> {
-        vec![Self::new(
-            sample::<NodeOrigin>(),
-            sample::<SemanticId>(),
-            sample::<Vec<FixedCellClause<C, T>>>(),
-            vec![C::other()],
-        )
-        .unwrap()]
+        vec![
+            Self::new(
+                sample::<NodeOrigin>(),
+                sample::<SemanticId>(),
+                sample::<Vec<FixedCellClause<C, T>>>(),
+                vec![C::other()],
+            )
+            .unwrap(),
+        ]
     }
 }
 
-// The fields are private; use the public constructor and metadata setters.
 impl Sample for RuleSentence {
     fn samples() -> Vec<Self> {
         let term = sample::<DefinitionTerm>();
@@ -344,26 +333,50 @@ impl Sample for RuleSentence {
     }
 }
 
-// The fields are private; use the constructor that accepts context aliases.
 impl Sample for SemanticModule {
     fn samples() -> Vec<Self> {
+        let cell = SemanticId::new("semantic.cell").unwrap();
+        let sort = SemanticSortRef::Builtin(BuiltinSort::Int);
+        let configuration = FixedConfiguration::new(
+            sample_origin("semantic.configuration"),
+            SemanticId::new("semantic.configuration").unwrap(),
+            ConfigurationRoot::GeneratedTop,
+            vec![
+                FixedCell::leaf(
+                    sample_origin("semantic.cell"),
+                    cell.clone(),
+                    "cell",
+                    vec![],
+                    sort.clone(),
+                )
+                .unwrap(),
+            ],
+            sample_origin("semantic.initializer"),
+            SemanticId::new("semantic.initializer").unwrap(),
+            vec![],
+            vec![FixedInitializerCell::term(
+                sample_origin("semantic.initializer.cell"),
+                cell,
+                SemanticTerm::token(sample_origin("semantic.token"), sort, "1").unwrap(),
+            )],
+        )
+        .unwrap();
         vec![Self::new_with_context_aliases(
-            sample::<NodeOrigin>(),
+            sample_origin("semantic.module"),
             sample::<ModuleId>(),
-            sample::<Vec<ModuleId>>(),
-            sample::<Vec<SemanticSort>>(),
-            sample::<Vec<SemanticSubsort>>(),
-            sample::<Vec<SemanticProduction>>(),
-            sample::<Vec<PrecedenceRelation>>(),
-            sample::<Vec<GroupAssociativitySentence>>(),
-            sample::<Option<SemanticConfiguration>>(),
-            sample::<Vec<SemanticContextAlias>>(),
-            sample::<Vec<SemanticRule>>(),
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            Some(configuration),
+            vec![],
+            vec![],
         )]
     }
 }
 
-// The fields are private; use the validating API constructor.
 impl Sample for SemanticProduction {
     fn samples() -> Vec<Self> {
         let id = StableItemId::new(
@@ -374,20 +387,21 @@ impl Sample for SemanticProduction {
             "",
         )
         .unwrap();
-        vec![Self::with_api(
-            sample::<NodeOrigin>(),
-            id,
-            sample::<SemanticSortRef>(),
-            sample::<Vec<SemanticProductionItem>>(),
-            sample::<Vec<SemanticProductionAttribute>>(),
-            sample::<RustVisibility>(),
-            Some(sample::<ExplicitSymbol>()),
-        )
-        .unwrap()]
+        vec![
+            Self::with_api(
+                sample::<NodeOrigin>(),
+                id,
+                sample::<SemanticSortRef>(),
+                sample::<Vec<SemanticProductionItem>>(),
+                sample::<Vec<SemanticProductionAttribute>>(),
+                sample::<RustVisibility>(),
+                Some(sample::<ExplicitSymbol>()),
+            )
+            .unwrap(),
+        ]
     }
 }
 
-// The fields are private; use the constructor and metadata setters.
 impl Sample for SemanticRule {
     fn samples() -> Vec<Self> {
         let id = StableItemId::new(
@@ -433,7 +447,6 @@ impl Sample for SemanticRule {
     }
 }
 
-// The fields are private; use the API constructor.
 impl Sample for SemanticSort {
     fn samples() -> Vec<Self> {
         vec![Self::with_api(

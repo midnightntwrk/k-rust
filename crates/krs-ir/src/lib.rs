@@ -147,7 +147,7 @@ use serde::{Deserialize, Serialize};
 /// catalog it carries (builtin operations, hooks, sorts) changes. It must equal
 /// `[schemas] krs_ir` in the repository's `Krs.lock`, which the gates read and a
 /// `krs-ir` test checks against this constant.
-/// Traceable serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.yaml`.
+/// Traceable serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.json`.
 /// Other serialized shapes are pinned by `crates/krs-ir/tests/schema/krs_ir-<version>.samples.json`.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
