@@ -85,6 +85,54 @@ args = [
   "-I", "${k}/pyk/regression-new/pl-tutorial/2_languages/3_fun/1_untyped/1_environment",
 ]
 
+[[prepare]]
+name = "shared-branch"
+command = "kcompile"
+creates = "${prepared}/shared-branch/runtime.json"
+args = [
+  "${workspace}/crates/k-rust/tests/fixtures/reference/shared-branch.k",
+  "--main-module", "SHARED-BRANCH",
+  "--syntax-module", "SHARED-BRANCH",
+  "--output-directory", "${prepared}/shared-branch",
+  "--builtin-directory", "${builtin}",
+]
+
+[[prepare]]
+name = "shared-rpc-execute"
+command = "rpc-request-fixture"
+creates = "${prepared}/shared-rpc-execute-initial-${n}/request.json"
+args = ["--definition", "${prepared}/shared-branch", "--module", "SHARED-BRANCH", "--sort", "State", "--program-file", "${input}", "--state-depth", "0", "--method", "execute", "--max-depth", "22", "--output", "${prepared}/shared-rpc-execute-initial-${n}/request.json"]
+
+[[prepare]]
+name = "shared-rpc-simplify"
+command = "rpc-request-fixture"
+creates = "${prepared}/shared-rpc-simplify-${n}/request.json"
+args = ["--definition", "${prepared}/shared-branch", "--module", "SHARED-BRANCH", "--sort", "State", "--program-file", "${input}", "--state-depth", "${n}", "--method", "simplify", "--output", "${prepared}/shared-rpc-simplify-${n}/request.json"]
+
+[[prepare]]
+name = "fun-rpc-execute"
+command = "rpc-request-fixture"
+creates = "${prepared}/fun-rpc-execute-${n}/request.json"
+args = ["--definition", "${prepared}/fun-untyped", "--module", "FUN-UNTYPED", "--sort", "Exp", "--program-file", "${input}", "--method", "execute", "--max-depth", "1", "--output", "${prepared}/fun-rpc-execute-${n}/request.json"]
+
+[[prepare]]
+name = "fun-rpc-simplify"
+command = "rpc-request-fixture"
+creates = "${prepared}/fun-rpc-simplify-${n}/request.json"
+args = ["--definition", "${prepared}/fun-untyped", "--module", "FUN-UNTYPED", "--sort", "Exp", "--program-file", "${input}", "--method", "simplify", "--output", "${prepared}/fun-rpc-simplify-${n}/request.json"]
+
+[[prepare]]
+name = "imp-rpc-execute-control"
+command = "rpc-request-fixture"
+creates = "${prepared}/imp-rpc-execute-control/request.json"
+args = ["--definition", "${prepared}/imp-definition", "--module", "IMP", "--sort", "Stmt", "--program-file", "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-control.imp", "--config", "ENV=.Map", "--method", "execute", "--max-depth", "1", "--output", "${prepared}/imp-rpc-execute-control/request.json"]
+
+[[prepare]]
+name = "imp-rpc-simplify-control"
+command = "rpc-request-fixture"
+creates = "${prepared}/imp-rpc-simplify-control/request.json"
+args = ["--definition", "${prepared}/imp-definition", "--module", "IMP", "--sort", "Stmt", "--program-file", "${workspace}/crates/k-rust/tests/fixtures/reference/rpc/imp-control.imp", "--config", "ENV=.Map", "--method", "simplify", "--output", "${prepared}/imp-rpc-simplify-control/request.json"]
+
 [[workload]]
 name = "imp-compile"
 command = "kcompile"
@@ -132,6 +180,28 @@ args = [
 ]
 [workload.check]
 stdout = ['"status":"valid"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+
+[[workload]]
+name = "imp-rpc-execute-control"
+command = "kore-rpc"
+weight = "light"
+prepare = ["imp-definition", "imp-rpc-execute-control"]
+pins = ["k", "imp"]
+args = ["--definition", "${prepared}/imp-definition/definition.kore", "--module", "IMP", "--request", "${prepared}/imp-rpc-execute-control/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
+[workload.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+
+[[workload]]
+name = "imp-rpc-simplify-control"
+command = "kore-rpc"
+weight = "light"
+prepare = ["imp-definition", "imp-rpc-simplify-control"]
+pins = ["k", "imp"]
+args = ["--definition", "${prepared}/imp-definition/definition.kore", "--module", "IMP", "--request", "${prepared}/imp-rpc-simplify-control/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
+[workload.check]
+stdout = ['"result"']
 files = ["${run}/response.json", "${run}/rpc-metrics.json"]
 
 [[workload]]
@@ -347,6 +417,164 @@ in length (build ${n})
 expect = "n"
 stdout_squeezed = ['\equals{SortK{},SortGeneratedTopCell{}}(VarV:SortK{},kseq{}(inj{SortInt{},SortKItem{}}(\dv{SortInt{}}("${expect}")),dotk{}()))']
 stdout_absent = ['\or{']
+
+# This variant prints the complete shared configuration instead of selecting the small <k> cell.
+[[workload]]
+name = "fun-build-list-length-plain"
+command = "krun"
+weight = "light"
+prepare = ["fun-untyped"]
+pins = ["k"]
+args = ["--definition", "${prepared}/fun-untyped", "--sort", "Exp", "${input}"]
+[workload.ladder]
+param = "n"
+values = [10, 30, 100, 300]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.check]
+stdout = ["Lbl'-LT-'generatedTop'-GT-'"]
+
+# Each rewrite stores the prior tree twice by Arc identity. The branch at a has two candidates.
+[[workload]]
+name = "shared-branch-digest"
+command = "krun"
+weight = "light"
+prepare = ["shared-branch"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "--strategy", "all", "--execute-to-branch", "--output", "none", "${input}"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "dup(${n})\n"
+
+[[workload]]
+name = "shared-branch-plain"
+command = "krun"
+weight = "light"
+prepare = ["shared-branch"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "${input}"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.check]
+stdout = ["Lblb'Unds'SHARED-BRANCH'Unds'State"]
+
+[[workload]]
+name = "shared-branch-captured"
+command = "krun"
+weight = "light"
+prepare = ["shared-branch"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "--output", "captured", "${input}"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "capture(${n})\n"
+[workload.check]
+stdout = ["done"]
+
+[[workload]]
+name = "shared-branch-search-final"
+command = "krun"
+weight = "light"
+prepare = ["shared-branch"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch", "--sort", "State", "--io", "off", "--search-final", "${input}"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16, 18, 20]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.check]
+stdout = ["Lblb'Unds'SHARED-BRANCH'Unds'State", "Lblc'Unds'SHARED-BRANCH'Unds'State"]
+
+# The state is expanded before measurement, then converted by kore-parser to KORE JSON.
+[[workload]]
+name = "shared-rpc-execute"
+command = "kore-rpc"
+weight = "light"
+prepare = ["shared-branch", "shared-rpc-execute"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch/definition.kore", "--module", "SHARED-BRANCH", "--request", "${prepared}/shared-rpc-execute-initial-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+
+[[workload]]
+name = "shared-rpc-simplify"
+command = "kore-rpc"
+weight = "light"
+prepare = ["shared-branch", "shared-rpc-simplify"]
+pins = ["k"]
+args = ["--definition", "${prepared}/shared-branch/definition.kore", "--module", "SHARED-BRANCH", "--request", "${prepared}/shared-rpc-simplify-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
+[workload.ladder]
+param = "n"
+values = [8, 12, 16]
+stop_seconds = 120
+input = "dup(${n})\n"
+[workload.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+
+[[workload]]
+name = "fun-rpc-execute"
+command = "kore-rpc"
+weight = "light"
+prepare = ["fun-untyped", "fun-rpc-execute"]
+pins = ["k"]
+args = ["--definition", "${prepared}/fun-untyped/definition.kore", "--module", "FUN-UNTYPED", "--request", "${prepared}/fun-rpc-execute-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
+[workload.ladder]
+param = "n"
+values = [10, 30, 100]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
+
+[[workload]]
+name = "fun-rpc-simplify"
+command = "kore-rpc"
+weight = "light"
+prepare = ["fun-untyped", "fun-rpc-simplify"]
+pins = ["k"]
+args = ["--definition", "${prepared}/fun-untyped/definition.kore", "--module", "FUN-UNTYPED", "--request", "${prepared}/fun-rpc-simplify-${n}/request.json", "--response", "${run}/response.json", "--metrics", "${run}/rpc-metrics.json"]
+[workload.ladder]
+param = "n"
+values = [10, 30, 100]
+stop_seconds = 120
+input = """
+datatype 'a mylist = Nil | Cons('a, 'a mylist)
+
+letrec build = fun 0 -> Nil | n -> Cons(n, build (n - 1))
+and length = fun Nil -> 0 | Cons(h,t) -> 1 + length t
+in length (build ${n})
+"""
+[workload.check]
+stdout = ['"result"']
+files = ["${run}/response.json", "${run}/rpc-metrics.json"]
 
 # Heavy compiles: benchmark.sh's KEVM compile phase and the WASM and MIR cases of
 # scripts/reference-differential.toml in both pairings. The haskell/rust pairing (--backend rust,
