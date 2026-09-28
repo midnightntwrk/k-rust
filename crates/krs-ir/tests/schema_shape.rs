@@ -5,6 +5,11 @@
 //! `Krs.lock` entry. A released version's file must never be overwritten.
 //! After advancing a version, use `UPDATE_EXPECT=1` to create the absent versioned file.
 //! An existing versioned file is compared byte for byte even when recording is enabled.
+//!
+//! Samples of types with private fields are built through their constructors.
+//! A new `#[serde(default, skip_serializing_if = ...)]` field that a constructor leaves empty
+//! does not appear in the sample JSON, so such a field is not caught here;
+//! its author must add a `with_*` call to the type's sample.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -311,6 +316,7 @@ fn is_deserialize_path(path: &syn::Path) -> bool {
         _ => false,
     }
 }
+
 fn rust_sources(directory: &std::path::Path, sources: &mut Vec<syn::File>) {
     for entry in fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
@@ -321,6 +327,7 @@ fn rust_sources(directory: &std::path::Path, sources: &mut Vec<syn::File>) {
         }
     }
 }
+
 fn has_deserialize(meta: &Meta) -> bool {
     if meta.path().is_ident("derive") {
         let Meta::List(list) = meta else { return false };
@@ -340,6 +347,7 @@ fn has_deserialize(meta: &Meta) -> bool {
     }
     false
 }
+
 // Types declared inside `macro_rules!` transcribers cannot be parsed as items,
 // so their tokens are scanned for derive attributes and public declarations.
 fn collect_macro_tokens(
@@ -360,17 +368,21 @@ fn collect_macro_tokens(
                     derives_deserialize = true;
                 }
             }
-            TokenTree::Ident(keyword) if keyword == "pub" => {
-                if let (Some(TokenTree::Ident(kind)), Some(TokenTree::Ident(name))) =
-                    (tokens.get(index + 1), tokens.get(index + 2))
-                    && (kind == "struct" || kind == "enum")
+            TokenTree::Ident(keyword) if keyword == "struct" || keyword == "enum" => {
+                let previous = index
+                    .checked_sub(1)
+                    .and_then(|previous| tokens.get(previous));
+                let public_item =
+                    matches!(previous, Some(TokenTree::Ident(visibility)) if visibility == "pub");
+                if let Some(TokenTree::Ident(name)) = tokens.get(index + 1)
+                    && public_item
                 {
                     public.insert(name.to_string());
                     if derives_deserialize {
                         derived.insert(name.to_string());
                     }
-                    derives_deserialize = false;
                 }
+                derives_deserialize = false;
             }
             TokenTree::Group(group) => {
                 collect_macro_tokens(group.stream(), public, derived);
@@ -379,6 +391,7 @@ fn collect_macro_tokens(
         }
     }
 }
+
 fn collect_items(
     items: &[Item],
     public: &mut BTreeSet<String>,
