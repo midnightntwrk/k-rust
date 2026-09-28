@@ -17,7 +17,9 @@ use kink_campaign::{
     tally,
 };
 use kink_native::execution::ExecutionBudget;
-use kink_native::execution_difference::{DifferenceCertificate, NotProvedReason};
+use kink_native::execution_difference::{
+    CertifiedSide, DifferenceCertificate, Exclusion, NotProvedReason,
+};
 use kink_native::observation::{DomainEventSpec, PayloadSource};
 use kink_native::{NativeValidator, ObservedRule};
 use kink_patch::{
@@ -644,6 +646,11 @@ fn single_site_release_is_killed_by_its_trace() {
             mutant.written_sentences,
             [support::rule(fixture.validator.baseline(), "SYMMEM.write")]
         );
+        assert_eq!(
+            mutant.certificate_checks,
+            ["ground-shared", "sym-shared", "sym-distinct"]
+                .map(|test_id| { proved_length_check(test_id) })
+        );
     });
 }
 
@@ -700,6 +707,10 @@ fn coupled_release_is_one_mutant_killed_by_its_trace() {
         let count = tally(&generation, &run).expect("tally");
         assert_eq!((count.killed, count.rejected_origins), (1, 0));
         assert!(outcomes(&run).iter().all(|row| row[0] == A));
+        assert_eq!(
+            mutant.certificate_checks,
+            ["ground-shared", "sym-shared", "sym-distinct", "sym-clash"].map(proved_length_check)
+        );
     });
 }
 
@@ -805,6 +816,14 @@ fn bounded_mutant_evidence_kills_only_by_a_match() {
                 assert_eq!(slots.iter().filter(|slot| **slot == D).count(), 1);
                 assert_eq!(slots[3], D);
             }
+            if depth == 4 {
+                assert_eq!(
+                    run.mutants[0].certificate_checks,
+                    [proved_length_check("ground-shared")]
+                );
+            } else {
+                assert!(run.mutants[0].certificate_checks.is_empty());
+            }
         }
     });
 }
@@ -908,6 +927,7 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
                 full.mutants[0].report.killing_test_ids,
                 ["sym-guarded", "ground-guarded"]
             );
+            assert_eq!(full.mutants[0].certificate_checks, [proved_guarded_check()]);
 
             let stopped =
                 run_campaign(&campaign, &generation, ScheduleMode::FirstKill).expect("first kill");
@@ -916,6 +936,7 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
             assert_eq!(mutant.report.executed_test_ids, ["sym-guarded"]);
             assert_eq!(mutant.report.killing_test_ids, ["sym-guarded"]);
             assert_eq!(mutant.plan.tests[1].run, TestRun::SkippedAfterKill);
+            assert_eq!(mutant.certificate_checks, [proved_guarded_check()]);
         } else {
             assert_eq!(
                 full.expect_err("symbolic baseline remains undecided")
@@ -934,6 +955,7 @@ fn inverted_load_sign_is_killed_by_a_solver_unsat() {
                 ground.mutants[0].report.killing_test_ids,
                 ["ground-guarded"]
             );
+            assert!(ground.mutants[0].certificate_checks.is_empty());
         }
     });
 }
@@ -1456,6 +1478,8 @@ fn audit_a6_name_kept_meaning_change_is_not_killed() {
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
 
+        assert!(run.mutants[0].certificate_checks.is_empty());
+
         let zero_valued = [TestCase {
             id: "ground-zero-value".into(),
             initial_state: state(addr(z()), z(), addr(z()), z()),
@@ -1476,6 +1500,7 @@ fn audit_a6_name_kept_meaning_change_is_not_killed() {
             run.mutants[0].report.killing_test_ids,
             ["ground-zero-value"]
         );
+        assert!(run.mutants[0].certificate_checks.is_empty());
 
         let guarded = Guarded::new();
         let baseline = guarded.validator.baseline();
@@ -1505,6 +1530,7 @@ fn audit_a6_name_kept_meaning_change_is_not_killed() {
         assert_eq!(outcomes(&run), vec![vec![A, A]]);
         assert_eq!(run.mutants[0].report.status, MutantStatus::Survived);
         assert!(run.mutants[0].report.killing_test_ids.is_empty());
+        assert!(run.mutants[0].certificate_checks.is_empty());
     });
 }
 
@@ -2406,4 +2432,343 @@ fn audit_ks_as7_anchoring_fails_closed() {
             assert_eq!(stopped.mutants[0].report.status, MutantStatus::Survived);
         }
     });
+}
+
+// ---------------------------------------------------------------- EI-04 certificate audit fixtures
+
+fn proved_length_check(test_id: &str) -> CertificateCheck {
+    CertificateCheck {
+        test_id: test_id.into(),
+        certificate: DifferenceCertificate::Proved {
+            witness_side: CertifiedSide::Mutant,
+            witness_leaf: 0,
+            exclusions: vec![Exclusion::Length],
+        },
+        demoted_slots: vec![],
+    }
+}
+
+fn proved_guarded_check() -> CertificateCheck {
+    CertificateCheck {
+        test_id: "sym-guarded".into(),
+        certificate: DifferenceCertificate::Proved {
+            witness_side: CertifiedSide::Mutant,
+            witness_leaf: 0,
+            exclusions: vec![Exclusion::Disjoint, Exclusion::Clash, Exclusion::Length],
+        },
+        demoted_slots: vec![],
+    }
+}
+
+fn no_witness_check(test_id: &str) -> CertificateCheck {
+    CertificateCheck {
+        test_id: test_id.into(),
+        certificate: DifferenceCertificate::NotProved(NotProvedReason::NoWitness),
+        demoted_slots: vec![1],
+    }
+}
+
+fn ei_guard_split(baseline: &Baseline) -> Vec<Edit> {
+    let write = support::rule(baseline, "GUARDEDMEM.write");
+    let a = term(baseline, "GUARDEDMEM.write", &[0, 0, 0, 0, 0]);
+    let mut zero = unlabelled_copy(baseline, "GUARDEDMEM.write");
+    if let k_rust::definition::Sentence::Rule { requires, .. } = &mut zero {
+        *requires = Term::apply("_==Int_", vec![a.clone(), int_token(0)]);
+    }
+    vec![
+        replaced(
+            baseline,
+            "GUARDEDMEM.write",
+            &[1],
+            Term::apply("_>Int_", vec![a, int_token(0)]),
+        ),
+        Edit::InsertSentence {
+            position: InsertPosition::After(write),
+            ordinal: 0,
+            sentence: zero,
+        },
+    ]
+}
+
+/// G changes the rewrite relation, yet this fault-tail test executes through identical states.
+/// A relation check would have kept the rule-competition kill (README 3.4).
+#[test]
+fn audit_ei_g_fault_tail_is_unknown() {
+    with_stack(|| {
+        let fixture = Guarded::new();
+        let generation = inverted_load_sign(fixture.validator.baseline());
+        let program = support::initial_state(
+            app(
+                "seq",
+                vec![
+                    app("write", vec![addr(support::int(1)), support::int(5)]),
+                    app(
+                        "seq",
+                        vec![
+                            app("load", vec![addr(support::int(1)), support::int(7)]),
+                            app("fault", vec![]),
+                        ],
+                    ),
+                ],
+            ),
+            "SortProg",
+        );
+        let tests = [case(
+            "ground-fault-tail",
+            program,
+            &fixture.tests[1].oracles,
+        )];
+        let run = run_campaign(&fixture.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![A, U]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+        assert!(run.mutants[0].report.killing_test_ids.is_empty());
+        assert_eq!(
+            run.mutants[0].certificate_checks,
+            [no_witness_check("ground-fault-tail")]
+        );
+    });
+}
+
+/// A symbolic guard split changes the path partition and the fired rule, not the executions.
+/// The repeated-write oracle's rule-competition difference has no sequence witness.
+#[test]
+fn audit_ei_symbolic_guard_split_is_unknown() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let patch = Patch::new(ei_guard_split(baseline)).expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[1])],
+            "guard-split",
+            &patch,
+        );
+        let plan = PatternPlan::new(
+            &guarded.vocabulary,
+            vec![("A".into(), kore_sort("SortInt"))],
+            vec![PatternArm {
+                atoms: [MatchMode::Bind, MatchMode::Use]
+                    .into_iter()
+                    .map(|mode| Atom {
+                        constructor: "memoryWrite".into(),
+                        payload: vec![PayloadClause {
+                            position: 0,
+                            mode,
+                            variable: "A".into(),
+                        }],
+                    })
+                    .collect(),
+                relations: vec![Relation::EventuallyAfter],
+            }],
+            None,
+        )
+        .expect("plan");
+        let repeated = OracleDeclaration::new(
+            CrashPolicy::CompareIdentity,
+            Projection::Pattern {
+                plan,
+                with_bindings: false,
+            },
+        )
+        .expect("oracle");
+        let oracles = [guarded.tests[1].oracles[0].clone(), repeated];
+        let program = |x: Pattern| {
+            support::initial_state(
+                app(
+                    "seq",
+                    vec![
+                        app("write", vec![addr(support::int(0)), support::int(5)]),
+                        app(
+                            "seq",
+                            vec![
+                                app("write", vec![addr(x.clone()), support::int(6)]),
+                                app(
+                                    "seq",
+                                    vec![
+                                        app("load", vec![addr(x), support::int(7)]),
+                                        app("halt", vec![]),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                "SortProg",
+            )
+        };
+        for (id, initial) in [
+            ("ground-zero", program(support::int(0))),
+            ("sym-x", program(support::var("X", "SortInt"))),
+        ] {
+            let tests = [case(id, initial, &oracles)];
+            let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full);
+            if id == "sym-x" && !cfg!(feature = "z3") {
+                assert_eq!(
+                    run.expect_err("symbolic baseline refused").kind(),
+                    CampaignFailureKind::BaselineOracleFailed
+                );
+            } else {
+                let run = run.expect("baseline admitted");
+                assert_eq!(outcomes(&run), vec![vec![A, U]], "{id}");
+                assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown, "{id}");
+                assert!(run.mutants[0].report.killing_test_ids.is_empty());
+                assert_eq!(run.mutants[0].certificate_checks, [no_witness_check(id)]);
+            }
+        }
+    });
+}
+
+/// A priority-40 unobserved copy shadows the observed write on symbolic and ground addresses.
+/// Both paths are execution-identical, so their pattern differences have no witness.
+#[test]
+fn audit_ei_symbolic_priority_shadowing_is_unknown() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let write = support::rule(baseline, "GUARDEDMEM.write");
+        let mut shadow = unlabelled_copy(baseline, "GUARDEDMEM.write");
+        shadow.attributes_mut().set(
+            AttributeKey::Priority,
+            serde_json::Value::String("40".into()),
+        );
+        let patch = Patch::new(vec![Edit::InsertSentence {
+            position: InsertPosition::After(write),
+            ordinal: 0,
+            sentence: shadow,
+        }])
+        .expect("patch");
+        let generation = fixed(baseline, &[("GUARDEDMEM.write", &[0])], "shadow", &patch);
+        let y = || support::var("Y", "SortInt");
+        let oracles = &guarded.tests[1].oracles;
+        let tests = [
+            case(
+                "sym-same",
+                state(addr(y()), support::int(5), addr(y()), support::int(7)),
+                oracles,
+            ),
+            case(
+                "ground-zero",
+                int_program(0, 5, support::int(0), 7),
+                oracles,
+            ),
+        ];
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full);
+        if cfg!(feature = "z3") {
+            let run = run.expect("Z3 admits symbolic baseline");
+            assert_eq!(outcomes(&run), vec![vec![A, U], vec![A, U]]);
+            assert_eq!(run.mutants[0].report.status, MutantStatus::Unknown);
+            assert!(run.mutants[0].report.killing_test_ids.is_empty());
+            assert_eq!(
+                run.mutants[0].certificate_checks,
+                [
+                    no_witness_check("sym-same"),
+                    no_witness_check("ground-zero")
+                ]
+            );
+        } else {
+            assert_eq!(
+                run.expect_err("symbolic baseline refused").kind(),
+                CampaignFailureKind::BaselineOracleFailed
+            );
+            let ground = run_campaign(
+                &guarded.campaign(&tests[1..]),
+                &generation,
+                ScheduleMode::Full,
+            )
+            .expect("ground baseline admitted");
+            assert_eq!(outcomes(&ground), vec![vec![A, U]]);
+            assert_eq!(ground.mutants[0].report.status, MutantStatus::Unknown);
+            assert!(ground.mutants[0].report.killing_test_ids.is_empty());
+            assert_eq!(
+                ground.mutants[0].certificate_checks,
+                [no_witness_check("ground-zero")]
+            );
+        }
+    });
+}
+
+/// An unobserved bump proves a real execution difference, while the credited pattern slot
+/// sees rule competition. The kill is backed by a per-test certificate, but its slot credit is
+/// not tied to that difference (README 4, EI-D3, EI-T03).
+#[test]
+fn audit_ei_unobserved_difference_is_credited_until_ticket_ei_t03() {
+    with_stack(|| {
+        let guarded = Guarded::new();
+        let baseline = guarded.validator.baseline();
+        let load = support::rule(baseline, "GUARDEDMEM.load");
+        let tests = [
+            case(
+                "ground-zero",
+                int_program(0, 5, support::int(0), 7),
+                &guarded.tests[1].oracles,
+            ),
+            case(
+                "ground-one",
+                int_program(1, 5, support::int(1), 7),
+                &guarded.tests[1].oracles,
+            ),
+        ];
+        let left = term(baseline, "GUARDEDMEM.load", &[0, 0]);
+        let v = term(baseline, "GUARDEDMEM.load", &[0, 0, 0, 1]);
+        let right = ei_substitute(
+            &left,
+            &v,
+            &Term::apply("_+Int_", vec![v.clone(), int_token(1)]),
+        );
+        let mut bump = unlabelled_copy(baseline, "GUARDEDMEM.load");
+        if let k_rust::definition::Sentence::Rule { body, requires, .. } = &mut bump {
+            *body = Term::Rewrite {
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+            *requires = Term::apply("_==Int_", vec![v, int_token(7)]);
+        }
+        bump.attributes_mut().set(
+            AttributeKey::Priority,
+            serde_json::Value::String("40".into()),
+        );
+        let mut edits = ei_guard_split(baseline);
+        edits.push(Edit::InsertSentence {
+            position: InsertPosition::After(load),
+            ordinal: 0,
+            sentence: bump,
+        });
+        let patch = Patch::new(edits).expect("patch");
+        let generation = fixed(
+            baseline,
+            &[("GUARDEDMEM.write", &[1]), ("GUARDEDMEM.load", &[1])],
+            "as5+bump",
+            &patch,
+        );
+        let run = run_campaign(&guarded.campaign(&tests), &generation, ScheduleMode::Full)
+            .expect("campaign");
+        assert_eq!(outcomes(&run), vec![vec![A, D], vec![A, A]]);
+        assert_eq!(run.mutants[0].report.status, MutantStatus::Killed);
+        assert_eq!(run.mutants[0].report.killing_test_ids, ["ground-zero"]);
+        assert_eq!(
+            run.mutants[0].certificate_checks,
+            [proved_length_check("ground-zero")]
+        );
+    });
+}
+
+fn ei_substitute(term: &Term, from: &Term, to: &Term) -> Term {
+    if term == from {
+        return to.clone();
+    }
+    match term {
+        Term::Apply { label, arguments } => Term::Apply {
+            label: label.clone(),
+            arguments: arguments
+                .iter()
+                .map(|argument| ei_substitute(argument, from, to))
+                .collect(),
+        },
+        Term::Annotated { term, metadata } => Term::Annotated {
+            term: Box::new(ei_substitute(term, from, to)),
+            metadata: metadata.clone(),
+        },
+        other => other.clone(),
+    }
 }
