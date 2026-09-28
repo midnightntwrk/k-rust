@@ -124,16 +124,61 @@ impl From<term_json::Error> for Error {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Envelope {
+struct Envelope<T = JsonDefinition> {
     format: String,
     version: u32,
-    term: JsonDefinition,
+    term: T,
 }
 
-pub fn from_str(input: &str) -> Result<Definition, Error> {
+/// A sentence that a KAST JSON version 4 document holds only as a `badsentence` node, which its
+/// writer emits for a sentence the version 4 vocabulary cannot express (a context alias); the
+/// node has no body, so the sentence cannot be recovered from the document.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct OmittedSentence {
+    /// Position of the enclosing module in the decoded `modules` vector. Module names are not
+    /// checked for uniqueness, so this, not [`Self::module`], identifies the module.
+    pub module_index: usize,
+    /// Name of the enclosing module.
+    pub module: String,
+    /// Position of the node in that module's wire `localSentences` array, counting every entry
+    /// including earlier omitted ones; it is not a position in the decoded `local_sentences`.
+    pub index: usize,
+}
+
+/// A KAST JSON version 4 `KFlatModuleList` document: a main module together with other flat
+/// modules, carrying no definition attributes.
+///
+/// The list is not a closed definition. Imports may name modules outside it, and its order
+/// carries no meaning, so compare lists by module name rather than by position.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ModuleList {
+    pub main_module: String,
+    pub modules: Vec<FlatModule>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct JsonModuleList {
+    node: ModuleListNode,
+    #[serde(rename = "mainModule")]
+    main_module: String,
+    term: Vec<JsonFlatModule>,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+enum ModuleListNode {
+    KFlatModuleList,
+}
+
+/// Where `badsentence` nodes go while decoding a KAST JSON version 4 document: rejected, or
+/// skipped with their positions recorded.
+type Omissions<'a> = Option<&'a mut Vec<OmittedSentence>>;
+
+/// Deserialize a KAST JSON version 4 envelope and check its format and version. Definitions are
+/// deeply nested terms, so the recursion limit is lifted as for term documents.
+fn kast_v4_envelope<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, Error> {
     let mut deserializer = serde_json::Deserializer::from_str(input);
     deserializer.disable_recursion_limit();
-    let envelope = Envelope::deserialize(&mut deserializer)?;
+    let envelope = Envelope::<T>::deserialize(&mut deserializer)?;
     deserializer.end()?;
     if envelope.format != term_json::FORMAT {
         return Err(Error::UnsupportedFormat(envelope.format));
@@ -141,18 +186,71 @@ pub fn from_str(input: &str) -> Result<Definition, Error> {
     if envelope.version != term_json::VERSION {
         return Err(Error::UnsupportedVersion(envelope.version));
     }
+    Ok(envelope.term)
+}
 
-    let definition = envelope.term.decode(DefinitionEnvelopeKind::KastV4)?;
-    let main_module_count = definition
-        .modules
+fn check_main_module(main_module: &str, modules: &[FlatModule]) -> Result<(), Error> {
+    match modules
         .iter()
-        .filter(|module| module.name == definition.main_module)
-        .count();
-    match main_module_count {
-        0 => Err(Error::MissingMainModule(definition.main_module)),
-        1 => Ok(definition),
-        _ => Err(Error::DuplicateMainModule(definition.main_module)),
+        .filter(|module| module.name == main_module)
+        .count()
+    {
+        0 => Err(Error::MissingMainModule(main_module.to_owned())),
+        1 => Ok(()),
+        _ => Err(Error::DuplicateMainModule(main_module.to_owned())),
     }
+}
+
+fn read_definition(input: &str, omitted: Omissions<'_>) -> Result<Definition, Error> {
+    let definition = kast_v4_envelope::<JsonDefinition>(input)?
+        .decode(DefinitionEnvelopeKind::KastV4, omitted)?;
+    check_main_module(&definition.main_module, &definition.modules)?;
+    Ok(definition)
+}
+
+/// Decode a KAST JSON version 4 `KDefinition` document.
+///
+/// A `badsentence` node is an [`Error::UnsupportedSentence`]: the definition it belongs to cannot
+/// be reconstructed. [`from_str_omitting_unrepresentable`] reads such documents lossily.
+pub fn from_str(input: &str) -> Result<Definition, Error> {
+    read_definition(input, None)
+}
+
+/// Decode a KAST JSON version 4 `KDefinition` document, skipping `badsentence` nodes and
+/// returning their positions.
+///
+/// When the returned omissions are non-empty, the definition is not the one that was written: it
+/// lacks those sentences. It is suitable for inspecting or comparing the rest of the document,
+/// but must not be compiled or resolved, since other sentences (for example a `strict`
+/// attribute naming a context alias) may depend on what was omitted. Every other node is decoded
+/// exactly as by [`from_str`].
+pub fn from_str_omitting_unrepresentable(
+    input: &str,
+) -> Result<(Definition, Vec<OmittedSentence>), Error> {
+    let mut omitted = Vec::new();
+    let definition = read_definition(input, Some(&mut omitted))?;
+    Ok((definition, omitted))
+}
+
+/// Decode a KAST JSON version 4 `KFlatModuleList` document, such as a specification module with
+/// the modules it needs beyond a definition. `mainModule` must name exactly one listed module.
+///
+/// A `badsentence` node is an [`Error::UnsupportedSentence`], as in [`from_str`]. There is no
+/// lossy variant: the only sentence without a version 4 form is a context alias, which extends
+/// the semantics a claim is proved against, so a list of claim modules has none to omit.
+pub fn module_list_from_str(input: &str) -> Result<ModuleList, Error> {
+    let list = kast_v4_envelope::<JsonModuleList>(input)?;
+    let modules = list
+        .term
+        .into_iter()
+        .enumerate()
+        .map(|(index, module)| module.decode(DefinitionEnvelopeKind::KastV4, index, None))
+        .collect::<Result<Vec<_>, _>>()?;
+    check_main_module(&list.main_module, &modules)?;
+    Ok(ModuleList {
+        main_module: list.main_module,
+        modules,
+    })
 }
 
 pub fn to_string(definition: &Definition) -> Result<String, Error> {
@@ -424,7 +522,9 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
         }
     }
     let origin_sets = decode_origin_sets(envelope.origin_sets, &source_table)?;
-    let mut definition = envelope.term.decode(DefinitionEnvelopeKind::Provenance)?;
+    let mut definition = envelope
+        .term
+        .decode(DefinitionEnvelopeKind::Provenance, None)?;
     map_definition_attributes(&mut definition, |attributes| {
         decode_attribute_sources(attributes, &source_table, &origin_sets)
     })?;
@@ -446,24 +546,11 @@ pub fn from_provenance_str(input: &str) -> Result<ProvenanceDefinition, Error> {
         let taken = std::mem::replace(term, Term::Sequence(Vec::new()));
         *term = taken.with_metadata(metadata);
     }
-    validate_main_module(&definition)?;
+    check_main_module(&definition.main_module, &definition.modules)?;
     Ok(ProvenanceDefinition {
         definition,
         source_table,
     })
-}
-
-fn validate_main_module(definition: &Definition) -> Result<(), Error> {
-    match definition
-        .modules
-        .iter()
-        .filter(|module| module.name == definition.main_module)
-        .count()
-    {
-        0 => Err(Error::MissingMainModule(definition.main_module.clone())),
-        1 => Ok(()),
-        _ => Err(Error::DuplicateMainModule(definition.main_module.clone())),
-    }
 }
 
 fn map_definition_attributes(
@@ -1208,14 +1295,19 @@ impl JsonDefinition {
             att: attributes(&definition.attributes)?,
         })
     }
-    fn decode(self, kind: DefinitionEnvelopeKind) -> Result<Definition, Error> {
+    fn decode(
+        self,
+        kind: DefinitionEnvelopeKind,
+        mut omitted: Omissions<'_>,
+    ) -> Result<Definition, Error> {
         let definition = self;
         Ok(Definition {
             main_module: definition.main_module,
             modules: definition
                 .modules
                 .into_iter()
-                .map(|module| module.decode(kind))
+                .enumerate()
+                .map(|(index, module)| module.decode(kind, index, omitted.as_deref_mut()))
                 .collect::<Result<_, _>>()?,
             attributes: definition.att.into(),
         })
@@ -1255,16 +1347,33 @@ impl JsonFlatModule {
             att: attributes(&module.attributes)?,
         })
     }
-    fn decode(self, kind: DefinitionEnvelopeKind) -> Result<FlatModule, Error> {
+    /// Decode the module at `module_index` of its document. With `omitted`, a KAST v4
+    /// `badsentence` is skipped and its wire position recorded instead of being an error.
+    fn decode(
+        self,
+        kind: DefinitionEnvelopeKind,
+        module_index: usize,
+        mut omitted: Omissions<'_>,
+    ) -> Result<FlatModule, Error> {
         let module = self;
+        let mut local_sentences = Vec::with_capacity(module.local_sentences.len());
+        for (index, sentence) in module.local_sentences.into_iter().enumerate() {
+            if let (JsonSentence::KBadsentence, DefinitionEnvelopeKind::KastV4, Some(omitted)) =
+                (&sentence, kind, omitted.as_deref_mut())
+            {
+                omitted.push(OmittedSentence {
+                    module_index,
+                    module: module.name.clone(),
+                    index,
+                });
+                continue;
+            }
+            local_sentences.push(Arc::new(sentence.decode(kind)?));
+        }
         Ok(FlatModule {
             name: module.name,
             imports: module.imports.into_iter().map(Into::into).collect(),
-            local_sentences: module
-                .local_sentences
-                .into_iter()
-                .map(|sentence| sentence.decode(kind).map(Arc::new))
-                .collect::<Result<_, _>>()?,
+            local_sentences,
             attributes: module.att.into(),
         })
     }

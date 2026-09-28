@@ -828,3 +828,179 @@ fn provenance_decoder_rejects_malformed_wire_forms() {
         Err(json::Error::InvalidProvenance(_))
     ));
 }
+
+#[test]
+fn omitting_reader_skips_badsentence_and_reports_its_wire_position() {
+    let rule = Sentence::Rule {
+        body: bool_token("true"),
+        requires: bool_token("true"),
+        ensures: bool_token("true"),
+        attributes: empty_attributes(),
+    };
+    let alias = Sentence::ContextAlias {
+        body: Term::variable("X"),
+        requires: bool_token("true"),
+        attributes: empty_attributes(),
+    };
+    let mut written = complete_definition(vec![rule.clone(), alias.clone(), alias, rule.clone()]);
+    written.modules.insert(
+        0,
+        FlatModule {
+            name: "PRELUDE".into(),
+            imports: Vec::new(),
+            local_sentences: Vec::new(),
+            attributes: empty_attributes(),
+        },
+    );
+    let encoded = json::to_string(&written).unwrap();
+
+    assert!(matches!(
+        json::from_str(&encoded),
+        Err(json::Error::UnsupportedSentence("badsentence"))
+    ));
+
+    let (decoded, omitted) = json::from_str_omitting_unrepresentable(&encoded).unwrap();
+    let mut expected = written.clone();
+    expected.modules[1].local_sentences = vec![Arc::new(rule.clone()), Arc::new(rule)];
+    assert_eq!(decoded, expected);
+    let omission = |index| json::OmittedSentence {
+        module_index: 1,
+        module: "MAIN".into(),
+        index,
+    };
+    assert_eq!(omitted, vec![omission(1), omission(2)]);
+
+    // Without badsentence nodes the lossy reader is the strict one with nothing omitted.
+    let (decoded, omitted) = json::from_str_omitting_unrepresentable(
+        &json::to_string(&complete_definition(Vec::new())).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(decoded, complete_definition(Vec::new()));
+    assert!(omitted.is_empty());
+}
+
+fn module_list_document(main_module: &str, modules: Vec<Value>) -> String {
+    value!({
+        "format": "KAST",
+        "version": 4,
+        "term": {
+            "node": "KFlatModuleList",
+            "mainModule": main_module,
+            "term": modules,
+        },
+    })
+    .to_string()
+}
+
+fn wire_module(name: &str, imports: &[&str], sentences: Vec<Value>) -> Value {
+    value!({
+        "node": "KFlatModule",
+        "name": name,
+        "imports": imports
+            .iter()
+            .map(|name| value!({"node": "KImport", "name": name, "isPublic": true}))
+            .collect::<Vec<_>>(),
+        "localSentences": sentences,
+        "att": {"node": "KAtt", "att": {}},
+    })
+}
+
+#[test]
+fn module_list_reader_decodes_specification_modules() {
+    let token = |token: &str| value!({"node": "KToken", "token": token, "sort": {"node": "KSort", "name": "Bool", "params": []}});
+    let claim = value!({
+        "node": "KClaim",
+        "body": token("true"),
+        "requires": token("true"),
+        "ensures": token("true"),
+        "att": {"node": "KAtt", "att": {"label": "SPEC.one"}},
+    });
+    let document = module_list_document(
+        "SPEC",
+        vec![
+            wire_module("VERIFICATION", &["IMP"], Vec::new()),
+            wire_module("SPEC", &["VERIFICATION"], vec![claim]),
+        ],
+    );
+
+    let list = json::module_list_from_str(&document).unwrap();
+    assert_eq!(list.main_module, "SPEC");
+    assert_eq!(list.modules.len(), 2);
+    // `IMP` lies outside the list; the reader keeps the import as written.
+    assert_eq!(list.modules[0].imports[0].name, "IMP");
+    let spec = &list.modules[1];
+    assert_eq!(spec.name, "SPEC");
+    assert_eq!(spec.local_sentences.len(), 1);
+    assert!(matches!(&*spec.local_sentences[0], Sentence::Claim { .. }));
+
+    let bad = module_list_document(
+        "SPEC",
+        vec![wire_module(
+            "SPEC",
+            &[],
+            vec![value!({"node": "badsentence"})],
+        )],
+    );
+    assert!(matches!(
+        json::module_list_from_str(&bad),
+        Err(json::Error::UnsupportedSentence("badsentence"))
+    ));
+}
+#[test]
+fn module_list_reader_rejects_bad_main_modules_and_other_nodes() {
+    let missing = module_list_document("SPEC", vec![wire_module("OTHER", &[], Vec::new())]);
+    assert!(matches!(
+        json::module_list_from_str(&missing),
+        Err(json::Error::MissingMainModule(name)) if name == "SPEC"
+    ));
+    let duplicate = module_list_document(
+        "SPEC",
+        vec![
+            wire_module("SPEC", &[], Vec::new()),
+            wire_module("SPEC", &[], Vec::new()),
+        ],
+    );
+    assert!(matches!(
+        json::module_list_from_str(&duplicate),
+        Err(json::Error::DuplicateMainModule(name)) if name == "SPEC"
+    ));
+
+    // A definition is not a module list, nor the reverse.
+    let definition = json::to_string(&complete_definition(Vec::new())).unwrap();
+    assert!(matches!(
+        json::module_list_from_str(&definition),
+        Err(json::Error::Json(_))
+    ));
+    let list = module_list_document("SPEC", vec![wire_module("SPEC", &[], Vec::new())]);
+    assert!(matches!(json::from_str(&list), Err(json::Error::Json(_))));
+    assert!(matches!(
+        json::from_str_omitting_unrepresentable(&list),
+        Err(json::Error::Json(_))
+    ));
+
+    let mut wrong_version: Value = serde_json::from_str(&list).unwrap();
+    wrong_version["version"] = value!(3);
+    assert!(matches!(
+        json::module_list_from_str(&wrong_version.to_string()),
+        Err(json::Error::UnsupportedVersion(3))
+    ));
+
+    // KContextAlias is not KAST v4 vocabulary, whichever reader meets it.
+    let alias = module_list_document(
+        "SPEC",
+        vec![wire_module(
+            "SPEC",
+            &[],
+            vec![value!({
+                "node": "KContextAlias",
+                "body": {"node": "KVariable", "name": "X"},
+                "requires": {"node": "KToken", "token": "true", "sort": {"node": "KSort", "name": "Bool", "params": []}},
+                "att": {"node": "KAtt", "att": {}},
+            })],
+        )],
+    );
+    assert!(matches!(
+        json::module_list_from_str(&alias),
+        Err(json::Error::UnsupportedSentence("KContextAlias"))
+    ));
+}

@@ -1050,8 +1050,23 @@ fn parsed_definition_matches_the_reference_frontend() {
     let actual_path = env::var("K_RUST_DEFINITION").expect("K_RUST_DEFINITION is required");
     let reference_source = fs::read_to_string(reference_path).unwrap();
     let actual_source = fs::read_to_string(actual_path).unwrap();
-    definition_json::from_str(&reference_source).unwrap();
-    definition_json::from_str(&actual_source).unwrap();
+    // A context alias has no KAST v4 form, so both writers leave a bodiless `badsentence` in its
+    // place. Normalization reorders and deduplicates sentences, so compare how many each module
+    // lost rather than their positions.
+    let omitted_per_module = |source: &str| {
+        let (_, omitted) = definition_json::from_str_omitting_unrepresentable(source).unwrap();
+        omitted
+            .into_iter()
+            .fold(BTreeMap::<String, usize>::new(), |mut counts, omitted| {
+                *counts.entry(omitted.module).or_default() += 1;
+                counts
+            })
+    };
+    assert_eq!(
+        omitted_per_module(&actual_source),
+        omitted_per_module(&reference_source),
+        "modules differ in how many sentences have no KAST v4 form"
+    );
     let mut reference: serde_json::Value = serde_json::from_str(&reference_source).unwrap();
     let mut actual: serde_json::Value = serde_json::from_str(&actual_source).unwrap();
     normalize_definition_json(&mut reference);

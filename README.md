@@ -213,6 +213,11 @@ for bare claims and writes, alongside the KORE files, `parsed.json`, the parsed 
 that file and records source identities. Later specifications reuse the parsed AST from
 `parsed.provenance.json`, which keeps every sentence (KAST JSON has no context-alias node) and the
 source table of its spans; `parsed.json` is the KAST interchange artifact and is not read back.
+Library consumers read it with `k_rust::definition::json::from_str`, which rejects the bodiless
+`badsentence` a context alias leaves there; `from_str_omitting_unrepresentable` instead returns
+the rest of the definition with the wire position of each omitted sentence, for inspection only.
+`module_list_from_str` reads a KAST JSON `KFlatModuleList`, such as a claim module and the
+modules it adds to a definition.
 A bundle whose manifest names no such file was prepared by an older `krust` and is rejected.
 Keep the bundle together and rebuild it when its semantics change; source freshness is not
 automatically checked. Source identities currently refer to their original absolute locations.
